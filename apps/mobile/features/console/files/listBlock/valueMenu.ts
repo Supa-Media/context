@@ -75,12 +75,17 @@ export class ValueMenu {
     current: string | null,
     choices: readonly string[],
     private readonly host: ValueMenuHost,
-    owners?: { readonly search: OwnerSearch; readonly prefer: readonly string[] },
+    owners?: {
+      readonly search: OwnerSearch;
+      readonly prefer: readonly string[];
+      /** Who this note names as its owner; asked once, when the search says `suggests`. */
+      readonly suggest?: (prefer: readonly string[]) => Promise<string | null>;
+    },
   ) {
     this.dom.setAttribute("role", "menu");
     this.dom.setAttribute("aria-label", `Change ${key}`);
     if (owners !== undefined) {
-      this.ownerPicker(current ?? "", owners.search, current === null ? owners.prefer : [current, ...owners.prefer]);
+      this.ownerPicker(current ?? "", owners.search, current === null ? owners.prefer : [current, ...owners.prefer], owners.suggest);
       return;
     }
     const list = el("div", "cm-lp-list-menu-items");
@@ -117,7 +122,12 @@ export class ValueMenu {
   }
 
   /** People and agents, searched as typed; nowhere to type a new owner. */
-  private ownerPicker(current: string, search: OwnerSearch, prefer: readonly string[]): void {
+  private ownerPicker(
+    current: string,
+    search: OwnerSearch,
+    prefer: readonly string[],
+    suggest?: (prefer: readonly string[]) => Promise<string | null>,
+  ): void {
     const input = el("input", "cm-lp-list-menu-search");
     input.type = "text";
     input.placeholder = "Search people and agents";
@@ -126,11 +136,13 @@ export class ValueMenu {
     input.setAttribute("aria-label", "Search people and agents");
     const list = el("div", "cm-lp-list-menu-items");
     let results: OwnerResults | null = null;
+    let suggested: string | null = null;
+    let suggesting = false;
     let ticket = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const draw = () => {
       list.replaceChildren();
-      for (const row of ownerRows(input.value, current, results)) {
+      for (const row of ownerRows(input.value, current, results, suggested)) {
         if (row.kind === "heading") {
           list.append(el("div", "cm-lp-list-menu-head", row.label));
           continue;
@@ -149,6 +161,15 @@ export class ValueMenu {
           if (mine !== ticket) return;
           results = found;
           draw();
+          if (found.suggests === true && suggest !== undefined && !suggesting) {
+            suggesting = true;
+            suggest(prefer)
+              .then((named) => {
+                suggested = named;
+                if (named !== null && this.dom.isConnected) draw();
+              })
+              .catch(() => {});
+          }
         })
         .catch(() => {
           if (mine === ticket) this.problem.textContent = "Couldn’t search just now. Try again in a moment.";

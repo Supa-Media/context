@@ -51,7 +51,12 @@ export interface PropertyValueProps {
   /** "Edit statuses…" at the foot of a sectioned menu; null or absent to leave it out. */
   onEditList?: (() => void) | null;
   /** Pick from people and agents instead of the menu; `prefer` is the folder's owners, most used first. */
-  owners?: { readonly search: OwnerSearch; readonly prefer: readonly string[] };
+  owners?: {
+    readonly search: OwnerSearch;
+    readonly prefer: readonly string[];
+    /** Who this note names as its owner; asked only when the search says `suggests`. */
+    readonly suggest?: (prefer: readonly string[]) => Promise<string | null>;
+  };
   variant?: TextVariant;
   /**
    * Drawn invisible until something asks for it — a row under the pointer —
@@ -210,6 +215,7 @@ export function PropertyValue({
           current={value}
           search={owners.search}
           prefer={owners.prefer}
+          {...(owners.suggest === undefined ? {} : { suggest: owners.suggest })}
           anchor={menu}
           savesTo={savesTo}
           onChoose={onChoose}

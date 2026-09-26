@@ -43,6 +43,12 @@ Jev except through lib/jev". It scans the control plane for the route and the
 model name. `infra/transcribe-worker/src/decide.test.ts` proves no text
 reaches the Worker's logs or error bodies.
 
+**Owner suggestion** (the `ownerSuggest` feature, 2026-09-26) is the second
+feature: when an editor opens an owner picker on a note, that one note's text
+is sent with the names the picker would offer anyway, and Jev picks one or
+"none of these". Nothing of it is stored; the answer is shown, and written
+only if the editor picks it ([folder lists](../folder-lists.md)).
+
 Encrypted notes never reach it. The control plane holds no key, and a sweep
 skips anything it reads as ciphertext. A note with `organize: off` in its
 frontmatter is skipped too.

@@ -20,6 +20,14 @@
  * replaced. It is passed to the search as a preferred word, so a hand-typed
  * `Seyi` puts the member called `Seyi Olujide` at the top of the list — the
  * replacement is one press.
+ *
+ * ## The suggested owner
+ *
+ * On Premium the server can also say who the note itself names
+ * (`owners.suggestOwner`, which asks Jev). The search's `suggests` says
+ * whether to ask, so nothing is asked where the answer is always "no". The
+ * answer is one of the same people and agents, shown above them under
+ * "Suggested" and not repeated below; nothing is written until it is picked.
  */
 
 /** What an owner line says when any connected agent may pick the work up. */
@@ -37,10 +45,15 @@ export interface OwnerResults {
   readonly agents: readonly string[];
   /** The workspace is larger than one search reads; a narrower query finds the rest. */
   readonly truncated: boolean;
+  /** Whether a suggested owner may be asked for here (Premium); absent means no. */
+  readonly suggests?: boolean;
 }
 
 /** Ask for the owners matching `query`, with the folder's own owners as `prefer`. */
 export type OwnerSearch = (query: string, prefer: readonly string[]) => Promise<OwnerResults>;
+
+/** Ask who the note at `path` names, among the owners `prefer` leads; null for nobody. */
+export type OwnerSuggest = (path: string, prefer: readonly string[]) => Promise<string | null>;
 
 export type OwnerRow =
   | { readonly kind: "heading"; readonly label: string }
@@ -83,18 +96,27 @@ export function isKnownOwner(value: string, results: OwnerResults): boolean {
 }
 
 /**
- * The picker's rows: the current owner if nobody below is them, then People,
- * then Agents (with "Any agent" last among them), then "No owner" when there
- * is one to clear. "Any agent" and the agents are filtered by the same query.
+ * The picker's rows: the current owner if nobody below is them, then the
+ * suggested owner (before anything is typed, and unless it is already the
+ * owner), then People, then Agents (with "Any agent" last among them), then
+ * "No owner" when there is one to clear. "Any agent" and the agents are
+ * filtered by the same query.
  */
-export function ownerRows(query: string, current: string, results: OwnerResults | null): OwnerRow[] {
+export function ownerRows(query: string, current: string, results: OwnerResults | null, suggested: string | null = null): OwnerRow[] {
   const rows: OwnerRow[] = [];
   const q = query.trim().toLowerCase();
-  const people = results?.people ?? [];
-  const agents = results?.agents ?? [];
-  const anyAgent = ANY_AGENT.includes(q);
+  const lead = q === "" && results !== null && suggested !== null && !same(suggested, current) ? suggested : null;
+  const people = (results?.people ?? []).filter((person) => lead === null || !same(person.value, lead));
+  const agents = (results?.agents ?? []).filter((agent) => lead === null || !same(agent, lead));
+  const anyAgent = ANY_AGENT.includes(q) && (lead === null || !same(lead, ANY_AGENT));
   if (current !== "" && results !== null && !isKnownOwner(current, results) && (q === "" || current.toLowerCase().includes(q))) {
     rows.push({ kind: "choice", value: current, label: current, detail: "Not a member", checked: true });
+  }
+  if (lead !== null) {
+    const me = results?.people.find((person) => same(person.value, lead))?.isMe === true;
+    const label = same(lead, ANY_AGENT) ? "Any agent" : me ? `${lead} (you)` : lead;
+    rows.push({ kind: "heading", label: "Suggested" });
+    rows.push({ kind: "choice", value: lead, label, detail: "Named in the note", checked: false });
   }
   if (people.length > 0) {
     rows.push({ kind: "heading", label: "People" });

@@ -17,7 +17,7 @@ import { listHost, type ListHostContext, type ListNote } from "../features/conso
 import { valueChoices } from "../features/console/files/listBlock/valueMenu";
 import { writeNoteProperty, type NoteReadWrite } from "../features/console/files/listBlock/writeProperty";
 import { livePreview, markdownLanguage } from "../features/console/files/livePreview";
-import type { OwnerSearch } from "../features/console/files/owners";
+import type { OwnerSearch, OwnerSuggest } from "../features/console/files/owners";
 
 const NOTES: ListNote[] = [
   { path: "p/web.md", updatedAt: 3, properties: { status: "active", owner: "Seyi" } },
@@ -37,11 +37,12 @@ type Call = [path: string, key: string, value: string | null];
 
 function mount(
   text: string,
-  options: { writes?: Call[]; answer?: string | null; canWrite?: boolean; searchOwners?: OwnerSearch } = {},
+  options: { writes?: Call[]; answer?: string | null; canWrite?: boolean; searchOwners?: OwnerSearch; suggestOwner?: OwnerSuggest } = {},
 ): EditorView {
-  const { writes = [], answer = null, canWrite = true, searchOwners } = options;
+  const { writes = [], answer = null, canWrite = true, searchOwners, suggestOwner } = options;
   const host: ListHostContext = {
     ...(searchOwners === undefined ? {} : { searchOwners }),
+    ...(suggestOwner === undefined ? {} : { suggestOwner }),
     load: async () => ({ notes: NOTES, complete: true }),
     open: () => undefined,
     selfPath: "p/README.md",
@@ -179,6 +180,36 @@ describe("changing a value from a list", () => {
       ["p/old.md", "owner", "Seyi Olujide"],
       ["p/web.md", "owner", null],
     ]);
+    view.destroy();
+  });
+
+  test("on Premium the owner the note names leads, and picking it writes it", async () => {
+    const writes: Call[] = [];
+    const about: string[] = [];
+    const searchOwners: OwnerSearch = async () => ({
+      people: ["Sayo", "Seyi Olujide"].map((value) => ({ value, isMe: false })),
+      agents: [],
+      truncated: false,
+      suggests: true,
+    });
+    const suggestOwner: OwnerSuggest = async (path) => {
+      about.push(path);
+      return "Seyi Olujide";
+    };
+    const view = mount(doc("from: p", "show: owner"), { writes, searchOwners, suggestOwner });
+    await flush();
+    edits(view)[2].click();
+    await flush();
+    await flush();
+    expect(about).toEqual(["p/old.md"]);
+    expect(items(view).map((text) => text?.replace(/[\u2066-\u2069]/g, ""))).toEqual([
+      "Seyi Olujide · Named in the note",
+      "Sayo",
+      "Any agent · Whichever picks it up",
+    ]);
+    view.dom.querySelector<HTMLElement>(".cm-lp-list-menu-owner")!.click();
+    await flush();
+    expect(writes).toEqual([["p/old.md", "owner", "Seyi Olujide"]]);
     view.destroy();
   });
 

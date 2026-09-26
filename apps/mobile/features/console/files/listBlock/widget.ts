@@ -346,9 +346,14 @@ export class ListView {
     this.closeMenu(false);
     if (again) return;
     // An owner is picked from people and agents, never typed; with no server to ask, from the owners in use.
+    const suggestOwner = this.host?.current?.suggestOwner;
     const owners =
       key === "owner"
-        ? { search: this.host?.current?.searchOwners ?? localOwnerSearch(valueChoices(this.notes, key)), prefer: ownersInUse(this.notes) }
+        ? {
+            search: this.host?.current?.searchOwners ?? localOwnerSearch(valueChoices(this.notes, key)),
+            prefer: ownersInUse(this.notes),
+            ...(suggestOwner === undefined ? {} : { suggest: (prefer: readonly string[]) => suggestOwner(path, prefer) }),
+          }
         : undefined;
     const menu = new ValueMenu(
       key,

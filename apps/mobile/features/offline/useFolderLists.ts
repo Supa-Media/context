@@ -70,6 +70,8 @@ export function useFolderLists(
       ...source,
       searchOwners: (query: string, prefer: readonly string[]) =>
         convex.query(api.functions.owners.searchOwners, { workspaceId: id, query, prefer: [...prefer] }),
+      suggestOwner: async (path: string, prefer: readonly string[]) =>
+        (await convex.action(api.functions.owners.suggestOwner, { workspaceId: id, path, prefer: [...prefer] }))?.value ?? null,
     };
   }, [workspaceId, tier, canEdit, readNote, writeNote, convex]);
 }

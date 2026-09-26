@@ -8,6 +8,10 @@
  * best few come back. Before anything is typed it offers the owners this
  * folder already uses, then the reader, then everybody else.
  *
+ * On Premium it also asks, once, who the note names (`suggest`), and shows
+ * the answer above everybody else under "Suggested". Only when the search
+ * said `suggests`: elsewhere the answer is always nobody, so nobody is asked.
+ *
  * A popover under the value with room for one, a sheet from the bottom on a
  * phone — the rule `Menu` uses, and for the same reason: the room decides,
  * not the device. Arrows move, Enter chooses, Escape closes.
@@ -33,6 +37,7 @@ export function OwnerPicker({
   current,
   search,
   prefer,
+  suggest,
   anchor,
   savesTo,
   onChoose,
@@ -42,6 +47,8 @@ export function OwnerPicker({
   search: OwnerSearch;
   /** The owners this folder already uses, most used first. */
   prefer: readonly string[];
+  /** Who this note names as its owner, or null; see `owners.ts`. */
+  suggest?: (prefer: readonly string[]) => Promise<string | null>;
   anchor: { x: number; y: number } | null;
   savesTo: string | null;
   onChoose: (value: string | null) => void;
@@ -55,6 +62,8 @@ export function OwnerPicker({
   const [failed, setFailed] = useState(false);
   const [focus, setFocus] = useState(0);
   const asked = useRef(0);
+  const [suggested, setSuggested] = useState<string | null>(null);
+  const suggesting = useRef(false);
   // The current owner is always preferred, so a hand-typed first name finds its member.
   const preferred = useMemo(() => (current === "" ? prefer : [current, ...prefer]), [current, prefer]);
 
@@ -78,7 +87,30 @@ export function OwnerPicker({
     return () => clearTimeout(timer);
   }, [search, query, preferred]);
 
-  const rows = ownerRows(query, current, results);
+  // Asked once, after a search says it is worth asking; a failure is no suggestion.
+  const offered = results?.suggests === true;
+  // The latest `suggest`, read when asking: its caller may rebuild it each render.
+  const suggestNow = useRef(suggest);
+  suggestNow.current = suggest;
+  const open = useRef(true);
+  useEffect(
+    () => () => {
+      open.current = false;
+    },
+    [],
+  );
+  useEffect(() => {
+    const ask = suggestNow.current;
+    if (!offered || ask === undefined || suggesting.current) return;
+    suggesting.current = true;
+    ask(preferred)
+      .then((found) => {
+        if (open.current) setSuggested(found);
+      })
+      .catch(() => {});
+  }, [offered, preferred]);
+
+  const rows = ownerRows(query, current, results, suggested);
   const choices = rows.flatMap((row, index) => (row.kind === "choice" ? [index] : []));
   const choose = (row: OwnerRow | undefined) => {
     if (row === undefined || row.kind !== "choice") return;

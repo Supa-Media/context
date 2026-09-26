@@ -81,7 +81,7 @@ type Write = [path: string, key: string, value: string | null];
 type Asked = [query: string, prefer: readonly string[]];
 
 /** A server that answers like `owners.searchOwners`: members matching, and one agent. */
-function server(asked: Asked[]) {
+function server(asked: Asked[], suggests = false) {
   return async (query: string, prefer: readonly string[]): Promise<OwnerResults> => {
     asked.push([query, prefer]);
     const q = query.toLowerCase();
@@ -92,11 +92,23 @@ function server(asked: Asked[]) {
     const people = MEMBERS.filter((name) => name.toLowerCase().includes(q))
       .sort((a, b) => preferred(a) - preferred(b) || a.localeCompare(b))
       .map((value) => ({ value, isMe: value === "Sayo" }));
-    return { people, agents: "claude".includes(q) ? ["Claude"] : [], truncated: false };
+    return { people, agents: "claude".includes(q) ? ["Claude"] : [], truncated: false, suggests };
   };
 }
 
-function host(writes: Write[], asked: Asked[] | null): FolderPageHost {
+/** `owners.suggestOwner`: who each note names, and every note it was asked about. */
+function suggester(named: Record<string, string | null>, askedAbout: string[]) {
+  return async (path: string) => {
+    askedAbout.push(path);
+    return named[path] ?? null;
+  };
+}
+
+function host(
+  writes: Write[],
+  asked: Asked[] | null,
+  suggestion?: { suggests: boolean; named: Record<string, string | null>; askedAbout: string[] },
+): FolderPageHost {
   return {
     workspaceId: "ws_test",
     people: ["Demo Person"],
@@ -106,7 +118,8 @@ function host(writes: Write[], asked: Asked[] | null): FolderPageHost {
         writes.push([path, key, value]);
         return null;
       },
-      ...(asked === null ? {} : { searchOwners: server(asked) }),
+      ...(asked === null ? {} : { searchOwners: server(asked, suggestion?.suggests ?? false) }),
+      ...(suggestion === undefined ? {} : { suggestOwner: suggester(suggestion.named, suggestion.askedAbout) }),
     },
   };
 }
@@ -233,6 +246,43 @@ describe("the owner picker on a folder's List", () => {
     await press(ownerOf("loose"));
     await settle();
     expect(options()).toEqual(["Demo Person", "Any agentWhichever picks it up"]);
+  });
+});
+
+describe("the suggested owner", () => {
+  test("leads the picker, named in the note, and is not offered twice", async () => {
+    const writes: Write[] = [];
+    const askedAbout: string[] = [];
+    const named = { "1-projects/loose.md": "John Adé" };
+    await mount(entry("folder", "1-projects"), PROJECTS, host(writes, [], { suggests: true, named, askedAbout }));
+    await press(ownerOf("loose"));
+    await settle();
+    await act(async () => {});
+    expect(askedAbout).toEqual(["1-projects/loose.md"]);
+    expect(options()).toEqual(["John AdéNamed in the note", "Seyi Olujide", "Sayo (you)", "Claude", "Any agentWhichever picks it up"]);
+    expect(strip(one("owner-picker").textContent)).toContain("Suggested");
+    await press(all("owner-picker-option")[0]);
+    expect(writes).toEqual([["1-projects/loose.md", "owner", "John Adé"]]);
+  });
+
+  test("is not asked for where the search says it is not offered", async () => {
+    const askedAbout: string[] = [];
+    await mount(entry("folder", "1-projects"), PROJECTS, host([], [], { suggests: false, named: { "1-projects/loose.md": "John Adé" }, askedAbout }));
+    await press(ownerOf("loose"));
+    await settle();
+    expect(askedAbout).toEqual([]);
+    expect(strip(one("owner-picker").textContent)).not.toContain("Suggested");
+  });
+
+  test("goes once something is typed, and is not suggested when it is already the owner", () => {
+    const results: OwnerResults = { people: [{ value: "Sayo", isMe: true }, { value: "Bola", isMe: false }], agents: [], truncated: false };
+    expect(ownerRows("", "", results, "Sayo").slice(0, 2)).toEqual([
+      { kind: "heading", label: "Suggested" },
+      { kind: "choice", value: "Sayo", label: "Sayo (you)", detail: "Named in the note", checked: false },
+    ]);
+    expect(ownerRows("b", "", results, "Sayo").some((row) => row.kind === "heading" && row.label === "Suggested")).toBe(false);
+    expect(ownerRows("", "sayo", results, "Sayo").some((row) => row.kind === "heading" && row.label === "Suggested")).toBe(false);
+    expect(ownerRows("", "", results, ANY_AGENT).filter((row) => row.kind === "choice" && row.value === ANY_AGENT)).toHaveLength(1);
   });
 });
 

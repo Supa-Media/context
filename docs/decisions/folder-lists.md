@@ -289,9 +289,18 @@ note. There is no field for a new owner anywhere.
   a to z. A folder word that is somebody's first name counts as them, so a
   hand-typed `Seyi` offers the member `Seyi Olujide` first. With something
   typed: whole name, start of the name, start of any word, start of the
-  address, anywhere — accents and case ignored. "Jev smarts" was asked for and
-  nothing by that name exists in the repository or the owner's notes; this
-  ranking is the stand-in until it is named.
+  address, anywhere — accents and case ignored.
+- **On Premium, the picker leads with who the note names.** Under
+  "Suggested", above everybody else and not repeated below, is the owner Jev
+  picked from the note being assigned (`owners.suggestOwner`, the
+  `ownerSuggest` feature in `lib/jev/`). Jev chooses among the same people
+  and agents the search offers with nothing typed, plus "any agent" and an
+  explicit "none of these", which is no suggestion; confidence is not
+  thresholded, because the way out is how Jev says it does not know. It
+  reads that one note at the asker's own clearance, only an editor may ask,
+  a locked note or one with `organize: off` is never sent, and nothing is
+  written until the suggestion is picked. The search says whether to ask
+  (`suggests`), so a workspace without it makes no call at all.
 - **Agent names come only from grants the reader could already list.**
   `grants.listGrants` shows an owner every grant and anybody else only their
   own, because a colleague's tooling is theirs to disclose; the picker keeps
@@ -312,3 +321,6 @@ offered, if more than the limit comes back, or if an editor is shown a
 colleague's agent; `apps/mobile/__tests__/ownerPicker.test.ts` fails if the
 picker offers a way to type an owner, stops asking the server, or drops a
 hand-typed owner; `listEdit.test.ts` pins the same in a list block.
+`apps/convex/__tests__/ownerSuggest.test.ts` fails if a locked, opted-out or
+unseen note reaches Jev, if an answer that is not a candidate is suggested, if
+a member who cannot write asks, or if the suggestion runs without Premium.

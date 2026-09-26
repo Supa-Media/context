@@ -30,7 +30,7 @@ import {
 } from "../../../../../mcp/src/lists.js";
 import { revealSelection } from "../livePreview/engagement";
 import { selectionTouches } from "../livePreview/reveal";
-import type { OwnerSearch } from "../owners";
+import type { OwnerSearch, OwnerSuggest } from "../owners";
 
 export { LIST_FENCE_LANG };
 
@@ -147,6 +147,11 @@ export interface FolderListSource {
    * may write, and where there is no server to ask.
    */
   searchOwners?: OwnerSearch;
+  /**
+   * Who a note names as its owner, among those the search offers
+   * (`owners.suggestOwner`). Asked only when a search said `suggests`.
+   */
+  suggestOwner?: OwnerSuggest;
 }
 
 /** What the notes for one list came back as. */
@@ -176,6 +181,8 @@ export interface ListHostContext {
   setProperty?(path: string, key: string, value: string | null): Promise<string | null>;
   /** See `FolderListSource.searchOwners`. */
   searchOwners?: OwnerSearch;
+  /** See `FolderListSource.suggestOwner`. */
+  suggestOwner?: OwnerSuggest;
   /** The note holding the block, which is never listed. */
   readonly selfPath: string | null;
 }

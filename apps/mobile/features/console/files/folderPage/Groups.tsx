@@ -24,7 +24,7 @@ import { ChooseGroup } from "./ChooseGroup";
 import { PropertyValue } from "./PropertyValue";
 import type { StatusBand } from "./statuses";
 import { StatusPill, toneColor } from "./StatusPill";
-import { isStale, textOf, type ItemActions } from "./items";
+import { isStale, ownerChoiceFor, textOf, type ItemActions } from "./items";
 
 export function FolderGroups({
   bands,
@@ -123,7 +123,7 @@ function GroupRow({ item, compact, now, actions }: { item: FolderItem; compact: 
       property="owner"
       value={owner}
       choices={actions.choices("owner")}
-      {...(actions.owners === undefined ? {} : { owners: actions.owners })}
+      {...(actions.owners === undefined ? {} : { owners: ownerChoiceFor(actions.owners, item.creates ? null : item.target) })}
       savesTo={item.creates ? NEW_FRONT_NOTE : null}
       onChoose={edit === null ? null : (value) => edit(item, "owner", value)}
       quiet={owner === "" && !hovered}

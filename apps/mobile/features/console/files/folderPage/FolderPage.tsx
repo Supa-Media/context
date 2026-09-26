@@ -30,7 +30,7 @@ import { noteColumnWidth } from "../../../app/frame";
 import { BOARD_COLUMN, FolderBoard } from "./Board";
 import { FolderGroups } from "./Groups";
 import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
-import { textOf, type ItemActions, type OwnerChoice } from "./items";
+import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./items";
 import { localOwnerSearch, ownersInUse } from "../owners";
 import {
   defaultFolderView,
@@ -136,8 +136,15 @@ export function FolderPage({
   // server; with no server (the landing page's demo), from the people it was handed.
   const serverOwners = host?.source.searchOwners;
   const searchOwners = useMemo(() => serverOwners ?? localOwnerSearch(people ?? []), [serverOwners, people]);
-  const owners = useMemo<OwnerChoice>(() => ({ search: searchOwners, prefer: ownersInUse(items) }), [searchOwners, items]);
-  const siblingOwners = useMemo<OwnerChoice>(() => ({ search: searchOwners, prefer: ownersInUse(siblings) }), [searchOwners, siblings]);
+  const suggestFor = host?.source.suggestOwner;
+  const owners = useMemo<OwnerChoice>(
+    () => ({ search: searchOwners, prefer: ownersInUse(items), ...(suggestFor === undefined ? {} : { suggestFor }) }),
+    [searchOwners, items, suggestFor],
+  );
+  const siblingOwners = useMemo<OwnerChoice>(
+    () => ({ search: searchOwners, prefer: ownersInUse(siblings), ...(suggestFor === undefined ? {} : { suggestFor }) }),
+    [searchOwners, siblings, suggestFor],
+  );
   const menuSections = useMemo(() => statusMenu(list), [list]);
   const parentMenu = useMemo(() => statusMenu(parentStatuses.list), [parentStatuses]);
   const undeclared = useMemo(() => undeclaredStatuses(items, list), [items, list]);
@@ -219,7 +226,7 @@ export function FolderPage({
             now={now}
             choices={siblingChoices}
             statusMenu={parentMenu}
-            owners={siblingOwners}
+            owners={ownerChoiceFor(siblingOwners, summary.creates ? null : summary.target)}
             onChoose={edit === null ? null : (key, value) => void edit(summary.target, key, value, summary.creates)}
           />
         ) : null}
