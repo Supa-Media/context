@@ -26,6 +26,7 @@ import { GroupsPanel } from "../settings/panels/GroupsPanel";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
 import { DomainSection } from "../settings/panels/DomainPanel";
+import { EmojiPanel } from "../settings/panels/EmojiPanel";
 import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
 import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
 import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
@@ -422,6 +423,8 @@ export function SettingsPane({
         handle={current?.slug.replace(/^@/, "") ?? ""} demo={data.demo}
         onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")} />
       ) : null}
+
+      {show("emoji") ? <EmojiPanel sectioned={section !== undefined} /> : null}
 
       {show("integrations") ? (
       <>

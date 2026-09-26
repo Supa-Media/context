@@ -43,6 +43,9 @@ import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
 import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
+import { emojiHost, type EmojiHostRef } from "./emoji/host";
+import { emojiInline } from "./emoji/emojiInline";
+import { emojiTyping } from "./emoji/emojiComplete";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
 
@@ -555,6 +558,12 @@ export function editorExtensions(options: {
   images?: ImageHostRef;
   /** Where a refused paste is said out loud. Absent means silence, honestly. */
   reportImage?: (message: string) => void;
+  /**
+   * This workspace's own emoji: the names the `:` menu offers and the
+   * pictures `:name:` draws as. Absent on a surface with no workspace behind
+   * it, and standard emoji still work there.
+   */
+  emoji?: EmojiHostRef;
 }): Extension[] {
   const {
     editable,
@@ -566,6 +575,7 @@ export function editorExtensions(options: {
     pluginSuggest,
     images,
     reportImage,
+    emoji,
   } = options;
   return [
     markdownLanguage(),
@@ -611,6 +621,14 @@ export function editorExtensions(options: {
       which is what a second argument here would have allowed.
     */
     ...(images === undefined ? [] : [imageBlock(images, reportImage ?? (() => {}))]),
+    /*
+      Emoji: `:name:` drawn as the emoji it names, and a typed-out standard
+      shortcode turned into its character. Unconditional, because standard
+      emoji need nothing from a host; a workspace's own need `emoji`.
+    */
+    ...(emoji === undefined ? [] : [emojiHost.of(emoji)]),
+    emojiInline(),
+    emojiTyping(),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
@@ -726,6 +744,7 @@ export function editorStateFor(options: {
   pluginSuggest?: CompletionSource;
   images?: ImageHostRef;
   reportImage?: (message: string) => void;
+  emoji?: EmojiHostRef;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,

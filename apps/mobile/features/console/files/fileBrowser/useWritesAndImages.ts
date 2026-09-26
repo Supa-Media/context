@@ -19,6 +19,8 @@ import { toFileError } from "../browser";
 import type { FormOutcome, FormSubmission } from "../formBlock";
 import type { WriteOutcome } from "../../../offline/sync";
 import { queuedWriteSender } from "../queuedWrite";
+import { EMOJI_IMAGE_TARGET } from "../emoji/host";
+import { loadCustomEmoji } from "../../emoji/emojiCache";
 import type { PendingWrite } from "../../../offline/outbox";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
@@ -29,6 +31,7 @@ type WritesAndImagesDeps =
     | "imageCache"
     | "readNoteImageAction"
     | "readRemoteImageAction"
+    | "readEmojiAction"
     | "storeNoteImageAction"
     | "submitFormAction"
     | "workspaceId"
@@ -38,7 +41,7 @@ type WritesAndImagesDeps =
 
 export function useWritesAndImages(deps: WritesAndImagesDeps) {
   const {
-    editorRef, imageCache, readNoteImageAction, readRemoteImageAction, selectedPathRef, storeNoteImageAction,
+    editorRef, imageCache, readEmojiAction, readNoteImageAction, readRemoteImageAction, selectedPathRef, storeNoteImageAction,
     submitFormAction, workspaceId, writeNote,
   } = deps;
 
@@ -108,6 +111,14 @@ export function useWritesAndImages(deps: WritesAndImagesDeps) {
   const loadImage = useCallback(
     async (target: string): Promise<string | null> => {
       if (workspaceId === null) return null;
+      /*
+        A workspace emoji, asked for by name over the native editor's image
+        bridge. Not gated on the open note: every member may see every emoji.
+      */
+      if (target.startsWith(EMOJI_IMAGE_TARGET)) {
+        const name = target.slice(EMOJI_IMAGE_TARGET.length);
+        return loadCustomEmoji(workspaceId, name, (args) => readEmojiAction({ workspaceId, ...args }));
+      }
       const notePath = selectedPathRef.current;
       if (notePath === null) return null;
       const cacheKey = `${workspaceId}|${target}`;
@@ -130,7 +141,7 @@ export function useWritesAndImages(deps: WritesAndImagesDeps) {
         return null;
       }
     },
-    [workspaceId, readNoteImageAction, readRemoteImageAction],
+    [workspaceId, readNoteImageAction, readRemoteImageAction, readEmojiAction],
   );
 
   /**

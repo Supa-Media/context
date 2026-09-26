@@ -62,6 +62,11 @@
       "command": "node scripts/build-editor-bundle.mjs"
     },
     {
+      "path": "apps/mobile/features/console/files/emoji/standardEmoji.generated.ts",
+      "reason": "Vendored gemoji shortcode table with a digest.",
+      "command": "node scripts/build-emoji-data.mjs"
+    },
+    {
       "path": "apps/convex/functions/lib/reservedNames.generated.ts",
       "reason": "Vendored username blocklists with a digest.",
       "command": "node scripts/build-reserved-names.mjs"
