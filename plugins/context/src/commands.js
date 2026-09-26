@@ -27,7 +27,6 @@ import {
   discover,
   exchangeCode,
   listenForCode,
-  refreshTokens,
   registerClient,
   stateMatches,
 } from "./oauth.js";
@@ -38,9 +37,14 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, stat, unlink as unlinkFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink as unlinkFile, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { hostname } from "node:os";
+
+// Re-exported so every caller and test keeps one import site for "give me a
+// token", wherever the machinery behind it lives.
+export { accessTokenFor, acquireLock, LOCK_STALE_MS, REFRESH_DEADLINE_MS } from "./token.js";
+import { accessTokenFor } from "./token.js";
 
 /**
  * Sign in once, then write the hook into the client's settings.
@@ -177,83 +181,6 @@ export async function authorize({
     },
     configPath
   );
-}
-
-/**
- * A usable access token, refreshing if the stored one is spent.
- *
- * The refreshed pair is written back before it is used, because a rotating
- * refresh token that is spent and not persisted leaves the install permanently
- * unable to authenticate — and the failure surfaces at the end of some future
- * session, where nobody is looking.
- */
-export async function accessTokenFor({ endpoint, configPath, fetchImpl = fetch }) {
-  const record = await loadEndpoint(endpoint, configPath);
-  if (!record?.refreshToken && !record?.accessToken) {
-    throw new Error(`not signed in for ${endpointKey(endpoint)} — run: npx -y @supa-media/context login`);
-  }
-  if (record.accessToken && Number(record.expiresAt) > Date.now()) return record.accessToken;
-  if (!record.refreshToken) {
-    throw new Error("the stored session has expired — run: npx -y @supa-media/context install");
-  }
-
-  // One refresh at a time per credentials file. Refresh tokens rotate and the
-  // gateway treats a spent one as a replay, so two hooks refreshing together
-  // (two sessions closing at once) would lose the sign-in. Whoever waits
-  // re-reads the file and uses the token the other one stored.
-  const release = await acquireLock(`${configPath}.lock`);
-  try {
-    const current = await loadEndpoint(endpoint, configPath);
-    if (current?.accessToken && Number(current.expiresAt) > Date.now()) return current.accessToken;
-    if (!current?.refreshToken) {
-      throw new Error("the stored session has expired — run: npx -y @supa-media/context login");
-    }
-    const discovery = await discover(endpoint, { fetchImpl });
-    const tokens = await refreshTokens(
-      discovery,
-      { clientId: current.clientId, refreshToken: current.refreshToken },
-      { fetchImpl }
-    );
-    await saveEndpoint(
-      endpoint,
-      {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken || current.refreshToken,
-        expiresAt: tokens.expiresAt,
-        scope: tokens.scope || current.scope,
-      },
-      configPath
-    );
-    return tokens.accessToken;
-  } finally {
-    await release();
-  }
-}
-
-/**
- * An exclusive lock file, created with `wx` so only one process wins.
- *
- * A lock older than `staleMs` belonged to a process that died holding it and is
- * taken over rather than waited on forever.
- */
-async function acquireLock(path, { waitMs = 10_000, staleMs = 30_000 } = {}) {
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    try {
-      const handle = await open(path, "wx", 0o600);
-      await handle.close();
-      return () => unlinkFile(path).catch(() => {});
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      const age = await stat(path).then((info) => Date.now() - info.mtimeMs).catch(() => 0);
-      if (age > staleMs) {
-        await unlinkFile(path).catch(() => {});
-        continue;
-      }
-      if (Date.now() > deadline) throw new Error("another Context process is refreshing the sign-in; try again");
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  }
 }
 
 /**
@@ -577,7 +504,6 @@ export async function uninstallHooks({
   return { removed, forgotten };
 }
 
-/** Whether `cwd` is one of the excluded folders or inside one. `~` means home. */
 /**
  * Is this session's folder one the person excluded from capture?
  *
