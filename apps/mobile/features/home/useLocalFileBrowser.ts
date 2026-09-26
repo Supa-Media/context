@@ -1,8 +1,9 @@
+import { isDrawingPath, newDrawing } from "@context/drawings";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FileBrowser } from "../console/files/browser";
 import { put, type Clipboard } from "../console/files/clipboard";
 import { editorReducer, emptyEditor } from "../console/files/editor";
-import { knownNotePaths } from "../console/files/paths";
+import { drawingFileName, ensureMarkdown, knownNotePaths } from "../console/files/paths";
 import { untitledName } from "../console/files/untitled";
 import { demoNote, useStaticFileBrowser } from "../console/files/useDemoFileBrowser";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
@@ -176,7 +177,9 @@ export function useLocalFileBrowser(
 
   const createNote = useCallback(
     (folder: string, name: string) => {
-      const made = addNote(treeRef.current, folder, name);
+      // Seeded as the console seeds it (`useCreateAndMove`), so a drawing's
+      // name opens the drawing editor on a blank canvas, not a note.
+      const made = addNote(treeRef.current, folder, name, isDrawingPath(ensureMarkdown(name)) ? newDrawing() : "");
       if (made === null) return;
       change(made.tree);
       reveal(made.path);
@@ -311,12 +314,10 @@ export function useLocalFileBrowser(
       },
       duplicate: (path: string) => copyInto(path, path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""),
       createNote,
-      // A drawing needs the drawing editor's storage, which a page with no
-      // bucket has none of; the visitor gets a note to write in instead.
-      createDrawing: createNote,
+      createDrawing: (folder: string, name: string) => createNote(folder, drawingFileName(name)),
       createFolder,
-      createUntitled: (folder: string) =>
-        createNote(folder, untitledName(treeRef.current.listings, folder, "note", new Date())),
+      createUntitled: (folder: string, kind: "note" | "drawing") =>
+        createNote(folder, untitledName(treeRef.current.listings, folder, kind, new Date())),
       rename: (path: string, name: string) => reshape(path, renamePath(treeRef.current, path, name)),
       move: (path: string, destination: string) => reshape(path, movePath(treeRef.current, path, destination)),
       moveMany: (paths: readonly string[], destination: string) => {

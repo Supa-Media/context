@@ -13,6 +13,7 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+import { isDrawingPath, newDrawing } from "@context/drawings";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { liveHomeTree, type HomeTree } from "../features/home/homeSite";
@@ -58,6 +59,19 @@ describe("the homepage's workspace, kept in the tab", () => {
     act(() => view.get().files.setDraft("# Ideas"));
     expect(view.get().notes["ideas.md"]).toBe("# Ideas");
     expect(view.get().touched).toBe(true);
+  });
+
+  test("New drawing makes a drawing, as the console does, not a note", () => {
+    // Sabotage: `createDrawing: createNote` (the old shortcut) fails both halves.
+    const view = mount(liveHomeTree(SITE), "/");
+    act(() => view.get().files.createDrawing("", "plan"));
+    expect(view.get().files.selectedPath).toBe("plan.excalidraw.md");
+    expect(isDrawingPath(view.get().files.editor.path ?? "")).toBe(true);
+    expect(view.get().notes["plan.excalidraw.md"]).toBe(newDrawing());
+    act(() => view.get().files.createUntitled("", "drawing"));
+    const untitled = view.get().files.selectedPath ?? "";
+    expect(untitled).toMatch(/^untitled-.*\.excalidraw\.md$/);
+    expect(view.get().notes[untitled]).toBe(newDrawing());
   });
 
   test("a renamed page stays open and keeps its address", () => {

@@ -13,6 +13,7 @@
  * before they wait for a round trip, not instead of the check that matters.
  */
 
+import { isDrawingPath } from "@context/drawings";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 
 /** The folder a path sits in. `""` is the root. */
@@ -273,6 +274,16 @@ export function isUnlistedFile(path: string): boolean {
 export function ensureMarkdown(name: string): string {
   const trimmed = name.trim();
   return isMarkdown(trimmed) ? trimmed : `${trimmed}.md`;
+}
+
+/**
+ * The name New drawing creates a note under: `<name>.excalidraw`, unless the
+ * person already typed it. A person names a diagram, not a file format.
+ * Shared by the console and the homepage, so both make the same file.
+ */
+export function drawingFileName(rawName: string): string {
+  const trimmed = rawName.trim();
+  return isDrawingPath(ensureMarkdown(trimmed)) ? trimmed : `${trimmed}.excalidraw`;
 }
 
 /**
