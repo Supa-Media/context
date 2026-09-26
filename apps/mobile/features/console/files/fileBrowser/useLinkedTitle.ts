@@ -16,17 +16,18 @@
  * the rule the one-time untitled rename this replaces was written around, and
  * it carries over unchanged.
  *
- * A surface that never reports a caret (the native editor, a test harness)
- * reads as "not in the title", so the rename runs when the save lands — which
- * is what the untitled rename always did.
+ * The native editor reports focus and nothing finer, so there a focused
+ * editor counts as "in the title" (`noteEditor/document.tsx`) and the rename
+ * runs when the keyboard goes away.
  *
- * ## Only for a title somebody changed here
+ * ## Only for a title somebody changed here, under their own caret
  *
  * The rename needs the title to differ from the one the note was **opened**
- * with, not merely from the file name. An `untitled-<date>` note from last
+ * with, not merely from the file name — an `untitled-<date>` note from last
  * week whose heading its owner changed by hand is linked by name, and must not
- * move because somebody opened it today; and a collaborator's edit arrives as
- * a changed title too, which is why the attempt is also remembered — one
+ * move because somebody opened it today. And it needs the change to have been
+ * made while this person's caret was in the title: a collaborator typing into
+ * the same note changes this draft too, and it is theirs to rename. One
  * attempt per title, so a refusal is said once and not retried on every save.
  */
 
@@ -75,11 +76,20 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     would call the note's own new name taken.
   */
   const [acted, setActed] = useState<string | null>(null);
+  /*
+    Whether the title changed under this person's own caret. A collaborator
+    typing a new title into the same note changes this draft too, and their
+    half-typed "Q4 pl" is not a name anybody here asked for — so only a change
+    made while the caret was in the title is one this client may act on. The
+    person typing it renames it, from their own client, when they leave it.
+  */
+  const [touched, setTouched] = useState(false);
   const [titleFocus, setTitleFocus] = useState<{ path: string; id: number } | null>(null);
   const baseline = editor.baseline;
   useEffect(() => {
     const path = editor.path;
     setActed(null);
+    setTouched(false);
     if (path === null) {
       setOpened(null);
       return;
@@ -99,9 +109,13 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
 
   const [inTitle, setInTitle] = useState(false);
   const setTitleCaret = useCallback((next: boolean) => setInTitle(next), []);
+  const draftTitle = titleFor(editor.draft);
+  useEffect(() => {
+    if (inTitle && opened !== null && draftTitle !== opened.title) setTouched(true);
+  }, [draftTitle, inTitle, opened]);
 
   const proposal: TitleProposal | null = useMemo(() => {
-    if (opened === null || !opened.linked || opened.path !== editor.path) return null;
+    if (opened === null || !opened.linked || !touched || opened.path !== editor.path) return null;
     if (editor.readOnly || editor.encrypted) return null;
     const title = titleFor(editor.draft);
     if (title === opened.title || title === acted) return null;
@@ -111,16 +125,16 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
       listings,
       sharesWarning: sharesBreakingWarning(shares, opened.path, "Renaming"),
     });
-  }, [acted, editor.draft, editor.encrypted, editor.path, editor.readOnly, listings, opened, shares]);
+  }, [acted, editor.draft, editor.encrypted, editor.path, editor.readOnly, listings, opened, shares, touched]);
 
   useEffect(() => {
     if (proposal === null || proposal.kind !== "rename" || opened === null) return;
     if (inTitle) return;
     if (editor.status !== "clean" && editor.status !== "saved") return;
-    setActed(proposal.label);
+    setActed(draftTitle);
     awaitingTitle.current.delete(opened.path);
     rename(opened.path, proposal.name);
-  }, [awaitingTitle, editor.status, inTitle, opened, proposal, rename]);
+  }, [awaitingTitle, draftTitle, editor.status, inTitle, opened, proposal, rename]);
 
   const titleEdit: TitleEdit | null = useMemo(() => {
     if (proposal === null || opened === null) return null;

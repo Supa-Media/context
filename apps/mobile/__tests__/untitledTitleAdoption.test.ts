@@ -175,13 +175,24 @@ async function makeAndOpen(): Promise<void> {
   await settle();
 }
 
-/** Type a whole document and let the save land. */
+/**
+ * Type a whole document and let the save land — with the caret in the title
+ * while typing and out of it after, which is when a title renames its file
+ * (`useLinkedTitle.ts`).
+ */
 async function writeAndSave(text: string): Promise<void> {
+  await act(async () => {
+    browser.setTitleCaret!(true);
+  });
   await act(async () => {
     browser.setDraft(text);
   });
   await act(async () => {
     browser.save();
+  });
+  await settle();
+  await act(async () => {
+    browser.setTitleCaret!(false);
   });
   await settle();
 }
