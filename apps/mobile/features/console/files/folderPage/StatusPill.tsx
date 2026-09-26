@@ -9,7 +9,6 @@
  */
 
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";

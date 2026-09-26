@@ -15,7 +15,7 @@
  * with the count (`plan` → a confirm → `apply`).
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { ListNote } from "../listBlock/model";
 import type { FolderNotes } from "./useFolderPage";
 import {
@@ -62,7 +62,19 @@ export function useStatusEdits(
 ): StatusEdits {
   const { list, from, note } = statuses;
   const within = from ?? folder;
-  const target = !loaded.canEdit ? null : note !== null ? { target: note, creates: false } : folder === "" ? null : front;
+  const frontTarget = front?.target ?? null;
+  const frontCreates = front?.creates ?? false;
+  const target = useMemo(
+    () =>
+      !loaded.canEdit
+        ? null
+        : note !== null
+          ? { target: note, creates: false }
+          : folder === "" || frontTarget === null
+            ? null
+            : { target: frontTarget, creates: frontCreates },
+    [loaded.canEdit, note, folder, frontTarget, frontCreates],
+  );
   const { chooseMany, choose, loadAll } = loaded;
 
   const save = useCallback(
