@@ -170,3 +170,20 @@ export async function homeDocumentResponse(
   headers.set("Cache-Control", "no-cache");
   return new Response(injectHomeSnapshot(html, site), { status: 200, headers });
 }
+
+/**
+ * `/` with its site: asked for while the HTML is fetched, so waiting for one
+ * costs no more than the other. `HOME_SITE_HANDLE` names another workspace
+ * for a self-host; anything not shaped like a handle is ignored.
+ */
+export async function withHomeSite(
+  document: () => Promise<Response>,
+  env: { HOME_SITE_HANDLE?: string },
+  convexOrigin: string | null,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const named = env.HOME_SITE_HANDLE ?? "";
+  const handle = /^[a-z0-9-]{1,64}$/.test(named) ? named : DEFAULT_HOME_SITE_HANDLE;
+  const snapshot = fetchHomeSnapshot(convexOrigin, handle, ctx);
+  return await homeDocumentResponse(await document(), snapshot);
+}
