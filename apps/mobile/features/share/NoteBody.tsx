@@ -15,6 +15,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { Linking, Text as RNText, StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
+import { TextLink } from "../design/components/TextLink";
 import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
@@ -289,8 +290,8 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
 
 /**
  * A paragraph that is only `[<kbd>…</kbd>](…)` buttons, and the spaces between
- * them, is drawn as a row of the app's own buttons: the first one accent, the
- * rest quiet. A button inside a sentence stays a link, because a box in the
+ * them, is drawn as the app's own action row: the first one the primary
+ * button, the rest links beside it. A button inside a sentence stays a link, because a box in the
  * middle of a line of text is harder to read than the words.
  *
  * A button to a path on this site, where there is no site to move within (a
@@ -317,17 +318,15 @@ function ButtonRow({ runs }: { runs: readonly Inline[] }) {
     <View style={styles.buttons}>
       {buttons.map((run, index) => {
         const onPage = run.href.startsWith("/");
-        return (
-          <Button
-            key={index}
-            label={run.text}
-            variant={index === 0 ? "accent" : "white"}
-            onPress={() => {
-              if (onPage) siteLink?.(run.href);
-              else void Linking.openURL(run.href).catch(() => {});
-            }}
-            testID="note-button"
-          />
+        const follow = () => {
+          if (onPage) siteLink?.(run.href);
+          else void Linking.openURL(run.href).catch(() => {});
+        };
+        // The app's rule for an action row: one primary, the rest links.
+        return index === 0 ? (
+          <Button key={index} label={run.text} variant="accent" onPress={follow} testID="note-button" />
+        ) : (
+          <TextLink key={index} label={run.text} onPress={follow} testID="note-button" />
         );
       })}
     </View>
@@ -427,5 +426,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xs,
     paddingHorizontal: 5,
   },
-  buttons: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginVertical: 6 },
+  buttons: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 18, marginVertical: 6 },
 });
