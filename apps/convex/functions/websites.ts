@@ -81,6 +81,7 @@ const resolvedPageValidator = v.union(
     description: v.union(v.string(), v.null()),
     markdown: v.string(),
     navigation: navigationValidator,
+    emoji: v.optional(v.record(v.string(), v.string())),
   }),
   authenticationRequiredValidator,
   unavailableValidator,
@@ -173,6 +174,7 @@ export const siteSnapshot = action({
       pages: v.array(
         v.object({ path: v.string(), routePath: v.string(), title: v.string(), markdown: v.string() }),
       ),
+      emoji: v.record(v.string(), v.string()),
     }),
   ),
   handler: async (ctx, args) => await websiteSnapshot(ctx, { handle: args.handle }),

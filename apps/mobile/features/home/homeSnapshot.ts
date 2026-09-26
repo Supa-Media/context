@@ -1,3 +1,4 @@
+import { emojiPictures, type EmojiPictures } from "../share/emojiPictures";
 import type { HomePage } from "./homeSite";
 
 /**
@@ -18,6 +19,8 @@ export interface HomeSnapshot {
   revision: string | null;
   /** Every published note in `website/`: `nav:` order first, then by path. */
   pages: HomePage[];
+  /** The workspace emoji the pages use, drawn in place of their `:name:`. */
+  emoji: EmojiPictures;
 }
 
 /** A snapshot from anywhere (the HTML, or the action), checked, or `null`. */
@@ -42,7 +45,7 @@ export function parseHomeSnapshot(value: unknown): HomeSnapshot | null {
   }
   // An empty folder is not a homepage; the built-in copy is drawn instead.
   if (pages.length === 0) return null;
-  return { siteName: body.siteName, revision: body.revision, pages };
+  return { siteName: body.siteName, revision: body.revision, pages, emoji: emojiPictures(body.emoji) };
 }
 
 /** What the page's HTML carried, or `null` off the web or without one. */

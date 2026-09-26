@@ -145,6 +145,12 @@ export type ResolvedWebsitePage =
       description: string | null;
       markdown: string;
       navigation: WebsiteNavigationItem[];
+      /**
+       * The workspace emoji the page uses, `name → data: URL`: a site loads no
+       * images, so a `:name:` it shows comes with the page. Absent names show
+       * as their text.
+       */
+      emoji?: Record<string, string>;
     }
   | {
       kind: "authentication_required";

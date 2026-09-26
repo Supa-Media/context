@@ -50,13 +50,6 @@ export function HomePage({
 }
 
 /**
- * The open note in the app's own editor, writable the moment it opens, as it
- * is for a workspace member. What is typed goes to the tab's copy of the
- * workspace only (`useLocalFileBrowser`), and a reload is the site again.
- * Nothing on screen says so: the owner asked for the page to just work, with
- * no instructions over it.
- */
-/**
  * The band a workspace note has over it on a pointer layout, kept empty.
  *
  * In the console the note's path sits above its title (`BrowseNoteHead`: the
@@ -68,6 +61,13 @@ export function HomePage({
  */
 export const NOTE_HEAD_BAND = Math.max(layout.minTouchTarget, space.x4 + 24 + space.x2);
 
+/**
+ * The open note in the app's own editor, writable the moment it opens, as it
+ * is for a workspace member. What is typed goes to the tab's copy of the
+ * workspace only (`useLocalFileBrowser`), and a reload is the site again.
+ * Nothing on screen says so: the owner asked for the page to just work, with
+ * no instructions over it.
+ */
 export function HomeEditor({
   files,
   compact,

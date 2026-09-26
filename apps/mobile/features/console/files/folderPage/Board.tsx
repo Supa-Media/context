@@ -1,7 +1,7 @@
 /**
  * The Board view of a folder page: one column per status, cards in them
  * (spec A2), the columns under their status group — Not started, In
- * progress, Done, and Needs a group for words nobody placed — so the order
+ * progress, Done, and No group yet for words nobody placed — so the order
  * is the same whatever the folder's words are. Every status in the folder's
  * list is a column even while nothing is in it, and "No status" leads Not
  * started (`statusBands` in `statuses.ts`).
@@ -25,6 +25,7 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
 import { useColors } from "../../../design/theme";
 import { dropValue, NEW_FRONT_NOTE, type FolderGroup, type FolderItem } from "./model";
+import { ChooseGroup } from "./ChooseGroup";
 import { PropertyValue } from "./PropertyValue";
 import type { StatusBand } from "./statuses";
 import { StatusPill, toneColor } from "./StatusPill";
@@ -79,6 +80,11 @@ export function FolderBoard({
                   canMove={edit !== null}
                   dragging={dragging}
                   onDrop={(path) => drop(path, group.value)}
+                  choose={
+                    band.group === null && actions.onPlaceStatus !== null ? (
+                      <ChooseGroup word={group.value} onPlace={actions.onPlaceStatus} onEditList={actions.onEditStatuses} />
+                    ) : null
+                  }
                 >
                   {group.items.map((item) => (
                     <Card
@@ -108,6 +114,7 @@ function Column({
   canMove,
   dragging,
   onDrop,
+  choose,
   children,
 }: {
   group: FolderGroup;
@@ -116,6 +123,8 @@ function Column({
   canMove: boolean;
   dragging: string | null;
   onDrop: (path: string) => void;
+  /** A word nobody placed asks for its group here, in its own column's head. */
+  choose: ReactNode;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -134,6 +143,7 @@ function Column({
         <Text variant="tree" style={styles.count}>
           {String(group.items.length)}
         </Text>
+        {choose === null ? null : <View style={styles.headEnd}>{choose}</View>}
       </View>
       <View style={[styles.cards, over && styles.cardsOver, dragging !== null && empty && styles.cardsWaiting]}>
         {children}
@@ -217,6 +227,7 @@ const makeStyles = (colors: Colors) =>
     columnTouch: { flexGrow: 0, flexBasis: "auto", width: 264, minWidth: 264, maxWidth: 264 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 32, paddingTop: space.x1 },
     count: { color: colors.chromeMuted },
+    headEnd: { marginLeft: "auto" },
     // A column is a drop target down its whole height, not only where its cards end.
     cards: { gap: space.x2, marginTop: space.x1, minHeight: 64, padding: 2, borderRadius: radii.card, borderWidth: 1, borderColor: "transparent" },
     cardsOver: { borderColor: colors.lineStrong, backgroundColor: colors.surface3 },

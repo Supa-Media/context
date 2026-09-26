@@ -219,6 +219,7 @@ describe("opening a note on a phone", () => {
  */
 const RAW_WINDOW_LISTENERS_ALLOWED: Record<string, string> = {
   "features/app/returnToApp.ts": "the one place that checks, by construction",
+  "features/app/ShellTitleBandView.tsx": "checks `typeof window.addEventListener` itself before listening for full screen",
   "features/console/agents/useAgentActivity.ts": "checks `typeof window.addEventListener` itself before listening",
   "features/console/files/imageBlock/widget.ts": "a CodeMirror widget, bundled into the editor's WebView and never into the app",
   "features/home/HomeShell.tsx": "its one listener returns first unless `Platform.OS` is web, and a phone redirects `/` before the shell mounts",

@@ -13,12 +13,13 @@
  */
 
 import { createContext, useContext, type ReactNode } from "react";
-import { Linking, Text as RNText, StyleSheet, View } from "react-native";
+import { Image, Linking, Text as RNText, StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
 import { TextLink } from "../design/components/TextLink";
 import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
+import type { EmojiPictures } from "./emojiPictures";
 import type { Block, Inline } from "./markdown";
 import { SITE_HEADING_SIZE, SITE_WIDE_HEADING_SIZE, makeSiteStyles, makeSiteWideStyles } from "./siteLook";
 
@@ -37,6 +38,12 @@ const Look = createContext<NoteLook>("note");
  * website page supplies one; without it such a link is drawn as its words.
  */
 const SiteLink = createContext<((href: string) => void) | null>(null);
+
+/**
+ * The workspace emoji the page carries (`emojiPictures.ts`). A `:name:` with
+ * no picture here is drawn as its words, as it would be anywhere else.
+ */
+const Emoji = createContext<EmojiPictures>({});
 
 function useBodyStyles() {
   const note = useThemedStyles(makeStyles);
@@ -59,21 +66,27 @@ function useBodyStyles() {
  *
  * Every caller that does not pass one renders exactly what it rendered before.
  */
+const NO_EMOJI: EmojiPictures = {};
+
 export function NoteBody({
   blocks,
   renderCode,
   look = "note",
   onSiteLink,
+  emoji = NO_EMOJI,
 }: {
   blocks: readonly Block[];
   renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
   look?: NoteLook;
   onSiteLink?: (href: string) => void;
+  emoji?: EmojiPictures;
 }) {
   return (
     <Look.Provider value={look}>
       <SiteLink.Provider value={onSiteLink ?? null}>
-        <Blocks blocks={blocks} renderCode={renderCode} />
+        <Emoji.Provider value={emoji}>
+          <Blocks blocks={blocks} renderCode={renderCode} />
+        </Emoji.Provider>
       </SiteLink.Provider>
     </Look.Provider>
   );
@@ -219,6 +232,7 @@ function BlockView({
 function Runs({ runs }: { runs: readonly Inline[] }) {
   const styles = useBodyStyles();
   const siteLink = useContext(SiteLink);
+  const pictures = useContext(Emoji);
   return (
     <>
       {runs.map((run, index) => {
@@ -247,6 +261,21 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
                 {run.text}
               </RNText>
             );
+          case "emoji": {
+            const picture = pictures[run.name];
+            if (picture === undefined) return <RNText key={index}>{run.text}</RNText>;
+            // Inside the line of text, the height of its capitals: an Image in
+            // a Text is drawn inline on both platforms.
+            return (
+              <Image
+                key={index}
+                source={{ uri: picture }}
+                style={styles.emoji}
+                resizeMode="contain"
+                accessibilityLabel={run.text}
+              />
+            );
+          }
           case "kbd":
             return (
               <RNText key={index} style={styles.kbd}>
@@ -416,6 +445,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text,
   },
   link: { color: colors.codeKey, textDecorationLine: "underline" },
+  emoji: { width: 20, height: 20, marginBottom: -3 },
   kbd: {
     fontFamily: fonts.mono,
     fontSize: t.meta,

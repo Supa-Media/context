@@ -98,3 +98,20 @@ export function findShortcodes(text: string): Array<{ from: number; to: number; 
   }
   return found;
 }
+
+/**
+ * The workspace emoji a published page shows: every `:name:` outside code
+ * that could name one, once each, in order. Code is skipped for the reason
+ * the renderers skip it: `:name:` there is text, so its picture is not part
+ * of what the page publishes.
+ */
+export function publishedEmojiNames(markdown: string): string[] {
+  const prose = markdown
+    .replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "")
+    .replace(/`[^`\n]*`/g, "");
+  const names = new Set<string>();
+  for (const { name } of findShortcodes(prose)) {
+    if (CUSTOM_EMOJI_NAME.test(name)) names.add(name);
+  }
+  return [...names];
+}

@@ -3,7 +3,7 @@
 import type { PropertyValue } from "../listBlock/model";
 import type { OwnerSearch } from "../owners";
 import type { FolderItem } from "./model";
-import type { StatusMenuSection } from "./statuses";
+import type { StatusGroup, StatusMenuSection } from "./statuses";
 import type { StatusTone } from "./StatusPill";
 
 /** A save older than this is drawn a step quieter (spec: staleness is only a date). */
@@ -22,6 +22,8 @@ export interface ItemActions {
   toneOf(status: string): StatusTone;
   /** Opens the folder's status list for editing; null for somebody who may not. */
   onEditStatuses: (() => void) | null;
+  /** Puts a word nobody placed into a group of the folder's list; null for somebody who may not. */
+  onPlaceStatus: ((word: string, group: StatusGroup) => void) | null;
   /** Where an owner is picked from: people and agents, never a typed word. */
   owners?: OwnerChoice;
 }

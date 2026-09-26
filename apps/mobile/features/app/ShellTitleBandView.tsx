@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
 import {
   getDesktopBridge,
@@ -10,6 +11,7 @@ import {
   shellLightsLeadPx,
   shellTitleBandPx,
   shouldShowShellTitleBand,
+  windowFillsScreen,
 } from "./shellTitleBand";
 import { useTopChromeHoldsLights } from "./topChrome";
 
@@ -125,6 +127,35 @@ export function useShellLightsLeadPx(chromeHoldsLights: boolean): number {
     bridge?.shell?.platform ?? null,
     chromeHoldsLights,
     SHELL_TITLE_BAND_LEAD_PX,
+  );
+}
+
+/**
+ * Whether the window is full screen, kept current across resizes.
+ *
+ * Entering and leaving macOS full screen both resize the page, so `resize` is
+ * the whole of the signal. `false` wherever there is no `window`.
+ */
+export function useWindowFillsScreen(): boolean {
+  const [fills, setFills] = useState(readFillsScreen);
+  useEffect(() => {
+    // React Native has a `window` global with no DOM events on it.
+    if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+    const update = () => setFills(readFillsScreen());
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return fills;
+}
+
+function readFillsScreen(): boolean {
+  if (typeof window === "undefined" || window.screen === undefined) return false;
+  return windowFillsScreen(
+    window.outerWidth,
+    window.outerHeight,
+    window.screen.width,
+    window.screen.height,
   );
 }
 

@@ -26,6 +26,7 @@ import {
 import { renderPublicWebsiteLists } from "./lists";
 import { probeWebsitePage } from "./probe";
 import { PUBLICATION_CLEARANCE } from "./publication";
+import { readPublishedEmoji } from "./emoji";
 
 type SiteShell = {
   siteName: string;
@@ -584,8 +585,7 @@ async function renderWebsitePage(
     const shares = await ctx
       .runAction(internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
-        scope: "team" as const,
-        grantedNames: [],
+        ...PUBLICATION_CLEARANCE,
         operation: { kind: "readMany" as const, paths: sharePaths },
       })
       .catch(() => null);
@@ -598,8 +598,11 @@ async function renderWebsitePage(
     }
   }
 
+  const markdown = rewriteWebsiteLinks(withLists, linkOptions, readableShares);
+  const emoji = await readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({}));
   return {
     ...args.page,
-    markdown: rewriteWebsiteLinks(withLists, linkOptions, readableShares),
+    markdown,
+    ...(Object.keys(emoji).length > 0 ? { emoji } : {}),
   };
 }

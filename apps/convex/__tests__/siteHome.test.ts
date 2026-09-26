@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 const SECRET = "Only the owner should ever read this.";
-const NULL_ANSWER = JSON.stringify({ siteName: null, revision: null, pages: null });
+const NULL_ANSWER = JSON.stringify({ siteName: null, revision: null, pages: null, emoji: null });
 
 async function site(): Promise<Fixture> {
   const f = await fixture();
@@ -197,8 +197,8 @@ describe("the route's shape", () => {
       [...literal!.matchAll(/([a-zA-Z_$][\w$]*)\s*:/g)].map((m) => m[1]).sort(),
     );
     expect(literals).toEqual([
-      ["pages", "revision", "siteName"],
-      ["pages", "revision", "siteName"],
+      ["emoji", "pages", "revision", "siteName"],
+      ["emoji", "pages", "revision", "siteName"],
     ]);
     expect(body).not.toMatch(/\.\.\./);
     for (const forbidden of ["workspaceId", "objectKey", "audience", "navigation"]) {

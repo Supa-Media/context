@@ -194,6 +194,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The workspace icon is the site's favicon
 - A page unfurls as itself
 - The homepage is `@context-lc`'s website, in its HTML
+- A page's emoji travel with the page
 
 ## [Search and the derived index](./search.md)
 

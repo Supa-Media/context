@@ -234,9 +234,18 @@ belong to a folder.
   statuses…", not "New value…".
 - **Words nobody declared are never guessed into a group silently.** Ordinary
   lifecycle words (`active`, `shipped`: `KNOWN_WORDS`) are drawn in their
-  group, and an owner or editor is offered "Merge into In progress" or "Keep as
-  a status". Anything else is drawn in **Needs a group** after Done, and asked
-  once. Merging rewrites notes, so it names the count first.
+  group like any status, with no prompt. Anything else is drawn in **No group
+  yet** after Done, and the one question it raises is a Choose group control
+  on its own heading (the List band, or its Board column), for an owner or
+  editor only.
+- **Nothing about a folder's words is ever said above its contents.** The
+  first cut stacked a sentence per word between the header and the list
+  ("is on 4 items here and reads as In progress. Merge into In progress ·
+  Keep as a status"), and the owner rejected it outright (2026-09-26): a page
+  that nags on every visit is worse than a word left where it is. Tidying
+  (adding a known word to the list, or merging it into its group's first
+  status) lives in "Edit statuses…" under "Used here, not in this list".
+  Merging rewrites notes, so it names the count first.
 - **An edit goes where the list lives**: the front note that declared it, or
   this folder's own front note while it only has the defaults. A subfolder
   never quietly forks its parent's list.
@@ -255,9 +264,10 @@ A "simplification" back to free words costs the board its order and its
 meaning: `apps/mcp/test/listStatuses.test.mjs` fails if a group loses its
 default, if inheritance stops at the folder, if `status is done` stops reading
 the group, or if an agent is told a list from a front note it cannot see;
-`folderPageStatuses.test.ts` pins the bands, Needs a group, and which notes a
-rename rewrites; `folderPageView.test.ts` pins the grouped menu and the board's
-bands.
+`folderPageStatuses.test.ts` pins the bands, No group yet, and which notes a
+rename rewrites; `folderPageView.test.ts` pins the grouped menu, the board's
+bands, and that a word nobody placed asks only on its own heading, never to a
+member and never in a sentence on the page.
 
 ## An owner is picked, never typed
 

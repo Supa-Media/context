@@ -116,3 +116,24 @@ export function shellLightsLeadPx(
   if (!shouldShowShellTitleBand(platformOS, shellPlatform)) return 0;
   return chromeHoldsLights ? leadPx : 0;
 }
+
+/**
+ * Is the window covering the whole screen — macOS full screen?
+ *
+ * Read from the page's own geometry rather than asked of the shell, so it
+ * works on every shell already installed: a full-screen window on macOS is
+ * exactly the screen's size, menu bar included, and no ordinary window can be
+ * — the system keeps the menu bar's strip out of reach of a window that is
+ * merely zoomed or dragged large, so `outerHeight` stays short of
+ * `screen.height` by at least that strip. `>=` rather than `===` because a
+ * retina screen reports both in CSS pixels and either may round up.
+ */
+export function windowFillsScreen(
+  outerWidth: number,
+  outerHeight: number,
+  screenWidth: number,
+  screenHeight: number,
+): boolean {
+  if (screenWidth <= 0 || screenHeight <= 0) return false;
+  return outerWidth >= screenWidth && outerHeight >= screenHeight;
+}

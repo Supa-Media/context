@@ -117,10 +117,6 @@ export function Explorer({
     agentsLabel,
     sheetLift,
     closeFilter,
-    toolsShown,
-    setToolsShown,
-    filterFocused,
-    setFilterFocused,
   } = useExplorer({
     files,
     contextLabel,
@@ -134,27 +130,7 @@ export function Explorer({
   });
 
   return (
-    <View
-      style={styles.explorer}
-      /*
-        Chrome on approach.
-
-        Four icon buttons sat lit above the tree at all times. None of them is
-        pressed often enough to earn a resting pixel, and together they were
-        the loudest thing in a column whose job is to be a quiet list of
-        names. They fade in when the pointer enters the column and fade out
-        when it leaves.
-
-        Opacity rather than mounting: the buttons keep their box, so the
-        toolbar does not reflow under the pointer, keyboard focus still
-        reaches them, and the e2e cases that press them by testID still find
-        them where they were. `focusable` chrome that vanishes from the tree
-        is chrome you cannot tab to.
-      */
-      onPointerEnter={() => setToolsShown(true)}
-      onPointerLeave={() => setToolsShown(false)}
-      testID="explorer"
-    >
+    <View style={styles.explorer} testID="explorer">
       <ExplorerToolbar
         files={files}
         selectedFolder={selectedFolder}
@@ -163,9 +139,6 @@ export function Explorer({
         query={query}
         setQuery={setQuery}
         closeFilter={closeFilter}
-        toolsShown={toolsShown}
-        filterFocused={filterFocused}
-        setFilterFocused={setFilterFocused}
       />
 
       <ExplorerTree

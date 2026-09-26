@@ -33,6 +33,7 @@ const SITE: HomeSnapshot = {
     { path: "index.md", routePath: "/", title: "Welcome", markdown: "# Welcome\n" },
     { path: "Legal/privacy.md", routePath: "/Legal/privacy", title: "Privacy", markdown: "We keep little.\n" },
   ],
+  emoji: { partyparrot: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" },
 };
 
 let convexAnswer: () => Response;
@@ -191,6 +192,23 @@ describe("the block", () => {
       pages: [{ ...SITE.pages[0], objectKey: "website/index.md", audience: "public" }],
     });
     expect(parsed).toEqual({ ...SITE, pages: [SITE.pages[0]] });
+  });
+
+  it("carries only inline pictures under emoji names, so a visitor's browser fetches nothing", () => {
+    const parsed = parseHomeSnapshot({
+      ...SITE,
+      emoji: {
+        ...SITE.emoji,
+        tracker: "https://attacker.example/pixel.gif",
+        script: "data:text/html;base64,PHNjcmlwdD4=",
+        svg: "data:image/svg+xml;base64,PHN2Zz4=",
+        "../escape": "data:image/png;base64,iVBORw0KGgo=",
+        quoted: 'data:image/png;base64,iVBOR"onerror=',
+      },
+    });
+    expect(parsed?.emoji).toEqual(SITE.emoji);
+    expect(parseHomeSnapshot({ ...SITE, emoji: ["data:image/png;base64,AAAA"] })?.emoji).toEqual({});
+    expect(parseHomeSnapshot({ ...SITE, emoji: undefined })?.emoji).toEqual({});
   });
 
   it("an HTML document with no head is left as it is", () => {

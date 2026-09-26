@@ -79,6 +79,12 @@ import {
 import { consoleBarDialogs } from "../../../features/console/layout/barDialogs";
 import { consoleCreateButton, consolePhoneChat } from "../../../features/console/layout/createButton";
 import { consolePalette } from "../../../features/console/layout/palette";
+import { OrganizerProvider } from "../../../features/organizer/OrganizerContext";
+import {
+  consoleReviewSheet,
+  consoleToasts,
+  useConsoleOrganizer,
+} from "../../../features/organizer/consoleOrganizer";
 
 /**
  * The console, as an application rather than a page.
@@ -242,6 +248,8 @@ export default function ConsoleLayout() {
   const { nav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
 
   const contextLabel = atName(current?.slug ?? "your context");
+  // Auto-organize, for the surfaces that draw it; absent-as-nothing everywhere else.
+  const organizer = useConsoleOrganizer(data.organizer, router);
 
   const { selectedEntry, shareTarget, readable } = noteTargetsFor({ browsing, data });
   const reading = useReadMode();
@@ -313,6 +321,7 @@ export default function ConsoleLayout() {
 
   return (
     <ConsoleDataProvider value={data}>
+      <OrganizerProvider value={organizer}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {/*
@@ -375,6 +384,22 @@ export default function ConsoleLayout() {
           current, router,
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
+        /*
+          `‹ ›` in the title row over the file tree. They were at the head of
+          the note's breadcrumb, which only a note or folder page drew; up
+          here they are on every console page, Settings included, which is
+          what `history.ts` has always walked.
+        */
+        history={
+          phone
+            ? undefined
+            : {
+                canBack: nav.canBack,
+                canForward: nav.canForward,
+                onBack: nav.back,
+                onForward: nav.forward,
+              }
+        }
         syncSlot={consoleSyncSlot({ phone, browsing, data, setSyncOpen })}
         accountSlot={consoleAccountSlot({ data, requestSignOut, router, current })}
         /*
@@ -475,10 +500,9 @@ export default function ConsoleLayout() {
           editor region, which already ends where the toolbar begins, and the
           toolbar already owns the safe area. See `ToastHost`.
         */}
-        <ToastHost
-          toasts={data.files.toasts}
-          onDismiss={data.files.dismissToast}
-        />
+        <ToastHost {...consoleToasts(data.files, organizer)} />
+
+        {consoleReviewSheet({ organizer, phone, browsing })}
 
         {consoleCreateButton({
           data, phone, startMeetingFlow, resumeRow, setBarDialog, startNewChat,
@@ -509,6 +533,7 @@ export default function ConsoleLayout() {
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
+      </OrganizerProvider>
     </ConsoleDataProvider>
   );
 }

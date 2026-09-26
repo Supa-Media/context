@@ -24,6 +24,7 @@ import {
 } from "./types";
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
 import { setObservabilityUser } from "../observability/client";
+import { useOrganizer } from "../organizer/useOrganizer";
 import {
   memberOf,
   usable,
@@ -387,6 +388,9 @@ export function useLiveConsoleData(): ConsoleData {
     liveWorkspaces,
   });
 
+  // Auto-organize for this workspace — status, suggestions, and the presses on them.
+  const organizer = useOrganizer({ workspaceId: membershipContextId, slug: selected?.slug ?? "" });
+
   const viewerUserId = members.members.find((member) => member.isMe)?.userId;
   useEffect(() => {
     if (viewerUserId === undefined) return;
@@ -402,6 +406,7 @@ export function useLiveConsoleData(): ConsoleData {
     selectContext,
     activity,
     agents,
+    organizer,
     searchableContexts,
     graph,
     ...accountActionsFor({ leaveWorkspace, deleteAccountMutation, authActions }),

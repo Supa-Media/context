@@ -1,15 +1,46 @@
+import { useCallback, useRef, useState } from "react";
 import { TextInput, View } from "react-native";
+import { Menu } from "../../../design/components/Menu";
 import { Text } from "../../../design/components/Text";
+import { isApplePlatform } from "../../../design/applePlatform";
+import { describeBinding } from "../../../design/keymap";
 import { useColors, useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
 import { setListingOrder } from "../listingOrder";
+import type { MenuItem } from "../menu";
+import { baseName, folderLabel } from "../paths";
 import { IconButton } from "./IconButton";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
 
+type NewId = "new-note" | "new-folder" | "new-drawing";
+type ViewId = "sort-asc" | "sort-desc" | "collapse";
+
 /**
- * The column's header: its name at rest, the filter, and the tools that
- * arrive on approach. The state is `Explorer`'s; this draws it.
+ * The column's header: `Notes`, then three buttons that never move.
+ *
+ * ## It is the same header with the pointer over it and without
+ *
+ * It used to draw on approach. Entering the column faded `Notes` out, gave an
+ * invisible filter field underneath it a box, and faded in two more buttons —
+ * so the header redrew every time somebody reached for a note, and two of its
+ * controls could not be found by anyone who had not moused over the tree. The
+ * owner's word for the fix was that the UI needs to stay the same, and the
+ * design they chose (2026-09-26) is this one: a label and three buttons, drawn
+ * once. Hovering a button lights that button and nothing else.
+ *
+ * - **Filter** swaps the label for a field, on a press rather than on
+ *   approach. It stays lit while a query is filtering, so a shortened tree
+ *   always has a visible reason, and pressing it lit (or Escape in the
+ *   field) clears the query and puts the label back.
+ * - **New** is a menu — note, folder, drawing — naming the folder it makes
+ *   them in. ⌘N still makes a note in one step.
+ * - **View** is a menu — sort order, and collapse every folder. Collapse-all
+ *   used to be a button drawn as a pane with a band, which read as "hide the
+ *   sidebar" (that is ⌘B and the top bar's toggle); in a menu it has a name.
+ *
+ * Sort and collapse are about the *panel* rather than about the context, so
+ * View is not gated on `canEdit`; New is, and a reader's header is two buttons.
  */
 export function ExplorerToolbar({
   files,
@@ -19,9 +50,6 @@ export function ExplorerToolbar({
   query,
   setQuery,
   closeFilter,
-  toolsShown,
-  filterFocused,
-  setFilterFocused,
 }: {
   files: FileBrowser;
   selectedFolder: ExplorerState["selectedFolder"];
@@ -30,186 +58,180 @@ export function ExplorerToolbar({
   query: string;
   setQuery: ExplorerState["setQuery"];
   closeFilter: ExplorerState["closeFilter"];
-  toolsShown: boolean;
-  filterFocused: boolean;
-  setFilterFocused: ExplorerState["setFilterFocused"];
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [open, setOpen] = useState<"new" | "view" | null>(null);
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+  const newRef = useRef<View>(null);
+  const viewRef = useRef<View>(null);
+  /**
+   * When an empty field last put itself away on blur.
+   *
+   * Pressing the lit magnifier blurs the field on mousedown, before the press
+   * lands — so the blur has already closed it, and the press would read
+   * "closed" and open it again. A press within a moment of that blur is the
+   * same gesture, and is left as the close it was.
+   */
+  const blurClosedAt = useRef(0);
+
+  /** A query that is filtering keeps its field, whoever asked for it. */
+  const filtering = filterOpen || query !== "";
+
+  const putFilterAway = useCallback(() => {
+    closeFilter();
+    setFilterOpen(false);
+  }, [closeFilter]);
 
   /**
-   * The controls across the top of the column.
+   * Open a menu under its own button.
    *
-   * Sort and collapse are about the *panel* rather than about the context, so
-   * neither is gated on `canEdit`: a member reading somebody else's notes has
-   * as much use for a folded tree as its owner does.
-   *
-   * There is no fifth. A "Close the file tree" button used to be drawn under
-   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘B
-   * and the top bar's toggle already do, on the one density where there is
-   * nothing covering the note to dismiss.
-   *
-   * There was briefly a sixth: a gear that started the one-time storage-layout
-   * update. It is gone from here rather than reordered — a maintenance
-   * operation somebody runs once, or never, does not earn permanent room
-   * beside the four controls they use every day. It lives in Settings →
-   * Storage and in a dismissible notice now; see
-   * `../storage/StorageMigration.tsx`, which holds the argument and the copy.
+   * Measured at press time, as `CreateButton` does and for its reason: the
+   * anchor is a hint, `measureInWindow` answers asynchronously (and never
+   * under jsdom), so the menu opens outside the callback and `Menu` falls
+   * back to its own margin when no measurement landed.
    */
-  /*
-    THE HEADER'S TOOLS, IN TWO GROUPS, AND THE SPLIT IS THE CANVAS'S.
+  const openMenu = useCallback((which: "new" | "view") => {
+    const ref = which === "new" ? newRef : viewRef;
+    ref.current?.measureInWindow((x, y, _width, height) => {
+      setAnchor({ x, y: y + height + 4 });
+    });
+    setOpen(which);
+  }, []);
 
-    All four used to arrive together on approach, on the argument that four
-    lit buttons over a list of names is the loudest thing in the quietest
-    region. That argument was right about *four* and wrong about zero: the
-    canvas draws two of them at rest — new note and collapse-all — and a
-    header with a name and nothing else reads as a caption rather than as the
-    top of a panel you can do things to.
+  const dismiss = useCallback(() => {
+    setOpen(null);
+    setAnchor(undefined);
+  }, []);
 
-    Which two is not arbitrary. These are the pair with no other route: ⌘N has
-    no equivalent for "collapse everything", and both act on the column rather
-    than on a row, so neither is in a row's context menu. The pair that fades
-    — new folder, and the sort direction — are both reachable from a folder's
-    own menu, and sorting is something you set once.
-  */
-  const restingActions = (
-    <>
-      {files.canEdit ? (
-        <IconButton
-          label="New note"
-          icon="plus"
-          /*
-            Makes it, rather than asking what to call it. See `untitled.ts`: the
-            note arrives as `untitled-<date>` and takes the first heading typed
-            into it.
-          */
-          onPress={() => files.createUntitled(selectedFolder, "note")}
-          testID="explorer-new-note"
-        />
-      ) : null}
-      <IconButton
-        label="Collapse every folder"
-        icon="collapse"
-        onPress={files.collapseAll}
-        testID="explorer-collapse"
-      />
-    </>
-  );
+  const where = selectedFolder === "" ? "the top level" : folderLabel(baseName(selectedFolder));
+  const newNoteChord = describeBinding("newNote", isApplePlatform());
+  const newItems: MenuItem<NewId>[] = [
+    {
+      id: "new-note",
+      label: "New note",
+      detail: `In ${where}.`,
+      ...(newNoteChord === null ? {} : { shortcut: newNoteChord }),
+      testID: "explorer-new-note",
+    },
+    { id: "new-folder", label: "New folder", testID: "explorer-new-folder" },
+    { id: "new-drawing", label: "New drawing", testID: "explorer-new-drawing" },
+  ];
+  const viewItems: MenuItem<ViewId>[] = [
+    { id: "sort-asc", label: "Sort A to Z", checked: !descending, testID: "explorer-sort-asc" },
+    { id: "sort-desc", label: "Sort Z to A", checked: descending, testID: "explorer-sort-desc" },
+    {
+      id: "collapse",
+      label: "Collapse all folders",
+      separatorBefore: true,
+      testID: "explorer-collapse",
+    },
+  ];
 
-  const approachActions = (
-    <>
-      {files.canEdit ? (
-        <IconButton
-          label="New folder"
-          icon="folder"
-          onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
-          testID="explorer-new-folder"
-        />
-      ) : null}
-      <IconButton
-        label={descending ? "Sort A to Z" : "Sort Z to A"}
-        icon="sort"
-        onPress={() => setListingOrder(!descending)}
-        testID="explorer-sort"
-      />
-    </>
-  );
+  const chooseNew = (id: NewId) => {
+    dismiss();
+    if (id === "new-note") files.createUntitled(selectedFolder, "note");
+    if (id === "new-drawing") files.createUntitled(selectedFolder, "drawing");
+    if (id === "new-folder") setDialog({ kind: "newFolder", folder: selectedFolder });
+  };
 
-  /**
-   * The filter, permanently in the column's header.
-   *
-   * No `autoFocus`: this field has always been on the screen, and a permanent
-   * field that takes the caret on mount steals it from whatever somebody was
-   * doing. It was autofocused under `touch`, where it was a field that had just
-   * been *revealed* by a press, and that arm is gone with the density.
-   *
-   * ## Its box is chrome, so its box arrives on approach
-   *
-   * The *field* is permanent and stays permanent — it is a real input with a
-   * real caret at every moment, and nothing about reaching it changed. What
-   * was permanent and should not have been is the 28pt bordered well it was
-   * drawn in: at rest it was an empty box at the top of a column whose whole
-   * job is to be a quiet list of names, and it was the loudest thing in it —
-   * exactly what the four icon buttons beside it were faded for.
-   *
-   * So at rest it is the word `Filter` in muted type, which reads as the
-   * column's label; the border and the fill come in with the buttons. Kept
-   * while the query is non-empty, because a field somebody has typed into is
-   * not chrome — and while it has focus, so tabbing to it does not land the
-   * caret in something that looks like a heading.
-   */
-  const filterField = (
-    <TextInput
-      value={query}
-      onChangeText={setQuery}
-      /*
-        Blank until the header is lit, because `Notes` is drawn over the field
-        at rest and two words in one box is what a placeholder underneath a
-        label looks like. The accessible name is unconditional and on the line
-        below, so nothing about reaching this field depends on the word.
-      */
-      placeholder={toolsShown || filterFocused ? "Filter" : ""}
-      placeholderTextColor={colors.muted}
-      onFocus={() => setFilterFocused(true)}
-      onBlur={() => setFilterFocused(false)}
-      style={[
-        styles.filter,
-        (toolsShown || filterFocused || query !== "") && styles.filterBoxed,
-      ]}
-      accessibilityLabel="Filter notes and folders"
-      autoCapitalize="none"
-      autoCorrect={false}
-      spellCheck={false}
-      testID="explorer-filter"
-    />
-  );
+  const chooseView = (id: ViewId) => {
+    dismiss();
+    if (id === "sort-asc") setListingOrder(false);
+    if (id === "sort-desc") setListingOrder(true);
+    if (id === "collapse") files.collapseAll();
+  };
 
   return (
-    <View style={styles.toolbar}>
-      {/*
-        THE COLUMN'S NAME, AT REST, OVER THE FIELD RATHER THAN BESIDE IT.
-
-        The design's tree opens on the word `Notes` — an eyebrow, the way
-        every panel in this product labels itself — and the header's controls
-        arrive with the pointer. What was here instead was the filter's
-        placeholder, which is a different word for a different thing: `Filter`
-        answers "what does this box do" and says nothing about what the
-        column below it is.
-
-        Drawn *over* the field, absolutely, and faded out as the tools fade
-        in — so the field is mounted at every moment, keeps its caret, keeps
-        its place in the tab order, and nothing about the row's geometry
-        depends on which of the two is visible. `pointerEvents="none"` so the
-        label cannot take the press that focuses the field underneath it.
-
-        It goes when the filter has something in it as well as on approach:
-        a column showing eight of its forty rows must say why, and `Notes`
-        over a filtered tree is a label telling a small lie.
-      */}
-      <View
-        style={[styles.eyebrow, (toolsShown || filterFocused || query !== "") && styles.eyebrowGone]}
-        pointerEvents="none"
-        aria-hidden
-      >
-        <Text variant="eyebrow">Notes</Text>
-      </View>
-      {filterField}
-      {query !== "" ? (
+    <View style={styles.toolbar} testID="explorer-header">
+      {filtering ? (
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Filter"
+          placeholderTextColor={colors.muted}
+          /*
+            Autofocused because it has just been asked for: this field is
+            mounted by a press on the magnifier, so the caret belongs in it.
+            (The old field was permanent and could not do this without
+            stealing the caret on every mount.)
+          */
+          autoFocus={filterOpen}
+          onKeyPress={(event) => {
+            if (event.nativeEvent.key === "Escape") putFilterAway();
+          }}
+          /* An empty field somebody has left goes back to being the label. */
+          onBlur={() => {
+            if (query !== "") return;
+            blurClosedAt.current = Date.now();
+            setFilterOpen(false);
+          }}
+          style={styles.filter}
+          accessibilityLabel="Filter notes and folders"
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          testID="explorer-filter"
+        />
+      ) : (
+        <View style={styles.label}>
+          <Text variant="eyebrow">Notes</Text>
+        </View>
+      )}
+      <View style={styles.tools}>
         <IconButton
-          label="Clear the filter"
-          icon="close"
-          onPress={closeFilter}
-          testID="explorer-filter-clear"
+          label={filtering ? "Clear the filter" : "Filter notes and folders"}
+          icon="search"
+          on={filtering}
+          onPress={() => {
+            if (filtering) putFilterAway();
+            else if (Date.now() - blurClosedAt.current > 400) setFilterOpen(true);
+          }}
+          testID="explorer-filter-toggle"
+        />
+        {files.canEdit ? (
+          <View ref={newRef}>
+            <IconButton
+              label="New"
+              icon="plus"
+              menu
+              on={open === "new"}
+              onPress={() => openMenu("new")}
+              testID="explorer-new"
+            />
+          </View>
+        ) : null}
+        <View ref={viewRef}>
+          <IconButton
+            label="View options"
+            icon="more"
+            menu
+            on={open === "view"}
+            onPress={() => openMenu("view")}
+            testID="explorer-view"
+          />
+        </View>
+      </View>
+
+      {open === "new" ? (
+        <Menu<NewId>
+          {...(anchor === undefined ? {} : { anchor })}
+          title="New"
+          items={newItems}
+          onSelect={chooseNew}
+          onDismiss={dismiss}
         />
       ) : null}
-      <View style={styles.toolbarSpacer} />
-      <View style={[styles.tools, toolsShown && styles.toolsShown]}>{approachActions}</View>
-      {/*
-        Never faded. See `restingActions` — the canvas's header has these two
-        at rest, and the fade is now about the pair beside them rather than
-        about the whole toolbar.
-      */}
-      <View style={styles.toolsResting}>{restingActions}</View>
+      {open === "view" ? (
+        <Menu<ViewId>
+          {...(anchor === undefined ? {} : { anchor })}
+          title="View"
+          items={viewItems}
+          onSelect={chooseView}
+          onDismiss={dismiss}
+        />
+      ) : null}
     </View>
   );
 }
