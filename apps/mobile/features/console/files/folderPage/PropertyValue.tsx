@@ -66,6 +66,8 @@ export function PropertyValue({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [typing, setTyping] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // A keyboard reaches a quiet value by Tab; it shows while focused, as it does under the pointer.
+  const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState("");
 
   if (onChoose === null) {
@@ -129,6 +131,8 @@ export function PropertyValue({
         onPress={open}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         role="button"
         aria-haspopup="menu"
         aria-expanded={menu !== null}
@@ -139,7 +143,7 @@ export function PropertyValue({
         <Text
           variant={variant}
           numberOfLines={1}
-          style={[style, current === null && styles.unset, hovered && styles.hover, quiet && !hovered && menu === null && styles.quiet]}
+          style={[style, current === null && styles.unset, hovered && styles.hover, quiet && !hovered && !focused && menu === null && styles.quiet]}
         >
           {current === null ? `Set ${property}` : isolateForDisplay(current)}
         </Text>
