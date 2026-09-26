@@ -191,7 +191,12 @@ export function BrowseDocument({
             card in the notice band first, which spanned the whole pane and
             pushed the workspace it was announcing off the screen.
           */
-          <LayingOutPage contextLabel={contextLabel} done={layingOut === "done"} />
+          <LayingOutPage
+            contextLabel={contextLabel}
+            done={layingOut === "done"}
+            standard={current?.structureTemplate !== "custom"}
+            shared={current?.kind === "shared"}
+          />
         ) : !compact ? (
           <Empty contextLabel={contextLabel} />
         ) : landing === null ? null : (

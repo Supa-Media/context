@@ -221,8 +221,9 @@ describe("the presets are things the control plane will accept", () => {
 
   test("only PARA takes the para path; our own presets travel as custom", () => {
     expect(templateFor("para")).toBe("para");
-    expect(templateFor("company")).toBe("custom");
-    expect(templateFor("client")).toBe("custom");
+    expect(templateFor("business")).toBe("custom");
+    expect(templateFor("agency")).toBe("custom");
+    expect(templateFor("project")).toBe("custom");
     expect(templateFor("custom")).toBe("custom");
   });
 
@@ -235,6 +236,15 @@ describe("the presets are things the control plane will accept", () => {
     expect(presetFor(DEFAULT_PRESET).key).toBe(DEFAULT_PRESET);
     expect(DEFAULT_PRESET).not.toBe("para");
     expect(presetRows(DEFAULT_PRESET).length).toBeGreaterThan(0);
+  });
+
+  test("a business gets a clients folder and a teams folder, and is the default", () => {
+    // What the owner asked for (2026-09-26): making a business workspace
+    // should lay down somewhere for clients and somewhere for teams.
+    expect(DEFAULT_PRESET).toBe("business");
+    const names = presetRows("business").map((row) => row.name);
+    expect(names.some((name) => /clients$/.test(name))).toBe(true);
+    expect(names.some((name) => /teams$/.test(name))).toBe(true);
   });
 
   test("an unknown preset throws rather than falling back to somebody else's folders", () => {

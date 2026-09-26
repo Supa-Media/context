@@ -244,7 +244,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Connecting an AI is a guide that checks itself
 - An action row is primary first, and the way out sits beside it
 - Two name fields for a shared workspace, one for a personal one
-- The layout presets are company-shaped, and PARA is not the default
+- The layout presets are business-shaped, and PARA is not the default
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail is one list, with the personal workspace pinned to the top
