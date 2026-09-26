@@ -72,12 +72,12 @@ describe("a folder with nothing declared", () => {
       ["Not started", [["", 1]]],
       ["In progress", [["In Progress", 1], ["active", 2]]],
       ["Done", [["finished", 0]]],
-      ["Needs a group", [["exploration", 1]]],
+      ["No group yet", [["exploration", 1]]],
     ]);
   });
 
   test("the List leaves empty statuses out", () => {
-    expect(shape(listBands(groups, list)).map(([label]) => label)).toEqual(["Not started", "In progress", "Needs a group"]);
+    expect(shape(listBands(groups, list)).map(([label]) => label)).toEqual(["Not started", "In progress", "No group yet"]);
   });
 
   test("says which words the list does not hold, with what merging would do", () => {
@@ -108,7 +108,7 @@ describe("a declared list", () => {
     expect(from).toBe("1-projects");
     const bands = shape(statusBands(groupFolderItems(items, "status", list), list, false));
     expect(bands[0]).toEqual(["Not started", [["", 1], ["exploration", 1]]]);
-    expect(bands.map(([label]) => label)).not.toContain("Needs a group");
+    expect(bands.map(([label]) => label)).not.toContain("No group yet");
   });
 
   test("is inherited by a subfolder that declares none", () => {

@@ -51,9 +51,7 @@ import {
   type StatusGroup,
 } from "./statuses";
 import { StatusesDialog } from "./StatusesDialog";
-import { TidyStatuses } from "./TidyStatuses";
-import { useStatusEdits, type StatusPlan } from "./useStatusEdits";
-import { Confirm } from "../Dialogs";
+import { useStatusEdits } from "./useStatusEdits";
 import { TrackNudge } from "./Nudge";
 import { dismissNudge, nudgeDismissed, rememberView, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
@@ -145,7 +143,6 @@ export function FolderPage({
   const undeclared = useMemo(() => undeclaredStatuses(items, list), [items, list]);
   const edits = useStatusEdits(loaded, folder, statuses, summary === null ? null : { target: summary.target, creates: summary.creates });
   const [editing, setEditing] = useState(false);
-  const [merging, setMerging] = useState<{ word: string; plan: StatusPlan } | null>(null);
   const [tidyProblem, setTidyProblem] = useState<string | null>(null);
   const toneOf = useCallback((status: string) => groupOfStatus(status, list) ?? ("unplaced" as const), [list]);
 
@@ -193,19 +190,16 @@ export function FolderPage({
     statusMenu: menuSections,
     toneOf,
     onEditStatuses,
+    onPlaceStatus:
+      edits.savesTo === null
+        ? null
+        : (word: string, group: StatusGroup) => {
+            setTidyProblem(null);
+            void edits.place(word, group).then((problem) => setTidyProblem(problem));
+          },
     owners,
   };
-  const place = (word: string, group: StatusGroup) => {
-    setTidyProblem(null);
-    void edits.place(word, group).then((problem) => setTidyProblem(problem));
-  };
-  const merge = (word: string, into: string) => {
-    setTidyProblem(null);
-    void edits.planMerge(word, into).then((plan) => {
-      if (typeof plan === "string") setTidyProblem(plan);
-      else setMerging({ word, plan });
-    });
-  };
+  const problem = loaded.problem ?? tidyProblem;
 
   return (
     <>
@@ -229,9 +223,9 @@ export function FolderPage({
         {isProject && summary?.lede ? <Lede text={summary.lede} /> : null}
         {isProject ? null : rule}
       </FolderHead>
-      {loaded.problem !== null ? (
+      {problem !== null ? (
         <Text variant="treeMeta" style={styles.problem} role="alert" testID="folder-problem">
-          {loaded.problem}
+          {problem}
         </Text>
       ) : loaded.saving ? (
         // Said while a choice is on its way, so a value that moved is not mistaken for one that is saved.
@@ -251,39 +245,13 @@ export function FolderPage({
           />
         </View>
       ) : null}
-      {view !== "files" && edits.savesTo !== null && undeclared.length > 0 ? (
-        <View style={styles.nudge}>
-          <TidyStatuses words={undeclared} onPlace={place} onMerge={merge} />
-          {tidyProblem !== null ? (
-            <Text variant="treeMeta" style={styles.problem} role="alert">
-              {tidyProblem}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
       {editing && edits.savesTo !== null ? (
         <StatusesDialog
           list={list}
+          undeclared={undeclared}
           edits={edits}
           inherited={statuses.from !== null && statuses.from !== folder ? statuses.from : null}
           onClose={() => setEditing(false)}
-        />
-      ) : null}
-      {merging !== null ? (
-        <Confirm
-          title={`Merge “${merging.word}”?`}
-          body={
-            merging.plan.paths.length === 0
-              ? `Nothing under this list uses “${merging.word}” any more.`
-              : `This changes the status line on ${merging.plan.paths.length === 1 ? "1 note" : `${merging.plan.paths.length} notes`} from “${merging.word}” to “${merging.plan.to}”.`
-          }
-          confirmLabel={merging.plan.paths.length === 1 ? "Change 1 note" : `Change ${merging.plan.paths.length} notes`}
-          onCancel={() => setMerging(null)}
-          onConfirm={() => {
-            const plan = merging.plan;
-            setMerging(null);
-            void edits.apply(plan).then((problem) => setTidyProblem(problem));
-          }}
         />
       ) : null}
       <View style={styles.contents}>

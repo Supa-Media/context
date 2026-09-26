@@ -217,8 +217,8 @@ describe("a folder whose children have statuses", () => {
     const view = await mount(entry("folder", "1-projects"), PROJECTS, host(null));
     expect(all("folder-group")).toHaveLength(2);
     expect(strip(view.container.textContent)).not.toContain("Set status");
-    // Tidying the folder's words is not theirs either.
-    expect(all("folder-tidy")).toHaveLength(0);
+    // Placing the folder's words is not theirs either.
+    expect(all("folder-choose-group")).toHaveLength(0);
     expect(all("folder-item-status")).toHaveLength(0);
   });
 });
@@ -479,5 +479,91 @@ describe("a quiet status in the list", () => {
     expect(getComputedStyle(word).opacity).toBe("0");
     await act(async () => button.focus());
     expect(getComputedStyle(word).opacity).not.toBe("0");
+  });
+});
+
+/**
+ * Dev2, on the first cut: a sentence per word, stacked between the header and
+ * the list ("is on 1 item here but isn’t one of this folder’s statuses…"),
+ * "should never ever look like this". So a word the folder's list does not
+ * hold asks nothing of the page: an ordinary word sits in its group, a word
+ * nobody placed sits last under No group yet with one Choose group on its own
+ * heading, and tidying (add, merge) is in "Edit statuses…".
+ */
+describe("a word nobody placed", () => {
+  const UNPLACED: ListNote[] = [...NOTES, { path: "1-projects/research.md", updatedAt: 10, properties: { status: "exploration" } }];
+  const RESEARCH = listing("1-projects", [...PROJECTS.entries, entry("file", "1-projects/research.md")]);
+  type ListWrite = [path: string, changes: readonly (readonly [string, unknown])[]];
+  function placing(writes: Write[] | null, lists: ListWrite[] = []): FolderPageHost {
+    const base = host(writes);
+    return {
+      ...base,
+      source: {
+        ...base.source,
+        load: async () => ({ notes: UNPLACED, complete: true }),
+        ...(writes === null
+          ? {}
+          : {
+              setProperties: async (path: string, changes: readonly (readonly [string, unknown])[]) => {
+                lists.push([path, changes]);
+                return null;
+              },
+            }),
+      },
+    };
+  }
+
+  test("sits last under No group yet, asked about on its own heading and nowhere above the list", async () => {
+    const view = await mount(entry("folder", "1-projects"), RESEARCH, placing([]));
+    const groups = all("folder-group");
+    expect(groups.map((group) => strip(group.firstElementChild?.textContent))).toEqual(["Not started2", "In progress2", "No group yet1Choose group"]);
+    expect(all("folder-choose-group")).toHaveLength(1);
+    expect(groups[2].contains(one("folder-choose-group"))).toBe(true);
+    // Neither word is a sentence anywhere on the page.
+    expect(strip(view.container.textContent)).not.toMatch(/isn’t one of this folder’s statuses|reads as|Merge into|Keep as a status/);
+  });
+
+  test("Choose group adds it to the folder's list in that group, and its note keeps its word", async () => {
+    const writes: Write[] = [];
+    const lists: ListWrite[] = [];
+    await mount(entry("folder", "1-projects"), RESEARCH, placing(writes, lists));
+    await press(one("folder-choose-group"));
+    await press(one("menu-item-to:not-started"));
+    expect(lists).toHaveLength(1);
+    expect(lists[0][1]).toContainEqual(["statuses-not-started", ["exploration"]]);
+    expect(writes).toEqual([]);
+  });
+
+  test("on the board, Choose group is in the word's own column head", async () => {
+    await mount(entry("folder", "1-projects"), RESEARCH, placing([]));
+    await press(one("folder-view-board"));
+    const bands = all("folder-board-band");
+    expect(bands.map((band) => band.getAttribute("aria-label"))).toEqual(["Not started", "In progress", "Done", "No group yet"]);
+    const column = all("folder-board-column").find((node) => node.getAttribute("aria-label") === "Exploration, 1")!;
+    expect(column.contains(one("folder-choose-group"))).toBe(true);
+  });
+
+  test("a member sees No group yet with nothing to press", async () => {
+    await mount(entry("folder", "1-projects"), RESEARCH, placing(null));
+    expect(strip(all("folder-group").at(-1)?.firstElementChild?.textContent)).toBe("No group yet1");
+    expect(all("folder-choose-group")).toHaveLength(0);
+  });
+
+  test("Edit statuses lists the words in use, and merging one asks with the count first", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects"), RESEARCH, placing(writes));
+    await press(one("folder-choose-group"));
+    await press(one("menu-item-edit"));
+    const rows = all("statuses-in-use-row").map((row) => strip(row.textContent));
+    expect(rows).toEqual([
+      "Active1 note · reads as In progressAdd to listMerge into In progress",
+      "Paused1 note · reads as In progressAdd to listMerge into In progress",
+      "Exploration1 note · no groupChoose group",
+    ]);
+    await press(all("statuses-in-use-merge")[0]);
+    expect(strip(one("statuses-confirm").textContent)).toContain("1 note uses “active”. Merging changes their status to “in progress”.");
+    expect(writes).toEqual([]);
+    await press(one("statuses-confirm-go"));
+    expect(writes).toEqual([["1-projects/web/overview.md", "status", "in progress", undefined]]);
   });
 });
