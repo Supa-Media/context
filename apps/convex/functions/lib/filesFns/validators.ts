@@ -71,6 +71,25 @@ export const imageValidator = v.object({
   bytes: v.bytes(),
 });
 
+export const emojiListValidator = v.object({
+  kind: v.literal("emojiList"),
+  emoji: v.array(v.object({ name: v.string(), leaf: v.string() })),
+});
+
+export const emojiImageValidator = v.object({
+  kind: v.literal("emojiImage"),
+  bytes: v.bytes(),
+  contentType: v.string(),
+});
+
+export const emojiStoredValidator = v.object({
+  kind: v.literal("emojiStored"),
+  name: v.string(),
+  leaf: v.string(),
+});
+
+export const emojiRemovedValidator = v.object({ kind: v.literal("emojiRemoved") });
+
 export const vaultImportResultValidator = v.object({
   kind: v.literal("vaultImported"),
   created: v.array(v.string()),
