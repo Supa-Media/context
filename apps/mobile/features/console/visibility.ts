@@ -124,10 +124,10 @@ export function tierChipLabel(role: string | null | undefined): string | null {
  */
 export function tierSentence(role: string | null | undefined): string | null {
   if (role === "member") {
-    return "Team access — notes marked private are not shown here.";
+    return "Team access. Notes marked private are not shown here.";
   }
   if (role === "editor") {
-    return "Team access — you can edit this context, but notes marked private are not shown here.";
+    return "Team access. You can edit this context, but notes marked private are not shown here.";
   }
   return null;
 }

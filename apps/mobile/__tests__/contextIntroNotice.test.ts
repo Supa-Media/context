@@ -235,7 +235,7 @@ describe("what the band says is one paragraph, never a stack", () => {
       canEdit: true,
       readOnlyReason: "You have read-only access to this context.",
     });
-    expect(intro?.text).toContain("you can edit this context");
+    expect(intro?.text).toContain("You can edit this context");
     expect(intro?.text).not.toContain("read-only access");
   });
 
