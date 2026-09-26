@@ -48,6 +48,8 @@ import { untitledStem } from "../features/console/files/untitled";
  *   `createUntitled` not recording the path at all                       3
  *   `createUntitled` generating its name against an empty listing        2
  *   `createUntitled` naming without loading the destination first        1
+ *   a note left unsettled not carrying its rename (`carry` never called)  1
+ *   the carried rename not waiting for the bucket to hold the draft       1
  */
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -341,6 +343,69 @@ describe("a note made without a name", () => {
     await settle();
 
     expect(browser.editor.status).toBe("dirty");
+    expect(moves()).toEqual([]);
+  });
+
+  /**
+   * AND WHEN SOMEBODY LEAVES THE NOTE BEFORE ITS SAVE HAS SETTLED.
+   *
+   * The owner's report (2026-09-26): a new note retitled `# usecases`, the row
+   * read "usecases" while they were on it, and after they went to another note
+   * the file was still `untitled-2026-09-26.md`. The rename waits for a settled
+   * save, and leaving is exactly the moment the save is still in flight — the
+   * editor moved to the next note, the note it was waiting on was forgotten,
+   * and the title never became the name. The rename is owed, not dropped: it
+   * runs once the bucket holds the new title.
+   */
+  test("renames on the way out when the save had not settled yet", async () => {
+    unmount = mount();
+    await settle();
+    await makeAndOpen();
+
+    await act(async () => {
+      browser.setTitleCaret!(true);
+    });
+    await act(async () => {
+      browser.setDraft("# usecases\n\nKeep going.\n");
+    });
+    await settle();
+    expect(browser.editor.status).toBe("dirty");
+    expect(moves()).toEqual([]);
+
+    await act(async () => {
+      browser.select("index.md");
+    });
+    await settle();
+    await settle();
+
+    expect(moves()).toEqual([{ from: MADE, to: `${FOLDER}/usecases.md` }]);
+  });
+
+  /**
+   * BUT ONLY ONCE THE BUCKET HOLDS WHAT WAS TYPED.
+   *
+   * Renaming before the typing reached the bucket is the race the settled-save
+   * guard exists to stop. A note left while its write cannot land is left at
+   * its name rather than moved out from under the write.
+   */
+  test("and not while the bucket still holds the old title", async () => {
+    unmount = mount();
+    await settle();
+    await makeAndOpen();
+    actions[name("writeNote")] = () => new Promise(() => {});
+
+    await act(async () => {
+      browser.setTitleCaret!(true);
+    });
+    await act(async () => {
+      browser.setDraft("# usecases\n\nKeep going.\n");
+    });
+    await act(async () => {
+      browser.select("index.md");
+    });
+    await settle();
+    await settle();
+
     expect(moves()).toEqual([]);
   });
 
