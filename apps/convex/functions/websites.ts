@@ -179,7 +179,10 @@ export const siteSnapshot = action({
 
 export const homeSiteWorkspace = internalQuery({
   args: { handle: v.string() },
-  returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces"), siteName: v.string() })),
+  returns: v.union(
+    v.null(),
+    v.object({ workspaceId: v.id("workspaces"), siteName: v.string(), keys: v.array(v.string()) }),
+  ),
   handler: homeSiteWorkspaceHandler,
 });
 

@@ -25,6 +25,8 @@ export const DEFAULT_HOME_SITE_HANDLE = "context-lc";
 
 /** The HTML waits this long for the site at most, then goes without it. */
 const SNAPSHOT_TIMEOUT_MS = 1_500;
+/** How long the fetch itself may run after the HTML has gone, to fill the cache. */
+const SNAPSHOT_FETCH_LIMIT_MS = 15_000;
 /**
  * Per colo. Short, because an owner editing the front page reloads to see it;
  * the app also watches the site's revision and catches up on its own.
@@ -122,30 +124,42 @@ export async function fetchHomeSnapshot(
     // A cache that cannot answer is a miss.
   }
 
-  let body: unknown = null;
+  // The answer is cached whenever it arrives, so a visit that gave up waiting
+  // still leaves the site ready for the next one.
+  const answer = (async (): Promise<HomeSnapshot | null> => {
+    try {
+      const response = await fetch(`${convexOrigin}/site/home`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle }),
+        signal: AbortSignal.timeout(SNAPSHOT_FETCH_LIMIT_MS),
+      });
+      if (!response.ok) return null;
+      const snapshot = parseHomeSnapshot(await response.json());
+      if (cache !== null) {
+        const stored = new Response(JSON.stringify(snapshot), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": `public, max-age=${SNAPSHOT_CACHE_SECONDS}`,
+          },
+        });
+        await cache.put(key, stored).catch(() => undefined);
+      }
+      return snapshot;
+    } catch {
+      return null;
+    }
+  })();
+  ctx.waitUntil(answer);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), SNAPSHOT_TIMEOUT_MS);
+  });
   try {
-    const response = await fetch(`${convexOrigin}/site/home`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handle }),
-      signal: AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    body = await response.json();
-  } catch {
-    return null;
+    return await Promise.race([answer, late]);
+  } finally {
+    clearTimeout(timer);
   }
-  const snapshot = parseHomeSnapshot(body);
-  if (cache !== null) {
-    const stored = new Response(JSON.stringify(snapshot), {
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": `public, max-age=${SNAPSHOT_CACHE_SECONDS}`,
-      },
-    });
-    ctx.waitUntil(cache.put(key, stored).catch(() => undefined));
-  }
-  return snapshot;
 }
 
 /**

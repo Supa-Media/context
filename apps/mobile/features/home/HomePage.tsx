@@ -3,7 +3,6 @@ import { StyleSheet, View } from "react-native";
 import { ScreenScroll } from "../app/Screen";
 import type { FileBrowser } from "../console/files/browser";
 import { NoteEditor } from "../console/files/NoteEditor";
-import { Button } from "../design/components/Button";
 import { Text } from "../design/components/Text";
 import { leading, pointerType as t } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
@@ -13,21 +12,17 @@ import { NoteBody } from "../share/NoteBody";
 const noop = () => {};
 
 /**
- * The open note, read as the site draws it: its title where the editor draws
- * one, and the body beneath, with its links working. `onEdit` puts an Edit
- * button beside the title; a page with nothing to edit (an unknown address)
- * gets none.
+ * A page that is not a note: the shell's own answer for an address the site
+ * does not have, drawn as the site draws a page, with its links working.
  */
 export function HomePage({
   markdown,
   compact,
   onLink,
-  onEdit,
 }: {
   markdown: string;
   compact: boolean;
   onLink: (href: string) => void;
-  onEdit?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const { title, blocks } = useMemo(() => {
@@ -43,15 +38,10 @@ export function HomePage({
       testID="home-page"
     >
       <View style={styles.column}>
-        {title === null && onEdit === undefined ? null : (
-          <View style={styles.titleRow}>
-            <Text variant="body" role="heading" aria-level={1} style={styles.title}>
-              {title ?? ""}
-            </Text>
-            {onEdit === undefined ? null : (
-              <Button label="Edit" variant="mini" onPress={onEdit} testID="home-edit" />
-            )}
-          </View>
+        {title === null ? null : (
+          <Text variant="body" role="heading" aria-level={1} style={styles.title}>
+            {title}
+          </Text>
         )}
         <NoteBody blocks={blocks} onSiteLink={onLink} />
       </View>
@@ -60,31 +50,24 @@ export function HomePage({
 }
 
 /**
- * The open note in the app's own editor, as a workspace member would write in
- * it. What is typed goes to the tab's copy of the workspace only
- * (`useLocalFileBrowser`), which the line above the editor says, so nobody
- * thinks they just changed the site.
+ * The open note in the app's own editor, writable the moment it opens, as it
+ * is for a workspace member. What is typed goes to the tab's copy of the
+ * workspace only (`useLocalFileBrowser`), and a reload is the site again.
+ * Nothing on screen says so: the owner asked for the page to just work, with
+ * no instructions over it.
  */
 export function HomeEditor({
   files,
   compact,
-  onDone,
   onOpenNote,
 }: {
   files: FileBrowser;
   compact: boolean;
-  onDone: () => void;
   onOpenNote: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={[styles.editing, compact && styles.editingCompact]} testID="home-editor">
-      <View style={styles.editBar}>
-        <Text variant="body" style={styles.hint}>
-          Your changes stay in this browser. Reload to see the site again.
-        </Text>
-        <Button label="Done" variant="mini" onPress={onDone} testID="home-done" />
-      </View>
       <NoteEditor
         state={files.editor}
         canEdit={files.canEdit}
@@ -111,9 +94,7 @@ const makeStyles = (colors: Colors) =>
     // Below the phone's floating top row, which the page scrolls behind.
     pageContentCompact: { paddingTop: 80 },
     column: { width: "100%", maxWidth: 680, alignSelf: "center", gap: 16 },
-    titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 16 },
     title: {
-      flexShrink: 1,
       fontSize: t.title,
       lineHeight: leading(t.title, 1.2),
       fontWeight: "600",
@@ -121,16 +102,6 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: -0.4,
     },
     editing: { flex: 1, backgroundColor: colors.pageSurface },
+    // Below the phone's floating top row.
     editingCompact: { paddingTop: 64 },
-    editBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 12,
-      paddingHorizontal: 24,
-      paddingVertical: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.line,
-    },
-    hint: { flexShrink: 1, fontSize: t.ui, color: colors.muted },
   });

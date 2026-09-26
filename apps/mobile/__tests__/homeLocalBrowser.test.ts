@@ -52,10 +52,8 @@ describe("the homepage's workspace, kept in the tab", () => {
   });
 
   test("a new note opens, and typing in it changes the tree", () => {
-    const created = jest.fn();
-    const view = mount(liveHomeTree(SITE), "/", { onCreated: created });
+    const view = mount(liveHomeTree(SITE), "/");
     act(() => view.get().files.createNote("", "ideas"));
-    expect(created).toHaveBeenCalledWith("ideas.md");
     expect(view.get().files.selectedPath).toBe("ideas.md");
     act(() => view.get().files.setDraft("# Ideas"));
     expect(view.get().notes["ideas.md"]).toBe("# Ideas");

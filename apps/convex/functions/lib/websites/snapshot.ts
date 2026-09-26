@@ -13,10 +13,14 @@
  * homepage; for any other handle it would make every site's pages without a
  * menu entry enumerable, so every other handle is the null answer.
  *
- * What it reads is what the site may publish: the folder listed and read at
- * `PUBLICATION_CLEARANCE`, so a note `privacy.md` holds back is absent from the
- * listing itself. Drafts, members-only pages and encrypted notes are dropped
- * as they are on the site, and nothing is read unless the site is turned on.
+ * Which files there are comes from the site's own route index, which the site
+ * already keeps for the folder at `PUBLICATION_CLEARANCE`: one query, not a
+ * listing of the whole bucket on every visit. Listing the bucket here made the
+ * answer too slow for the page to wait for, so visitors got the built-in copy.
+ * The words are then read at `PUBLICATION_CLEARANCE` too, so a note
+ * `privacy.md` holds back is absent whatever the index says, and drafts,
+ * members-only pages and encrypted notes are dropped as they are on the site.
+ * Nothing is read unless the site is turned on.
  */
 
 import { DEFAULT_WEBSITE_ROOT, parseWebsitePage } from "@context/shared";
@@ -53,11 +57,11 @@ export interface WebsiteSnapshot {
   pages: WebsiteSnapshotPage[];
 }
 
-/** The homepage's workspace, when `handle` is it and its site is on. */
+/** The homepage's workspace and the files its site indexes, when `handle` is it and its site is on. */
 export async function homeSiteWorkspaceHandler(
   ctx: QueryCtx,
   args: { handle: string },
-): Promise<{ workspaceId: Id<"workspaces">; siteName: string } | null> {
+): Promise<{ workspaceId: Id<"workspaces">; siteName: string; keys: string[] } | null> {
   const handle = normalizedHandle(args.handle);
   if (handle === null || handle !== normalizedHandle(homeSiteHandle())) return null;
   const claim = await findName(ctx, handle);
@@ -69,7 +73,20 @@ export async function homeSiteWorkspaceHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
     .unique();
   if (state?.state !== "enabled") return null;
-  return { workspaceId: workspace._id, siteName: workspace.displayName };
+  const rows = await ctx.db
+    .query("websiteRouteIndex")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+    .take(MAX_SNAPSHOT_PAGES * 2);
+  const prefix = `${DEFAULT_WEBSITE_ROOT}/`;
+  const keys = [
+    ...new Set(
+      rows
+        .filter((row) => row.status !== "draft" && row.audience === "public")
+        .map((row) => row.objectKey)
+        .filter((key) => key.startsWith(prefix) && /\.md$/i.test(key)),
+    ),
+  ];
+  return { workspaceId: workspace._id, siteName: workspace.displayName, keys };
 }
 
 /** `index.md` is its folder's address, as it is on the site. */
@@ -100,29 +117,11 @@ export async function websiteSnapshot(
   const revision = await ctx.runQuery(api.functions.websites.siteRevision, { handle: args.handle });
 
   const prefix = `${DEFAULT_WEBSITE_ROOT}/`;
-  const keys: string[] = [];
-  let cursor: string | undefined;
-  for (let pages = 0; pages < 20; pages += 1) {
-    const manifest = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: home.workspaceId,
-      ...PUBLICATION_CLEARANCE,
-      operation: { kind: "manifest", ...(cursor === undefined ? {} : { cursor }) },
-    });
-    if (manifest.kind !== "manifest") return null;
-    for (const entry of manifest.entries) {
-      if (entry.path.startsWith(prefix) && /\.md$/i.test(entry.path)) keys.push(entry.path);
-    }
-    if (manifest.truncated) return null;
-    const next = manifest.cursor ?? undefined;
-    if (next === undefined || next === cursor) break;
-    cursor = next;
-  }
-
   const notes = await readBatches(
     ctx,
     home.workspaceId,
     PUBLICATION_CLEARANCE.scope,
-    keys.sort().slice(0, MAX_SNAPSHOT_PAGES),
+    [...home.keys].sort().slice(0, MAX_SNAPSHOT_PAGES),
   );
   const listed: Array<WebsiteSnapshotPage & { nav: number | null }> = [];
   for (const [key, note] of notes) {
