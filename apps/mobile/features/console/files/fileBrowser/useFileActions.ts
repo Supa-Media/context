@@ -32,6 +32,7 @@ export function useFileActions(deps: FileActionsDeps) {
   const storeNoteImageAction = useAction(api.functions.files.storeNoteImage);
   const readNoteImageAction = useAction(api.functions.files.readNoteImage);
   const readRemoteImageAction = useAction(api.functions.files.readRemoteImage);
+  const readEmojiAction = useAction(api.functions.emoji.read);
   /**
    * Every image this session has already fetched, by workspace and key.
    *
@@ -63,7 +64,7 @@ export function useFileActions(deps: FileActionsDeps) {
 
   return {
     workspaceId, slug, listFiles, readNote, readNotesAction, searchContext, notePathsAction,
-    writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, imageCache,
+    writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, moveEntry,
     folderPathsAction, startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
     copyEntry, duplicateEntry, archiveEntry, trashEntry, restoreTrashEntry, setNoteVisibility,

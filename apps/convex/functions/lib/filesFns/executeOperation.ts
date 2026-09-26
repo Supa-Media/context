@@ -32,6 +32,11 @@ import {
   readFile,
   readFiles,
   readImage,
+  listCustomEmoji,
+  readCustomEmoji,
+  removeCustomEmoji,
+  renameCustomEmoji,
+  storeCustomEmoji,
   removeNoteEncryption as removeNoteEncryptionOp,
   resetPrivacyManifest,
   restoreTrashedPath,
@@ -893,6 +898,23 @@ export async function executeOperation(
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
       }
+      case "emojiList":
+        return { kind: "emojiList", emoji: await listCustomEmoji(store) };
+      case "emojiRead":
+        return { kind: "emojiImage", ...(await readCustomEmoji(store, operation.name)) };
+      case "emojiStore": {
+        const stored = await storeCustomEmoji(store, {
+          name: operation.name,
+          bytes: new Uint8Array(operation.bytes),
+          replace: operation.replace,
+        });
+        return { kind: "emojiStored", ...stored };
+      }
+      case "emojiRemove":
+        await removeCustomEmoji(store, operation.name);
+        return { kind: "emojiRemoved" };
+      case "emojiRename":
+        return { kind: "emojiStored", ...(await renameCustomEmoji(store, operation)) };
       case "resetPrivacy": {
         const result = await resetPrivacyManifest(store, { clearance, now });
         return { kind: "privacyReset", ...result };

@@ -39,6 +39,7 @@
 
 import { autocompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { formCompletionSource } from "./formComplete";
+import { emojiCompletionSource, emojiCompletionTheme, emojiGlyphOption } from "./emoji/emojiComplete";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 import type { NoteLinkRef } from "./noteLinks";
@@ -218,14 +219,17 @@ export function editorCompletion(ref: NoteLinkRef | null, plugin?: CompletionSou
     autocompletion({
       override: [
         formCompletionSource(),
+        emojiCompletionSource(),
         ...(ref === null ? [] : [noteLinkSource(ref)]),
         ...(plugin === undefined ? [] : [plugin]),
       ],
       // The list is rebuilt from the note paths on every keystroke, so there is
       // nothing to keep open across one.
       closeOnBlur: true,
+      addToOptions: [emojiGlyphOption],
     }),
     completionTheme,
+    emojiCompletionTheme,
   ];
 }
 

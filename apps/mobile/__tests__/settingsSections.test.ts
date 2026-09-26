@@ -80,9 +80,10 @@ describe("the order and the grouping", () => {
     expect(rank("sharing")).toBeLessThan(rank("website"));
   });
 
-  test("nine rows, and one of them only when it has something to say", () => {
+  test("ten rows, and one of them only when it has something to say", () => {
     // The whole of the change: twenty rows under four headings became seven
-    // under none, and Model made it eight. `plugins` is deprecated behind
+    // under none, Model made it eight, and Emoji (the workspace's own, which
+    // the : menu offers) made it ten. `plugins` is deprecated behind
     // `shown` and `invitations` appears only while an invitation is pending.
     expect(settingsSectionsFor("personal").map((section) => section.key)).toEqual([
       "profile",
@@ -94,10 +95,11 @@ describe("the order and the grouping", () => {
       "premium",
       "sharing",
       "website",
+      "emoji",
     ]);
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(10);
+    ).toHaveLength(11);
   });
 
   test("every section sits under a heading somebody can answer", () => {
