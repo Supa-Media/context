@@ -21,6 +21,7 @@ import type {
   FormSubmission,
   FormVote,
 } from "../formBlock";
+import type { SpellingFix } from "./spelling";
 
 /**
  * The handful of things a *button* can ask the editor to do.
@@ -296,3 +297,15 @@ export interface EditorHandlers {
 
 /** Where the pointer was when the menu or the table picker was opened. */
 export type MenuPoint = { x: number; y: number };
+
+/**
+ * An open right-click menu: where, and what it found about spelling there.
+ * Decided once by the `contextmenu` handler and read by the render, so the
+ * menu drawn is the menu that handler decided to open.
+ */
+export type MenuOpen = MenuPoint & {
+  /** A misspelled word under the click, with the checker's suggestions. */
+  spelling?: SpellingFix | null;
+  /** No checker to ask here: point at Shift-right-click instead. */
+  spellingHint?: boolean;
+};
