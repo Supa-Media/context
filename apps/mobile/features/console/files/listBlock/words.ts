@@ -35,7 +35,8 @@ export function captionFor(config: ListConfig, label: (folder: string) => string
   const conditions = config.where.map((c) =>
     c.value === undefined ? `${c.property} ${c.op}` : `${c.property} ${c.op} ${isolateForDisplay(c.value)}`,
   );
-  if (conditions.length > 0) return `${folder} · ${conditions.join(", ")}`;
+  const grouped = config.group ? [`${config.as === "board" ? "board" : ""} by ${config.group}`.trim()] : [];
+  if (conditions.length > 0 || grouped.length > 0) return [folder, ...grouped, ...conditions].join(" · ");
   const { key, order } = config.sort;
   if (key === "updated") return `${folder} · ${order === "desc" ? "newest first" : "oldest first"}`;
   return `${folder} · by ${key}`;
@@ -99,4 +100,14 @@ export function shortWhen(at: number, now: number): string {
   const month = then.toLocaleString("en-US", { month: "short" });
   const sameYear = then.getFullYear() === today.getFullYear();
   return sameYear ? `${month} ${then.getDate()}` : `${month} ${then.getDate()}, ${then.getFullYear()}`;
+}
+
+/**
+ * A group's heading: the value as written, first letter raised ("active" is
+ * "Active"), or "No status" for the rows that have none. Contained, since the
+ * value is somebody's frontmatter.
+ */
+export function groupLabel(property: string, value: string): string {
+  if (value === "") return `No ${property}`;
+  return isolateForDisplay(value.charAt(0).toUpperCase() + value.slice(1));
 }

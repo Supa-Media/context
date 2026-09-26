@@ -59,27 +59,57 @@ function listError(message) {
 
 function renderSelection(config, selection) {
   const rows = Array.isArray(selection?.rows) ? selection.rows : [];
-  if (rows.length === 0) return "*No notes to show.*";
-  const columns = ["Note", ...config.show];
-  const lines = [
-    `| ${columns.map(tableText).join(" | ")} |`,
-    `| ${columns.map(() => "---").join(" | ")} |`,
-  ];
-  for (const row of rows) {
-    const title = tableText(row.title);
-    const href = safeHref(row.href);
-    const note = href === null ? title : `[${linkLabel(title)}](${href})`;
-    const values = config.show.map((key) => {
-      const value = row.values?.find((item) => item.key === key)?.value ?? null;
-      return displayValue(key, value);
-    });
-    lines.push(`| ${[note, ...values].join(" | ")} |`);
+  if (rows.length === 0) return config.rows === "projects" ? "*No projects to show.*" : "*No notes to show.*";
+  const sections = [];
+  if (config.group) {
+    for (const row of rows) {
+      const name = typeof row.group === "string" ? row.group : "";
+      const last = sections[sections.length - 1];
+      if (last && last.name === name) last.rows.push(row);
+      else sections.push({ name, rows: [row] });
+    }
+  } else {
+    sections.push({ name: null, rows });
+  }
+  const out = [];
+  for (const section of sections) {
+    if (section.name !== null) {
+      if (out.length) out.push("");
+      out.push(`**${tableText(section.name === "" ? `No ${config.group}` : section.name).replace(/\*/g, "\\*")}**`, "");
+    }
+    out.push(...renderTable(config, section.rows));
   }
   // Never print `selection.total`: the caller may have deliberately withheld
   // rows, and a public page must not become a count oracle.
   if (selection?.truncated === true)
-    lines.push("", "*More notes are available.*");
-  return lines.join("\n");
+    out.push("", config.rows === "projects" ? "*More projects are available.*" : "*More notes are available.*");
+  return out.join("\n");
+}
+
+function renderTable(config, rows) {
+  const columns = [config.rows === "projects" ? "Project" : "Note", ...config.show];
+  const lines = [
+    `| ${columns.map(tableText).join(" | ")} |`,
+    `| ${columns.map(() => "---").join(" | ")} |`,
+  ];
+  const line = (row, prefix) => {
+    const title = tableText(row.title);
+    const href = safeHref(row.href);
+    const note = href === null ? title : `[${linkLabel(title)}](${href})`;
+    const progress = row.progress && Number.isInteger(row.progress.done) && Number.isInteger(row.progress.total)
+      ? ` (${row.progress.done}/${row.progress.total})`
+      : "";
+    const values = config.show.map((key) => {
+      const value = row.values?.find((item) => item.key === key)?.value ?? null;
+      return displayValue(key, value);
+    });
+    return `| ${[prefix + note + progress, ...values].join(" | ")} |`;
+  };
+  for (const row of rows) {
+    lines.push(line(row, ""));
+    for (const child of Array.isArray(row.children) ? row.children : []) lines.push(line(child, "↳ "));
+  }
+  return lines;
 }
 
 function displayValue(key, value) {

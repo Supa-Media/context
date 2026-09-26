@@ -23,6 +23,7 @@ import { Facet, type EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import {
   LIST_FENCE_LANG,
+  listLoadsSubfolders,
   parseListBody,
   renderListBlock,
   selectListRows,
@@ -48,6 +49,16 @@ export interface ListConfig {
   readonly show: readonly string[];
   readonly limit: number;
   readonly subfolders: boolean;
+  /** Notes, or projects: folders and notes with a `status`. */
+  readonly rows: "notes" | "projects";
+  /** The property rows are grouped by, or null. */
+  readonly group: string | null;
+  readonly as: "list" | "board";
+}
+
+/** Whether the list needs every note under its folder, not just those directly in it. */
+export function loadsSubfolders(config: ListConfig): boolean {
+  return listLoadsSubfolders(config) as boolean;
 }
 
 export type PropertyValue = string | readonly string[];
@@ -57,12 +68,22 @@ export interface ListNote {
   readonly path: string;
   readonly updatedAt?: number;
   readonly properties: Readonly<Record<string, PropertyValue>>;
+  /** The note's first heading, which names a project with no `title`. */
+  readonly heading?: string | null;
 }
 
 export interface ListRow {
   readonly path: string;
   readonly title: string;
   readonly values: ReadonlyArray<{ key: string; value: PropertyValue | number | null }>;
+  /** The value this row is grouped under; `""` when it has none. Only on a grouped list. */
+  readonly group?: string;
+  /** On a list of projects: a folder with a front note, or one note. */
+  readonly kind?: "folder" | "note";
+  readonly folder?: string;
+  /** Sub-projects closed out of all of them; null when there are none. */
+  readonly progress?: { readonly done: number; readonly total: number } | null;
+  readonly children?: readonly ListRow[];
 }
 
 export interface ListSelection {

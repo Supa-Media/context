@@ -8,6 +8,7 @@ import { DEFAULT_LIMIT, directionWord } from "./grammar.js";
  */
 export function renderListBlock(config) {
   const lines = [`from: ${config.from}`];
+  if (config.rows === "projects") lines.push("rows: projects");
   if (config.where.length) lines.push(`where: ${config.where.map(renderCondition).join(" and ")}`);
   const { key, order } = config.sort;
   const defaultOrder = key === "updated" ? "desc" : "asc";
@@ -17,6 +18,8 @@ export function renderListBlock(config) {
   if (config.show.length) lines.push(`show: ${config.show.join(", ")}`);
   if (config.limit !== DEFAULT_LIMIT) lines.push(`limit: ${config.limit}`);
   if (config.subfolders) lines.push("subfolders: yes");
+  if (config.group) lines.push(`group: ${config.group}`);
+  if (config.as === "board") lines.push("as: board");
   return lines.join("\n");
 }
 

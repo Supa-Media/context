@@ -19,6 +19,7 @@ import { EditorView, WidgetType } from "@codemirror/view";
 import { folderLabel } from "../paths";
 import { planListRewrite } from "./edit";
 import {
+  loadsSubfolders,
   selectRows,
   type ListConfig,
   type ListFence,
@@ -28,7 +29,7 @@ import {
   type ListSource,
 } from "./model";
 import { ListPanel } from "./panel";
-import { captionFor, formatValue, listProblem, rowTitle } from "./words";
+import { captionFor, formatValue, groupLabel, listProblem, rowTitle } from "./words";
 
 const LIST_ICON =
   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>';
@@ -42,6 +43,18 @@ function el<K extends keyof HTMLElementTagNameMap>(
   node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/** "3/5" with a thin bar: sub-projects closed out of all of them. */
+function drawProgress(progress: { done: number; total: number }): HTMLElement {
+  const wrap = el("span", "cm-lp-list-progress");
+  wrap.title = `${progress.done} of ${progress.total} sub-projects done`;
+  const bar = el("span", "cm-lp-list-progress-bar");
+  const fill = el("span", "cm-lp-list-progress-fill");
+  fill.style.width = `${Math.round((100 * progress.done) / Math.max(1, progress.total))}%`;
+  bar.append(fill);
+  wrap.append(bar, document.createTextNode(`${progress.done}/${progress.total}`));
+  return wrap;
 }
 
 const drawings = new WeakMap<HTMLElement, ListView>();
@@ -83,7 +96,7 @@ export class ListWidget extends WidgetType {
   /* Presses on a row, the caption or the popover are theirs; anywhere else places the caret. */
   ignoreEvent(event: Event): boolean {
     const target = event.target as Element | null;
-    return target?.closest?.(".cm-lp-list-row, .cm-lp-list-cap, .cm-lp-list-panel") != null;
+    return target?.closest?.(".cm-lp-list-row, .cm-lp-list-cap, .cm-lp-list-panel, .cm-lp-list-twisty") != null;
   }
 }
 
@@ -97,6 +110,8 @@ export class ListView {
   private run = 0;
   private unsubscribe: (() => void) | null = null;
   private notes: readonly ListNote[] = [];
+  /** Projects whose sub-projects are shown, by path. Kept across redraws. */
+  private readonly open = new Set<string>();
   private panel: ListPanel | null = null;
   private readonly outside = (event: MouseEvent): void => {
     if (!this.dom.contains(event.target as Node)) this.closePanel(false);
@@ -163,7 +178,7 @@ export class ListView {
     }
     const mine = ++this.run;
     void context
-      .load(config.from, config.subfolders)
+      .load(config.from, loadsSubfolders(config))
       .then((source) => {
         if (mine === this.run) this.paint(config, source, context.selfPath);
       })
@@ -183,9 +198,31 @@ export class ListView {
     this.notes = source.notes;
     const selection = selectRows(config, source.notes, selfPath);
     const now = Date.now();
-    for (const row of selection.rows) rows.append(this.drawRow(row, now));
+    const counts = new Map<string, number>();
+    for (const row of selection.rows) counts.set(row.group ?? "", (counts.get(row.group ?? "") ?? 0) + 1);
+    let group: string | null = null;
+    for (const row of selection.rows) {
+      if (config.group !== null && row.group !== group) {
+        group = row.group ?? "";
+        rows.append(this.drawGroup(config.group, group, counts.get(group) ?? 0));
+      }
+      rows.append(this.drawRow(row, now, config, false));
+      if (row.children !== undefined && row.children.length > 0 && this.open.has(row.path)) {
+        row.children.forEach((child, index) => {
+          const drawn = this.drawRow(child, now, config, true);
+          if (index === row.children!.length - 1) drawn.classList.add("cm-lp-list-sub-last");
+          rows.append(drawn);
+        });
+      }
+    }
+    const noun = config.rows === "projects" ? "projects" : "notes";
     if (selection.rows.length === 0) {
-      foot.textContent = config.where.length > 0 ? "No notes match yet." : "No notes in this folder yet.";
+      foot.textContent =
+        config.where.length > 0
+          ? `No ${noun} match yet.`
+          : config.rows === "projects"
+            ? "No projects here yet. A folder or note becomes one when it has a status."
+            : "No notes in this folder yet.";
     } else if (selection.truncated) {
       const more = selection.total - selection.rows.length;
       foot.textContent = `${more} more not shown.`;
@@ -195,11 +232,48 @@ export class ListView {
     }
   }
 
-  private drawRow(row: ListRow, now: number): HTMLElement {
-    const link = el("a", "cm-lp-list-row");
+  private drawGroup(property: string, value: string, count: number): HTMLElement {
+    const head = el("div", "cm-lp-list-group", groupLabel(property, value));
+    head.append(el("span", "cm-lp-list-group-count", String(count)));
+    return head;
+  }
+
+  private drawRow(row: ListRow, now: number, config: ListConfig, sub: boolean): HTMLElement {
+    const link = el("a", sub ? "cm-lp-list-row cm-lp-list-sub" : "cm-lp-list-row");
     link.href = "#";
     link.setAttribute("data-path", row.path);
-    link.append(el("span", "cm-lp-list-title", rowTitle(row)));
+    const children = row.children?.length ?? 0;
+    if (config.rows === "projects" && !sub) {
+      const twisty = el("button", "cm-lp-list-twisty");
+      twisty.type = "button";
+      if (children > 0) {
+        const open = this.open.has(row.path);
+        twisty.textContent = open ? "\u25BE" : "\u25B8";
+        twisty.setAttribute("aria-expanded", String(open));
+        twisty.setAttribute("aria-label", open ? "Hide sub-projects" : "Show sub-projects");
+        twisty.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (open) this.open.delete(row.path);
+          else this.open.add(row.path);
+          this.load(config);
+        });
+      } else {
+        twisty.disabled = true;
+        twisty.tabIndex = -1;
+        twisty.setAttribute("aria-hidden", "true");
+      }
+      link.append(twisty);
+    }
+    const title = el("span", "cm-lp-list-title");
+    title.append(el("span", "cm-lp-list-name", rowTitle(row)));
+    if (row.progress) title.append(drawProgress(row.progress));
+    // A sub-project is not in a group of its own, so it says its own value,
+    // beside its name rather than in a column its parent does not have.
+    if (sub && config.group !== null && row.group) {
+      title.append(el("span", "cm-lp-list-own", formatValue(config.group, row.group, now)));
+    }
+    link.append(title);
     for (const { key, value } of row.values) {
       link.append(el("span", "cm-lp-list-value", formatValue(key, value, now)));
     }

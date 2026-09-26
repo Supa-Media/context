@@ -1,11 +1,17 @@
+import { selectProjectRows } from "./projects.js";
+import { groupOf, orderByGroup } from "./group.js";
+
 /**
  * Which notes a list shows, in what order, with which columns.
  *
  * Input is the notes the caller can already see —
- * `[{ path, updatedAt, properties }]`, `properties` being the note's parsed
- * frontmatter — so this can only narrow. See rule 2 in `../lists.js`.
+ * `[{ path, updatedAt, properties, heading? }]`, `properties` being the note's
+ * parsed frontmatter — so this can only narrow. See rule 2 in `../lists.js`.
+ * With `rows: projects` the rows are projects instead of notes: see
+ * `projects.js`.
  */
 export function selectListRows(config, notes, { selfPath } = {}) {
+  if (config.rows === "projects") return selectProjectRows(config, notes, { selfPath });
   const folder = config.from ? `${config.from}/` : "";
   const matched = (notes || []).filter((note) => {
     const path = String(note.path || "");
@@ -18,24 +24,26 @@ export function selectListRows(config, notes, { selfPath } = {}) {
   });
 
   const sorted = matched
-    .map((note) => ({ note, title: titleOf(note) }))
+    .map((note) => ({ note, title: titleOf(note), group: groupOf(note.properties, config.group) }))
     .sort((a, b) => compareRows(a, b, config.sort));
-  const rows = sorted.slice(0, config.limit).map(({ note, title }) => ({
+  const ordered = config.group ? orderByGroup(sorted) : sorted;
+  const rows = ordered.slice(0, config.limit).map(({ note, title, group }) => ({
     path: note.path,
     title,
     values: config.show.map((key) => ({ key, value: valueOf(note, key) })),
+    ...(config.group ? { group } : {}),
   }));
   return { rows, total: matched.length, truncated: matched.length > rows.length };
 }
 
-function titleOf(note) {
+export function titleOf(note) {
   const title = note.properties?.title;
   if (typeof title === "string" && title.trim()) return title.trim();
   const base = String(note.path).split("/").pop();
   return base.replace(/\.md$/, "");
 }
 
-function valueOf(note, key) {
+export function valueOf(note, key) {
   if (key === "updated") return note.updatedAt ?? null;
   const value = note.properties?.[key];
   return value === undefined ? null : value;
@@ -51,7 +59,7 @@ function strings(value) {
     .filter((item) => item !== "");
 }
 
-function holds({ property, op, value }, properties) {
+export function holds({ property, op, value }, properties) {
   const have = strings(properties[property]);
   const want = value === undefined ? "" : value.trim().toLowerCase();
   switch (op) {
@@ -72,7 +80,7 @@ function holds({ property, op, value }, properties) {
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
-function compareRows(a, b, { key, order }) {
+export function compareRows(a, b, { key, order }) {
   const sign = order === "desc" ? -1 : 1;
   const left = key === "title" ? a.title : sortValue(a.note, key);
   const right = key === "title" ? b.title : sortValue(b.note, key);

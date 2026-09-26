@@ -196,7 +196,7 @@ describe("the phone layout", () => {
 describe("the words", () => {
   test("a caption names the folder and the conditions, or the order", () => {
     const label = (folder: string) => folder.replace(/^\d+-/, "");
-    const base = { where: [], sort: { key: "updated", order: "desc" as const }, show: [], limit: 50, subfolders: false };
+    const base = { where: [], sort: { key: "updated", order: "desc" as const }, show: [], limit: 50, subfolders: false, rows: "notes" as const, group: null, as: "list" as const };
     expect(captionFor({ ...base, from: "website/writing" }, label)).toBe("writing · newest first");
     expect(
       captionFor({ ...base, from: "1-projects", where: [{ property: "owner", op: "is set" }] }, label),
@@ -402,7 +402,7 @@ describe("changing a list from its caption", () => {
 });
 
 describe("writing the block back", () => {
-  const config = { from: "blog", where: [], sort: { key: "updated", order: "desc" as const }, show: [], limit: 50, subfolders: false };
+  const config = { from: "blog", where: [], sort: { key: "updated", order: "desc" as const }, show: [], limit: 50, subfolders: false, rows: "notes" as const, group: null, as: "list" as const };
 
   test("keeps the fence lines as written, and only the body changes", () => {
     const doc = "Top\n````list\nfrom: x\n````\nEnd";
@@ -444,7 +444,10 @@ describe("the popover's suggestions", () => {
   test("a draft becomes a config without its unfinished conditions", () => {
     const config = draftConfig({
       from: "blog/",
+      rows: "notes",
       subfolders: false,
+      group: null,
+      as: "list",
       where: [
         { property: "", op: "is", value: "x" },
         { property: "tag", op: "is", value: " " },
