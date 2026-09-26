@@ -69,6 +69,12 @@ export interface DurableControllerOptions {
   store?: ReturnType<typeof openStore>;
   now?: () => number;
   canWrite?: () => boolean;
+  /**
+   * The note at this path is a different document from the one this device
+   * holds, and the record has been replaced; build a fresh controller. See
+   * `adoptGeneration`.
+   */
+  onRestart?: () => void;
 }
 
 interface Persisted {
@@ -394,11 +400,15 @@ export class DurableCollaborationController {
   }
 
   stop(): void {
+    this.halt();
+    this.doc.destroy();
+  }
+
+  private halt(): void {
     this.stopped = true;
     this.liveListeners.clear();
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     if (this.repairTimer !== null) clearTimeout(this.repairTimer);
-    this.doc.destroy();
   }
 
   private id(): string {
@@ -489,6 +499,9 @@ export class DurableCollaborationController {
       });
       this.scheduleFlush();
     } catch (error) {
+      // A draft kept for an earlier note at this path names that note's
+      // document, and the gateway refuses it; see whether the note was replaced.
+      if (error instanceof Error && error.message === "409" && (await this.adoptIfReplaced())) return;
       if (this.isRevoked(error)) this.emit("revoked");
       else if (this.isUnavailable(error)) this.emit("unavailable");
       else if (this.isRetryable(error)) this.emit("offline");
@@ -598,7 +611,7 @@ export class DurableCollaborationController {
       });
       if (this.stopped || this.isRevokedState()) return;
       if (this.record.documentId !== null && response.documentId !== this.record.documentId) {
-        this.emit("error");
+        await this.adoptGeneration(response);
         return;
       }
       this.record.documentId = response.documentId;
@@ -695,6 +708,73 @@ export class DurableCollaborationController {
       if (this.isRetryable(error)) this.scheduleFlush(1500);
     } finally {
       this.flushing = false;
+    }
+  }
+
+  /**
+   * The bucket's note at this path is not the document this device holds.
+   *
+   * The record is keyed by path, and a path outlives its document: a note
+   * renamed, moved or deleted leaves its record behind, and the next note
+   * made at that name — every `untitled-<date>` of the day, the moment the
+   * first one takes its title — opened on the old note's text and identity.
+   * Every write then carried the old document's id and was refused, the
+   * status sat on an error nothing drew, and the new note kept only the
+   * title it was created with (reported 2026-09-26).
+   *
+   * So the bucket's document wins, and nothing is thrown away. The old record
+   * is kept on the device under its own key. If it held typing the bucket
+   * never confirmed, and that text still contains everything the bucket's
+   * note says — the stuck note's title, typed on — it is carried onto the new
+   * document through the exact-base replacement, which is how an older
+   * offline draft already reaches the bucket. A draft that would erase the
+   * new note's words is an earlier note's, and stays behind in the kept
+   * record rather than overwriting somebody's note. Otherwise the note opens
+   * as the bucket has it. Either way the controller is rebuilt with a fresh
+   * Yjs document, because the old one's items cannot be merged into a
+   * document they never belonged to.
+   */
+  private async adoptGeneration(response: CollaborationResponse): Promise<void> {
+    const previous = this.record;
+    const unsent = previous.pending.length > 0 || previous.recovery !== undefined;
+    const desired = previous.recovery?.desired ?? this.doc.markdown();
+    const carry = unsent && desired !== response.text && desired.includes(response.text.trimEnd());
+    const next: Persisted = {
+      ...emptyRecord(),
+      documentId: response.documentId,
+      etag: response.etag,
+      ...(carry
+        ? { recovery: { baseline: response.text, desired, baseEtag: response.etag } }
+        : {}),
+    };
+    try {
+      await this.store.set(`${this.key}::superseded::${previous.documentId}`, JSON.stringify(previous));
+      await this.store.set(this.key, JSON.stringify(next));
+    } catch {
+      this.persistFailed = true;
+      this.emit("error");
+      return;
+    }
+    if (this.stopped) return;
+    this.record = next;
+    // The editor shows what the new controller will: the carried draft, or
+    // the bucket's text when there was nothing to carry. Nothing this
+    // controller still has in flight may touch the new record.
+    this.options.onText(next.recovery?.desired ?? response.text);
+    this.halt();
+    this.options.onRestart?.();
+  }
+
+  /** Read the note once; adopt it and report true when it is another document. */
+  private async adoptIfReplaced(): Promise<boolean> {
+    try {
+      const response = await this.send({ path: this.options.path });
+      if (this.stopped || this.isRevokedState()) return true;
+      if (this.record.documentId === null || response.documentId === this.record.documentId) return false;
+      await this.adoptGeneration(response);
+      return true;
+    } catch {
+      return false;
     }
   }
 
