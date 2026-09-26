@@ -61,6 +61,7 @@ import { resolveContextPlugins, setPluginEnabled } from "../../../../mcp/src/plu
 import { type FileOperation, IDLE_PROJECTION, type OperationResult } from "./operationTypes";
 import {
   deleteWebsiteRelease,
+  deleteWebsiteReleasePages,
   readWebsiteRelease,
   writeWebsiteRelease,
 } from "../fileOps/websiteReleases";
@@ -497,7 +498,14 @@ export async function executeOperation(
       case "deleteWebsiteRelease": {
         return {
           kind: "websiteReleaseDeleted",
-          objects: await deleteWebsiteRelease(store, operation.releaseId),
+          objects:
+            operation.pageIds === undefined
+              ? await deleteWebsiteRelease(store, operation.releaseId)
+              : await deleteWebsiteReleasePages(
+                  store,
+                  operation.releaseId,
+                  operation.pageIds,
+                ),
         };
       }
       case "clearVault": {

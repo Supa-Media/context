@@ -6,39 +6,38 @@ import {
   websiteRouteLookupKey,
   type WebsiteRouteStatus,
 } from "@context/shared";
-import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
 import { callerId } from "../filesFns/access";
+import { isEncryptedNote } from "../noteEncryption";
+import { websiteTextRestricts } from "./changes";
 import { workspaceNotFound } from "../workspaceAuth";
 import { PUBLICATION_CLEARANCE, ensureWebsitePublicationRule } from "./publication";
+import { narrowedRows } from "./narrowing";
+import {
+  READ_BATCH,
+  commitPublicationSnapshot,
+  scanError,
+  type IndexedRoute,
+} from "./releases";
 import { ensureWebsiteStarter } from "./state";
 
 const MAX_WEBSITE_ROUTES = 500;
-const READ_BATCH = 50;
 
 type Clearance = {
   scope: "private" | "team";
   grantedNames: string[];
 };
 
-type IndexedRoute = WebsiteRouteStatus & {
-  sourceEtag: string;
-  releaseId?: string;
-  releasePageId?: string;
-};
-
 type ReconciliationCommit = {
   committed: boolean;
   cleanupReleaseId: string | null;
+  /** The release this commit demoted to grace, and its pages that go now. */
+  retiredReleaseId: string | null;
+  retiredPageIds: string[];
 };
 
-function scanError(
-  message: string,
-): ConvexError<{ code: string; message: string }> {
-  return new ConvexError({ code: "WEBSITE_SCAN_INCOMPLETE", message });
-}
 
 /**
  * Read one complete, privacy-filtered website snapshot through the existing
@@ -49,7 +48,12 @@ export async function scanWebsiteRoutes(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   clearance: Clearance,
-): Promise<{ statuses: WebsiteRouteStatus[]; indexed: IndexedRoute[] }> {
+  options: { publication?: boolean } = {},
+): Promise<{
+  statuses: WebsiteRouteStatus[];
+  indexed: IndexedRoute[];
+  restricted: string[];
+}> {
   const paths: string[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
@@ -132,6 +136,12 @@ export async function scanWebsiteRoutes(
         // snapshot; hidden and missing are already the same result below the
         // barrier, so no existence detail escapes.
         if (result.outcome !== "read") continue;
+        // Ciphertext can never be published, so a publication snapshot holds
+        // it as it holds a private note: absent. As a "problem" it would stop
+        // every later rebuild while it sat in the folder.
+        if (options.publication === true && isEncryptedNote(result.note.text)) {
+          continue;
+        }
         pages.push({ objectKey: result.path, markdown: result.note.text });
         // The effective etag includes collaboration updates. Using only the
         // provider object's raw etag could leave changed frontmatter live when
@@ -150,6 +160,9 @@ export async function scanWebsiteRoutes(
 
   const statuses = buildWebsiteRouteStatuses(pages);
   return {
+    restricted: pages
+      .filter((page) => websiteTextRestricts(page.markdown))
+      .map((page) => page.objectKey),
     statuses,
     indexed: statuses.map((status) => ({
       ...status,
@@ -216,6 +229,7 @@ export async function commitRouteReconciliationHandler(
     releaseId?: string;
     enabledOnly?: boolean;
     problemsOnlyIfUnpublished?: boolean;
+    restricted?: string[];
   },
 ): Promise<ReconciliationCommit> {
   const state = await websiteState(ctx, args.workspaceId);
@@ -225,12 +239,27 @@ export async function commitRouteReconciliationHandler(
     (args.problemsOnlyIfUnpublished === true &&
       state.routeReconciledGeneration !== undefined)
   ) {
-    return { committed: false, cleanupReleaseId: null };
+    return {
+      committed: false,
+      cleanupReleaseId: null,
+      retiredReleaseId: null,
+      retiredPageIds: [],
+    };
   }
   const existing = await ctx.db
     .query("websiteRouteIndex")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .collect();
+  // The release this commit demotes to grace keeps a copy of every page it
+  // held; the ones this snapshot narrowed go now, not a generation later.
+  const retiredPageIds =
+    args.releaseId === undefined
+      ? []
+      : narrowedRows(existing, args.routes, new Set(args.restricted ?? []))
+          .filter((row) => row.releaseId === state.publishedReleaseId)
+          .flatMap((row) =>
+            row.releasePageId === undefined ? [] : [row.releasePageId],
+          );
   for (const row of existing) await ctx.db.delete(row._id);
   const now = Date.now();
   for (const route of args.routes) {
@@ -268,110 +297,74 @@ export async function commitRouteReconciliationHandler(
           previousReleaseId: state.publishedReleaseId,
         }),
   });
-  return { committed: true, cleanupReleaseId };
+  return {
+    committed: true,
+    cleanupReleaseId,
+    retiredReleaseId:
+      retiredPageIds.length > 0 ? (state.publishedReleaseId ?? null) : null,
+    retiredPageIds,
+  };
 }
 
-async function stageWebsiteRelease(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  routes: IndexedRoute[],
-): Promise<{ releaseId: string; routes: IndexedRoute[] }> {
-  const releaseId = crypto.randomUUID();
-  const released = routes.map((route) =>
-    route.status === "live"
-      ? { ...route, releaseId, releasePageId: crypto.randomUUID() }
-      : route,
-  );
-  const pages = released.flatMap((route) =>
-    route.releasePageId === undefined
-      ? []
-      : [
-          {
-            pageId: route.releasePageId,
-            path: route.objectKey,
-            expectedEtag: route.sourceEtag,
-          },
-        ],
-  );
-  try {
-    for (let offset = 0; offset < pages.length; offset += READ_BATCH) {
-      const written = await ctx.runAction(
-        internal.functions.files.runFileOperation,
-        {
-          workspaceId,
-          scope: "private",
-          grantedNames: [],
-          operation: {
-            kind: "writeWebsiteRelease",
-            releaseId,
-            pages: pages.slice(offset, offset + READ_BATCH),
-          },
-        },
-      );
-      if (written.kind !== "websiteReleaseWritten") {
-        throw scanError("The bucket returned an invalid website release result.");
-      }
-    }
-  } catch (error) {
-    await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: { kind: "deleteWebsiteRelease", releaseId },
-      })
-      .catch(() => {});
-    throw error;
+/**
+ * The narrowing half of a rebuild that may not publish. Fenced like a commit;
+ * drops the rows `narrowedRows` names without adding any, retires the grace
+ * release (which holds a copy of every page the current one does), and lifts
+ * the unsafe marker the narrowing was waiting on. The reconciled generation
+ * does not advance, so the next clean scan still owns the widening half.
+ */
+export async function narrowRouteIndexHandler(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    generation: number;
+    routes: IndexedRoute[];
+    restricted: string[];
+    enabledOnly?: boolean;
+  },
+): Promise<{
+  releaseId: string | null;
+  pageIds: string[];
+  previousReleaseId: string | null;
+}> {
+  const nothing = {
+    releaseId: null,
+    pageIds: [] as string[],
+    previousReleaseId: null,
+  };
+  const state = await websiteState(ctx, args.workspaceId);
+  if (
+    state?.routeGeneration !== args.generation ||
+    state.routeReconciledGeneration === undefined ||
+    (args.enabledOnly === true && state.state !== "enabled")
+  ) {
+    return nothing;
   }
-  return { releaseId, routes: released };
-}
-
-async function finishWebsiteRelease(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  generation: number,
-  routes: IndexedRoute[],
-  enabledOnly: boolean,
-): Promise<boolean> {
-  const release = await stageWebsiteRelease(ctx, workspaceId, routes);
-  const result = await ctx.runMutation(
-    internal.functions.websites.commitRouteReconciliation,
-    {
-      workspaceId,
-      generation,
-      routes: release.routes,
-      releaseId: release.releaseId,
-      ...(enabledOnly ? { enabledOnly: true } : {}),
-    },
-  );
-  if (!result.committed) {
-    await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: {
-          kind: "deleteWebsiteRelease",
-          releaseId: release.releaseId,
-        },
-      })
-      .catch(() => {});
-    return false;
+  const existing = await ctx.db
+    .query("websiteRouteIndex")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .collect();
+  const narrowed = narrowedRows(existing, args.routes, new Set(args.restricted));
+  const liftUnsafe =
+    state.routeUnsafeGeneration !== undefined &&
+    state.routeUnsafeGeneration <= args.generation;
+  if (narrowed.length === 0) {
+    if (liftUnsafe) await ctx.db.patch(state._id, { routeUnsafeGeneration: undefined });
+    return nothing;
   }
-  if (result.cleanupReleaseId !== null) {
-    await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: {
-          kind: "deleteWebsiteRelease",
-          releaseId: result.cleanupReleaseId,
-        },
-      })
-      .catch(() => {});
-  }
-  return true;
+  for (const row of narrowed) await ctx.db.delete(row._id);
+  const pageIds = narrowed
+    .filter((row) => row.releaseId === state.publishedReleaseId)
+    .flatMap((row) => (row.releasePageId === undefined ? [] : [row.releasePageId]));
+  await ctx.db.patch(state._id, {
+    previousReleaseId: undefined,
+    ...(liftUnsafe ? { routeUnsafeGeneration: undefined } : {}),
+  });
+  return {
+    releaseId: pageIds.length > 0 ? (state.publishedReleaseId ?? null) : null,
+    pageIds,
+    previousReleaseId: state.previousReleaseId ?? null,
+  };
 }
 
 /** Mark a complete derivative stale after a runtime source mismatch. */
@@ -468,26 +461,15 @@ export async function refreshRouteStatusesHandler(
       ctx,
       args.workspaceId,
       PUBLICATION_CLEARANCE,
+      { publication: true },
     );
-    if (published.statuses.some((status) => status.status === "problem")) {
-      await ctx.runMutation(
-        internal.functions.websites.commitRouteReconciliation,
-        {
-          workspaceId: args.workspaceId,
-          generation,
-          routes: published.indexed,
-          problemsOnlyIfUnpublished: true,
-        },
-      );
-    } else {
-      await finishWebsiteRelease(
-        ctx,
-        args.workspaceId,
-        generation,
-        published.indexed,
-        false,
-      );
-    }
+    await commitPublicationSnapshot(
+      ctx,
+      args.workspaceId,
+      generation,
+      published,
+      false,
+    );
   }
   return snapshot.statuses;
 }
@@ -564,28 +546,13 @@ export async function reconcileWorkspaceHandler(
     ctx,
     args.workspaceId,
     PUBLICATION_CLEARANCE,
+    { publication: true },
   );
-  // A half-written frontmatter block, a temporary empty document, or a route
-  // clash is not a release. Keep serving the previous complete derivative;
-  // a later save owns a newer generation and schedules another attempt.
-  if (snapshot.statuses.some((status) => status.status === "problem")) {
-    await ctx.runMutation(
-      internal.functions.websites.commitRouteReconciliation,
-      {
-        workspaceId: args.workspaceId,
-        generation,
-        routes: snapshot.indexed,
-        enabledOnly: true,
-        problemsOnlyIfUnpublished: true,
-      },
-    );
-    return false;
-  }
-  return await finishWebsiteRelease(
+  return await commitPublicationSnapshot(
     ctx,
     args.workspaceId,
     generation,
-    snapshot.indexed,
+    snapshot,
     true,
   );
 }

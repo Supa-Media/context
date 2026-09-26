@@ -58,7 +58,12 @@ export type FileOperation =
       kind: "readWebsiteRelease";
       pages: Array<{ releaseId: string; pageId: string; path: string }>;
     }
-  | { kind: "deleteWebsiteRelease"; releaseId: string }
+  | {
+      kind: "deleteWebsiteRelease";
+      releaseId: string;
+      /** Only these pages; absent deletes the whole release. */
+      pageIds?: string[];
+    }
   | {
       kind: "search";
       query: string;

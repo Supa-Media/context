@@ -159,7 +159,11 @@ export const operationValidator = v.union(
       v.object({ releaseId: v.string(), pageId: v.string(), path: v.string() }),
     ),
   }),
-  v.object({ kind: v.literal("deleteWebsiteRelease"), releaseId: v.string() }),
+  v.object({
+    kind: v.literal("deleteWebsiteRelease"),
+    releaseId: v.string(),
+    pageIds: v.optional(v.array(v.string())),
+  }),
   v.object({
     kind: v.literal("search"),
     query: v.string(),

@@ -114,6 +114,42 @@ The sabotage case is the audience change in `websiteResolution.test.ts`: if
 the stale public source becomes `members`, the public body is not returned even
 though a readable public release exists.
 
+## The index may lag on widening, never on narrowing
+
+_Decided by the owner, 2026-09-26._
+
+A rebuild that meets a broken page publishes nothing new. It still applies
+the narrowing half of what it read (`lib/websites/narrowing.ts`): a live row
+whose page was deleted, moved, drafted, made members-only, encrypted or held
+back by `privacy.md` is dropped. Its copy in the current release is deleted,
+and the grace release, which duplicates it, is retired. New pages and other
+widening changes wait for a clean scan, and the reconciled generation does
+not advance. Without this, one half-finished page anywhere in the site froze
+every restriction behind it. A menu kept the title of a page just made
+members-only, and a release kept the plaintext of a page just encrypted,
+for as long as the other page stayed broken.
+
+A clean rebuild applies the same rule to the release it demotes to grace: the
+copies of narrowed pages are deleted at once rather than a generation later.
+**A release copy must not outlive the plaintext it copies.** The copies are a
+derivative in the customer's bucket under the same credential as the note, so
+the argument in [encryption](./encryption/format-and-search.md) against a
+plaintext index of an encrypted note applies to them unchanged.
+
+Ciphertext is not a broken page. A publication scan skips it the way it skips
+a private note, so an encrypted note under `website/` is unpublished rather
+than stopping every later rebuild.
+
+The autosave grace is unchanged. A malformed save of a public page keeps its
+release unless its bytes restrict (`websiteTextRestricts`). A members page
+keeps it unless it is ciphertext, because it reached the release through the
+membership gate. This rule also means a restriction the gateway reports
+without saying what changed now lands on the next rebuild, since that
+rebuild reads the bytes.
+
+`websiteNarrowing.test.ts` makes one page narrower while another stays broken,
+and checks the narrowing landed and the widening did not.
+
 ## Release bytes stay in the customer's bucket, with one generation of grace
 
 Convex stores only the release id and page id beside routing metadata. Markdown
