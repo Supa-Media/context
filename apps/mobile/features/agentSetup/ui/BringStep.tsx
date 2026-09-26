@@ -106,7 +106,7 @@ export function BringStep({
         <Gap />
         <P small>
           {agent === "claude"
-            ? "Claude says where each note will go and waits for your go. This also checks the connection works."
+            ? "Claude says where each note goes as it writes. This also checks the connection works."
             : "ChatGPT asks before each note. This also checks the connection works."}
         </P>
       </>,
@@ -148,8 +148,7 @@ export function BringStep({
             ) : (
               <P>
                 ChatGPT only remembers past chats when <MenuPath parts={["Settings", "Personalization", "Memory"]} />{" "}
-                is on, and chats in developer mode may not use memory. Tell it about your work in a chat with Context
-                on, and it saves what matters here as you go.
+                is on. Tell it about your work in a chat with Context on, and it saves what matters here as you go.
               </P>
             )}
           </>
@@ -185,11 +184,11 @@ export function BringStep({
       ? {
           tone: "wait",
           title: "Writing notes…",
-          sub: `${written.length} so far. ${agent === "claude" ? "Claude" : "ChatGPT"} may be waiting for your go on the rest.`,
+          sub: `${written.length} so far. ${agent === "claude" ? "Claude" : "ChatGPT"} may still be writing the rest.`,
         }
       : state.kind === "stalled-no-write"
         ? agent === "claude"
-          ? { tone: "warn", title: "Nothing written yet", sub: "Claude is probably waiting for your go in the chat." }
+          ? { tone: "warn", title: "Nothing written yet", sub: "Claude may be asking to use Context in the chat." }
           : { tone: "bad", title: "ChatGPT hasn't written anything", sub: "If Deny was pressed, send the prompt again and press Confirm this time." }
         : { tone: "todo", title: "Write notes" };
   const stalled = state.kind === "stalled-nothing" || state.kind === "stalled-no-write";
@@ -223,8 +222,7 @@ export function BringStep({
           </>
         ) : (
           <>
-            Open a new chat, switch Context on (<B>+</B> › <B>More</B> › <B>Developer mode</B> › <B>Context</B>) and
-            paste the prompt. ChatGPT asks before each note. Press <B>Confirm</B>.
+            Open a new chat, switch Context on from <B>+</B> under the message box, and paste the prompt. ChatGPT asks before each note. Press <B>Confirm</B>.
           </>
         )}
       </P>
@@ -263,7 +261,7 @@ function tipsFor(agent: SetupAgent, kind: "stalled-nothing" | "stalled-no-write"
       </>
     ) : (
       <>
-        Check Context is on: <B>+</B> › <B>More</B> › <B>Developer mode</B> › <B>Context</B>.
+        Check Context is on: <B>+</B> under the message box, then <B>Context</B>.
       </>
     );
   if (kind === "stalled-no-write") {

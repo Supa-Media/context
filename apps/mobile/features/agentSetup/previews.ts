@@ -86,13 +86,12 @@ export const AGENT_SETUP_PREVIEWS = {
     title: "Guide · Claude · Little to bring",
     ...bring("claude", { kind: "little", written: NOTES.slice(-1) }),
   },
-  "guide-chatgpt-devmode": { title: "Guide · ChatGPT 1 · Developer mode", ...connect("chatgpt", 0) },
-  "guide-chatgpt-create": { title: "Guide · ChatGPT 2 · Create the app", ...connect("chatgpt", 1) },
-  "guide-chatgpt-signin": { title: "Guide · ChatGPT 3 · Sign in", ...connect("chatgpt", 2) },
-  "guide-chatgpt-stick": { title: "Guide · ChatGPT 4 · Make it stick", ...connect("chatgpt", 3) },
-  "guide-chatgpt-bring": { title: "Guide · ChatGPT 5 · Bring over", ...bring("chatgpt", { kind: "pick" }) },
+  "guide-chatgpt-create": { title: "Guide · ChatGPT 1 · Create the app", ...connect("chatgpt", 0) },
+  "guide-chatgpt-signin": { title: "Guide · ChatGPT 2 · Sign in", ...connect("chatgpt", 1) },
+  "guide-chatgpt-stick": { title: "Guide · ChatGPT 3 · Make it stick", ...connect("chatgpt", 2) },
+  "guide-chatgpt-bring": { title: "Guide · ChatGPT 4 · Bring over", ...bring("chatgpt", { kind: "pick" }) },
   "guide-chatgpt-denied": {
-    title: "Guide · ChatGPT 5 · Nothing written",
+    title: "Guide · ChatGPT 4 · Nothing written",
     ...bring("chatgpt", live({ kind: "stalled-no-write" }, 2, [])),
   },
 } as const;

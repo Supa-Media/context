@@ -9,9 +9,16 @@
  * the check can still pass.
  *
  * The guardrails are `BOOTSTRAP_PROMPT`'s (`onboarding/agents.ts`): orient
- * first, say where each note goes and wait, write only what is known, never
- * overwrite, never touch index.md or privacy.md. They travel inside the prompt
- * because it reaches an agent we do not control.
+ * first, say where each note goes, write only what is known, never overwrite,
+ * never touch index.md or privacy.md. They travel inside the prompt because it
+ * reaches an agent we do not control.
+ *
+ * It does not wait for a go, and it asks for everything rather than a sample
+ * (owner, 2026-09-26). ChatGPT stopped to ask for confirmation and then wrote
+ * five surface-level notes; it took a second prompt to get twenty projects
+ * out. The person has already picked the topics on this screen, and the
+ * client asks before each write where it needs to, so a second checkpoint in
+ * the chat only stalls the step the guide is watching.
  */
 
 export type BringTopic = "work" | "people" | "style" | "personal";
@@ -56,10 +63,15 @@ export function bringPrompt(slug: string, topics: readonly BringTopic[]): string
     picked.length === 0
       ? ""
       : ` From what you remember about me, write short notes about ${list(picked)}.`;
+  const depth =
+    picked.length === 0
+      ? ""
+      : " Be thorough: go through everything you know, not a few highlights. Write one short note per project, " +
+        "area, person or topic, and keep going until you have covered all of them.";
   return (
-    `Use Context to set up my @${slug} workspace. Call orient first.${about} ` +
-    "Tell me which folder each note goes in and wait for my go. Only write what you actually know. " +
-    "Don't change notes that already exist, and don't touch index.md or privacy.md. " +
+    `Use Context to set up my @${slug} workspace. Call orient first and follow the folders it reports.${about}${depth} ` +
+    "Don't stop to ask me before writing; say which folder each note goes in as you write it. " +
+    "Only write what you actually know. Don't change notes that already exist, and don't touch index.md or privacy.md. " +
     `Finish with a note called "${GETTING_STARTED}" in the inbox that lists what you saved.`
   );
 }
