@@ -99,7 +99,7 @@ describe("the stylesheet is still one sheet, in its original order", () => {
     expect(css.startsWith("\n.cm-lp-h1, .cm-lp-h2, .cm-lp-h3, .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 {\n")).toBe(
       true,
     );
-    expect(css.endsWith("  .cm-lp-list-menu-new { height: 36px; font-size: 16px; }\n}\n")).toBe(true);
+    expect(css.endsWith("  .cm-lp-list-menu-new { height: 40px; font-size: 16px; }\n}\n")).toBe(true);
   });
 
   test("the slices are joined without a seam", () => {

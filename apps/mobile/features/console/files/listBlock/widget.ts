@@ -30,7 +30,12 @@ import {
 } from "./model";
 import { ListPanel } from "./panel";
 import { isEditableValue, ValueMenu, valueChoices } from "./valueMenu";
+import { drawBoard } from "./board";
 import { captionFor, formatValue, groupLabel, listProblem, rowTitle } from "./words";
+
+/** A chevron the twisty turns, drawn rather than a text triangle so it matches the app's icons. */
+const CHEVRON =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
 const LIST_ICON =
   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>';
@@ -209,7 +214,26 @@ export class ListView {
     const counts = new Map<string, number>();
     for (const row of selection.rows) counts.set(row.group ?? "", (counts.get(row.group ?? "") ?? 0) + 1);
     let group: string | null = null;
-    for (const row of selection.rows) {
+    rows.classList.toggle("cm-lp-list-rows-board", config.as === "board" && config.group !== null);
+    if (config.as === "board" && config.group !== null) {
+      rows.append(
+        drawBoard(selection.rows, config, {
+          notes: this.notes,
+          canMove: this.canSet(),
+          drawCard: (row) => {
+            const face = this.drawRow(row, now, config, false);
+            face.querySelector(".cm-lp-list-twisty")?.remove();
+            return face;
+          },
+          move: (path, value) => {
+            void this.setValue(path, config.group!, value).then((problem) => {
+              if (problem !== null) this.foot.textContent = problem;
+            });
+          },
+        }),
+      );
+    }
+    for (const row of config.as === "board" ? [] : selection.rows) {
       if (config.group !== null && row.group !== group) {
         group = row.group ?? "";
         rows.append(this.drawGroup(config.group, group, counts.get(group) ?? 0));
@@ -256,7 +280,7 @@ export class ListView {
       twisty.type = "button";
       if (children > 0) {
         const open = this.open.has(row.path);
-        twisty.textContent = open ? "\u25BE" : "\u25B8";
+        twisty.innerHTML = CHEVRON;
         twisty.setAttribute("aria-expanded", String(open));
         twisty.setAttribute("aria-label", open ? "Hide sub-projects" : "Show sub-projects");
         twisty.addEventListener("click", (event) => {
@@ -280,7 +304,8 @@ export class ListView {
     // beside its name rather than in a column its parent does not have. For
     // someone who can change it, a project says it too: that is the handle
     // for moving it to another group, where a column is not already one.
-    const ownValue = sub || (this.canSet() && config.rows === "projects" && !config.show.includes(config.group ?? ""));
+    const ownValue =
+      sub || (this.canSet() && (config.rows === "projects" || config.as === "board") && !config.show.includes(config.group ?? ""));
     if (ownValue && config.group !== null && (row.group || this.canSet())) {
       title.append(this.drawValue(row.path, config.group, row.group || null, "cm-lp-list-own", now));
     }
@@ -320,17 +345,7 @@ export class ListView {
     this.closeMenu(false);
     if (again) return;
     const menu = new ValueMenu(key, path, current, valueChoices(this.notes, key), {
-      choose: async (value) => {
-        const set = this.host?.current?.setProperty;
-        if (set === undefined) return "This list can’t change notes here.";
-        const problem = await set(path, key, value);
-        if (problem === null) {
-          this.chosen.set(`${path}\n${key}`, value === null ? null : value.trim());
-          const config = this.fence.config;
-          if (config !== null) this.load(config);
-        }
-        return problem;
-      },
+      choose: (value) => this.setValue(path, key, value),
       close: (refocus) => this.closeMenu(refocus),
     });
     this.menu = menu;
@@ -346,6 +361,19 @@ export class ListView {
   }
 
   private menuAnchor: HTMLElement | null = null;
+
+  /** Write one property of one listed note, and draw it at once when it lands. */
+  private async setValue(path: string, key: string, value: string | null): Promise<string | null> {
+    const set = this.host?.current?.setProperty;
+    if (set === undefined) return "This list can’t change notes here.";
+    const problem = await set(path, key, value);
+    if (problem === null) {
+      this.chosen.set(`${path}\n${key}`, value === null ? null : value.trim());
+      const config = this.fence.config;
+      if (config !== null) this.load(config);
+    }
+    return problem;
+  }
 
   private closeMenu(refocus: boolean): void {
     if (this.menu === null) return;

@@ -79,8 +79,12 @@ filter that hid finished work must not make a project look less finished.
 `group` groups either kind of list by one property, lifecycle words first
 (`active`, `planned`, `paused`, `done`…), other values a to z, and the rows
 with no value last as "No status" — the nudge to mark something, without
-colour. `as: board` is reserved in the grammar for the kanban view and
-needs a `group`.
+colour. `as: board` draws the same grouped rows as columns of cards and
+needs a `group`. Its columns include every value the listed notes use, so
+there is somewhere to drop a card before anything is in it. Dropping a card
+is the value menu's write made by hand, and never the only way: each card
+keeps its own value button for a keyboard or a phone, where drag and drop
+does not reach (`apps/mobile/__tests__/listBoard.test.ts`).
 
 A "simplification" to a project type, a projects database, or a tag would
 cost the thing this rests on: a project stays a note or folder any other tool

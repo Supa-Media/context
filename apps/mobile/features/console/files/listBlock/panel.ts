@@ -214,6 +214,7 @@ export class ListPanel {
     const names = propertyNames(this.host.notes());
     this.body.replaceChildren(
       this.fromSection(),
+      this.rowsSection(),
       this.whereSection(names),
       this.groupSection(names),
       this.orderSection(names),
@@ -287,6 +288,7 @@ export class ListPanel {
     return list;
   }
 
+  /** The folder, and whether its subfolders count; a project folder is always looked inside. */
   private fromSection(): HTMLElement {
     const section = this.section("Folder");
     const row = el("div", "cm-lp-list-panel-row");
@@ -296,18 +298,27 @@ export class ListPanel {
         this.commit(false);
       }),
     );
-    const toggle = el("label", "cm-lp-list-panel-check");
-    const box = el("input", "");
-    box.type = "checkbox";
-    box.checked = this.draft.subfolders;
-    box.dataset.field = "subfolders";
-    box.addEventListener("change", () => {
-      this.draft.subfolders = box.checked;
-      this.commit(false);
-    });
-    toggle.append(box, document.createTextNode("Include subfolders"));
-    const kinds = el("div", "cm-lp-list-panel-row");
-    kinds.append(
+    section.append(row);
+    if (this.draft.rows !== "projects") {
+      const toggle = el("label", "cm-lp-list-panel-check");
+      const box = el("input", "");
+      box.type = "checkbox";
+      box.checked = this.draft.subfolders;
+      box.dataset.field = "subfolders";
+      box.addEventListener("change", () => {
+        this.draft.subfolders = box.checked;
+        this.commit(false);
+      });
+      toggle.append(box, document.createTextNode("Include subfolders"));
+      section.append(toggle);
+    }
+    return section;
+  }
+
+  private rowsSection(): HTMLElement {
+    const section = this.section("List");
+    const row = el("div", "cm-lp-list-panel-row");
+    row.append(
       this.select(
         "rows",
         "List",
@@ -322,9 +333,7 @@ export class ListPanel {
         },
       ),
     );
-    section.append(row, kinds);
-    // A project folder is always looked inside, so the box only means something for notes.
-    if (this.draft.rows !== "projects") section.append(toggle);
+    section.append(row);
     return section;
   }
 
@@ -351,8 +360,7 @@ export class ListPanel {
   }
 
   private whereSection(names: readonly string[]): HTMLElement {
-    // No heading until there is a condition: "+ Add a condition" says it alone.
-    const section = this.draft.where.length > 0 ? this.section("Where") : el("div", "cm-lp-list-panel-section");
+    const section = this.section("Filter");
     const nameList = `cm-lp-list-names-${this.id}`;
     section.append(this.datalist(nameList, names));
     this.draft.where.forEach((condition, index) => {
