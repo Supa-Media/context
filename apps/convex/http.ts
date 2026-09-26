@@ -126,6 +126,7 @@ import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
+import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
 
 const http = httpRouter();
 
@@ -765,6 +766,12 @@ http.route({ path: "/site/home", method: "POST", handler: siteHome });
  */
 export const siteHomeRevision = httpAction(siteHomeRoute.siteHomeRevisionHandler);
 http.route({ path: "/site/home/revision", method: "POST", handler: siteHomeRevision });
+
+/** Any site's revision, and an address as anyone sees it, kept per revision by the router. `sitePage.ts`. */
+export const siteRevisionRoute = httpAction(sitePageRoute.siteRevisionRouteHandler);
+http.route({ path: "/site/revision", method: "POST", handler: siteRevisionRoute });
+export const sitePage = httpAction(sitePageRoute.sitePageHandler);
+http.route({ path: "/site/page", method: "POST", handler: sitePage });
 
 /* -------------------------------------------------------------------------- */
 /* POST /domain/resolve — which workspace a customer domain serves             */

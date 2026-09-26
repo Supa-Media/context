@@ -187,6 +187,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - `privacy.md` decides what a website publishes
 - An edit is a candidate; the last complete release is the fallback
 - Edits wait for Publish
+- Every site's pages are kept at the edge per Publish
 - A fallback never reverses an explicit restriction
 - The index may lag on widening, never on narrowing
 - Release bytes stay in the customer's bucket, with one generation of grace

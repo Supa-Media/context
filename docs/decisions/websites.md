@@ -131,6 +131,40 @@ is served, or if a member can publish; `websiteNarrowing.test.ts` fails if a
 restriction waits for Publish or a new page does not; `siteHome.test.ts` fails
 if a save moves the homepage's revision or its words.
 
+## Every site's pages are kept at the edge per Publish
+
+_Decided by the owner, 2026-09-26: "same functionality for all the websites
+… even individual user sites face the same issue."_
+
+A visitor who is not signed in reads a page of any site (`/@handle/...` and a
+customer's domain alike) from `/_site/page` on the router
+(`infra/router/src/sitePages.ts`), not from Convex. Each visit asks
+`/site/revision` (one database read) and serves the copy the colo keeps under
+that revision; only a miss asks `/site/page`, which resolves the address
+**exactly as for an anonymous visitor, whatever arrives with the request**
+(`lib/publicRoutes/sitePage.ts`) and is the one request that reads the bucket.
+A signed-in visitor asks Convex directly, because a members-only page is not
+the same page for everybody, and so does anyone the router cannot answer.
+
+What may be kept is decided by Convex, not the router: never "unavailable"
+(it is also what a bucket outage looks like), and nothing while a restriction
+is pending or before a site's first scan, when a page is judged from its live
+bytes on every visit. A copy is also dropped after five minutes whatever the
+revision says. That is the bound on the one restriction a revision cannot see:
+one written straight to the bucket, outside Context, before a sweep notices
+it. Every restriction made through Context moves the revision and takes effect
+on the next visit. The copy is a CDN's copy of a public page, like the
+homepage's: it is never the only copy of anything, and it holds nothing an
+anonymous visitor could not already read.
+
+On a customer's domain the handle is the domain's binding and the only legacy
+slug is the one its owner chose for `/`; neither is read from the request.
+
+`sitePage.test.ts` fails if a member's answer is kept, if "unavailable" or a
+pending restriction is kept, or if the route grows a field; the router's
+`sitePages.test.ts` fails if a second visit reads the page again, if a new
+revision does not, or if a customer's domain can ask for another handle.
+
 ## A fallback never reverses an explicit restriction
 
 Last-known-good is an availability rule, not permission to keep publishing
