@@ -22,28 +22,32 @@ import { useThemedStyles, type Colors } from "../design/theme";
 import { noteTitle, parseNote } from "../share/markdown";
 import { NoteBody } from "../share/NoteBody";
 import {
+  BUILT_IN_SITE,
   HOME_WORKSPACE_LABEL,
+  MISSING_PAGE_MARKDOWN,
   homeLink,
   homeTree,
   pageParam,
   routeFromParam,
 } from "./homeSite";
-import { useHomeSite } from "./useHomeSite";
 
 /**
  * The homepage, as the app itself: the real frame, tree, tabs, ⌘K and status
  * bar, on a read-only `@context` workspace whose notes are the website.
  *
- * The pages are the `website/` folder of `HOME_SITE_HANDLE`, read live, so the
- * homepage is edited like any note. Until that site is on, the built-in copy
- * is drawn instead (`useHomeSite`). The open page is `?page=` in the address,
- * so a link to `/?page=pricing` opens Pricing and back works.
+ * The pages ship with the app (`builtInPages.ts`), so the first paint is the
+ * whole homepage and nothing is swapped in after it: the tree and the page
+ * always agree. The open page is `?page=` in the address, so a link to
+ * `/?page=pricing` opens Pricing and back works.
  *
  * Nothing here can write. The browser is the static one the demo console uses,
  * whose `canEdit` is false, so no editing control is ever drawn; the one hint
  * that this is not a workspace you can type in is the status bar's first
  * segment, and the line under the title if somebody tries.
  */
+/** The homepage's tree: the same every visit, so it is built once. */
+const HOME = homeTree(BUILT_IN_SITE);
+
 export function HomeShell() {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
@@ -51,13 +55,8 @@ export function HomeShell() {
   const params = useLocalSearchParams<{ page?: string | string[] }>();
   const routePath = routeFromParam(params.page);
   const compact = densityFor(useWindowDimensions().width) === "compact";
-  const { site, markdown, live } = useHomeSite(routePath);
-
-  // The tree changes when the list of pages does, not when one of them loads:
-  // a new tree resets what is expanded, as switching workspace does.
-  const shape = site.map((page) => `${page.routePath}\u0001${page.title}`).join("\u0002");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const home = useMemo(() => homeTree(site), [shape]);
+  const home = HOME;
+  const markdown = home.pages.get(home.paths.get(routePath) ?? "")?.markdown ?? MISSING_PAGE_MARKDOWN;
   const browser = useStaticFileBrowser(home.tree, "home");
 
   const [tabs, dispatch] = useReducer(tabsReducer, emptyTabs);
@@ -181,7 +180,7 @@ export function HomeShell() {
               { id: "notes", text: `${home.pages.size} notes`, tone: "quiet" },
               {
                 id: "storage",
-                text: live ? "Live from website/" : "Plain Markdown",
+                text: "Plain Markdown",
                 tone: "ok",
                 pip: true,
               },
