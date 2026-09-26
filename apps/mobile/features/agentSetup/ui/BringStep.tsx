@@ -106,7 +106,7 @@ export function BringStep({
         <Gap />
         <P small>
           {agent === "claude"
-            ? "Claude says where each note will go and waits for your go. This also checks the connection works."
+            ? "Claude says where each note goes as it writes. This also checks the connection works."
             : "ChatGPT asks before each note. This also checks the connection works."}
         </P>
       </>,
@@ -184,11 +184,11 @@ export function BringStep({
       ? {
           tone: "wait",
           title: "Writing notes…",
-          sub: `${written.length} so far. ${agent === "claude" ? "Claude" : "ChatGPT"} may be waiting for your go on the rest.`,
+          sub: `${written.length} so far. ${agent === "claude" ? "Claude" : "ChatGPT"} may still be writing the rest.`,
         }
       : state.kind === "stalled-no-write"
         ? agent === "claude"
-          ? { tone: "warn", title: "Nothing written yet", sub: "Claude is probably waiting for your go in the chat." }
+          ? { tone: "warn", title: "Nothing written yet", sub: "Claude may be asking to use Context in the chat." }
           : { tone: "bad", title: "ChatGPT hasn't written anything", sub: "If Deny was pressed, send the prompt again and press Confirm this time." }
         : { tone: "todo", title: "Write notes" };
   const stalled = state.kind === "stalled-nothing" || state.kind === "stalled-no-write";

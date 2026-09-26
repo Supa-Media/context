@@ -88,7 +88,9 @@ describe("the bring-over prompt", () => {
     expect(prompt).toContain("Call orient first");
     expect(prompt).toContain("my work and projects, the people I work with (names and roles only) and how I like to work");
     expect(prompt).not.toContain("personal life");
-    expect(prompt).toContain("wait for my go");
+    expect(prompt).not.toMatch(/wait for my go/i);
+    expect(prompt).toContain("Don't stop to ask me before writing");
+    expect(prompt).toContain("one short note per project, area, person or topic");
     expect(prompt).toContain("don't touch index.md or privacy.md");
     expect(prompt).toMatch(/Finish with a note called "Getting started"/);
   });

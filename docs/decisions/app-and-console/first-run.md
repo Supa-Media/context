@@ -87,8 +87,11 @@ artboards on 2026-09-25 and decided three things:
   proven. Closing with ✕ instead keeps the step to resume later.
 - **Bringing over what the agent knows is the last step, and it is the check.**
   One prompt (`agentSetup/bring.ts`) asks the agent to orient, say where each
-  note will go, wait for the person's go, write only what it knows, and finish
-  with a "Getting started" note.
+  note goes, write only what it knows, and finish with a "Getting started"
+  note. It does not wait for a go, and it asks for one note per project, area,
+  person or topic rather than highlights (owner, 2026-09-26): ChatGPT paused
+  for confirmation and then wrote five surface-level notes, and it took a
+  second prompt to get twenty projects. The topic picker is the checkpoint.
 
 The guide moves on by itself, and only on facts the product already records:
 

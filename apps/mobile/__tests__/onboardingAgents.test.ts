@@ -31,11 +31,13 @@ describe("the bootstrap prompt keeps the guardrails", () => {
     expect(prompt).toMatch(/never touch index\.md or privacy\.md/);
   });
 
-  test("it waits for a go, rather than only announcing", () => {
-    expect(prompt).toMatch(/wait for my go before writing/i);
+  test("it runs through without stopping for a go, and goes deep", () => {
+    expect(prompt).not.toMatch(/wait for my go/i);
+    expect(prompt).toMatch(/don't stop to ask me for confirmation/i);
+    expect(prompt).toMatch(/cover every project, area and person/i);
   });
 
-  test("it tells the client to name the folder before writing", () => {
+  test("it tells the client to name the folder of each note", () => {
     expect(prompt).toMatch(/tell me which folder each note is going in/i);
   });
 
