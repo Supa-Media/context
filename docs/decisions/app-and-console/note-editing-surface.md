@@ -392,7 +392,9 @@ map's child, and never `visibility`, which `privacy.md` decides. Everything else
 is still drawn, read-only, and still editable in the file. The change goes
 through the editor's own `onChange`, so it saves, merges into a collaborator's
 typing and undoes like a keystroke; reading mode and read-only access show no
-controls at all.
+controls at all. `true`, `false` and plain numbers are written bare, because a
+website page accepts `draft` and `nav` only that way — the first cut quoted
+them and would have turned a published page into a problem.
 
 A "simplification" to a generic YAML serializer would cost the property the
 writer rests on: every other byte of somebody's note stays theirs.

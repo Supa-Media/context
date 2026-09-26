@@ -136,18 +136,20 @@ export function noteDocument(view: NoteView) {
             /*
               Through the same `onChange` a keystroke takes, so a property
               change saves, merges into a collaborator's typing and shows in the
-              editor exactly as if it had been typed into the YAML. Read from
-              the live text at the moment of the change, the collaborative one
-              when there is one, so a property set never undoes what arrived
-              since this render.
+              editor exactly as if it had been typed into the YAML.
             */
             onSet={
               editable && !drawing && !activityList
                 ? (key, value, adding) => {
-                    const current = presence?.collaboration?.text ?? state.draft;
+                    const shared = presence?.collaboration;
+                    const current = shared?.text ?? state.draft;
                     const changed = changeProperty(current, key, value, adding);
                     if ("error" in changed) return changed.error;
-                    if (changed.text !== current) collaborativeChange(changed.text);
+                    if (changed.text === current) return null;
+                    // Against the snapshot this text was read from, so an edit
+                    // that arrived since this render is merged, never undone.
+                    if (shared !== undefined) shared.onVersionedChange(changed.text, shared.revision);
+                    else collaborativeChange(changed.text);
                     return null;
                   }
                 : undefined

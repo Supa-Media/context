@@ -32,7 +32,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mcp/src/lists/properties.js": "e676e50deab4d9798fe576bca5fa526ad7becab8f9cf8dab06d8fbbd76eb01e1",
   "apps/mcp/src/lists/renderBlock.js": "c080fff913c8f16766435edfc928da0318da30f38f823649c2ec73a2991b248c",
   "apps/mcp/src/lists/select.js": "31047570d2ab97f9e7b1920df2de26fad2bbf34e6e3a3cb48b147660b72afa88",
-  "apps/mcp/src/lists/setProperty.js": "a2b9e14684f6827dc94654f95aa47bb2fc04a3ecd496d6fa147cb4f630ac416f",
+  "apps/mcp/src/lists/setProperty.js": "eb23a3b485e56092c03d1a84eaa298529abf05e38928fdf78c6d8bef49aaff0f",
   "apps/mobile/features/console/files/dictate.ts": "9f2956b51062539111e7be74c9652001e65c00d4e934d8400ce76307f79d8d10",
   "apps/mobile/features/console/files/editorSetup.ts": "cab317b23c1fd0886494a91ac248f9618347f895138fc8fd21ceea329bd1cb2e",
   "apps/mobile/features/console/files/formBlock.ts": "fa883d3048c7b10501a07ae7a60814a044241206f99a7adb20dc6888f6fbc6a4",

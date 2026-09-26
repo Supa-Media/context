@@ -45,6 +45,8 @@ const { emptyEditor } =
   require("../features/console/files/editor") as typeof import("../features/console/files/editor");
 const { propertyRows, changeProperty } =
   require("../features/console/files/noteEditor/propertyEdit") as typeof import("../features/console/files/noteEditor/propertyEdit");
+const { parseWebsitePage } =
+  require("../../../packages/shared/src/websiteMetadata") as typeof import("../../../packages/shared/src/websiteMetadata");
 const { properties, splitNote } =
   require("../features/console/files/frontmatter") as typeof import("../features/console/files/frontmatter");
 
@@ -73,6 +75,21 @@ const FILE = [
   "",
 ].join("\n");
 
+/** Dev's own lab page, in the shape `parseWebsitePage` accepts. */
+const WEBSITE_PAGE = [
+  "---",
+  "title: Website capabilities lab",
+  "description: A private scratch page.",
+  "audience: public",
+  "draft: true",
+  "nav: 99",
+  "updated: 2026-09-24",
+  "---",
+  "",
+  "# Lab",
+  "",
+].join("\n");
+
 const roots: (() => void)[] = [];
 afterEach(() => {
   while (roots.length > 0) roots.pop()!();
@@ -83,7 +100,12 @@ const TEAM = { visibility: "team", inherited: "team", exception: false, readOnly
 
 function mount(
   width: number,
-  { canEdit = true, draft = FILE, visibility }: { canEdit?: boolean; draft?: string; visibility?: typeof TEAM } = {},
+  {
+    canEdit = true,
+    draft = FILE,
+    visibility,
+    presence,
+  }: { canEdit?: boolean; draft?: string; visibility?: typeof TEAM; presence?: unknown } = {},
 ) {
   const changes: string[] = [];
   Object.defineProperty(document.documentElement, "clientWidth", { value: width, configurable: true });
@@ -104,6 +126,7 @@ function mount(
         state,
         canEdit,
         visibility,
+        presence: presence as never,
         onChange: (text: string) => {
           changes.push(text);
           // The parent's reducer, reduced to the part the panel reads back.
@@ -160,12 +183,34 @@ describe("changing a value", () => {
     expect(app.find("note-properties-open")!.textContent).toContain("members");
   });
 
-  test("a value YAML would misread is quoted so it reads back as typed", () => {
-    const app = mount(1440);
+  /*
+    A website page takes `draft` and `nav` only bare, so the first version of
+    this — which wrote `draft: "false"` — turned a page into a problem the
+    moment somebody published it from here.
+  */
+  test("true, false and numbers are written bare, and a website page still parses", () => {
+    const app = mount(1440, { draft: WEBSITE_PAGE });
     app.press(app.find("note-property-draft-value"));
     app.type("note-property-draft-input", "false");
     app.key("note-property-draft-input", "Enter");
-    expect(app.latest()).toBe(FILE.replace("draft: true", 'draft: "false"'));
+    app.press(app.find("note-property-nav-value"));
+    app.type("note-property-nav-input", "2");
+    app.key("note-property-nav-input", "Enter");
+    app.press(app.find("note-property-audience-value"));
+    app.type("note-property-audience-input", "members");
+    app.key("note-property-audience-input", "Enter");
+    const page = WEBSITE_PAGE.replace("draft: true", "draft: false").replace("nav: 99", "nav: 2").replace("audience: public", "audience: members");
+    expect(app.latest()).toBe(page);
+    const parsed = parseWebsitePage(page);
+    expect([parsed.draft, parsed.nav, parsed.audience, parsed.problems]).toEqual([false, 2, "members", []]);
+  });
+
+  test("a value YAML would misread as another type keeps its quotes", () => {
+    const app = mount(1440);
+    app.press(app.find("note-property-nav-value"));
+    app.type("note-property-nav-input", "yes");
+    app.key("note-property-nav-input", "Enter");
+    expect(app.latest()).toBe(FILE.replace("nav: 99", 'nav: "yes"'));
   });
 
   test("Escape puts it back and writes nothing", () => {
@@ -278,6 +323,26 @@ describe("on a phone too", () => {
     app.type("note-property-title-input", "Lab");
     app.key("note-property-title-input", "Enter");
     expect(app.latest()).toBe(FILE.replace("title: Website capabilities lab", "title: Lab"));
+  });
+});
+
+describe("in a note people are editing together", () => {
+  test("the change merges against the snapshot it was read from, not over the live text", () => {
+    const versioned: [string, string][] = [];
+    const plain: string[] = [];
+    const collaboration = {
+      ready: true,
+      text: FILE,
+      revision: "SNAPSHOT",
+      onChange: (text: string) => plain.push(text),
+      onVersionedChange: (text: string, base: string) => void versioned.push([text, base]),
+    };
+    const app = mount(1440, { presence: { summary: "", members: [], collaboration } });
+    app.press(app.find("note-property-nav-value"));
+    app.type("note-property-nav-input", "3");
+    app.key("note-property-nav-input", "Enter");
+    expect(versioned).toEqual([[FILE.replace("nav: 99", "nav: 3"), "SNAPSHOT"]]);
+    expect(plain).toEqual([]);
   });
 });
 
