@@ -4,6 +4,7 @@ import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
+import { relabelled } from "../linkedTitle";
 import { FileTree } from "../FileTree";
 import { NO_PICK } from "../selection";
 import { cycleVisibility } from "./rowVisibility";
@@ -90,7 +91,7 @@ export function ExplorerTree({
         )
       ) : (
         <FileTree
-          rows={rows}
+          rows={relabelled(rows, files.titleEdit)}
           canSetVisibility={files.canSetVisibility}
           onSelect={select}
           onToggle={(path) => {

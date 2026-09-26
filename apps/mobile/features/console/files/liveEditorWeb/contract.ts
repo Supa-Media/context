@@ -86,6 +86,13 @@ export interface EditorControls {
    * was left alone, which the caller has to tell somebody rather than swallow.
    */
   discardDictation?(): boolean;
+  /**
+   * Put the caret in the note's title with its words selected, and say
+   * whether there was a title to go to. Web only, as above — see
+   * `titleLine.ts`. Rename on the open note's row, and a new note's
+   * placeholder, both land here.
+   */
+  selectTitle?(): boolean;
 }
 
 export interface LiveEditorProps {
@@ -144,6 +151,14 @@ export interface LiveEditorProps {
    */
   onFocus?: () => void;
   onBlur?: () => void;
+  /**
+   * The caret entered or left the note's title. Web only: see `titleLine.ts`,
+   * and `useLinkedTitle.ts` for why leaving it is when a title renames its
+   * file. A surface that never calls this reads as "not in the title".
+   */
+  onTitleCaret?: (inTitle: boolean) => void;
+  /** The line drawn under the title, or `null` for none. Web only. */
+  titleNote?: { tone: "problem" | "held"; message: string } | null;
   /**
    * Who else has this note open, and where to send this editor's own caret.
    *
@@ -274,6 +289,7 @@ export interface EditorHandlers {
   controls: LiveEditorProps["controls"];
   onFocus: LiveEditorProps["onFocus"];
   onBlur: LiveEditorProps["onBlur"];
+  onTitleCaret: LiveEditorProps["onTitleCaret"];
   onDictate: LiveEditorProps["onDictate"];
   onAsk: LiveEditorProps["onAsk"];
 }

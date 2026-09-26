@@ -108,6 +108,9 @@ export function NoteEditor({
   onStoreImage,
   onImageProblem,
   folderLists,
+  onTitleCaret,
+  titleNote,
+  titleFocus,
   encryption,
   activity,
   activityShared = false,
@@ -340,6 +343,18 @@ export function NoteEditor({
     region, the toolbar is a sibling of it), so no `zIndex` either of them asks
     for can order them against each other.
   */
+  /*
+    Rename on the open note's row, and a note made untitled a moment ago: the
+    caret goes to the title with its words selected, so typing replaces them.
+    Keyed on the request's id, so asking twice is two asks; and on the path
+    being the one this editor holds, so a request for a note still opening is
+    answered once it has.
+  */
+  const titleFocusId = titleFocus?.path === state.path ? (titleFocus?.id ?? null) : null;
+  useEffect(() => {
+    if (titleFocusId === null) return;
+    controls.current?.selectTitle?.();
+  }, [titleFocusId]);
   const { setAccessoryOpen } = frame;
   useEffect(() => {
     setAccessoryOpen(barUp);
@@ -375,7 +390,7 @@ export function NoteEditor({
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
-    folderLists, encryption, activity, activityShared, activityEditable, onOpenNote,
+    folderLists, onTitleCaret, titleNote, encryption, activity, activityShared, activityEditable, onOpenNote,
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,

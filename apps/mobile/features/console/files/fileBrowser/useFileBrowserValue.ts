@@ -19,6 +19,7 @@ import type { BrowserStateValues } from "./useBrowserState";
 import type { ConflictsAndDraftsValues } from "./useConflictsAndDrafts";
 import type { ContextMovesValues } from "./useContextMoves";
 import type { CreateAndMoveValues } from "./useCreateAndMove";
+import type { LinkedTitleValues } from "./useLinkedTitle";
 import type { ListingsValues } from "./useListings";
 import type { NoteReadsValues } from "./useNoteReads";
 import type { OfflineQueueValues } from "./useOfflineQueue";
@@ -70,6 +71,7 @@ type FileBrowserValueDeps =
   >
   & Pick<ListingsValues, "collapseAll" | "contextId" | "ensureListing" | "search" | "toggleFolder">
   & Pick<OpenNoteValues, "deselect" | "select">
+  & Pick<LinkedTitleValues, "focusTitle" | "setTitleCaret" | "titleEdit" | "titleFocus">
   & Pick<SavingValues, "flushAutosave" | "save">
   & Pick<
     ConflictsAndDraftsValues,
@@ -142,7 +144,8 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     opening, paste, pending, readFormResponses, readRaw, rename, renamed, resetPrivacy, resolveWith,
     restoreMany, resumeContextMove, retractFormResponse, revokeShare, save, say, search, select,
     selectedPath, setClipboard, setCollaborationDraft, setCollaborationOwned,
-    setCollaborationState, setDraft, setScope, setShareCollecting, setSharePreviewTitle,
+    setCollaborationState, setDraft, focusTitle, setTitleCaret, titleEdit, titleFocus, setScope,
+    setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
     toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm,
   } = deps;
@@ -273,8 +276,16 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setSharePreviewTitle,
       ensureListing,
       readRaw,
+      titleEdit,
+      setTitleCaret,
+      titleFocus,
+      focusTitle,
     }),
     [
+      titleEdit,
+      setTitleCaret,
+      titleFocus,
+      focusTitle,
       submitForm,
       loadImage,
       storeImage,

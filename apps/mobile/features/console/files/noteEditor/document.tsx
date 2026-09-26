@@ -1,4 +1,4 @@
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { PresenceChip } from "../../ConsoleShell";
 import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
@@ -79,6 +79,8 @@ export function noteDocument(view: NoteView) {
     onStoreImage,
     onImageProblem,
     folderLists,
+    onTitleCaret,
+    titleNote,
   } = view;
   return (
     <View
@@ -324,8 +326,18 @@ export function noteDocument(view: NoteView) {
               return;
             }
             setFocused(true);
+            // The native editor says focus and nothing finer, so there the
+            // whole of a focused editor counts as "in the title": a title
+            // renames its file when the keyboard goes away, not at every
+            // pause in typing it. The web editor reports the caret itself.
+            if (Platform.OS !== "web") onTitleCaret?.(true);
           }}
-          onBlur={() => setFocused(false)}
+          onBlur={() => {
+            setFocused(false);
+            if (Platform.OS !== "web") onTitleCaret?.(false);
+          }}
+          onTitleCaret={onTitleCaret}
+          titleNote={titleNote}
           /*
             The caret went under the keyboard and the editor cannot reach it.
             Compact only, because the editor scrolls itself everywhere else —

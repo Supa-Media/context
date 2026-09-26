@@ -42,6 +42,7 @@ import type { PendingMarks } from "../pendingMarks";
 import type { ConflictReview } from "../useConflictReview";
 import type { AppliedPluginNoteWrite } from "../../plugins/runtime";
 import type { SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
+import type { TitleEdit } from "../fileBrowser/useLinkedTitle";
 
 export type { SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
 
@@ -157,6 +158,26 @@ export interface FileBrowser {
    * the live browser renames anything.
    */
   renamed?: NoteRename | null;
+
+  /**
+   * The open note's title, while it is renaming the file — see
+   * `linkedTitle.ts`. `label` is what the tab and its row show while the
+   * title is being typed; `note` is the line drawn under the title when it
+   * cannot be a name (taken, a slash) or a live share holds the path.
+   * `null` when the title is not doing anything to the name. Optional, like
+   * `renamed`, because only the live browser has a note to rename.
+   */
+  titleEdit?: TitleEdit | null;
+  /** Whether the caret is in the open note's title. Leaving it is the commit. */
+  setTitleCaret?: (inTitle: boolean) => void;
+  /** A request, by id, to put the caret in this note's title. See `focusTitle`. */
+  titleFocus?: { path: string; id: number } | null;
+  /**
+   * Rename by way of the title: `true` when `path` is the open note and its
+   * title is its name, and the caret is on its way there. `false` for
+   * anything else, which the caller renames the old way.
+   */
+  focusTitle?: (path: string) => boolean;
 
   /**
    * Close what is open and stand at the context's root.
