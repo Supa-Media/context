@@ -13,6 +13,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { publishedEmojiNames } from "@context/shared";
+import { PUBLICATION_CLEARANCE } from "./publication";
 
 /** How many different emoji one answer carries. */
 export const MAX_PUBLISHED_EMOJI = 48;
@@ -44,8 +45,7 @@ export async function readPublishedEmoji(
       ctx
         .runAction(internal.functions.files.runFileOperation, {
           workspaceId,
-          scope: "team" as const,
-          grantedNames: [],
+          ...PUBLICATION_CLEARANCE,
           operation: { kind: "emojiRead" as const, name },
         })
         .catch(() => null),

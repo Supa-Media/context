@@ -585,8 +585,7 @@ async function renderWebsitePage(
     const shares = await ctx
       .runAction(internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
-        scope: "team" as const,
-        grantedNames: [],
+        ...PUBLICATION_CLEARANCE,
         operation: { kind: "readMany" as const, paths: sharePaths },
       })
       .catch(() => null);
