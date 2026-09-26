@@ -92,12 +92,15 @@ export function FolderHead({
   title,
   onOpenTitle,
   switcher,
+  actions,
   children,
 }: {
   title: string;
   /** Opens the front note; absent when there is none to open. */
   onOpenTitle?: () => void;
   switcher: ReactNode;
+  /** After the switch: the website folder's Publish. */
+  actions?: ReactNode;
   /** The property line, the lede, the visibility sentence. */
   children?: ReactNode;
 }) {
@@ -128,6 +131,7 @@ export function FolderHead({
           )}
         </View>
         {switcher}
+        {actions}
       </View>
       {children}
     </>

@@ -2,8 +2,8 @@
  * The homepage's live site, handed to the app inside the homepage's HTML.
  *
  * `/` is the Expo web app drawing `@context-lc`'s `website/` folder as a
- * workspace: the sidebar is the folder, and editing a note there edits the
- * front page. The app used to ask for the site after it loaded and
+ * workspace: the sidebar is the folder, and publishing it publishes the front
+ * page. The app used to ask for the site after it loaded and
  * draw built-in copy meanwhile, so visitors saw one homepage and then another
  * (the flicker the owner asked to be rid of). Now the Worker asks Convex's
  * `/site/home` while it fetches the HTML, and puts the answer in the page as
@@ -28,10 +28,10 @@ const SNAPSHOT_TIMEOUT_MS = 1_500;
 /** How long the fetch itself may run after the HTML has gone, to fill the cache. */
 const SNAPSHOT_FETCH_LIMIT_MS = 15_000;
 /**
- * Per colo. Short, because an owner editing the front page reloads to see it;
- * the app also watches the site's revision and catches up on its own.
+ * Per colo, per revision. Long, because a copy is never stale for its own
+ * revision: a Publish is a new revision, so a new key.
  */
-const SNAPSHOT_CACHE_SECONDS = 15;
+const SNAPSHOT_CACHE_SECONDS = 86_400;
 /** Mirrors `MAX_SNAPSHOT_PAGES` in the Convex module. */
 const MAX_PAGES = 200;
 const MAX_TEXT = 200_000;
@@ -108,7 +108,32 @@ function cacheOrNull(): Cache | null {
   }
 }
 
-/** Every failure is `null`, and a `null` is cached as briefly as a site. */
+async function postJson(url: string, body: unknown, limitMs: number): Promise<unknown> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(limitMs),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return await response.json();
+}
+
+function keyFor(handle: string, revision: string): Request {
+  return new Request(
+    `https://home-site.invalid/${encodeURIComponent(handle)}/${encodeURIComponent(revision)}`,
+  );
+}
+
+/**
+ * The site, from the copy kept for its current revision when there is one.
+ *
+ * A save does not move the revision; a Publish does (and so does a
+ * restriction applied without one). So every visit costs one small question,
+ * and the folder itself is read once per Publish per colo rather than once
+ * per visit. The answer is kept whenever it arrives, so a visit that gave up
+ * waiting still leaves it ready for the next one. Every failure is `null`.
+ */
 export async function fetchHomeSnapshot(
   convexOrigin: string | null,
   handle: string,
@@ -116,34 +141,24 @@ export async function fetchHomeSnapshot(
 ): Promise<HomeSnapshot | null> {
   if (convexOrigin === null) return null;
   const cache = cacheOrNull();
-  const key = new Request(`https://home-site.invalid/${encodeURIComponent(handle)}`);
-  try {
-    const hit = await cache?.match(key);
-    if (hit) return parseHomeSnapshot(await hit.json());
-  } catch {
-    // A cache that cannot answer is a miss.
-  }
-
-  // The answer is cached whenever it arrives, so a visit that gave up waiting
-  // still leaves the site ready for the next one.
   const answer = (async (): Promise<HomeSnapshot | null> => {
     try {
-      const response = await fetch(`${convexOrigin}/site/home`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle }),
-        signal: AbortSignal.timeout(SNAPSHOT_FETCH_LIMIT_MS),
-      });
-      if (!response.ok) return null;
-      const snapshot = parseHomeSnapshot(await response.json());
-      if (cache !== null) {
+      const asked = await postJson(`${convexOrigin}/site/home/revision`, { handle }, SNAPSHOT_TIMEOUT_MS);
+      const revision = (asked as { revision?: unknown } | null)?.revision;
+      if (!isText(revision, 200)) return null;
+      const hit = await cache?.match(keyFor(handle, revision)).catch(() => undefined);
+      if (hit) return parseHomeSnapshot(await hit.json());
+      const snapshot = parseHomeSnapshot(
+        await postJson(`${convexOrigin}/site/home`, { handle }, SNAPSHOT_FETCH_LIMIT_MS),
+      );
+      if (cache !== null && snapshot?.revision != null) {
         const stored = new Response(JSON.stringify(snapshot), {
           headers: {
             "Content-Type": "application/json",
             "Cache-Control": `public, max-age=${SNAPSHOT_CACHE_SECONDS}`,
           },
         });
-        await cache.put(key, stored).catch(() => undefined);
+        await cache.put(keyFor(handle, snapshot.revision), stored).catch(() => undefined);
       }
       return snapshot;
     } catch {

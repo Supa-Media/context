@@ -8,7 +8,7 @@ import {
 } from "@context/shared";
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
-import type { ActionCtx, MutationCtx } from "../../../_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/server";
 import { callerId } from "../filesFns/access";
 import { isEncryptedNote } from "../noteEncryption";
 import { websiteTextRestricts } from "./changes";
@@ -290,11 +290,13 @@ export async function commitRouteReconciliationHandler(
     routeReconciledGeneration: args.generation,
     routeReconciledAt: now,
     routeUnsafeGeneration: undefined,
+    siteRevision: (state.siteRevision ?? 0) + 1,
     ...(args.releaseId === undefined
       ? {}
       : {
           publishedReleaseId: args.releaseId,
           previousReleaseId: state.publishedReleaseId,
+          publishedAt: now,
         }),
   });
   return {
@@ -307,11 +309,13 @@ export async function commitRouteReconciliationHandler(
 }
 
 /**
- * The narrowing half of a rebuild that may not publish. Fenced like a commit;
- * drops the rows `narrowedRows` names without adding any, retires the grace
- * release (which holds a copy of every page the current one does), and lifts
- * the unsafe marker the narrowing was waiting on. The reconciled generation
- * does not advance, so the next clean scan still owns the widening half.
+ * The narrowing half of a scan that does not publish. Fenced like a commit;
+ * drops the rows `narrowedRows` names without adding any, and retires the
+ * grace release (which holds a copy of every page the current one does).
+ *
+ * The scan is then complete for everything it may change, so the reconciled
+ * generation advances and the unsafe marker lifts: widening is no longer a
+ * later scan's job but the next Publish's.
  */
 export async function narrowRouteIndexHandler(
   ctx: MutationCtx,
@@ -348,18 +352,24 @@ export async function narrowRouteIndexHandler(
   const liftUnsafe =
     state.routeUnsafeGeneration !== undefined &&
     state.routeUnsafeGeneration <= args.generation;
+  const reconciled = {
+    routeReconciledGeneration: args.generation,
+    routeReconciledAt: Date.now(),
+    ...(liftUnsafe ? { routeUnsafeGeneration: undefined } : {}),
+    // What a visitor is served changed, or its menu is back.
+    ...(narrowed.length > 0 || liftUnsafe
+      ? { siteRevision: (state.siteRevision ?? 0) + 1 }
+      : {}),
+  };
   if (narrowed.length === 0) {
-    if (liftUnsafe) await ctx.db.patch(state._id, { routeUnsafeGeneration: undefined });
+    await ctx.db.patch(state._id, reconciled);
     return nothing;
   }
   for (const row of narrowed) await ctx.db.delete(row._id);
   const pageIds = narrowed
     .filter((row) => row.releaseId === state.publishedReleaseId)
     .flatMap((row) => (row.releasePageId === undefined ? [] : [row.releasePageId]));
-  await ctx.db.patch(state._id, {
-    previousReleaseId: undefined,
-    ...(liftUnsafe ? { routeUnsafeGeneration: undefined } : {}),
-  });
+  await ctx.db.patch(state._id, { ...reconciled, previousReleaseId: undefined });
   return {
     releaseId: pageIds.length > 0 ? (state.publishedReleaseId ?? null) : null,
     pageIds,
@@ -463,12 +473,14 @@ export async function refreshRouteStatusesHandler(
       PUBLICATION_CLEARANCE,
       { publication: true },
     );
+    // Looking at the statuses applies restrictions; only Publish widens.
     await commitPublicationSnapshot(
       ctx,
       args.workspaceId,
       generation,
       published,
       false,
+      await firstScan(ctx, args.workspaceId),
     );
   }
   return snapshot.statuses;
@@ -477,7 +489,12 @@ export async function refreshRouteStatusesHandler(
 /** Unattended repair pass; disabled sites are re-checked and refused. */
 export async function reconcileWorkspaceHandler(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; expectedGeneration?: number },
+  args: {
+    workspaceId: Id<"workspaces">;
+    expectedGeneration?: number;
+    /** Someone pressed Publish or turned the site on: widen as well. */
+    publish?: boolean;
+  },
 ): Promise<boolean> {
   let generation = await ctx.runMutation(
     internal.functions.websites.beginRouteReconciliation,
@@ -554,7 +571,32 @@ export async function reconcileWorkspaceHandler(
     generation,
     snapshot,
     true,
+    args.publish === true || (await firstScan(ctx, args.workspaceId)),
   );
+}
+
+/**
+ * A site that has never had a complete scan has nothing published to keep,
+ * so its first scan publishes: turning a site on is the first Publish.
+ */
+async function firstScan(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<boolean> {
+  return !(await ctx.runQuery(internal.functions.websites.websiteEverReconciled, {
+    workspaceId,
+  }));
+}
+
+export async function websiteEverReconciledHandler(
+  ctx: QueryCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<boolean> {
+  const state = await ctx.db
+    .query("websiteStates")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  return state?.routeReconciledGeneration !== undefined;
 }
 
 /** Queue a bounded oldest-attempted batch so one broken bucket cannot starve peers. */

@@ -13,22 +13,25 @@
  * homepage; for any other handle it would make every site's pages without a
  * menu entry enumerable, so every other handle is the null answer.
  *
- * Which files there are comes from the site's own route index, which the site
- * already keeps for the folder at `PUBLICATION_CLEARANCE`: one query, not a
- * listing of the whole bucket on every visit. Listing the bucket here made the
- * answer too slow for the page to wait for, so visitors got the built-in copy.
- * The words are then read at `PUBLICATION_CLEARANCE` too, so a note
- * `privacy.md` holds back is absent whatever the index says, and drafts,
- * members-only pages and encrypted notes are dropped as they are on the site.
- * Nothing is read unless the site is turned on.
+ * Which pages there are comes from the site's own route index: what was last
+ * published, less anything restricted since. One query, not a listing of the
+ * whole bucket on every visit, which made the answer too slow for the page to
+ * wait for. The words are what was published: the live file when it has not
+ * changed since, its release copy when it has. The live files are still read
+ * at `PUBLICATION_CLEARANCE`, so a note `privacy.md` holds back, a draft, a
+ * members-only page or an encrypted note is absent whatever the index says.
+ * The router keeps this answer by `siteRevision`, so these reads happen once
+ * per Publish rather than once per visit. Nothing is read unless the site is
+ * turned on.
  */
 
-import { DEFAULT_WEBSITE_ROOT, parseWebsitePage } from "@context/shared";
+import { DEFAULT_WEBSITE_ROOT, parseWebsitePage, websitePageTitle } from "@context/shared";
 import { api, internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
 import { isEncryptedNote } from "../noteEncryption";
+import { websiteTextRestricts } from "./changes";
 import { readBatches } from "./lists";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { normalizedHandle } from "./resolver";
@@ -57,11 +60,19 @@ export interface WebsiteSnapshot {
   pages: WebsiteSnapshotPage[];
 }
 
-/** The homepage's workspace and the files its site indexes, when `handle` is it and its site is on. */
+/** A page the site published, as the route index holds it. */
+export interface PublishedPage {
+  objectKey: string;
+  sourceEtag: string;
+  releaseId?: string;
+  releasePageId?: string;
+}
+
+/** The homepage's workspace and the pages its site published, when `handle` is it and its site is on. */
 export async function homeSiteWorkspaceHandler(
   ctx: QueryCtx,
   args: { handle: string },
-): Promise<{ workspaceId: Id<"workspaces">; siteName: string; keys: string[] } | null> {
+): Promise<{ workspaceId: Id<"workspaces">; siteName: string; pages: PublishedPage[] } | null> {
   const handle = normalizedHandle(args.handle);
   if (handle === null || handle !== normalizedHandle(homeSiteHandle())) return null;
   const claim = await findName(ctx, handle);
@@ -78,15 +89,21 @@ export async function homeSiteWorkspaceHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
     .take(MAX_SNAPSHOT_PAGES * 2);
   const prefix = `${DEFAULT_WEBSITE_ROOT}/`;
-  const keys = [
-    ...new Set(
-      rows
-        .filter((row) => row.status !== "draft" && row.audience === "public")
-        .map((row) => row.objectKey)
-        .filter((key) => key.startsWith(prefix) && /\.md$/i.test(key)),
-    ),
-  ];
-  return { workspaceId: workspace._id, siteName: workspace.displayName, keys };
+  const seen = new Set<string>();
+  const pages: PublishedPage[] = [];
+  for (const row of rows) {
+    if (row.status !== "live" || row.audience !== "public") continue;
+    if (!row.objectKey.startsWith(prefix) || !/\.md$/i.test(row.objectKey)) continue;
+    if (seen.has(row.objectKey)) continue;
+    seen.add(row.objectKey);
+    pages.push({
+      objectKey: row.objectKey,
+      sourceEtag: row.sourceEtag,
+      ...(row.releaseId === undefined ? {} : { releaseId: row.releaseId }),
+      ...(row.releasePageId === undefined ? {} : { releasePageId: row.releasePageId }),
+    });
+  }
+  return { workspaceId: workspace._id, siteName: workspace.displayName, pages };
 }
 
 /** `index.md` is its folder's address, as it is on the site. */
@@ -98,11 +115,37 @@ export function routePathFor(path: string): string {
 
 /** The title a page is listed by: its own, else its first heading, else its name. */
 export function pageTitle(path: string, title: string | null, body: string): string {
-  if (title !== null && title !== "") return title;
-  const heading = /^#[ \t]+(.+?)[ \t#]*$/m.exec(body)?.[1]?.trim();
-  if (heading) return heading;
-  return path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+  return websitePageTitle(path, title, body);
 }
+
+/** The published copies of `pages`, by file; a copy that is gone is absent. */
+async function releasedTexts(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  pages: PublishedPage[],
+): Promise<Map<string, string>> {
+  const wanted = pages.flatMap((page) =>
+    page.releaseId === undefined || page.releasePageId === undefined
+      ? []
+      : [{ releaseId: page.releaseId, pageId: page.releasePageId, path: page.objectKey }],
+  );
+  const texts = new Map<string, string>();
+  for (let offset = 0; offset < wanted.length; offset += RELEASE_BATCH) {
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      grantedNames: [],
+      operation: { kind: "readWebsiteRelease", pages: wanted.slice(offset, offset + RELEASE_BATCH) },
+    });
+    if (result.kind !== "websiteReleasePages") continue;
+    for (const page of result.results) {
+      if (page.outcome === "read") texts.set(page.path, page.text);
+    }
+  }
+  return texts;
+}
+
+const RELEASE_BATCH = 50;
 
 export async function websiteSnapshot(
   ctx: ActionCtx,
@@ -112,26 +155,44 @@ export async function websiteSnapshot(
     handle: args.handle,
   });
   if (home === null) return null;
-  // Read before the pages, so an edit landing mid-read leaves this older than
-  // the site and the client asks again, never the other way round.
+  // Read before the pages, so a publish landing mid-read leaves this older
+  // than the site and the client asks again, never the other way round.
   const revision = await ctx.runQuery(api.functions.websites.siteRevision, { handle: args.handle });
 
   const prefix = `${DEFAULT_WEBSITE_ROOT}/`;
-  const notes = await readBatches(
+  const published = [...home.pages]
+    .sort((left, right) => left.objectKey.localeCompare(right.objectKey))
+    .slice(0, MAX_SNAPSHOT_PAGES);
+  // The live files are read only to learn whether they still publish their
+  // pages; what goes out is what was published.
+  const live = await readBatches(
     ctx,
     home.workspaceId,
     PUBLICATION_CLEARANCE.scope,
-    [...home.keys].sort().slice(0, MAX_SNAPSHOT_PAGES),
+    published.map((page) => page.objectKey),
   );
-  const listed: Array<WebsiteSnapshotPage & { nav: number | null }> = [];
-  for (const [key, note] of notes) {
-    if (isEncryptedNote(note.text)) continue;
+  const still = published.filter((page) => {
+    const note = live.get(page.objectKey);
+    if (note === undefined || isEncryptedNote(note.text) || websiteTextRestricts(note.text)) {
+      return false;
+    }
     const parsed = parseWebsitePage(note.text);
+    return !parsed.draft && parsed.audience === "public";
+  });
+  const changed = still.filter((page) => live.get(page.objectKey)!.etag !== page.sourceEtag);
+  const copies = await releasedTexts(ctx, home.workspaceId, changed);
+
+  const listed: Array<WebsiteSnapshotPage & { nav: number | null }> = [];
+  for (const page of still) {
+    const note = live.get(page.objectKey)!;
+    const text = note.etag === page.sourceEtag ? note.text : copies.get(page.objectKey);
+    if (text === undefined || isEncryptedNote(text)) continue;
+    const parsed = parseWebsitePage(text);
     // Invalid frontmatter could be a draft or members-only line the parser
     // refused; it is held back rather than guessed at.
     if (parsed.draft || parsed.audience !== "public") continue;
     if (parsed.problems.some((problem) => problem.code === "invalid_metadata")) continue;
-    const path = key.slice(prefix.length);
+    const path = page.objectKey.slice(prefix.length);
     listed.push({
       path,
       routePath: routePathFor(path),

@@ -501,6 +501,7 @@ describe("public website resolution", () => {
     await expect(
       f.t.action(internal.functions.websites.reconcileWorkspace, {
         workspaceId: f.workspaceId,
+        publish: true,
       }),
     ).resolves.toBe(true);
     await expect(
@@ -513,20 +514,6 @@ describe("public website resolution", () => {
       title: "Finished",
       markdown: "The complete edit.\n",
     });
-  });
-
-  test("an ordinary edit is served as saved, not refused until the rebuild", async () => {
-    const f = await fixture();
-    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld\n");
-    await publish(f);
-    f.backend.seed("website/index.md", "---\ntitle: Hello\n---\n\nHi, I'm Atlas.\n");
-
-    const resolved = await f.t.action(api.functions.websites.resolvePage, {
-      handle: "atlas",
-      routePath: "/",
-    });
-    expect(resolved).toMatchObject({ kind: "page", title: "Hello" });
-    expect(JSON.stringify(resolved)).toContain("Hi, I'm Atlas.");
   });
 
   test("a successful website write invalidates the derivative immediately", async () => {

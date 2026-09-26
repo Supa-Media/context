@@ -81,3 +81,10 @@ export async function publish(f: Fixture): Promise<void> {
     { workspaceId: f.workspaceId },
   );
 }
+
+/** Someone pressing Publish: what the folder holds now becomes the site. */
+export async function pressPublish(f: Fixture, as: Id<"users"> = f.owner) {
+  return await asUser(f.t, as).action(api.functions.websites.publish, {
+    workspaceId: f.workspaceId,
+  });
+}

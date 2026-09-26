@@ -47,6 +47,7 @@ function view(
   slug: string,
   canManage: boolean,
   row: WebsiteStateRow,
+  canPublish = canManage,
 ): WebsiteStateView {
   const base = {
     contractVersion: WEBSITE_CONTRACT_VERSION,
@@ -55,7 +56,13 @@ function view(
     canManage,
   } as const;
   if (row?.state === "enabled" && row.enabledAt !== undefined) {
-    return { ...base, state: "enabled", enabledAt: row.enabledAt };
+    return {
+      ...base,
+      state: "enabled",
+      enabledAt: row.enabledAt,
+      canPublish,
+      ...(row.publishedAt === undefined ? {} : { publishedAt: row.publishedAt }),
+    };
   }
   return { ...base, state: "disabled" };
 }
@@ -75,6 +82,7 @@ export async function getWebsiteStateHandler(
     workspace.slug,
     membership.role === "owner",
     await stateRow(ctx, args.workspaceId),
+    membership.role === "owner" || membership.role === "editor",
   );
 }
 
@@ -145,10 +153,11 @@ export async function recordWebsiteEnabledHandler(
   });
   // Index the homepage straight away: until a first scan lands, the resolver
   // fails closed and the site the card calls Live says "Nothing here".
+  // Turning a site on publishes what its folder holds now.
   await ctx.scheduler.runAfter(
     0,
     internal.functions.websites.reconcileWorkspace,
-    { workspaceId: args.workspaceId },
+    { workspaceId: args.workspaceId, publish: true },
   );
   return {
     contractVersion: WEBSITE_CONTRACT_VERSION,

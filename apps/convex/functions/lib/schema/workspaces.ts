@@ -204,6 +204,13 @@ export const workspaceTables = {
     /** Current and one grace release; page bytes remain in the customer bucket. */
     publishedReleaseId: v.optional(v.string()),
     previousReleaseId: v.optional(v.string()),
+    /** When someone last pressed Publish and a release landed. */
+    publishedAt: v.optional(v.number()),
+    /**
+     * Moves whenever what visitors are served may have: a publish, or a
+     * restriction applied without one. The homepage caches by it.
+     */
+    siteRevision: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])

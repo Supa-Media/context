@@ -373,7 +373,7 @@ describe("website route index", () => {
     f.backend.seed("website/index.md", "---\ntitle: New\n---\n\nNew page\n");
     refuseRelease = true;
     await expect(
-      asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, {
+      asUser(f.t, f.owner).action(api.functions.websites.publish, {
         workspaceId: f.workspaceId,
       }),
     ).rejects.toThrow();
@@ -519,6 +519,7 @@ describe("website route index", () => {
     await expect(
       f.t.action(internal.functions.websites.reconcileWorkspace, {
         workspaceId: f.workspaceId,
+        publish: true,
       }),
     ).resolves.toBe(true);
     expect(f.backend.snapshot()["website/index.md"]).toBeUndefined();

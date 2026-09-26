@@ -78,6 +78,7 @@ export function ShareDialog({
   onSetScope,
   groups,
   context = { slug: null, kind: null, viewerIsOwner: true },
+  footExtra,
 }: ShareDialogProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -307,6 +308,7 @@ export function ShareDialog({
               <View style={{ height: compact ? 34 : 16 }} />
             ) : (
               <View style={[styles.foot, compact && styles.footCompact]}>
+                {footExtra}
                 {/*
                   One Copy link, and it copies the link that works for whoever
                   it is sent to: the public link when there is one, the

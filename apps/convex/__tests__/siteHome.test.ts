@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { pageTitle, routePathFor } from "../functions/lib/websites/snapshot";
 import { asUser } from "./fixtures.helpers";
 import { fixture, publish, type Fixture } from "./website.helpers";
@@ -118,6 +118,52 @@ describe("the homepage's site is its website/ folder", () => {
   });
 });
 
+describe("the copy the router keeps until the next Publish", () => {
+  async function revisionOf(f: Fixture, handle = "atlas") {
+    const response = await f.t.fetch("/site/home/revision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle }),
+    });
+    return ((await response.json()) as { revision: string | null }).revision;
+  }
+
+  test("a save leaves the answer and its revision alone; Publish moves both", async () => {
+    const f = await site();
+    const before = await revisionOf(f);
+    expect(before).toEqual(expect.any(String));
+    expect(await revisionOf(f, "atlas-elsewhere")).toBeNull();
+
+    f.backend.seed("website/writing.md", "---\ntitle: Writing\nnav: 1\n---\n\nHalf a new essay.\n");
+    f.backend.seed("website/brand-new.md", "# Brand new\n\nNot published yet.\n");
+    await f.t.mutation(internal.functions.websites.recordRouteChange, { workspaceId: f.workspaceId });
+    const saved = (await (await ask(f, { handle: "atlas" })).json()) as Answer;
+    expect(JSON.stringify(saved)).toContain("Essays.");
+    expect(JSON.stringify(saved)).not.toContain("Half a new essay.");
+    expect(JSON.stringify(saved)).not.toContain("Brand new");
+    expect(await revisionOf(f)).toBe(before);
+
+    await asUser(f.t, f.owner).action(api.functions.websites.publish, { workspaceId: f.workspaceId });
+    const published = (await (await ask(f, { handle: "atlas" })).json()) as Answer;
+    expect(JSON.stringify(published)).toContain("Half a new essay.");
+    expect(published.pages.map((page) => page.path)).toContain("brand-new.md");
+    const after = await revisionOf(f);
+    expect(after).not.toBe(before);
+    expect(published.revision).toBe(after);
+  });
+
+  test("a published page made private leaves the answer without a Publish", async () => {
+    const f = await site();
+    await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: "website/writing.md",
+      visibility: "private",
+    });
+    const body = (await (await ask(f, { handle: "atlas" })).json()) as Answer;
+    expect(body.pages.map((page) => page.path)).not.toContain("writing.md");
+  });
+});
+
 describe("names and addresses", () => {
   test("index is its folder's address", () => {
     expect(routePathFor("index.md")).toBe("/");
@@ -143,7 +189,10 @@ describe("the route's shape", () => {
       fileURLToPath(new URL("../functions/lib/publicRoutes/siteHome.ts", import.meta.url)),
       "utf8",
     );
-    const body = source.slice(source.indexOf("export async function siteHomeHandler"));
+    const body = source.slice(
+      source.indexOf("export async function siteHomeHandler"),
+      source.indexOf("export async function siteHomeRevisionHandler"),
+    );
     const literals = [...body.matchAll(/json\(\{([^{}]*)\}\)/g)].map(([, literal]) =>
       [...literal!.matchAll(/([a-zA-Z_$][\w$]*)\s*:/g)].map((m) => m[1]).sort(),
     );

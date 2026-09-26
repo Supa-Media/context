@@ -36,17 +36,35 @@ const SITE: HomeSnapshot = {
 };
 
 let convexAnswer: () => Response;
+let revisionAnswer: () => Response;
 let fetchSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   convexAnswer = () => Response.json(SITE);
+  revisionAnswer = () => Response.json({ revision: SITE.revision });
   fetchSpy = vi.fn((input: Request | string) => {
     const url = typeof input === "string" ? input : input.url;
     if (url === `${ENV.CONVEX_ORIGIN}/site/home`) return convexAnswer();
+    if (url === `${ENV.CONVEX_ORIGIN}/site/home/revision`) return revisionAnswer();
     return new Response(HTML, { headers: { "Content-Type": "text/html; charset=utf-8", ETag: '"abc"' } });
   });
   vi.stubGlobal("fetch", fetchSpy);
 });
+
+/** A per-colo cache that keeps what it is given, for the length of one test. */
+function stubCache(): Map<string, Response> {
+  const stored = new Map<string, Response>();
+  vi.stubGlobal("caches", {
+    default: {
+      match: async (request: Request) => stored.get(request.url)?.clone(),
+      put: async (request: Request, response: Response) => void stored.set(request.url, response),
+    },
+  });
+  return stored;
+}
+
+const homeCalls = () =>
+  fetchSpy.mock.calls.filter(([input]) => input === `${ENV.CONVEX_ORIGIN}/site/home`).length;
 afterEach(() => vi.unstubAllGlobals());
 
 function get(path: string, host = "context.lc"): Promise<Response> {
@@ -95,25 +113,47 @@ describe("the homepage's HTML", () => {
     }],
   ])("%s leaves the HTML untouched", async (_name, answer) => {
     convexAnswer = answer;
+    revisionAnswer = () => Response.json({ revision: "fresh" });
     const response = await get("/");
     expect(await response.text()).toBe(HTML);
     expect(response.headers.get("ETag")).toBe('"abc"');
   });
 });
 
-describe("a site that answers late", () => {
-  it("is not waited for, and is cached for the next visit when it arrives", async () => {
+describe("the copy kept until the next Publish", () => {
+  it("is read from the folder once per revision, not once per visit", async () => {
+    stubCache();
+    const pending: Promise<unknown>[] = [];
+    const ctx = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) } as unknown as ExecutionContext;
+    for (let visit = 0; visit < 3; visit += 1) {
+      expect(await fetchHomeSnapshot(ENV.CONVEX_ORIGIN, "context-lc", ctx)).toEqual(SITE);
+    }
+    expect(homeCalls()).toBe(1);
+
+    // A Publish is a new revision, so a new copy.
+    const PUBLISHED = { ...SITE, revision: "4:4", pages: [SITE.pages[0]!] };
+    revisionAnswer = () => Response.json({ revision: "4:4" });
+    convexAnswer = () => Response.json(PUBLISHED);
+    expect(await fetchHomeSnapshot(ENV.CONVEX_ORIGIN, "context-lc", ctx)).toEqual(PUBLISHED);
+    expect(await fetchHomeSnapshot(ENV.CONVEX_ORIGIN, "context-lc", ctx)).toEqual(PUBLISHED);
+    expect(homeCalls()).toBe(2);
+  });
+
+  it("a site that is off, or a revision nobody can read, is no site", async () => {
+    stubCache();
+    for (const answer of [() => Response.json({ revision: null }), () => new Response("no", { status: 500 })]) {
+      revisionAnswer = answer;
+      expect(await fetchHomeSnapshot(ENV.CONVEX_ORIGIN, "context-lc", CTX)).toBeNull();
+    }
+    expect(homeCalls()).toBe(0);
+  });
+
+  it("a late answer is not waited for, and is kept for the next visit when it arrives", async () => {
     vi.useFakeTimers();
     try {
-      const stored = new Map<string, Response>();
-      vi.stubGlobal("caches", {
-        default: {
-          match: async (request: Request) => stored.get(request.url)?.clone(),
-          put: async (request: Request, response: Response) => void stored.set(request.url, response),
-        },
-      });
+      stubCache();
       let answer!: (response: Response) => void;
-      fetchSpy.mockImplementation(() => new Promise<Response>((resolve) => (answer = resolve)));
+      convexAnswer = () => new Promise<Response>((resolve) => (answer = resolve)) as unknown as Response;
       const pending: Promise<unknown>[] = [];
       const ctx = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) } as unknown as ExecutionContext;
 
@@ -124,7 +164,7 @@ describe("a site that answers late", () => {
       answer(Response.json(SITE));
       await Promise.all(pending);
       expect(await fetchHomeSnapshot(ENV.CONVEX_ORIGIN, "context-lc", ctx)).toEqual(SITE);
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(homeCalls()).toBe(1);
     } finally {
       vi.useRealTimers();
     }

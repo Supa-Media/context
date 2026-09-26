@@ -15,6 +15,7 @@ import {
   invalidateRouteIndexHandler,
   recordRouteChangeHandler,
   reconcileWorkspaceHandler,
+  websiteEverReconciledHandler,
   refreshRouteStatusesHandler,
   sweepRouteReconciliationHandler,
 } from "./lib/websites/routes";
@@ -29,6 +30,7 @@ import {
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
 import { homeSiteWorkspaceHandler, websiteSnapshot } from "./lib/websites/snapshot";
+import { publishWebsiteHandler } from "./lib/websites/publish";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
@@ -114,7 +116,6 @@ const resolutionPlanValidator = v.union(
     workspaceId: v.id("workspaces"),
     routePath: v.string(),
     viewer: v.union(v.literal("anonymous"), v.literal("member"), v.literal("other")),
-    invalidate: v.boolean(),
   }),
   v.object({
     kind: v.literal("read"),
@@ -181,7 +182,18 @@ export const homeSiteWorkspace = internalQuery({
   args: { handle: v.string() },
   returns: v.union(
     v.null(),
-    v.object({ workspaceId: v.id("workspaces"), siteName: v.string(), keys: v.array(v.string()) }),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      siteName: v.string(),
+      pages: v.array(
+        v.object({
+          objectKey: v.string(),
+          sourceEtag: v.string(),
+          releaseId: v.optional(v.string()),
+          releasePageId: v.optional(v.string()),
+        }),
+      ),
+    }),
   ),
   handler: homeSiteWorkspaceHandler,
 });
@@ -254,6 +266,19 @@ export const websiteLinkCatalog = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: linkCatalogValidator,
   handler: websiteLinkCatalogHandler,
+});
+
+/**
+ * Make what `website/` holds now the site visitors see. Owners and editors;
+ * see `lib/websites/publish.ts`.
+ */
+export const publish = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    published: v.boolean(),
+    problems: v.array(v.object({ path: v.string(), message: v.string() })),
+  }),
+  handler: publishWebsiteHandler,
 });
 
 export const refreshRouteStatuses = action({
@@ -353,9 +378,16 @@ export const reconcileWorkspace = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     expectedGeneration: v.optional(v.number()),
+    publish: v.optional(v.boolean()),
   },
   returns: v.boolean(),
   handler: reconcileWorkspaceHandler,
+});
+
+export const websiteEverReconciled = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: websiteEverReconciledHandler,
 });
 
 export const sweepRouteReconciliation = internalMutation({

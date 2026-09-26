@@ -10,6 +10,7 @@ import { capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
+import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 
 /**
  * The share sheet for the open note or folder, wired to this console's data.
@@ -112,6 +113,11 @@ export function BrowseShareDialog({
   return (
     <ShareDialog
       path={sharing}
+      footExtra={
+        files.contextId !== null && isWebsiteFolder(sharing) ? (
+          <PublishWebsite workspaceId={files.contextId} testID="share-publish" />
+        ) : undefined
+      }
       shares={files.shares}
       origin={consoleOrigin()}
       onShare={(recipient) => files.share(sharing, recipient)}

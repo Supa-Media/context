@@ -168,6 +168,8 @@ export type ShareDialogProps = {
     /** `undefined` while the membership is still loading. Not an empty list. */
     members: readonly AccessMember[] | undefined;
   };
+  /** Drawn first in the footer: the website folder's Publish. */
+  footExtra?: ReactNode;
 };
 
 /** An item a caller adds to the header's menu. */

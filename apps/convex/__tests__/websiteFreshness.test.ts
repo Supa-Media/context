@@ -81,7 +81,7 @@ describe("website index freshness", () => {
     expect(page).toMatchObject({ kind: "page", title: "Home" });
   }, 15_000);
 
-  test("an open page can watch its site's revision, and a save moves it", async () => {
+  test("an open page can watch its site's revision, which a save leaves alone", async () => {
     const f = await fixture();
     const revision = () => f.t.query(api.functions.websites.siteRevision, { handle: "@Atlas" });
     await expect(revision()).resolves.toBeNull();
@@ -92,12 +92,26 @@ describe("website index freshness", () => {
 
     const before = await revision();
     expect(before).toEqual(expect.any(String));
-    await f.t.mutation(internal.functions.websites.invalidateRouteIndex, { workspaceId: f.workspaceId });
-    expect(await revision()).not.toBe(before);
+    // A save changes nothing a visitor sees, so an open page has nothing to fetch.
+    await f.t.mutation(internal.functions.websites.recordRouteChange, { workspaceId: f.workspaceId });
+    expect(await revision()).toBe(before);
+    // A restriction on its way does, and so does the scan that lands it.
+    await f.t.mutation(internal.functions.websites.recordRouteChange, {
+      workspaceId: f.workspaceId,
+      unsafe: true,
+    });
+    const pending = await revision();
+    expect(pending).not.toBe(before);
+    await f.t.action(internal.functions.websites.reconcileWorkspace, { workspaceId: f.workspaceId });
+    expect(await revision()).not.toBe(pending);
+    // And a Publish.
+    const published = await revision();
+    await asUser(f.t, f.owner).action(api.functions.websites.publish, { workspaceId: f.workspaceId });
+    expect(await revision()).not.toBe(published);
     await expect(f.t.query(api.functions.websites.siteRevision, { handle: "nobody" })).resolves.toBeNull();
   }, 15_000);
 
-  test("only the latest save in an autosave burst may publish", async () => {
+  test("only the latest save in an autosave burst may rescan", async () => {
     const f = await fixture();
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
@@ -138,11 +152,21 @@ describe("website index freshness", () => {
       }),
     ).resolves.toBe(false);
     expect(f.backend.requests).toHaveLength(before);
+    // The latest one scans; a scan that is not a Publish applies restrictions
+    // and publishes nothing, so it reports no new release.
     await expect(
       f.t.action(internal.functions.websites.reconcileWorkspace, {
         workspaceId: f.workspaceId,
         expectedGeneration: latest,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
+    expect(f.backend.requests.length).toBeGreaterThan(before);
+    const state = await f.t.run((ctx) =>
+      ctx.db
+        .query("websiteStates")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .unique(),
+    );
+    expect(state!.routeReconciledGeneration).toBe(latest);
   }, 15_000);
 });

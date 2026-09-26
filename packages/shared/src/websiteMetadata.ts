@@ -36,15 +36,6 @@ const CONTROLLED_FIELDS = new Set<ControlledField>([
   "nav",
 ]);
 
-const UNTITLED: WebsiteRouteProblem = {
-  code: "untitled_page",
-  message: "Add a non-empty title to publish this page.",
-};
-const EMPTY: WebsiteRouteProblem = {
-  code: "empty_page",
-  message: "Add page content to publish this route.",
-};
-
 function invalid(message: string): WebsiteRouteProblem {
   return { code: "invalid_metadata", message };
 }
@@ -204,10 +195,24 @@ export function parseWebsitePage(markdown: string): ParsedWebsitePage {
     }
   }
 
-  const problems: WebsiteRouteProblem[] = [];
-  if (parsed.title === null) problems.push(UNTITLED);
-  if (parsed.body.trim() === "") problems.push(EMPTY);
-  return { ...parsed, problems };
+  // A missing title or an empty body is not a problem: the page is titled by
+  // its first heading or its file name, and someone pressed Publish on it.
+  return { ...parsed, problems: [] };
+}
+
+/**
+ * The title a page is published and listed by: its own `title:`, else its
+ * first `#` heading, else its file name.
+ */
+export function websitePageTitle(
+  objectKey: string,
+  title: string | null,
+  body: string,
+): string {
+  if (title !== null && title !== "") return title;
+  const heading = /^#[ \t]+(.+?)[ \t#]*$/m.exec(body)?.[1]?.trim();
+  if (heading) return heading.slice(0, 200);
+  return objectKey.slice(objectKey.lastIndexOf("/") + 1).replace(/\.md$/i, "");
 }
 
 function diagnosticProblem(
@@ -286,7 +291,7 @@ export function buildWebsiteRouteStatuses(
       routePath,
       status: problems.length > 0 ? "problem" : page.draft ? "draft" : "live",
       audience: page.audience,
-      title: page.title,
+      title: websitePageTitle(objectKey, page.title, page.body),
       description: page.description,
       nav: page.nav,
       problems,

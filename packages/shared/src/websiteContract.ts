@@ -40,6 +40,10 @@ export type WebsiteStateView =
       handlePath: string;
       canManage: boolean;
       enabledAt: number;
+      /** An owner or editor: edits reach visitors when one presses Publish. */
+      canPublish?: boolean;
+      /** The last Publish that landed; absent before the first. */
+      publishedAt?: number;
     };
 
 export type WebsiteEnableResult = Extract<
@@ -50,13 +54,21 @@ export type WebsiteEnableResult = Extract<
   starter: "created" | "existing";
 };
 
+/**
+ * What pressing Publish did. `published: false` with no problems means edits
+ * kept landing while it read the folder; pressing again finishes it.
+ */
+export interface WebsitePublishResult {
+  published: boolean;
+  /** The pages that stopped it, by file under the website folder. */
+  problems: Array<{ path: string; message: string }>;
+}
+
 export type WebsiteRouteAudience = "public" | "members";
 export type WebsiteRoutePublicationStatus = "live" | "draft" | "problem";
 export type WebsiteRouteProblemCode =
   | WebsiteRouteDiagnosticCode
-  | "invalid_metadata"
-  | "empty_page"
-  | "untitled_page";
+  | "invalid_metadata";
 
 export interface WebsiteRouteProblem {
   code: WebsiteRouteProblemCode;

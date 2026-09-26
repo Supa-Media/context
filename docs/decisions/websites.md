@@ -91,6 +91,46 @@ older scan cannot commit.
 frontmatter save continues to serve the prior title, body, and menu, including
 after a reconciliation attempt, and the next complete edit replaces it.
 
+## Edits wait for Publish
+
+_Decided by the owner, 2026-09-26, for every workspace's website: "the website
+folder should have a publish button on the folder itself, and also in the
+share dialog — that way we publish from the bucket and we don't have to read
+from the bucket each time."_
+
+Saving a note under `website/` changes the note and nothing a visitor sees.
+**Pressing Publish** (on the `website` folder's page, or in its share dialog;
+`websites.publish`, owners and editors) reads the folder at the publication
+clearance and, when no page in it is broken, makes it the site's new release.
+Turning a site on is its first Publish. A broken page stops the publish and is
+named to whoever pressed it; a page with no title is not broken (it is titled
+by its first heading, else its file name), and neither is an empty one.
+
+This supersedes the serving half of the section above: a live source is no
+longer served because it parses. The resolver still reads a page's live bytes
+on every request, but only to ask whether they now restrict it; the words it
+serves are the published copy (the live file while its etag is still the one
+published, the release copy once it has changed). A page nobody has published
+is not on the site, however complete its file is, so the bucket probe survives
+only for a site that has never had a scan.
+
+**Restrictions do not wait.** The scan every save still queues applies the
+narrowing half at once (deleted, drafted, made members-only, encrypted, held
+back by `privacy.md`) and then counts as reconciled, so widening is the next
+Publish's job rather than the next clean scan's. A members page made public is
+a widening and waits. Without this, a Publish button would also be the only
+way to take a page down.
+
+`siteRevision` moves on a Publish and on a restriction (applied or pending),
+never on a save, because a save changes nothing a visitor sees. The router
+keeps the homepage's answer per revision (`/site/home/revision`, one database
+read per visit), so the folder is read once per Publish per colo.
+
+`websitePublishing.test.ts` fails if an unpublished page or an unpublished edit
+is served, or if a member can publish; `websiteNarrowing.test.ts` fails if a
+restriction waits for Publish or a new page does not; `siteHome.test.ts` fails
+if a save moves the homepage's revision or its words.
+
 ## A fallback never reverses an explicit restriction
 
 Last-known-good is an availability rule, not permission to keep publishing
@@ -260,13 +300,14 @@ any site's pages outside its menu enumerable. The router asks Convex's
 `/site/home` while it fetches the HTML and puts the answer in the page as an
 inert JSON block (`infra/router/src/homeSite.ts`), so **the first paint is the
 live site and nothing replaces it**. `/site/home` takes the folder's files
-from the site's own route index and reads them at `PUBLICATION_CLEARANCE`
-(`lib/websites/snapshot.ts`), so a note `privacy.md` holds back is absent, and
-drafts, members-only and encrypted notes are dropped as they are on the site.
-It must not list the bucket per visit: the first version did, answered slower
-than the page waits, and every visitor got the built-in copy. The router also
-caches an answer that arrives after it stopped waiting, so one slow answer
-costs one visit, not all of them.
+from the site's own route index, serves what was published, and re-reads the
+live files at `PUBLICATION_CLEARANCE` (`lib/websites/snapshot.ts`), so a note
+`privacy.md` holds back is absent, and drafts, members-only and encrypted
+notes are dropped as they are on the site. It must not list the bucket per
+visit: the first version did, answered slower than the page waits, and every
+visitor got the built-in copy. The router keeps the answer per site revision
+(see "Edits wait for Publish"), including one that arrives after it stopped
+waiting, so the folder is read once per Publish, not once per visit.
 
 A visitor can edit it the way they would their own workspace: every note
 opens in the editor, and notes and folders can be made, renamed, moved, copied
@@ -284,7 +325,7 @@ A visit decides once between the site and the built-in copy
 app asks, draws nothing until it hears, and falls back to `builtInPages.ts`
 for the whole visit if the site is off or silent. The copy is never drawn and
 then swapped for the site. The site is redrawn only when its revision moves,
-which is somebody editing `website/`.
+which is somebody pressing Publish (or a restriction landing).
 
 `siteHome.test.ts` fails if a private, draft or members-only note leaves,
 if an unlisted note is missing, if another handle gets an answer, or if the
