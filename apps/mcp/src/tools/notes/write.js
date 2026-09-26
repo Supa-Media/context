@@ -32,12 +32,12 @@ import { isEncryptedNote } from "../../encryption.js";
 import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
 import { parseFormBlocks } from "../../forms.js";
 import { pathUnderActiveMovedSource } from "../../moves/jobs.js";
-import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
+import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
