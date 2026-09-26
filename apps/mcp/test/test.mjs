@@ -52,6 +52,7 @@ import { runCalendarContributionStoreChecks } from "./calendarContributionStore.
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runAuditPartialMoveChecks } from "./auditPartialMove.test.mjs";
+import { runReferenceRewriteAuditChecks } from "./auditReferenceRewrite.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
@@ -303,6 +304,7 @@ await suite("runSearchD1Checks", () => runSearchD1Checks(check));
 // above still owns that global.
 await suite("runSearchProjectionChecks", () => runSearchProjectionChecks(check));
 await suite("runAuditPartialMoveChecks", () => runAuditPartialMoveChecks(check));
+await suite("runReferenceRewriteAuditChecks", () => runReferenceRewriteAuditChecks(check));
 await suite("runCredentialShapeChecks", () => runCredentialShapeChecks(check));
 await suite("runEncryptionChecks", () => runEncryptionChecks(check));
 await suite("runEncryptionGatewayChecks", () => runEncryptionGatewayChecks(check));
