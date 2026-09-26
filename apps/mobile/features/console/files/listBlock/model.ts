@@ -120,6 +120,12 @@ export function selectRows(
 export interface FolderListSource {
   load(folder: string, subfolders: boolean): Promise<ListSource | null>;
   subscribe?(listener: () => void): () => void;
+  /**
+   * Change one frontmatter property of one listed note; `null` clears it.
+   * Resolves to `null` once written, or to a sentence saying why not. Absent
+   * where the reader may not write, and a list then offers no edits.
+   */
+  setProperty?(path: string, key: string, value: string | null): Promise<string | null>;
 }
 
 /** What the notes for one list came back as. */
@@ -145,6 +151,8 @@ export interface ListHostContext {
   open(path: string, background: boolean): void;
   /** Called whenever the notes may have changed; returns the unsubscribe. */
   subscribe?(listener: () => void): () => void;
+  /** See `FolderListSource.setProperty`. */
+  setProperty?(path: string, key: string, value: string | null): Promise<string | null>;
   /** The note holding the block, which is never listed. */
   readonly selfPath: string | null;
 }

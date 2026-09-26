@@ -87,3 +87,22 @@ cost the thing this rests on: a project stays a note or folder any other tool
 can read and move. `apps/mcp/test/listProjects.test.mjs` fails if a folder
 with no front note becomes a project, if plumbing bumps a project's
 `updated`, or if progress counts only the shown sub-projects.
+
+## A list changes one line of a note, the same way any save does
+
+An owner or editor can change a row's status or owner from the list itself.
+The value opens a menu of the words the listed notes already use, and the
+choice is written by reading that row's note, changing that one frontmatter
+line with `setNoteProperty`, and writing it back through `files.writeNote`
+against the version read — the path every other save takes, so it merges into
+anybody typing in the note at that moment instead of overwriting them. Every
+other byte of the note is left alone, and a value the reader could not read
+back as written is refused with the reason rather than saved.
+
+It is a menu on the list and not a projects database because the note stays
+the record: the next person, the next agent, and the website all read the
+same line. A member is not offered the menu at all (the server refuses the
+write too), and a list-valued property is never offered as one choice.
+`apps/mcp/test/listSetProperty.test.mjs` fails if the change touches any other
+byte or writes a value that reads back differently; `useFolderListsEdit.test.ts`
+fails if a member is offered the edit.
