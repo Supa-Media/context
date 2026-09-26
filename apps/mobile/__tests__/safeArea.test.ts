@@ -219,7 +219,7 @@ const ROUTES: Record<string, Coverage> = {
   "_layout.tsx": { kind: "shell" },
 
   /*
-    The homepage is the app's own frame on a read-only workspace
+    The homepage is the app's own frame on a workspace kept in the browser
     (`features/home/HomeShell.tsx`), so it reaches the glass through `AppFrame`
     like the console and is covered by the same region tests. On a phone the
     route redirects and paints nothing; that half is `authRedirect.test.ts`'s.

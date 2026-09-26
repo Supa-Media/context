@@ -64,6 +64,9 @@ const SET_ELSEWHERE: Record<string, string> = {
     "flipped by hand, deliberately — production stays off until the export and hand-off " +
     "path lands (non-negotiable #1), staging is on through stagingStorageIsFree(), and a " +
     "deploy must not be able to turn a no-card managed bucket live",
+  HOME_SITE_HANDLE:
+    "a self-host's own homepage handle; our deployments leave it unset and get the " +
+    "default, `context-lc`, which is also the router's default",
 };
 
 /** Every `.ts` under a directory, skipping tests and generated code. */

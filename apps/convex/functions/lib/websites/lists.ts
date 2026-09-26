@@ -73,7 +73,7 @@ function canonicalEntries(
   return byPath;
 }
 
-async function readBatches(
+export async function readBatches(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   scope: "private" | "team",

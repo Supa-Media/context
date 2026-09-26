@@ -1,11 +1,10 @@
 /**
- * `/site/home`: a whole small site in one answer, for the router to hand the
- * homepage in its HTML so the first paint is the live site.
+ * `/site/home`: the homepage's `website/` folder in one answer, for the router
+ * to hand the homepage in its HTML so the first paint is the live site.
  *
- * Registered in `http.ts`; this module registers nothing. What it discloses is
- * what the site already shows anyone who opens its menu, page by page: see
- * `lib/websites/snapshot.ts`, which resolves every page as an anonymous
- * visitor. Every absence (no such handle, site off, no public home page,
+ * Registered in `http.ts`; this module registers nothing. It answers for the
+ * homepage's own workspace only, with what that site publishes to anyone: see
+ * `lib/websites/snapshot.ts`. Every absence (another handle, site off,
  * malformed request) is one null shape.
  */
 
@@ -21,6 +20,7 @@ export async function siteHomeHandler(ctx: ActionCtx, request: Request): Promise
   // Named rather than spread, for the reason `http.ts` states over every
   // unauthenticated route: a spread is a shape nobody reviewed.
   const listed = snapshot.pages.map((page) => ({
+    path: page.path,
     routePath: page.routePath,
     title: page.title,
     markdown: page.markdown,

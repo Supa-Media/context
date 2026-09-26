@@ -27,7 +27,7 @@
  *    threat model.
  */
 
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webFrame } from "electron";
 import { installDesktopBridge } from "../core/shell/bridge.ts";
 
 /*
@@ -43,4 +43,8 @@ const frame = globalThis.window;
 installDesktopBridge(contextBridge, ipcRenderer, {
   origin: globalThis.location?.origin ?? "",
   isTopFrame: frame !== undefined && frame !== null && frame === frame.top,
+}, {
+  // The checker that draws the red underline, for the note's right-click menu.
+  isWordMisspelled: (word) => webFrame.isWordMisspelled(word),
+  getWordSuggestions: (word) => webFrame.getWordSuggestions(word),
 });

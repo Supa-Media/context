@@ -2,15 +2,15 @@
  * The homepage's live site, handed to the app inside the homepage's HTML.
  *
  * `/` is the Expo web app drawing `@context-lc`'s `website/` folder as a
- * read-only workspace: the sidebar is the folder, and editing a note there
- * edits the front page. The app used to ask for the site after it loaded and
+ * workspace: the sidebar is the folder, and editing a note there edits the
+ * front page. The app used to ask for the site after it loaded and
  * draw built-in copy meanwhile, so visitors saw one homepage and then another
  * (the flicker the owner asked to be rid of). Now the Worker asks Convex's
  * `/site/home` while it fetches the HTML, and puts the answer in the page as
  * an inert JSON block the app reads on its first render. The first paint is
  * the live site, and nothing replaces it.
  *
- * What goes in is what the site's menu already shows an anonymous visitor
+ * What goes in is every note in that folder the site publishes to anyone
  * (`apps/convex/functions/lib/websites/snapshot.ts`), re-checked field by
  * field here, and written so it cannot close its own `<script>` element.
  * Every failure (no CONVEX_ORIGIN, a timeout, a non-200, a site that is off)
@@ -31,10 +31,11 @@ const SNAPSHOT_TIMEOUT_MS = 1_500;
  */
 const SNAPSHOT_CACHE_SECONDS = 15;
 /** Mirrors `MAX_SNAPSHOT_PAGES` in the Convex module. */
-const MAX_PAGES = 40;
+const MAX_PAGES = 200;
 const MAX_TEXT = 200_000;
 
 export interface HomeSnapshotPage {
+  path: string;
   routePath: string;
   title: string;
   markdown: string;
@@ -68,11 +69,11 @@ export function parseHomeSnapshot(value: unknown): HomeSnapshot | null {
   for (const raw of body.pages.slice(0, MAX_PAGES)) {
     if (typeof raw !== "object" || raw === null) return null;
     const page = raw as Record<string, unknown>;
+    if (!isText(page.path, 1024) || !/\.md$/i.test(page.path)) return null;
     if (!isText(page.routePath, 1024) || !page.routePath.startsWith("/")) return null;
     if (!isText(page.title, 200) || !isText(page.markdown)) return null;
-    pages.push({ routePath: page.routePath, title: page.title, markdown: page.markdown });
+    pages.push({ path: page.path, routePath: page.routePath, title: page.title, markdown: page.markdown });
   }
-  if (pages[0]?.routePath !== "/") return null;
   return { siteName: body.siteName, revision: body.revision, pages };
 }
 

@@ -59,7 +59,7 @@ import type { ImageHostRef } from "../imageBlock";
 import { emojiRefresh, type EmojiHostRef } from "../emoji/host";
 import { useCustomEmoji } from "../../emoji/context";
 import { useColors } from "../../../design/theme";
-import type { LiveEditorProps } from "./contract";
+import type { LiveEditorProps, MenuOpen } from "./contract";
 import { ensureStyles } from "./stylesheet";
 import { mountEditor } from "./mount";
 import { showTitleNote } from "./titleLine";
@@ -295,7 +295,7 @@ export function LiveEditor({
    * picker at the **same** point, so the picker outlives the menu and has to
    * remember an anchor the menu has already forgotten.
    */
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [menuAt, setMenuAt] = useState<MenuOpen | null>(null);
   const [tableAt, setTableAt] = useState<{ x: number; y: number } | null>(null);
 
   // What the editor is known to hold. Compared against the incoming `value` to
@@ -546,6 +546,8 @@ export function LiveEditor({
             canDictate: onDictate !== undefined,
             canAsk: onAsk !== undefined,
             canList: view.current.state.facet(listHost)?.current != null,
+            spelling: menuAt.spelling ?? null,
+            spellingHint: menuAt.spellingHint === true,
           })}
           anchor={menuAt}
           title="Format"
