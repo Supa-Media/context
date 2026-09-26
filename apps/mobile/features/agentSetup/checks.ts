@@ -130,7 +130,7 @@ export function bringState({
  * so rather than calling an empty run a success story.
  */
 export function onlyGettingStarted(written: readonly WrittenNote[]): boolean {
-  return written.length > 0 && written.every((row) => /getting[-_ ]started/i.test(row.path));
+  return written.length > 0 && written.every((row) => /sync[-_ ]report|getting[-_ ]started/i.test(row.path));
 }
 
 /**

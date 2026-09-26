@@ -111,4 +111,4 @@ jobs:
       - name: "Assert plugins/context imports only node: built-ins and relative paths"
         run: |
           node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs --allow-node-builtins --allow-import=add-mcp:src/installer.js --allow-import=@clack/prompts:src/prompt.js plugins/context/src plugins/context/bin plugins/context/hooks
+          node scripts/check-gateway-imports.mjs --allow-node-builtins --allow-import=add-mcp:src/installer.js --allow-import=@clack/prompts:src/prompt.js plugins/context/src plugins/context/cli plugins/context/hooks

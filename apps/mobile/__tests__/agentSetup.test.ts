@@ -92,13 +92,13 @@ describe("the bring-over prompt", () => {
     expect(prompt).toContain("Don't stop to ask me before writing");
     expect(prompt).toContain("one short note per project, area, person or topic");
     expect(prompt).toContain("don't touch index.md or privacy.md");
-    expect(prompt).toMatch(/Finish with a note called "Getting started"/);
+    expect(prompt).toMatch(/Finish with a note called "Sync report"/);
   });
 
-  test("with nothing picked it still writes Getting started, so the check can pass", () => {
+  test("with nothing picked it still writes the sync report, so the check can pass", () => {
     const prompt = bringPrompt("seyi", []);
     expect(prompt).not.toContain("From what you remember");
-    expect(prompt).toContain("Getting started");
+    expect(prompt).toContain("Sync report");
   });
 });
 
@@ -210,6 +210,22 @@ describe("when the guide moves on", () => {
       ...base,
       progress: progress({ step: 5, copiedAt: T0 }),
       activity: activity([{ path: "0-inbox/Getting started.md", kind: "write", at: T0 + 9 }]),
+    });
+    expect(little.kind).toBe("little");
+  });
+
+  test("bring: a run that ends with the sync report is done, and one that wrote only it had little", () => {
+    const base = { agent: "claude" as const, grants: [claudeGrant({ lastUsedAt: T0 })], now: T0 + 1000 };
+    const done = bringView({
+      ...base,
+      progress: progress({ step: 5, copiedAt: T0, written: [{ path: "1-projects/a.md", at: T0 + 2 }] }),
+      activity: activity([{ path: "0-inbox/Sync report.md", kind: "write", at: T0 + 9 }]),
+    });
+    expect(done.kind).toBe("done");
+    const little = bringView({
+      ...base,
+      progress: progress({ step: 5, copiedAt: T0 }),
+      activity: activity([{ path: "0-inbox/sync-report.md", kind: "write", at: T0 + 9 }]),
     });
     expect(little.kind).toBe("little");
   });

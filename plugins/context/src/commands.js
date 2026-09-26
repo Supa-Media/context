@@ -31,13 +31,13 @@ import {
   stateMatches,
 } from "./oauth.js";
 import { captureBody, transcriptToMarkdown } from "./transcript.js";
-import { PROJECT_FILE, normalizeWorkspace, resolveSettings, workspaceUrl, writeSetting } from "./settings.js";
+import { PROJECT_FILE, normalizeWorkspace, resolveSettings, settingsPath, workspaceUrl, writeSetting } from "./settings.js";
 import { callTool, listTools, listWorkspaces } from "./mcp.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, unlink as unlinkFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, unlink as unlinkFile, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { hostname } from "node:os";
 
@@ -437,6 +437,7 @@ export async function sessionStart({
   const payload = await readJsonStdin(stdin); // drained: Claude Code closes the pipe on our exit
   let orientation = null;
   let workspace = null;
+  let loginHint = null;
   try {
     const { settings, sources } = await resolveSettings({ flags: { endpoint }, cwd: payload?.cwd || homedir() });
     // Only a project's own binding is named: a person's default workspace is
@@ -444,6 +445,7 @@ export async function sessionStart({
     if (sources.workspace === "project") workspace = settings.workspace;
     endpoint = settings.endpoint;
     const record = await loadEndpoint(endpoint, configPath);
+    loginHint = record || settings.capture === "off" ? null : await takeLoginHint();
     // No point spending a round trip to be told no. A capture-only grant cannot
     // read, and asking anyway would put an error in the logs on every session.
     // Live orientation is the person's choice (orient: live). The one exception
@@ -465,9 +467,32 @@ export async function sessionStart({
   emit(
     `${JSON.stringify({
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context },
+      // Shown to the person, not the agent. See `takeLoginHint`.
+      ...(loginHint ? { systemMessage: loginHint } : {}),
     })}\n`
   );
   return { injected: context, live: Boolean(orientation) };
+}
+
+/**
+ * The one-time "turn on session saving" message, or null once it has been said.
+ *
+ * A plugin installed from a repository or a directory brings the connection and
+ * the skills, but the session-end hook saves only with this CLI's own sign-in,
+ * which nothing in that install makes. Without a word, capture fails silently
+ * forever; said every session, it is noise. So it is said once, and a marker
+ * beside the settings file remembers that.
+ */
+async function takeLoginHint() {
+  const marker = join(dirname(settingsPath()), "login-hint-shown");
+  try {
+    await mkdir(dirname(marker), { recursive: true, mode: 0o700 });
+    const handle = await open(marker, "wx", 0o600);
+    await handle.close();
+  } catch {
+    return null; // already said, or nowhere to remember it: stay quiet
+  }
+  return "Context: to save your sessions to your inbox when they end, run /context:login (or npx @supa-media/context login in a terminal).";
 }
 
 export async function status({ endpoint, configPath = defaultConfigPath(), cwd = process.cwd(), home = homedir(), log = console.log }) {

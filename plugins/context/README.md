@@ -24,6 +24,22 @@ agent like this:
 
 This folder is both that plugin and this npm package.
 
+## Installing the plugin without the command
+
+The plugin can also be added straight from this repository:
+
+- **Claude** (web, desktop, Cowork): Customize › Plugins, add `Supa-Media/context`.
+- **Claude Code**: `claude plugin marketplace add Supa-Media/context`, then
+  `claude plugin install context@context`.
+- **ChatGPT desktop and Codex**: `codex plugin marketplace add Supa-Media/context`;
+  a Business or Enterprise admin can import the repository as a marketplace.
+
+That brings the connection and the skills. Saving sessions when they end runs
+on your computer and needs its own sign-in, so the first session shows a
+one-time message; run `/context:login` (or `npx @supa-media/context login`) to
+turn it on. The session hooks need Node.js on the computer; Claude on the web
+and ChatGPT on the web do not run them.
+
 ## What the plugin does in a session
 
 - **The skills** tell the agent when to read your notes (`orient` first) and
