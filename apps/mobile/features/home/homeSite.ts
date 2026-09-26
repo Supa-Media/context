@@ -238,6 +238,19 @@ export function homeLink(href: string): HomeLink | null {
   return { kind: "page", routePath: trimmed === "" ? "/" : trimmed };
 }
 
+/**
+ * The address a link in the editor meant, when it names no note here.
+ *
+ * The editor resolves every link as a note path, so `[Create Workspace](/login)`
+ * arrives as `login.md`. On the homepage that is not a note to open (opening
+ * it made an empty one and left the visitor typing, the owner's report of
+ * 2026-09-26): it is the address it was written as, and the shell follows it.
+ */
+export function noteLinkHref(path: string): string {
+  const page = path.replace(/\.md$/i, "");
+  return page === "index" ? "/" : `/${page}`;
+}
+
 /** The `?page=` a route path is written as in the address bar; the home page has none. */
 export function pageParam(routePath: string): string | undefined {
   return routePath === "/" ? undefined : routePath.slice(1);
