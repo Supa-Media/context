@@ -174,3 +174,15 @@ describe("the words a grouped list uses", () => {
     expect(groupLabel("status", "\u202Eevil")).not.toBe("\u202Eevil");
   });
 });
+
+describe("the project styles on a phone", () => {
+  test("they share the lists' breakpoint, and come after the rules they narrow", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { livePreviewStyles } = require("../features/console/files/livePreview") as { livePreviewStyles: string };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { layout } = require("../features/design/tokens") as { layout: { narrowBreakpoint: number } };
+    const phone = `@media (max-width: ${layout.narrowBreakpoint - 0.02}px) {\n  .cm-lp-list-sub`;
+    expect(livePreviewStyles).toContain(phone);
+    expect(livePreviewStyles.lastIndexOf("\n.cm-lp-list-progress-bar {")).toBeLessThan(livePreviewStyles.indexOf(phone));
+  });
+});

@@ -43,6 +43,8 @@ export { renderListBlock } from "./lists/renderBlock.js";
 export { selectListRows } from "./lists/select.js";
 export { noteProperties, noteHeading } from "./lists/properties.js";
 export { listLoadsSubfolders } from "./lists/loading.js";
+export { setNoteProperty } from "./lists/setProperty.js";
+export { compareGroups } from "./lists/group.js";
 export {
   MAX_EVALUATED_LIST_BLOCKS,
   renderEvaluatedListBlocks,

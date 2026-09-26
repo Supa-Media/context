@@ -112,11 +112,18 @@ describe("visibility survives into Properties", () => {
     expect(text).toContain("The storage binding");
   });
 
-  test("`+ Add property` is still drawn, and still inert", () => {
+  /*
+    This read "`+ Add property` is still drawn, and still inert" while the
+    panel was a reader. It edits now (`notePropertiesEdit.test.ts`), so the row
+    is a live control for somebody who can edit — and the stated visibility,
+    which comes from `privacy.md` rather than the file, is still not one.
+  */
+  test("`+ Add property` is a live control, and the stated visibility is not editable", () => {
     const app = mountConsole(dataWith());
     app.press(app.find("note-properties"));
     const add = app.find("note-properties-add");
     expect(add).not.toBeNull();
-    expect(add!.getAttribute("aria-disabled")).toBe("true");
+    expect(add!.getAttribute("aria-disabled")).not.toBe("true");
+    expect(app.find("note-property-visibility-value")).toBeNull();
   });
 });

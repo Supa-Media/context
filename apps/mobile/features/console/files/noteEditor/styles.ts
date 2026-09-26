@@ -2,6 +2,12 @@ import { StyleSheet } from "react-native";
 import { fonts, layout, leading, pointerType as t, radii, space } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
+/** The property row's columns, named because the fields and the error line align to them. */
+const PROPERTY_MARK = 18;
+const PROPERTY_KEY = 96;
+/** How far a value's hover tint and its field reach past the text, each side. */
+const PROPERTY_INSET = 6;
+
 /**
  * One stylesheet for the note surface and every piece of it, so the pieces
  * `NoteEditor` is drawn from share one `makeStyles` rather than each holding
@@ -125,7 +131,7 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 5,
     paddingHorizontal: space.x4,
   },
-  propertyMark: { width: 18, alignItems: "center", paddingTop: 4 },
+  propertyMark: { width: PROPERTY_MARK, alignItems: "center", paddingTop: 4 },
   /**
    * 15 on a 22 line box, not the 12.5 a `treeMeta` row would be.
    *
@@ -135,7 +141,7 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * sentence.
    */
   propertyKey: {
-    width: 96,
+    width: PROPERTY_KEY,
     flexGrow: 0,
     flexShrink: 0,
     fontSize: t.lede,
@@ -150,8 +156,70 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: 22,
     color: colors.text,
   },
-  /** Dimmed rather than absent — see the call site for why it is here at all. */
-  propertyAdd: { opacity: 0.55 },
+  /**
+   * The value's box: invisible at rest, tinted on hover to say it can be
+   * pressed. The negative margin pays for the padding, so the text sits on the
+   * same column as a read-only value and nothing moves between the two.
+   */
+  propertyValueBox: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    marginHorizontal: -PROPERTY_INSET,
+    paddingHorizontal: PROPERTY_INSET,
+    borderRadius: radii.sm,
+  },
+  propertyValueHover: { backgroundColor: colors.surface3 },
+  /**
+   * A field in a row: the same type on the same line as at rest, so pressing a
+   * value turns it into a field without anything moving.
+   */
+  propertyInput: {
+    marginHorizontal: -PROPERTY_INSET,
+    paddingHorizontal: PROPERTY_INSET,
+    paddingVertical: 0,
+    minHeight: 22,
+    borderRadius: radii.sm,
+    fontFamily: fonts.body,
+    outlineStyle: "none" as never,
+  },
+  /**
+   * The field with the caret: the hover's tint, so the box does not change
+   * colour under the pointer, and a hairline to say it is now a field.
+   *
+   * Not the accent ring a dialog's field wears. Those are the one thing on
+   * screen; this is a line of metadata above somebody's note, and a petrol box
+   * the width of the card made the property louder than the note. The
+   * explorer's filter is the precedent: an inline field on chrome gets a
+   * neutral box and the caret does the rest.
+   */
+  propertyInputActive: {
+    backgroundColor: colors.surface3,
+    boxShadow: `0 0 0 1px ${colors.lineStrong}`,
+  },
+  /**
+   * The new property's name, in the key column: its text starts where a key's
+   * does and its box stops where the column does, so the value beside it
+   * starts on the value column like every row above.
+   */
+  propertyKeyInput: {
+    width: PROPERTY_KEY + PROPERTY_INSET,
+    marginRight: 0,
+    paddingRight: 0,
+    color: colors.text,
+  },
+  propertyRemove: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.sm,
+  },
+  propertyRemoveHover: { backgroundColor: colors.surface3 },
+  /** Kept in the layout so a value does not re-wrap when the × appears. */
+  propertyRemoveHidden: { opacity: 0, pointerEvents: "none" },
+  propertyAddRow: { borderRadius: radii.sm },
+  propertyAddHover: { backgroundColor: colors.surface3 },
   propertyAddLabel: {
     flexGrow: 1,
     flexShrink: 1,
@@ -159,6 +227,14 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: t.lede,
     lineHeight: 22,
     color: colors.muted,
+  },
+  /** On the key column, where the text it is about starts. */
+  propertyError: {
+    marginTop: 2,
+    marginBottom: space.x1,
+    paddingLeft: space.x4 + PROPERTY_MARK + space.x2,
+    paddingRight: space.x4,
+    color: colors.critText,
   },
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },

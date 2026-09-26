@@ -173,6 +173,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A block that does not parse draws its error
 - The filter lives in the block
 - A project is anything with a status
+- A list changes one line of a note, the same way any save does
 
 ## [Bucket-backed websites](./websites.md)
 

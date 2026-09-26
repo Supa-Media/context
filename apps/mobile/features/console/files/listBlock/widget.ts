@@ -29,7 +29,13 @@ import {
   type ListSource,
 } from "./model";
 import { ListPanel } from "./panel";
+import { isEditableValue, ValueMenu, valueChoices } from "./valueMenu";
+import { drawBoard } from "./board";
 import { captionFor, formatValue, groupLabel, listProblem, rowTitle } from "./words";
+
+/** A chevron the twisty turns, drawn rather than a text triangle so it matches the app's icons. */
+const CHEVRON =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
 const LIST_ICON =
   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>';
@@ -96,7 +102,7 @@ export class ListWidget extends WidgetType {
   /* Presses on a row, the caption or the popover are theirs; anywhere else places the caret. */
   ignoreEvent(event: Event): boolean {
     const target = event.target as Element | null;
-    return target?.closest?.(".cm-lp-list-row, .cm-lp-list-cap, .cm-lp-list-panel, .cm-lp-list-twisty") != null;
+    return target?.closest?.(".cm-lp-list-row, .cm-lp-list-cap, .cm-lp-list-panel, .cm-lp-list-twisty, .cm-lp-list-menu") != null;
   }
 }
 
@@ -113,8 +119,14 @@ export class ListView {
   /** Projects whose sub-projects are shown, by path. Kept across redraws. */
   private readonly open = new Set<string>();
   private panel: ListPanel | null = null;
+  private menu: ValueMenu | null = null;
+  /** Values chosen from a menu, drawn until the device's copy of the note agrees. */
+  private readonly chosen = new Map<string, string | null>();
   private readonly outside = (event: MouseEvent): void => {
     if (!this.dom.contains(event.target as Node)) this.closePanel(false);
+  };
+  private readonly outsideMenu = (event: MouseEvent): void => {
+    if (this.menu !== null && !this.menu.dom.contains(event.target as Node)) this.closeMenu(false);
   };
 
   constructor(
@@ -143,6 +155,7 @@ export class ListView {
     this.unsubscribe = null;
     this.run++;
     this.closePanel(false);
+    this.closeMenu(false);
   }
 
   private editable(): boolean {
@@ -195,13 +208,32 @@ export class ListView {
       foot.textContent = "This list shows once this workspace’s notes are on this device.";
       return;
     }
-    this.notes = source.notes;
-    const selection = selectRows(config, source.notes, selfPath);
+    this.notes = this.withChosen(source.notes);
+    const selection = selectRows(config, this.notes, selfPath);
     const now = Date.now();
     const counts = new Map<string, number>();
     for (const row of selection.rows) counts.set(row.group ?? "", (counts.get(row.group ?? "") ?? 0) + 1);
     let group: string | null = null;
-    for (const row of selection.rows) {
+    rows.classList.toggle("cm-lp-list-rows-board", config.as === "board" && config.group !== null);
+    if (config.as === "board" && config.group !== null) {
+      rows.append(
+        drawBoard(selection.rows, config, {
+          notes: this.notes,
+          canMove: this.canSet(),
+          drawCard: (row) => {
+            const face = this.drawRow(row, now, config, false);
+            face.querySelector(".cm-lp-list-twisty")?.remove();
+            return face;
+          },
+          move: (path, value) => {
+            void this.setValue(path, config.group!, value).then((problem) => {
+              if (problem !== null) this.foot.textContent = problem;
+            });
+          },
+        }),
+      );
+    }
+    for (const row of config.as === "board" ? [] : selection.rows) {
       if (config.group !== null && row.group !== group) {
         group = row.group ?? "";
         rows.append(this.drawGroup(config.group, group, counts.get(group) ?? 0));
@@ -248,7 +280,7 @@ export class ListView {
       twisty.type = "button";
       if (children > 0) {
         const open = this.open.has(row.path);
-        twisty.textContent = open ? "\u25BE" : "\u25B8";
+        twisty.innerHTML = CHEVRON;
         twisty.setAttribute("aria-expanded", String(open));
         twisty.setAttribute("aria-label", open ? "Hide sub-projects" : "Show sub-projects");
         twisty.addEventListener("click", (event) => {
@@ -269,19 +301,115 @@ export class ListView {
     title.append(el("span", "cm-lp-list-name", rowTitle(row)));
     if (row.progress) title.append(drawProgress(row.progress));
     // A sub-project is not in a group of its own, so it says its own value,
-    // beside its name rather than in a column its parent does not have.
-    if (sub && config.group !== null && row.group) {
-      title.append(el("span", "cm-lp-list-own", formatValue(config.group, row.group, now)));
+    // beside its name rather than in a column its parent does not have. For
+    // someone who can change it, a project says it too: that is the handle
+    // for moving it to another group, where a column is not already one.
+    const ownValue =
+      sub || (this.canSet() && (config.rows === "projects" || config.as === "board") && !config.show.includes(config.group ?? ""));
+    if (ownValue && config.group !== null && (row.group || this.canSet())) {
+      title.append(this.drawValue(row.path, config.group, row.group || null, "cm-lp-list-own", now));
     }
     link.append(title);
     for (const { key, value } of row.values) {
-      link.append(el("span", "cm-lp-list-value", formatValue(key, value, now)));
+      link.append(this.drawValue(row.path, key, value, "cm-lp-list-value", now));
     }
     link.addEventListener("click", (event) => {
       event.preventDefault();
       this.host?.current?.open(row.path, event.metaKey || event.ctrlKey);
     });
     return link;
+  }
+
+  private canSet(): boolean {
+    return this.host?.current?.setProperty !== undefined;
+  }
+
+  /** A value beside a title; a button that opens its menu when the reader may change it. */
+  private drawValue(path: string, key: string, value: ListRow["values"][number]["value"], className: string, now: number): HTMLElement {
+    const text = formatValue(key, value, now);
+    if (!this.canSet() || !isEditableValue(key, value)) return el("span", className, text);
+    const button = el("button", `${className} cm-lp-list-edit${text === "" ? " cm-lp-list-unset" : ""}`, text === "" ? "Set" : text);
+    button.type = "button";
+    button.title = `Change ${key}`;
+    button.setAttribute("aria-haspopup", "menu");
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.openMenu(button, path, key, typeof value === "string" && value !== "" ? value : null);
+    });
+    return button;
+  }
+
+  private openMenu(anchor: HTMLElement, path: string, key: string, current: string | null): void {
+    const again = this.menu !== null && this.menu.path === path && this.menu.key === key;
+    this.closeMenu(false);
+    if (again) return;
+    const menu = new ValueMenu(key, path, current, valueChoices(this.notes, key), {
+      choose: (value) => this.setValue(path, key, value),
+      close: (refocus) => this.closeMenu(refocus),
+    });
+    this.menu = menu;
+    this.menuAnchor = anchor;
+    const box = this.dom.getBoundingClientRect();
+    const at = anchor.getBoundingClientRect();
+    menu.dom.style.top = `${at.bottom - box.top + 4}px`;
+    menu.dom.style.right = `${Math.max(0, box.right - at.right)}px`;
+    anchor.setAttribute("aria-expanded", "true");
+    this.dom.append(menu.dom);
+    this.dom.ownerDocument.addEventListener("mousedown", this.outsideMenu, true);
+    menu.focus();
+  }
+
+  private menuAnchor: HTMLElement | null = null;
+
+  /** Write one property of one listed note, and draw it at once when it lands. */
+  private async setValue(path: string, key: string, value: string | null): Promise<string | null> {
+    const set = this.host?.current?.setProperty;
+    if (set === undefined) return "This list can’t change notes here.";
+    const problem = await set(path, key, value);
+    if (problem === null) {
+      this.chosen.set(`${path}\n${key}`, value === null ? null : value.trim());
+      const config = this.fence.config;
+      if (config !== null) this.load(config);
+    }
+    return problem;
+  }
+
+  private closeMenu(refocus: boolean): void {
+    if (this.menu === null) return;
+    this.menu.dom.remove();
+    this.menu = null;
+    this.dom.ownerDocument.removeEventListener("mousedown", this.outsideMenu, true);
+    const anchor = this.menuAnchor;
+    this.menuAnchor = null;
+    anchor?.setAttribute("aria-expanded", "false");
+    if (refocus && anchor?.isConnected) anchor.focus();
+  }
+
+  /**
+   * The notes with each chosen value laid over them, so a row moves to its new
+   * group the moment the write lands rather than when the device next syncs.
+   * A choice is dropped as soon as the device's copy says the same thing.
+   */
+  private withChosen(notes: readonly ListNote[]): readonly ListNote[] {
+    if (this.chosen.size === 0) return notes;
+    return notes.map((note) => {
+      let properties = note.properties;
+      for (const [id, value] of this.chosen) {
+        const [path, key] = id.split("\n");
+        if (path !== note.path) continue;
+        const have = properties[key];
+        if ((value === null && have === undefined) || have === value) {
+          this.chosen.delete(id);
+          continue;
+        }
+        const next = { ...properties };
+        if (value === null) delete next[key];
+        else next[key] = value;
+        properties = next;
+      }
+      return properties === note.properties ? note : { ...note, properties };
+    });
   }
 
   private pressCaption(): void {

@@ -372,3 +372,33 @@ same swap, because it is one control in two places rather than two controls.
 has no text, so without it "the mark changes when the mode does" is
 unassertable.
 
+
+### Properties are edited in the panel, one line at a time
+
+The Properties panel was a reader, on the argument in `frontmatter.ts` that a
+YAML writer which misunderstands a line rewrites somebody's note into something
+they did not type. The consequence was that nobody could edit a property: on a
+pointer layout the block is hidden in the editor until the caret finds it, a
+phone's editor never holds it, and the panel's last row said "Add property —
+from a desktop, for now". An owner reported it as a bug, which it was.
+
+The panel now changes a value in place, removes a property with its ×, and adds
+one from its last row. The write is `setNoteProperty`, the one a folder list
+already uses for a status: it changes that key's line and no other byte, and
+refuses rather than guesses when what it wrote would not read back as the value
+given. The panel only offers rows the reader and the writer agree about — a
+top-level `key: value`, the last of a repeated key, not a list, not a nested
+map's child, and never `visibility`, which `privacy.md` decides. Everything else
+is still drawn, read-only, and still editable in the file. The change goes
+through the editor's own `onChange`, so it saves, merges into a collaborator's
+typing and undoes like a keystroke; reading mode and read-only access show no
+controls at all. `true`, `false` and plain numbers are written bare, because a
+website page accepts `draft` and `nav` only that way — the first cut quoted
+them and would have turned a published page into a problem.
+
+A "simplification" to a generic YAML serializer would cost the property the
+writer rests on: every other byte of somebody's note stays theirs.
+`apps/mobile/__tests__/notePropertiesEdit.test.ts` fails if a change touches
+another line, if a list or nested child is offered for editing, if adding
+overwrites an existing key, if a reader is offered controls, or if the phone
+path writes the body instead of the note.
