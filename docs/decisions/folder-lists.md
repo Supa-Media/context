@@ -258,3 +258,47 @@ the group, or if an agent is told a list from a front note it cannot see;
 `folderPageStatuses.test.ts` pins the bands, Needs a group, and which notes a
 rename rewrites; `folderPageView.test.ts` pins the grouped menu and the board's
 bands.
+
+## An owner is picked, never typed
+
+Asked for by the owner on 2026-09-26, from a folder's List view whose owner
+menu offered `Sayo`, `Seyi`, `Seyi Olujide` and "New value…": one person with
+three spellings, and a field for a fourth. An owner is now **somebody in the
+workspace, an agent connected to it, or `any agent`**, on every surface that
+sets one — a folder page's List, a project's own line, and a list block in a
+note. There is no field for a new owner anywhere.
+
+- **The search runs on the server.** `owners.searchOwners` (control plane)
+  takes what was typed and returns the best eight members and a few agent
+  names, never the roster, so a workspace of a hundred people is searched
+  where the people are. It reads at most a thousand memberships; past that it
+  says so and a narrower query finds the rest. The app asks a moment after
+  typing pauses.
+- **The order, with nothing typed**, is the owners the folder already uses
+  (most used, then most recently saved), then the reader, then everybody else
+  a to z. A folder word that is somebody's first name counts as them, so a
+  hand-typed `Seyi` offers the member `Seyi Olujide` first. With something
+  typed: whole name, start of the name, start of any word, start of the
+  address, anywhere — accents and case ignored. "Jev smarts" was asked for and
+  nothing by that name exists in the repository or the owner's notes; this
+  ranking is the stand-in until it is named.
+- **Agent names come only from grants the reader could already list.**
+  `grants.listGrants` shows an owner every grant and anybody else only their
+  own, because a colleague's tooling is theirs to disclose; the picker keeps
+  that line and returns names only, never who connected an agent, when, or
+  with what scopes. The console's own grant is not offered.
+- **What is written is the plain name** (`owner: Sayo`, `owner: Claude`,
+  `owner: any agent`), so the Markdown still reads in any editor and a filter
+  like `owner is Sayo` keeps working. A member with no name is written as
+  their address.
+- **An owner already written by hand is left alone.** Nothing is rewritten
+  behind anybody's back: the value is still drawn, and its picker leads with
+  it, checked and marked "Not a member", beside the member it most likely
+  meant, and "No owner" clears it.
+
+`apps/convex/__tests__/owners.test.ts` fails if a non-member gets anything
+but the missing-workspace refusal, if a member of another workspace is
+offered, if more than the limit comes back, or if an editor is shown a
+colleague's agent; `apps/mobile/__tests__/ownerPicker.test.ts` fails if the
+picker offers a way to type an owner, stops asking the server, or drops a
+hand-typed owner; `listEdit.test.ts` pins the same in a list block.

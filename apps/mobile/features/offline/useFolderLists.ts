@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useAction } from "convex/react";
+import { useAction, useConvex } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { announceBucketWrite } from "../console/files/bucketWrites";
@@ -27,6 +27,9 @@ import { visibilityTierForRole } from "../console/visibility";
  * saved. `folderListSource` carries the whole road; this hook only hands it
  * the Convex actions. A folder page may ask for the note to be created
  * (`create`), for a folder whose first property has nowhere to go yet.
+ *
+ * An owner is picked, never typed: `searchOwners` asks the control plane for
+ * the workspace's people and connected agents matching what was typed.
  */
 export function useFolderLists(
   workspaceId: string | null | undefined,
@@ -36,10 +39,11 @@ export function useFolderLists(
   const readNote = useAction(api.functions.files.readNote);
   const writeNote = useAction(api.functions.files.writeNote);
   const canEdit = capabilitiesForRole(role).canEdit;
+  const convex = useConvex();
   return useMemo(() => {
     if (workspaceId == null || tier === "unknown") return undefined;
     const id = workspaceId as Id<"workspaces">;
-    return folderListSource({
+    const source = folderListSource({
       workspaceId,
       scope: tier,
       canEdit,
@@ -61,5 +65,11 @@ export function useFolderLists(
         },
       },
     });
-  }, [workspaceId, tier, canEdit, readNote, writeNote]);
+    if (!canEdit) return source;
+    return {
+      ...source,
+      searchOwners: (query: string, prefer: readonly string[]) =>
+        convex.query(api.functions.owners.searchOwners, { workspaceId: id, query, prefer: [...prefer] }),
+    };
+  }, [workspaceId, tier, canEdit, readNote, writeNote, convex]);
 }

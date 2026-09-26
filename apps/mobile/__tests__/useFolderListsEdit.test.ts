@@ -13,6 +13,8 @@ import { describe, expect, jest, test } from "@jest/globals";
 
 const mockCalls: Array<[string, Record<string, unknown>]> = [];
 jest.mock("convex/react", () => ({
+  // An owner picker searches through the client; nothing here opens one.
+  useConvex: () => ({ query: async () => undefined }),
   useAction: (reference: unknown) => {
     const name = String((reference as { name?: string })?.name ?? reference);
     return async (args: Record<string, unknown>) => {

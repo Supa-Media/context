@@ -15,6 +15,10 @@
  * place of "New value…" — a status is added to a group, never typed loose
  * onto one note, so it always has a group (`statuses.ts`).
  *
+ * An owner is chosen, never typed: given `owners`, pressing the value opens
+ * `OwnerPicker` — the workspace's people and connected agents, searched on the
+ * server — in place of the menu, and there is no "New value…" to press.
+ *
  * Unset and editable, it reads `Set status`: muted, and accent under the
  * pointer, the one affordance a folder needs to become a project. Unset and
  * not editable, it draws nothing — a member is not shown a control that
@@ -29,6 +33,8 @@ import { Text, type TextVariant } from "../../../design/components/Text";
 import { fonts, pointerType, radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import type { MenuItem } from "../menu";
+import type { OwnerSearch } from "../owners";
+import { OwnerPicker } from "./OwnerPicker";
 
 export interface PropertyValueProps {
   /** The frontmatter key, which names the menu and the field. */
@@ -44,6 +50,8 @@ export interface PropertyValueProps {
   sections?: readonly { readonly label: string; readonly words: readonly string[] }[];
   /** "Edit statuses…" at the foot of a sectioned menu; null or absent to leave it out. */
   onEditList?: (() => void) | null;
+  /** Pick from people and agents instead of the menu; `prefer` is the folder's owners, most used first. */
+  owners?: { readonly search: OwnerSearch; readonly prefer: readonly string[] };
   variant?: TextVariant;
   /**
    * Drawn invisible until something asks for it — a row under the pointer —
@@ -66,6 +74,7 @@ export function PropertyValue({
   onChoose,
   sections,
   onEditList = null,
+  owners,
   variant = "tree",
   quiet = false,
   style,
@@ -75,6 +84,7 @@ export function PropertyValue({
   const styles = useThemedStyles(makeStyles);
   const trigger = useRef<View>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [picking, setPicking] = useState(false);
   const [typing, setTyping] = useState(false);
   const [hovered, setHovered] = useState(false);
   // A keyboard reaches a quiet value by Tab; it shows while focused, as it does under the pointer.
@@ -157,6 +167,17 @@ export function PropertyValue({
   if (savesTo !== null) items.push({ id: "saves", label: `Saves to ${savesTo}`, disabled: true, separatorBefore: true });
 
   const open = () => {
+    if (owners !== undefined) {
+      // Opened where the value is once measured, so a popover does not start life as a sheet.
+      const measure = trigger.current?.measureInWindow;
+      if (measure === undefined) setPicking(true);
+      else
+        trigger.current?.measureInWindow((x, y, _width, height) => {
+          setMenu({ x, y: y + height + 4 });
+          setPicking(true);
+        });
+      return;
+    }
     setMenu({ x: 0, y: 0 });
     trigger.current?.measureInWindow?.((x, y, _width, height) => setMenu({ x, y: y + height + 4 }));
   };
@@ -171,7 +192,7 @@ export function PropertyValue({
         onBlur={() => setFocused(false)}
         role="button"
         aria-haspopup="menu"
-        aria-expanded={menu !== null}
+        aria-expanded={menu !== null || picking}
         accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${current}`}
         hitSlop={6}
         testID={testID}
@@ -184,7 +205,21 @@ export function PropertyValue({
           {current === null ? `Set ${property}` : isolateForDisplay(current)}
         </Text>
       </Pressable>
-      {menu === null ? null : (
+      {owners === undefined || !picking ? null : (
+        <OwnerPicker
+          current={value}
+          search={owners.search}
+          prefer={owners.prefer}
+          anchor={menu}
+          savesTo={savesTo}
+          onChoose={onChoose}
+          onDismiss={() => {
+            setPicking(false);
+            setMenu(null);
+          }}
+        />
+      )}
+      {menu === null || owners !== undefined ? null : (
         <Menu<Id>
           items={items}
           {...(menu.x === 0 && menu.y === 0 ? {} : { anchor: menu })}

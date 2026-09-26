@@ -291,8 +291,20 @@ export const listProjectStyles = `/*
   height: 1px;
   background: var(--lp-line);
 }
-/* The new word is typed in a row of its own, aligned with the words above it. */
-.cm-lp-list-menu-new {
+/* The new word is typed in a row of its own, aligned with the words above it;
+   an owner is searched for in one above the people and agents it finds. */
+.cm-lp-list-menu > .cm-lp-list-menu-search {
+  margin: 0 0 4px;
+  padding-left: 10px;
+  min-width: 220px;
+}
+.cm-lp-list-menu-head {
+  padding: 6px 10px 2px;
+  color: var(--lp-muted);
+  font-size: 12px;
+}
+.cm-lp-list-menu-new,
+.cm-lp-list-menu-search {
   display: block;
   width: 100%;
   box-sizing: border-box;
@@ -307,11 +319,13 @@ export const listProjectStyles = `/*
   -webkit-appearance: none;
   appearance: none;
 }
-.cm-lp-list-menu-new::placeholder {
+.cm-lp-list-menu-new::placeholder,
+.cm-lp-list-menu-search::placeholder {
   color: var(--lp-muted);
   opacity: 0.7;
 }
-.cm-lp-list-menu-new:focus {
+.cm-lp-list-menu-new:focus,
+.cm-lp-list-menu-search:focus {
   outline: none;
   border-color: var(--lp-link);
   box-shadow: 0 0 0 3px var(--lp-focus-ring);
@@ -447,6 +461,7 @@ export const listProjectStyles = `/*
   .cm-lp-board-card .cm-lp-list-value:not(:last-child) { display: inline; }
   .cm-lp-list-menu { max-width: calc(100vw - 32px); }
   .cm-lp-list-menu-item { height: 44px; font-size: 16px; }
+  .cm-lp-list-menu-search { height: 40px; font-size: 16px; }
   .cm-lp-list-menu-new { height: 40px; font-size: 16px; }
 }
 `;

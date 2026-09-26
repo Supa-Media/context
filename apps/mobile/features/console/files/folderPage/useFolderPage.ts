@@ -26,7 +26,7 @@ export interface FolderPageHost {
   readonly source: FolderListSource;
   /** Keys what each viewer last picked; one workspace's folders are not another's. */
   readonly workspaceId: string;
-  /** The workspace's people, offered as owners. */
+  /** The workspace's people: the owners offered where there is no server to search (`FolderListSource.searchOwners`). */
   readonly people: readonly string[];
 }
 

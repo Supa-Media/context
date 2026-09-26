@@ -17,6 +17,7 @@ import { listHost, type ListHostContext, type ListNote } from "../features/conso
 import { valueChoices } from "../features/console/files/listBlock/valueMenu";
 import { writeNoteProperty, type NoteReadWrite } from "../features/console/files/listBlock/writeProperty";
 import { livePreview, markdownLanguage } from "../features/console/files/livePreview";
+import type { OwnerSearch } from "../features/console/files/owners";
 
 const NOTES: ListNote[] = [
   { path: "p/web.md", updatedAt: 3, properties: { status: "active", owner: "Seyi" } },
@@ -34,9 +35,13 @@ beforeAll(() => {
 
 type Call = [path: string, key: string, value: string | null];
 
-function mount(text: string, options: { writes?: Call[]; answer?: string | null; canWrite?: boolean } = {}): EditorView {
-  const { writes = [], answer = null, canWrite = true } = options;
+function mount(
+  text: string,
+  options: { writes?: Call[]; answer?: string | null; canWrite?: boolean; searchOwners?: OwnerSearch } = {},
+): EditorView {
+  const { writes = [], answer = null, canWrite = true, searchOwners } = options;
   const host: ListHostContext = {
+    ...(searchOwners === undefined ? {} : { searchOwners }),
     load: async () => ({ notes: NOTES, complete: true }),
     open: () => undefined,
     selfPath: "p/README.md",
@@ -117,13 +122,13 @@ describe("changing a value from a list", () => {
     view.destroy();
   });
 
-  test("a new word is typed, and clearing is a choice of its own", async () => {
+  test("a new word is typed for a status, and clearing is a choice of its own", async () => {
     const writes: Call[] = [];
-    const view = mount(doc("from: p", "show: owner"), { writes });
+    const view = mount(doc("from: p", "show: status"), { writes });
     await flush();
     edits(view)[2].click();
     const field = view.dom.querySelector<HTMLInputElement>(".cm-lp-list-menu-new")!;
-    field.value = "  any agent ";
+    field.value = "  blocked ";
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await flush();
     await flush();
@@ -131,7 +136,47 @@ describe("changing a value from a list", () => {
     view.dom.querySelector<HTMLElement>(".cm-lp-list-menu-clear")!.click();
     await flush();
     expect(writes).toEqual([
-      ["p/old.md", "owner", "  any agent "],
+      ["p/old.md", "status", "  blocked "],
+      ["p/web.md", "status", null],
+    ]);
+    view.destroy();
+  });
+
+  test("an owner is picked from people and agents the server finds, never typed", async () => {
+    const writes: Call[] = [];
+    const asked: string[] = [];
+    const searchOwners: OwnerSearch = async (query) => {
+      asked.push(query);
+      const people = ["Sayo", "Seyi Olujide"].filter((name) => name.toLowerCase().includes(query.toLowerCase()));
+      return { people: people.map((value) => ({ value, isMe: false })), agents: ["Claude"], truncated: false };
+    };
+    const view = mount(doc("from: p", "show: owner"), { writes, searchOwners });
+    await flush();
+    edits(view)[2].click();
+    await flush();
+    expect(view.dom.querySelector(".cm-lp-list-menu-new")).toBeNull();
+    expect(items(view).map((text) => text?.replace(/[\u2066-\u2069]/g, ""))).toEqual([
+      "Sayo",
+      "Seyi Olujide",
+      "Claude",
+      "Any agent · Whichever picks it up",
+    ]);
+    const field = view.dom.querySelector<HTMLInputElement>(".cm-lp-list-menu-search")!;
+    field.value = "sey";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(asked).toEqual(["", "sey"]);
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+    await flush();
+    edits(view)[0].click();
+    await flush();
+    // "Seyi" was typed by hand once: kept, checked and marked; "No owner" clears it.
+    expect(items(view)[0]?.replace(/[\u2066-\u2069]/g, "")).toBe("✓Seyi · Not a member");
+    view.dom.querySelector<HTMLElement>(".cm-lp-list-menu-clear")!.click();
+    await flush();
+    expect(writes).toEqual([
+      ["p/old.md", "owner", "Seyi Olujide"],
       ["p/web.md", "owner", null],
     ]);
     view.destroy();
@@ -141,6 +186,7 @@ describe("changing a value from a list", () => {
     const view = mount(doc("from: p", "show: owner"), { answer: "That note is changing right now. Try again in a moment." });
     await flush();
     edits(view)[0].click();
+    await flush();
     [...view.dom.querySelectorAll<HTMLElement>(".cm-lp-list-menu-item")][1].click();
     await flush();
     expect(menu(view)?.querySelector(".cm-lp-list-menu-problem")?.textContent).toBe(
