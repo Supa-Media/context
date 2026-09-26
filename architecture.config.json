@@ -68,6 +68,8 @@
     }
   ],
   "reviewed": {
+    "apps/mcp/test/browser/verifyEditor.mjs": "One browser harness: every scenario shares the same worker, control plane, static build and two signed-in pages it boots once; splitting it would boot that stack per file.",
+    "apps/mobile/features/console/collaboration/durable.ts": "One class, DurableCollaborationController: the device record, the flush queue, remote reads, recovery replacement and generation adoption all mutate the same private record and Yjs document.",
     "apps/convex/__tests__/googleConnect/rowShape.test.ts": "The Google connection row's shape (products plus the nested gmail object) and the default destination folder, both about the same row.",
     "apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts": "One integration scenario: a full pass through the real credential barrier against fixture Gmail, Chat and Calendar backends and an in-memory S3.",
     "apps/convex/__tests__/storage/rotation.test.ts": "One encryption-key rotation scenario covering every envelope column in ROTATED_ENVELOPE_COLUMNS; splitting it separates the rotation from the column list it is proven against.",
