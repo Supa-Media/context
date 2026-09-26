@@ -16,16 +16,27 @@ export function frameStatusRow({
   status,
   hasExplorer,
   toggleExplorer,
+  account,
 }: {
   styles: FrameStyles;
   regions: Regions;
   status?: ReactNode;
   hasExplorer: boolean;
   toggleExplorer: () => void;
+  account?: ReactNode;
 }) {
   return (
     regions.statusBar && status ? (
       <View style={styles.status}>
+        {/*
+          The account button, while the tree that normally carries it at its
+          foot is not a column — folded away, peeking, or absent on this
+          route. The bottom-left corner either way, so the button does not
+          jump to the other end of the window when the tree folds.
+        */}
+        {account != null && regions.explorer !== "column" ? (
+          <View style={styles.statusAccount}>{account}</View>
+        ) : null}
         {/*
           The two panel toggles, at the leading edge where VS Code, Zed and
           every editor with a foldable sidebar put them.

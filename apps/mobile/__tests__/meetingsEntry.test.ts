@@ -113,10 +113,11 @@ type ConsoleData = import("../features/console/types").ConsoleData;
 /*                                  harness                                   */
 /* -------------------------------------------------------------------------- */
 
-/** The least `ConsoleData` the switcher reads: its contexts and whether they landed. */
+/** The least `ConsoleData` the switcher reads: you, your contexts and whether they landed. */
 function railData(): ConsoleData {
   return {
     loading: false,
+    viewer: { name: "@seyi", initial: "S" },
     contexts: [
       { id: "ctx-1", slug: "seyi", displayName: "seyi", role: "owner", kind: "personal", status: "ok" },
     ],
@@ -173,7 +174,7 @@ function switcher(onOpenMeetings?: () => void): Mounted {
   */
   const find = (testId: string) =>
     document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
-  click(find("frame-switcher")!);
+  click(find("account-switcher")!);
   return { ...app, find };
 }
 
@@ -466,7 +467,7 @@ describe("it coexists with a recording that is already running", () => {
       document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
     expect(find("recording-bar")).not.toBeNull();
-    click(find("frame-switcher")!);
+    click(find("account-switcher")!);
     expect(find("switcher-meetings")).not.toBeNull();
     click(find("switcher-meetings")!);
     expect(seen).toHaveLength(1);
@@ -505,7 +506,7 @@ describe("it coexists with a recording that is already running", () => {
 
     // Nothing about the trigger is anchored to an edge; it is in normal flow,
     // in the row `AppFrame` draws across the top of the window.
-    const trigger = app.find("frame-switcher")!;
+    const trigger = app.find("account-switcher")!;
     expect(window.getComputedStyle(trigger).position).not.toBe("absolute");
 
     // The bar is, and to the far one. 34 here rather than 25, because

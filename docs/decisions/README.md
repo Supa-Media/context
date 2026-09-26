@@ -257,6 +257,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The rail is one list, with the personal workspace pinned to the top
 - The rail folds into the switcher, and the column it occupied goes to the note
 - The workspaces come back as a row at the foot of the tree, not as a column
+- One account button at the bottom left replaces the chip and the row
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host

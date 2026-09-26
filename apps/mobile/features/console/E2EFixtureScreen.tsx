@@ -14,7 +14,7 @@ import {
   type SettingsSectionKey,
 } from "./settings/sections";
 import { densityFor } from "../app/frame";
-import { layout, space } from "../design/tokens";
+import { space } from "../design/tokens";
 import { atName } from "./format";
 import { selectedContext, type ConsoleData } from "./types";
 import { useE2EFixtureConsoleData } from "./e2eFixtureData";
@@ -233,7 +233,8 @@ export function E2EFixtureScreen({
         real console puts the block in existed here: no phone top bar, no rail.
 
         The rail is gone from the product, so the pointer half is the real
-        `SwitcherMenu` in a strip standing in for `AppFrame`'s title bar, and
+        `SwitcherMenu` — the account button — in a strip at the bottom left,
+        standing in for the foot of the file tree where the product puts it, and
         the corner below draws the compact account block only where the product
         does — a phone. Two of the one always-visible settings control on one
         screen would be the duplication this file's header refuses.
@@ -247,28 +248,6 @@ export function E2EFixtureScreen({
         viewport it runs at actually has.
       */}
       <View style={styles.frame}>
-        {phone ? null : (
-          <View style={styles.titleBar}>
-            <SwitcherMenu
-              data={data}
-              label={current === null ? "Your context" : atName(current.slug)}
-              tone={current?.status ?? "warn"}
-              /*
-                Only a context row can go anywhere from here. The menu's other
-                entries are optional props this screen does not pass —
-                Meetings, Claim, New workspace are all navigations out of the
-                console, and there is no router behind this fixture to take
-                them. It is the same substitution the rest of this file makes:
-                keep what the navigation *does* to this browser's state.
-              */
-              onOpenContext={(slug) => {
-                setAnchor(null);
-                openContext(slug);
-              }}
-              onOpenSettings={openSettings}
-            />
-          </View>
-        )}
         <View style={styles.main}>
           {/*
             The phone's account corner, and **only** the phone's: at a pointer
@@ -339,6 +318,27 @@ export function E2EFixtureScreen({
             </VoiceHostProvider>
           </NavBandProvider>
         </View>
+        {phone ? null : (
+          <View style={styles.accountFoot}>
+            <SwitcherMenu
+              data={data}
+              label={current === null ? "Your context" : atName(current.slug)}
+              /*
+                Only a context row can go anywhere from here. The menu's other
+                entries are optional props this screen does not pass —
+                Meetings, Claim, New workspace are all navigations out of the
+                console, and there is no router behind this fixture to take
+                them. It is the same substitution the rest of this file makes:
+                keep what the navigation *does* to this browser's state.
+              */
+              onOpenContext={(slug) => {
+                setAnchor(null);
+                openContext(slug);
+              }}
+              onOpenSettings={openSettings}
+            />
+          </View>
+        )}
       </View>
 
       {settings === null ? null : (
@@ -366,23 +366,13 @@ export function E2EFixtureScreen({
 
 const styles = StyleSheet.create({
   account: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: space.x3 },
-  /** The title bar above the pane, which is the whole of what `AppFrame` does here. */
+  /** The pane above the account button, which is the whole of what `AppFrame` does here. */
   frame: { flex: 1, flexDirection: "column", minHeight: 0 },
   /**
-   * Where `AppFrame` draws its top bar, at the height it draws it.
-   *
-   * The switcher and nothing else. `AppFrame` also gives that bar a surface
-   * fill and the trailing slots, which are themed and are that component's to
-   * own — `appFrameRender.test.ts` pins them there. What a fixture needs is
-   * the control on the glass in the band the product puts it in, so that is
-   * what is here; the switcher draws its own interior either way.
+   * Where the product draws the account button: the bottom left, at a file
+   * tree's width. The button draws its own interior either way.
    */
-  titleBar: {
-    height: layout.topBarHeight,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: space.x3,
-  },
+  accountFoot: { width: 260 },
   /** `minWidth: 0`, so a long note cannot push the pane off the screen. */
   main: { flex: 1, minWidth: 0 },
 });

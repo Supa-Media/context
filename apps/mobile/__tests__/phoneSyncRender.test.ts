@@ -277,7 +277,7 @@ describe("the frame gives the pill a place on a phone and none elsewhere", () =>
   function frame(width: number) {
     return mount(
       createElement(AppFrame, {
-        switcher: createElement("span", { "data-testid": "switcher" }, "@someone"),
+        lead: createElement("span", { "data-testid": "switcher" }, "@someone"),
         accountSlot: createElement("span", { "data-testid": "account" }, "you"),
         topTrailing: createElement("span", { "data-testid": "trailing" }, "actions"),
         syncSlot: createElement("span", { "data-testid": "sync-slot" }, "Offline"),

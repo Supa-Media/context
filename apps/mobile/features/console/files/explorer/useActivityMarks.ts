@@ -3,7 +3,7 @@ import type { FileBrowser } from "../browser";
 import { loadedCounts } from "../contextFoot";
 import { agentMarkRows, agentsLine, type AgentActivityView } from "../../agents/agentActivity";
 import { footLabel, markedRows, type ActivityView } from "../../activity/activity";
-import { AGENTS_LINE_HEIGHT } from "./styles";
+import { ACTIVITY_LIFT, AGENTS_LINE_HEIGHT } from "./styles";
 
 /**
  * The foot line's words, the tree's dots and the agents line. Called from
@@ -54,7 +54,7 @@ export function useActivityMarks({
     agents are active. Without this the list would cover the line that opened
     it.
   */
-  const sheetLift = agentsLabel === null ? null : { bottom: 76 + AGENTS_LINE_HEIGHT };
+  const sheetLift = agentsLabel === null ? null : { bottom: ACTIVITY_LIFT + AGENTS_LINE_HEIGHT };
 
   return { counts, activityLabel, markedPaths, agentMarks, agentsLabel, sheetLift };
 }

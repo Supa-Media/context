@@ -115,7 +115,7 @@ function mountFixture(width: number) {
     stays the control it was written to be.
   */
   const openSwitcher = () => {
-    const trigger = document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]');
+    const trigger = document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]');
     if (trigger === null) return;
     act(() => {
       trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -134,13 +134,13 @@ function mountFixture(width: number) {
     */
     const labels = Array.from(
       /*
-        Both roles, because the two surfaces are two kinds of control. The
+        Every role, because the two surfaces are two kinds of control. The
         phone's contexts are buttons in `NavBand`; the pointer layout's are
-        rows in a `Menu`, which announces itself as a menu and its rows as
-        `menuitem`. Asking for `button` alone found the switcher's own trigger
-        and none of the workspaces behind it.
+        the account card's workspace rows, which are `menuitemradio` — one of
+        them is the workspace you are in. Asking for `button` alone found the
+        account button and none of the workspaces behind it.
       */
-      document.body.querySelectorAll('[role="button"], [role="menuitem"]'),
+      document.body.querySelectorAll('[role="button"], [role="menuitem"], [role="menuitemradio"]'),
     ).map((node) => `${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`);
     /*
       The `@` is part of the match on purpose. A bare slug is a substring of
@@ -189,10 +189,10 @@ describe("the browser-reachable console offers its contexts at every density", (
     */
     const desktop = mountFixture(1440);
     expect(desktop.container.querySelectorAll('[data-testid="context-strip"]')).toHaveLength(0);
-    expect(desktop.container.querySelectorAll('[data-testid="frame-switcher"]')).toHaveLength(1);
+    expect(desktop.container.querySelectorAll('[data-testid="account-switcher"]')).toHaveLength(1);
 
     const phone = mountFixture(390);
     expect(phone.container.querySelectorAll('[data-testid="context-strip"]')).toHaveLength(1);
-    expect(phone.container.querySelectorAll('[data-testid="frame-switcher"]')).toHaveLength(0);
+    expect(phone.container.querySelectorAll('[data-testid="account-switcher"]')).toHaveLength(0);
   });
 });

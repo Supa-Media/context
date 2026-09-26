@@ -299,7 +299,7 @@ function mountConsole(next: Shape = {}) {
     press,
     /** Open the workspace switcher, which is where the rail's offer went. */
     openSwitcher: () =>
-      press(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]')),
+      press(document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]')),
     unmount: () => {
       act(() => root.unmount());
       container.remove();

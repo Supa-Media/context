@@ -342,6 +342,10 @@ Moved to [Why this one, and what the other four cost](./app-and-console/folder-r
 
 Moved to [What the row costs, and where it is paid](./app-and-console/folder-rows-and-settings.md#what-the-row-costs-and-where-it-is-paid).
 
+## One account button at the bottom left replaces the chip and the row
+
+Moved to [One account button at the bottom left replaces the chip and the row](./app-and-console/folder-rows-and-settings.md#one-account-button-at-the-bottom-left-replaces-the-chip-and-the-row).
+
 ### "Move to…" is one dialog, and the other context is a destination rather than a mode
 
 Moved to ["Move to…" is one dialog, and the other context is a destination rather than a mode](./app-and-console/folder-rows-and-settings.md#move-to-is-one-dialog-and-the-other-context-is-a-destination-rather-than-a-mode).

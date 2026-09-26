@@ -1,9 +1,15 @@
 import { StyleSheet } from "react-native";
-import { pointerType as t, radii, space } from "../../../design/tokens";
+import { layout, pointerType as t, radii, space } from "../../../design/tokens";
 import type { Colors, Shadows } from "../../../design/theme";
 
 /** One foot line: 5pt padding either side of a `treeMeta` line, and its rule. */
 export const AGENTS_LINE_HEIGHT = 28;
+
+/**
+ * How far above the column's bottom edge the activity popover stands: the
+ * account button at the foot, then the one-line activity row it opens from.
+ */
+export const ACTIVITY_LIFT = layout.accountFootHeight + 33;
 
 export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   explorer: { flex: 1, minHeight: 0 },
@@ -154,7 +160,7 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     position: "absolute",
     left: space.x2,
     right: space.x2,
-    bottom: 76,
+    bottom: ACTIVITY_LIFT,
     maxHeight: "60%",
     borderRadius: radii.panel,
     backgroundColor: colors.surface3,

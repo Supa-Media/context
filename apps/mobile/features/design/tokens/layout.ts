@@ -218,6 +218,15 @@ export const layout = {
   topBarHeight: MIN_TOUCH_TARGET + 1,
   statusBarHeight: 26,
   /**
+   * The account button at the foot of the file tree, hairline included.
+   *
+   * Fixed rather than left to its contents because the tree's activity and
+   * agents popovers stand on it: they are anchored a known distance above the
+   * column's bottom edge, and a foot that grew by a line would slide under the
+   * line that opened them.
+   */
+  accountFootHeight: 53,
+  /**
    * The compact toolbar.
    *
    * 66, measured off Obsidian on iOS: its bar runs from about 865pt to 931pt on
