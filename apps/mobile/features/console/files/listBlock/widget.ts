@@ -30,6 +30,7 @@ import {
 } from "./model";
 import { ListPanel } from "./panel";
 import { isEditableValue, ValueMenu, valueChoices } from "./valueMenu";
+import { localOwnerSearch, ownersInUse } from "../owners";
 import { drawBoard } from "./board";
 import { captionFor, formatValue, groupLabel, listProblem, rowTitle } from "./words";
 
@@ -344,10 +345,22 @@ export class ListView {
     const again = this.menu !== null && this.menu.path === path && this.menu.key === key;
     this.closeMenu(false);
     if (again) return;
-    const menu = new ValueMenu(key, path, current, valueChoices(this.notes, key), {
-      choose: (value) => this.setValue(path, key, value),
-      close: (refocus) => this.closeMenu(refocus),
-    });
+    // An owner is picked from people and agents, never typed; with no server to ask, from the owners in use.
+    const owners =
+      key === "owner"
+        ? { search: this.host?.current?.searchOwners ?? localOwnerSearch(valueChoices(this.notes, key)), prefer: ownersInUse(this.notes) }
+        : undefined;
+    const menu = new ValueMenu(
+      key,
+      path,
+      current,
+      valueChoices(this.notes, key),
+      {
+        choose: (value) => this.setValue(path, key, value),
+        close: (refocus) => this.closeMenu(refocus),
+      },
+      owners,
+    );
     this.menu = menu;
     this.menuAnchor = anchor;
     const box = this.dom.getBoundingClientRect();

@@ -116,6 +116,7 @@ function GroupRow({ item, compact, now, actions }: { item: FolderItem; compact: 
       property="owner"
       value={owner}
       choices={actions.choices("owner")}
+      {...(actions.owners === undefined ? {} : { owners: actions.owners })}
       savesTo={item.creates ? NEW_FRONT_NOTE : null}
       onChoose={edit === null ? null : (value) => edit(item, "owner", value)}
       quiet={owner === "" && !hovered}

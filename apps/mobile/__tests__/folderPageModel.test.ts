@@ -166,14 +166,9 @@ describe("what a value menu offers", () => {
   test("a status is chosen from the folder's status list, not from whatever words are in use", () => {
     const items = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { status: "paused" })]).items;
     // Everything "paused" still offers "finished": moving a card on is one press, never typing.
-    expect(propertyChoices(items, "status", [], defaultStatusList() as StatusList)).toEqual(["in progress", "finished"]);
+    expect(propertyChoices(items, "status", defaultStatusList() as StatusList)).toEqual(["in progress", "finished"]);
     const list = { "not-started": ["exploration"], "in-progress": ["doing"], done: ["won", "lost"] };
-    expect(propertyChoices([], "status", [], list)).toEqual(["exploration", "doing", "won", "lost"]);
-  });
-
-  test("an owner is chosen from the owners in use, then the workspace's people", () => {
-    const items = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { owner: "Sayo" })]).items;
-    expect(propertyChoices(items, "owner", ["Seyi", "Sayo", "John"])).toEqual(["Sayo", "John", "Seyi"]);
+    expect(propertyChoices([], "status", list)).toEqual(["exploration", "doing", "won", "lost"]);
   });
 });
 

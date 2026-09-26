@@ -1,6 +1,7 @@
 /** What the List and Board views of a folder page share about one item. */
 
 import type { PropertyValue } from "../listBlock/model";
+import type { OwnerSearch } from "../owners";
 import type { FolderItem } from "./model";
 import type { StatusMenuSection } from "./statuses";
 import type { StatusTone } from "./StatusPill";
@@ -21,6 +22,14 @@ export interface ItemActions {
   toneOf(status: string): StatusTone;
   /** Opens the folder's status list for editing; null for somebody who may not. */
   onEditStatuses: (() => void) | null;
+  /** Where an owner is picked from: people and agents, never a typed word. */
+  owners?: OwnerChoice;
+}
+
+/** An owner picker's search, and the owners the folder already uses, most used first. */
+export interface OwnerChoice {
+  readonly search: OwnerSearch;
+  readonly prefer: readonly string[];
 }
 
 /** A single-valued property as trimmed text; `""` when unset. */

@@ -30,7 +30,8 @@ import { noteColumnWidth } from "../../../app/frame";
 import { BOARD_COLUMN, FolderBoard } from "./Board";
 import { FolderGroups } from "./Groups";
 import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
-import { textOf, type ItemActions } from "./items";
+import { textOf, type ItemActions, type OwnerChoice } from "./items";
+import { localOwnerSearch, ownersInUse } from "../owners";
 import {
   defaultFolderView,
   folderItems,
@@ -117,20 +118,27 @@ export function FolderPage({
     return (key: string) => {
       let found = memo.get(key);
       if (found === undefined) {
-        found = propertyChoices(items, key, people ?? [], list);
+        found = propertyChoices(items, key, list);
         memo.set(key, found);
       }
       return found;
     };
-  }, [items, people, list]);
+  }, [items, list]);
+  const siblings = useMemo(
+    () => (notes ?? []).filter((note) => note.path.startsWith(parentFolder === "" ? "" : `${parentFolder}/`)),
+    [notes, parentFolder],
+  );
   const siblingChoices = useMemo(() => {
     // A project folder offers what its siblings use: the parent's items.
     if (notes === null || folder === "") return choices;
-    const siblings = notes
-      .filter((note) => note.path.startsWith(parentFolder === "" ? "" : `${parentFolder}/`))
-      .map((note) => ({ path: note.path, properties: note.properties }));
-    return (key: string) => propertyChoices(siblings, key, people ?? [], parentStatuses.list);
-  }, [notes, folder, choices, people, parentFolder, parentStatuses]);
+    return (key: string) => propertyChoices(siblings, key, parentStatuses.list);
+  }, [notes, folder, choices, siblings, parentStatuses]);
+  // An owner is picked from the workspace's people and agents, searched on the
+  // server; with no server (the landing page's demo), from the people it was handed.
+  const serverOwners = host?.source.searchOwners;
+  const searchOwners = useMemo(() => serverOwners ?? localOwnerSearch(people ?? []), [serverOwners, people]);
+  const owners = useMemo<OwnerChoice>(() => ({ search: searchOwners, prefer: ownersInUse(items) }), [searchOwners, items]);
+  const siblingOwners = useMemo<OwnerChoice>(() => ({ search: searchOwners, prefer: ownersInUse(siblings) }), [searchOwners, siblings]);
   const menuSections = useMemo(() => statusMenu(list), [list]);
   const parentMenu = useMemo(() => statusMenu(parentStatuses.list), [parentStatuses]);
   const undeclared = useMemo(() => undeclaredStatuses(items, list), [items, list]);
@@ -184,6 +192,7 @@ export function FolderPage({
     statusMenu: menuSections,
     toneOf,
     onEditStatuses,
+    owners,
   };
   const place = (word: string, group: StatusGroup) => {
     setTidyProblem(null);
@@ -211,6 +220,7 @@ export function FolderPage({
             now={now}
             choices={siblingChoices}
             statusMenu={parentMenu}
+            owners={siblingOwners}
             onChoose={edit === null ? null : (key, value) => void edit(summary.target, key, value, summary.creates)}
           />
         ) : null}

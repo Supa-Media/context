@@ -30,6 +30,7 @@ import {
 } from "../../../../../mcp/src/lists.js";
 import { revealSelection } from "../livePreview/engagement";
 import { selectionTouches } from "../livePreview/reveal";
+import type { OwnerSearch } from "../owners";
 
 export { LIST_FENCE_LANG };
 
@@ -140,6 +141,12 @@ export interface FolderListSource {
     changes: readonly (readonly [string, string | readonly string[] | null])[],
     options?: { create?: boolean },
   ): Promise<string | null>;
+  /**
+   * Who may own a note: the workspace's people and connected agents matching
+   * `query`, asked of the server (`owners.searchOwners`). Absent where nobody
+   * may write, and where there is no server to ask.
+   */
+  searchOwners?: OwnerSearch;
 }
 
 /** What the notes for one list came back as. */
@@ -167,6 +174,8 @@ export interface ListHostContext {
   subscribe?(listener: () => void): () => void;
   /** See `FolderListSource.setProperty`. */
   setProperty?(path: string, key: string, value: string | null): Promise<string | null>;
+  /** See `FolderListSource.searchOwners`. */
+  searchOwners?: OwnerSearch;
   /** The note holding the block, which is never listed. */
   readonly selfPath: string | null;
 }

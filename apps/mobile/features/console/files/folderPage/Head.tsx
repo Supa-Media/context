@@ -30,6 +30,7 @@ import { shortWhen } from "../listBlock/words";
 import { NEW_FRONT_NOTE, type FolderPageView, type FolderSummary } from "./model";
 import type { StatusMenuSection } from "./statuses";
 import { PropertyValue } from "./PropertyValue";
+import type { OwnerChoice } from "./items";
 
 const VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
   { view: "files", label: "Files" },
@@ -139,6 +140,7 @@ export function PropertyLine({
   now,
   choices,
   statusMenu,
+  owners,
   onChoose,
 }: {
   summary: FolderSummary;
@@ -147,6 +149,8 @@ export function PropertyLine({
   choices: (key: string) => readonly string[];
   /** The groups this folder's own status is chosen from: its parent's status list. */
   statusMenu?: readonly StatusMenuSection[];
+  /** Where the owner is picked from; see `ItemActions.owners`. */
+  owners?: OwnerChoice;
   /** Null for somebody who may not write. */
   onChoose: ((key: string, value: string | null) => void) | null;
 }) {
@@ -168,6 +172,7 @@ export function PropertyLine({
       value={value}
       choices={choices(key)}
       {...(key === "status" && statusMenu !== undefined ? { sections: statusMenu } : {})}
+      {...(key === "owner" && owners !== undefined ? { owners } : {})}
       savesTo={savesTo}
       onChoose={onChoose === null ? null : (next) => onChoose(key, next)}
       variant={variant}

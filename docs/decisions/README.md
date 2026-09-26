@@ -178,6 +178,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A folder page shows its children by status
 - A list write is what this device holds afterwards
 - Status groups
+- An owner is picked, never typed
 
 ## [Bucket-backed websites](./websites.md)
 

@@ -194,6 +194,7 @@ export function LiveEditor({
           load: (folder, subfolders) => folderLists.load(folder, subfolders),
           ...(folderLists.subscribe === undefined ? {} : { subscribe: folderLists.subscribe }),
           ...(folderLists.setProperty === undefined ? {} : { setProperty: folderLists.setProperty }),
+          ...(folderLists.searchOwners === undefined ? {} : { searchOwners: folderLists.searchOwners }),
           open: (path, background) => onOpenNote(path, background ? "background" : "foreground"),
           selfPath: notePath ?? null,
         };

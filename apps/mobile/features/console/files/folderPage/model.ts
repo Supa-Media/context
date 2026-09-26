@@ -251,24 +251,16 @@ export function defaultFolderView(items: readonly FolderItem[]): FolderPageView 
 /**
  * What a value menu offers for `key`: the values the items already use, in
  * group order — for a status, the folder's status list instead, group by
- * group (the menu draws the groups: `statusMenu`); for an owner, followed by
- * the workspace's people not already there.
+ * group (the menu draws the groups: `statusMenu`). An owner is not chosen
+ * from these: it is picked from people and agents (`OwnerPicker`).
  */
 export function propertyChoices(
   items: readonly Pick<FolderItem, "path" | "properties">[],
   key: string,
-  people: readonly string[],
   list?: StatusList,
 ): string[] {
   if (key === "status" && list !== undefined) return GROUPS.flatMap((group) => [...list[group]]);
-  const used = valueChoices(items as readonly ListNote[], key);
-  if (key !== "owner") return used;
-  const seen = new Set(used.map((value) => value.toLowerCase()));
-  const more = people
-    .map((person) => person.trim())
-    .filter((person) => person !== "" && !seen.has(person.toLowerCase()))
-    .sort((a, b) => a.localeCompare(b));
-  return [...used, ...new Set(more)];
+  return valueChoices(items as readonly ListNote[], key);
 }
 
 /**
