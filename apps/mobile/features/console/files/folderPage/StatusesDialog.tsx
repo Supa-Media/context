@@ -13,6 +13,13 @@
  * - A rename or a delete that changes notes says how many before it runs
  *   (a delete moves them to the group's next status, or to No status), and
  *   runs only on the second press.
+ * - Words the folder's notes use that the list does not hold are listed
+ *   last, under "Used here, not in this list": an ordinary word (`active`)
+ *   can be added to the list in its group or merged into the group's first
+ *   status (which rewrites its notes, so it asks first like a rename), and a
+ *   word nobody placed is given a group. This is the only place that tidying
+ *   is offered; the page itself only asks, on the word's own heading, which
+ *   group an unplaced word is in.
  *
  * Every change is written at once to the front note that holds the list,
  * named at the foot — there is no Save button to forget.
@@ -27,20 +34,25 @@ import { Text } from "../../../design/components/Text";
 import { fonts, pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import type { MenuItem } from "../menu";
-import { GROUPS, GROUP_LABELS, moveStatus, placeStatus, type StatusGroup, type StatusList } from "./statuses";
+import { groupLabel } from "../listBlock/words";
+import { ChooseGroup } from "./ChooseGroup";
+import { GROUPS, GROUP_LABELS, moveStatus, placeStatus, type StatusGroup, type StatusList, type UndeclaredStatus } from "./statuses";
 import { StatusPill, toneColor } from "./StatusPill";
 import type { StatusEdits, StatusPlan } from "./useStatusEdits";
 
 type Typing = { kind: "add"; group: StatusGroup } | { kind: "rename"; word: string };
-type Pending = { verb: "Rename" | "Delete"; word: string; plan: StatusPlan };
+type Pending = { verb: "Rename" | "Delete" | "Merge"; word: string; plan: StatusPlan };
 
 export function StatusesDialog({
   list,
+  undeclared,
   edits,
   inherited,
   onClose,
 }: {
   list: StatusList;
+  /** Words in use here that the list does not hold (`undeclaredStatuses`). */
+  undeclared: readonly UndeclaredStatus[];
   edits: StatusEdits;
   /** The folder the list is declared in when it is not this one, for the foot. */
   inherited: string | null;
@@ -95,6 +107,15 @@ export function StatusesDialog({
     if (typeof plan === "string") setProblem(plan);
     else if (plan.paths.length === 0) await run(() => edits.apply(plan));
     else setPending({ verb: "Delete", word, plan });
+  };
+
+  const merge = async (word: string, into: string) => {
+    setBusy(true);
+    const plan = await edits.planMerge(word, into);
+    setBusy(false);
+    if (typeof plan === "string") setProblem(plan);
+    else if (plan.paths.length === 0) setProblem(`Nothing under this list uses “${word}” any more.`);
+    else setPending({ verb: "Merge", word, plan });
   };
 
   const field = (label: string) => (
@@ -180,6 +201,24 @@ export function StatusesDialog({
                 {typing?.kind === "add" && typing.group === group ? <View style={styles.row}>{field(`New ${GROUP_LABELS[group]} status`)}</View> : null}
               </View>
             ))}
+            {undeclared.length === 0 ? null : (
+              <View style={[styles.group, styles.inUse]} testID="statuses-in-use">
+                <View style={styles.groupHead}>
+                  <Text variant="rowTitle" style={styles.inUseHead}>
+                    Used here, not in this list
+                  </Text>
+                </View>
+                {undeclared.map((each) => (
+                  <InUse
+                    key={each.word.toLowerCase()}
+                    each={each}
+                    disabled={busy}
+                    onAdd={(group) => void run(() => edits.save(placeStatus(list, each.word, group)))}
+                    onMerge={(into) => void merge(each.word, into)}
+                  />
+                ))}
+              </View>
+            )}
           </ScrollView>
           {pending !== null ? (
             <View style={styles.confirm} testID="statuses-confirm">
@@ -189,7 +228,7 @@ export function StatusesDialog({
               <View style={styles.actions}>
                 <Button label="Cancel" variant="dialog" onPress={() => setPending(null)} />
                 <Button
-                  label={`${pending.verb} on ${pending.plan.paths.length === 1 ? "1 note" : `${pending.plan.paths.length} notes`}`}
+                  label={`${pending.verb === "Merge" ? "Change" : `${pending.verb} on`} ${pending.plan.paths.length === 1 ? "1 note" : `${pending.plan.paths.length} notes`}`}
                   variant={pending.verb === "Delete" ? "dialogDanger" : "dialogPrimary"}
                   onPress={() => {
                     const plan = pending.plan;
@@ -224,9 +263,50 @@ export function StatusesDialog({
 function confirmSentence({ verb, word, plan }: Pending): string {
   const count = plan.paths.length === 1 ? "1 note uses" : `${plan.paths.length} notes use`;
   if (verb === "Rename") return `${count} “${word}”. Renaming changes their status to “${plan.to}”.`;
+  if (verb === "Merge") return `${count} “${word}”. Merging changes their status to “${plan.to}”.`;
   return plan.to === null
     ? `${count} “${word}”. Deleting it clears their status.`
     : `${count} “${word}”. Deleting it moves them to “${plan.to}”.`;
+}
+
+/**
+ * One word in use that the list does not hold: its pill, how many notes use
+ * it, and what can be done with it.
+ */
+function InUse({
+  each,
+  disabled,
+  onAdd,
+  onMerge,
+}: {
+  each: UndeclaredStatus;
+  disabled: boolean;
+  onAdd: (group: StatusGroup) => void;
+  onMerge: (into: string) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const notes = each.count === 1 ? "1 note" : `${each.count} notes`;
+  const into = each.mergeInto !== null && each.mergeInto.toLowerCase() !== each.word.toLowerCase() ? each.mergeInto : null;
+  return (
+    <View style={styles.inUseRow} testID="statuses-in-use-row">
+      <View style={styles.inUseWord}>
+        <StatusPill value={each.word} tone={each.group ?? "unplaced"} />
+        <Text variant="treeMeta" style={styles.foot}>
+          {each.group === null ? `${notes} · no group` : `${notes} · reads as ${GROUP_LABELS[each.group]}`}
+        </Text>
+      </View>
+      {each.group === null ? (
+        <ChooseGroup word={each.word} onPlace={(_word, group) => onAdd(group)} onEditList={null} />
+      ) : (
+        <View style={styles.actions}>
+          <Button label="Add to list" variant="dialog" disabled={disabled} onPress={() => onAdd(each.group!)} testID="statuses-in-use-add" />
+          {into === null ? null : (
+            <Button label={`Merge into ${groupLabel("status", into)}`} variant="dialogPrimary" disabled={disabled} onPress={() => onMerge(into)} testID="statuses-in-use-merge" />
+          )}
+        </View>
+      )}
+    </View>
+  );
 }
 
 type RowId = "rename" | "up" | "down" | `to:${StatusGroup}` | "delete";
@@ -348,6 +428,10 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.sm,
       backgroundColor: "transparent",
     },
+    inUse: { marginTop: space.x2, paddingTop: space.x4, borderTopWidth: 1, borderTopColor: colors.line },
+    inUseHead: { color: colors.muted },
+    inUseRow: { gap: space.x2, paddingVertical: space.x2 },
+    inUseWord: { flexDirection: "row", alignItems: "center", gap: space.x2, flexWrap: "wrap" },
     confirm: { gap: space.x2, padding: space.x3, borderRadius: radii.lg, backgroundColor: colors.warnWash, borderWidth: 1, borderColor: colors.warnBorder },
     confirmText: { color: colors.text },
     actions: { flexDirection: "row", gap: 10 },

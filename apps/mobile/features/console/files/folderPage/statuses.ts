@@ -8,7 +8,7 @@
  * - A **band** is one group drawn with its columns: No status (Not started
  *   only), the folder's own words in their order, then words in use that the
  *   folder never declared but that are ordinary lifecycle words (`active`).
- * - Words in use that nobody placed are the **Needs a group** band, drawn
+ * - Words in use that nobody placed are the **No group yet** band, drawn
  *   after Done, and each is offered to an owner or editor to place once.
  * - A change to the list is written to the front note that declared it, or,
  *   when nothing declared one, to this folder's own front note: the edit
@@ -73,7 +73,7 @@ export interface StatusBand {
  * word in use is a column where its group puts it. "No status" leads Not
  * started for somebody who can move cards (dropping there clears a status),
  * and for a reader only when something is in it. A band with no columns is
- * left out; so is Needs a group when nothing needs one.
+ * left out; so is No group yet when nothing needs one.
  */
 export function statusBands(groups: readonly FolderGroup[], list: StatusList, canMove: boolean): StatusBand[] {
   const byWord = new Map(groups.map((group) => [group.value.toLowerCase(), group]));
@@ -94,7 +94,7 @@ export function statusBands(groups: readonly FolderGroup[], list: StatusList, ca
     if (columns.length > 0) bands.push({ group, label: GROUP_LABELS[group], columns });
   }
   const unplaced = groups.filter((each) => !placed.has(each.value.toLowerCase())).sort((a, b) => compareStatuses(a.value, b.value, list));
-  if (unplaced.length > 0) bands.push({ group: null, label: "Needs a group", columns: unplaced });
+  if (unplaced.length > 0) bands.push({ group: null, label: "No group yet", columns: unplaced });
   return bands;
 }
 
