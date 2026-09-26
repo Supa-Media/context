@@ -35,6 +35,7 @@ import { websiteTextRestricts } from "./changes";
 import { readBatches } from "./lists";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { normalizedHandle } from "./resolver";
+import { readPublishedEmoji } from "./emoji";
 
 /** Whose `website/` folder is the homepage. A self-host names its own. */
 export function homeSiteHandle(): string {
@@ -58,6 +59,8 @@ export interface WebsiteSnapshot {
   revision: string | null;
   /** `nav:` order first, then by path; the home page wherever that puts it. */
   pages: WebsiteSnapshotPage[];
+  /** The workspace emoji those pages use, `name → data: URL` (see `./emoji`). */
+  emoji: Record<string, string>;
 }
 
 /** A page the site published, as the route index holds it. */
@@ -206,9 +209,11 @@ export async function websiteSnapshot(
       (left.nav ?? Number.MAX_SAFE_INTEGER) - (right.nav ?? Number.MAX_SAFE_INTEGER) ||
       left.path.localeCompare(right.path),
   );
-  return {
-    siteName: home.siteName,
-    revision,
-    pages: listed.map(({ path, routePath, title, markdown }) => ({ path, routePath, title, markdown })),
-  };
+  const pages = listed.map(({ path, routePath, title, markdown }) => ({ path, routePath, title, markdown }));
+  const emoji = await readPublishedEmoji(
+    ctx,
+    home.workspaceId,
+    pages.map((page) => page.markdown),
+  ).catch(() => ({}));
+  return { siteName: home.siteName, revision, pages, emoji };
 }

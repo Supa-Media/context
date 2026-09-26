@@ -333,3 +333,23 @@ route grows a field; `homeLocalBrowser.test.ts` fails if the site rewrites a
 tree the visitor has changed; `homeSite.test.ts` in the router fails
 if a page's words can close the block; `homeSite.test.ts` in the app fails if
 the copy can replace the site or the site the copy.
+
+## A page's emoji travel with the page
+
+Decided 2026-09-26, when a workspace's own emoji showed as `:name:` on its
+published site. A site loads no images, so the pictures a page shows arrive
+inside its answer as `data:` URLs (`lib/websites/emoji.ts`): the resolver adds
+them to a page, and the homepage snapshot adds those its pages use. Only names
+the published text uses outside code are read, so publishing a page publishes
+the pictures in it and no other emoji in the workspace. A picture over 128 KB,
+past 768 KB in one answer, or past 48 names is left out and shows as its name.
+The router and the app each re-check every entry and keep only an inline PNG,
+JPEG, GIF or WebP under an emoji name, so no answer can make a visitor's
+browser fetch an address. A standard `:shortcode:` is drawn as its character.
+
+**What a simplification costs.** Serving emoji from a URL makes each view a
+request to us the visitor did not ask for, and a route that answers for any
+name publishes every emoji the workspace has. Reading names inside code
+publishes pictures the page does not show. `apps/convex/__tests__/websiteEmoji.test.ts`,
+`apps/mobile/__tests__/websiteEmoji.test.ts` and `infra/router/src/homeSite.test.ts`
+fail if either comes back, or if a non-inline picture gets through.

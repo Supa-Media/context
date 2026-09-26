@@ -26,9 +26,14 @@ import {
   pageParam,
   routeFromParam,
 } from "./homeSite";
+import { CustomEmojiContext } from "../console/emoji/context";
+import { usePublishedEmoji } from "../console/emoji/published";
+import type { EmojiPictures } from "../share/emojiPictures";
 import { HomeEditor, HomePage } from "./HomePage";
 import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
+
+const NO_EMOJI: EmojiPictures = {};
 
 /**
  * The homepage, as the app itself: the real frame, tree, tabs, ⌘K, editor and
@@ -62,6 +67,7 @@ export function HomeShell() {
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const source = useHomeSite();
   const site = source.kind === "live" ? source.snapshot.pages : null;
+  const emoji = usePublishedEmoji(source.kind === "live" ? source.snapshot.emoji : NO_EMOJI);
 
   const home = useMemo(
     () => (source.kind === "builtIn" ? BUILT_IN : site === null ? NOTHING : liveHomeTree(site)),
@@ -219,7 +225,9 @@ export function HomeShell() {
         ) : activePath !== null ? (
           // Keyed by note, so a new one opens at its top rather than at the
           // last one's scroll position.
-          <HomeEditor key={activePath} files={browser} compact={compact} onOpenNote={openPath} />
+          <CustomEmojiContext.Provider value={emoji}>
+            <HomeEditor key={activePath} files={browser} compact={compact} onOpenNote={openPath} />
+          </CustomEmojiContext.Provider>
         ) : (
           <HomePage key={routePath} markdown={emptyMarkdown} compact={compact} onLink={followLink} />
         )}
