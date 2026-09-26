@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { useConsoleNav } from "../../ConsoleNavContext";
 import { contextFootLine } from "../../files/contextFoot";
 import type { FileBrowser } from "../../files/browser";
@@ -75,6 +75,23 @@ export function BrowseDocument({
 }) {
   // Where a folder list in the open note reads its notes: this device's copy.
   const folderLists = useFolderLists(current?.id, current?.role);
+  /*
+    The same source, handed to a folder page: its List and Board views and a
+    project's property line read and change properties exactly as a list block
+    in a note does. The workspace's people are what an owner menu offers.
+  */
+  const people = data.members?.members;
+  const folderPage = useMemo(
+    () =>
+      folderLists === undefined || current?.id == null
+        ? undefined
+        : {
+            source: folderLists,
+            workspaceId: current.id,
+            people: (people ?? []).map((member) => member.name ?? "").filter((name) => name !== ""),
+          },
+    [folderLists, current?.id, people],
+  );
   /**
    * Where a phone starts, when nothing has been opened yet.
    *
@@ -188,6 +205,7 @@ export function BrowseDocument({
             menu={folderMenuFor("")}
             drag={folderDrag}
             pendingStateFor={files.pending?.stateFor}
+            page={folderPage}
           />
         )
       ) : null
@@ -231,6 +249,7 @@ export function BrowseDocument({
         menu={folderMenuFor(selected.path)}
         drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}
+        page={folderPage}
       />
     ) : files.conflict?.path === selected.path ? (
       /*
