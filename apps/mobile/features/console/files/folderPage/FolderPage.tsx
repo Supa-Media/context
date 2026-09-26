@@ -56,6 +56,7 @@ import { useStatusEdits, type StatusPlan } from "./useStatusEdits";
 import { Confirm } from "../Dialogs";
 import { TrackNudge } from "./Nudge";
 import { dismissNudge, nudgeDismissed, rememberView, rememberedView } from "./viewMemory";
+import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 
 export type { FolderPageHost } from "./useFolderPage";
 
@@ -212,6 +213,7 @@ export function FolderPage({
         title={summary?.title ?? fallbackTitle}
         onOpenTitle={summary !== null && !summary.creates && summary.title !== null ? () => onSelect(summary.target) : undefined}
         switcher={<ViewSwitch view={view} onChange={choose} compact={compact} />}
+        actions={host !== undefined && isWebsiteFolder(folder) ? <PublishWebsite workspaceId={host.workspaceId} /> : null}
       >
         {summary !== null && (isProject || offersStatus) ? (
           <PropertyLine
