@@ -87,6 +87,20 @@ A test runs every preset through the control plane's own `validateCustomFolders`
 and `toFolderSpecs`: a preset shipping a folder the mutation would refuse is a
 button whose only outcome is an error.
 
+### A new workspace is asked for its image
+
+`/workspace/new` has an image step after the kind step, drawing the same
+`WorkspaceIconPicker` settings uses (owner-only mutations, same checks), saving
+on press. Before it, every new workspace was drawn as its first letter until
+somebody found settings, and two workspaces starting with the same letter were
+identical in the switcher. The image is also what the workspace's website shows
+as its favicon, so it is asked early (the owner asked for both, 2026-09-26).
+
+A photo is an object in the workspace's bucket, so the step offers one only on
+a run whose bucket verified (`imageStepOffersPhoto`); otherwise it offers the
+emoji grid and says a photo can be chosen from settings. The step survives a
+skipped bucket for the people step's reason: an emoji is a control-plane field.
+
 ### Invitations are queued, and a partial send keeps its successes
 
 `inviteMember` is rate limited per account, so a box that fires on each press is

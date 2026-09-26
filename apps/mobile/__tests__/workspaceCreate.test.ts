@@ -1,5 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  afterWorkspaceImage,
   afterWorkspaceLayout,
   afterWorkspaceStorage,
   canCreateWorkspace,
@@ -13,6 +14,7 @@ import {
   workspaceNameConsequences,
   workspaceStepProgress,
   workspaceStepsFor,
+  imageStepOffersPhoto,
   WORKSPACE_DISPLAY_NAME_MAX,
   type PendingInvite,
 } from "../features/workspace/create";
@@ -35,11 +37,18 @@ import {
 /* -------------------------------------------------------------------------- */
 
 describe("which steps a run has", () => {
-  test("a connected bucket gets all five", () => {
+  test("a photo is only offered where there is a bucket to hold it", () => {
+    expect(imageStepOffersPhoto({ storage: "connected" })).toBe(true);
+    expect(imageStepOffersPhoto({ storage: "skipped" })).toBe(false);
+    expect(imageStepOffersPhoto({ storage: "unverified" })).toBe(false);
+  });
+
+  test("a connected bucket gets all six", () => {
     expect(workspaceStepsFor({ storage: "connected" })).toEqual([
       "name",
       "storage",
       "layout",
+      "image",
       "people",
       "done",
     ]);
@@ -57,8 +66,10 @@ describe("which steps a run has", () => {
     "%s storage keeps the people step and drops only the layout",
     (storage) => {
       const steps = workspaceStepsFor({ storage });
-      expect(steps).toEqual(["name", "storage", "people", "done"]);
+      expect(steps).toEqual(["name", "storage", "image", "people", "done"]);
       expect(steps).toContain("people");
+      // An emoji needs no bucket, so the image step survives too.
+      expect(steps).toContain("image");
       expect(steps).not.toContain("layout");
     },
   );
@@ -68,19 +79,20 @@ describe("which steps a run has", () => {
       const steps = workspaceStepsFor({ storage });
       expect(steps).toContain(afterWorkspaceStorage(storage));
     }
-    // The layout step only exists on a connected run, and always hands to people.
-    expect(afterWorkspaceLayout()).toBe("people");
+    // The layout step only exists on a connected run, and hands to the image.
+    expect(afterWorkspaceLayout()).toBe("image");
     expect(workspaceStepsFor({ storage: "connected" })).toContain(afterWorkspaceLayout());
+    expect(afterWorkspaceImage()).toBe("people");
   });
 
   test("the progress count describes the run somebody is actually in", () => {
     expect(workspaceStepProgress("people", { storage: "connected" })).toEqual({
-      index: 4,
-      total: 5,
+      index: 5,
+      total: 6,
     });
     expect(workspaceStepProgress("people", { storage: "skipped" })).toEqual({
-      index: 3,
-      total: 4,
+      index: 4,
+      total: 5,
     });
     expect(workspaceStepProgress("layout", { storage: "skipped" })).toBeNull();
   });
