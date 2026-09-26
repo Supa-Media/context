@@ -86,9 +86,7 @@ function sources(dir: string): string[] {
 
 describe("the rule, held across the app", () => {
   const root = join(__dirname, "..");
-  const files = [...sources(join(root, "features")), ...sources(join(root, "app"))]
-    // The landing page keeps its own hero button and its arrow link.
-    .filter((path) => !relative(root, path).startsWith("features/landing/"));
+  const files = [...sources(join(root, "features")), ...sources(join(root, "app"))];
 
   test("no action is a bare ghost label", () => {
     // A `Button` with the ghost variant — not the `Text` style of that name.
@@ -97,7 +95,7 @@ describe("the rule, held across the app", () => {
     expect(offenders.map((path) => relative(root, path))).toEqual([]);
   });
 
-  test("no primary outside the landing page is the white hero button", () => {
+  test("no primary is the white hero button", () => {
     const white = /<Button\b[^>]*?variant="white"/s;
     const offenders = files.filter((path) => white.test(readFileSync(path, "utf8")));
     expect(offenders.map((path) => relative(root, path))).toEqual([]);

@@ -280,22 +280,24 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "Privacy link in the public landing page footer",
+        surface: "the Privacy note in the homepage's Legal folder, which links to this page",
+        /*
+          The link is Markdown in the note (`legalMarkdown`), drawn and pressed
+          by the note renderer, and routed out of the shell because the path is
+          one of `APP_ROUTES`.
+        */
         control: {
-          file: "features/landing/Landing.tsx",
-          /*
-            The label is named by the identifier that renders it, not by the
-            word. The page's words live in `features/landing/copy.ts` now, so a
-            needle of "Privacy" stopped matching the component the day they
-            moved — evidence that went stale because the copy was tidied, not
-            because the link went away.
-          */
-          contains: ['href="/privacy"', "PRIVACY_LINK"],
+          file: "features/share/NoteBody.tsx",
+          contains: ["siteLink?.(run.href)", "onPress"],
         },
         navigation: [
           {
-            file: "features/landing/Landing.tsx",
-            contains: ['<Link href="/privacy"'],
+            file: "features/home/homeSite.ts",
+            contains: ["legalMarkdown(privacyContent, \"/privacy\")", "[its own page](${standalone})", '"/privacy"', "APP_ROUTES"],
+          },
+          {
+            file: "features/home/HomeShell.tsx",
+            contains: ['link.kind === "app"', "router.push(link.href"],
           },
         ],
         region: "screen",
@@ -309,15 +311,24 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "Terms link in the public landing page footer",
+        surface: "the Terms note in the homepage's Legal folder, which links to this page",
+        /*
+          The link is Markdown in the note (`legalMarkdown`), drawn and pressed
+          by the note renderer, and routed out of the shell because the path is
+          one of `APP_ROUTES`.
+        */
         control: {
-          file: "features/landing/Landing.tsx",
-          contains: ['href="/terms"', "TERMS_LINK"],
+          file: "features/share/NoteBody.tsx",
+          contains: ["siteLink?.(run.href)", "onPress"],
         },
         navigation: [
           {
-            file: "features/landing/Landing.tsx",
-            contains: ['<Link href="/terms"'],
+            file: "features/home/homeSite.ts",
+            contains: ["legalMarkdown(termsContent, \"/terms\")", "[its own page](${standalone})", '"/terms"', "APP_ROUTES"],
+          },
+          {
+            file: "features/home/HomeShell.tsx",
+            contains: ['link.kind === "app"', "router.push(link.href"],
           },
         ],
         region: "screen",
@@ -405,7 +416,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
             contains: ["resolveRootRoute", "CONSOLE_ROUTE"],
           },
           {
-            file: "features/landing/RootScreen.tsx",
+            file: "features/home/RootScreen.tsx",
             contains: ["resolveRootRoute", "Redirect href={decision.href}"],
           },
         ],

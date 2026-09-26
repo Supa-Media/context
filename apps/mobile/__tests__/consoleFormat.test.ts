@@ -10,10 +10,6 @@ import {
 } from "../features/console/format";
 import { contextKindFor } from "../features/console/map/graph";
 import { withAlpha } from "../features/design/color";
-import {
-  HERO_LONGEST_LINE_AT_98,
-  heroHeadingWidth,
-} from "../features/landing/hero";
 
 const NOW = 1_800_000_000_000;
 const minutes = (n: number) => n * 60_000;
@@ -176,33 +172,3 @@ describe("withAlpha", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/*                                  the hero                                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The headline must hold each sentence on one line at desktop widths.
- *
- * It shipped wrapping to four lines, because `max-width: 14ch` had been ported
- * as a flat 780px — 14 characters of a typical sans, but not of Onest. Four
- * lines makes the dimmed second sentence dominate the page and pushes the
- * console demo below the fold, which is the effect the whole landing design is
- * built on. The measurements behind these numbers are in `features/landing/hero.ts`.
- */
-describe("the hero heading fits its two lines", () => {
-  test("14ch of Onest at 98px clears the longest line", () => {
-    expect(heroHeadingWidth(98)).toBeGreaterThan(HERO_LONGEST_LINE_AT_98);
-  });
-
-  test("and does so at every size the clamp can produce", () => {
-    for (const size of [46, 60, 75, 98]) {
-      // The lines scale with the type, so the same ratio holds throughout.
-      const longest = (HERO_LONGEST_LINE_AT_98 * size) / 98;
-      expect(heroHeadingWidth(size)).toBeGreaterThan(longest);
-    }
-  });
-
-  test("the old flat 780px did not — which is the bug this pins", () => {
-    expect(780).toBeLessThan(HERO_LONGEST_LINE_AT_98);
-  });
-});

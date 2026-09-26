@@ -58,7 +58,15 @@ export function demoNote(tree: DemoContextTree, path: string): OpenNote | null {
 const noop = () => {};
 
 export function useDemoFileBrowser(contextId: string | null): FileBrowser {
-  const tree = demoTreeFor(contextId);
+  return useStaticFileBrowser(demoTreeFor(contextId), contextId);
+}
+
+/**
+ * The same read-only browser over any fixed tree — the homepage builds one from
+ * a website's pages. `tree` must keep its identity while it means the same
+ * thing: a new object resets what is expanded and open, as a context switch does.
+ */
+export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | null): FileBrowser {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(tree.defaultExpanded),
   );
