@@ -243,17 +243,24 @@ export function defaultFolderView(items: readonly FolderItem[]): FolderPageView 
   return items.some((item) => item.status !== "") ? "list" : "files";
 }
 
-/** Offered when a folder uses no status yet, so the first one is a press rather than typing. */
+/**
+ * Always offered for a status, beside the words in use: the first status is a
+ * press rather than typing, and so is moving on — a folder where everything is
+ * `active` still offers `done`, as a menu choice and as a Board column.
+ */
 const STARTER_STATUSES = ["active", "planned", "paused", "done"];
 
 /**
  * What a value menu offers for `key`: the values the items already use, in
- * group order — then, for an owner, the workspace's people not already
- * there, and for a status nobody has set, a few ordinary words.
+ * group order — for a status, merged with a few ordinary words at their
+ * place; for an owner, followed by the workspace's people not already there.
  */
 export function propertyChoices(items: readonly Pick<FolderItem, "path" | "properties">[], key: string, people: readonly string[]): string[] {
   const used = valueChoices(items as readonly ListNote[], key);
-  if (key === "status") return used.length > 0 ? used : [...STARTER_STATUSES];
+  if (key === "status") {
+    const seen = new Set(used.map((value) => value.toLowerCase()));
+    return [...used, ...STARTER_STATUSES.filter((word) => !seen.has(word))].sort(compareGroups);
+  }
   if (key !== "owner") return used;
   const seen = new Set(used.map((value) => value.toLowerCase()));
   const more = people
@@ -261,4 +268,36 @@ export function propertyChoices(items: readonly Pick<FolderItem, "path" | "prope
     .filter((person) => person !== "" && !seen.has(person.toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
   return [...used, ...new Set(more)];
+}
+
+/**
+ * The columns a Board draws: every group with something in it, and every
+ * status a menu offers with nothing in it yet — so there is somewhere to drop
+ * a card before anything is there — in group order. "No status" stays last,
+ * and for somebody who can move cards it is there even when empty, since
+ * dropping on it is how a status is cleared by hand.
+ */
+export function boardGroups(groups: readonly FolderGroup[], offered: readonly string[], canMove: boolean): FolderGroup[] {
+  const columns = groups.filter((group) => group.value !== "");
+  const seen = new Set(columns.map((group) => group.value.toLowerCase()));
+  for (const value of offered) {
+    if (value === "" || seen.has(value.toLowerCase())) continue;
+    seen.add(value.toLowerCase());
+    columns.push({ value, label: groupLabel("status", value), items: [] });
+  }
+  columns.sort((a, b) => compareGroups(a.value, b.value));
+  const unset = groups.find((group) => group.value === "");
+  if (unset !== undefined) columns.push(unset);
+  else if (canMove) columns.push({ value: "", label: groupLabel("status", ""), items: [] });
+  return columns;
+}
+
+/**
+ * What dropping a card on a column writes: the column's value, `null` to
+ * clear it on "No status", or `undefined` when the card is already there
+ * (values differing only by case are one column, as they are one group).
+ */
+export function dropValue(item: Pick<FolderItem, "status">, column: string): string | null | undefined {
+  if (item.status.toLowerCase() === column.toLowerCase()) return undefined;
+  return column === "" ? null : column;
 }

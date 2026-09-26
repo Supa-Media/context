@@ -185,7 +185,7 @@ describe("a folder whose children have statuses", () => {
     await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
     const loose = all("folder-item").find((row) => strip(row.textContent).includes("loose"))!;
     await press(loose.querySelector<HTMLElement>('[data-testid="folder-item-status"]')!);
-    await press(one("menu-item-choice:1"));
+    await press(one("menu-item-choice:2"));
     expect(writes).toEqual([["1-projects/loose.md", "status", "paused", undefined]]);
   });
 
@@ -201,7 +201,7 @@ describe("a folder whose children have statuses", () => {
     await mount(entry("folder", "1-projects"), PROJECTS, refusing);
     const loose = () => all("folder-item").find((row) => strip(row.textContent).includes("loose"))!;
     await press(loose().querySelector<HTMLElement>('[data-testid="folder-item-status"]')!);
-    await press(one("menu-item-choice:1"));
+    await press(one("menu-item-choice:2"));
     // Moved to Paused before the write answers.
     expect(all("folder-group").map((group) => strip(group.firstElementChild?.textContent))).toEqual(["Active1", "Paused2", "No status1"]);
     await act(async () => settle("That note is changing right now. Try again in a moment."));
@@ -222,7 +222,14 @@ describe("the switch", () => {
     await mount(entry("folder", "1-projects"), PROJECTS, host([]));
     expect(all("folder-view-switch")).toHaveLength(1);
     await press(one("folder-view-board"));
-    expect(all("folder-board-column")).toHaveLength(3);
+    // Every status the menu offers is a column to drop on, empty or not, and No status last.
+    expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
+      "Active, 1",
+      "Planned, 0",
+      "Paused, 1",
+      "Done, 0",
+      "No status, 2",
+    ]);
     await press(one("folder-view-files"));
     expect(all("folder-row").length).toBeGreaterThan(0);
     expect(all("folder-groups")).toHaveLength(0);
@@ -259,7 +266,7 @@ describe("a project folder's own page", () => {
     await mount(entry("folder", "1-projects/web"), WEB, host(writes));
     await press(one("folder-property-status"));
     expect(strip(one("menu-root").textContent)).not.toContain("Saves to");
-    await press(one("menu-item-choice:1"));
+    await press(one("menu-item-choice:2"));
     expect(writes).toEqual([["1-projects/web/overview.md", "status", "paused", undefined]]);
   });
 });
@@ -295,7 +302,7 @@ describe("on a phone", () => {
     const unset = all("folder-item-status").find((node) => strip(node.textContent) === "Set status")!;
     await press(unset);
     expect(all("menu-sheet")).toHaveLength(1);
-    await press(one("menu-item-choice:1"));
+    await press(one("menu-item-choice:2"));
     expect(writes).toEqual([["1-projects/do this/overview.md", "status", "paused", { create: true }]]);
     expect(view.container.textContent).toBeTruthy();
   });
@@ -332,5 +339,137 @@ describe("a folder of folders nobody has tracked yet", () => {
     roots.pop()!();
     await mount(entry("folder", "1-projects"), LIST, untracked());
     expect(all("folder-nudge")).toHaveLength(0);
+  });
+});
+
+/** A drag event carrying a card, as jsdom has no DataTransfer of its own. */
+function drag(type: string, data: Map<string, string>): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      types: [...data.keys()],
+      setData: (key: string, value: string) => data.set(key, value),
+      getData: (key: string) => data.get(key) ?? "",
+      effectAllowed: "none",
+      dropEffect: "none",
+    },
+  });
+  return event;
+}
+
+describe("the board", () => {
+  const column = (label: string) => all("folder-board-column").find((node) => node.getAttribute("aria-label")?.startsWith(`${label},`))!;
+  const cardIn = (label: string) => strip(column(label).textContent);
+  const cardNamed = (name: string) => all("folder-card-drag").find((node) => strip(node.textContent).includes(name))!;
+
+  async function dragOnto(name: string, label: string) {
+    const data = new Map<string, string>();
+    await act(async () => void cardNamed(name).dispatchEvent(drag("dragstart", data)));
+    const over = drag("dragover", data);
+    await act(async () => void column(label).dispatchEvent(over));
+    await act(async () => void column(label).dispatchEvent(drag("drop", data)));
+    return over;
+  }
+
+  test("a card dropped on another column takes that status, at once and through the same write as the menu", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await press(one("folder-view-board"));
+    expect(cardNamed("Website folder").getAttribute("draggable")).toBe("true");
+    const over = await dragOnto("Website folder", "Done");
+    expect(over.defaultPrevented).toBe(true);
+    expect(writes).toEqual([["1-projects/web/overview.md", "status", "done", undefined]]);
+    expect(cardIn("Done")).toContain("Website folder");
+    expect(cardIn("Active")).not.toContain("Website folder");
+  });
+
+  test("a folder with no front note moves by creating its overview.md, as the menu does", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await press(one("folder-view-board"));
+    await dragOnto("do this", "Planned");
+    expect(writes).toEqual([["1-projects/do this/overview.md", "status", "planned", { create: true }]]);
+  });
+
+  test("dropping on No status clears it, and dropping where it already is writes nothing", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await press(one("folder-view-board"));
+    await dragOnto("app", "Paused");
+    expect(writes).toEqual([]);
+    await dragOnto("app", "No status");
+    expect(writes).toEqual([["1-projects/app/index.md", "status", null, undefined]]);
+  });
+
+  test("a refused drop puts the card back and says why", async () => {
+    const refusing: FolderPageHost = {
+      ...host([]),
+      source: { load: async () => ({ notes: NOTES, complete: true }), setProperty: async () => "You can read that note but not change it." },
+    };
+    await mount(entry("folder", "1-projects"), PROJECTS, refusing);
+    await press(one("folder-view-board"));
+    await dragOnto("Website folder", "Done");
+    expect(cardIn("Active")).toContain("Website folder");
+    expect(strip(one("folder-problem").textContent)).toBe("You can read that note but not change it.");
+  });
+
+  test("says it is saving until the write answers", async () => {
+    let answer: (value: string | null) => void = () => {};
+    const slow: FolderPageHost = {
+      ...host([]),
+      source: { load: async () => ({ notes: NOTES, complete: true }), setProperty: () => new Promise((resolve) => (answer = resolve)) },
+    };
+    await mount(entry("folder", "1-projects"), PROJECTS, slow);
+    await press(one("folder-view-board"));
+    await dragOnto("Website folder", "Done");
+    expect(strip(one("folder-saving").textContent)).toBe("Saving…");
+    await act(async () => answer(null));
+    expect(all("folder-saving")).toHaveLength(0);
+  });
+
+  test("a drag that is not a card is not taken", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await press(one("folder-view-board"));
+    const stranger = drag("dragover", new Map([["Files", "x"]]));
+    await act(async () => void column("Done").dispatchEvent(stranger));
+    expect(stranger.defaultPrevented).toBe(false);
+    await act(async () => void column("Done").dispatchEvent(drag("drop", new Map([["text/plain", "1-projects/loose.md"]]))));
+    expect(writes).toEqual([]);
+  });
+
+  test("every card a writer sees has its status button, drawn, so a keyboard or a phone can move it", async () => {
+    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    await press(one("folder-view-board"));
+    const buttons = all("folder-card-status");
+    expect(buttons).toHaveLength(4);
+    expect(buttons.map((node) => node.getAttribute("aria-label"))).toContain("Change status, active");
+    await press(buttons[0]);
+    await press(one("menu-item-choice:3"));
+    expect(cardIn("Done")).toContain("Website folder");
+  });
+
+  test("a member's cards do not move, have no button, and no empty columns are offered", async () => {
+    await mount(entry("folder", "1-projects"), PROJECTS, host(null));
+    await press(one("folder-view-board"));
+    expect(all("folder-card-drag").every((node) => node.getAttribute("draggable") === "false")).toBe(true);
+    expect(all("folder-card-status")).toHaveLength(0);
+    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["Active, 1", "Paused, 1", "No status, 2"]);
+    const data = new Map<string, string>([["application/x-context-folder-card", "1-projects/loose.md"]]);
+    const over = drag("dragover", data);
+    await act(async () => void column("Active").dispatchEvent(over));
+    expect(over.defaultPrevented).toBe(false);
+  });
+});
+
+describe("a quiet status in the list", () => {
+  test("is hidden beside its group heading, and shown when a keyboard reaches it", async () => {
+    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    const web = all("folder-item").find((row) => strip(row.textContent).includes("Website folder"))!;
+    const button = web.querySelector<HTMLElement>('[data-testid="folder-item-status"]')!;
+    const word = button.firstElementChild as HTMLElement;
+    expect(getComputedStyle(word).opacity).toBe("0");
+    await act(async () => button.focus());
+    expect(getComputedStyle(word).opacity).not.toBe("0");
   });
 });

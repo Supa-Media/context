@@ -145,6 +145,24 @@ ordinary one — `files.writeNote` with no version, which the server refuses if 
 note appeared meanwhile, and that refusal is read and retried like any conflict,
 so nothing is ever replaced.
 
+The Board has a column for every status the menu offers — the words in use
+and, always, `active`, `planned`, `paused` and `done` — so a folder where
+everything is `active` can still move something to `done` without typing a
+word. For somebody who can write, "No status" is a column even when empty,
+because dropping a card there is how a status is cleared by hand; a member
+sees only the columns with something in them. On web a card is dragged to
+another column (HTML drag and drop, the gesture the list block's board uses),
+and the drop is the menu's choice made by hand: it goes through the same
+`choose`, shows at once, and comes back with the reason if refused. The drag
+is never the only way: every card keeps its status button, drawn rather than
+hidden until hover, so a keyboard or a phone moves it through the menu. A
+quiet value in the List shows when a keyboard focuses it, as it does under the
+pointer. While a choice is on its way the page says "Saving…".
+`folderPageView.test.ts` fails if a drop does not write through the menu's
+road, if No status does not clear, if a member's card moves, or if a drag that
+is not a card is taken; `folderPageModel.test.ts` pins the columns and what a
+drop writes.
+
 A project folder's page is titled by its front note (the title opens it) and
 says `status · owner · updated` under the title, with the note's first
 paragraph beneath, and the Files listing below that. It never renders the
@@ -158,3 +176,25 @@ fails if a member is shown a control, if a folder's status goes anywhere but its
 front note or a new `overview.md`, or if the unset items are not one group;
 `folderPageModel.test.ts` pins the front-note order and the placeholder rule;
 `listEdit.test.ts` fails if a missing note is created without being asked.
+
+## A list write is what this device holds afterwards
+
+Folder lists and folder pages read notes from this device's mirror, so a write
+made from them has to move the mirror too, or the page shows the old value the
+moment the in-memory overlay that drew the choice is gone — which is what a
+reload does. Reported as "I refresh and it goes back to the value": the write
+had landed, and the mirror kept the old copy until a sync fetched it, and that
+sync announced only its metadata commit, which comes before the bodies.
+
+So a successful list write reads the note back from the bucket and puts it
+into the mirror through `putMirroredNotes` — the writer an online open and the
+sync use, which keeps any ancestor a queued edit still needs — and says the
+notes changed; and a sync that committed new bodies says so too (`onFetched`),
+and folder lists re-read on either. It is read back rather than composed from
+the text sent because the bucket may have merged the write into somebody's
+typing, and a new `overview.md` needs the visibility fields only a read
+carries. The overlay is still only an overlay: it is dropped once the device's
+copy agrees, never kept to paper over a stale copy. If the read-back fails the
+write stands and the next sync brings the note (`offline/folderListSource.ts`).
+`folderListWriteBack.test.ts` fails if a chosen status or a folder's first
+`overview.md` is gone after a reload, or if the sync stops saying it fetched.

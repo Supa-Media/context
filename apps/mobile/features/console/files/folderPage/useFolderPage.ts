@@ -36,6 +36,8 @@ export interface FolderNotes {
   readonly canEdit: boolean;
   /** Why the last choice did not land, or null. */
   readonly problem: string | null;
+  /** A choice is still on its way to the bucket. */
+  readonly saving: boolean;
   choose(target: string, key: string, value: string | null, creates: boolean): Promise<string | null>;
 }
 
@@ -76,6 +78,7 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
   const [loaded, setLoaded] = useState<{ notes: readonly ListNote[]; complete: boolean } | null>(null);
   const [chosen, setChosen] = useState<Chosen>(() => new Map());
   const [problem, setProblem] = useState<string | null>(null);
+  const [pending, setPending] = useState(0);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -118,9 +121,11 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
       const id = `${target}\n${key}`;
       setProblem(null);
       setChosen((current) => new Map(current).set(id, value));
+      setPending((count) => count + 1);
       const answer = await setProperty(target, key, value, creates ? { create: true } : undefined).catch(
         () => "That change could not be saved.",
       );
+      if (alive.current) setPending((count) => Math.max(0, count - 1));
       if (answer !== null && alive.current) {
         setChosen((current) => {
           const next = new Map(current);
@@ -138,5 +143,5 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
     () => (loaded === null ? null : overlay(loaded.notes, chosen, Date.now())),
     [loaded, chosen],
   );
-  return { notes, complete: loaded?.complete ?? false, canEdit: setProperty !== undefined, problem, choose };
+  return { notes, complete: loaded?.complete ?? false, canEdit: setProperty !== undefined, problem, saving: pending > 0, choose };
 }

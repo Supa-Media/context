@@ -10,6 +10,8 @@ import {
   defaultFolderView,
   folderItems,
   groupFolderItems,
+  boardGroups,
+  dropValue,
   propertyChoices,
   summarizeFolder,
 } from "../features/console/files/folderPage/model";
@@ -158,13 +160,14 @@ describe("the view a folder opens in", () => {
 });
 
 describe("what a value menu offers", () => {
-  test("the values already in use, lifecycle order first", () => {
+  test("the values already in use with the ordinary words, lifecycle order first", () => {
     const items = folderItems(
       "p",
       [folder("p/a"), folder("p/b"), folder("p/c")],
-      [note("p/a/overview.md", { status: "paused" }), note("p/b/overview.md", { status: "active" }), note("p/c/overview.md", { status: "Active" })],
+      [note("p/a/overview.md", { status: "paused" }), note("p/b/overview.md", { status: "Review" }), note("p/c/overview.md", { status: "Active" })],
     ).items;
-    expect(propertyChoices(items, "status", [])).toEqual(["active", "paused"]);
+    // Everything "active" still offers "done": moving a card on is one press, never typing.
+    expect(propertyChoices(items, "status", [])).toEqual(["Active", "planned", "Review", "paused", "done"]);
   });
 
   test("a few ordinary words when nothing is in use yet, so the first status is one press", () => {
@@ -190,5 +193,39 @@ describe("the placeholder a new folder is made with", () => {
     expect(summarizeFolder("p/do this", [written])).toMatchObject({ target: "p/do this/README.md", creates: false });
     const rewritten = note("p/do this/README.md", {}, { lede: "What this folder is for." });
     expect(summarizeFolder("p/do this", [rewritten]).target).toBe("p/do this/README.md");
+  });
+});
+
+describe("a board's columns and what a drop writes", () => {
+  const items = folderItems(
+    "p",
+    [folder("p/a"), folder("p/b"), folder("p/c")],
+    [note("p/a/overview.md", { status: "Active" }), note("p/b/overview.md", { status: "done" })],
+  ).items;
+  const groups = groupFolderItems(items);
+
+  test("a column for every word a menu offers, empty or not, in group order", () => {
+    const columns = boardGroups(groups, ["Active", "planned", "paused", "done"], false);
+    expect(columns.map((column) => [column.label, column.items.length])).toEqual([
+      ["Active", 1],
+      ["Planned", 0],
+      ["Paused", 0],
+      ["Done", 1],
+      ["No status", 1],
+    ]);
+  });
+
+  test("No status is a column to drop on for a writer even when nothing is in it, and not for a reader", () => {
+    const tracked = groupFolderItems(items.filter((item) => item.status !== ""));
+    expect(boardGroups(tracked, ["active", "done"], true).map((column) => column.value)).toEqual(["Active", "done", ""]);
+    expect(boardGroups(tracked, ["active", "done"], false).map((column) => column.value)).toEqual(["Active", "done"]);
+  });
+
+  test("a drop writes the column's value, clears on No status, and does nothing where the card already is", () => {
+    expect(dropValue({ status: "Active" }, "done")).toBe("done");
+    expect(dropValue({ status: "Active" }, "")).toBeNull();
+    expect(dropValue({ status: "Active" }, "active")).toBeUndefined();
+    expect(dropValue({ status: "" }, "")).toBeUndefined();
+    expect(dropValue({ status: "" }, "planned")).toBe("planned");
   });
 });

@@ -32,6 +32,7 @@ import { FolderGroups } from "./Groups";
 import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
 import { textOf, type ItemActions } from "./items";
 import {
+  boardGroups,
   defaultFolderView,
   folderItems,
   groupFolderItems,
@@ -148,6 +149,8 @@ export function FolderPage({
     items.filter((item) => item.kind === "folder").length >= 2 &&
     !items.some((item) => item.status !== "") &&
     !nudgeDismissed(host.workspaceId, folder);
+  // Somebody who can move a card gets a column for every status the menu offers; a reader, what is there.
+  const columns = boardGroups(groups, edit === null ? [] : choices("status"), edit !== null);
   const actions: ItemActions = {
     onOpen: (item) => onSelect(item.path),
     choices,
@@ -173,11 +176,16 @@ export function FolderPage({
         {isProject && summary?.lede ? <Lede text={summary.lede} /> : null}
         {isProject ? null : rule}
       </FolderHead>
-      {loaded.problem === null ? null : (
+      {loaded.problem !== null ? (
         <Text variant="treeMeta" style={styles.problem} role="alert" testID="folder-problem">
           {loaded.problem}
         </Text>
-      )}
+      ) : loaded.saving ? (
+        // Said while a choice is on its way, so a value that moved is not mistaken for one that is saved.
+        <Text variant="treeMeta" style={styles.saving} role="status" testID="folder-saving">
+          Saving…
+        </Text>
+      ) : null}
       {nudge ? (
         <View style={styles.nudge}>
           <TrackNudge
@@ -198,8 +206,8 @@ export function FolderPage({
             Nothing here to track yet. A note or folder added here can be given a status.
           </Text>
         ) : view === "board" ? (
-          <View style={compact || pageWidth <= 0 ? undefined : [styles.wide, { width: boardWidth(groups.length, pageWidth) }]}>
-            <FolderBoard groups={groups} compact={compact} now={now} actions={actions} />
+          <View style={compact || pageWidth <= 0 ? undefined : [styles.wide, { width: boardWidth(columns.length, pageWidth) }]}>
+            <FolderBoard groups={columns} compact={compact} now={now} actions={actions} />
           </View>
         ) : (
           <FolderGroups groups={groups} compact={compact} now={now} actions={actions} />
@@ -240,5 +248,6 @@ const makeStyles = (colors: Colors) =>
     // Wider than the column it sits in, and centred on it, so it overflows both sides alike.
     wide: { alignSelf: "center" },
     aside: { paddingVertical: space.x2, color: colors.muted },
-    problem: { color: colors.critText },
+    problem: { marginTop: space.x2, color: colors.critText },
+    saving: { marginTop: space.x2, color: colors.muted },
   });
