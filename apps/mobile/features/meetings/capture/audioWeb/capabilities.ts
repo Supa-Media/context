@@ -51,8 +51,34 @@ export function browserCanRecord(): boolean {
 export function browserCanShareSystemAudio(): boolean {
   if (typeof navigator === "undefined") return false;
   if (typeof navigator.mediaDevices?.getDisplayMedia !== "function") return false;
+  if (!browserSharesDisplayAudio()) return false;
   if (typeof AudioContext === "undefined") return false;
   return typeof AudioContext.prototype?.createMediaStreamDestination === "function";
+}
+
+/**
+ * Whether this browser's picker can hand over audio at all.
+ *
+ * Firefox and Safari have `getDisplayMedia` and never share audio from it, so
+ * on them the offer is a picker in front of every meeting that cannot produce
+ * the thing it asks for. That was tolerable while the offer was off by default;
+ * with it on (`machineAudio.ts`) it would be a prompt per meeting for nothing.
+ *
+ * `suppressLocalAudioPlayback` is a constraint that only means anything on a
+ * captured display's **audio** track, and the browsers that share display
+ * audio are the ones that list it. It is a proxy rather than a promise — even
+ * Chrome refuses audio for some sources — which is why an empty share is still
+ * reported rather than assumed away.
+ */
+function browserSharesDisplayAudio(): boolean {
+  try {
+    const supported = navigator.mediaDevices.getSupportedConstraints?.() as
+      | Record<string, unknown>
+      | undefined;
+    return supported?.suppressLocalAudioPlayback === true;
+  } catch {
+    return false;
+  }
 }
 
 /** What the picker is asked for: the audio, and the least video it will take. */
@@ -67,6 +93,15 @@ const DISPLAY_CONSTRAINTS = {
     **audio** destination, not this stream.
   */
   video: { frameRate: 1, width: 1, height: 1 },
+  /*
+    Hints, which a browser that does not know them ignores. `systemAudio`
+    lets Chrome offer the machine's audio for a whole screen too (Windows and
+    ChromeOS can), and `selfBrowserSurface` keeps this tab out of the list:
+    sharing the app's own tab is the easiest wrong answer, and it carries none
+    of the call.
+  */
+  systemAudio: "include",
+  selfBrowserSurface: "exclude",
 } as const;
 
 /**

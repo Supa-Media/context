@@ -117,8 +117,9 @@ export function MeetingsPanel({
  * The destination sheet's switch, moved to the one surface that outlives the
  * sheet. It is **per device**, not per meeting and not per context: what a
  * machine can hear is a fact about the machine, and `machineAudio.ts` carries
- * the default — on where a desktop shell can tap silently, off in a browser
- * where it costs a source picker in front of every recording.
+ * the default — on, including in a browser where it costs a source picker in
+ * front of every recording, because a one-sided transcript of a call is worse
+ * than the picker.
  *
  * Absent where a build cannot do it at all (a phone, a browser with nothing to
  * mix into, a shell macOS will not hand a loopback tap): the mic-only sentence
@@ -141,7 +142,7 @@ function MachineAudio() {
     };
   }, [store]);
 
-  const on = chosen ?? defaultMachineAudio(capture.systemAudioNeedsPicker);
+  const on = chosen ?? defaultMachineAudio();
 
   const toggle = useCallback(
     (next: boolean) => {
@@ -171,7 +172,7 @@ function MachineAudio() {
       />
       <Text variant="foot" style={styles.audio}>
         {capture.systemAudioNeedsPicker
-          ? "Takes this machine's own audio as well as the microphone, so the far side of a call is in the note. Your browser asks which window or tab to take it from, every time."
+          ? "Takes this machine's own audio as well as the microphone, so the far side of a call is in the note. Your browser asks what to share every time: pick the tab the call is in and leave its audio on. Turn this off if you only record in-person meetings."
           : "Takes this machine's own audio as well as the microphone, so the far side of a call is in the note."}
       </Text>
     </View>
