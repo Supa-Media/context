@@ -239,3 +239,34 @@ image yet, because the public site does not load images.
 if a signed-in request is answered as its member, or if the card draws
 anything but the two names; `infra/router/src/site.test.ts` fails if a site
 page's tags fall back to Context's card or copy.
+
+## The homepage is `@context-lc`'s website, in its HTML
+
+_Decided 2026-09-26, by the owner: the homepage's sidebar should be the
+`website/` folder, so the front page is edited like any note. This reverses
+#968, which made the homepage static because the live site used to arrive
+after the built-in copy and replace it._
+
+`/` draws `@context-lc`'s `website/` folder as a read-only workspace: the
+tree is that folder's own folders, each page where its file is, in menu
+order. A page is in it when it is in the site's menu (live, public, with a
+`nav:` number), the same rule as every site's menu, so nothing unlisted
+becomes discoverable. The router asks Convex's `/site/home` while it fetches
+the HTML and puts the answer in the page as an inert JSON block
+(`infra/router/src/homeSite.ts`), so **the first paint is the live site and
+nothing replaces it**. `/site/home` resolves every page through the page
+resolver as an anonymous visitor (`lib/websites/snapshot.ts`), so a note
+`privacy.md` holds back, a draft or a members-only page is absent whatever
+its `nav:` line says.
+
+A visit decides once between the site and the built-in copy
+(`apps/mobile/features/home/homeSnapshot.ts`): with no block in the HTML the
+app asks, draws nothing until it hears, and falls back to `builtInPages.ts`
+for the whole visit if the site is off or silent. The copy is never drawn and
+then swapped for the site. The site is redrawn only when its revision moves,
+which is somebody editing `website/`.
+
+`siteHome.test.ts` fails if a private, draft, members-only or unlisted page
+leaves, or if the route grows a field; `homeSite.test.ts` in the router fails
+if a page's words can close the block; `homeSite.test.ts` in the app fails if
+the copy can replace the site or the site the copy.

@@ -28,6 +28,7 @@ import {
   siteRevisionHandler,
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
+import { websiteSnapshot } from "./lib/websites/snapshot";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
@@ -155,6 +156,24 @@ export const siteRevision = query({
   args: { handle: v.string() },
   returns: v.union(v.string(), v.null()),
   handler: siteRevisionHandler,
+});
+
+/**
+ * Every page a site's menu lists, as an anonymous visitor is shown them, or
+ * `null` when there is no live public home page. The homepage draws its
+ * sidebar from this; see `lib/websites/snapshot.ts`.
+ */
+export const siteSnapshot = action({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      siteName: v.string(),
+      revision: v.union(v.string(), v.null()),
+      pages: v.array(v.object({ routePath: v.string(), title: v.string(), markdown: v.string() })),
+    }),
+  ),
+  handler: async (ctx, args) => await websiteSnapshot(ctx, { handle: args.handle }),
 });
 
 /**

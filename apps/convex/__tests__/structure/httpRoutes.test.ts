@@ -102,6 +102,7 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "domainResolve",
   "sitePreview",
   "siteCard",
+  "siteHome",
 ]);
 
 /**
@@ -378,6 +379,9 @@ describe("the gateway's HTTP routes", () => {
       // 404 for the picture. See the test below for the fields.
       "sitePreview",
       "siteCard",
+      // **The ninth**: the homepage's site, only what its menu shows an
+      // anonymous visitor. Its fields are pinned in `siteHome.test.ts`.
+      "siteHome",
     ]);
 
     const source = httpModule().source;

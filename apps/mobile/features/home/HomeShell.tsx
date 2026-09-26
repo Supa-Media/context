@@ -9,6 +9,7 @@ import { landingCtaHref, landingCtaLabel } from "../auth/redirect";
 import { WorkspaceMark } from "../console/WorkspaceMark";
 import { Explorer } from "../console/files/Explorer";
 import { TabStrip } from "../console/files/TabStrip";
+import { displayPath } from "../console/files/paths";
 import { emptyTabs, tabsReducer } from "../console/files/tabs";
 import { useStaticFileBrowser } from "../console/files/useDemoFileBrowser";
 import type { PaletteItem } from "../console/files/palette";
@@ -27,26 +28,32 @@ import {
   MISSING_PAGE_MARKDOWN,
   homeLink,
   homeTree,
+  liveHomeTree,
   pageParam,
   routeFromParam,
 } from "./homeSite";
+import { useHomeSite } from "./useHomeSite";
 
 /**
  * The homepage, as the app itself: the real frame, tree, tabs, ⌘K and status
  * bar, on a read-only `@context` workspace whose notes are the website.
  *
- * The pages ship with the app (`builtInPages.ts`), so the first paint is the
- * whole homepage and nothing is swapped in after it: the tree and the page
- * always agree. The open page is `?page=` in the address, so a link to
- * `/?page=pricing` opens Pricing and back works.
+ * The pages are `@context-lc`'s `website/` folder, and the tree is that
+ * folder, so the front page is edited like any note. The router puts the site
+ * in the page's HTML, so the first paint is the site and nothing is swapped in
+ * after it (`useHomeSite`); when the site is off or unreachable the built-in
+ * copy (`builtInPages.ts`) is drawn for the whole visit instead. The open page
+ * is `?page=` in the address, so a link to `/?page=pricing` opens Pricing and
+ * back works.
  *
  * Nothing here can write. The browser is the static one the demo console uses,
  * whose `canEdit` is false, so no editing control is ever drawn; the one hint
  * that this is not a workspace you can type in is the status bar's first
  * segment, and the line under the title if somebody tries.
  */
-/** The homepage's tree: the same every visit, so it is built once. */
-const HOME = homeTree(BUILT_IN_SITE);
+/** The built-in tree: the same every visit, so it is built once. */
+const BUILT_IN = homeTree(BUILT_IN_SITE);
+const NOTHING = liveHomeTree([]);
 
 export function HomeShell() {
   const styles = useThemedStyles(makeStyles);
@@ -55,8 +62,23 @@ export function HomeShell() {
   const params = useLocalSearchParams<{ page?: string | string[] }>();
   const routePath = routeFromParam(params.page);
   const compact = densityFor(useWindowDimensions().width) === "compact";
-  const home = HOME;
-  const markdown = home.pages.get(home.paths.get(routePath) ?? "")?.markdown ?? MISSING_PAGE_MARKDOWN;
+  const source = useHomeSite();
+  const site = source.kind === "live" ? source.snapshot.pages : null;
+
+  // The tree changes when the list of pages does, not when one's words do: a
+  // new tree resets what is expanded, as switching workspace does.
+  const shape = site?.map((page) => `${page.routePath}\u0001${page.title}`).join("\u0002") ?? null;
+  const home = useMemo(
+    () => (source.kind === "builtIn" ? BUILT_IN : site === null ? NOTHING : liveHomeTree(site)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [source.kind, shape],
+  );
+  const markdown =
+    source.kind === "waiting"
+      ? ""
+      : (site?.find((page) => page.routePath === routePath)?.markdown ??
+        home.pages.get(home.paths.get(routePath) ?? "")?.markdown ??
+        MISSING_PAGE_MARKDOWN);
   const browser = useStaticFileBrowser(home.tree, "home");
 
   const [tabs, dispatch] = useReducer(tabsReducer, emptyTabs);
@@ -114,7 +136,7 @@ export function HomeShell() {
       [...home.pages].map(([path, page]) => ({
         id: path,
         label: page.title,
-        detail: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : undefined,
+        detail: path.includes("/") ? displayPath(path.slice(0, path.lastIndexOf("/"))) : undefined,
         kind: "note" as const,
       })),
     [home],
@@ -180,7 +202,7 @@ export function HomeShell() {
               { id: "notes", text: `${home.pages.size} notes`, tone: "quiet" },
               {
                 id: "storage",
-                text: "Plain Markdown",
+                text: source.kind === "live" ? "Live from website/" : "Plain Markdown",
                 tone: "ok",
                 pip: true,
               },

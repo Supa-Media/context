@@ -186,6 +186,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The index may lag on widening, never on narrowing
 - Release bytes stay in the customer's bucket, with one generation of grace
 - The workspace icon is the site's favicon
+- A page unfurls as itself
+- The homepage is `@context-lc`'s website, in its HTML
 
 ## [Search and the derived index](./search.md)
 

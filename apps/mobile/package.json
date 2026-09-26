@@ -47,7 +47,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
     "@sentry/react-native": "^8.26.0",
-    "@supa-media/core": "^1.0.2",
+    "@supa-media/core": "^1.1.0",
     "context-activity-kit": "file:./modules/context-activity-kit",
     "convex": "^1.31.3",
     "expo": "~54.0.23",
