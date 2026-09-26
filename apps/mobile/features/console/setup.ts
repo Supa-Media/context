@@ -210,7 +210,20 @@ export function setupPromptVisible(setup: ContextSetup): boolean {
  * cannot duplicate what is already there — is what stops somebody deleting
  * objects by hand the way issue #22 describes.
  */
-export function setupCopy(setup: ContextSetup): { title: string; body: string } | null {
+export function setupCopy(
+  setup: ContextSetup,
+  /** The card is asking what kind of workspace this is (a shared one). */
+  askingKind = false,
+): { title: string; body: string } | null {
+  if (setup.kind === "empty" && askingKind) {
+    return {
+      title: "What kind of workspace is it?",
+      body:
+        "Nothing has been written to this workspace's storage yet. Pick the kind closest to " +
+        "what it is for and its folders are written for you, or bring a vault you already " +
+        "have — Context reads what is there rather than imposing a shape on it.",
+    };
+  }
   if (setup.kind === "empty") {
     return {
       title: "This context is empty",

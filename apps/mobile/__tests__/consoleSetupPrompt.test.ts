@@ -53,7 +53,8 @@ jest.mock("convex/react", () => ({
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { SetupPromptBody } from "../features/console/setup/SetupPrompt";
+import { SetupPromptBody, offersKinds } from "../features/console/setup/SetupPrompt";
+import { presetRows, type WorkspacePresetKey } from "../features/workspace/presets";
 import { PARA_FOLDERS } from "@context/convex/functions/lib/scaffold";
 import type { ContextSetup } from "../features/console/setup";
 
@@ -70,6 +71,8 @@ function render(props: {
   failure?: string;
   onApplyLayout?: () => void;
   onImportVault?: () => void;
+  kind?: { preset: WorkspacePresetKey; onChoose: (preset: WorkspacePresetKey) => void };
+  shared?: boolean;
 }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -82,6 +85,8 @@ function render(props: {
         failure: props.failure,
         onApplyLayout: props.onApplyLayout ?? (() => {}),
         onImportVault: props.onImportVault,
+        kind: props.kind,
+        shared: props.shared,
       }),
     );
   });
@@ -155,5 +160,70 @@ describe("while it runs, and when it will not", () => {
     const screen = render({ setup: { kind: "none" } });
     expect(screen.find("console-setup-prompt")).toBeNull();
     expect(screen.text()).toBe("");
+  });
+});
+
+describe("a shared workspace is asked what kind it is", () => {
+  /*
+    The managed-storage route out of `/workspace/new` never shows the flow's
+    own kind step, so this card is where a business gets its clients and
+    teams folders or does not get them at all.
+  */
+  test("only a shared workspace with an empty bucket is asked", () => {
+    expect(offersKinds({ kind: "empty" }, true)).toBe(true);
+    expect(offersKinds({ kind: "empty" }, false)).toBe(false);
+    // A half-written layout is finished with the layout that started it.
+    expect(offersKinds({ kind: "unfinished" }, true)).toBe(false);
+  });
+
+  test("the kinds are offered, and the folders listed are the chosen kind's", () => {
+    const screen = render({
+      setup: { kind: "empty" },
+      shared: true,
+      kind: { preset: "business", onChoose: () => {} },
+    });
+    expect(screen.find("console-setup-kind-business")).not.toBeNull();
+    expect(screen.find("console-setup-kind-custom")).toBeNull();
+    expect(screen.text()).toMatch(/what kind of workspace/i);
+    const folders = screen.find("console-setup-folders")?.textContent ?? "";
+    for (const row of presetRows("business")) expect(folders).toContain(row.name);
+    expect(folders).not.toContain("2-areas");
+    // No custom editor in a notice band.
+    expect(screen.text()).not.toMatch(/something else/i);
+  });
+
+  test("choosing another kind reports it", () => {
+    const chosen: WorkspacePresetKey[] = [];
+    const screen = render({
+      setup: { kind: "empty" },
+      shared: true,
+      kind: { preset: "business", onChoose: (preset) => chosen.push(preset) },
+    });
+    const agency = Array.from(
+      screen.container.querySelectorAll('[role="radio"]'),
+    ).find((node) => /agency/i.test(node.textContent ?? "")) as HTMLElement | undefined;
+    expect(agency).toBeDefined();
+    act(() => agency?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(chosen).toEqual(["agency"]);
+  });
+
+  test("its folders are said to start open to the workspace, not private", () => {
+    const text = render({
+      setup: { kind: "empty" },
+      shared: true,
+      kind: { preset: "business", onChoose: () => {} },
+    }).text();
+    expect(text).toMatch(/visible to everyone in the workspace/i);
+    expect(text).not.toMatch(/starts private/i);
+  });
+
+  test("the standard layout is still one of the kinds", () => {
+    const screen = render({
+      setup: { kind: "empty" },
+      shared: true,
+      kind: { preset: "para", onChoose: () => {} },
+    });
+    const folders = screen.find("console-setup-folders")?.textContent ?? "";
+    for (const folder of PARA_FOLDERS) expect(folders).toContain(folder);
   });
 });

@@ -47,22 +47,33 @@ claimed that nobody chose — somebody goes back to fix a typo in the label and
 the handle silently changes under them. `slugSuggestion` is pure and its output
 is fed through `nameStatus` like any typed string; it is never assumed valid.
 
-### The layout presets are company-shaped, and PARA is not the default
+### The layout presets are business-shaped, and PARA is not the default
 
 PARA sorts one person's work by how permanent it is. That is the right question
 for a workspace and the wrong one for a company, whose context is sorted by who owns
 a thing and which outside party it concerns — a team handed `1-projects` /
-`2-areas` / `3-resources` files nothing into them. So `/workspace/new` defaults
-to a **Company** preset (inbox, projects, teams, handbook, customers, archive),
-offers **Client work** for organisations whose work is sorted by client first
-(a flat `1-projects` collides across three clients on day one), and keeps PARA
-third for teams that already use it.
+`2-areas` / `3-resources` files nothing into them. So `/workspace/new` asks
+**"What kind of workspace is it?"** and defaults to **Business** (inbox,
+projects, teams, clients, handbook, archive — the owner asked for exactly a
+clients folder and a teams folder, 2026-09-26), offers **Agency or studio** for
+organisations whose work is sorted by client first (a flat `1-projects` collides
+across three clients on day one), **A shared project** for one piece of work
+with a finish line, PARA for teams that already use it, and **Something else**
+for the custom editor.
+
+**The kind is asked wherever the layout is written.** The flow's own step only
+exists when storage verifies inside the flow; paying for managed storage goes
+out to Stripe and returns to settings, so that route never saw it and the
+console's empty-workspace card used to offer PARA alone. For a *shared*
+workspace that card now offers the same kinds (not the custom editor), one
+press each. A personal workspace keeps PARA there, and a half-written layout is
+finished with the one that started it.
 
 Two properties matter more than the folder names, which are a guess and are
 meant to be edited:
 
 - **A preset is a starting value for the folder editor, not a mode.** Choosing
-  "Company" and renaming `4-customers` is the common case. Every preset except
+  "Business" and renaming `3-clients` is the common case. Every preset except
   PARA travels to `applyStructure` as `custom` with its rows, so nothing
   downstream knows which button was pressed.
 - **The descriptions are load-bearing.** Each becomes that folder's `README.md`

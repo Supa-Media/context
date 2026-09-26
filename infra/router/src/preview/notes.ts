@@ -144,23 +144,39 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   "3-resources/README.md",
   "4-archive/README.md",
   // The workspace presets. `apps/mobile/features/workspace/presets.ts` ships
-  // two fixed layouts through the `custom` template path, and `company` is what
+  // fixed layouts through the `custom` template path, and `business` is what
   // a shared context gets when nobody chooses — so these are names this product
   // writes, not names an owner picked, and a shared context's scaffold starts
   // them `team` so a card on one really does list its contents.
   "1-clients",
+  "1-plan",
   "2-pipeline",
   "2-teams",
+  "2-work",
+  "3-clients",
   "3-handbook",
+  "3-meetings",
   "3-practice",
+  "3-team",
   "4-customers",
+  "4-handbook",
+  "4-practice",
+  "4-reference",
   "5-archive",
   "1-clients/README.md",
+  "1-plan/README.md",
   "2-pipeline/README.md",
   "2-teams/README.md",
+  "2-work/README.md",
+  "3-clients/README.md",
   "3-handbook/README.md",
+  "3-meetings/README.md",
   "3-practice/README.md",
+  "3-team/README.md",
   "4-customers/README.md",
+  "4-handbook/README.md",
+  "4-practice/README.md",
+  "4-reference/README.md",
   "5-archive/README.md",
 ]);
 

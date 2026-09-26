@@ -134,9 +134,9 @@ Moved to [Making a workspace is its own flow, not onboarding with a flag](./app-
 
 Moved to [Two name fields for a shared workspace, one for a personal one](./app-and-console/workspace-creation-and-rail.md#two-name-fields-for-a-shared-workspace-one-for-a-personal-one).
 
-### The layout presets are company-shaped, and PARA is not the default
+### The layout presets are business-shaped, and PARA is not the default
 
-Moved to [The layout presets are company-shaped, and PARA is not the default](./app-and-console/workspace-creation-and-rail.md#the-layout-presets-are-company-shaped-and-para-is-not-the-default).
+Moved to [The layout presets are business-shaped, and PARA is not the default](./app-and-console/workspace-creation-and-rail.md#the-layout-presets-are-business-shaped-and-para-is-not-the-default).
 
 ### Invitations are queued, and a partial send keeps its successes
 

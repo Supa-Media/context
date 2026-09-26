@@ -109,7 +109,7 @@ export function peopleCaveat(shape: WorkspaceFlowShape): string | null {
 export const WORKSPACE_STEP_LABELS: Record<WorkspaceStepKey, string> = {
   name: "Its name",
   storage: "Its bucket",
-  layout: "Its layout",
+  layout: "Its kind",
   people: "Its people",
   done: "Ready",
 };
@@ -121,7 +121,7 @@ export function workspaceStepTitle(key: WorkspaceStepKey): string {
     case "storage":
       return "Connect its bucket";
     case "layout":
-      return "Pick a starting layout";
+      return "What kind of workspace is it?";
     case "people":
       return "Invite the people it is for";
     case "done":
@@ -391,7 +391,7 @@ export const WORKSPACE_PRIVACY_NOTE =
  */
 export const WORKSPACE_AFTER_PAY = [
   "Stripe brings you back to the workspace's own settings, not to this flow.",
-  "We create its bucket and lay out the standard folders.",
+  "We create its bucket, and the workspace then asks what kind it is before writing its folders.",
   "Keep Premium open until storage is confirmed — it can take up to 2 minutes. Then invite its people from settings.",
 ] as const;
 
