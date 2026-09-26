@@ -39,6 +39,7 @@ import { dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, stat, unlink as unlinkFile, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { hostname } from "node:os";
 
 /**
@@ -577,11 +578,45 @@ export async function uninstallHooks({
 }
 
 /** Whether `cwd` is one of the excluded folders or inside one. `~` means home. */
+/**
+ * Is this session's folder one the person excluded from capture?
+ *
+ * The comparison is made twice, because **an exclusion names a folder and not
+ * a spelling of one**. The hook is handed whatever path the agent reports, and
+ * one directory answers to several: through a symlink, and — on macOS and
+ * Windows, where this CLI mostly runs — in more than one capitalisation.
+ * Comparing the typed strings alone means the control a person set does
+ * nothing at the only moment it mattered, and it fails in the direction that
+ * sends the transcript.
+ *
+ * So both sides are also canonicalised. `realpathSync.native` resolves the
+ * links and, on a case-insensitive filesystem, returns the on-disk spelling,
+ * so the two names meet. A path that no longer exists cannot be canonicalised
+ * and keeps its lexical form.
+ *
+ * The two comparisons are ORed rather than swapped in: canonicalising can only
+ * ever *add* an exclusion, never drop one that holds today — including for a
+ * folder that has since been deleted or moved.
+ */
+function sameName(path) {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
+function within(here, folder) {
+  return here === folder || here.startsWith(folder + sep);
+}
+
 function isExcluded(cwd, excluded = []) {
+  if (excluded.length === 0) return false;
   const here = resolvePath(cwd);
+  const hereNamed = sameName(here);
   return excluded.some((entry) => {
     const folder = resolvePath(entry.replace(/^~(?=$|\/)/, homedir()));
-    return here === folder || here.startsWith(folder + sep);
+    return within(here, folder) || within(hereNamed, sameName(folder));
   });
 }
 
