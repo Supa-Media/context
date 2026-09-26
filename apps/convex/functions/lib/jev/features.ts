@@ -26,8 +26,8 @@ export const JEV_FEATURES = {
   /** Auto-organize: mark done, archive, file the inbox. `functions/organizer.ts`. */
   organizer: {
     label: "Auto-organize",
-    // Off until the auto-organize screens ship; nobody could see its work yet.
-    onByDefault: false,
+    // On with Premium, switched off per owner (decided by the owner, 2026-09-26).
+    onByDefault: true,
     // One sweep a day asks at most MAX_SWEEP_PROJECTS + MAX_SWEEP_INBOX (100).
     dailyCallsPerWorkspace: 250,
     plan: "premium",

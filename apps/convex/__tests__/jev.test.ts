@@ -117,13 +117,13 @@ describe("nothing reaches Jev except through lib/jev", () => {
 });
 
 describe("the gate", () => {
-  test("a feature that ships off stays off until switched on", async () => {
+  test("a feature follows its registry default until a switch says otherwise", async () => {
     const t = setupTest();
     const { workspaceId } = await payingWorkspace(t);
-    expect(JEV_FEATURES.organizer.onByDefault).toBe(false);
-    expect(await t.query(internal.functions.jev.gate, { feature: "organizer", workspaceId })).toEqual({ allowed: false, reason: "switched_off" });
-    await switchOn(t, "organizer");
+    expect(JEV_FEATURES.organizer.onByDefault).toBe(true);
     expect(await t.query(internal.functions.jev.gate, { feature: "organizer", workspaceId })).toMatchObject({ allowed: true });
+    await switchOn(t, "organizer", true);
+    expect(await t.query(internal.functions.jev.gate, { feature: "organizer", workspaceId })).toEqual({ allowed: false, reason: "switched_off" });
   });
 
   test("the all-features switch beats a feature switched on", async () => {
@@ -166,6 +166,7 @@ describe("withJev", () => {
   test("switched off, the feature gets no session and nothing is sent", async () => {
     const t = setupTest();
     const { workspaceId } = await payingWorkspace(t);
+    await switchOn(t, "organizer", true);
     const { transport, sent } = fakeTransport();
     const refusal = await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport }, async (jev, why) => {
       expect(jev).toBeNull();
@@ -267,6 +268,7 @@ describe("auto-organize rides the switch", () => {
   test("while its switch is off, a paying owner sees nothing to turn on", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await payingWorkspace(t);
+    await switchOn(t, "organizer", true);
     const status = await asUser(t, owner).query(api.functions.organizer.status, { workspaceId });
     expect(status).toMatchObject({ available: false, on: false, noticeNeeded: false });
   });

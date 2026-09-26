@@ -15,16 +15,12 @@ type Workspace = { workspaceId: Id<"workspaces"> };
 /**
  * `api.functions.organizer.*`, typed by hand in exactly one place.
  *
- * The functions are written with the control plane and may not be in the
- * generated API this app was built against, nor deployed where it runs. So the
- * reference is reached for through this shim rather than `api.functions.…`
- * directly: it compiles either way, and a deployment without the functions
- * answers the status query with an error, which `organizerState` reads as
- * "unavailable" — nothing drawn, nothing claimed.
+ * Kept as a shim over `apps/convex/functions/organizer.ts` so an app build can
+ * run against a deployment that predates it: there the status query errors,
+ * which `organizerState` reads as "unavailable", and nothing is drawn.
  *
- * `undo` is this app's side of taking an accept back (the token `resolve`
- * handed out, or an automatic change named by its Activity row). It is not in
- * the v1 contract table; see the note in `useOrganizer`.
+ * `undo` takes back an accept (the token `resolve` handed out) or an automatic
+ * change named by its Activity row.
  */
 export interface OrganizerApi {
   status: FunctionReference<"query", "public", Workspace, OrganizerStatus | null>;
