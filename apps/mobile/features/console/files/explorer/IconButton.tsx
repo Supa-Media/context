@@ -9,11 +9,17 @@ export function IconButton({
   label,
   icon,
   onPress,
+  on = false,
+  menu = false,
   testID,
 }: {
   label: string;
   icon: IconName;
   onPress: () => void;
+  /** Lit: its menu is open, or what it toggles is on. */
+  on?: boolean;
+  /** Opens a menu rather than acting, which a screen reader is told. */
+  menu?: boolean;
   testID?: string;
 }) {
   const colors = useColors();
@@ -23,11 +29,12 @@ export function IconButton({
       accessibilityLabel={label}
       onPress={onPress}
       radius={radii.md}
-      style={styles.iconButton}
+      style={[styles.iconButton, on && styles.iconButtonOn]}
       hoverStyle={styles.iconButtonHover}
+      {...(menu ? { ariaHasPopup: "menu" as const, ariaExpanded: on } : {})}
       testID={testID}
     >
-      <Icon name={icon} size={15} color={colors.text2} />
+      <Icon name={icon} size={15} color={on ? colors.text : colors.text2} />
     </PressRow>
   );
 }

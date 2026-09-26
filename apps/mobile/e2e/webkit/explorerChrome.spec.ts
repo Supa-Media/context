@@ -1,91 +1,54 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * THE FILE TREE'S HEADER, LIT BY A REAL POINTER.
+ * THE FILE TREE'S HEADER DOES NOT CHANGE WHEN A POINTER ARRIVES.
  *
- * The column's job is to be a legible list of names. Above that list sat four
- * lit icon buttons and an empty bordered input — six boxes of chrome, at rest,
- * over a list of about twenty rows, and together the loudest thing in the
- * quietest region. So the header draws on approach: the filter gains its border
- * and its fill when the pointer enters the column, and *half* the buttons fade
- * in with it. At rest what is drawn in the field's own box is the eyebrow
- * `Notes` — the column's own name — which goes as the field arrives.
+ * It used to: entering the column faded `Notes` out, boxed an invisible filter
+ * field under it and faded in two more buttons, so the header redrew every
+ * time somebody reached for a note. The owner asked for it to stay the same
+ * (2026-09-26), and the header is now `Notes` plus Filter, New and View, drawn
+ * once — see `ExplorerToolbar.tsx`.
  *
- * **Half, not all of them.** The canvas draws new-note and collapse-all at
- * rest; fading those too left the header as a word with nothing beside it,
- * which reads as a caption rather than as the top of a panel. `Explorer.tsx`'s
- * `restingActions` argues which two and why. This file measures the pair that
- * still fades, and asserts the pair that does not never does.
+ * This is here and not in the unit suite because the claim is about a real
+ * pointer: `View`'s `onPointerEnter` is a pointer event and jsdom defines no
+ * `PointerEvent`, so only an engine can show that hovering the column leaves
+ * the header exactly as it was. `__tests__/explorerChrome.test.ts` holds the
+ * structure and the presses.
  *
- * ## Why this is here and not in the unit suite
- *
- * `__tests__/explorerChrome.test.ts` holds the resting state, which is a
- * stylesheet fact jsdom can resolve, and it holds the two structural rules that
- * make fading the right technique — the field is a real input and the buttons
- * stay in the tree, so a keyboard reaches both.
- *
- * What it cannot hold is the approach itself, and that was measured rather than
- * assumed: `View`'s `onPointerEnter` is a real pointer event and **jsdom
- * defines no `PointerEvent` constructor at all**, so a dispatched `MouseEvent`
- * named `pointerenter` reaches nothing. A test built on one would report the
- * feature broken while Chromium drew it correctly — and, worse, a test written
- * to pass against that would be asserting about an event the product never
- * sends.
- *
- * Measured in Chromium at 1440×900 before this file existed:
- *
- *     at rest   tools opacity 0, border rgba(0,0,0,0), fill rgba(0,0,0,0)
- *     hovered   tools opacity 1, border rgba(237,232,224,0.07), fill rgb(10,9,8)
- *     left      tools opacity 0, border rgba(0,0,0,0), fill rgba(0,0,0,0)
- *
- * `?screen=app-frame-visual` is the fixture that mounts the real `Explorer`
- * inside the real `AppFrame` (`features/e2e/AppFrameVisualFixture.tsx`).
- * Nothing here can reach an account or a bucket.
+ * `?screen=app-frame-visual` mounts the real `Explorer` inside the real
+ * `AppFrame` (`features/e2e/AppFrameVisualFixture.tsx`). Nothing here can
+ * reach an account or a bucket.
  */
 
 const FRAME = "/e2e-fixture?screen=app-frame-visual";
 
 /*
-  A pointer context, declared rather than resized into — `panels.spec.ts`'s
-  own note applies exactly: the suite's default is a phone with touch
-  emulation, and hover on a surface the engine believes is a touchscreen is the
-  behaviour under test.
+  A pointer context, declared rather than resized into: the suite's default is
+  a phone with touch emulation, and hover on a surface the engine believes is a
+  touchscreen is the behaviour under test.
 */
 test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
 
-/** Is this colour nothing? react-native-web spells `transparent` as `rgba(0, 0, 0, 0)`. */
-function invisible(colour: string): boolean {
-  return /^(transparent|rgba\(\s*0,\s*0,\s*0,\s*0(\.0+)?\s*\))$/.test(colour.trim());
-}
-
-async function header(page: Page): Promise<{
-  toolsOpacity: string;
-  restingOpacity: string;
-  eyebrowOpacity: string;
-  border: string;
-  fill: string;
-}> {
+/** Every node in the header: its box, its opacity and its text. */
+async function header(page: Page): Promise<string> {
   return await page.evaluate(() => {
-    const filter = document.querySelector('[data-testid="explorer-filter"]');
-    const row = filter?.parentElement ?? null;
-    // The toolbar's last child is the pair drawn at rest; the one before it is
-    // the pair that fades. Both are read, so a reshuffle that swapped them
-    // fails here instead of quietly measuring the wrong group.
-    const resting = row?.lastElementChild ?? null;
-    const tools = row === null ? null : (row.children[row.children.length - 2] ?? null);
-    // The resting label, drawn over the field: the toolbar's first child.
-    const eyebrow = row?.firstElementChild ?? null;
-    if (filter === null || tools === null || resting === null || eyebrow === null) {
-      throw new Error("no explorer header on this screen");
-    }
-    const field = getComputedStyle(filter);
-    return {
-      toolsOpacity: getComputedStyle(tools).opacity,
-      restingOpacity: getComputedStyle(resting).opacity,
-      eyebrowOpacity: getComputedStyle(eyebrow).opacity,
-      border: field.borderTopColor,
-      fill: field.backgroundColor,
-    };
+    const root = document.querySelector('[data-testid="explorer-header"]');
+    if (root === null) throw new Error("no explorer header on this screen");
+    return [root, ...root.querySelectorAll("*")]
+      .map((node) => {
+        const box = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return [
+          node.getAttribute("data-testid") ?? node.tagName,
+          Math.round(box.x),
+          Math.round(box.y),
+          Math.round(box.width),
+          Math.round(box.height),
+          style.opacity,
+          node.children.length === 0 ? (node.textContent ?? "") : "",
+        ].join(" ");
+      })
+      .join("\n");
   });
 }
 
@@ -97,61 +60,55 @@ test.beforeEach(async ({ page }) => {
   await page.mouse.move(1200, 500);
 });
 
-test("at rest the header is the column's name and the two the canvas draws", async ({ page }) => {
-  const at = await header(page);
-
-  expect(at.eyebrowOpacity).toBe("1");
-  expect(at.toolsOpacity).toBe("0");
-  // The pair the canvas draws at rest is drawn at rest, in a real engine.
-  expect(at.restingOpacity).toBe("1");
-  expect(await page.getByTestId("explorer-new-note").isVisible()).toBe(true);
-  expect(`border ${invisible(at.border)}`).toBe("border true");
-  expect(`fill ${invisible(at.fill)}`).toBe("fill true");
+test("at rest the header is the column's name and three lit buttons", async ({ page }) => {
+  await expect(page.getByTestId("explorer-header")).toContainText("Notes");
+  for (const id of ["explorer-filter-toggle", "explorer-new", "explorer-view"]) {
+    expect(await page.getByTestId(id).isVisible()).toBe(true);
+  }
+  expect(await page.getByTestId("explorer-filter").count()).toBe(0);
 });
 
-test("the pointer entering the column lights both halves together", async ({ page }) => {
+test("the pointer entering the column leaves the header exactly as it was", async ({ page }) => {
+  const before = await header(page);
+
   await page.getByTestId("explorer-tree").hover();
+  // Longer than any fade this header ever had, so a transition in flight
+  // cannot pass for a header that did not move.
+  await page.waitForTimeout(300);
+  expect(await header(page)).toBe(before);
 
-  const on = await header(page);
-  // The label gets out of the way of the field in the same move.
-  expect(on.eyebrowOpacity).toBe("0");
-  expect(on.toolsOpacity).toBe("1");
-  expect(`border ${invisible(on.border)}`).toBe("border false");
-  expect(`fill ${invisible(on.fill)}`).toBe("fill false");
-});
-
-test("and leaving it puts them away again", async ({ page }) => {
-  await page.getByTestId("explorer-tree").hover();
-  expect((await header(page)).toolsOpacity).toBe("1");
-
-  // Into the note, which is the move this fades for: a pointer that has left
-  // the tree is a person reading rather than filing.
   await page.mouse.move(1200, 500);
-
-  const off = await header(page);
-  expect(off.eyebrowOpacity).toBe("1");
-  expect(off.toolsOpacity).toBe("0");
-  // And the resting pair never moved through any of it.
-  expect(off.restingOpacity).toBe("1");
-  expect(`border ${invisible(off.border)}`).toBe("border true");
+  await page.waitForTimeout(300);
+  expect(await header(page)).toBe(before);
 });
 
-test("the buttons keep their box while faded, so nothing reflows under the hand", async ({
+test("the filter is a press away, and the tree does not move when it opens", async ({ page }) => {
+  const tree = page.getByTestId("explorer-tree");
+  const treeBefore = await tree.boundingBox();
+
+  await page.getByTestId("explorer-filter-toggle").click();
+  const field = page.getByTestId("explorer-filter");
+  await expect(field).toBeFocused();
+  await expect(page.getByTestId("explorer-header")).not.toContainText("Notes");
+
+  const treeAfter = await tree.boundingBox();
+  if (treeBefore === null || treeAfter === null) throw new Error("no box for the tree");
+  expect(treeAfter.y).toBe(treeBefore.y);
+
+  await page.keyboard.press("Escape");
+  await expect(field).toHaveCount(0);
+  await expect(page.getByTestId("explorer-header")).toContainText("Notes");
+});
+
+test("pressing the lit magnifier on an empty field closes it rather than reopening it", async ({
   page,
 }) => {
-  /*
-    The reason this is opacity rather than a mount, asserted where it can be:
-    a toolbar that grew its four buttons back as the pointer arrived would move
-    the filter field sideways under the hand reaching for it — and jsdom, which
-    lays nothing out, cannot tell the two implementations apart.
-  */
-  const filter = page.getByTestId("explorer-filter");
-  const before = await filter.boundingBox();
+  // The field blurs on mousedown and puts itself away before the press lands;
+  // the press must not read that as "closed" and open it again.
+  await page.getByTestId("explorer-filter-toggle").click();
+  await expect(page.getByTestId("explorer-filter")).toBeFocused();
 
-  await page.getByTestId("explorer-tree").hover();
-  const after = await filter.boundingBox();
-
-  if (before === null || after === null) throw new Error("no box for the filter field");
-  expect(after.x).toBe(before.x);
-  expect(after.width).toBe(before.width);
+  await page.getByTestId("explorer-filter-toggle").click();
+  await expect(page.getByTestId("explorer-filter")).toHaveCount(0);
+  await expect(page.getByTestId("explorer-header")).toContainText("Notes");
 });

@@ -14,56 +14,23 @@ export const ACTIVITY_LIFT = layout.accountFootHeight + 33;
 export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   explorer: { flex: 1, minHeight: 0 },
 
+  /**
+   * The column's header, and one row at every moment.
+   *
+   * Fixed height, so the row is the same size whether it carries the word
+   * `Notes` or the filter field: the tree under it never moves when somebody
+   * opens or closes the filter.
+   */
   toolbar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    height: 28 + space.x2 * 2,
     paddingHorizontal: space.x2,
-    paddingVertical: space.x2,
   },
-  /**
-   * Holds the create buttons at the trailing edge while the filter is away.
-   *
-   * The field is `flex: 1` and takes the room when it is there; without this
-   * the row would close up and `+` would sit at the leading edge in one state
-   * and the trailing edge in the other — a target that moves when a control
-   * beside it is revealed.
-   */
-  toolbarSpacer: { flexGrow: 1, flexShrink: 1 },
-  /* See the column's `onPointerEnter`: present, laid out, and unlit at rest. */
-  tools: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    opacity: 0,
-  },
-  toolsShown: { opacity: 1 },
-  /** The pair the canvas draws at rest. Same row, no fade. */
-  toolsResting: { flexDirection: "row", alignItems: "center" },
-  /**
-   * The resting label, in the field's own box.
-   *
-   * Absolute and inset to the field's horizontal padding, so the word starts
-   * at exactly the character the placeholder would have — the two swap without
-   * anything moving. `justifyContent: "center"` because the box is 28pt and
-   * the label is one line of 11pt type.
-   */
-  eyebrow: {
-    position: "absolute",
-    left: space.x2 + space.x2,
-    top: space.x2,
-    height: 28,
-    justifyContent: "center",
-  },
-  eyebrowGone: { opacity: 0 },
-  /**
-   * At rest: type, in the header's own gutter, with no box at all.
-   *
-   * The border is `transparent` rather than absent so the field does not
-   * change size when it gains one — a header that grew 2pt as the pointer
-   * crossed the column would be a layout jumping under the hand reaching for
-   * it, which is the failure `tools` fades opacity to avoid.
-   */
+  /** `Notes`, inset to where a field's first character would sit. */
+  label: { flex: 1, minWidth: 0, paddingLeft: space.x2 },
+  /** The filter, once somebody has asked for it. Always boxed: it is a field. */
   filter: {
     flex: 1,
     minWidth: 0,
@@ -71,12 +38,12 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     paddingHorizontal: space.x2,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: colors.line,
+    backgroundColor: colors.well,
     color: colors.text,
     fontSize: t.meta,
   },
-  /** On approach, on focus, or once somebody has typed. */
-  filterBoxed: { borderColor: colors.line, backgroundColor: colors.well },
+  tools: { flexDirection: "row", alignItems: "center", gap: 6 },
   iconButton: {
     width: 28,
     height: 28,
@@ -88,6 +55,8 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     backgroundColor: colors.surface2,
   },
   iconButtonHover: { borderColor: colors.lineStrong },
+  /** A button whose menu is open, or the magnifier while a filter is on. */
+  iconButtonOn: { borderColor: colors.lineStrong, backgroundColor: colors.surface3 },
 
   scroll: { flex: 1, minHeight: 0 },
   /**
