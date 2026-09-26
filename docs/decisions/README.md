@@ -38,6 +38,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The model key is a fourth credential route, not a fifth sibling on the binding
 - A moved note leaves a forwarding address, and it is a trail rather than an index
 - A live editing room holds note text, and the enumeration does not list it
+- Note text is read by a model in flight, and nothing of it is kept
+- Every use of Jev goes through Jev smarts
 
 ## [Customer-owned collaboration](./collaboration.md)
 

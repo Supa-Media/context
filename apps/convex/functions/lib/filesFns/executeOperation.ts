@@ -81,6 +81,7 @@ import {
   requireContextPlugin,
 } from "./plugins";
 import { toConvexError } from "./operationErrors";
+import { runOrganizerOperation } from "../organizer/sweepOps";
 
 const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
 
@@ -714,6 +715,8 @@ export async function executeOperation(
         const found = await listFolderPaths(store, { clearance });
         return { kind: "folderPaths", ...found };
       }
+      case "organizer":
+        return { kind: "organizerResult", output: await runOrganizerOperation(store, clearance, operation, now, actor) };
       case "readActivity": {
         // The filter is `readActivity`'s, and it takes the caller's clearance
         // rather than deciding anything here: one viewing layer, used by the
