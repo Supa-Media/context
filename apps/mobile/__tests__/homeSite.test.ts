@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "@jest/globals";
 import { parseWebsitePage } from "@context/shared";
@@ -20,7 +20,6 @@ import {
   PRIVATE_PAGE,
   homeLink,
   homeTree,
-  livePages,
   pageParam,
   routeFromParam,
 } from "../features/home/homeSite";
@@ -29,8 +28,7 @@ import {
  * The homepage is a workspace of notes, and these are the rules that used to
  * guard the landing page's copy constants, pointed at its pages instead: the
  * vocabulary decisions, the claims we do not make, and the figures the
- * checkout charges. They hold the built-in pages, which ship in the app. The
- * live `website/` folder is edited like any note, and its author answers for it.
+ * checkout charges. They hold the pages, which ship in the app.
  */
 
 const SHELL = readFileSync(join(__dirname, "../features/home/HomeShell.tsx"), "utf8");
@@ -61,6 +59,16 @@ describe("the built-in pages are website pages", () => {
     const navs = Object.values(BUILT_IN_PAGES).map((source) => parseWebsitePage(source).nav);
     expect(navs).toEqual(navs.map((_, index) => index));
     expect(BUILT_IN_SITE[0]?.routePath).toBe("/");
+  });
+
+  test("nothing is fetched to replace them, so the first paint is the page that stays", () => {
+    // The owner's call: a live site swapped in after the built-in copy made the
+    // homepage flicker, and its tree disagreed with what the site held.
+    const dir = join(__dirname, "../features/home");
+    const fetching = readdirSync(dir)
+      .filter((name) => /\.tsx?$/.test(name))
+      .filter((name) => /useWebsiteAddress|useQuery|useAction|\bfetch\(/.test(readFileSync(join(dir, name), "utf8")));
+    expect(fetching).toEqual([]);
   });
 
   test("the shell's own shell strings were found, so the rules below read them", () => {
@@ -175,14 +183,6 @@ describe("the tree", () => {
     }
   });
 
-  test("a live site's pages are its menu, with words as they load", () => {
-    expect(
-      livePages([{ routePath: "/", title: "Home" }, { routePath: "/b", title: "B" }], new Map([["/", "# Home"]])),
-    ).toEqual([
-      { routePath: "/", title: "Home", markdown: "# Home" },
-      { routePath: "/b", title: "B", markdown: "" },
-    ]);
-  });
 });
 
 describe("links inside a page", () => {

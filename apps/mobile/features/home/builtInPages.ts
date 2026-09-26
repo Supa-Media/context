@@ -1,15 +1,12 @@
 /**
- * The homepage's own copy of its pages, drawn when the live site cannot be
- * read: before the Website setting is on for the homepage's workspace, while
- * the network is down, or on a self-hosted deployment with no such workspace.
- * The homepage is never blank because a setting is off.
+ * The homepage's pages. They ship with the app rather than being read from a
+ * workspace, so the first paint is the whole homepage and nothing replaces it
+ * a moment later: the tree and the open page always come from this one list.
  *
- * These are the same Markdown files written into that workspace's `website/`
- * folder, frontmatter and all, so the fallback and the live site are one
- * format. Once the site is on, the files there win and can drift from these on
- * purpose: that folder is where the homepage is edited. `homeSite.test.ts`
- * keeps these honest where honesty is checkable (no em dashes, the price the
- * checkout charges, every page parses as a website page).
+ * Each is written as a website page (frontmatter for title and menu order),
+ * so the same file could be published from a `website/` folder unchanged.
+ * `homeSite.test.ts` keeps them honest where honesty is checkable (no em
+ * dashes, the price the checkout charges, every page parses as a website page).
  */
 export const BUILT_IN_PAGES: Readonly<Record<string, string>> = {
   "index": `---

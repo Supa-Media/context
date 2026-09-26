@@ -1,4 +1,4 @@
-import { parseWebsitePage, type WebsiteNavigationItem } from "@context/shared";
+import { parseWebsitePage } from "@context/shared";
 import type { FileEntry, FolderListing } from "../console/files/types";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
 import type { LegalPageContent } from "../legal/LegalPage";
@@ -13,14 +13,6 @@ import { BUILT_IN_PAGES } from "./builtInPages";
  * order, which links leave the shell, what an unknown page draws) are tested
  * here rather than found by clicking.
  */
-
-/**
- * The workspace whose `website/` folder is the homepage. A self-hosted
- * deployment names its own with `EXPO_PUBLIC_HOME_SITE`; one with none gets
- * the built-in pages, which is also what anybody sees while that workspace's
- * Website setting is off.
- */
-export const HOME_SITE_HANDLE = process.env.EXPO_PUBLIC_HOME_SITE ?? "context-lc";
 
 /** What the switcher shows. The homepage is `@context`, not a customer's handle. */
 export const HOME_WORKSPACE_LABEL = "@context";
@@ -161,22 +153,7 @@ function listing(path: string, entries: FileEntry[]): FolderListing {
   return { path, folderDefault: "team", entries, truncated: false, manifestUsable: true };
 }
 
-/**
- * The live site's pages as the tree knows them: its menu, in its order. Their
- * words arrive when each is opened, so until then a page is only its title.
- */
-export function livePages(
-  navigation: readonly WebsiteNavigationItem[],
-  loaded: ReadonlyMap<string, string>,
-): HomePage[] {
-  return navigation.map((item) => ({
-    routePath: item.routePath,
-    title: item.title,
-    markdown: loaded.get(item.routePath) ?? "",
-  }));
-}
-
-/** What a missing page draws, in the shell's own voice. */
+/** What an unknown `?page=` draws, in the shell's own voice. */
 export const MISSING_PAGE_MARKDOWN =
   "# Nothing here\n\nThis page doesn't exist, or isn't published yet.\n\n[<kbd>Go to Welcome</kbd>](/)\n";
 
