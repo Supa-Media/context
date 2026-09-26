@@ -73,6 +73,17 @@ is pinned by a test. `NEW_FOLDER_HINT` still mentions the file at the moment the
 folder is made, because a README turning up in somebody's vault that the app
 never mentioned is worse than one line of explanation.
 
+**`privacy.md` is unlisted by the same rule** (owner, 2026-09-26: "no need to
+show it to people"). It was a root row tagged "generated": read-only, not a note,
+and saying nothing a person could act on that the visibility markers on the rows
+it governs do not already say. `isUnlistedFile` is the placeholder test or
+`isPrivacyManifest` (root only, folded as the gateway's `foldPath` folds it), so
+the tree, the folder page, the loaded counts and the palette drop it together.
+Only the console hides it. The gateway, `list_notes`, agents, Obsidian and the
+export see it exactly as before, the server listing still returns it with
+`readOnly`, and the tree still draws it while it is the open note. Search never
+indexed it (`maintain.js`).
+
 What is deliberately **not** changed is the share card. `previewChildrenFrom`
 holds at most three names and would waste one on a placeholder, but the argument
 in that function is that it adds no filter the privacy engine did not compute,

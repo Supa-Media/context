@@ -77,7 +77,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/markdownFormat.ts": "7cb3bae21b3dee00af329e5454f330f432d761531438ae94f4d1373ab748bd69",
   "apps/mobile/features/console/files/markerToggle.ts": "d5820a172d245475678fc7a17f5ade91f781c1fdf05f10d39db44f34348d81ee",
   "apps/mobile/features/console/files/noteLinks.ts": "f4f119dd5afa6d75066a0e88a1c6400e6652457a52b0bb5528a463472eb4c322",
-  "apps/mobile/features/console/files/paths.ts": "1f8f6d701e7fc9182982160cc5937458a69c9cdbbc9352d02426b64897f5c898",
+  "apps/mobile/features/console/files/paths.ts": "7cb9dacfa0574da512551ff63df20171f4338f97039e21e180050cab9d6aad5d",
   "apps/mobile/features/console/files/pluginSuggest.ts": "e731dd410d034747d6e7c420c38e43f0da1b88d53fe19fbe4b7f15729da4db20",
   "apps/mobile/features/console/files/tableChrome.ts": "d2570aec1335b71e792b9ad97a013accd554751c0a25d7429ab13a99fb2ea9cf",
   "apps/mobile/features/console/files/tableEdit.ts": "54feb56bb2cbdf0d713cc65b4f3baad7a9eeaaf4ae4256b5ce9f35b2144572a3",
