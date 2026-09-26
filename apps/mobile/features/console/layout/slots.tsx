@@ -1,7 +1,6 @@
 import type { ComponentProps, Dispatch, SetStateAction } from "react";
 import { AsidePanel } from "../aside/AsidePanel";
 import { ConsoleBottomBar } from "../ConsoleBottomBar";
-import { ContextFootRow } from "../ContextFootRow";
 import { Explorer, type Dialog } from "../files/Explorer";
 import type { HistoryState } from "../files/history";
 import type { TreePick } from "../files/selection";
@@ -169,10 +168,6 @@ export function consoleExplorer({
   setTreePick,
   tabs,
   setTreeOverlay,
-  current,
-  places,
-  router,
-  contextHrefFrom,
   switcherProps,
 }: {
   browsing: boolean;
@@ -182,10 +177,6 @@ export function consoleExplorer({
   setTreePick: Dispatch<SetStateAction<TreePick>>;
   tabs: ReturnType<typeof useTabs>;
   setTreeOverlay: Dispatch<SetStateAction<boolean>>;
-  current: ConsoleContext | null;
-  places: ConsoleAside["places"];
-  router: ConsoleRouter;
-  contextHrefFrom: ConsoleAside["contextHrefFrom"];
   switcherProps: ComponentProps<typeof SwitcherMenu>;
 }) {
   return (
@@ -229,29 +220,18 @@ export function consoleExplorer({
         }}
         onOverlayChange={setTreeOverlay}
         /*
-          The workspaces, at the foot of the column. `foot.ts` decides what
-          fits in the width the panel has been dragged to; this supplies
-          the three things it cannot reach on its own — the list, the
-          recently-visited log and the router.
+          You, at the foot of the column: the account button, and behind it
+          the workspaces, Settings and Sign out. Discord's shape, which the
+          owner asked for on 2026-09-26 in place of the title bar's chip and
+          the row of recent-workspace marks that used to sit here — see
+          `SwitcherMenu`'s header. When the tree is folded away, `AppFrame`
+          draws the same menu behind an avatar in the status bar instead.
 
           `phone` is not a condition here. A phone has no file tree at all
           (`features/app/frame.ts`), so this slot has no supplier at that
           density and `NavBand`'s strip goes on being its answer.
         */
-        workspaces={
-          <ContextFootRow
-            contexts={data.contexts}
-            currentSlug={current?.slug ?? null}
-            recent={places}
-            /*
-              Resolved at press time, never when the row rendered — the log
-              moves on every navigation. Same rule, same reason and the
-              same call as the phone's strip: a switch lands on the note
-              you had open in that context rather than at its root.
-            */
-            onOpen={(slug) => router.replace(contextHrefFrom(slug))}
-            menu={<SwitcherMenu {...switcherProps} trigger="chevron" />}
-          />
+        workspaces={<SwitcherMenu {...switcherProps} />
         }
       />
     ) : undefined

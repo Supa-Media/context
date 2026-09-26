@@ -139,7 +139,9 @@ export function mountFrame(
   act(() => {
     root.render(
       createElement(AppFrame, {
-        switcher: createElement("span", { "data-testid": "switcher" }, "@seyi"),
+        lead: createElement("span", { "data-testid": "switcher" }, "@seyi"),
+        // The account button's fallback, drawn only while the tree is not a column.
+        account: createElement("span", { "data-testid": "account-fallback" }, "S"),
         /*
           The phone's leading slot, as a stub. `AppFrame` "knows about geometry
           and nothing else", so what a test needs from it is that it is laid out

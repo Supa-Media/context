@@ -171,7 +171,7 @@ export function HomeShell() {
   return (
     <View style={styles.ground}>
       <AppFrame
-        switcher={switcher}
+        lead={switcher}
         accountSlot={<NotesPill open={notesOpen} onToggle={() => setNotesOpen((open) => !open)} />}
         topTrailing={trailing}
         onSearch={() => setPaletteOpen(true)}

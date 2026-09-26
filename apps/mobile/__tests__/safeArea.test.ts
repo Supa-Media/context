@@ -719,7 +719,6 @@ describe("the console's panes, through the frame that carries them", () => {
       createElement(
         AppFrame,
         {
-          switcher: null,
           children: createElement(
             EditorRegion,
             {
@@ -774,7 +773,6 @@ describe("the console's panes, through the frame that carries them", () => {
       );
     const mounted = mount(
       createElement(AppFrame, {
-        switcher: null,
         children: createElement(Probe),
       }),
     );
@@ -816,7 +814,6 @@ describe("the console's panes, through the frame that carries them", () => {
     });
     const mounted = mount(
       createElement(AppFrame, {
-        switcher: null,
         // A toolbar has to exist for the frame to reserve room for one.
         bottomBar: createElement(Text, null, "toolbar"),
         children: createElement(NoteEditor, {

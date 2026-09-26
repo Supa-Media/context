@@ -174,7 +174,6 @@ function phone(
   marks: typeof MARKS,
 ): ReactElement {
   return createElement(AppFrame, {
-    switcher: null,
     accountSlot: avatar(),
     syncSlot: createElement(SyncPill, { sync, save, onPress: () => {} }),
     topTrailing: createElement(FrameIconButton, {
