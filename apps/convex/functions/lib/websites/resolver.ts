@@ -285,6 +285,19 @@ export async function resolveWebsitePageHandler(
   args: { handle: string; routePath: string },
 ): Promise<ResolvedWebsitePage> {
   const actorUserId = (await getAuthUserId(ctx)) as Id<"users"> | null;
+  return await resolveWebsitePageAs(ctx, args, actorUserId);
+}
+
+/**
+ * The same resolution for a stated viewer. A link preview passes `null`, so
+ * what a crawler is told is what an anonymous visitor is shown, whatever
+ * credentials arrived with the request.
+ */
+export async function resolveWebsitePageAs(
+  ctx: ActionCtx,
+  args: { handle: string; routePath: string },
+  actorUserId: Id<"users"> | null,
+): Promise<ResolvedWebsitePage> {
   const plan = await ctx.runQuery(
     internal.functions.websites.websiteResolutionPlan,
     { ...args, actorUserId },

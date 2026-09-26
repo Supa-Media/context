@@ -200,3 +200,42 @@ by "the site is on". An unreadable photo is the same `null` as none.
 a never-enabled site both answer like a nonexistent handle) or if an argument
 that could name an object is added.
 
+
+## A page unfurls as itself
+
+_Decided 2026-09-26, after a link to a site on its own domain unfurled in
+iMessage as Context's marketing card._
+
+A crawler asking for a website address is told what an anonymous visitor to
+that address is shown, and no more: the page's title, the site's name as
+`og:site_name`, one line of description (the page's `description:`, else its
+first paragraph of prose), and a card drawn from those two names. The home
+page speaks as the site, under the site's name. It is resolved by the same
+code that serves the page (`lib/websites/preview.ts` calls the resolver as an
+anonymous viewer, whatever credentials the request carried), so every rule a
+visitor is held to holds here without a second copy: the site is on,
+`privacy.md` publishes the page, it is live, public and not encrypted. Every
+other case is one null answer, byte for byte, and the picture is one 404.
+
+This is the favicon's argument again: turning the site on is the owner
+publishing these pages, so describing one to a crawler discloses nothing the
+address does not already show. It does not widen "Link previews reveal nothing
+about a context" (`privacy-and-sharing/link-previews-and-audience.md`) for
+anything else. **`/@seyi` alone stays the frozen card on context.lc and asks
+nobody**, because a bare handle is guessable and unbounded; a site's home page
+unfurls as itself at the site's own domain, and its other pages at
+`/@seyi/<page>` too. The two routes are pinned in `httpRoutes.test.ts` with
+their four fields.
+
+The card is the site's, not ours (`lib/siteCardArt.ts`): Paper, the title in
+the site's heading serif, the name in its header sans, no Context mark. It is
+drawn on request and cached at the edge under a version that digests what it
+draws, so a retitled page is a new image URL; nothing is written to the
+bucket. A page whose name or title the card faces cannot draw carries no image
+tags at all, rather than wearing Context's card. Pages cannot pick their own
+image yet, because the public site does not load images.
+
+`siteCard.test.ts` fails if a members-only, draft or switched-off page answers,
+if a signed-in request is answered as its member, or if the card draws
+anything but the two names; `infra/router/src/site.test.ts` fails if a site
+page's tags fall back to Context's card or copy.

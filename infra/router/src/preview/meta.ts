@@ -45,9 +45,16 @@ export interface PreviewMeta {
    * `previewForShare`. Everything else on the domain keeps the one frozen
    * image, which is what the nine-variant byte-identity test above pins.
    */
-  readonly imageUrl?: string;
+  readonly imageUrl?: string | null;
   /** `<meta name="robots">`, when the route should stay out of search. */
   readonly robots?: string;
+  /**
+   * `og:site_name`, when the page belongs to somebody's website rather than to
+   * Context. `canonical` is then that page's own address and `homeLabel` the
+   * words on the body's one link to it. See `sites.ts`.
+   */
+  readonly siteName?: string;
+  readonly homeLabel?: string;
 }
 
 /**
@@ -178,7 +185,12 @@ export function escapeHtml(value: string): string {
  * path and there is no path here worth the exception.
  */
 export function renderPreviewHtml(meta: PreviewMeta): string {
-  const imageUrl = escapeHtml(meta.imageUrl ?? OG_CARD_URL);
+  // `null` is a page with no picture of its own: no image tags at all, rather
+  // than the product's card standing in for somebody else's page.
+  const imageUrl = meta.imageUrl === null ? null : escapeHtml(meta.imageUrl ?? OG_CARD_URL);
+  const siteName = escapeHtml(meta.siteName ?? SITE_NAME);
+  const home = meta.siteName === undefined ? `${ORIGIN}/` : meta.canonical;
+  const homeLabel = escapeHtml(meta.homeLabel ?? "Open Context.LC");
   const title = escapeHtml(meta.title);
   const description = escapeHtml(meta.description);
   const canonical = escapeHtml(meta.canonical);
@@ -197,22 +209,22 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <link rel="canonical" href="${canonical}">
 
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="${SITE_NAME}">
+  <meta property="og:site_name" content="${siteName}">
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${description}">
-  <meta property="og:url" content="${canonical}">
+  <meta property="og:url" content="${canonical}">${imageUrl === null ? "" : `
   <meta property="og:image" content="${imageUrl}">
   <meta property="og:image:secure_url" content="${imageUrl}">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="${OG_CARD_WIDTH}">
   <meta property="og:image:height" content="${OG_CARD_HEIGHT}">
-  <meta property="og:image:alt" content="${imageAlt}">
+  <meta property="og:image:alt" content="${imageAlt}">`}
 
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="${imageUrl === null ? "summary" : "summary_large_image"}">
   <meta name="twitter:title" content="${title}">
-  <meta name="twitter:description" content="${description}">
+  <meta name="twitter:description" content="${description}">${imageUrl === null ? "" : `
   <meta name="twitter:image" content="${imageUrl}">
-  <meta name="twitter:image:alt" content="${imageAlt}">
+  <meta name="twitter:image:alt" content="${imageAlt}">`}
 
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#050506">
@@ -235,7 +247,7 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <main>
     <h1>${title}</h1>
     <p>${description}</p>
-    <p><a href="${ORIGIN}/">Open Context.LC</a></p>
+    <p><a href="${escapeHtml(home)}">${homeLabel}</a></p>
   </main>
 </body>
 </html>
