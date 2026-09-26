@@ -102,7 +102,6 @@ export function SettingsPane({
   section?: SettingsSectionKey;
   /** What a return from Stripe said, from the route. Only Premium reads it. */
   returned?: CheckoutOutcome | null;
-  /** The full screen Claude/ChatGPT setup, where it can open over this context. */
   onConnectAgent?: (agent: SetupAgent) => void;
 }) {
   const colors = useColors();
@@ -466,7 +465,6 @@ export function SettingsPane({
 
       {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
 
-
       {show("plugins") ? (
       <>
       <PanelHead section="plugins" sectioned={section !== undefined}>
@@ -492,8 +490,6 @@ export function SettingsPane({
       />
       </>
       ) : null}
-
-
     </View>
   );
 }
