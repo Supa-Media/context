@@ -49,7 +49,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-const strip = (text: string | null | undefined): string => (text ?? "").replace(/[⁦-⁩]/g, "");
+const strip = (text: string | null | undefined): string => (text ?? "").replace(/[\u2066-\u2069]/g, "");
 
 const entry = (kind: "file" | "folder", path: string): FileEntry => ({
   kind,
