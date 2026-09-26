@@ -9,6 +9,7 @@
  *   /<path>          -> a website page, with one-segment legacy short links
  *                       resolved by the app only when no page owns the path
  *   /_expo/...       -> the web bundle, identical for every host
+ *   /_site/page      -> one page's answer for the app (`sitePages.ts`)
  *   /icon.png, ...   -> the handful of static files the page itself loads
  *   /robots.txt      -> "Disallow: /", because nothing here is indexed
  *   everything else  -> 404, without asking anybody
@@ -57,6 +58,7 @@ const STATIC_FILE =
 const RESERVED_FIRST_SEGMENTS = new Set([
   ".well-known",
   "_expo",
+  "_site",
   "api",
   "assets",
   "auth",

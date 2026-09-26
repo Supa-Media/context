@@ -8,9 +8,8 @@
  * resolves an upstream to a real origin, validates that configuration, and
  * turns a decision into an actual Response.
  */
-import { previewForNote,
-  previewForShortLink, previewForShare, renderPreviewHtml,
-  SHORT_CARD_PREFIX } from "./preview";
+import { previewForNote, previewForShortLink, previewForShare, renderPreviewHtml, SHORT_CARD_PREFIX } from "./preview";
+import { isSitePageRequest, sitePageResponse } from "./sitePages"; // any site's page, kept per Publish
 import { route, type RouteDecision, type Upstream } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
@@ -76,6 +75,7 @@ export default {
     if (!isPlatformHost(url.hostname)) {
       return await siteResponse(request, url, env, ctx, respond);
     }
+    if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
     const decision = route(url, request.headers.get("User-Agent"));
     if (decision.kind === "proxy" && decision.upstream === "expo" && isHomeDocument(request, url)) {
       return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx);

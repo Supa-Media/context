@@ -13,14 +13,16 @@ import {
   websiteRouteLookupKey,
   type ResolvedWebsiteAddress,
 } from "@context/shared";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
 import { shortLinkSlugFrom } from "../shareSlug";
 import {
   normalizedHandle,
   normalizedRoutePath,
-  resolveWebsitePageHandler,
+  resolveWebsitePageAs,
 } from "./resolver";
 
 export type WebsiteAddressPlan =
@@ -135,13 +137,27 @@ export async function resolveWebsiteAddressHandler(
   ctx: ActionCtx,
   args: { handle: string; routePath: string; legacySlug?: string },
 ): Promise<ResolvedWebsiteAddress> {
+  const actorUserId = (await getAuthUserId(ctx)) as Id<"users"> | null;
+  return await resolveWebsiteAddressAs(ctx, args, actorUserId);
+}
+
+/**
+ * The same resolution for a stated viewer. The router's edge copy
+ * (`publicRoutes/sitePage.ts`) passes `null`, so what it keeps is what an
+ * anonymous visitor is shown, whatever arrived with the request.
+ */
+export async function resolveWebsiteAddressAs(
+  ctx: ActionCtx,
+  args: { handle: string; routePath: string; legacySlug?: string },
+  actorUserId: Id<"users"> | null,
+): Promise<ResolvedWebsiteAddress> {
   const plan = await ctx.runQuery(
     internal.functions.websites.websiteAddressPlan,
     args,
   );
   const pageArgs = { handle: args.handle, routePath: args.routePath };
   if (plan.kind === "website") {
-    return await resolveWebsitePageHandler(ctx, pageArgs);
+    return await resolveWebsitePageAs(ctx, pageArgs, actorUserId);
   }
   if (plan.kind === "legacy_short_link") {
     const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
@@ -150,5 +166,5 @@ export async function resolveWebsiteAddressHandler(
     });
     if (token !== null) return plan;
   }
-  return await resolveWebsitePageHandler(ctx, pageArgs);
+  return await resolveWebsitePageAs(ctx, pageArgs, actorUserId);
 }
