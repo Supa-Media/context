@@ -152,6 +152,13 @@ export {
   type WebsitePageSource,
 } from "./websiteMetadata";
 export {
+  MAX_REFERENCED_WEBSITE_NOTES,
+  isWebsiteRootKey,
+  referencedWebsiteKey,
+  websiteFolderPath,
+  websiteFolderReference,
+} from "./websiteFolders";
+export {
   WEBSITE_CONTRACT_VERSION,
   WEBSITE_STARTER_MARKDOWN,
   summarizeWebsiteRoutes,

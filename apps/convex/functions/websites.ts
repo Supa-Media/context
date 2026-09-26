@@ -133,6 +133,15 @@ const resolutionPlanValidator = v.union(
     releaseFallback: v.boolean(),
     releaseId: v.optional(v.string()),
     releasePageId: v.optional(v.string()),
+    folderPages: v.optional(
+      v.array(
+        v.object({
+          routePath: v.string(),
+          title: v.string(),
+          description: v.union(v.string(), v.null()),
+        }),
+      ),
+    ),
   }),
 );
 const linkCatalogValidator = v.object({
@@ -190,6 +199,8 @@ export const homeSiteWorkspace = internalQuery({
       pages: v.array(
         v.object({
           objectKey: v.string(),
+          routePath: v.string(),
+          description: v.union(v.string(), v.null()),
           sourceEtag: v.string(),
           releaseId: v.optional(v.string()),
           releasePageId: v.optional(v.string()),

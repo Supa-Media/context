@@ -253,6 +253,26 @@ describe("the live site is website/, as its folders", () => {
     expect(tree.defaultExpanded).toEqual(["03-Legal"]);
   });
 
+  test("a page that names a folder opens it, with the notes it published inside", () => {
+    // The snapshot sends `website/features.md` as `features/index.md` when it
+    // names a folder, so the sidebar draws Features as the folder it is.
+    const { tree, paths } = liveHomeTree([
+      { path: "index.md", routePath: "/", title: "Home", markdown: "# Home" },
+      { path: "features/index.md", routePath: "/features", title: "Features", markdown: "# Features" },
+      { path: "features/forms.md", routePath: "/features/forms", title: "Forms", markdown: "# Forms" },
+    ]);
+    expect(tree.listings[""]!.entries.map((entry) => [entry.path, entry.kind])).toEqual([
+      ["01-Home.md", "file"],
+      ["02-features", "folder"],
+    ]);
+    expect(tree.listings["02-features"]!.entries.map((entry) => entry.path)).toEqual([
+      "02-features/01-Features.md",
+      "02-features/02-Forms.md",
+    ]);
+    expect(paths.get("/features")).toBe("02-features/01-Features.md");
+    expect(paths.get("/features/forms")).toBe("02-features/02-Forms.md");
+  });
+
   test("nothing is added that the folder does not hold", () => {
     const { pages } = liveHomeTree(site);
     expect([...pages.values()].map((page) => page.routePath).sort()).toEqual(

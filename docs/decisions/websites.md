@@ -414,3 +414,44 @@ name publishes every emoji the workspace has. Reading names inside code
 publishes pictures the page does not show. `apps/convex/__tests__/websiteEmoji.test.ts`,
 `apps/mobile/__tests__/websiteEmoji.test.ts` and `infra/router/src/homeSite.test.ts`
 fail if either comes back, or if a non-inline picture gets through.
+
+## A website page can name a folder, and the folder narrows
+
+Decided by the owner, 2026-09-26, so notes kept for their own sake (a
+`features/` folder of guides) can also be the site without being copied into
+`website/`. A page of the site's own whose frontmatter says `folder: features`
+publishes the notes in `features/` under its address: `website/features.md`
+puts `features/forms.md` at `/features/forms`, and `features/guides/tables.md`
+at `/features/guides/tables`. The page lists them under its own words, by
+title and description, and on the homepage it opens as that folder in the
+sidebar, with its notes inside. Every site gets this, not only the homepage.
+
+A referenced note is an ordinary route row keyed by its real path
+(`lib/websites/folders.ts`), so everything already true of a page is true of
+it: it is listed and read at `team` scope with no granted names, re-read at
+that clearance on every visit, served from the release when edited, dropped
+the moment it restricts, and edits wait for Publish. Where the route compiler
+needs a key inside `website/`, it gets the one the address implies
+(`routeStatusKey`). So a folder **narrows** exactly as a folder link does: a
+note `privacy.md` holds back by name, a private subfolder and a note pointed at
+a group are absent, and a folder `privacy.md` keeps private publishes nothing.
+Frontmatter still only narrows; `folder:` chooses *which* notes are
+candidates, never whether one publishes.
+
+What no page may name: the whole context (empty, `/`), `website/` or anything
+under it (already the site), anything with a segment starting with `.`
+(`.context/`, `..`), and anything ambiguous (a backslash, `%`, `?`, `#`, a
+control character). Only the site's own live pages name folders: a draft
+folder page publishes nothing of its folder, and a note a folder published
+cannot name another. A page of the site's own outranks a referenced note at
+the same address, and a note the compiler refuses is left off rather than
+reported, so one stray note never stops Publish. At most 300 notes join a site
+this way. The probe that serves an address the index has not caught up with
+still looks only in `website/`, so a referenced note is absent until the
+next rebuild, never early.
+
+**What a simplification costs.** Reading the folder at the owner's clearance
+publishes their private notes. Copying the notes into `website/` makes two
+sources that drift. Accepting `folder: /` makes the whole context one
+setting away from public, which non-negotiable #5 forbids.
+`apps/convex/__tests__/websiteFolders.test.ts` fails if any of these comes back.
