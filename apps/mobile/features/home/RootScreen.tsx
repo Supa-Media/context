@@ -3,7 +3,7 @@ import { Redirect } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { resolveRootRoute } from "../auth/redirect";
 import { useRememberedContexts } from "../offline/useRememberedContexts";
-import { Landing } from "./Landing";
+import { HomeShell } from "./HomeShell";
 
 /**
  * What `/` is.
@@ -25,5 +25,5 @@ export function RootScreen() {
   const decision = resolveRootRoute(useConvexAuth(), Platform.OS === "web", rememberedSession);
   if (decision.action === "wait") return null;
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
-  return <Landing />;
+  return <HomeShell />;
 }

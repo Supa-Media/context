@@ -42,7 +42,16 @@ export type Inline =
   | { kind: "code"; text: string }
   | { kind: "strike"; text: string }
   /** `href` is already vetted by `safeHref`; a rejected one arrives as `text`. */
-  | { kind: "link"; text: string; href: string };
+  | { kind: "link"; text: string; href: string }
+  /**
+   * A link whose whole label is one `<kbd>…</kbd>`: `[<kbd>Start</kbd>](/login)`.
+   * The GitHub-flavoured way to draw a button in Markdown, since `<kbd>` is the
+   * one tag GitHub and Obsidian both render with a box around it. Vetted
+   * exactly as a link is; only the look differs.
+   */
+  | { kind: "button"; text: string; href: string }
+  /** `<kbd>⌘K</kbd>` on its own: a key, drawn in a box. Never markup. */
+  | { kind: "kbd"; text: string };
 
 export type Block =
   | { kind: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; content: Inline[] }
@@ -156,12 +165,14 @@ export function parseInline(source: string): Inline[] {
       // Editors often store an autolinked domain without its scheme
       // (`[supa.media](supa.media)`); that is the site, not a relative path.
       const href = safeHref(link.target) ?? bareSiteHref(link.target) ?? sitePathHref(link.target);
+      const key = KBD_WHOLE.exec(link.label.trim());
+      const label = key === null ? link.label : key[1].trim();
       // A rejected scheme becomes the label as plain text — never a link, and
       // never silently dropped, because the words were part of the sentence.
       out.push(
         href === null
-          ? { kind: "text", text: link.label }
-          : { kind: "link", text: link.label, href },
+          ? { kind: "text", text: label }
+          : { kind: key === null ? "link" : "button", text: label, href },
       );
       i += link.length;
       continue;
@@ -175,6 +186,16 @@ export function parseInline(source: string): Inline[] {
       flush();
       out.push({ kind: "text", text: wiki[2] ?? wiki[1] });
       i += wiki[0].length;
+      continue;
+    }
+
+    // Only the tag's own name, and only around plain words: anything else
+    // between the angle brackets stays text, like every other tag here.
+    const kbd = KBD_AT.exec(rest);
+    if (kbd && kbd[1].trim() !== "") {
+      flush();
+      out.push({ kind: "kbd", text: kbd[1].trim() });
+      i += kbd[0].length;
       continue;
     }
 
@@ -224,6 +245,11 @@ export function parseInline(source: string): Inline[] {
   flush();
   return out;
 }
+
+/** `<kbd>words</kbd>`, case-insensitive, with nothing but text inside. */
+const KBD_AT = /^<kbd>([^<>\n]+)<\/kbd>/i;
+/** A link label that is one `<kbd>` and nothing else. */
+const KBD_WHOLE = /^<kbd>([^<>\n]+)<\/kbd>$/i;
 
 const URL_RUN = /^(?:https?:\/\/|www\.)[^\s<>()]+/i;
 const BARE_DOMAIN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.([a-z]{2,24})(?:\/[^\s<>()]*)?/;

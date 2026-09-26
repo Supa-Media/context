@@ -95,7 +95,7 @@ jest.mock("expo-router", () => ({
 }));
 
 import { ConvexProvider } from "convex/react";
-import { RootScreen } from "../features/landing/RootScreen";
+import { RootScreen } from "../features/home/RootScreen";
 import { useLiveConsoleData } from "../features/console/useLiveConsoleData";
 import { landingStep } from "../features/console/lastPlace";
 import * as cache from "../features/offline/cache";

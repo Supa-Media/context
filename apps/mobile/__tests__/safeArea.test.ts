@@ -219,12 +219,12 @@ const ROUTES: Record<string, Coverage> = {
   "_layout.tsx": { kind: "shell" },
 
   /*
-    The route module, not `Landing` — jest renders through react-native-web, so
-    `resolveRootRoute` answers "render" here exactly as a browser would, and the
-    landing page is what this mounts. On a phone the same route redirects and
-    paints nothing; that half is `authRedirect.test.ts`'s.
+    The homepage is the app's own frame on a read-only workspace
+    (`features/home/HomeShell.tsx`), so it reaches the glass through `AppFrame`
+    like the console and is covered by the same region tests. On a phone the
+    route redirects and paints nothing; that half is `authRedirect.test.ts`'s.
   */
-  "index.tsx": { kind: "screen", mount: () => createElement(requireRoute("index.tsx")) },
+  "index.tsx": { kind: "framed" },
   "privacy.tsx": { kind: "screen", mount: () => createElement(requireRoute("privacy.tsx")) },
   "terms.tsx": { kind: "screen", mount: () => createElement(requireRoute("terms.tsx")) },
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
