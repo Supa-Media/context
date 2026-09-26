@@ -61,6 +61,7 @@ type CreateAndMoveDeps =
     | "dispatch"
     | "drawLocally"
     | "nextToastId"
+    | "noteRenamed"
     | "selectedPathRef"
     | "setExpanded"
     | "setNotice"
@@ -76,7 +77,7 @@ type CreateAndMoveDeps =
 export function useCreateAndMove(deps: CreateAndMoveDeps) {
   const {
     options, autosave, createDirectory, deviceEtag, dispatch, drawLocally, isFolderPath, listings,
-    listingsRef, moveEntry, nextToastId, offlineRef, queuedToast, refresh, reportRefreshFailure,
+    listingsRef, moveEntry, nextToastId, noteRenamed, offlineRef, queuedToast, refresh, reportRefreshFailure,
     run, select, selectedPathRef, setExpanded, setNotice, setSelectedPath, setToasts, viaQueue,
     workspaceId, writeNote,
   } = deps;
@@ -183,13 +184,17 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
           return;
         }
         const followed = selectedPathRef.current === path;
+        // Its tab follows it — see `FileBrowser.renamed` — before the editor
+        // does, so the strip never holds a tab for a path nothing has.
+        noteRenamed(path, to);
         if (followed) select(to);
         queuedToast(`${message} Waiting to sync.`, queued.undo, () => {
+          noteRenamed(to, path);
           if (selectedPathRef.current === to) select(path);
         });
       })();
     },
-    [autosave, deviceEtag, isFolderPath, options.canEdit, queuedToast, select],
+    [autosave, deviceEtag, isFolderPath, noteRenamed, options.canEdit, queuedToast, select],
   );
 
   /** Delete (to the trash) or archive a note through the queue. */

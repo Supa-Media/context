@@ -77,3 +77,15 @@ export interface ContextMoveProgress {
   skipped: readonly { path: string; reason: "encrypted" }[];
   error?: string;
 }
+
+/**
+ * A note this console renamed: `from` is where it was, `to` where it is now.
+ *
+ * A new `id` per rename, so renaming a note back — an undo — is a change the
+ * tab strip sees rather than a value equal to one it has already followed.
+ */
+export interface NoteRename {
+  id: number;
+  from: string;
+  to: string;
+}
