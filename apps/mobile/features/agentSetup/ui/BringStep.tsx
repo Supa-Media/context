@@ -148,8 +148,7 @@ export function BringStep({
             ) : (
               <P>
                 ChatGPT only remembers past chats when <MenuPath parts={["Settings", "Personalization", "Memory"]} />{" "}
-                is on, and chats in developer mode may not use memory. Tell it about your work in a chat with Context
-                on, and it saves what matters here as you go.
+                is on. Tell it about your work in a chat with Context on, and it saves what matters here as you go.
               </P>
             )}
           </>
@@ -223,8 +222,7 @@ export function BringStep({
           </>
         ) : (
           <>
-            Open a new chat, switch Context on (<B>+</B> › <B>More</B> › <B>Developer mode</B> › <B>Context</B>) and
-            paste the prompt. ChatGPT asks before each note. Press <B>Confirm</B>.
+            Open a new chat, switch Context on from <B>+</B> under the message box, and paste the prompt. ChatGPT asks before each note. Press <B>Confirm</B>.
           </>
         )}
       </P>
@@ -263,7 +261,7 @@ function tipsFor(agent: SetupAgent, kind: "stalled-nothing" | "stalled-no-write"
       </>
     ) : (
       <>
-        Check Context is on: <B>+</B> › <B>More</B> › <B>Developer mode</B> › <B>Context</B>.
+        Check Context is on: <B>+</B> under the message box, then <B>Context</B>.
       </>
     );
   if (kind === "stalled-no-write") {

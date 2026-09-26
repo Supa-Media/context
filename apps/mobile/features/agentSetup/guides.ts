@@ -13,7 +13,7 @@
 
 export type SetupAgent = "claude" | "chatgpt";
 
-export type StepKey = "open" | "add" | "devmode" | "create" | "signin" | "allow" | "stick" | "bring";
+export type StepKey = "open" | "add" | "create" | "signin" | "allow" | "stick" | "bring";
 
 export const SETUP_AGENTS: readonly SetupAgent[] = ["claude", "chatgpt"];
 
@@ -24,7 +24,7 @@ export const AGENT_NAMES: Record<SetupAgent, string> = {
 
 export const GUIDE_STEPS: Record<SetupAgent, readonly StepKey[]> = {
   claude: ["open", "add", "signin", "allow", "stick", "bring"],
-  chatgpt: ["devmode", "create", "signin", "stick", "bring"],
+  chatgpt: ["create", "signin", "stick", "bring"],
 };
 
 /**
@@ -32,8 +32,9 @@ export const GUIDE_STEPS: Record<SetupAgent, readonly StepKey[]> = {
  *
  * Claude's settings link is the one `console/clients/providers.ts` hands
  * out, so the guide and Settings send somebody to the same form. ChatGPT's
- * opens its settings rather than the create form, because developer mode has
- * to be switched on there first and the create form does not exist until it is.
+ * opens its settings, where Create app sits. It used to need developer mode
+ * switched on first; ChatGPT dropped that (owner, 2026-09-26), and so did the
+ * guide's step for it.
  * `chat` is where "Copy and open" goes: a new chat, for the bring-over prompt.
  */
 export const AGENT_LINKS: Record<SetupAgent, { settings: string; label: string; chat: string }> = {
@@ -54,8 +55,8 @@ export const AGENT_LINKS: Record<SetupAgent, { settings: string; label: string; 
  * groups are set to Always allow, which makes "check Context first" a stream
  * of prompts. The connector's own page has no stable address (it is keyed by
  * an id Claude assigns), so the link opens the list and Context is one press
- * from there. ChatGPT has no equivalent: developer mode confirms each write,
- * and there is no setting to turn that off.
+ * from there. ChatGPT has no equivalent: it confirms each write, and there is
+ * no setting to turn that off.
  */
 export const CLAUDE_ALLOW_LINK = "https://claude.ai/customize/connectors";
 

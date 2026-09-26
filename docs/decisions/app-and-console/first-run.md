@@ -77,7 +77,7 @@ artboards on 2026-09-25 and decided three things:
   owner's request). Out of the box Claude asks before every Context tool call,
   which turns "check Context first" into a stream of prompts, so the guide has
   people set both tool groups on the connector to Always allow. ChatGPT has no
-  such setting (developer mode confirms each write), so its guide has no such
+  such setting (it confirms each write), so its guide has no such
   step. Where a step names a settings page, it also has a button that opens it:
   Claude's instructions field is Settings › Account › "Instructions for
   Claude".

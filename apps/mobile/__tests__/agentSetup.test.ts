@@ -59,7 +59,7 @@ describe("the steps", () => {
     // Claude alone asks before every tool call until told not to; ChatGPT has
     // no setting for it, so it has no "allow" step.
     expect(GUIDE_STEPS.claude).toEqual(["open", "add", "signin", "allow", "stick", "bring"]);
-    expect(GUIDE_STEPS.chatgpt).toEqual(["devmode", "create", "signin", "stick", "bring"]);
+    expect(GUIDE_STEPS.chatgpt).toEqual(["create", "signin", "stick", "bring"]);
   });
 
   test("the query names an agent we wrote, or nothing", () => {
@@ -175,7 +175,7 @@ describe("when the guide moves on", () => {
     expect(openingStep("claude", progress({ step: 0 }), [claudeGrant()])).toBe(3);
     expect(openingStep("claude", progress({ step: 0 }), [])).toBe(0);
     expect(openingStep("claude", progress({ step: 4 }), [claudeGrant()])).toBe(4);
-    expect(openingStep("chatgpt", progress({ finished: true }), [gptGrant()])).toBe(4);
+    expect(openingStep("chatgpt", progress({ finished: true }), [gptGrant()])).toBe(3);
   });
 
   test("bring: pick, then live, then done when Getting started arrives", () => {
