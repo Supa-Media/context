@@ -59,11 +59,8 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 }));
 
 jest.mock("convex/react", () => ({
-  // An owner picker searches through the client; nothing here opens one.
-  useConvex: () => ({ query: async () => undefined }),
-  useAction: () => async () => {
-    throw new Error("not used in this test");
-  },
+  useConvex: () => ({ query: async () => undefined }), // for an owner picker, which nothing here opens
+  useAction: () => async () => Promise.reject(new Error("not used in this test")),
 }));
 
 jest.mock("react-native-safe-area-context", () => ({
