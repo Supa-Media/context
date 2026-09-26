@@ -271,7 +271,7 @@ describe("a folder gets a link too", () => {
     // this passes by only ever exercising one of them.
     expect(returned.has("0-inbox/sessions")).toBe(true);
     expect([...returned].some((folder) => folder.endsWith("/chat-history"))).toBe(true);
-    // And the preset default is the case that was broken: `company` ships
+    // And the preset default is the case that was broken: `business` ships
     // `5-archive`, and its sessions went to `0-inbox/sessions` because the
     // resolver was looking for a `4-archive` that layout never had.
     expect(returned.has("5-archive/chat-history")).toBe(true);
@@ -317,7 +317,7 @@ describe("a folder gets a link too", () => {
    *
    * #203 falsified that premise. `apps/mobile/features/workspace/presets.ts`
    * ships two fixed folder lists, `templateFor` sends them down the **custom**
-   * path, and `DEFAULT_PRESET` is `company` — so they are what a workspace gets
+   * path, and `DEFAULT_PRESET` is `business` (then `company`) — so they are what a workspace gets
    * when nobody chooses. `2-teams`, `3-handbook`, `4-customers`, `5-archive`,
    * `1-clients`, `2-pipeline` and `3-practice` are now names this product
    * writes, at addresses anybody who knows a handle can type.
