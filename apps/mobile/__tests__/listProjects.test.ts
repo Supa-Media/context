@@ -171,6 +171,6 @@ describe("the words a grouped list uses", () => {
   });
 
   test("a group value is contained, since it is somebody's frontmatter", () => {
-    expect(groupLabel("status", "‮evil")).not.toBe("‮evil");
+    expect(groupLabel("status", "\u202Eevil")).not.toBe("\u202Eevil");
   });
 });
