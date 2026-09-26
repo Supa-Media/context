@@ -170,7 +170,7 @@ describe("what this app leaves on the device", () => {
 
   test("and the verdict counts each one, so a store that only pretends is caught", async () => {
     /*
-      The half row 585 actually failed. The delete and the count are built from
+      The half that actually went wrong. The delete and the count are built from
       the same list of predicates, so a namespace missing from it is invisible
       twice over: nothing removes the record, and the verification reports
       `cleared` across it. Deleting is therefore not enough to prove here —
