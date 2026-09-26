@@ -53,6 +53,8 @@ import { emptyEditor } from "../features/console/files/editor";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
+import { layout } from "../features/design/tokens";
+import { noteColumnWidth } from "../features/app/frame";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -61,9 +63,9 @@ afterEach(() => {
 });
 
 /** A desktop window: wide enough that `densityFor` is not `compact`. */
-function desktopWidth(): void {
+function desktopWidth(width = 1440): void {
   Object.defineProperty(document.documentElement, "clientWidth", {
-    value: 1440,
+    value: width,
     configurable: true,
   });
   Object.defineProperty(document.documentElement, "clientHeight", {
@@ -75,8 +77,8 @@ function desktopWidth(): void {
   });
 }
 
-function mount(element: ReturnType<typeof createElement>): HTMLElement {
-  desktopWidth();
+function mount(element: ReturnType<typeof createElement>, width = 1440): HTMLElement {
+  desktopWidth(width);
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -232,3 +234,64 @@ describe("the document region on a pointer layout", () => {
     expect(scroller(container)).toBeNull();
   });
 });
+
+/*
+  The communications pages (Inbox, a channel, a channel's day, a contact) are
+  documents in this region like a folder listing, so they take the same page:
+  on a phone, where the scroller runs full-bleed, the reading margin; on a
+  pointer layout, the note's measure, centred. They were mounted bare, and the
+  Inbox's title and rows sat on the edge of the glass.
+*/
+const INBOX_LISTING: FolderListing = {
+  path: "0-inbox",
+  folderDefault: "private",
+  entries: [
+    {
+      kind: "folder",
+      path: "0-inbox/meetings",
+      name: "meetings",
+      visibility: "private",
+      inherited: "private",
+      exception: false,
+      readOnly: false,
+    },
+  ],
+  truncated: false,
+  manifestUsable: true,
+};
+
+function inboxAt(width: number): HTMLElement {
+  return mount(
+    createElement(BrowsePane, {
+      data: consoleWith({ selectedPath: "0-inbox", listings: { "0-inbox": INBOX_LISTING } } as Partial<FileBrowser>),
+    }),
+    width,
+  );
+}
+
+const px = (node: Element, property: string) => Number.parseFloat(window.getComputedStyle(node).getPropertyValue(property));
+
+describe("a communications page is laid out like any other document", () => {
+  test("on a phone it has the reading margin a folder listing has", () => {
+    const page = inboxAt(375).querySelector('[data-testid="document-page"]');
+    expect(page).not.toBeNull();
+    expect(px(page!, "padding-left")).toBe(layout.readingMargin);
+    expect(px(page!, "padding-right")).toBe(layout.readingMargin);
+    expect(page!.textContent).toContain("Inbox");
+  });
+
+  test("...and exactly the margin the folder listing uses, from the same place", () => {
+    const folder = mount(createElement(BrowsePane, { data: consoleWith({}) }), 375);
+    const folderPage = folder.querySelector('[data-testid="folder-column"]')!.parentElement!;
+    const inboxPage = inboxAt(375).querySelector('[data-testid="document-page"]')!;
+    expect(px(inboxPage, "padding-left")).toBe(px(folderPage, "padding-left"));
+  });
+
+  test("on a pointer layout it sits in the note's measure, centred", () => {
+    const column = inboxAt(1440).querySelector('[data-testid="document-column"]');
+    expect(column).not.toBeNull();
+    expect(px(column!, "max-width")).toBe(noteColumnWidth);
+    expect(column!.textContent).toContain("Inbox");
+  });
+});
+

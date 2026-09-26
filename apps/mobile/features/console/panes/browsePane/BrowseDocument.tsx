@@ -13,6 +13,7 @@ import { ChannelDayView } from "../../communications/ChannelDayView";
 import { ChannelView } from "../../communications/ChannelView";
 import { ContactPageView } from "../../communications/ContactPageView";
 import { InboxView } from "../../communications/InboxView";
+import { DocumentPage } from "./DocumentPage";
 import { MAIL_CONNECT_ENABLED } from "../../communications/flags";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
@@ -220,27 +221,34 @@ export function BrowseDocument({
         folder view would fetch, never a written rollup. See
         `docs/decisions/communications.md`.
       */
-      <InboxView files={files} onOpen={files.select} mailConnectEnabled={MAIL_CONNECT_ENABLED} />
+      <DocumentPage>
+        <InboxView files={files} onOpen={files.select} mailConnectEnabled={MAIL_CONNECT_ENABLED} />
+      </DocumentPage>
     ) : commsRoute?.kind === "channel" ? (
-      <ChannelView
-        channel={commsRoute.channel}
-        account={commsRoute.account}
-        path={selected.path}
-        files={files}
-        onOpen={files.select}
-      />
+      <DocumentPage>
+        <ChannelView
+          channel={commsRoute.channel}
+          account={commsRoute.account}
+          path={selected.path}
+          files={files}
+          onOpen={files.select}
+        />
+      </DocumentPage>
     ) : commsRoute?.kind === "channel-day" ? (
-      <ChannelDayView
-        key={selected.path}
-        channel={commsRoute.channel}
-        account={commsRoute.account}
-        date={commsRoute.date}
-        path={selected.path}
-        files={files}
-        anchor={anchor}
-      />
+      <DocumentPage key={selected.path}>
+        <ChannelDayView
+          channel={commsRoute.channel}
+          account={commsRoute.account}
+          date={commsRoute.date}
+          path={selected.path}
+          files={files}
+          anchor={anchor}
+        />
+      </DocumentPage>
     ) : commsRoute?.kind === "contact" ? (
-      <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
+      <DocumentPage>
+        <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
+      </DocumentPage>
     ) : selected.kind === "folder" ? (
       <FolderView
         entry={selected}

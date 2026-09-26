@@ -85,9 +85,10 @@
 import { Fragment, useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { densityFor, noteColumnWidth } from "../../app/frame";
+import { densityFor } from "../../app/frame";
+import { documentMargin } from "../panes/browsePane/DocumentPage";
 import type { DragModifier } from "./dnd";
 import { FolderPage, type FolderPageHost } from "./folderPage/FolderPage";
 import { FolderRow } from "./FolderRow";
@@ -458,7 +459,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     a background set here stops where the rows do and leaves a seam across the
     middle of the screen. See that scroller's own note.
   */
-  folderCompact: { paddingHorizontal: layout.readingMargin },
+  folderCompact: documentMargin.compact,
   /**
    * The document column: the note's measure, centred in what is left.
    *
@@ -466,7 +467,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * the page's own parts; `folder` is the region behind it, and its only job
    * now is to be the thing a right-click lands on. See the render.
    */
-  column: { gap: space.x2, width: "100%", maxWidth: noteColumnWidth, alignSelf: "center" },
+  column: { ...documentMargin.column, gap: space.x2 },
   rule: { color: colors.muted },
 
   /**
