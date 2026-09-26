@@ -37,13 +37,14 @@ import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js
 import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
+import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
 
 export async function toolWriteNote(store, scope, rules, overrides, args, options = {}) {
   const path = normalizePath(args.path);
-  const content = args.content;
+  let content = args.content;
   const expectedEtag = args.expected_etag;
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
   if (typeof content !== "string") return toolError("content must be a string");
@@ -262,6 +263,19 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
         "Nothing was written; decrypt it with set_encryption first if they want it published."
     );
   }
+  /*
+   * ATTACHED IMAGES, AFTER EVERY PERMISSION CHECK AND BEFORE THE NOTE.
+   *
+   * Fetched and stored only once the caller is known to be allowed to write
+   * here, so a refused write never made the gateway fetch anything or put
+   * anything in the bucket. An encrypted note refuses them outright, as a paste
+   * in the app does: its text is sealed and an image's bytes would not be.
+   * Objects first, then the line — see `notes/uploadedImages.js`.
+   */
+  const attached = await prepareAttachedImages(path, content, args.images, storedBody);
+  if (attached.error) return toolError(attached.error);
+  content = attached.content;
+  if (attached.images.length) await storeNoteImages(store, attached.images);
   const collaborationEligibleExisting = Boolean(
     existing && collaborationSupported(store) && collaborationEligible(path, storedBody),
   );
@@ -432,7 +446,23 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       (publishedForLink
         ? " (published to this workspace so the link can open it; the answers note keeps its own visibility)"
         : "") +
+      (attached.images.length
+        ? `\n${attached.images.map((image) => `image stored: ${image.name} → ${image.leaf}`).join("\n")}`
+        : "") +
       (formLines.length ? `\n${formLines.join("\n")}` : "") +
       (shareLines.length ? `\n${shareLines.join("\n")}` : "")
   );
+}
+
+async function prepareAttachedImages(path, content, images, storedBody) {
+  if (images === undefined) return { content, images: [] };
+  if (isDrawingPath(path)) return { error: "images cannot be attached to a drawing; embed the drawing in a note instead" };
+  if (storedBody !== null && isEncryptedNote(storedBody)) {
+    return {
+      error:
+        "this note is encrypted, and an attached image would be stored in the clear beside it. " +
+        "Nothing was written; attach the image to a note that is not encrypted.",
+    };
+  }
+  return prepareNoteImages(content, images);
 }

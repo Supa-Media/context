@@ -147,6 +147,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
+- [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 
 ## [Markdown forms](./forms.md)
 
