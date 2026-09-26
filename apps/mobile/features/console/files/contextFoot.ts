@@ -38,7 +38,7 @@
 import { describeIndexProgress, type FastSearchStatus } from "../search/fastSearch";
 import { footLabel } from "../activity/activity";
 import { storagePillLabel } from "../storage/pill";
-import { isFolderPlaceholder } from "./paths";
+import { isUnlistedFile } from "./paths";
 import type { ConsoleStorage } from "../types";
 import type { FolderListing } from "./types";
 
@@ -65,11 +65,11 @@ export function loadedCounts(listings: Listings): string {
   let folders = 0;
   for (const listing of Object.values(listings)) {
     for (const entry of listing?.entries ?? []) {
-      // A folder's placeholder is not a note, and this line is read against the
+      // A folder's placeholder (or `privacy.md`) is not a note, and this line is read against the
       // rows on screen: the tree and the folder page both drop it
       // (`listedEntries`), so counting it here would print one more note than
       // anybody can find.
-      if (entry.kind === "file" && isFolderPlaceholder(entry.path)) continue;
+      if (entry.kind === "file" && isUnlistedFile(entry.path)) continue;
       if (entry.kind === "folder") folders += 1;
       else notes += 1;
     }

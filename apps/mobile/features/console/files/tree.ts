@@ -36,7 +36,7 @@
  * the whole sentence out. What is dropped is a label, not a control.
  */
 
-import { baseName, displayName, isFolderPlaceholder, isMarkdown } from "./paths";
+import { baseName, displayName, isMarkdown, isUnlistedFile } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
 export interface TreeRow {
@@ -185,7 +185,8 @@ export function orderedEntries(
  * you are. It goes back to being unlisted when you leave it.
  *
  * The filter is by name, not by contents — `isFolderPlaceholder` says why, and
- * what that costs.
+ * what that costs. `privacy.md` is dropped by the same rule
+ * (`isPrivacyManifest`).
  */
 export function listedEntries(
   entries: readonly FileEntry[],
@@ -199,7 +200,7 @@ export function listedEntries(
     // instead of merely unlisted, which is the one outcome this rule promises
     // never to produce.
     (entry) =>
-      entry.kind !== "file" || entry.path === keep || !isFolderPlaceholder(entry.path),
+      entry.kind !== "file" || entry.path === keep || !isUnlistedFile(entry.path),
   );
   return orderedEntries(listed, options.descending ?? false);
 }
