@@ -40,7 +40,9 @@ import {
  * checkout charges. They hold the pages, which ship in the app.
  */
 
-const SHELL = readFileSync(join(__dirname, "../features/home/HomeShell.tsx"), "utf8");
+const SHELL = ["HomeShell.tsx", "HomePage.tsx"]
+  .map((file) => readFileSync(join(__dirname, "../features/home", file), "utf8"))
+  .join("\n");
 
 /** Every sentence a visitor can read that ships in this repository. */
 const PROSE: readonly string[] = [
@@ -71,7 +73,7 @@ describe("the built-in pages are website pages", () => {
   });
 
   test("the shell's own shell strings were found, so the rules below read them", () => {
-    expect(PROSE).toContain("This workspace is read only. Make your own to start writing.");
+    expect(PROSE).toContain("Your changes stay in this browser. Reload to see the site again.");
   });
 });
 
@@ -247,6 +249,23 @@ describe("the live site is website/, as its folders", () => {
     );
     expect([...pages.values()]).not.toContain(PRIVATE_PAGE);
   });
+
+  test("a page's file decides its folder, whatever its address", () => {
+    const { tree, paths } = liveHomeTree([
+      { path: "index.md", routePath: "/", title: "Write Notes", markdown: "# Write Notes" },
+      { path: "Guides/start/index.md", routePath: "/Guides/start", title: "Start", markdown: "# Start" },
+      { path: "untitled-2026-09-26.md", routePath: "/untitled-2026-09-26", title: "untitled-2026-09-26", markdown: "" },
+    ]);
+    expect(tree.listings[""]!.entries.map((entry) => entry.path)).toEqual([
+      "01-Write Notes.md",
+      "02-Guides",
+      "03-untitled-2026-09-26.md",
+    ]);
+    expect(tree.listings["02-Guides/01-start"]!.entries.map((entry) => entry.path)).toEqual([
+      "02-Guides/01-start/01-Start.md",
+    ]);
+    expect(paths.get("/Guides/start")).toBe("02-Guides/01-start/01-Start.md");
+  });
 });
 
 describe("a visit decides once between the site and the copy", () => {
@@ -267,6 +286,19 @@ describe("a visit decides once between the site and the copy", () => {
   test("the site in the HTML is the first paint", () => {
     const injected = injectedHomeSnapshot(element(JSON.stringify(snapshot)));
     expect(initialHomeSource(injected, true)).toEqual({ kind: "live", snapshot });
+  });
+
+  test("each page keeps the file it is, and only a Markdown file", () => {
+    const withPaths = {
+      ...snapshot,
+      pages: [
+        { path: "pricing.md", routePath: "/pricing", title: "Pricing", markdown: "" },
+        { path: "index.md", routePath: "/", title: "Welcome", markdown: "# Welcome" },
+      ],
+    };
+    expect(injectedHomeSnapshot(element(JSON.stringify(withPaths)))).toEqual(withPaths);
+    const notMarkdown = { ...snapshot, pages: [{ ...snapshot.pages[0]!, path: "index.html" }] };
+    expect(injectedHomeSnapshot(element(JSON.stringify(notMarkdown)))).toBeNull();
   });
 
   test("a missing or broken block waits for the site rather than drawing the copy", () => {

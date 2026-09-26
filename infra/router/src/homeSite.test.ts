@@ -29,8 +29,8 @@ const SITE: HomeSnapshot = {
   siteName: "Context",
   revision: "3:3",
   pages: [
-    { routePath: "/", title: "Welcome", markdown: "# Welcome\n" },
-    { routePath: "/Legal/privacy", title: "Privacy", markdown: "We keep little.\n" },
+    { path: "index.md", routePath: "/", title: "Welcome", markdown: "# Welcome\n" },
+    { path: "Legal/privacy.md", routePath: "/Legal/privacy", title: "Privacy", markdown: "We keep little.\n" },
   ],
 };
 
@@ -88,7 +88,7 @@ describe("the homepage's HTML", () => {
     ["an error", () => new Response("no", { status: 500 })],
     ["a site that is off", () => Response.json({ siteName: null, revision: null, pages: null })],
     ["a body that is not JSON", () => new Response("<html>")],
-    ["pages with no home page", () => Response.json({ ...SITE, pages: SITE.pages.slice(1) })],
+    ["a page with no file", () => Response.json({ ...SITE, pages: [{ routePath: "/", title: "x", markdown: "" }] })],
     ["a throw", () => {
       throw new Error("down");
     }],
@@ -104,7 +104,7 @@ describe("the block", () => {
   it("cannot close its own element or open a comment", () => {
     const hostile: HomeSnapshot = {
       ...SITE,
-      pages: [{ routePath: "/", title: "</script><script>alert(1)</script>", markdown: "<!-- x --> & \u2028" }],
+      pages: [{ path: "index.md", routePath: "/", title: "</script><script>alert(1)</script>", markdown: "<!-- x --> & \u2028" }],
     };
     const html = injectHomeSnapshot(HTML, hostile);
     const block = html.slice(html.indexOf(HOME_SITE_ELEMENT_ID));

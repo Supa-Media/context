@@ -16,7 +16,7 @@ export interface HomeSnapshot {
   siteName: string;
   /** The site's revision when it was read, to tell whether it is current. */
   revision: string | null;
-  /** The home page first, then the menu in its order. */
+  /** Every published note in `website/`: `nav:` order first, then by path. */
   pages: HomePage[];
 }
 
@@ -32,9 +32,16 @@ export function parseHomeSnapshot(value: unknown): HomeSnapshot | null {
     const page = raw as Record<string, unknown>;
     if (typeof page.routePath !== "string" || !page.routePath.startsWith("/")) return null;
     if (typeof page.title !== "string" || typeof page.markdown !== "string") return null;
-    pages.push({ routePath: page.routePath, title: page.title, markdown: page.markdown });
+    if (page.path !== undefined && (typeof page.path !== "string" || !/\.md$/i.test(page.path))) return null;
+    pages.push({
+      ...(typeof page.path === "string" ? { path: page.path } : {}),
+      routePath: page.routePath,
+      title: page.title,
+      markdown: page.markdown,
+    });
   }
-  if (pages[0]?.routePath !== "/") return null;
+  // An empty folder is not a homepage; the built-in copy is drawn instead.
+  if (pages.length === 0) return null;
   return { siteName: body.siteName, revision: body.revision, pages };
 }
 

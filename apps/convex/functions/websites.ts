@@ -28,7 +28,7 @@ import {
   siteRevisionHandler,
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
-import { websiteSnapshot } from "./lib/websites/snapshot";
+import { homeSiteWorkspaceHandler, websiteSnapshot } from "./lib/websites/snapshot";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
@@ -159,9 +159,8 @@ export const siteRevision = query({
 });
 
 /**
- * Every page a site's menu lists, as an anonymous visitor is shown them, or
- * `null` when there is no live public home page. The homepage draws its
- * sidebar from this; see `lib/websites/snapshot.ts`.
+ * The homepage's `website/` folder, every note it publishes, or `null` for
+ * any other handle or a site that is off. See `lib/websites/snapshot.ts`.
  */
 export const siteSnapshot = action({
   args: { handle: v.string() },
@@ -170,10 +169,18 @@ export const siteSnapshot = action({
     v.object({
       siteName: v.string(),
       revision: v.union(v.string(), v.null()),
-      pages: v.array(v.object({ routePath: v.string(), title: v.string(), markdown: v.string() })),
+      pages: v.array(
+        v.object({ path: v.string(), routePath: v.string(), title: v.string(), markdown: v.string() }),
+      ),
     }),
   ),
   handler: async (ctx, args) => await websiteSnapshot(ctx, { handle: args.handle }),
+});
+
+export const homeSiteWorkspace = internalQuery({
+  args: { handle: v.string() },
+  returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces"), siteName: v.string() })),
+  handler: homeSiteWorkspaceHandler,
 });
 
 /**

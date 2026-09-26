@@ -247,17 +247,31 @@ _Decided 2026-09-26, by the owner: the homepage's sidebar should be the
 #968, which made the homepage static because the live site used to arrive
 after the built-in copy and replace it._
 
-`/` draws `@context-lc`'s `website/` folder as a read-only workspace: the
-tree is that folder's own folders, each page where its file is, in menu
-order. A page is in it when it is in the site's menu (live, public, with a
-`nav:` number), the same rule as every site's menu, so nothing unlisted
-becomes discoverable. The router asks Convex's `/site/home` while it fetches
-the HTML and puts the answer in the page as an inert JSON block
-(`infra/router/src/homeSite.ts`), so **the first paint is the live site and
-nothing replaces it**. `/site/home` resolves every page through the page
-resolver as an anonymous visitor (`lib/websites/snapshot.ts`), so a note
-`privacy.md` holds back, a draft or a members-only page is absent whatever
-its `nav:` line says.
+`/` draws `@context-lc`'s `website/` folder as a workspace: the tree is that
+folder exactly, its own folders with each note where its file is, `nav:` order
+first and then by path. **Every published note in the folder is listed**,
+titled or not and in the menu or not (decided by the owner the same day: "why
+can't it just be exactly what's in the website folder?"); `nav:` only orders.
+A note without a title is listed by its first heading, else its file name.
+Listing unlisted pages is the homepage owner's choice for their own homepage,
+so `/site/home` answers **only for the home handle** (`HOME_SITE_HANDLE`,
+default `context-lc`) and is null for every other, which would otherwise make
+any site's pages outside its menu enumerable. The router asks Convex's
+`/site/home` while it fetches the HTML and puts the answer in the page as an
+inert JSON block (`infra/router/src/homeSite.ts`), so **the first paint is the
+live site and nothing replaces it**. `/site/home` lists and reads the folder
+at `PUBLICATION_CLEARANCE` (`lib/websites/snapshot.ts`), so a note
+`privacy.md` holds back is absent from the listing itself, and drafts,
+members-only and encrypted notes are dropped as they are on the site.
+
+A visitor can edit it the way they would their own workspace: press Edit on a
+note, make notes and folders, rename, move, copy and delete. **None of it
+leaves the tab** (`apps/mobile/features/home/useLocalFileBrowser.ts`): there is
+no bucket behind that tree, a reload is the site again, and sharing,
+visibility and downloads stay off because each is a claim about a real
+workspace. Until the visitor changes something the tree follows the site; after
+that it is theirs. There is no call to action in the top bar: the page is the
+product, and a signed-out visitor gets Sign in.
 
 A visit decides once between the site and the built-in copy
 (`apps/mobile/features/home/homeSnapshot.ts`): with no block in the HTML the
@@ -266,7 +280,9 @@ for the whole visit if the site is off or silent. The copy is never drawn and
 then swapped for the site. The site is redrawn only when its revision moves,
 which is somebody editing `website/`.
 
-`siteHome.test.ts` fails if a private, draft, members-only or unlisted page
-leaves, or if the route grows a field; `homeSite.test.ts` in the router fails
+`siteHome.test.ts` fails if a private, draft or members-only note leaves,
+if an unlisted note is missing, if another handle gets an answer, or if the
+route grows a field; `homeLocalBrowser.test.ts` fails if the site rewrites a
+tree the visitor has changed; `homeSite.test.ts` in the router fails
 if a page's words can close the block; `homeSite.test.ts` in the app fails if
 the copy can replace the site or the site the copy.
