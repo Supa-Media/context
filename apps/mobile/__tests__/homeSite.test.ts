@@ -193,6 +193,7 @@ describe("links inside a page", () => {
     expect(homeLink(noteLinkHref("login.md"))).toEqual({ kind: "app", href: "/login" });
     expect(noteLinkHref("Legal/terms.md")).toBe("/Legal/terms");
     expect(noteLinkHref("index.md")).toBe("/");
+    expect(homeLink(noteLinkHref("workspace/new.md"))).toEqual({ kind: "app", href: "/workspace/new" });
   });
 
   test("the app's own screens leave the shell", () => {

@@ -216,7 +216,7 @@ export const MISSING_PAGE_MARKDOWN =
  * Paths that belong to the app rather than to the site. A link to one leaves
  * the shell for that screen; every other root-relative link is a page.
  */
-const APP_ROUTES = ["/login", "/console", "/connect", "/invite", "/privacy", "/terms", "/s/"];
+const APP_ROUTES = ["/login", "/console", "/connect", "/invite", "/privacy", "/terms", "/workspace/new", "/s/"];
 
 export type HomeLink = { kind: "page"; routePath: string } | { kind: "app"; href: string };
 

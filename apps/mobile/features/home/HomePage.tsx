@@ -88,6 +88,9 @@ export function HomeEditor({
         onDiscard={files.discard}
         onUseTheirs={noop}
         onKeepMine={noop}
+        // A link in the note's text, which is what the console hands the same
+        // editor (`BrowseDocument`). `onOpenNote` is only the activity list's.
+        onOpenLink={onOpenNote}
         onOpenNote={onOpenNote}
         onLoadImage={files.loadImage}
         onStoreImage={files.storeImage}
