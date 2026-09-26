@@ -218,6 +218,15 @@ function emptyRecord(): Persisted {
  * queue, never a competing full-file draft. Each HTTP write mints a fresh
  * grant, and a response can only settle the updates included in that request.
  */
+/**
+ * Whether carrying `draft` onto `note` loses none of the note's words. Only its
+ * opening heading may be replaced, since that is the title a person retitles.
+ */
+export function keepsEveryWord(draft: string, note: string): boolean {
+  const body = note.replace(/^\s*#[^\n]*(\n|$)/, "").trim();
+  return body === "" || draft.includes(body);
+}
+
 export class DurableCollaborationController {
   private readonly options: DurableControllerOptions;
   private readonly store: ReturnType<typeof openStore>;
@@ -725,11 +734,15 @@ export class DurableCollaborationController {
    * So the bucket's document wins, and nothing is thrown away. The old record
    * is kept on the device under its own key. If it held typing the bucket
    * never confirmed, and that text still contains everything the bucket's
-   * note says — the stuck note's title, typed on — it is carried onto the new
-   * document through the exact-base replacement, which is how an older
-   * offline draft already reaches the bucket. A draft that would erase the
-   * new note's words is an earlier note's, and stays behind in the kept
-   * record rather than overwriting somebody's note. Otherwise the note opens
+   * note says below its title, it is carried onto the new document through
+   * the exact-base replacement, which is how an older offline draft already
+   * reaches the bucket. The title is left out of that test on purpose: a new
+   * note is created holding nothing but a placeholder heading, and retitling
+   * it is the first thing anybody does — a guard that counted the heading set
+   * a retitled 162-word draft aside and opened the note empty (2026-09-26).
+   * A draft that would erase the new note's words is an earlier note's, and
+   * stays behind in the kept record rather than overwriting somebody's note.
+   * Otherwise the note opens
    * as the bucket has it. Either way the controller is rebuilt with a fresh
    * Yjs document, because the old one's items cannot be merged into a
    * document they never belonged to.
@@ -738,7 +751,7 @@ export class DurableCollaborationController {
     const previous = this.record;
     const unsent = previous.pending.length > 0 || previous.recovery !== undefined;
     const desired = previous.recovery?.desired ?? this.doc.markdown();
-    const carry = unsent && desired !== response.text && desired.includes(response.text.trimEnd());
+    const carry = unsent && desired !== response.text && keepsEveryWord(desired, response.text);
     const next: Persisted = {
       ...emptyRecord(),
       documentId: response.documentId,

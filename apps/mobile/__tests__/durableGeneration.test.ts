@@ -6,7 +6,7 @@
 import { describe, expect, test } from "@jest/globals";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
 import { createSharedDoc } from "../features/console/presence/sharedDoc";
-import { DurableCollaborationController, type CollaborationResponse } from "../features/console/collaboration/durable";
+import { DurableCollaborationController, keepsEveryWord, type CollaborationResponse } from "../features/console/collaboration/durable";
 
 function snapshot(text: string): string {
   const doc = createSharedDoc({});
@@ -100,7 +100,7 @@ describe("a record left by an earlier note at the same path", () => {
     controller.stop();
   });
 
-  test("a note made at a name used before opens as itself, and unsent typing on its title is carried", async () => {
+  test("a note made at a name used before opens as itself, and unsent typing is carried over its placeholder title", async () => {
     const store = memoryStore();
     // An earlier session typed into the stuck note, and the bucket refused every write.
     const earlier = new DurableCollaborationController(options({
@@ -116,7 +116,8 @@ describe("a record left by an earlier note at the same path", () => {
     earlier.stop();
 
     const bodies: unknown[] = [];
-    let bucket = "# use cases\n\n";
+    // As the new note was created: its placeholder title, which the draft retitled.
+    let bucket = "# untitled-2026-09-26\n\n";
     let restarts = 0;
     const shown: string[] = [];
     const transport = {
@@ -141,7 +142,7 @@ describe("a record left by an earlier note at the same path", () => {
     expect(restarts).toBe(1);
     expect(shown.at(-1)).toBe("# use cases\n\nwhat people do with it");
     expect((await recordsIn(store)).current.recovery).toEqual({
-      baseline: "# use cases\n\n",
+      baseline: "# untitled-2026-09-26\n\n",
       desired: "# use cases\n\nwhat people do with it",
       baseEtag: "doc-new-etag",
     });
@@ -198,5 +199,21 @@ describe("a record left by an earlier note at the same path", () => {
     expect(records.current.recovery).toBeUndefined();
     expect(records.superseded.recovery).toMatchObject({ desired: "old draft" });
     reopened.stop();
+  });
+});
+
+describe("which drafts may be carried onto a note", () => {
+  test("a note holding only its title takes any draft, retitled or not", () => {
+    expect(keepsEveryWord("# use cases\n\nwhat people do", "# untitled-2026-09-26\n\n")).toBe(true);
+    expect(keepsEveryWord("anything", "")).toBe(true);
+  });
+
+  test("a draft that keeps every word below the title is carried", () => {
+    expect(keepsEveryWord("# new title\n\nfirst line\nmore", "# old title\n\nfirst line\n")).toBe(true);
+  });
+
+  test("a draft that would erase the note's words is not", () => {
+    expect(keepsEveryWord("# pricing\n\nold words", "# roadmap\n\nshipping next week")).toBe(false);
+    expect(keepsEveryWord("mine", "other")).toBe(false);
   });
 });
