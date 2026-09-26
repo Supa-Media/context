@@ -21,7 +21,7 @@ export function BrowseNoteHead({
   reading,
   headWidth,
   setHeadWidth,
-  setSharing,
+  onShare,
   openCrumbMenu,
 }: {
   files: FileBrowser;
@@ -29,7 +29,8 @@ export function BrowseNoteHead({
   reading: boolean;
   headWidth: number;
   setHeadWidth: Dispatch<SetStateAction<number>>;
-  setSharing: Dispatch<SetStateAction<string | null>>;
+  /** Share, or `undefined` for somebody who may not share this. */
+  onShare: ((path: string) => void) | undefined;
   openCrumbMenu: FolderListingState["openCrumbMenu"];
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -168,11 +169,11 @@ export function BrowseNoteHead({
           testID="browse-read"
         />
       ) : null}
-      {files.canShare && !selected.readOnly ? (
+      {onShare !== undefined && !selected.readOnly ? (
         <FrameIconButton
           icon="share"
           label="Share this"
-          onPress={() => setSharing(selected.path)}
+          onPress={() => onShare(selected.path)}
           testID="browse-share"
         />
       ) : null}

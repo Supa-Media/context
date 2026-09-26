@@ -262,7 +262,16 @@ describe("the top row ends in one group, and it is the note's", () => {
     openAudience(shared);
     expect(sheet("share-audience-team")!.getAttribute("aria-checked")).toBe("true");
     expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("false");
+  });
 
+  /*
+    Its own mount, in its own test: the sheet is found in the whole document,
+    and a second console mounted beside the first found the first one's sheet.
+    That passed only while the layout re-rendered on the resize the second mount
+    dispatches and so picked up the second mount's data, which is not the
+    claim here.
+  */
+  test("…and marks Restricted on a private note", () => {
     const priv = mountConsole(dataWith({}, { visibility: "private", inherited: "private" }));
     priv.press(priv.find("note-share"));
     openAudience(priv);

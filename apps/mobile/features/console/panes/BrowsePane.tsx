@@ -345,7 +345,10 @@ export function BrowsePane({
           reading={reading}
           headWidth={headWidth}
           setHeadWidth={setHeadWidth}
-          setSharing={setSharing}
+          onShare={
+            // The homepage's visitor copies a link; see `VisitorActions`.
+            data.visitor !== undefined ? data.visitor.share : files.canShare ? setSharing : undefined
+          }
           openCrumbMenu={openCrumbMenu}
         />
       ) : null}

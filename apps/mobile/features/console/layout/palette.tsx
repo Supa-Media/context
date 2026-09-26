@@ -65,10 +65,15 @@ export function consolePalette({
           Narrowing it back to one is a chip away and is in the URL when you
           do it.
         */
-        onSeeAll={(query) => {
-          setPaletteOpen(false);
-          router.push(searchHref(query));
-        }}
+        onSeeAll={
+          // The search page is a console route, and a visitor has no console.
+          data.visitor !== undefined
+            ? undefined
+            : (query) => {
+                setPaletteOpen(false);
+                router.push(searchHref(query));
+              }
+        }
         /*
           The other handoff: hand the words to the agent instead of to
           search, and open the panel they are answered in.

@@ -280,7 +280,7 @@ describe("where it goes", () => {
    */
   test("the console layout hands the switcher somewhere to send them", () => {
     const source = readFileSync(
-      join(__dirname, "..", "app", "(app)", "console", "_layout.tsx"),
+      join(__dirname, "..", "features", "console", "ConsoleFrame.tsx"),
       "utf8",
     );
     expect(source).toContain("MEETINGS_ROUTE");

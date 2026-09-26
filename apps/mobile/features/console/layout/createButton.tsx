@@ -41,10 +41,12 @@ export function consoleCreateButton({
     seven-key row is the reason — see `CreateButton`. Absent altogether on
     the demo console, which has no controller behind a recording and a
     `createNote` that is a no-op: a menu of three things that do nothing
-    is worse than no menu.
+    is worse than no menu. The homepage's visitor keeps it: their notes are
+    real, in their tab, and the meeting and chat rows are already absent
+    because nothing behind them runs without an account.
   */
   return (
-    data.demo ? null : (
+    data.demo && data.visitor === undefined ? null : (
     <CreateButton
       compact={phone}
       onNewMeeting={startMeetingFlow}

@@ -343,6 +343,33 @@ visitor got the built-in copy. The router keeps the answer per site revision
 (see "Edits wait for Publish"), including one that arrives after it stopped
 waiting, so the folder is read once per Publish, not once per visit.
 
+### The homepage is the console's frame, never a copy of it
+
+_Decided 2026-09-26, by the owner: "there are going to be a bunch of changes
+to the shell and the makeup of the app and I'd like to make sure the
+frontpage stays true and real to the actual state of the app."_
+
+`HomeShell` renders `features/console/ConsoleFrame.tsx` — the body of the
+console's own route layout — with `BrowsePane` inside it, over `ConsoleData`
+built from the website's notes (`useVisitorConsoleData`). It does not compose
+`AppFrame` itself. The first homepage did, and every piece it did not copy was
+missing: the account button at the foot of the tree, the note's eye and
+Share, `‹ ›`. A change to the console's shell reaches the homepage in the
+same commit because there is one frame.
+
+What differs is `data.visitor`, and only where an account is the point:
+Settings, the agent setup, Sign out and the right panel are not drawn, the
+account button offers Sign in and Create account (or the way back to the app
+for somebody signed in), and Share copies the page's public `/?page=` link
+rather than opening a dialog that needs a workspace. `demo` stays true, which
+keeps every server-backed control out, so the page asks Convex nothing.
+
+**What a "simplification" would cost:** a homepage frame of its own drifts
+from the app on the first shell change nobody ports.
+`homeConsoleFrame.test.ts` finds the console's own controls by their test ids
+and fails if the homepage stops rendering them, gains an account's controls,
+or reaches the server.
+
 A visitor can edit it the way they would their own workspace: every note
 opens in the editor, and notes and folders can be made, renamed, moved, copied
 and deleted. No button turns editing on and no line explains it (the owner:

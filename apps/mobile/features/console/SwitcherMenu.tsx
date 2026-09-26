@@ -64,7 +64,10 @@ export type SwitcherMenuId =
   | "new"
   | "settings"
   | "leave"
-  | "signout";
+  | "signout"
+  | "signin"
+  | "signup"
+  | "app";
 
 export function SwitcherMenu({
   data,
@@ -76,6 +79,9 @@ export function SwitcherMenu({
   onOpenSettings,
   onLeaveContext,
   onSignOut,
+  onSignIn,
+  onCreateAccount,
+  onOpenApp,
   trigger = "row",
 }: {
   data: ConsoleData;
@@ -95,6 +101,11 @@ export function SwitcherMenu({
    */
   onLeaveContext?: () => void;
   onSignOut?: () => void;
+  /** The homepage's visitor, who has no account to sign out of. */
+  onSignIn?: () => void;
+  onCreateAccount?: () => void;
+  /** …or who is signed in and reading it: the way back to their own. */
+  onOpenApp?: () => void;
   trigger?: "row" | "avatar";
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -183,6 +194,15 @@ export function SwitcherMenu({
     ...(onLeaveContext
       ? [{ id: "leave", label: `Leave ${label}`, danger: true, testID: "switcher-leave" }]
       : []),
+    ...(onOpenApp
+      ? [{ id: "app", label: "Open your workspaces", testID: "switcher-open-app" }]
+      : []),
+    ...(onSignIn
+      ? [{ id: "signin", label: "Sign in", testID: "switcher-sign-in" }]
+      : []),
+    ...(onCreateAccount
+      ? [{ id: "signup", label: "Create account", leading: <Icon name="plus" size={14} />, testID: "switcher-create-account" }]
+      : []),
     ...(onSignOut
       ? [{ id: "signout", label: "Sign out", leading: <Icon name="signOut" size={14} />, danger: true, testID: "switcher-sign-out" }]
       : []),
@@ -216,6 +236,9 @@ export function SwitcherMenu({
     else if (id === "settings") onOpenSettings?.();
     else if (id === "leave") onLeaveContext?.();
     else if (id === "signout") onSignOut?.();
+    else if (id === "signin") onSignIn?.();
+    else if (id === "signup") onCreateAccount?.();
+    else if (id === "app") onOpenApp?.();
   };
 
   const avatar = (
