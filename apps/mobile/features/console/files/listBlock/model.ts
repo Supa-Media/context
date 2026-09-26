@@ -131,6 +131,15 @@ export interface FolderListSource {
    * may not exist yet, and is then written new (see `writeNoteProperty`).
    */
   setProperty?(path: string, key: string, value: string | null, options?: { create?: boolean }): Promise<string | null>;
+  /**
+   * Several properties of one note in one write, the same road as
+   * `setProperty`. A folder's status list is three keys (`folderPage/statuses.ts`).
+   */
+  setProperties?(
+    path: string,
+    changes: readonly (readonly [string, string | readonly string[] | null])[],
+    options?: { create?: boolean },
+  ): Promise<string | null>;
 }
 
 /** What the notes for one list came back as. */

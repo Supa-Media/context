@@ -1,4 +1,4 @@
-import { writeNoteProperty } from "../console/files/listBlock/writeProperty";
+import { writeNoteProperties } from "../console/files/listBlock/writeProperty";
 import type { FolderListSource } from "../console/files/listBlock/model";
 import type { OpenNote } from "../console/files/types";
 import { currentEpoch } from "./epoch";
@@ -70,26 +70,37 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
     },
     ...(canEdit
       ? {
-          setProperty: async (path: string, key: string, value: string | null, options?: { create?: boolean }) => {
-            let written = path;
-            const answer = await writeNoteProperty(
-              {
-                read: (at) => io.readNote(at),
-                write: async (at, text, expectedEtag) => {
-                  written = (await io.writeNote(at, text, expectedEtag)).path;
-                },
-              },
-              path,
-              key,
-              value,
-              options,
-            );
-            if (answer === null) await remember(written).catch(() => {});
-            return answer;
-          },
+          setProperty: (path: string, key: string, value: string | null, options?: { create?: boolean }) =>
+            write(path, [[key, value]], options),
+          setProperties: (
+            path: string,
+            changes: readonly (readonly [string, string | readonly string[] | null])[],
+            options?: { create?: boolean },
+          ) => write(path, changes, options),
         }
       : {}),
   };
+
+  async function write(
+    path: string,
+    changes: readonly (readonly [string, string | readonly string[] | null])[],
+    options?: { create?: boolean },
+  ): Promise<string | null> {
+    let written = path;
+    const answer = await writeNoteProperties(
+      {
+        read: (at) => io.readNote(at),
+        write: async (at, text, expectedEtag) => {
+          written = (await io.writeNote(at, text, expectedEtag)).path;
+        },
+      },
+      path,
+      changes,
+      options,
+    );
+    if (answer === null) await remember(written).catch(() => {});
+    return answer;
+  }
 
   async function remember(path: string): Promise<void> {
     const epoch = currentEpoch();

@@ -105,8 +105,9 @@ describe("changing a value from a list", () => {
     const writes: Call[] = [];
     const view = mount(doc("from: p", "group: status", "show: status"), { writes });
     await flush();
-    expect([...view.dom.querySelectorAll(".cm-lp-list-group")].map((g) => g.firstChild?.textContent)).toEqual(["Active", "Planned", "Done"]);
-    edits(view)[0].click();
+    // Status groups run Not started, In progress, Done (apps/mcp/src/lists/statuses.js).
+    expect([...view.dom.querySelectorAll(".cm-lp-list-group")].map((g) => g.firstChild?.textContent)).toEqual(["Planned", "Active", "Done"]);
+    edits(view)[1].click();
     [...view.dom.querySelectorAll<HTMLElement>(".cm-lp-list-menu-item")][2].click(); // done
     await flush();
     await flush();

@@ -20,7 +20,7 @@
  * the Files listing exactly as before, with no switch to offer.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
@@ -32,7 +32,6 @@ import { FolderGroups } from "./Groups";
 import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
 import { textOf, type ItemActions } from "./items";
 import {
-  boardGroups,
   defaultFolderView,
   folderItems,
   groupFolderItems,
@@ -41,6 +40,19 @@ import {
   type FolderPageView,
 } from "./model";
 import { useFolderNotes, type FolderPageHost } from "./useFolderPage";
+import {
+  folderStatuses,
+  groupOfStatus,
+  listBands,
+  statusBands,
+  statusMenu,
+  undeclaredStatuses,
+  type StatusGroup,
+} from "./statuses";
+import { StatusesDialog } from "./StatusesDialog";
+import { TidyStatuses } from "./TidyStatuses";
+import { useStatusEdits, type StatusPlan } from "./useStatusEdits";
+import { Confirm } from "../Dialogs";
 import { TrackNudge } from "./Nudge";
 import { dismissNudge, nudgeDismissed, rememberView, rememberedView } from "./viewMemory";
 
@@ -93,28 +105,40 @@ export function FolderPage({
   const now = Date.now();
   const summary = useMemo(() => (notes === null || folder === "" ? null : summarizeFolder(folder, notes)), [notes, folder]);
   const { items, skipped } = useMemo(() => folderItems(folder, rows, notes ?? []), [folder, rows, notes]);
-  const groups = useMemo(() => groupFolderItems(items, "status"), [items]);
+  // The folder's status list says what its children's statuses mean; its parent's, what its own means.
+  const statuses = useMemo(() => folderStatuses(folder, notes ?? []), [folder, notes]);
+  const parentFolder = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
+  const parentStatuses = useMemo(() => folderStatuses(parentFolder, notes ?? []), [parentFolder, notes]);
+  const list = statuses.list;
+  const groups = useMemo(() => groupFolderItems(items, "status", list), [items, list]);
   const people = host?.people;
   const choices = useMemo(() => {
     const memo = new Map<string, readonly string[]>();
     return (key: string) => {
       let found = memo.get(key);
       if (found === undefined) {
-        found = propertyChoices(items, key, people ?? []);
+        found = propertyChoices(items, key, people ?? [], list);
         memo.set(key, found);
       }
       return found;
     };
-  }, [items, people]);
+  }, [items, people, list]);
   const siblingChoices = useMemo(() => {
     // A project folder offers what its siblings use: the parent's items.
     if (notes === null || folder === "") return choices;
-    const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
     const siblings = notes
-      .filter((note) => note.path.startsWith(parent === "" ? "" : `${parent}/`))
+      .filter((note) => note.path.startsWith(parentFolder === "" ? "" : `${parentFolder}/`))
       .map((note) => ({ path: note.path, properties: note.properties }));
-    return (key: string) => propertyChoices(siblings, key, people ?? []);
-  }, [notes, folder, choices, people]);
+    return (key: string) => propertyChoices(siblings, key, people ?? [], parentStatuses.list);
+  }, [notes, folder, choices, people, parentFolder, parentStatuses]);
+  const menuSections = useMemo(() => statusMenu(list), [list]);
+  const parentMenu = useMemo(() => statusMenu(parentStatuses.list), [parentStatuses]);
+  const undeclared = useMemo(() => undeclaredStatuses(items, list), [items, list]);
+  const edits = useStatusEdits(loaded, folder, statuses, summary === null ? null : { target: summary.target, creates: summary.creates });
+  const [editing, setEditing] = useState(false);
+  const [merging, setMerging] = useState<{ word: string; plan: StatusPlan } | null>(null);
+  const [tidyProblem, setTidyProblem] = useState<string | null>(null);
+  const toneOf = useCallback((status: string) => groupOfStatus(status, list) ?? ("unplaced" as const), [list]);
 
   if (host === undefined) {
     return (
@@ -149,12 +173,28 @@ export function FolderPage({
     items.filter((item) => item.kind === "folder").length >= 2 &&
     !items.some((item) => item.status !== "") &&
     !nudgeDismissed(host.workspaceId, folder);
-  // Somebody who can move a card gets a column for every status the menu offers; a reader, what is there.
-  const columns = boardGroups(groups, edit === null ? [] : choices("status"), edit !== null);
+  // Every status in the folder's list is a column; No status is one for somebody who can move a card.
+  const bands = statusBands(groups, list, edit !== null);
+  const columnCount = bands.reduce((sum, band) => sum + band.columns.length, 0);
+  const onEditStatuses = edits.savesTo === null ? null : () => setEditing(true);
   const actions: ItemActions = {
     onOpen: (item) => onSelect(item.path),
     choices,
     onChoose: edit === null ? null : (item, key, value) => void edit(item.target, key, value, item.creates),
+    statusMenu: menuSections,
+    toneOf,
+    onEditStatuses,
+  };
+  const place = (word: string, group: StatusGroup) => {
+    setTidyProblem(null);
+    void edits.place(word, group).then((problem) => setTidyProblem(problem));
+  };
+  const merge = (word: string, into: string) => {
+    setTidyProblem(null);
+    void edits.planMerge(word, into).then((plan) => {
+      if (typeof plan === "string") setTidyProblem(plan);
+      else setMerging({ word, plan });
+    });
   };
 
   return (
@@ -170,6 +210,7 @@ export function FolderPage({
             compact={compact}
             now={now}
             choices={siblingChoices}
+            statusMenu={parentMenu}
             onChoose={edit === null ? null : (key, value) => void edit(summary.target, key, value, summary.creates)}
           />
         ) : null}
@@ -198,6 +239,41 @@ export function FolderPage({
           />
         </View>
       ) : null}
+      {view !== "files" && edits.savesTo !== null && undeclared.length > 0 ? (
+        <View style={styles.nudge}>
+          <TidyStatuses words={undeclared} onPlace={place} onMerge={merge} />
+          {tidyProblem !== null ? (
+            <Text variant="treeMeta" style={styles.problem} role="alert">
+              {tidyProblem}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+      {editing && edits.savesTo !== null ? (
+        <StatusesDialog
+          list={list}
+          edits={edits}
+          inherited={statuses.from !== null && statuses.from !== folder ? statuses.from : null}
+          onClose={() => setEditing(false)}
+        />
+      ) : null}
+      {merging !== null ? (
+        <Confirm
+          title={`Merge “${merging.word}”?`}
+          body={
+            merging.plan.paths.length === 0
+              ? `Nothing under this list uses “${merging.word}” any more.`
+              : `This changes the status line on ${merging.plan.paths.length === 1 ? "1 note" : `${merging.plan.paths.length} notes`} from “${merging.word}” to “${merging.plan.to}”.`
+          }
+          confirmLabel={merging.plan.paths.length === 1 ? "Change 1 note" : `Change ${merging.plan.paths.length} notes`}
+          onCancel={() => setMerging(null)}
+          onConfirm={() => {
+            const plan = merging.plan;
+            setMerging(null);
+            void edits.apply(plan).then((problem) => setTidyProblem(problem));
+          }}
+        />
+      ) : null}
       <View style={styles.contents}>
         {view === "files" ? (
           files
@@ -206,11 +282,11 @@ export function FolderPage({
             Nothing here to track yet. A note or folder added here can be given a status.
           </Text>
         ) : view === "board" ? (
-          <View style={compact || pageWidth <= 0 ? undefined : [styles.wide, { width: boardWidth(columns.length, pageWidth) }]}>
-            <FolderBoard groups={columns} compact={compact} now={now} actions={actions} />
+          <View style={compact || pageWidth <= 0 ? undefined : [styles.wide, { width: boardWidth(columnCount, bands.length, pageWidth) }]}>
+            <FolderBoard bands={bands} compact={compact} now={now} actions={actions} />
           </View>
         ) : (
-          <FolderGroups groups={groups} compact={compact} now={now} actions={actions} />
+          <FolderGroups bands={listBands(groups, list)} compact={compact} now={now} actions={actions} />
         )}
         {view !== "files" && !loaded.complete && notes !== null ? (
           <Text variant="treeMeta" style={styles.aside}>
@@ -235,8 +311,8 @@ const BOARD_MARGIN = 48;
  * two-column board lines up under the title) and never wider than the page
  * less a margin each side, where its columns narrow and then scroll.
  */
-function boardWidth(columns: number, pageWidth: number): number {
-  const wanted = columns * BOARD_COLUMN + Math.max(0, columns - 1) * space.x4;
+function boardWidth(columns: number, bands: number, pageWidth: number): number {
+  const wanted = columns * BOARD_COLUMN + Math.max(0, columns - bands) * space.x4 + Math.max(0, bands - 1) * space.x6;
   const room = Math.max(0, pageWidth - 2 * BOARD_MARGIN);
   return Math.min(room, Math.max(wanted, Math.min(noteColumnWidth, room)));
 }

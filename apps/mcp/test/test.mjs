@@ -27,6 +27,7 @@ import { runFormChecks } from "./forms.test.mjs";
 import { runListChecks } from "./lists.test.mjs";
 import { runProjectListChecks } from "./listProjects.test.mjs";
 import { runSetPropertyChecks } from "./listSetProperty.test.mjs";
+import { runStatusAdviceChecks, runStatusChecks } from "./listStatuses.test.mjs";
 import { runLinkToolChecks } from "./linkTools.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
@@ -141,6 +142,8 @@ await suite("runFormChecks", () => runFormChecks(check));
 await suite("runListChecks", () => runListChecks(check));
 await suite("runProjectListChecks", () => runProjectListChecks(check));
 await suite("runSetPropertyChecks", () => runSetPropertyChecks(check));
+await suite("runStatusChecks", () => runStatusChecks(check));
+await suite("runStatusAdviceChecks", () => runStatusAdviceChecks(check));
 await suite("runLinkToolChecks", () => runLinkToolChecks(check));
 
 // A path is not a place to write privacy rules. Its own bucket, because the

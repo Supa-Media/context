@@ -10,6 +10,11 @@
  * The menu is the app's own `Menu` — a popover under a pointer, a sheet under
  * a thumb — so this draws no chrome of its own.
  *
+ * A status is offered in its groups instead (`sections`): each group's name
+ * as a heading, No status first in Not started, and "Edit statuses…" in
+ * place of "New value…" — a status is added to a group, never typed loose
+ * onto one note, so it always has a group (`statuses.ts`).
+ *
  * Unset and editable, it reads `Set status`: muted, and accent under the
  * pointer, the one affordance a folder needs to become a project. Unset and
  * not editable, it draws nothing — a member is not shown a control that
@@ -35,6 +40,10 @@ export interface PropertyValueProps {
   savesTo?: string | null;
   /** Null when the reader may not change it. */
   onChoose: ((value: string | null) => void) | null;
+  /** Offer these groups of values instead of `choices`, with no "New value…"; `""` is none. */
+  sections?: readonly { readonly label: string; readonly words: readonly string[] }[];
+  /** "Edit statuses…" at the foot of a sectioned menu; null or absent to leave it out. */
+  onEditList?: (() => void) | null;
   variant?: TextVariant;
   /**
    * Drawn invisible until something asks for it — a row under the pointer —
@@ -47,7 +56,7 @@ export interface PropertyValueProps {
   testID?: string;
 }
 
-type Id = `choice:${number}` | "new" | "clear" | "saves";
+type Id = `choice:${number}` | `head:${number}` | "new" | "clear" | "saves" | "edit";
 
 export function PropertyValue({
   property,
@@ -55,6 +64,8 @@ export function PropertyValue({
   choices,
   savesTo = null,
   onChoose,
+  sections,
+  onEditList = null,
   variant = "tree",
   quiet = false,
   style,
@@ -106,19 +117,44 @@ export function PropertyValue({
   }
 
   const current = value === "" ? null : value;
-  const all = current !== null && !choices.some((c) => c.toLowerCase() === current.toLowerCase()) ? [current, ...choices] : [...choices];
-  const items: MenuItem<Id>[] = [
-    ...all.map((choice, index) => ({
-      id: `choice:${index}` as const,
-      label: isolateForDisplay(choice),
-      // No check gutter at all when nothing is chosen, so the rows line up with "New value…".
-      ...(current === null ? {} : { checked: choice.toLowerCase() === current.toLowerCase() }),
-    })),
-    { id: "new", label: "New value…", separatorBefore: all.length > 0 },
-    ...(current === null ? [] : [{ id: "clear" as const, label: "Clear" }]),
-    // Said before anything is pressed: this choice writes a file that is not there yet.
-    ...(savesTo === null ? [] : [{ id: "saves" as const, label: `Saves to ${savesTo}`, disabled: true, separatorBefore: true }]),
-  ];
+  let all: string[];
+  let items: MenuItem<Id>[];
+  if (sections !== undefined) {
+    // Groups as dimmed headings, the way "Saves to" is a dimmed line: said, not pressed.
+    all = [];
+    items = [];
+    sections.forEach((section, at) => {
+      items.push({ id: `head:${at}`, label: section.label, disabled: true, separatorBefore: at > 0 });
+      for (const word of section.words) {
+        items.push({
+          id: `choice:${all.length}`,
+          label: word === "" ? `No ${property}` : isolateForDisplay(word),
+          checked: word.toLowerCase() === value.toLowerCase(),
+        });
+        all.push(word);
+      }
+    });
+    if (current !== null && !all.some((word) => word.toLowerCase() === current.toLowerCase())) {
+      // A word the list does not hold is still this note's; shown checked, apart.
+      items.unshift({ id: `choice:${all.length}`, label: isolateForDisplay(current), checked: true });
+      all.push(current);
+    }
+    if (onEditList !== null) items.push({ id: "edit", label: `Edit ${property === "status" ? "statuses" : property}…`, separatorBefore: true });
+  } else {
+    all = current !== null && !choices.some((c) => c.toLowerCase() === current.toLowerCase()) ? [current, ...choices] : [...choices];
+    items = [
+      ...all.map((choice, index) => ({
+        id: `choice:${index}` as const,
+        label: isolateForDisplay(choice),
+        // No check gutter at all when nothing is chosen, so the rows line up with "New value…".
+        ...(current === null ? {} : { checked: choice.toLowerCase() === current.toLowerCase() }),
+      })),
+      { id: "new", label: "New value…", separatorBefore: all.length > 0 },
+      ...(current === null ? [] : [{ id: "clear" as const, label: "Clear" }]),
+    ];
+  }
+  // Said before anything is pressed: this choice writes a file that is not there yet.
+  if (savesTo !== null) items.push({ id: "saves", label: `Saves to ${savesTo}`, disabled: true, separatorBefore: true });
 
   const open = () => {
     setMenu({ x: 0, y: 0 });
@@ -160,9 +196,11 @@ export function PropertyValue({
               setDraft("");
               setTyping(true);
             } else if (id === "clear") onChoose(null);
+            else if (id === "edit") onEditList?.();
             else if (id.startsWith("choice:")) {
               const choice = all[Number(id.slice("choice:".length))];
-              if (choice !== undefined && choice !== current) onChoose(choice);
+              if (choice === undefined || choice.toLowerCase() === value.toLowerCase()) return;
+              onChoose(choice === "" ? null : choice);
             }
           }}
         />

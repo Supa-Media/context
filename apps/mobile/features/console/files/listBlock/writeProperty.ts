@@ -33,14 +33,32 @@ export interface NoteReadWrite {
 
 const ATTEMPTS = 2;
 
+/** A frontmatter value a list or folder page writes: text, a list of words, or null to clear. */
+export type PropertyWriteValue = string | readonly string[] | null;
+
 export async function writeNoteProperty(
   io: NoteReadWrite,
   path: string,
   key: string,
-  value: string | null,
+  value: PropertyWriteValue,
   options: { create?: boolean } = {},
 ): Promise<string | null> {
-  if (!isWritableProperty(key)) return "Who can see a note is set with Share, not as a property.";
+  return writeNoteProperties(io, path, [[key, value]], options);
+}
+
+/**
+ * Several properties of one note in one write — a folder's status list is
+ * three keys, and three writes could land two of them. Each is changed with
+ * `setNoteProperty` in turn on the same text, so every refusal and the
+ * read-back check still apply, and any refusal writes nothing.
+ */
+export async function writeNoteProperties(
+  io: NoteReadWrite,
+  path: string,
+  changes: readonly (readonly [string, PropertyWriteValue])[],
+  options: { create?: boolean } = {},
+): Promise<string | null> {
+  if (changes.some(([key]) => !isWritableProperty(key))) return "Who can see a note is set with Share, not as a property.";
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let note: { text: string; etag: string | undefined; encrypted?: boolean; readOnly?: boolean };
     try {
@@ -51,11 +69,15 @@ export async function writeNoteProperty(
     }
     if (note.encrypted === true) return "That note is encrypted, so it can only be changed from inside it.";
     if (note.readOnly === true) return "You can read that note but not change it.";
-    const changed = setNoteProperty(note.text, key, value);
-    if ("error" in changed) return `That can’t be saved: ${changed.error}.`;
-    if (changed.text === note.text) return null;
+    let text = note.text;
+    for (const [key, value] of changes) {
+      const changed = setNoteProperty(text, key, value) as { text: string } | { error: string };
+      if ("error" in changed) return `That can’t be saved: ${changed.error}.`;
+      text = changed.text;
+    }
+    if (text === note.text) return null;
     try {
-      await io.write(path, changed.text, note.etag);
+      await io.write(path, text, note.etag);
       return null;
     } catch (error) {
       const { code } = toFileError(error);

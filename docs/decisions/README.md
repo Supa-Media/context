@@ -177,6 +177,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A list changes one line of a note, the same way any save does
 - A folder page shows its children by status
 - A list write is what this device holds afterwards
+- Status groups
 
 ## [Bucket-backed websites](./websites.md)
 
