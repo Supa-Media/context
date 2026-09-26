@@ -29,6 +29,7 @@ import {
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
   markWebsitePublicationEnsuredHandler,
   markWebsiteStarterEnsuredHandler,
@@ -154,6 +155,30 @@ export const siteRevision = query({
   args: { handle: v.string() },
   returns: v.union(v.string(), v.null()),
   handler: siteRevisionHandler,
+});
+
+/**
+ * The workspace icon a published site draws as its favicon, or `null`. Takes a
+ * handle and nothing that could name an object; see `lib/websites/siteIcon.ts`.
+ */
+export const siteIcon = action({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+    v.object({ kind: v.literal("photo"), bytes: v.bytes(), contentType: v.string() }),
+  ),
+  handler: siteIconHandler,
+});
+
+export const siteIconPlan = internalQuery({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+    v.object({ kind: v.literal("photo"), workspaceId: v.id("workspaces"), leaf: v.string() }),
+  ),
+  handler: siteIconPlanHandler,
 });
 
 export const resolveAddress = action({

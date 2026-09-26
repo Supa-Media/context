@@ -174,3 +174,29 @@ is meant to protect.
 `websiteRouteIndex.test.ts` proves that Markdown is absent from the database,
 that release bytes land under `.context/`, and that a failed release write
 cannot replace the prior route or its fallback reference.
+
+## The workspace icon is the site's favicon
+
+_Decided by the owner, 2026-09-26._
+
+A published site wears its workspace's icon in the browser tab — the emoji
+drawn as an SVG, or the photo's own bytes — instead of Context's favicon, which
+stays for a workspace with no icon, for a legacy short link, and everywhere
+else in the app. Turning the site on is what publishes the icon: before that,
+`websites.siteIcon` answers `null` exactly as it does for a handle nobody has
+claimed, so it is not a way to learn that a workspace exists or what it looks
+like. An owner who wants a site without their icon clears the icon.
+
+This is not a wider locator. The icon is not a note and is not under
+`website/`; it is a picture the owner chose to show every member, and it
+already stands beside the site's name, which the site publishes too. The photo
+is read out of the customer's bucket at the publication clearance, and the
+action takes a handle and nothing else: the leaf comes off the workspace row,
+so the set of objects it can return is one per enabled site, chosen by its
+owner — the argument `files.workspaceIconPhoto` makes, with "member" replaced
+by "the site is on". An unreadable photo is the same `null` as none.
+
+`websiteSiteIcon.test.ts` fails if the enabled gate is dropped (a disabled and
+a never-enabled site both answer like a nonexistent handle) or if an argument
+that could name an object is added.
+
