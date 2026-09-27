@@ -480,3 +480,25 @@ export const lightGraphColors: GraphColors = {
   client: "#3E7A4E",
   you: "#1A1714",
 };
+
+/**
+ * The colours a presence room gives its members, as the gateway assigns them
+ * (`PRESENCE_COLORS` in `apps/mcp/src/presence.js`), in that order.
+ *
+ * The app never chooses one of these for a real member: the room does, and a
+ * caret is drawn in whatever colour arrives. They are written down here for
+ * the one place the app stands in for the room, the homepage's cast
+ * (`features/home/cast`), so a scripted member is drawn in a colour a real
+ * one could have. Two of them are hues the palette retired for chrome; as
+ * somebody's caret they are the room's colours, not ours.
+ */
+export const presenceColors = {
+  blue: "#3b82f6",
+  pink: "#ec4899",
+  green: "#10b981",
+  amber: "#f59e0b",
+  violet: "#8b5cf6",
+  red: "#ef4444",
+  cyan: "#06b6d4",
+  lime: "#84cc16",
+} as const;

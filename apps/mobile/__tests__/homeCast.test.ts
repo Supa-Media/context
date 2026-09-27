@@ -9,8 +9,12 @@ import { castPresence, castSite } from "../features/home/cast/castSite";
 import { pageNamed, recordAgent } from "../features/home/cast/useHomeCast";
 import { presenceChipLabel } from "../features/console/ConsoleShell";
 
-beforeEach(() => jest.useFakeTimers());
-afterEach(() => jest.useRealTimers());
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 const PAGE = "# wth is this\n\nlike obsidian and notion had a baby\n\n```cast\nCAST\n```\n\n[create a workspace](/workspace/new)\n";
 

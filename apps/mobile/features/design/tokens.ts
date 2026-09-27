@@ -17,6 +17,7 @@ export {
   type GraphKind,
   type GraphColors,
   lightGraphColors,
+  presenceColors,
 } from "./tokens/colors";
 
 export {

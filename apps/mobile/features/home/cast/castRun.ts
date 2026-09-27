@@ -24,6 +24,7 @@ import * as Y from "yjs";
 import type { CastActor, CastStep } from "@context/shared";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { agentName } from "../../console/presence/agentName";
+import { presenceColors } from "../../design/tokens";
 import { toBase64, type SharedDoc } from "../../console/presence/sharedDoc";
 
 /** The origin of every transaction the cast makes; anything else is the visitor. */
@@ -74,8 +75,9 @@ export interface CastHost {
   appearance rather than hashed, so two members of one small cast are never
   the same colour; Claude and ChatGPT keep the hues people know them by.
 */
-const PALETTE = ["#ec4899", "#3b82f6", "#8b5cf6", "#06b6d4", "#84cc16", "#ef4444", "#10b981", "#f59e0b"];
-const KNOWN: Record<string, string> = { claude: "#f59e0b", chatgpt: "#10b981" };
+const P = presenceColors;
+const PALETTE = [P.pink, P.blue, P.violet, P.cyan, P.lime, P.red, P.green, P.amber];
+const KNOWN: Record<string, string> = { claude: P.amber, chatgpt: P.green };
 
 export function castColors(steps: readonly CastStep[]): Map<string, string> {
   const colors = new Map<string, string>();
