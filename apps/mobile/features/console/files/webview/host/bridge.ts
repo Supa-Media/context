@@ -28,11 +28,12 @@ import {
  * panel's import graph.
  */
 import { bytesFromBase64 } from "../../imageBytes";
+import { hostExtras, type ExtrasSink, type HostExtras } from "./extras";
 import { webUrl } from "../../webUrl";
 
 export { bytesFromBase64 };
 
-export interface HostSink {
+export interface HostSink extends ExtrasSink {
   onChange: (text: string) => void;
   /** A local Yjs update from the durable native guest. */
   onCollaborationUpdate?: (documentId: string, update: string) => void;
@@ -125,7 +126,8 @@ export interface HostSink {
   onPickSuggestion?: (index: number) => Promise<string | null>;
 }
 
-export interface HostBridge {
+/** `setCommenter`, `setLists` and `listsChanged` are comments and lists: see `./extras.ts`. */
+export interface HostBridge extends Pick<HostExtras, "setCommenter" | "setLists" | "listsChanged"> {
   /** Authoritative text. A no-op when it is the echo of the last `change`. */
   setDoc: (text: string, revision?: string) => void;
   setRevision: (revision: string) => void;
@@ -233,8 +235,10 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
     if (!ready) return;
     send(encode(message));
   };
+  const extras = hostExtras(post, sink);
 
   return {
+    ...extras,
     setDoc: (text, nextRevision = revision) => {
       /*
         `doc` is assigned BEFORE the echo check, and `known` after it, and the
@@ -362,6 +366,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
     receive: (raw) => {
       const message = decode<ToHost>(raw, TO_HOST_TYPES);
       if (message === null) return;
+      if (extras.receive(message, (reply) => send(encode(reply)))) return;
       switch (message.type) {
         case "ready":
           ready = true;
@@ -376,6 +381,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           send(encode({ v: PROTOCOL_VERSION, type: "inset", bottom: inset }));
           send(encode({ v: PROTOCOL_VERSION, type: "links", path: linkPath, paths: linkPaths }));
           send(encode({ v: PROTOCOL_VERSION, type: "suggest", available: suggesting }));
+          extras.resend((extra) => send(encode(extra)));
           if (!crdtMode && crdtSnapshot === null) {
             send(encode({ v: PROTOCOL_VERSION, type: "doc", text: doc, ...(revision === "" ? {} : { revision }) }));
             known = doc;

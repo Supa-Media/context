@@ -745,10 +745,12 @@ export function editorStateFor(options: {
   images?: ImageHostRef;
   reportImage?: (message: string) => void;
   emoji?: EmojiHostRef;
+  /** The guest's own additions: comments and folder lists (`webview/guestExtras.ts`). */
+  extra?: Extension;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,
-    extensions: editorExtensions(options),
+    extensions: [editorExtensions(options), options.extra ?? []],
   });
 }
 

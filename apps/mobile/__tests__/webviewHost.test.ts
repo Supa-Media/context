@@ -132,7 +132,11 @@ describe("the ready handshake", () => {
     // reopened. Its position is the only one here that does not matter: it
     // configures a completion source rather than anything the first paint
     // reads.
-    expect(types).toEqual(["editable", "theme", "inset", "links", "suggest", "doc"]);
+    //
+    // `commenter` and `lists` for `suggest`'s reason: a reloaded guest has
+    // forgotten who signs comments and whether lists can be read. Before `doc`
+    // so a list in the note is drawn on its first paint rather than as source.
+    expect(types).toEqual(["editable", "theme", "inset", "links", "suggest", "commenter", "lists", "doc"]);
     expect(JSON.parse(sent[types.indexOf("doc")]).text).toBe("# note\n");
   });
 

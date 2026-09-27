@@ -86,6 +86,7 @@ import {
   editorBox,
   themeVars,
 } from "./webview/host";
+import { wireListSource } from "./webview/host/extras";
 import { ACCESSORY_HEIGHT, accessoryUp } from "./accessory";
 import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
@@ -125,6 +126,8 @@ export function LiveEditor({
   onPickSuggestion,
   onLoadImage,
   onStoreImage,
+  commenter,
+  folderLists,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -192,6 +195,7 @@ export function LiveEditor({
     onPickSuggestion,
     onLoadImage,
     onStoreImage,
+    folderLists,
   });
   handlers.current = {
     onChange,
@@ -212,6 +216,7 @@ export function LiveEditor({
     onPickSuggestion,
     onLoadImage,
     onStoreImage,
+    folderLists,
   };
 
   /**
@@ -369,6 +374,14 @@ export function LiveEditor({
             handlers.current.onSuggest?.(line, ch) ?? Promise.resolve([]),
           onPickSuggestion: (index) =>
             handlers.current.onPickSuggestion?.(index) ?? Promise.resolve(null),
+          // Off the ref, for the reason every sink here is.
+          onLoadList: async (folder, subfolders) => {
+            const source = await handlers.current.folderLists?.load(folder, subfolders);
+            return source == null ? null : wireListSource(source);
+          },
+          onSetListProperty: (path, key, value) =>
+            handlers.current.folderLists?.setProperty?.(path, key, value) ??
+            Promise.resolve("This list can’t be changed here."),
         },
       ),
     [keepCaretClear],
@@ -486,6 +499,23 @@ export function LiveEditor({
   useEffect(() => {
     bridge.setSuggest(onSuggest !== undefined);
   }, [bridge, onSuggest]);
+
+  /*
+    Comments and folder lists, as the web editor draws them (see
+    `webview/guestExtras.ts`). Who signs a comment and whether lists can be
+    read are desired state, like `suggest`; a change to the notes reloads every
+    list, as the web widget's own subscription does. Rows open through
+    `onOpenNote`, so lists are offered only where that is wired.
+  */
+  useEffect(() => {
+    bridge.setCommenter(commenter ?? null);
+  }, [bridge, commenter]);
+  const listsAvailable = folderLists !== undefined && onOpenNote !== undefined;
+  const listsEditable = folderLists?.setProperty !== undefined;
+  useEffect(() => {
+    bridge.setLists(listsAvailable, listsEditable);
+    return folderLists?.subscribe?.(() => bridge.listsChanged());
+  }, [bridge, folderLists, listsAvailable, listsEditable]);
 
   /**
    * KEEPING THE CARET OFF THE KEYBOARD, and it is answered differently at the

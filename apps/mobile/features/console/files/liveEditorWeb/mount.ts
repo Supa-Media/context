@@ -213,8 +213,8 @@ export function mountEditor({
       }),
       commentRail,
       commentSheet({ placement: "viewport" }),
-      // Folder lists: web only, like find-in-note. The native guest has no
-      // copy of the workspace to read, so its lists stay as source.
+      // Folder lists. The iOS guest asks its host for the same notes over the
+      // bridge (`webview/guestExtras.ts`).
       listHost.of(lists),
       /*
         Other people's carets, and this editor's own going out.

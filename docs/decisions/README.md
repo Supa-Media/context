@@ -189,6 +189,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Agents comment through write_note, and cannot choose their name
 - Comments are never published
 - Opening a card never moves the text
+- On a phone, a thread opens in a sheet
+- The iOS editor draws comments and lists
 
 ## [Bucket-backed websites](./websites.md)
 
