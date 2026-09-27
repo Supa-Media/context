@@ -232,7 +232,7 @@ export function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-lp-title-note-problem { color: ${colors.critText}; }
 .cm-lp-root .cm-lp-title-note-held { color: ${colors.warnText}; }
 ${livePreviewStyles}
-${commentStyles(colors)}
+${commentStyles(colors, fonts.body)}
 `;
   if (fresh) document.head.appendChild(style);
 }

@@ -65,7 +65,7 @@ import { mountEditor } from "./mount";
 import { showTitleNote } from "./titleLine";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
-import { canComment } from "../comments/extension";
+import { canComment, commentUi, setActiveThread } from "../comments/extension";
 
 export function LiveEditor({
   value,
@@ -78,6 +78,7 @@ export function LiveEditor({
   onBlur,
   onTitleCaret,
   commenter,
+  onSignInToComment,
   titleNote,
   accessibilityLabel,
   onOpenNote,
@@ -286,8 +287,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -409,6 +410,22 @@ export function LiveEditor({
     if (!current) return;
     current.dispatch({ effects: setRemoteCarets.of(presence?.members ?? []) });
   }, [presence?.members]);
+
+  /*
+    A thread the room points at: the homepage cast commenting, replying or
+    resolving (`Presence.commentFocus`). It opens the way a tap on the
+    highlight would, so on a phone the cast drives the same sheet a visitor
+    opens themselves. Only ever opened from here, never closed: dismissing it
+    stays the reader's.
+  */
+  const focusStep = presence?.commentFocus?.step;
+  useEffect(() => {
+    const current = view.current;
+    const thread = presence?.commentFocus?.thread;
+    if (!current || thread === undefined) return;
+    if (current.state.field(commentUi).active !== thread) current.dispatch({ effects: setActiveThread.of(thread) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the step is the event; see above
+  }, [focusStep]);
 
   // An authoritative change from outside: a draft discarded, a conflict
   // resolved, a note arriving into an editor that is already on it.

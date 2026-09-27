@@ -27,6 +27,7 @@ import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
 import { comments } from "../comments/extension";
 import { commentRail } from "../comments/rail";
+import { commentSheet } from "../comments/sheet";
 
 export function mountEditor({
   host,
@@ -200,14 +201,18 @@ export function mountEditor({
       // find-in-note; see `titleLine.ts`.
       titleLine(() => handlers.current.onTitleCaret),
       /*
-        Comments: the highlights, the hidden markers and block, and the margin
-        of cards (files/comments/). Web only, like find-in-note: the margin is
-        DOM beside the text, and the native guest has no way to learn who is
-        commenting. The name is read at the moment of commenting, off the
-        handlers ref, so a sign-in that resolves after mount still signs.
+        Comments: the highlights, the hidden markers and block, the margin of
+        cards on a wide pane and the bottom sheet on a phone (files/comments/).
+        The name is read at the moment of commenting, off the handlers ref, so
+        a sign-in that resolves after mount still signs. The iOS guest installs
+        the same extension with its own host (`webview/guestExtras.ts`).
       */
-      comments({ author: () => handlers.current.commenter ?? null }),
+      comments({
+        author: () => handlers.current.commenter ?? null,
+        signIn: () => handlers.current.onSignInToComment,
+      }),
       commentRail,
+      commentSheet({ placement: "viewport" }),
       // Folder lists: web only, like find-in-note. The native guest has no
       // copy of the workspace to read, so its lists stay as source.
       listHost.of(lists),

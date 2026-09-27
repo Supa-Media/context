@@ -36,7 +36,13 @@ export function useHomeCast(options: {
   addNote: (folder: string, name: string, text: string) => string | null;
 }): { presence: Presence | undefined; agents: AgentActivityView | undefined } {
   const { enabled, scripts, colors, selectedPath } = options;
-  const [room, setRoom] = useState<{ path: string; shared: SharedDoc; members: PresenceMember[] } | null>(null);
+  const [room, setRoom] = useState<{
+    path: string;
+    shared: SharedDoc;
+    members: PresenceMember[];
+    /** The thread the cast last acted on; see `Presence.commentFocus`. */
+    focus?: { thread: string; step: number };
+  } | null>(null);
   const [activity, setActivity] = useState<AgentActivityView>({ agents: [], marks: [] });
   const played = useRef(new Set<string>());
   const reduced = useReducedMotion();
@@ -77,6 +83,12 @@ export function useHomeCast(options: {
         addNote: (name, text) => latest.current.addNote(folder, name, text),
         agentDid: (actor, kind, at) => setActivity((current) => recordAgent(current, actor, kind, at, colors, Date.now())),
         room: (members) => setRoom((current) => (current !== null && current.path === path ? { ...current, members } : current)),
+        commented: (thread) =>
+          setRoom((current) =>
+            current !== null && current.path === path
+              ? { ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } }
+              : current,
+          ),
       },
       { path, colors },
     );
@@ -89,7 +101,7 @@ export function useHomeCast(options: {
   }, [enabled, selectedPath, scripts, colors]);
 
   const presence = useMemo(
-    () => (room === null || room.path !== selectedPath ? undefined : castPresence(room.shared, room.members)),
+    () => (room === null || room.path !== selectedPath ? undefined : castPresence(room.shared, room.members, room.focus ?? null)),
     [room, selectedPath],
   );
   return { presence, agents: activity.agents.length === 0 ? undefined : activity };

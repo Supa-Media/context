@@ -73,6 +73,8 @@ export interface CastHost {
   agentDid: (actor: CastActor, kind: "read" | "write", path: string) => void;
   /** Who is in this note now. */
   room: (members: PresenceMember[]) => void;
+  /** A comment step acted on this thread: a comment, a reply or a resolve. */
+  commented?: (thread: string) => void;
 }
 
 /*
@@ -321,6 +323,9 @@ export function playCast(
       if (range === null) return;
       if (step.kind === "resolve") place(id, at(range.to, -1), at(range.to, -1));
       else place(id, at(range.from, 0), at(range.to, -1));
+      // The thread is on the page now: the editor opens it, which on a phone
+      // is the sheet a visitor opens by tapping the words.
+      host.commented?.(thread!);
     };
     const done = () => {
       if (step.actor.kind === "agent") host.agentDid(step.actor, "write", path);

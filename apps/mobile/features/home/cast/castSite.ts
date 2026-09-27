@@ -44,8 +44,13 @@ const NOTHING = () => {};
  * into their copy of the page (`mayPersist`). `demo` is what makes the chip
  * say so.
  */
-export function castPresence(shared: SharedDoc, members: PresenceMember[]): Presence {
+export function castPresence(
+  shared: SharedDoc,
+  members: PresenceMember[],
+  commentFocus: Presence["commentFocus"] = null,
+): Presence {
   return {
+    commentFocus,
     members,
     phase: "live",
     summary: members.length === 0 ? "" : members.length === 1 ? "1 here" : `${members.length} here`,

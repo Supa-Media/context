@@ -1,17 +1,43 @@
 /**
- * The comment margin's stylesheet, appended to the web editor's by
- * `liveEditorWeb/stylesheet.ts`.
+ * The comments' stylesheet: the margin, the phone's sheet and its chip.
  *
- * Values from the palette rather than `--lp-*` properties, for the reason the
- * title line gives there: only the web half draws comments, so a property
- * here would be one the native guest's contract says it must also declare.
+ * Two surfaces draw comments and they hand in their colours differently. The
+ * web editor (`liveEditorWeb/stylesheet.ts`) passes the palette itself. The
+ * iOS app's web view (`webview/styles.ts`) passes `var(--lp-…)` references,
+ * because its palette arrives over the bridge after the stylesheet is written
+ * (`themeVars`). So this file takes the colours and the font as arguments and
+ * imports nothing from the design tokens, which pull in React Native and must
+ * never enter the web view's bundle.
  * (No backticks in the CSS comments: this is a template literal.)
  */
 
-import { fonts } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
-export function commentStyles(colors: Colors): string {
+/** The colours comments are drawn in. */
+export type CommentPalette = Pick<
+  Colors,
+  | "commentWash"
+  | "commentWashActive"
+  | "warn"
+  | "text"
+  | "text2"
+  | "muted"
+  | "surface"
+  | "line"
+  | "lineStrong"
+  | "accent"
+  | "accentDim"
+  | "chipFill"
+  | "markTeam"
+  | "critText"
+  | "okText"
+>;
+
+export function commentStyles(colors: CommentPalette, font: string | undefined): string {
+  return `${marginStyles(colors, font)}${sheetStyles(colors, font)}`;
+}
+
+function marginStyles(colors: CommentPalette, font: string | undefined): string {
   return `
 .cm-lp-root .cm-scroller { position: relative; }
 /*
@@ -40,7 +66,7 @@ export function commentStyles(colors: Colors): string {
   width: 0;
   height: 0;
   z-index: 3;
-  font-family: ${fonts.body};
+  font-family: ${font};
   font-size: 13px;
   line-height: 1.45;
   color: ${colors.text};
@@ -111,10 +137,89 @@ export function commentStyles(colors: Colors): string {
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 .cm-cmt-head { display: flex; justify-content: flex-end; }
-.cm-cmt-rail-narrow .cm-cmt-card { box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.12); }
+/* A tablet's margin, typed into with a finger: 16px, or iOS zooms on focus. */
+@media (pointer: coarse) { .cm-cmt-input { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) {
   .cm-cmt-placed, .cm-lp-root .cm-cmt-wide .cm-content, .cm-lp-root .cm-cmt-hl { transition: none; }
   .cm-cmt-enter { transform: none; }
+}
+`;
+}
+
+/*
+  The phone's sheet (sheet.ts) and its floating Comment chip. Every field is
+  16px: below that iOS zooms the page when the field takes focus.
+*/
+function sheetStyles(colors: CommentPalette, font: string | undefined): string {
+  return `
+.cm-cmt-sheet-layer[hidden], .cm-cmt-float[hidden] { display: none !important; }
+.cm-cmt-sheet-layer {
+  box-sizing: border-box;
+  font-family: ${font};
+  font-size: 15px;
+  line-height: 1.45;
+  color: ${colors.text};
+  text-align: left;
+}
+.cm-cmt-sheet-viewport { position: fixed; inset: 0; z-index: 1000; }
+.cm-cmt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.28); }
+.cm-cmt-sheet-viewport .cm-cmt-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 72vh; overflow-y: auto; overscroll-behavior: contain;
+  box-sizing: border-box;
+  padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: ${colors.surface};
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.18);
+}
+.cm-cmt-sheet-inline { position: absolute; z-index: 4; }
+.cm-cmt-sheet-inline .cm-cmt-sheet {
+  box-sizing: border-box;
+  padding: 10px 12px 12px;
+  background: ${colors.surface};
+  border: 1px solid ${colors.lineStrong};
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.12);
+}
+.cm-cmt-sheet-body { display: flex; flex-direction: column; gap: 12px; }
+.cm-cmt-grab { align-self: center; width: 36px; height: 4px; margin: 4px 0 0; border-radius: 2px; background: ${colors.lineStrong}; }
+.cm-cmt-sheet-inline .cm-cmt-grab { display: none; }
+.cm-cmt-sheet-head { display: flex; align-items: center; gap: 8px; }
+.cm-cmt-sheet-title {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 15px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cm-cmt-badge { font-size: 12.5px; font-weight: 600; color: ${colors.okText}; }
+.cm-cmt-sheet-list { display: flex; flex-direction: column; gap: 14px; }
+.cm-cmt-sheet .cm-cmt-msg { grid-template-columns: 28px minmax(0, 1fr); gap: 10px; }
+.cm-cmt-sheet .cm-cmt-av { width: 28px; height: 28px; font-size: 12px; }
+.cm-cmt-sheet .cm-cmt-resolved, .cm-cmt-sheet .cm-cmt-detached, .cm-cmt-sheet .cm-cmt-problem { font-size: 14px; }
+.cm-cmt-sheet button {
+  font: inherit; font-size: 15px; cursor: pointer;
+  min-height: 40px; padding: 8px 14px; border-radius: 10px;
+  border: 1px solid transparent; background: transparent; color: ${colors.text2};
+}
+.cm-cmt-sheet button:focus-visible { outline: 2px solid ${colors.accent}; outline-offset: 1px; }
+.cm-cmt-sheet .cm-cmt-resolve { border-color: ${colors.line}; }
+.cm-cmt-sheet .cm-cmt-primary { background: ${colors.accent}; color: ${colors.surface}; font-weight: 600; }
+.cm-cmt-sheet .cm-cmt-close { min-height: 36px; padding: 2px 10px; font-size: 22px; line-height: 1; color: ${colors.muted}; }
+.cm-cmt-sheet .cm-cmt-input, .cm-cmt-sheet .cm-cmt-signin {
+  box-sizing: border-box; width: 100%;
+  min-height: 44px; padding: 10px 12px;
+  font: inherit; font-size: 16px; text-align: left;
+  color: ${colors.text}; background: ${colors.surface};
+  border: 1px solid ${colors.lineStrong}; border-radius: 10px;
+}
+.cm-cmt-sheet .cm-cmt-signin { color: ${colors.muted}; }
+.cm-cmt-float {
+  position: absolute; z-index: 5;
+  font-family: ${font}; font-size: 15px; font-weight: 600;
+  min-height: 40px; padding: 8px 16px;
+  border: none; border-radius: 10px;
+  background: ${colors.text}; color: ${colors.surface};
+  box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+  cursor: pointer;
 }
 `;
 }

@@ -19,18 +19,18 @@
  *    moves the column left by just the shortfall, and decides that from its
  *    width and whether the note has comments at all, never from which card is
  *    open. Cards fade in and glide to their lines instead of appearing.
- *  - **Narrow**: there is no margin to put cards in, so only the active thread
- *    (or the comment being written) opens, as a card under its line. Clicking a
- *    highlight is how a thread is opened.
+ *  - **Narrow** (a phone, a thin pane): there is no margin to put cards in, so
+ *    the rail draws nothing and `sheet.ts` takes over: tapping a highlight
+ *    opens its thread in a bottom sheet, and a selection offers a floating
+ *    Comment chip. The rail and the sheet read the same width rule
+ *    (`hasMargin`), so exactly one of them is showing threads at a time.
  *
  * ## Plain DOM, and never `innerHTML`
  *
  * The rail lives inside CodeMirror's scroller so cards scroll with the text,
  * which rules out a React tree (it would have to be portalled into a node the
- * editor owns and re-rendered on every scroll). It is built with
- * `createElement` and `textContent` only. Every name and word in a card came
- * out of a Markdown file that anybody with write access — or any agent — could
- * have written, so a string never reaches the DOM as markup.
+ * editor owns and re-rendered on every scroll). Cards are built from `dom.ts`,
+ * which uses `createElement` and `textContent` only.
  */
 
 import { StateEffect, StateField } from "@codemirror/state";
@@ -40,6 +40,7 @@ import {
   addToThread,
   canComment,
   commentUi,
+  commentableSelection,
   commentsParsed,
   setActiveThread,
   setDraft,
@@ -47,15 +48,14 @@ import {
   startComment,
   submitDraft,
 } from "./extension";
-import { initialsFor, isPerson, messages, resolvedBy, stackCards, visibleThreads, whenLabel } from "./model";
+import { button, carryOver, composer, el, message, report } from "./dom";
+import { hasMargin, messages, resolvedBy, stackCards, visibleThreads } from "./model";
 
 /** The margin the note gives up when it has comments: the card width plus air. */
 export const RAIL_RESERVE = 300;
 const CARD_WIDTH = 256;
 /** The air between the reading column and a card, and between a card and the edge. */
 const CARD_GAP = 20;
-/** Below this pane width a margin would squeeze the reading column too far. */
-const WIDE_MIN = 780;
 const HEAD = "__head";
 const DRAFT = "__draft";
 const CHIP = "__chip";
@@ -92,82 +92,6 @@ interface CardSpec {
   build: () => HTMLElement;
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function button(label: string, className: string, onClick: () => void): HTMLButtonElement {
-  const node = el("button", className, label);
-  node.type = "button";
-  node.addEventListener("mousedown", (event) => event.preventDefault());
-  node.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onClick();
-  });
-  return node;
-}
-
-function message(author: string, at: string, text: string): HTMLElement {
-  const row = el("div", "cm-cmt-msg");
-  const avatar = el("span", isPerson(author) ? "cm-cmt-av" : "cm-cmt-av cm-cmt-av-agent", initialsFor(author));
-  avatar.setAttribute("aria-hidden", "true");
-  const main = el("div", "cm-cmt-main");
-  const who = el("div", "cm-cmt-who");
-  who.append(el("b", undefined, author));
-  if (!isPerson(author)) who.append(el("span", "cm-cmt-tag", "agent"));
-  const when = el("span", "cm-cmt-when", whenLabel(at));
-  when.title = at;
-  who.append(when);
-  main.append(who, el("div", "cm-cmt-body", text));
-  row.append(avatar, main);
-  return row;
-}
-
-/**
- * A textarea that sends on Enter and takes a new line on Shift-Enter, the
- * convention of every chat box a person already knows.
- */
-function composer(placeholder: string, onSend: (text: string) => string | null, onCancel: () => void): { root: HTMLElement; input: HTMLTextAreaElement } {
-  const root = el("div", "cm-cmt-compose");
-  const input = el("textarea", "cm-cmt-input");
-  input.placeholder = placeholder;
-  input.rows = 1;
-  input.setAttribute("aria-label", placeholder);
-  const problem = el("div", "cm-cmt-problem");
-  problem.hidden = true;
-  const send = () => {
-    const text = input.value.trim();
-    if (!text) return;
-    const error = onSend(text);
-    if (error === null) {
-      input.value = "";
-      problem.hidden = true;
-    } else {
-      problem.textContent = error;
-      problem.hidden = false;
-    }
-  };
-  input.addEventListener("keydown", (event) => {
-    event.stopPropagation();
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-      event.preventDefault();
-      send();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      onCancel();
-    }
-  });
-  input.addEventListener("input", () => {
-    input.style.height = "auto";
-    input.style.height = `${input.scrollHeight}px`;
-  });
-  root.append(input, problem);
-  return { root, input };
-}
-
 class Rail implements PluginValue {
   private readonly dom: HTMLDivElement;
   private readonly cards = new Map<string, { node: HTMLElement; signature: string; pos: number }>();
@@ -195,6 +119,8 @@ class Rail implements PluginValue {
   }
 
   private specs(): CardSpec[] {
+    // No margin: the phone's bottom sheet (`sheet.ts`) shows threads instead.
+    if (!this.wide) return [];
     const state = this.view.state;
     const parsed = state.field(commentsParsed);
     const ui = state.field(commentUi);
@@ -203,7 +129,7 @@ class Rail implements PluginValue {
     const specs: CardSpec[] = [];
     const resolvedCount = parsed.threads.filter((thread) => thread.status === "resolved").length;
 
-    if (this.wide && resolvedCount > 0) {
+    if (resolvedCount > 0) {
       specs.push({
         id: HEAD,
         pos: 0,
@@ -212,24 +138,20 @@ class Rail implements PluginValue {
       });
     }
     for (const thread of threads) {
-      if (!this.wide && ui.active !== thread.id) continue;
       const anchor = parsed.anchors.get(thread.id);
       const active = ui.active === thread.id;
       specs.push({
         id: thread.id,
         pos: anchor?.from ?? 0,
-        signature: JSON.stringify([thread.events, thread.status, thread.anchored, active, editable, this.wide]),
+        signature: JSON.stringify([thread.events, thread.status, thread.anchored, active, editable]),
         build: () => this.threadCard(thread, active, editable),
       });
     }
     if (ui.draft !== null) {
       specs.push({ id: DRAFT, pos: ui.draft.from, signature: "draft", build: () => this.draftCard() });
-    } else if (this.wide && editable) {
-      const selection = state.selection.main;
-      const inBlock = parsed.block !== null && selection.from >= parsed.block.start;
-      if (!selection.empty && !inBlock && state.sliceDoc(selection.from, selection.to).trim() !== "") {
-        specs.push({ id: CHIP, pos: selection.from, signature: "chip", build: () => this.chip() });
-      }
+    } else {
+      const selection = commentableSelection(state);
+      if (selection !== null) specs.push({ id: CHIP, pos: selection.from, signature: "chip", build: () => this.chip() });
     }
     return specs;
   }
@@ -240,8 +162,7 @@ class Rail implements PluginValue {
     const ui = this.view.state.field(commentUi);
     // The mode is read from the scroller's width alone, never from the content
     // column, so reserving the margin cannot flip it back.
-    this.wide = this.view.scrollDOM.clientWidth >= WIDE_MIN;
-    this.dom.classList.toggle("cm-cmt-rail-narrow", !this.wide);
+    this.wide = hasMargin(this.view.scrollDOM.clientWidth);
     this.hasComments = parsed.threads.length > 0 || ui.draft !== null;
 
     const specs = this.specs();
@@ -283,7 +204,6 @@ class Rail implements PluginValue {
     const contentRect = view.contentDOM.getBoundingClientRect();
     const style = getComputedStyle(view.contentDOM);
     const offset = view.documentTop - scrollerRect.top + scroller.scrollTop;
-    const columnLeft = contentRect.left - scrollerRect.left + scroller.scrollLeft + parseFloat(style.paddingLeft || "0");
     const columnRight = contentRect.right - scrollerRect.left + scroller.scrollLeft - parseFloat(style.paddingRight || "0");
     // The room right of the column when the note keeps its usual centred
     // layout. Read from the content box's full width and the measure, neither
@@ -293,9 +213,9 @@ class Rail implements PluginValue {
     const length = view.state.doc.length;
     const cards = [...this.cards].map(([id, card]) => {
       const block = view.lineBlockAt(Math.min(card.pos, length));
-      return { id, top: block.top + offset, bottom: block.bottom + offset, height: card.node.offsetHeight };
+      return { id, top: block.top + offset, height: card.node.offsetHeight };
     });
-    return { cards, columnLeft, columnRight, offset, gutter };
+    return { cards, columnRight, offset, gutter };
   }
 
   private place(layout: ReturnType<Rail["measure"]>) {
@@ -325,16 +245,6 @@ class Rail implements PluginValue {
         node.style.left = `${left}px`;
         // The Comment button sits at the margin's edge at its own size.
         node.style.width = id === CHIP ? "auto" : `${CARD_WIDTH}px`;
-        settle(node);
-      }
-    } else {
-      const width = Math.min(360, layout.columnRight - layout.columnLeft);
-      for (const card of layout.cards) {
-        const node = this.cards.get(card.id)?.node;
-        if (!node) continue;
-        node.style.top = `${card.bottom + 6}px`;
-        node.style.left = `${layout.columnLeft}px`;
-        node.style.width = `${width}px`;
         settle(node);
       }
     }
@@ -372,14 +282,14 @@ class Rail implements PluginValue {
       const line = el("div", "cm-cmt-resolved", `Resolved by ${closed.author}`);
       line.title = closed.at;
       if (editable) {
-        line.append(button("Reopen", "cm-cmt-link", () => this.report(card, addToThread(this.view, thread.id, "reopened"))));
+        line.append(button("Reopen", "cm-cmt-link", () => report(card, addToThread(this.view, thread.id, "reopened"))));
       }
       card.append(line);
       return card;
     }
     if (!editable) return card;
     const actions = el("div", "cm-cmt-actions");
-    actions.append(button("Resolve", "cm-cmt-resolve", () => this.report(card, addToThread(this.view, thread.id, "resolved"))));
+    actions.append(button("Resolve", "cm-cmt-resolve", () => report(card, addToThread(this.view, thread.id, "resolved"))));
     if (active) {
       const reply = composer("Reply…", (text) => addToThread(this.view, thread.id, "comment", text), () => this.view.dispatch({ effects: setActiveThread.of(null) }));
       card.append(reply.root);
@@ -402,7 +312,7 @@ class Rail implements PluginValue {
         const text = input?.value.trim() ?? "";
         if (!text) return input?.focus();
         const error = submitDraft(this.view, text);
-        if (error !== null) this.report(card, error);
+        if (error !== null) report(card, error);
       }),
       button("Cancel", "cm-cmt-link", () => this.view.dispatch({ effects: setDraft.of(null) })),
     );
@@ -418,15 +328,6 @@ class Rail implements PluginValue {
     return chip;
   }
 
-  private report(card: HTMLElement, error: string | null) {
-    if (error === null) return;
-    let problem = card.querySelector<HTMLElement>(":scope > .cm-cmt-problem");
-    if (!problem) {
-      problem = el("div", "cm-cmt-problem");
-      card.append(problem);
-    }
-    problem.textContent = error;
-  }
 }
 
 /**
@@ -441,19 +342,5 @@ function settle(node: HTMLElement) {
   });
 }
 
-/** Keep somebody's half-typed reply, and their focus, across a card rebuild. */
-function carryOver(from: HTMLElement, to: HTMLElement) {
-  const before = from.querySelector("textarea");
-  const after = to.querySelector("textarea");
-  if (!before || !after || !before.value) return;
-  after.value = before.value;
-  if (document.activeElement === before) {
-    const { selectionStart, selectionEnd } = before;
-    queueMicrotask(() => {
-      after.focus();
-      after.setSelectionRange(selectionStart, selectionEnd);
-    });
-  }
-}
 
 export const commentRail = [marginShift, ViewPlugin.fromClass(Rail)];

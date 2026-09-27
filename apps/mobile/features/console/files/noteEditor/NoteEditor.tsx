@@ -107,6 +107,7 @@ export function NoteEditor({
   onStoreImage,
   onImageProblem,
   commenter,
+  onSignInToComment,
   folderLists,
   onTitleCaret,
   titleNote,
@@ -386,6 +387,7 @@ export function NoteEditor({
 
   const view: NoteView = {
     commenter: commenter ?? null,
+    onSignInToComment,
     // Props, as destructured above.
     state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,

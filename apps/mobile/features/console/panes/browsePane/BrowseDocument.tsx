@@ -295,6 +295,8 @@ export function BrowseDocument({
         activity={data.activity}
         // Comments are signed with the viewer's handle; an email or "Signed in" is not one.
         commenter={data.viewer?.name?.startsWith("@") ? data.viewer.name : null}
+        // A visitor reads threads; replying is what signing in is for.
+        onSignInToComment={data.visitor?.signIn}
         activityShared={(data.members?.members?.length ?? 1) > 1}
         /*
           Owner-only, and the rule is `capabilities.ts`'s rather than this

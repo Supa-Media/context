@@ -78,6 +78,7 @@ export function noteDocument(view: NoteView) {
     onLoadImage,
     onStoreImage,
     commenter,
+    onSignInToComment,
     onImageProblem,
     folderLists,
     onTitleCaret,
@@ -384,6 +385,7 @@ export function noteDocument(view: NoteView) {
           onImageProblem={onImageProblem}
           folderLists={folderLists}
           commenter={commenter}
+          onSignInToComment={onSignInToComment}
         />
         </>
         )}

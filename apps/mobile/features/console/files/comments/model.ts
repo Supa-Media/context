@@ -50,6 +50,26 @@ export function whenLabel(at: string, now: number = Date.now()): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/**
+ * Below this pane width there is no margin for cards: a thread opens in a
+ * bottom sheet instead (`sheet.ts`), and a selection offers a Comment chip.
+ */
+export const WIDE_MIN = 780;
+
+/** Whether a pane this wide keeps a margin of cards beside the text. */
+export function hasMargin(width: number): boolean {
+  return width >= WIDE_MIN;
+}
+
+/** What the sheet's header quotes: the words on one line, cut at a word near `max`. */
+export function quoteLabel(quote: string, max = 60): string {
+  const flat = quote.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
 /** The comments in a thread, without its resolve and reopen lines. */
 export function messages(thread: CommentThread): CommentEvent[] {
   return thread.events.filter((event) => event.kind === "comment");

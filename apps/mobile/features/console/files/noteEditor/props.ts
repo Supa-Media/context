@@ -78,6 +78,11 @@ export interface NoteEditorProps {
    * with (files/comments/). Absent where nobody can comment.
    */
   commenter?: string | null;
+  /**
+   * A visitor's way to be able to reply: a thread's reply field then reads
+   * "Sign in to reply" and opens this. Absent for a signed-in reader.
+   */
+  onSignInToComment?: () => void;
   /** Where a folder list block reads its notes. Absent: lists stay as source. */
   folderLists?: FolderListSource;
   /**
