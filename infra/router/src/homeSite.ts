@@ -15,6 +15,9 @@
  * field here, and written so it cannot close its own `<script>` element.
  * Every failure (no CONVEX_ORIGIN, a timeout, a non-200, a site that is off)
  * is the untouched HTML, and the app falls back on its own.
+ *
+ * A page's own address, `/pricing`, carries it as well when the site has that
+ * page: the app opens that address as the homepage on that page.
  */
 
 /** The element the app reads (`apps/mobile/features/home/homeSnapshot.ts`). */
@@ -67,9 +70,42 @@ function parseEmoji(value: unknown): Record<string, string> {
   return emoji;
 }
 
-/** A navigation to `/` itself, which is the only document that carries the site. */
+/**
+ * First segments that are never a homepage page: the app's own screens and
+ * this Worker's paths. Mirrors `APP_SEGMENTS` in
+ * `apps/mobile/features/home/homeSite.ts`, which the app's tests hold to its
+ * routes. Only a saving here: a page is injected into a document only when the
+ * site has it, and the app never draws the homepage at one of these anyway.
+ */
+const NOT_PAGES = new Set([
+  "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "login", "meetings",
+  "note", "preview", "privacy", "s", "terms", "welcome", "workspace", "_expo", "api", "og",
+]);
+
+/**
+ * The homepage page a document's path may be — `/`, or a clean page address
+ * such as `/pricing` that the app opens as that page — or `null` for a path
+ * that is an app screen, somebody's website (`/@handle`), or a file.
+ */
+export function homePagePathOf(url: URL): string | null {
+  if (url.pathname === "/") return "/";
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    return null;
+  }
+  const segments = path.split("/").filter((segment) => segment !== "");
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  if (first === undefined || last === undefined) return null;
+  if (first.startsWith("@") || NOT_PAGES.has(first.toLowerCase()) || /\.[a-z0-9]+$/i.test(last)) return null;
+  return `/${segments.join("/")}`;
+}
+
+/** A navigation to `/`, or to a page's own address: the documents that carry the site. */
 export function isHomeDocument(request: Request, url: URL): boolean {
-  return request.method === "GET" && url.pathname === "/";
+  return request.method === "GET" && homePagePathOf(url) !== null;
 }
 
 function isText(value: unknown, max = MAX_TEXT): value is string {
@@ -202,11 +238,15 @@ export async function fetchHomeSnapshot(
 export async function homeDocumentResponse(
   upstream: Response,
   snapshot: Promise<HomeSnapshot | null>,
+  routePath = "/",
 ): Promise<Response> {
   const type = upstream.headers.get("Content-Type") ?? "";
   if (upstream.status !== 200 || !type.toLowerCase().includes("text/html")) return upstream;
   const site = await snapshot;
   if (site === null) return upstream;
+  // `/pricing` carries the site only when the site has a Pricing page; any
+  // other name is not the homepage's, and its document is left as it came.
+  if (routePath !== "/" && !site.pages.some((page) => page.routePath === routePath)) return upstream;
   const html = await upstream.text();
   const headers = new Headers(upstream.headers);
   // The body is no longer the upstream's bytes: its length, encoding and
@@ -229,9 +269,10 @@ export async function withHomeSite(
   env: { HOME_SITE_HANDLE?: string },
   convexOrigin: string | null,
   ctx: ExecutionContext,
+  routePath = "/",
 ): Promise<Response> {
   const named = env.HOME_SITE_HANDLE ?? "";
   const handle = /^[a-z0-9-]{1,64}$/.test(named) ? named : DEFAULT_HOME_SITE_HANDLE;
   const snapshot = fetchHomeSnapshot(convexOrigin, handle, ctx);
-  return await homeDocumentResponse(await document(), snapshot);
+  return await homeDocumentResponse(await document(), snapshot, routePath);
 }

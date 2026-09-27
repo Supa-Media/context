@@ -392,7 +392,10 @@ the `app/[handle]` routes (the only dynamic top-level route), which redirect a
 name that is not an `@handle` to `/?page=<name>` on the web, so a visit stays
 one homepage and moving between pages is a change of `?page=` on one screen —
 the visitor's in-tab edits are not dropped by a second copy of it mounting. A
-name the site has no page for gets the homepage's own "Nothing here".
+name the site has no page for gets the homepage's own "Nothing here". The
+router (`infra/router/src/homeSite.ts`) puts the site in a page address's
+HTML as it does in `/`'s, when the site has that page, so the first paint is
+the page rather than a wait for the app to ask.
 
 The app's own screens and people's websites keep winning: Expo Router matches
 static routes first, and `APP_SEGMENTS` in
