@@ -12,6 +12,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { splitMessageAnchor } from "../../search/commsIndex.js";
 import { toolError, toolText } from "../results.js";
+import comments from "../../../../../packages/shared/src/comments.cjs";
 
 export async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
@@ -186,6 +187,17 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
       // stale address is holding one somewhere, and the next write must use
       // the path it is being given rather than the one it asked for.
       `${path === requested ? "" : `\nmoved_from: ${requested}`}` +
-      `${drawingEmbedLine(actualText)}\n\n${actualText}`
+      `${drawingEmbedLine(actualText)}${commentsLine(actualText)}\n\n${actualText}`
   );
+}
+
+/**
+ * One header line when the note carries comments, so an agent that opens a
+ * note learns there is feedback waiting and has the ids it needs to answer
+ * through `write_note`'s `comment` argument. The threads themselves are in the
+ * text below, in the note's own `comments` block.
+ */
+function commentsLine(text) {
+  const described = comments.describeComments(text);
+  return described ? `\ncomments: ${described}; answer with write_note comment: { action: "reply" | "resolve", thread }` : "";
 }

@@ -1,4 +1,4 @@
-import { check, call, contextStore, lacks, env, accessTokenFor, suite, getFailures } from "./harness.mjs";
+import { check, call, contextStore, lacks, env, accessTokenFor, suite, getFailures, controlPlane, storedText, WORKSPACE_ID } from "./harness.mjs";
 import { runStoreChecks } from "./store.test.mjs";
 import { runCommunicationsChecks } from "./communications.test.mjs";
 import { runContactsChecks } from "./contacts.test.mjs";
@@ -44,6 +44,7 @@ import { runAgentActivityChecks } from "./agentActivity.test.mjs";
 import { runNoteCapGatewayChecks } from "./noteCapGateway.test.mjs";
 import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
+import { runCommentFormatChecks, runCommentToolChecks } from "./comments.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
@@ -213,6 +214,8 @@ await suite("runForwardingChecks", () => runForwardingChecks(check));
 await suite("runActivityChecks", () => runActivityChecks(check));
 await suite("runTreeHintChecks", () => runTreeHintChecks(check));
 await suite("runDrawingChecks", () => runDrawingChecks(check));
+await suite("runCommentFormatChecks", () => runCommentFormatChecks(check));
+await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, controlPlane, contextStore, storedText, WORKSPACE_ID }));
 
 /*
   A MESSAGE DEEP LINK IS A KEY THE READ TOOLS ACCEPT.
