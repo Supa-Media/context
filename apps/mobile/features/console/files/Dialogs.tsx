@@ -7,6 +7,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { MoveDestination } from "./browser";
 import { describeNameProblem } from "./paths";
 import { createRows, type CreateRow } from "./createSheet";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * The console's dialogs.
@@ -244,6 +245,7 @@ export function NamePrompt({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const [value, setValue] = useState(initialValue);
   const problem = value.trim() === "" ? null : describeNameProblem(value);
   const ready = value.trim() !== "" && problem === null;
@@ -255,7 +257,7 @@ export function NamePrompt({
         value={value}
         onChangeText={setValue}
         autoFocus
-        style={styles.input}
+        style={[styles.input, fieldFont]}
         placeholder="name"
         placeholderTextColor={colors.muted}
         accessibilityLabel={title}

@@ -35,6 +35,7 @@ import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import type { MenuItem } from "../menu";
 import type { OwnerSearch } from "../owners";
 import { OwnerPicker } from "./OwnerPicker";
+import { useFieldFont } from "../../../design/fieldFont";
 
 export interface PropertyValueProps {
   /** The frontmatter key, which names the menu and the field. */
@@ -87,6 +88,7 @@ export function PropertyValue({
 }: PropertyValueProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const trigger = useRef<View>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [picking, setPicking] = useState(false);
@@ -125,7 +127,7 @@ export function PropertyValue({
         accessibilityLabel={`New ${property}`}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.field}
+        style={[styles.field, fieldFont]}
         testID={testID === undefined ? undefined : `${testID}-field`}
       />
     );

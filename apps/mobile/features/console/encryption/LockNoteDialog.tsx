@@ -15,6 +15,7 @@ import {
 import { kdfSupport } from "./kdf";
 import { MINIMUM_PASSPHRASE_LENGTH } from "./passphraseOps";
 import { passphraseStrength } from "./strength";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * The screen that takes a decision nobody can take back.
@@ -56,6 +57,7 @@ export function LockNoteDialog({
   error?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const support = useMemo(() => kdfSupport(), []);
   const [passphrase, setPassphrase] = useState("");
@@ -104,7 +106,7 @@ export function LockNoteDialog({
               ))}
 
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldFont]}
                 value={passphrase}
                 onChangeText={setPassphrase}
                 placeholder="Passphrase"
@@ -131,7 +133,7 @@ export function LockNoteDialog({
                 </Text>
               ) : null}
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldFont]}
                 value={again}
                 onChangeText={setAgain}
                 placeholder="Passphrase again"
@@ -144,7 +146,7 @@ export function LockNoteDialog({
                 accessibilityLabel="Passphrase again"
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldFont]}
                 value={acknowledged}
                 onChangeText={setAcknowledged}
                 placeholder={`Type "${ACKNOWLEDGEMENT_PHRASE}"`}

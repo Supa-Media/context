@@ -14,6 +14,7 @@ import {
   NAME_MIN_LENGTH,
 } from "../name";
 import type { OnboardingController } from "../useOnboarding";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * A-03 — claim your handle.
@@ -45,6 +46,7 @@ import type { OnboardingController } from "../useOnboarding";
 export function NameStep({ controller }: { controller: OnboardingController }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const [focused, setFocused] = useState(false);
   const { name, setName, nameStatus: status, claiming, claimFailure } = controller;
   const rejection = claimFailure?.nameRejection;
@@ -65,7 +67,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
         those are the ones that need explaining.
       */}
       <View style={[styles.box, focused && styles.boxFocused, feedback?.tone === "crit" && styles.boxError]}>
-        <Text style={styles.at} aria-hidden>
+        <Text style={[styles.at, fieldFont]} aria-hidden>
           @
         </Text>
         <TextInput
@@ -86,7 +88,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
           accessibilityLabel="Your handle"
           aria-describedby="welcome-name-hint"
           aria-invalid={feedback?.tone === "crit"}
-          style={styles.input}
+          style={[styles.input, fieldFont]}
           testID="welcome-name"
         />
         {available ? (

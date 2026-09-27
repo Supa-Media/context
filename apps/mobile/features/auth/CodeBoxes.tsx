@@ -3,6 +3,7 @@ import { StyleSheet, TextInput, View } from "react-native";
 import { Text } from "../design/components/Text";
 import { fonts, pointerType as t, radii, space } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
+import { FIELD_MIN_PHONE } from "../design/fieldFont";
 
 /** The email code's length, as `@supa-media/convex` issues it. */
 export const OTP_LENGTH = 6;
@@ -99,7 +100,9 @@ const makeStyles = (colors: Colors) =>
       bottom: 0,
       color: "transparent",
       backgroundColor: "transparent",
-      fontSize: t.label,
+      // Nothing it draws is seen, but mobile Safari zooms the page when a
+      // field under 16px takes focus, and this is the field that takes it.
+      fontSize: FIELD_MIN_PHONE,
       opacity: 0.011,
     },
   });

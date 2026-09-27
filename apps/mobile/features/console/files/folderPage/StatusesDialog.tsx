@@ -39,6 +39,7 @@ import { ChooseGroup } from "./ChooseGroup";
 import { GROUPS, GROUP_LABELS, moveStatus, placeStatus, type StatusGroup, type StatusList, type UndeclaredStatus } from "./statuses";
 import { StatusPill, toneColor } from "./StatusPill";
 import type { StatusEdits, StatusPlan } from "./useStatusEdits";
+import { useFieldFont } from "../../../design/fieldFont";
 
 type Typing = { kind: "add"; group: StatusGroup } | { kind: "rename"; word: string };
 type Pending = { verb: "Rename" | "Delete" | "Merge"; word: string; plan: StatusPlan };
@@ -59,6 +60,7 @@ export function StatusesDialog({
   onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const [typing, setTyping] = useState<Typing | null>(null);
   const [draft, setDraft] = useState("");
@@ -134,7 +136,7 @@ export function StatusesDialog({
       autoCapitalize="none"
       autoCorrect={false}
       maxLength={40}
-      style={styles.field}
+      style={[styles.field, fieldFont]}
       testID="statuses-field"
     />
   );

@@ -19,6 +19,7 @@ import type { EmojiHostContext, SlackmojiResult } from "../files/emoji/host";
 import { standardEmojiNamed } from "../files/emoji/standardEmoji";
 import { dataUrlFor } from "../files/imageBytes";
 import { pickEmojiFile } from "./pickEmojiFile";
+import { useFieldFont } from "../../design/fieldFont";
 
 type Outcome = { name: string } | { error: string; code?: string };
 
@@ -47,6 +48,7 @@ export function AddEmojiDialog({
   onClose: (name: string | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const canSearch = host.searchSlackmojis !== undefined;
   const [tab, setTab] = useState(canSearch ? initialTab : "upload");
   const [name, setName] = useState(customEmojiNameFrom(initialQuery));
@@ -175,7 +177,7 @@ export function AddEmojiDialog({
                 placeholder="Search Slackmojis"
                 accessibilityLabel="Search Slackmojis"
                 autoFocus
-                style={styles.input}
+                style={[styles.input, fieldFont]}
               />
               <ScrollView style={styles.results} contentContainerStyle={styles.grid}>
                 {(results ?? []).map((result) => (
@@ -220,7 +222,7 @@ export function AddEmojiDialog({
                 accessibilityLabel="Emoji name"
                 autoCapitalize="none"
                 autoCorrect={false}
-                style={[styles.input, styles.flex]}
+                style={[styles.input, styles.flex, fieldFont]}
               />
               <Text variant="mono" style={styles.colon}>:</Text>
             </View>

@@ -18,6 +18,7 @@ import { fonts, pointerType as t, radii } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { useCustomEmoji, type CustomEmojiValue } from "../../emoji/context";
 import { PanelHead } from "./PanelHead";
+import { useFieldFont } from "../../../design/fieldFont";
 
 export function EmojiPanel({ sectioned }: { sectioned: boolean }) {
   const emoji = useCustomEmoji();
@@ -78,6 +79,7 @@ function EmojiRow({
   onProblem: (problem: string | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const [src, setSrc] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,7 +120,7 @@ function EmojiRow({
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus
-          style={[styles.input, styles.flex]}
+          style={[styles.input, styles.flex, fieldFont]}
         />
       )}
       {!emoji.canEdit ? null : renaming === null ? (
