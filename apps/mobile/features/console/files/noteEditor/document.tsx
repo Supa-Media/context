@@ -1,7 +1,8 @@
 import { Platform, View } from "react-native";
-import { PresenceChip } from "../../ConsoleShell";
+import { PresenceChip, presenceChipShown } from "../../ConsoleShell";
 import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
+import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
 import { ActivityPage } from "../../activity/ActivityPage";
 import { LockedNoteView } from "../../encryption/LockedNoteView";
@@ -136,6 +137,7 @@ export function noteDocument(view: NoteView) {
           otherwise it would be an empty disclosure under a line that already
           answered it.
         */}
+        <Reveal open={!passphraseLocked && (frontmatter !== "" || (compact && visibility !== undefined))}>
         {!passphraseLocked && (frontmatter !== "" || (compact && visibility !== undefined)) ? (
           <Properties
             frontmatter={frontmatter}
@@ -172,6 +174,7 @@ export function noteDocument(view: NoteView) {
             }
           />
         ) : null}
+        </Reveal>
         {activityList ? (
           /*
             The activity file opens as a list, and the pencil opens its
@@ -262,12 +265,16 @@ export function noteDocument(view: NoteView) {
           go; this is a fact about the note in front of you and leaves with
           it. It draws nothing when nobody else is here, which is almost
           always, so the ordinary editor is unchanged — see `PresenceChip`.
+          When somebody arrives the row eases in rather than shoving the
+          note down by its height in one frame.
         */}
-        {presence === undefined ? null : (
-          <View style={styles.presenceRow}>
-            <PresenceChip presence={presence} />
-          </View>
-        )}
+        <Reveal open={presence !== undefined && presenceChipShown(presence)}>
+          {presence === undefined ? null : (
+            <View style={styles.presenceRow}>
+              <PresenceChip presence={presence} />
+            </View>
+          )}
+        </Reveal>
         <LiveEditor
           /*
             The body alone on a phone, and the whole file everywhere else.

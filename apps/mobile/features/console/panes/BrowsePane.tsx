@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { View } from "react-native";
+import { Reveal } from "../../design/components/Reveal";
 import { useConsoleNav } from "../ConsoleNavContext";
 import { useSurfacePadding } from "../../app/Screen";
 import { useThemedStyles } from "../../design/theme";
@@ -223,7 +224,9 @@ export function BrowsePane({
    * `notices` prop there and `NoteAccessory` for why). A pointer layout keeps
    * it where it was, above a region that scrolls itself.
    */
-  const notices = !hasNotice ? null : (
+  const notices = (
+    <Reveal open={hasNotice}>
+    {!hasNotice ? null : (
     <BrowseNotices
       data={data}
       files={files}
@@ -242,6 +245,8 @@ export function BrowsePane({
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}
     />
+    )}
+    </Reveal>
   );
 
   /**
