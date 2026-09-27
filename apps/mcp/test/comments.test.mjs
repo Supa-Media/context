@@ -30,7 +30,7 @@
 
 import comments from "../../../packages/shared/src/comments.cjs";
 
-const { addThread, appendEvent, applyChanges, locateQuote, parseComments, sanitizeAuthor, stripComments, describeComments } = comments;
+const { addThread, appendEvent, applyChanges, findAnchors, locateQuote, parseComments, sanitizeAuthor, stripComments, describeComments } = comments;
 
 const AT = "2026-09-27T07:30:12Z";
 
@@ -166,6 +166,12 @@ export function runCommentFormatChecks(check) {
     check("comments: stripping removes the block and its log", !stripped.includes("unprofessional") && !stripped.includes("```comments"));
     check("comments: stripping keeps the rest of the note", stripped.endsWith("Premium is like 5 bucks doe for early users.\n"));
   }
+
+  // --- a marker shown in a code sample is text, not an anchor ------------------
+  {
+    const sample = "Anchors look like this:\n\n```html\n<!--c:abcd-->words<!--/c:abcd-->\n```\n";
+    check("comments: a marker inside a code block is not an anchor", findAnchors(sample).size === 0);
+  }
 }
 
 export async function runCommentToolChecks(check, { call, controlPlane, contextStore, storedText, WORKSPACE_ID }) {
@@ -232,6 +238,9 @@ export async function runCommentToolChecks(check, { call, controlPlane, contextS
 
   const both = await call(CODEX, "write_note", { path, content: "replace", comment: { action: "resolve", thread: id } });
   check("comment tool: content and comment together are refused", both?.isError === true && (await storedText(path)) === final);
+
+  const withShare = await call(CODEX, "write_note", { path, visibility: "private", comment: { action: "reopen", thread: id } });
+  check("comment tool: other arguments beside a comment are refused, not ignored", withShare?.isError === true && (await storedText(path)) === final);
 
   const ambiguous = await call(CODEX, "write_note", { path, comment: { action: "add", quote: "e", text: "which one?" } });
   check("comment tool: an ambiguous quote is refused with a count", ambiguous?.isError === true && /appears \d+ times/.test(ambiguous?.content?.[0]?.text ?? ""));

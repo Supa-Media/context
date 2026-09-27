@@ -59,12 +59,15 @@ function parseRead(result) {
   return { fields, body: text.slice(split + 2) };
 }
 
-function summaryFor(action, quote) {
-  const words = JSON.stringify(quote.length > 60 ? `${quote.slice(0, 59)}…` : quote);
-  if (action === "add") return `commented on ${words}`;
-  if (action === "reply") return `replied to a comment on ${words}`;
-  if (action === "resolve") return `resolved a comment on ${words}`;
-  return `reopened a comment on ${words}`;
+/**
+ * The activity line. It names the act and never the quoted words: the feed
+ * describes what changed, and the note's own text stays in the note.
+ */
+function summaryFor(action) {
+  if (action === "add") return "commented on this note";
+  if (action === "reply") return "replied to a comment";
+  if (action === "resolve") return "resolved a comment";
+  return "reopened a comment";
 }
 
 export async function toolCommentNote(store, scope, rules, overrides, args) {
@@ -75,6 +78,10 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
   if (args.content !== undefined) {
     return toolError("pass content or comment, not both: a comment is written into the note for you");
   }
+  // Refused rather than ignored: an agent that asked for a link or a
+  // visibility change beside its comment should be told none happened.
+  const extra = ["images", "share", "share_short", "visibility", "confirm_team_publish"].find((key) => args[key] !== undefined);
+  if (extra) return toolError(`${extra} cannot be combined with comment; comment first, then write_note again for that`);
   if (!ACTIONS.has(request.action)) return toolError("comment.action must be add, reply, resolve or reopen");
   if (typeof request.text === "string" && request.text.length > 5000) {
     return toolError("comment.text is too long; keep a comment under 5000 characters");
@@ -124,7 +131,7 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
       path,
       content: applyChanges(text, outcome.changes),
       expected_etag: parsed.fields.etag,
-      summary: typeof args.summary === "string" && args.summary.trim() ? args.summary : summaryFor(request.action, quote),
+      summary: typeof args.summary === "string" && args.summary.trim() ? args.summary : summaryFor(request.action),
     });
     const conflicted = written?.isError && /^conflict:/.test(written?.content?.[0]?.text ?? "");
     if (conflicted && attempt === 0) continue;

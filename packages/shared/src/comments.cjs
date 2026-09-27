@@ -133,10 +133,15 @@ function findBlock(text) {
   return blocks.length ? blocks[blocks.length - 1] : null;
 }
 
-/** Every anchor, by id, with the offsets of both markers. Unpaired markers are left out. */
+/**
+ * Every anchor, by id, with the offsets of both markers. Unpaired markers are
+ * left out, and so is anything inside a fenced block — the comments block
+ * itself, and a code sample that shows the format (like
+ * docs/decisions/comments.md) rather than using it.
+ */
 function findAnchors(text) {
-  const block = findBlock(text);
-  const inBlock = (at) => block !== null && at >= block.start && at < block.end;
+  const fences = fencedBlocks(text);
+  const inBlock = (at) => fences.some((block) => at >= block.start && at < block.end);
   const opens = new Map();
   const anchors = new Map();
   for (const m of text.matchAll(OPEN_RE)) {

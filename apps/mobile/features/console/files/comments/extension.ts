@@ -28,7 +28,6 @@
 import { Facet, Prec, StateEffect, StateField, type EditorState, type Extension, type Range, type TransactionSpec } from "@codemirror/state";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
 import {
-  MARKER_RE,
   addThread,
   appendEvent,
   parseComments,
@@ -81,19 +80,19 @@ export interface ParsedComments {
   threads: CommentThread[];
   anchors: Map<string, CommentAnchor>;
   block: CommentsBlock | null;
-  /** Every marker's `[from, to)`, including unpaired ones. */
+  /**
+   * The `[from, to)` of both markers of every anchor. Only paired markers
+   * outside code are hidden: half an anchor left behind by an edit stays
+   * visible, which is the honest way to show that something is broken.
+   */
   markers: { from: number; to: number }[];
 }
 
 function parse(state: EditorState): ParsedComments {
-  const text = state.doc.toString();
-  const { threads, anchors, block } = parseComments(text);
+  const { threads, anchors, block } = parseComments(state.doc.toString());
   const markers: { from: number; to: number }[] = [];
-  // Cheap early out: a note with no marker text skips the scan entirely.
-  if (text.includes("<!--")) {
-    for (const match of text.matchAll(new RegExp(MARKER_RE.source, "g"))) {
-      markers.push({ from: match.index!, to: match.index! + match[0].length });
-    }
+  for (const anchor of anchors.values()) {
+    markers.push({ from: anchor.openStart, to: anchor.from }, { from: anchor.to, to: anchor.closeEnd });
   }
   return { threads, anchors, block, markers };
 }
