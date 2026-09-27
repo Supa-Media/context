@@ -130,7 +130,10 @@ export function noteWriteToolDefinitions() {
         required: ["path"],
         additionalProperties: false,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      // Open world: `share` can publish this note to anyone on the internet,
+      // and `images[].url` fetches from an outside host. Both directories
+      // check this hint against what the tool can do.
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     {
       name: "set_visibility",
