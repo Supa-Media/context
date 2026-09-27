@@ -589,3 +589,63 @@ describe("the eye", () => {
     unmount();
   });
 });
+
+/**
+ * THE LINK KEY IS A CHAIN.
+ *
+ * The owner's words, looking at the accessory bar: "what is this 5th icon???"
+ * It was two upright capsules, one above and left of the other and not
+ * touching — two stacked pills. A chain is recognised by its overlap, so that
+ * is what these assert: two closed links, on one diagonal, each reaching
+ * through the other. The old drawing fails all three.
+ */
+describe("the link", () => {
+  function links(): Point[][] {
+    const icon = mount("link", 20);
+    const glyph = asGlyph(icon.strokes[0]);
+    if (glyph === null) throw new Error("link is no longer drawn as a path");
+    const paths = Array.from(glyph.querySelectorAll("path")).map((node) => {
+      const d = node.getAttribute("d") ?? "";
+      expect(d.trim().endsWith("Z")).toBe(true);
+      return pathPoints(d);
+    });
+    icon.unmount();
+    return paths;
+  }
+
+  /** Even-odd point-in-outline over the sampled path. */
+  function inside(points: Point[], x: number, y: number): boolean {
+    let crossings = 0;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const a = points[i];
+      const b = points[j];
+      if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) crossings += 1;
+    }
+    return crossings % 2 === 1;
+  }
+
+  test("is two closed links", () => {
+    expect(links()).toHaveLength(2);
+  });
+
+  test("on the rising diagonal: one link up and right, the other down and left", () => {
+    const [upper, lower] = links().map((points) => ({
+      x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+      y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+    }));
+    expect(upper.x).toBeGreaterThan(0.5);
+    expect(upper.y).toBeLessThan(0.5);
+    expect(lower.x).toBeLessThan(0.5);
+    expect(lower.y).toBeGreaterThan(0.5);
+  });
+
+  test("each reaches through the other, which is what makes it a chain and not two pills", () => {
+    const [upper, lower] = links();
+    // The middle of the box is inside both outlines: the overlap.
+    expect(inside(upper, 0.5, 0.5)).toBe(true);
+    expect(inside(lower, 0.5, 0.5)).toBe(true);
+    // And neither holds the other's far end: a nested pair is `attach`.
+    expect(inside(upper, 0.3, 0.7)).toBe(false);
+    expect(inside(lower, 0.7, 0.3)).toBe(false);
+  });
+});
