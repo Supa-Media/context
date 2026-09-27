@@ -6,7 +6,7 @@ import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import type { MenuItem } from "../files/menu";
+import type { MenuItem } from "../files/menuItem";
 import { agentName, handleInitials } from "./agentName";
 import { memberWhere, pileFaces, presenceLabel, presenceListTitle, presenceShown } from "./pile";
 import type { Presence } from "./presenceContract";
