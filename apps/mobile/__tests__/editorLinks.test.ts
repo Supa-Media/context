@@ -47,6 +47,8 @@
  *   the tap's slop check dropped, so a scroll navigates             1
  *   the tap's ceiling dropped, so a long press navigates            1
  *   `onLinkText` dropped, so a click beside a link opens it         2
+ *   an edge caret counted as inside, so a click on a link edits it  1
+ *   a tap asks `editing` again, so a tap on a link edits it          1
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -62,6 +64,8 @@ import {
 const NOTE = "1-projects/persistence/overview.md";
 const TARGET = "2-products/context-lc/overview.md";
 const DOC = "[[../../2-products/context-lc/overview]] trailing words";
+/** Just after the link's closing brackets: the edge a tap beside it leaves the caret on. */
+const LINK_END = DOC.indexOf("]]") + 2;
 /** Past the link, and past the space after it. */
 const OUTSIDE = DOC.length - 3;
 
@@ -318,17 +322,39 @@ describe("the two ways to edit a link instead of following it", () => {
     expect(mounted.opened).toEqual([]);
   });
 
-  test("a tap on a link that already holds the caret places the caret too", () => {
+  test("a tap on a link's words opens it even with the caret inside the link", () => {
     /*
-      A touch screen has no ⌥, so this is the *only* one of the two escape
-      hatches it has. Without it the characters inside a link are unreachable
-      on a phone — which is exactly the objection the old ⌘-click rule was
-      built around, surviving on one platform.
+      This used to be the reverse: a caret inside the link made a tap place
+      another caret. On a phone that decided almost at random. The link's
+      brackets are hidden, so a tap just past a link, or at the end of a line
+      of links like `home - pricing - dev log`, leaves the caret between the
+      label and its hidden `]]`. That is strictly inside, and the next tap on
+      the link edited it. The owner's words: "sometimes it goes into editing,
+      and sometimes it opens, it should always open up the page, and only go
+      into an editing position if i directly click the side of the link".
+
+      Both carets are covered: one deep in the path, and one just before the
+      hidden closing brackets, where a tap past the line's end leaves it.
+      A tap beside the link still places the caret (see `onLinkText`).
     */
-    mounted = mount({ caretAt: 4 });
-    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.link.dispatchEvent(touch("touchend", []));
-    expect(mounted.opened).toEqual([]);
+    jest.useFakeTimers();
+    for (const caretAt of [4, LINK_END - 2]) {
+      mounted?.destroy();
+      mounted = mount({ caretAt });
+      mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+      mounted.link.dispatchEvent(touch("touchend", []));
+      expect(mounted.paths()).toEqual([TARGET]);
+    }
+  });
+
+  test("a caret at the link's edge does not make a click edit it", () => {
+    /*
+      A click still asks whether the caret is inside the link, but an edge no
+      longer counts: clicking beside a link and then on it opens the link.
+    */
+    mounted = mount({ caretAt: LINK_END });
+    mounted.link.dispatchEvent(mouse("mousedown"));
+    expect(mounted.paths()).toEqual([TARGET]);
   });
 
   test("but a caret elsewhere in the note does not make the link inert", () => {
