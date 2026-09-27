@@ -26,6 +26,8 @@
 import { describe, expect, jest, test } from "@jest/globals";
 
 jest.mock("convex/react", () => ({
+  // An owner picker searches through the client; nothing here opens one.
+  useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
     throw new Error("not used in this test");
   },

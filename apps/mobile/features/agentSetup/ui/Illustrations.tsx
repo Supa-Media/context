@@ -219,21 +219,6 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
           </Win>
         </Frame>
       );
-    case "devmode":
-      return (
-        <Frame caption={SEEN_IN.chatgpt}>
-          <Win title="Settings" nav={GPT_NAV} hit="Apps">
-            <Text style={s.strong}>Apps</Text>
-            <RowItem><Line width="50%" /><Fake label="Connect" /></RowItem>
-            <Text style={s.lab}>Advanced settings ›</Text>
-            <RowItem hl>
-              <Text style={s.strong}>Developer mode</Text>
-              <View style={s.toggle}><View style={s.knob} /></View>
-              <Pin n={1} />
-            </RowItem>
-          </Win>
-        </Frame>
-      );
     case "create":
       return (
         <Frame caption={SEEN_IN.chatgpt}>
@@ -309,7 +294,7 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
           {agent === "claude" ? (
             <Chat ask="Claude wants to use Context" detail="write_note · 1-projects/context-lc.md" allow="Always allow" input="Reply to Claude…" />
           ) : (
-            <Chat ask="Context wants to write a note" detail="1-projects/context-lc.md" allow="Confirm" input="+ · Developer mode · Context" />
+            <Chat ask="Context wants to write a note" detail="1-projects/context-lc.md" allow="Confirm" input="+ · Context" />
           )}
         </Frame>
       );

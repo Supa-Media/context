@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { ResolvedWebsiteAddress } from "@context/shared";
+import { fetchEdgeAddress } from "./edgeAddress";
 
 export interface WebsiteAddressRequest {
   handle: string;
@@ -13,12 +14,12 @@ export interface WebsiteAddressRequest {
  * Resolve one public address, discarding an answer after navigation, and keep
  * it current while it is open.
  *
- * The page is always read from the bucket, so staying current is only a
- * question of asking again: when the site's revision moves (a save under
- * `website/`, or a rebuild that brings the menu back) and when the visitor
- * returns to the tab (which also catches a file changed outside the app). A
- * refresh keeps the page on screen until the new answer lands; only a new
- * address starts from blank.
+ * A visitor who is not signed in is answered from the copy the router keeps
+ * per Publish (`edgeAddress.ts`), and anyone else, or any failure there, by
+ * Convex. Staying current is only a question of asking again: when the site's
+ * revision moves (a Publish, or a restriction) and when the visitor returns
+ * to the tab. A refresh keeps the page on screen until the new answer lands;
+ * only a new address starts from blank.
  */
 export function useWebsiteAddress(
   request: WebsiteAddressRequest | null,
@@ -66,11 +67,10 @@ export function useWebsiteAddress(
       setView(undefined);
     }
     let cancelled = false;
-    resolveAddress({
-      handle,
-      routePath,
-      ...(legacySlug === undefined ? {} : { legacySlug }),
-    })
+    const args = { handle, routePath, ...(legacySlug === undefined ? {} : { legacySlug }) };
+    const edge = auth.isAuthenticated ? Promise.resolve(null) : fetchEdgeAddress(args);
+    edge
+      .then((kept) => kept ?? resolveAddress(args))
       .then((next) => {
         if (!cancelled) setView(next);
       })

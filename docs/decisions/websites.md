@@ -2,6 +2,60 @@
 
 _Decided 2026-09-25. See `docs/decisions/README.md` for the index._
 
+## `privacy.md` decides what a website publishes
+
+_Decided by the owner, 2026-09-26._
+
+A website is the owner's folder link over `website/`, and it resolves the way
+every folder link does: each page, menu entry and list row is read at `team`
+scope with no granted names (`lib/websites/publication.ts`). A note the
+manifest holds back — private by exception, private by folder, or pointed at a
+group — is absent from the site, whatever its frontmatter says. Page
+frontmatter can only narrow: `audience: members` asks for a signed-in member,
+`draft: true` withdraws the page. It can never publish something the manifest
+does not.
+
+The alternative was to let frontmatter decide, with `audience: public` as the
+default. That was what shipped first, and it put private notes on the
+internet: filing a note under `website/` is an ordinary move, not a publish
+gesture (the folder is deliberately ordinary, per
+[folder lists](./folder-lists.md)); the console, search and every AI client
+went on calling the note private, because for them it was; and it
+contradicted the sentence every client is handed — visibility is enforced by
+the manifest, *never by frontmatter*. One source of truth for who can read a
+note is the product.
+
+This is non-negotiable #5's single exception, not a new one. Turning the site
+on is the owner minting a revocable locator for one folder, and it narrows:
+it publishes what `website/` already publishes to the workspace and never
+more. Turning it on writes `website: team` to `privacy.md` only when the
+manifest has no rule for the folder — an owner who already wrote
+`website: private` keeps a site that serves nothing, and a later change to the
+rule is theirs. Sites enabled before this rule existed get the same
+absent-only write once, from the next rebuild. The rule also makes `website/`
+readable by the workspace's own members in the app, which is no wider than
+the site: every page it publishes, they could already open on the web.
+
+Consequences that follow and are intended:
+
+- **The index is built at the publication clearance**, never at the owner's,
+  and never depends on who triggered the rebuild. An owner's "Check again"
+  still shows the owner their own view, and commits a separate publication
+  scan.
+- **The members gate is a membership check, and that is sufficient.** Every
+  member reads at `team` or wider, so a page visible at `team` with no names is
+  visible to every member. A group-pointed note is therefore not served even
+  to the group: a website is not a way to reach a subset of members.
+- **A manifest change is a website change that may narrow.** Visibility,
+  group and privacy-reset operations under `website/`, and any write to
+  `privacy.md`, mark the index stale and unsafe, so the menu is withheld until
+  the rebuild lands.
+- **The release fallback is not used while a restriction is pending.** An
+  unreadable source cannot say the page is still meant to be published.
+
+`websitePrivacy.test.ts` pins it on both serving paths — the fresh index and
+the bucket probe — and reverting either path's read clearance fails it.
+
 ## An edit is a candidate; the last complete release is the fallback
 
 The editor autosaves a Markdown note while it is being typed. A save can catch
@@ -37,6 +91,80 @@ older scan cannot commit.
 frontmatter save continues to serve the prior title, body, and menu, including
 after a reconciliation attempt, and the next complete edit replaces it.
 
+## Edits wait for Publish
+
+_Decided by the owner, 2026-09-26, for every workspace's website: "the website
+folder should have a publish button on the folder itself, and also in the
+share dialog — that way we publish from the bucket and we don't have to read
+from the bucket each time."_
+
+Saving a note under `website/` changes the note and nothing a visitor sees.
+**Pressing Publish** (on the `website` folder's page, or in its share dialog;
+`websites.publish`, owners and editors) reads the folder at the publication
+clearance and, when no page in it is broken, makes it the site's new release.
+Turning a site on is its first Publish. A broken page stops the publish and is
+named to whoever pressed it; a page with no title is not broken (it is titled
+by its first heading, else its file name), and neither is an empty one.
+
+This supersedes the serving half of the section above: a live source is no
+longer served because it parses. The resolver still reads a page's live bytes
+on every request, but only to ask whether they now restrict it; the words it
+serves are the published copy (the live file while its etag is still the one
+published, the release copy once it has changed). A page nobody has published
+is not on the site, however complete its file is, so the bucket probe survives
+only for a site that has never had a scan.
+
+**Restrictions do not wait.** The scan every save still queues applies the
+narrowing half at once (deleted, drafted, made members-only, encrypted, held
+back by `privacy.md`) and then counts as reconciled, so widening is the next
+Publish's job rather than the next clean scan's. A members page made public is
+a widening and waits. Without this, a Publish button would also be the only
+way to take a page down.
+
+`siteRevision` moves on a Publish and on a restriction (applied or pending),
+never on a save, because a save changes nothing a visitor sees. The router
+keeps the homepage's answer per revision (`/site/home/revision`, one database
+read per visit), so the folder is read once per Publish per colo.
+
+`websitePublishing.test.ts` fails if an unpublished page or an unpublished edit
+is served, or if a member can publish; `websiteNarrowing.test.ts` fails if a
+restriction waits for Publish or a new page does not; `siteHome.test.ts` fails
+if a save moves the homepage's revision or its words.
+
+## Every site's pages are kept at the edge per Publish
+
+_Decided by the owner, 2026-09-26: "same functionality for all the websites
+… even individual user sites face the same issue."_
+
+A visitor who is not signed in reads a page of any site (`/@handle/...` and a
+customer's domain alike) from `/_site/page` on the router
+(`infra/router/src/sitePages.ts`), not from Convex. Each visit asks
+`/site/revision` (one database read) and serves the copy the colo keeps under
+that revision; only a miss asks `/site/page`, which resolves the address
+**exactly as for an anonymous visitor, whatever arrives with the request**
+(`lib/publicRoutes/sitePage.ts`) and is the one request that reads the bucket.
+A signed-in visitor asks Convex directly, because a members-only page is not
+the same page for everybody, and so does anyone the router cannot answer.
+
+What may be kept is decided by Convex, not the router: never "unavailable"
+(it is also what a bucket outage looks like), and nothing while a restriction
+is pending or before a site's first scan, when a page is judged from its live
+bytes on every visit. A copy is also dropped after five minutes whatever the
+revision says. That is the bound on the one restriction a revision cannot see:
+one written straight to the bucket, outside Context, before a sweep notices
+it. Every restriction made through Context moves the revision and takes effect
+on the next visit. The copy is a CDN's copy of a public page, like the
+homepage's: it is never the only copy of anything, and it holds nothing an
+anonymous visitor could not already read.
+
+On a customer's domain the handle is the domain's binding and the only legacy
+slug is the one its owner chose for `/`; neither is read from the request.
+
+`sitePage.test.ts` fails if a member's answer is kept, if "unavailable" or a
+pending restriction is kept, or if the route grows a field; the router's
+`sitePages.test.ts` fails if a second visit reads the page again, if a new
+revision does not, or if a customer's domain can ask for another handle.
+
 ## A fallback never reverses an explicit restriction
 
 Last-known-good is an availability rule, not permission to keep publishing
@@ -59,6 +187,42 @@ removed from rendered links and lists immediately.
 The sabotage case is the audience change in `websiteResolution.test.ts`: if
 the stale public source becomes `members`, the public body is not returned even
 though a readable public release exists.
+
+## The index may lag on widening, never on narrowing
+
+_Decided by the owner, 2026-09-26._
+
+A rebuild that meets a broken page publishes nothing new. It still applies
+the narrowing half of what it read (`lib/websites/narrowing.ts`): a live row
+whose page was deleted, moved, drafted, made members-only, encrypted or held
+back by `privacy.md` is dropped. Its copy in the current release is deleted,
+and the grace release, which duplicates it, is retired. New pages and other
+widening changes wait for a clean scan, and the reconciled generation does
+not advance. Without this, one half-finished page anywhere in the site froze
+every restriction behind it. A menu kept the title of a page just made
+members-only, and a release kept the plaintext of a page just encrypted,
+for as long as the other page stayed broken.
+
+A clean rebuild applies the same rule to the release it demotes to grace: the
+copies of narrowed pages are deleted at once rather than a generation later.
+**A release copy must not outlive the plaintext it copies.** The copies are a
+derivative in the customer's bucket under the same credential as the note, so
+the argument in [encryption](./encryption/format-and-search.md) against a
+plaintext index of an encrypted note applies to them unchanged.
+
+Ciphertext is not a broken page. A publication scan skips it the way it skips
+a private note, so an encrypted note under `website/` is unpublished rather
+than stopping every later rebuild.
+
+The autosave grace is unchanged. A malformed save of a public page keeps its
+release unless its bytes restrict (`websiteTextRestricts`). A members page
+keeps it unless it is ciphertext, because it reached the release through the
+membership gate. This rule also means a restriction the gateway reports
+without saying what changed now lands on the next rebuild, since that
+rebuild reads the bytes.
+
+`websiteNarrowing.test.ts` makes one page narrower while another stays broken,
+and checks the narrowing landed and the widening did not.
 
 ## Release bytes stay in the customer's bucket, with one generation of grace
 
@@ -84,3 +248,210 @@ is meant to protect.
 `websiteRouteIndex.test.ts` proves that Markdown is absent from the database,
 that release bytes land under `.context/`, and that a failed release write
 cannot replace the prior route or its fallback reference.
+
+## The workspace icon is the site's favicon
+
+_Decided by the owner, 2026-09-26._
+
+A published site wears its workspace's icon in the browser tab — the emoji
+drawn as an SVG, or the photo's own bytes — instead of Context's favicon, which
+stays for a workspace with no icon, for a legacy short link, and everywhere
+else in the app. Turning the site on is what publishes the icon: before that,
+`websites.siteIcon` answers `null` exactly as it does for a handle nobody has
+claimed, so it is not a way to learn that a workspace exists or what it looks
+like. An owner who wants a site without their icon clears the icon.
+
+This is not a wider locator. The icon is not a note and is not under
+`website/`; it is a picture the owner chose to show every member, and it
+already stands beside the site's name, which the site publishes too. The photo
+is read out of the customer's bucket at the publication clearance, and the
+action takes a handle and nothing else: the leaf comes off the workspace row,
+so the set of objects it can return is one per enabled site, chosen by its
+owner — the argument `files.workspaceIconPhoto` makes, with "member" replaced
+by "the site is on". An unreadable photo is the same `null` as none.
+
+`websiteSiteIcon.test.ts` fails if the enabled gate is dropped (a disabled and
+a never-enabled site both answer like a nonexistent handle) or if an argument
+that could name an object is added.
+
+
+## A page unfurls as itself
+
+_Decided 2026-09-26, after a link to a site on its own domain unfurled in
+iMessage as Context's marketing card._
+
+A crawler asking for a website address is told what an anonymous visitor to
+that address is shown, and no more: the page's title, the site's name as
+`og:site_name`, one line of description (the page's `description:`, else its
+first paragraph of prose), and a card drawn from those two names. The home
+page speaks as the site, under the site's name. It is resolved by the same
+code that serves the page (`lib/websites/preview.ts` calls the resolver as an
+anonymous viewer, whatever credentials the request carried), so every rule a
+visitor is held to holds here without a second copy: the site is on,
+`privacy.md` publishes the page, it is live, public and not encrypted. Every
+other case is one null answer, byte for byte, and the picture is one 404.
+
+This is the favicon's argument again: turning the site on is the owner
+publishing these pages, so describing one to a crawler discloses nothing the
+address does not already show. It does not widen "Link previews reveal nothing
+about a context" (`privacy-and-sharing/link-previews-and-audience.md`) for
+anything else. **`/@seyi` alone stays the frozen card on context.lc and asks
+nobody**, because a bare handle is guessable and unbounded; a site's home page
+unfurls as itself at the site's own domain, and its other pages at
+`/@seyi/<page>` too. The two routes are pinned in `httpRoutes.test.ts` with
+their four fields.
+
+The card is the site's, not ours (`lib/siteCardArt.ts`): Paper, the title in
+the site's heading serif, the name in its header sans, no Context mark. It is
+drawn on request and cached at the edge under a version that digests what it
+draws, so a retitled page is a new image URL; nothing is written to the
+bucket. A page whose name or title the card faces cannot draw carries no image
+tags at all, rather than wearing Context's card. Pages cannot pick their own
+image yet, because the public site does not load images.
+
+`siteCard.test.ts` fails if a members-only, draft or switched-off page answers,
+if a signed-in request is answered as its member, or if the card draws
+anything but the two names; `infra/router/src/site.test.ts` fails if a site
+page's tags fall back to Context's card or copy.
+
+## The homepage is `@context-lc`'s website, in its HTML
+
+_Decided 2026-09-26, by the owner: the homepage's sidebar should be the
+`website/` folder, so the front page is edited like any note. This reverses
+#968, which made the homepage static because the live site used to arrive
+after the built-in copy and replace it._
+
+`/` draws `@context-lc`'s `website/` folder as a workspace: the tree is that
+folder exactly, its own folders with each note where its file is, `nav:` order
+first and then by path. **Every published note in the folder is listed**,
+titled or not and in the menu or not (decided by the owner the same day: "why
+can't it just be exactly what's in the website folder?"); `nav:` only orders.
+A note without a title is listed by its first heading, else its file name.
+Listing unlisted pages is the homepage owner's choice for their own homepage,
+so `/site/home` answers **only for the home handle** (`HOME_SITE_HANDLE`,
+default `context-lc`) and is null for every other, which would otherwise make
+any site's pages outside its menu enumerable. The router asks Convex's
+`/site/home` while it fetches the HTML and puts the answer in the page as an
+inert JSON block (`infra/router/src/homeSite.ts`), so **the first paint is the
+live site and nothing replaces it**. `/site/home` takes the folder's files
+from the site's own route index, serves what was published, and re-reads the
+live files at `PUBLICATION_CLEARANCE` (`lib/websites/snapshot.ts`), so a note
+`privacy.md` holds back is absent, and drafts, members-only and encrypted
+notes are dropped as they are on the site. It must not list the bucket per
+visit: the first version did, answered slower than the page waits, and every
+visitor got the built-in copy. The router keeps the answer per site revision
+(see "Edits wait for Publish"), including one that arrives after it stopped
+waiting, so the folder is read once per Publish, not once per visit.
+
+### The homepage is the console's frame, never a copy of it
+
+_Decided 2026-09-26, by the owner: "there are going to be a bunch of changes
+to the shell and the makeup of the app and I'd like to make sure the
+frontpage stays true and real to the actual state of the app."_
+
+`HomeShell` renders `features/console/ConsoleFrame.tsx` — the body of the
+console's own route layout — with `BrowsePane` inside it, over `ConsoleData`
+built from the website's notes (`useVisitorConsoleData`). It does not compose
+`AppFrame` itself. The first homepage did, and every piece it did not copy was
+missing: the account button at the foot of the tree, the note's eye and
+Share, `‹ ›`. A change to the console's shell reaches the homepage in the
+same commit because there is one frame.
+
+What differs is `data.visitor`, and only where an account is the point:
+Settings, the agent setup, Sign out and the right panel are not drawn, the
+account button offers Sign in and Create account (or the way back to the app
+for somebody signed in), and Share copies the page's public `/?page=` link
+rather than opening a dialog that needs a workspace. `demo` stays true, which
+keeps every server-backed control out, so the page asks Convex nothing.
+
+**What a "simplification" would cost:** a homepage frame of its own drifts
+from the app on the first shell change nobody ports.
+`homeConsoleFrame.test.ts` finds the console's own controls by their test ids
+and fails if the homepage stops rendering them, gains an account's controls,
+or reaches the server.
+
+A visitor can edit it the way they would their own workspace: every note
+opens in the editor, and notes and folders can be made, renamed, moved, copied
+and deleted. No button turns editing on and no line explains it (the owner:
+"editing the page should just work"). **None of it
+leaves the tab** (`apps/mobile/features/home/useLocalFileBrowser.ts`): there is
+no bucket behind that tree, a reload is the site again, and sharing,
+visibility and downloads stay off because each is a claim about a real
+workspace. Until the visitor changes something the tree follows the site; after
+that it is theirs. There is no call to action in the top bar: the page is the
+product, and a signed-out visitor gets Sign in.
+
+A visit decides once between the site and the built-in copy
+(`apps/mobile/features/home/homeSnapshot.ts`): with no block in the HTML the
+app asks, draws nothing until it hears, and falls back to `builtInPages.ts`
+for the whole visit if the site is off or silent. The copy is never drawn and
+then swapped for the site. The site is redrawn only when its revision moves,
+which is somebody pressing Publish (or a restriction landing).
+
+`siteHome.test.ts` fails if a private, draft or members-only note leaves,
+if an unlisted note is missing, if another handle gets an answer, or if the
+route grows a field; `homeLocalBrowser.test.ts` fails if the site rewrites a
+tree the visitor has changed; `homeSite.test.ts` in the router fails
+if a page's words can close the block; `homeSite.test.ts` in the app fails if
+the copy can replace the site or the site the copy.
+
+## A page's emoji travel with the page
+
+Decided 2026-09-26, when a workspace's own emoji showed as `:name:` on its
+published site. A site loads no images, so the pictures a page shows arrive
+inside its answer as `data:` URLs (`lib/websites/emoji.ts`): the resolver adds
+them to a page, and the homepage snapshot adds those its pages use. Only names
+the published text uses outside code are read, so publishing a page publishes
+the pictures in it and no other emoji in the workspace. A picture over 128 KB,
+past 768 KB in one answer, or past 48 names is left out and shows as its name.
+The router and the app each re-check every entry and keep only an inline PNG,
+JPEG, GIF or WebP under an emoji name, so no answer can make a visitor's
+browser fetch an address. A standard `:shortcode:` is drawn as its character.
+
+**What a simplification costs.** Serving emoji from a URL makes each view a
+request to us the visitor did not ask for, and a route that answers for any
+name publishes every emoji the workspace has. Reading names inside code
+publishes pictures the page does not show. `apps/convex/__tests__/websiteEmoji.test.ts`,
+`apps/mobile/__tests__/websiteEmoji.test.ts` and `infra/router/src/homeSite.test.ts`
+fail if either comes back, or if a non-inline picture gets through.
+
+## A website page can name a folder, and the folder narrows
+
+Decided by the owner, 2026-09-26, so notes kept for their own sake (a
+`features/` folder of guides) can also be the site without being copied into
+`website/`. A page of the site's own whose frontmatter says `folder: features`
+publishes the notes in `features/` under its address: `website/features.md`
+puts `features/forms.md` at `/features/forms`, and `features/guides/tables.md`
+at `/features/guides/tables`. The page lists them under its own words, by
+title and description, and on the homepage it opens as that folder in the
+sidebar, with its notes inside. Every site gets this, not only the homepage.
+
+A referenced note is an ordinary route row keyed by its real path
+(`lib/websites/folders.ts`), so everything already true of a page is true of
+it: it is listed and read at `team` scope with no granted names, re-read at
+that clearance on every visit, served from the release when edited, dropped
+the moment it restricts, and edits wait for Publish. Where the route compiler
+needs a key inside `website/`, it gets the one the address implies
+(`routeStatusKey`). So a folder **narrows** exactly as a folder link does: a
+note `privacy.md` holds back by name, a private subfolder and a note pointed at
+a group are absent, and a folder `privacy.md` keeps private publishes nothing.
+Frontmatter still only narrows; `folder:` chooses *which* notes are
+candidates, never whether one publishes.
+
+What no page may name: the whole context (empty, `/`), `website/` or anything
+under it (already the site), anything with a segment starting with `.`
+(`.context/`, `..`), and anything ambiguous (a backslash, `%`, `?`, `#`, a
+control character). Only the site's own live pages name folders: a draft
+folder page publishes nothing of its folder, and a note a folder published
+cannot name another. A page of the site's own outranks a referenced note at
+the same address, and a note the compiler refuses is left off rather than
+reported, so one stray note never stops Publish. At most 300 notes join a site
+this way. The probe that serves an address the index has not caught up with
+still looks only in `website/`, so a referenced note is absent until the
+next rebuild, never early.
+
+**What a simplification costs.** Reading the folder at the owner's clearance
+publishes their private notes. Copying the notes into `website/` makes two
+sources that drift. Accepting `folder: /` makes the whole context one
+setting away from public, which non-negotiable #5 forbids.
+`apps/convex/__tests__/websiteFolders.test.ts` fails if any of these comes back.

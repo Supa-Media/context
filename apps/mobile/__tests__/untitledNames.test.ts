@@ -2,12 +2,18 @@ import { describe, expect, test } from "@jest/globals";
 
 import {
   isUntitled,
-  nameFromTitle,
   titleFor,
   untitledName,
   untitledStem,
 } from "../features/console/files/untitled";
 import type { FolderListing } from "../features/console/files/types";
+import { proposeTitle } from "../features/console/files/linkedTitle";
+
+/** The name a title would give the note, or `null` for none — `proposeTitle`'s answer. */
+function nameFromTitle(path: string, text: string): string | null {
+  const answer = proposeTitle({ path, draft: text, listings: {}, sharesWarning: null });
+  return answer.kind === "rename" ? answer.name : null;
+}
 
 /**
  * NOBODY IS ASKED TO NAME A NOTE BEFORE THEY HAVE WRITTEN IT.
@@ -34,8 +40,8 @@ import type { FolderListing } from "../features/console/files/types";
  *   `untitledName` ignoring the listing (no `-2` suffix)               1
  *   `isUntitled` matching the bare word `untitled`                     1
  *   `titleFor` scanning for the first `#` anywhere in the document      2
- *   `nameFromTitle` sanitizing a slash instead of refusing              1
- *   `nameFromTitle` appending `.md` rather than keeping the extension   1
+ *   `proposeTitle` sanitizing a slash instead of refusing               1
+ *   `proposeTitle` appending `.md` rather than keeping the extension    1
  */
 
 /** A listing holding exactly these names, which is all `namesIn` reads. */

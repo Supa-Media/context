@@ -162,6 +162,14 @@ export function consoleSettings({
         onSwitchContext={(slug) => router.push(settingsHref(slug, openSettingsSection))}
         onSignOut={requestSignOut}
         onOpenInvitation={(token) => router.push(inviteHref(token))}
+        /*
+          Claude and ChatGPT open the full screen guide rather than their row's
+          panel. Settings stays underneath, so closing the guide lands back
+          on the page the button was on.
+        */
+        onConnectAgent={
+          agentSetupAvailable(data) ? (agent) => router.setParams({ connect: agent }) : undefined
+        }
         onDismiss={() => router.setParams({ settings: undefined })}
       />
     )
@@ -206,6 +214,13 @@ export function consoleCloseTabConfirm({
  * in. Everywhere the guide is offered — a personal workspace's owner, a
  * member of somebody else's — the grants listed are the viewer's own.
  */
+/** Whether `consoleAgentSetup` would draw anything for this console. */
+export function agentSetupAvailable(data: ConsoleData): boolean {
+  const current = selectedContext(data);
+  if (current === null || data.demo === true) return false;
+  return current.kind === "personal" || current.role !== "owner";
+}
+
 export function consoleAgentSetup({
   connectAgent,
   data,
@@ -216,8 +231,7 @@ export function consoleAgentSetup({
   router: ConsoleRouter;
 }) {
   const current = selectedContext(data);
-  if (connectAgent === null || current === null || data.demo === true) return null;
-  if (current.kind !== "personal" && current.role === "owner") return null;
+  if (connectAgent === null || current === null || !agentSetupAvailable(data)) return null;
   const slug = current.slug;
   return (
     <AgentSetupOverlay

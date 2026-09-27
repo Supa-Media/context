@@ -407,20 +407,23 @@ describe("the machine's own audio is a setting now, not a question", () => {
     expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
-  test("the browser's picker is off, because it costs a prompt every meeting", async () => {
+  test("the browser asks for the call's audio too, picker and all", async () => {
+    /*
+      It used to be off here, because the picker costs a prompt every meeting.
+      That recorded one side of people's calls on headphones; a prompt is the
+      cheaper of the two (`machineAudio.ts`).
+    */
     const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true });
-    expect(recorder.startedWith?.systemAudio).toBe(false);
+    expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
   test("the machine's own audio follows the setting, not a question", async () => {
     /*
-      The capability the sheet's switch used to carry. In a browser it costs a
-      source picker, so it cannot be the default — and with the sheet gone
-      there would be no way to turn it on at all if the settings pane did not
-      hold the answer.
+      Somebody who only records in-person meetings turned it off once in the
+      settings pane, and that answer beats the default at every press.
     */
-    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, true);
-    expect(recorder.startedWith?.systemAudio).toBe(true);
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, false);
+    expect(recorder.startedWith?.systemAudio).toBe(false);
   });
 
   test("a build that cannot take it sends no answer at all", async () => {

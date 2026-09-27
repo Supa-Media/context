@@ -1,0 +1,221 @@
+import { useCallback, useMemo, useState } from "react";
+import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useConvexAuth } from "convex/react";
+import { densityFor } from "../app/frame";
+import { ConsoleFrame } from "../console/ConsoleFrame";
+import type { NoteRename } from "../console/files/browser/contract";
+import type { ConsoleRouter } from "../console/layout/types";
+import type { ConsoleRoute } from "../console/nav";
+import { BrowsePane } from "../console/panes/BrowsePane";
+import { CustomEmojiContext } from "../console/emoji/context";
+import { usePublishedEmoji } from "../console/emoji/published";
+import { writeClipboard } from "../design/clipboard";
+import { useThemedStyles, type Colors } from "../design/theme";
+import type { EmojiPictures } from "../share/emojiPictures";
+import {
+  BUILT_IN_SITE,
+  MISSING_PAGE_MARKDOWN,
+  homeLink,
+  homeTree,
+  liveHomeTree,
+  noteLinkHref,
+  pageParam,
+  routeFromParam,
+} from "./homeSite";
+import { HomePage } from "./HomePage";
+import { useHomeSite } from "./useHomeSite";
+import { useLocalFileBrowser } from "./useLocalFileBrowser";
+import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
+
+const NO_EMOJI: EmojiPictures = {};
+
+/**
+ * The homepage, as the app itself: the console's own frame (`ConsoleFrame`)
+ * over an `@context` workspace whose notes are the website.
+ *
+ * **It is the same frame, not a copy of it.** The tree, tabs, `‹ ›`, the
+ * note's breadcrumb with its eye and Share, the status bar, the `+` and the
+ * account button at the foot of the tree are all the console's, drawn from
+ * `ConsoleData` this file assembles (`useVisitorConsoleData`). The homepage
+ * used to compose `AppFrame` itself and every piece it did not copy was
+ * missing (the owner's report, 2026-09-26), so a change to the console's shell
+ * now reaches this page in the same commit, which is the point.
+ *
+ * The notes are `@context-lc`'s `website/` folder, and the tree is that folder
+ * exactly, so the front page is edited like any note. The router puts the site
+ * in the page's HTML, so the first paint is the site and nothing is swapped in
+ * after it (`useHomeSite`); when the site is off or unreachable the built-in
+ * copy (`builtInPages.ts`) is drawn for the whole visit instead. The open page
+ * is `?page=` in the address, so a link to `/?page=pricing` opens Pricing and
+ * back works.
+ *
+ * A visitor can write in it the way they would in their own workspace: every
+ * note opens in the editor, and notes, drawings and folders can be made,
+ * renamed, moved and deleted. All of it happens in this tab only
+ * (`useLocalFileBrowser`), and a reload is the site again. A note they made has
+ * no address, so opening one leaves the address where it was.
+ */
+/** The built-in tree: the same every visit, so it is built once. */
+const BUILT_IN = homeTree(BUILT_IN_SITE);
+const NOTHING = liveHomeTree([]);
+
+/** Always the one workspace's Browse: the homepage has no other console page. */
+const HOME_ROUTE: ConsoleRoute = { kind: "context", slug: HOME_CONTEXT.slug, view: "browse" };
+const NO_PARAMS = { openSettingsSection: null, checkoutReturn: null, connectAgent: null };
+
+export function HomeShell() {
+  const styles = useThemedStyles(makeStyles);
+  const router = useRouter();
+  const auth = useConvexAuth();
+  const params = useLocalSearchParams<{ page?: string | string[] }>();
+  const routePath = routeFromParam(params.page);
+  const compact = densityFor(useWindowDimensions().width) === "compact";
+  const source = useHomeSite();
+  const site = source.kind === "live" ? source.snapshot.pages : null;
+  const emoji = usePublishedEmoji(source.kind === "live" ? source.snapshot.emoji : NO_EMOJI);
+
+  const home = useMemo(
+    () => (source.kind === "builtIn" ? BUILT_IN : site === null ? NOTHING : liveHomeTree(site)),
+    [source.kind, site],
+  );
+
+  /*
+    A note the visitor renamed, for the console's tabs to follow — the live
+    browser's `renamed`, which `useTabs` reads. The last move of a batch is the
+    one a tab could be open on; a tab whose note moved with a folder closes the
+    way it does in the console, when the listing stops holding it.
+  */
+  const [renamed, setRenamed] = useState<NoteRename | null>(null);
+  const local = useLocalFileBrowser(home, HOME_CONTEXT.id, routePath, {
+    onMoved: (moves) => {
+      const last = moves[moves.length - 1];
+      if (last !== undefined) setRenamed({ id: Date.now(), from: last[0], to: last[1] });
+    },
+  });
+  const browser = local.files;
+  const { routeOf, pathOf, notes } = local;
+
+  // A push, not `setParams`: that replaces the entry, and Back then left the
+  // site instead of going to the page before.
+  const openRoute = useCallback(
+    (next: string) => {
+      const path = pathOf(next);
+      if (path !== undefined) browser.select(path);
+      if (next === routePath) return;
+      const page = pageParam(next);
+      router.push(page === undefined ? "/" : { pathname: "/", params: { page } });
+    },
+    [browser, pathOf, routePath, router],
+  );
+
+  const followLink = useCallback(
+    (href: string) => {
+      const link = homeLink(href);
+      if (link === null) return;
+      if (link.kind === "app") router.push(link.href as never);
+      else openRoute(link.routePath);
+    },
+    [openRoute, router],
+  );
+
+  /*
+    Every way the console opens something ends here — the tree, a tab, ⌘K,
+    `‹ ›`, a link in a note (`tabs.follow`) — so this is where the homepage's
+    address is kept. A page of the site pushes `?page=`; a note the visitor
+    made has no page and opens where it is; a folder opens as the console's
+    folder page. Anything else was a link to somewhere that is not a note
+    here, and goes to the address it was written as (`noteLinkHref`), never
+    to a new empty note to type into.
+  */
+  const files = useMemo(
+    () => ({
+      ...browser,
+      select: (path: string) => {
+        if (notes[path] !== undefined) {
+          const route = routeOf(path);
+          if (route !== undefined) openRoute(route);
+          else browser.select(path);
+          return true;
+        }
+        if (browser.listings[path] !== undefined) return browser.select(path);
+        followLink(noteLinkHref(path));
+        return false;
+      },
+    }),
+    [browser, notes, routeOf, openRoute, followLink],
+  );
+
+  const data = useVisitorConsoleData(
+    files,
+    {
+      signedIn: auth.isAuthenticated,
+      signIn: () => router.push("/login"),
+      openApp: () => router.push("/console"),
+      createAccount: () => router.push("/login"),
+      linkFor: (path) => {
+        const route = routeOf(path);
+        if (route === undefined) return null;
+        const origin = Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "";
+        const page = pageParam(route);
+        return page === undefined ? `${origin}/` : `${origin}/?page=${encodeURIComponent(page)}`;
+      },
+      copy: writeClipboard,
+    },
+    renamed,
+  );
+
+  /*
+    The console's navigation, for a page with no console routes behind it.
+    The frame's pieces address `/console/…` (a context's page, Settings, the
+    search page) and a visitor has none of them, so those are dropped here
+    rather than sent to a sign-in wall mid-click; every other address is the
+    router's own. `setParams` is the settings overlay's and a quick note's,
+    and there is no query of the console's on this page to set.
+  */
+  const visitorRouter = useMemo<ConsoleRouter>(() => {
+    const isConsole = (href: unknown) => typeof href === "string" && href.startsWith("/console");
+    return {
+      ...router,
+      push: (href, options) => (isConsole(href) ? undefined : router.push(href, options)),
+      replace: (href, options) => (isConsole(href) ? undefined : router.replace(href, options)),
+      setParams: () => {},
+    };
+  }, [router]);
+
+  // With nothing open: nothing while the site is on its way, and the shell's
+  // own page for an address the site does not have.
+  const missing = source.kind === "waiting" || (!local.touched && pathOf(routePath) === undefined);
+
+  return (
+    <View style={styles.ground}>
+      <ConsoleFrame
+        data={data}
+        route={HOME_ROUTE}
+        pathname="/"
+        router={visitorRouter}
+        params={NO_PARAMS}
+      >
+        {browser.selectedPath === null && missing ? (
+          <HomePage
+            key={routePath}
+            markdown={source.kind === "waiting" ? "" : MISSING_PAGE_MARKDOWN}
+            compact={compact}
+            onLink={followLink}
+          />
+        ) : (
+          // The site's own emoji, over the console's library (which a visitor
+          // has none of), so a published page draws what its author typed.
+          <CustomEmojiContext.Provider value={emoji}>
+            <BrowsePane data={data} />
+          </CustomEmojiContext.Provider>
+        )}
+      </ConsoleFrame>
+    </View>
+  );
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    ground: { flex: 1, backgroundColor: colors.pageSurface },
+  });

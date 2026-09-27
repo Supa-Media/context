@@ -459,9 +459,9 @@ describe("the guards inside the switch", () => {
  * the same reason.
  */
 describe("the console frame keys its tabs on the open context", () => {
-  test("_layout passes the selected context id, not a constant", () => {
+  test("the console frame passes the selected context id, not a constant", () => {
     const layout = readFileSync(
-      join(__dirname, "..", "app", "(app)", "console", "_layout.tsx"),
+      join(__dirname, "..", "features", "console", "ConsoleFrame.tsx"),
       "utf8",
     );
     // Comments **and string literals** stripped, and the call counted rather

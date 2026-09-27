@@ -21,8 +21,10 @@ import type { NoteLinkContext } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
 import { listHost, type ListHostRef } from "../listBlock/model";
 import type { ImageHostRef } from "../imageBlock";
-import type { EditorControls, EditorHandlers, LiveEditorProps, MenuPoint } from "./contract";
+import type { EmojiHostRef } from "../emoji/host";
+import type { EditorControls, EditorHandlers, LiveEditorProps, MenuOpen, MenuPoint } from "./contract";
 import { contextMenuListener } from "./contextMenu";
+import { selectTitle, titleLine } from "./titleLine";
 
 export function mountEditor({
   host,
@@ -38,6 +40,7 @@ export function mountEditor({
   links,
   forms,
   images,
+  emoji,
   lists,
   onImageProblem,
   suggesters,
@@ -60,13 +63,14 @@ export function mountEditor({
   links: { current: NoteLinkContext };
   forms: FormHostRef;
   images: ImageHostRef;
+  emoji: EmojiHostRef;
   lists: ListHostRef;
   onImageProblem: LiveEditorProps["onImageProblem"];
   suggesters: { current: PluginSuggestRef };
   onPreviewLinks: LiveEditorProps["onPreviewLinks"];
   previews: { current: PluginPreviewRef };
   collab: { current: Compartment };
-  setMenuAt: (at: MenuPoint | null) => void;
+  setMenuAt: (at: MenuOpen | null) => void;
   setTableAt: (at: MenuPoint | null) => void;
 }): (() => void) | undefined {
   if (host.current === null) return;
@@ -150,6 +154,7 @@ export function mountEditor({
           same reason `pluginSuggest` is installed unconditionally below.
         */
         images,
+        emoji,
         ...(onImageProblem === undefined ? {} : { reportImage: onImageProblem }),
         /*
           A plugin's in-editor suggestions.
@@ -189,6 +194,9 @@ export function mountEditor({
         ? []
         : [pluginLinkPreview(previews.current), pluginPreviewTheme]),
       findInNote(),
+      // The title: the caret in it, and the line under it. Web only, like
+      // find-in-note; see `titleLine.ts`.
+      titleLine(() => handlers.current.onTitleCaret),
       // Folder lists: web only, like find-in-note. The native guest has no
       // copy of the workspace to read, so its lists stay as source.
       listHost.of(lists),
@@ -286,6 +294,8 @@ export function mountEditor({
     // command. See `EditorControls.showInterim`.
     showInterim: (text) => drawInterim(created, text),
     discardDictation: () => takeBackRun(created),
+    // Not a `runCommand` either: it moves the selection and changes nothing.
+    selectTitle: () => selectTitle(created),
   };
   handlers.current.controls?.(api);
 

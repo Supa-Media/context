@@ -40,6 +40,11 @@ drawing it would be a test asserting the absence of a feature nobody has.
 hits first, and it now says the slot is for exceptions and names this.
 ## The workspaces come back as a row at the foot of the tree, not as a column
 
+**Superseded on 2026-09-26** by [the account button at the foot of the
+tree](#one-account-button-at-the-bottom-left-replaces-the-chip-and-the-row). The
+reasoning below is kept because the alternatives it weighed are still the
+alternatives.
+
 The owner, looking at the console:
 
 > Right now, it's not super visible — all the workspaces that someone's in,
@@ -131,6 +136,47 @@ is planned fits the room it was planned for, at every width" — the sweep, whic
 is the one that catches a character-width estimate drifting narrow — and "every
 workspace has a name a screen reader can read", which is the rule that killed an
 icon-only rail once already.
+
+## One account button at the bottom left replaces the chip and the row
+
+The owner, on 2026-09-26, pointing at Discord:
+
+> instead of the modal opening at the top and being able to switch workspaces
+> we should mimic more traditional UIs like discord where we click on our
+> name/icon at the bottom left and it opens up a modal … this would be
+> replacing the panel to switch workspaces and setting at the top left and we
+> can also remove the quick switch workspace icons at the right side and the
+> arrow.
+
+So a pointer layout has **one** door now: the account button at the foot of the
+file tree, carrying *you* (your avatar and name) with the workspace you are in
+on a second line. It opens a card that rises from it: who you are, your
+workspaces (each with its mark, the current one ticked, yours marked "yours",
+a dot on any that moved), New workspace or "Claim your @name", Meetings and
+Settings, then Leave and Sign out. The title bar's chip and `ContextFootRow`'s
+recent marks and chevron are gone.
+
+- **The list did not change, only its container.** `SwitcherMenu.tsx` still
+  builds every row from `railGroup` with the same conditions, so the reachability
+  claims (`routeReachability.test.ts`) still point at that file.
+  `AccountCard.tsx` draws it and decides nothing.
+- **The panes with no tree are paid for.** The previous section kept the chip
+  because Map, Connections, Search and Settings have no explorer column. Now
+  `AppFrame` draws the same menu behind an avatar at the leading end of the
+  status bar whenever the tree is not a column: folded away, peeking, or absent.
+  `appFrameRender/accountFallback.test.ts` holds both halves.
+- **Activity elsewhere is still visible at rest**, which was the foot row's
+  reason to exist: a dot on your avatar when another workspace moved, and on
+  that workspace's mark in the card, spoken as "which has changed".
+- **What it costs.** Switching is two presses again, and the recents are no
+  longer on screen by name. The owner chose that for a single, familiar place to
+  look. A phone is unchanged: `NavBand`'s strip and the top-row account menu.
+
+**The tests that fail if it is reversed.** `accountCard.test.ts` (the button
+carries you, the card's order, the checked workspace, the activity dot, and
+`cardPlacement` keeping the card inside the window),
+`appFrameRender/accountFallback.test.ts`, and `fixtureConsoleDensity.test.ts`
+("never draws two switchers at once").
 
 ### "Move to…" is one dialog, and the other context is a destination rather than a mode
 

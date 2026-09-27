@@ -278,7 +278,7 @@ function mountConsole(next: Shape = {}, width = 1440) {
      * fold makes to what they assert.
      */
     openSwitcher: () => {
-      clickNode(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]'));
+      clickNode(document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]'));
     },
     text: () => container.textContent ?? "",
     find,

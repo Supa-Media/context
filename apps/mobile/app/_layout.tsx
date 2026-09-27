@@ -79,10 +79,18 @@ export default function RootLayout() {
             that Dropbox (and any future /connect/ provider) sends back — left
             to its default, it redeems that foreign code as a login code, gets
             `tokens: null`, and stores the sign-out. See features/auth/handleCode.
+
+            `unsavedChangesWarning={false}` turns off Convex's own reload
+            prompt, which asks "Changes you made may not be saved" whenever any
+            action is in flight — reads included, and this app reads through
+            actions — so it fired on nearly every refresh with nothing unsaved.
+            The console owns that question: `useUnsavedGuard` prompts only for
+            a conflict or a failed save, and flushes everything else.
           */}
             <SupaConvexProvider
               url={process.env.EXPO_PUBLIC_CONVEX_URL}
               shouldHandleCode={shouldHandleCodeHere}
+              unsavedChangesWarning={false}
             >
               <AppGround />
             </SupaConvexProvider>

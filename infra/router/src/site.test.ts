@@ -29,6 +29,24 @@ const SITES: Record<string, { handle: string; homeSlug: string | null }> = {
   "globex-test.com": { handle: "globex", homeSlug: null },
 };
 
+/** The control plane's answer for a website page, by `handle:routePath`. */
+const PAGES: Record<string, { title: string; description: string | null; siteName: string; cardVersion: string | null }> = {
+  "globex:/": { title: "Globex", description: "We make things.", siteName: "Globex", cardVersion: "0123abcd" },
+  "globex:/writing/hello": {
+    title: "Hello, world",
+    description: "The first post.",
+    siteName: "Globex",
+    cardVersion: "89abcdef",
+  },
+  "globex:/hostile": {
+    title: '"><script>x()</script>',
+    description: null,
+    siteName: "Globex",
+    cardVersion: null,
+  },
+};
+const NO_PAGE = { title: null, description: null, siteName: null, cardVersion: null };
+
 let calls: { url: string; body: string | null }[];
 let controlPlaneDown: boolean;
 
@@ -56,6 +74,21 @@ beforeEach(() => {
           slug: string;
         };
         return Response.json({ title: `${handle}:${slug}`, cardVersion: null });
+      }
+      if (request.url === `${ENV.CONVEX_ORIGIN}/site/preview`) {
+        const { handle, routePath } = JSON.parse(body ?? "{}") as { handle: string; routePath: string };
+        return Response.json(PAGES[`${handle}:${routePath}`] ?? NO_PAGE);
+      }
+      if (request.url === `${ENV.CONVEX_ORIGIN}/site/card`) {
+        const { handle, routePath, version } = JSON.parse(body ?? "{}") as {
+          handle: string;
+          routePath: string;
+          version: string;
+        };
+        const current = PAGES[`${handle}:${routePath}`]?.cardVersion;
+        return current && current === version
+          ? new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } })
+          : new Response(null, { status: 404 });
       }
       if (request.url.startsWith(ENV.EXPO_ORIGIN))
         return new Response(`spa:${new URL(request.url).pathname}`);
@@ -176,15 +209,18 @@ describe("a live customer domain", () => {
     ]);
   });
 
-  it("gives crawlers a generic card for a website path without probing its existence", async () => {
+  it("gives crawlers the generic card where no public page answers, without asking for a short link", async () => {
     const response = await get("https://docs.acme-test.com/writing/hello", {
       ua: SLACK,
     });
     expect(response.status).toBe(200);
-    expect(await response.text()).not.toContain("acme:");
+    const html = await response.text();
+    expect(html).not.toContain("acme:");
+    expect(html).toContain("<title>Context</title>");
     expect(calls.some((call) => call.url.endsWith("/share/short"))).toBe(false);
     expect(upstreamPaths()).toEqual([]);
   });
+
 
   it("refuses anything but reading", async () => {
     const response = await get("https://docs.acme-test.com/intake", {
@@ -240,5 +276,103 @@ describe("which workspace a host serves comes from the host alone", () => {
     await get("https://context.lc/@acme/intake");
     expect(calls.some((c) => c.url.endsWith("/domain/resolve"))).toBe(false);
     expect(upstreamPaths()).toEqual(["/@acme/intake"]);
+  });
+});
+
+function metaContent(html: string, attr: string, name: string): string[] {
+  const pattern = new RegExp(`<meta ${attr}="${name}" content="([^"]*)">`, "g");
+  return [...html.matchAll(pattern)].map((m) => m[1]!);
+}
+
+describe("a website page unfurls as itself", () => {
+  it("carries the page's title, its site's name and description, and its own card", async () => {
+    const html = await (await get("https://globex-test.com/writing/hello", { ua: SLACK })).text();
+    expect(html).toContain("<title>Hello, world</title>");
+    expect(metaContent(html, "property", "og:site_name")).toEqual(["Globex"]);
+    expect(metaContent(html, "property", "og:description")).toEqual(["The first post."]);
+    expect(metaContent(html, "property", "og:url")).toEqual(["https://globex-test.com/writing/hello"]);
+    expect(metaContent(html, "property", "og:image")).toEqual([
+      "https://globex-test.com/og/page.png?path=%2Fwriting%2Fhello&amp;v=89abcdef",
+    ]);
+    // Nothing of Context's own card or copy survives on somebody's page.
+    expect(html).not.toContain("context.lc/og/card.png");
+    expect(html).not.toContain("MCP endpoint");
+    expect(calls.find((c) => c.url.endsWith("/site/preview"))?.body).toBe(
+      JSON.stringify({ handle: "globex", routePath: "/writing/hello" }),
+    );
+  });
+
+  it("unfurls the root as the site's home page", async () => {
+    const html = await (await get("https://globex-test.com/", { ua: SLACK })).text();
+    expect(html).toContain("<title>Globex</title>");
+    expect(metaContent(html, "property", "og:url")).toEqual(["https://globex-test.com/"]);
+    expect(metaContent(html, "property", "og:image")[0]).toContain("/og/page.png?path=%2F&amp;v=0123abcd");
+  });
+
+  it("a page with no drawable card has no image at all, rather than Context's", async () => {
+    const html = await (await get("https://globex-test.com/hostile", { ua: SLACK })).text();
+    expect(metaContent(html, "property", "og:image")).toEqual([]);
+    expect(metaContent(html, "name", "twitter:card")).toEqual(["summary"]);
+    expect(html).not.toContain("<script>x()");
+    const opens = html.match(/ content="/g) ?? [];
+    const complete = html.match(/ content="[^"]*">/g) ?? [];
+    expect(complete).toHaveLength(opens.length);
+  });
+
+  it("serves the card for the bound workspace only, asking with the checked path", async () => {
+    const response = await get("https://globex-test.com/og/page.png?path=%2Fwriting%2Fhello&v=89abcdef", {
+      ua: SLACK,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(calls.find((c) => c.url.endsWith("/site/card"))?.body).toBe(
+      JSON.stringify({ handle: "globex", routePath: "/writing/hello", version: "89abcdef" }),
+    );
+  });
+
+  it("a card with no version is a 404 without asking anybody", async () => {
+    const response = await get("https://globex-test.com/og/page.png?path=%2Fwriting%2Fhello", { ua: SLACK });
+    expect(response.status).toBe(404);
+    expect(calls.some((c) => c.url.endsWith("/site/card"))).toBe(false);
+  });
+
+  it("a card nobody can draw is a 404, never the product card", async () => {
+    const response = await get("https://globex-test.com/og/page.png?path=%2Fnope&v=00000000", { ua: SLACK });
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it.each(["/og/page.png", "/og/page.png?path=..%2Fx", "/og/page.png?path=%2F.context%2Fx", "/og/page.png?path=a"])(
+    "%s never reaches the control plane",
+    async (path) => {
+      const response = await get(`https://globex-test.com${path}`, { ua: SLACK });
+      expect(response.status).toBe(404);
+      expect(calls.some((c) => c.url.endsWith("/site/card"))).toBe(false);
+    },
+  );
+});
+
+describe("a website page on context.lc", () => {
+  it("unfurls /@handle/<page> as the page, with its card on context.lc", async () => {
+    const html = await (await get("https://context.lc/@globex/writing/hello", { ua: SLACK })).text();
+    expect(html).toContain("<title>Hello, world</title>");
+    expect(metaContent(html, "property", "og:url")).toEqual(["https://context.lc/@globex/writing/hello"]);
+    expect(metaContent(html, "property", "og:image")).toEqual([
+      "https://context.lc/og/w/@globex.png?path=%2Fwriting%2Fhello&amp;v=89abcdef",
+    ]);
+  });
+
+  it("serves that card", async () => {
+    const response = await get("https://context.lc/og/w/@globex.png?path=%2Fwriting%2Fhello&v=89abcdef", {
+      ua: SLACK,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+  });
+
+  it("leaves /@handle alone frozen, asking nobody", async () => {
+    const html = await (await get("https://context.lc/@globex", { ua: SLACK })).text();
+    expect(html).toContain("<title>Context</title>");
+    expect(calls.filter((c) => c.url.startsWith(ENV.CONVEX_ORIGIN))).toEqual([]);
   });
 });

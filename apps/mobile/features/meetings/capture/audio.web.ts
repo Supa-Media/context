@@ -38,8 +38,8 @@ import { CAPTURE_MESSAGES, WEB_MIME_CANDIDATES } from "./audioWeb/messages";
  * audio" option ticked — and mix that source's audio with the microphone into
  * one recording. That is a genuinely different consent story from the shell's
  * loopback tap and it is drawn as one: `systemAudioNeedsPicker` is what tells
- * the sheet to say a picker is coming, the offer is **off** by default on this
- * surface, and every way it can come back empty is reported in a sentence
+ * the settings pane to say a picker is coming, the offer is **on** by default
+ * (`machineAudio.ts` says why), and every way it can come back empty is reported in a sentence
  * rather than left to look like a recording of both sides.
  *
  * Three ways it comes back empty, all of them ordinary: the picker was

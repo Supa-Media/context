@@ -200,8 +200,8 @@ importers:
         specifier: ^8.26.0
         version: 8.26.0(@expo/env@2.0.12)(dotenv@17.4.2)(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(rollup@4.63.0)
       '@supa-media/core':
-        specifier: ^1.0.2
-        version: 1.0.2(kbfril6cjukbrwhp3dhjqfjtkq)
+        specifier: ^1.1.0
+        version: 1.1.0(kbfril6cjukbrwhp3dhjqfjtkq)
       context-activity-kit:
         specifier: file:./modules/context-activity-kit
         version: file:apps/mobile/modules/context-activity-kit
@@ -3485,8 +3485,8 @@ packages:
       '@convex-dev/auth': '>=0.0.90'
       convex: '>=1.31.0'
 
-  '@supa-media/core@1.0.2':
-    resolution: {integrity: sha512-5DZCQmnZ+B/ov/alNlBrrkBSa935DoLFURbKaY/RAkJUyMbTMLexGi50TihXmRcAQ9+2ATuDaS/CUnL9hN25Ew==}
+  '@supa-media/core@1.1.0':
+    resolution: {integrity: sha512-iBRtiO6IOvvEB0cXfxu+7CIhDhVDcahbnKw1pDcHihOxcT3XGuetpZo4kQy/p6Vxpiez5KFoKuxgcBRy0WN75w==}
     peerDependencies:
       '@convex-dev/auth': '>=0.0.90'
       '@react-native-community/netinfo': '>=11.4.0'
@@ -11756,7 +11756,7 @@ snapshots:
       '@convex-dev/auth': 0.0.90(patch_hash=o35zt4bwu4hq4dzebfmee3jbrq)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
 
-  '@supa-media/core@1.0.2(kbfril6cjukbrwhp3dhjqfjtkq)':
+  '@supa-media/core@1.1.0(kbfril6cjukbrwhp3dhjqfjtkq)':
     dependencies:
       '@convex-dev/auth': 0.0.90(patch_hash=o35zt4bwu4hq4dzebfmee3jbrq)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)

@@ -25,6 +25,9 @@ import {
 } from "./links";
 import { renderPublicWebsiteLists } from "./lists";
 import { probeWebsitePage } from "./probe";
+import { PUBLICATION_CLEARANCE } from "./publication";
+import { readPublishedEmoji } from "./emoji";
+import { folderListFor, folderPagesUnder, routeStatusKey, type FolderPage } from "./folders";
 
 type SiteShell = {
   siteName: string;
@@ -38,13 +41,11 @@ export type WebsiteResolutionPlan =
     })
   | ({ kind: "authentication_required"; signInPath: string } & SiteShell)
   | ({
-      /** No live index claimant: read the page's own file instead. */
+      /** No scan has ever landed: read the page's own file instead. */
       kind: "probe";
       workspaceId: Id<"workspaces">;
       routePath: string;
       viewer: "anonymous" | "member" | "other";
-      /** The index was fresh, so the page it lacks means a rebuild is due. */
-      invalidate: boolean;
     } & SiteShell)
   | ({
       kind: "read";
@@ -56,8 +57,16 @@ export type WebsiteResolutionPlan =
       title: string;
       description: string | null;
       viewerAudience: WebsiteRouteAudience;
+      /**
+       * False while an unpublished change may have narrowed a route. The
+       * last release is then not served in place of an unreadable source:
+       * nothing can say the page is still meant to be published.
+       */
+      releaseFallback: boolean;
       releaseId?: string;
       releasePageId?: string;
+      /** The notes a `folder:` line on this page published, listed under it. */
+      folderPages?: FolderPage[];
     } & SiteShell);
 
 const NO_SITE: Extract<WebsiteResolutionPlan, { kind: "unavailable" }> = {
@@ -143,28 +152,26 @@ export async function websiteResolutionPlanHandler(
   if (state?.state !== "enabled") return NO_SITE;
 
   // An absent reconciled generation means no complete bucket snapshot has
-  // ever landed, so there are no rows to consult. A mismatch means a source
-  // change invalidated the last one and a rebuild is queued: its rows may
-  // still locate a page, because `resolveWebsitePageHandler` re-derives the
-  // route, audience and status from the live bytes before serving anything.
-  // The last complete menu remains valid while a newer snapshot is being
-  // prepared; dropping it made an ordinary autosave look like half the site
-  // had disappeared.
+  // ever landed, so there are no rows to consult. Otherwise the rows are what
+  // was last published, less anything restricted since: a page is served
+  // only if they hold it, and `resolveWebsitePageHandler` re-checks the live
+  // bytes for a restriction before serving the published copy.
   const member =
     args.actorUserId !== null &&
     (await hasWorkspaceMembership(ctx, workspace._id, args.actorUserId));
-  const probe = (shell: SiteShell, invalidate: boolean): WebsiteResolutionPlan => ({
+  const probe = (shell: SiteShell): WebsiteResolutionPlan => ({
     kind: "probe",
     ...shell,
     workspaceId: workspace._id,
     routePath,
     viewer: member ? "member" : args.actorUserId === null ? "anonymous" : "other",
-    invalidate,
   });
   if (state.routeReconciledGeneration === undefined) {
-    return probe({ siteName: workspace.displayName, navigation: [] }, false);
+    return probe({ siteName: workspace.displayName, navigation: [] });
   }
   const fresh = state.routeGeneration === state.routeReconciledGeneration;
+  const restrictionPending =
+    !fresh && state.routeUnsafeGeneration !== undefined;
 
   const indexed = await ctx.db
     .query("websiteRouteIndex")
@@ -192,19 +199,14 @@ export async function websiteResolutionPlanHandler(
     }));
   const shell: SiteShell = {
     siteName: workspace.displayName,
-    navigation:
-      !fresh && state.routeUnsafeGeneration !== undefined ? [] : navigation,
+    navigation: restrictionPending ? [] : navigation,
   };
   const lookupKey = websiteRouteLookupKey(routePath);
   const claimants = indexed.filter((row) => row.lookupKey === lookupKey);
   const matches = claimants.filter((row) => row.status === "live");
-  if (matches.length !== 1) {
-    // A fresh index that knows this address as a draft, a problem or a clash
-    // has read the whole folder, which a probe of two keys cannot; it stands.
-    // Anything else is a page the index has not caught up with yet.
-    if (fresh && claimants.length > 0) return unavailable(shell);
-    return probe(shell, fresh);
-  }
+  // A page nobody has published yet is not on the site, however complete
+  // its file is: edits wait for Publish.
+  if (matches.length !== 1) return unavailable(shell);
   const route = matches[0]!;
   if (route.routePath === null || route.title === null)
     return unavailable(shell);
@@ -232,11 +234,23 @@ export async function websiteResolutionPlanHandler(
     title: route.title,
     description: route.description,
     viewerAudience: member ? "members" : "public",
+    releaseFallback: !restrictionPending,
     ...(route.releaseId === undefined ? {} : { releaseId: route.releaseId }),
     ...(route.releasePageId === undefined
       ? {}
       : { releasePageId: route.releasePageId }),
+    /*
+      Withheld while a restriction may be pending, for the reason the menu is:
+      a title in the list is a claim that the note is still on the site.
+    */
+    ...(restrictionPending
+      ? {}
+      : folderPageField(folderPagesUnder(indexed, route.routePath, member))),
   };
+}
+
+function folderPageField(pages: FolderPage[]): { folderPages?: FolderPage[] } {
+  return pages.length === 0 ? {} : { folderPages: pages };
 }
 
 function errorCode(error: unknown): string | null {
@@ -249,10 +263,12 @@ function errorCode(error: unknown): string | null {
 }
 
 /**
- * A token that changes whenever an enabled site's pages may have: a save under
- * `website/` or a finished rebuild. An open page subscribes to it and fetches
- * itself again when it moves, so a visitor sees an edit without reloading.
- * Null for an unknown or disabled site, the same answer for both.
+ * A token that changes whenever what an enabled site serves may have: a
+ * Publish, a restriction applied without one, or one pending. A save alone
+ * does not move it, because a save alone changes nothing a visitor sees. An
+ * open page subscribes to it and fetches itself again when it moves, and the
+ * homepage's cached copy is keyed by it. Null for an unknown or disabled
+ * site, the same answer for both.
  */
 export async function siteRevisionHandler(
   ctx: QueryCtx,
@@ -267,7 +283,15 @@ export async function siteRevisionHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", claim.workspaceId!))
     .unique();
   if (state?.state !== "enabled") return null;
-  return `${state.routeGeneration ?? 0}:${state.routeReconciledGeneration ?? -1}`;
+  const restrictionPending =
+    state.routeUnsafeGeneration !== undefined &&
+    state.routeGeneration !== state.routeReconciledGeneration;
+  return [
+    state.siteRevision ?? 0,
+    state.publishedReleaseId ?? "unpublished",
+    state.routeReconciledGeneration === undefined ? "unscanned" : "scanned",
+    ...(restrictionPending ? ["pending"] : []),
+  ].join(":");
 }
 
 /** Public action: re-check the exact indexed source before returning content. */
@@ -276,6 +300,19 @@ export async function resolveWebsitePageHandler(
   args: { handle: string; routePath: string },
 ): Promise<ResolvedWebsitePage> {
   const actorUserId = (await getAuthUserId(ctx)) as Id<"users"> | null;
+  return await resolveWebsitePageAs(ctx, args, actorUserId);
+}
+
+/**
+ * The same resolution for a stated viewer. A link preview passes `null`, so
+ * what a crawler is told is what an anonymous visitor is shown, whatever
+ * credentials arrived with the request.
+ */
+export async function resolveWebsitePageAs(
+  ctx: ActionCtx,
+  args: { handle: string; routePath: string },
+  actorUserId: Id<"users"> | null,
+): Promise<ResolvedWebsitePage> {
   const plan = await ctx.runQuery(
     internal.functions.websites.websiteResolutionPlan,
     { ...args, actorUserId },
@@ -291,12 +328,13 @@ export async function resolveWebsitePageHandler(
     navigation: [],
   });
 
+  // Read at the publication clearance: a page `privacy.md` no longer
+  // publishes is not found here, which is the restriction branch below.
   let result;
   try {
     result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: plan.workspaceId,
-      scope: "private",
-      grantedNames: [],
+      ...PUBLICATION_CLEARANCE,
       operation: { kind: "read", path: plan.objectKey, forward: "never" },
     });
   } catch (error) {
@@ -322,17 +360,13 @@ export async function resolveWebsitePageHandler(
       sourceUnavailable
     );
   }
-  // Edited since the index was built: queue the rebuild, then judge the live
-  // bytes below exactly as the index would have. A saved page is served as
-  // saved, never refused for having been saved.
-  if (result.etag !== plan.sourceEtag) {
-    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
-      workspaceId: plan.workspaceId,
-    });
-  }
+  // Edited since it was published: that is ordinary, and waits for Publish.
+  // The live bytes are read only to learn whether they now restrict the page.
 
+  // A note a `folder:` line published is checked under the key its address
+  // implies, so the compiler that placed it re-derives the same route.
   const statuses = buildWebsiteRouteStatuses([
-    { objectKey: plan.objectKey, markdown: result.text },
+    { objectKey: routeStatusKey(plan.objectKey, plan.routePath), markdown: result.text },
   ]);
   const status = statuses[0];
   const parsed = parseWebsitePage(result.text);
@@ -343,11 +377,13 @@ export async function resolveWebsitePageHandler(
     });
     return restrictedUnavailable;
   }
+  // Only a narrowing counts: a members page made public is a widening, and
+  // it waits for Publish like any other edit.
   if (
     status?.status === "draft" ||
     (status?.status === "live" &&
       (status.routePath !== plan.routePath ||
-        status.audience !== plan.audience))
+        (plan.audience === "public" && status.audience !== "public")))
   ) {
     await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
       workspaceId: plan.workspaceId,
@@ -374,22 +410,32 @@ export async function resolveWebsitePageHandler(
     const restricted =
       isEncryptedNote(result.text) ||
       (plan.audience === "public" && websiteTextRestricts(result.text));
-    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
-      workspaceId: plan.workspaceId,
-      ...(restricted ? { unsafe: true } : {}),
-    });
-    if (restricted) return restrictedUnavailable;
+    if (restricted) {
+      await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
+        workspaceId: plan.workspaceId,
+        unsafe: true,
+      });
+      return restrictedUnavailable;
+    }
     return (
       (await resolveReleasedPage(ctx, plan, args.handle).catch(() => null)) ??
       sourceUnavailable
     );
   }
 
+  // The live bytes still publish this page. Unchanged since Publish, they are
+  // the published copy; changed, the copy Publish kept is served instead.
+  if (result.etag !== plan.sourceEtag) {
+    return (
+      (await resolveReleasedPage(ctx, plan, args.handle, true).catch(() => null)) ??
+      sourceUnavailable
+    );
+  }
   return await renderWebsitePage(ctx, {
     workspaceId: plan.workspaceId,
     handle: args.handle,
     objectKey: plan.objectKey,
-    body: parsed.body,
+    body: folderListFor(plan.objectKey, result.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
     page: {
       kind: "page",
@@ -404,13 +450,22 @@ export async function resolveWebsitePageHandler(
   });
 }
 
-/** A malformed or temporarily unreadable save never replaces the last good page. */
+/**
+ * The page as it was published. Served whenever the live bytes still publish
+ * it, and in place of a malformed or temporarily unreadable save.
+ */
 async function resolveReleasedPage(
   ctx: ActionCtx,
   plan: Extract<WebsiteResolutionPlan, { kind: "read" }>,
   handle: string,
+  /** The live bytes were read and still publish the page. */
+  sourceVerified = false,
 ): Promise<ResolvedWebsitePage | null> {
-  if (plan.releaseId === undefined || plan.releasePageId === undefined) {
+  if (
+    (!plan.releaseFallback && !sourceVerified) ||
+    plan.releaseId === undefined ||
+    plan.releasePageId === undefined
+  ) {
     return null;
   }
   const released = await ctx.runAction(
@@ -438,7 +493,7 @@ async function resolveReleasedPage(
   if (page?.outcome !== "read") return null;
   const parsed = parseWebsitePage(page.text);
   const status = buildWebsiteRouteStatuses([
-    { objectKey: plan.objectKey, markdown: page.text },
+    { objectKey: routeStatusKey(plan.objectKey, plan.routePath), markdown: page.text },
   ])[0];
   if (
     isEncryptedNote(page.text) ||
@@ -455,7 +510,7 @@ async function resolveReleasedPage(
     workspaceId: plan.workspaceId,
     handle,
     objectKey: plan.objectKey,
-    body: parsed.body,
+    body: folderListFor(plan.objectKey, page.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
     page: {
       kind: "page",
@@ -482,11 +537,6 @@ async function resolveFromBucket(
   const shell = { siteName: plan.siteName, navigation: plan.navigation };
   const found = await probeWebsitePage(ctx, plan);
   if (found === null) return unavailable(shell);
-  if (plan.invalidate) {
-    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
-      workspaceId: plan.workspaceId,
-    });
-  }
   const { status } = found;
   if (status.audience === "members" && plan.viewer !== "member") {
     return plan.viewer === "anonymous"
@@ -551,8 +601,7 @@ async function renderWebsitePage(
     const shares = await ctx
       .runAction(internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
-        scope: "team" as const,
-        grantedNames: [],
+        ...PUBLICATION_CLEARANCE,
         operation: { kind: "readMany" as const, paths: sharePaths },
       })
       .catch(() => null);
@@ -565,8 +614,11 @@ async function renderWebsitePage(
     }
   }
 
+  const markdown = rewriteWebsiteLinks(withLists, linkOptions, readableShares);
+  const emoji = await readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({}));
   return {
     ...args.page,
-    markdown: rewriteWebsiteLinks(withLists, linkOptions, readableShares),
+    markdown,
+    ...(Object.keys(emoji).length > 0 ? { emoji } : {}),
   };
 }

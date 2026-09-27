@@ -17,7 +17,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
  *
  * The prompt itself lives in `agents.ts` (as `BOOTSTRAP_PROMPT`) with the
  * other product claims about client behaviour — the folder conventions and
- * the guardrails ("call orient, announce, wait, do not touch index.md") are
+ * the guardrails ("call orient, announce, be thorough, do not touch index.md") are
  * product claims, not this screen's copy, and were previously duplicated
  * across two files.
  */

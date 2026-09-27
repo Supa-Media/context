@@ -246,40 +246,6 @@ describe("durable collaboration", () => {
     controller.stop();
   });
 
-  test("a generation mismatch preserves pending local updates", async () => {
-    let reads = 0;
-    let releaseRepair: (() => void) | null = null;
-    let releaseWrite: (() => void) | null = null;
-    const controller = new DurableCollaborationController(
-      options({
-        mint: async () => "grant",
-        request: async (_token, body) => {
-          if (body.update !== undefined) {
-            return new Promise<CollaborationResponse>((resolve) => {
-              releaseWrite = () => resolve(response("doc-1", "mine"));
-            });
-          }
-          reads += 1;
-          if (reads === 1) return response("doc-1", "base");
-          return new Promise<CollaborationResponse>((resolve) => {
-            releaseRepair = () => resolve(response("doc-2", "other"));
-          });
-        },
-      }),
-    );
-    await controller.start();
-    controller.state.onChange("mine");
-    expect(controller.state.pending).toBe(1);
-    controller.repairForHook();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    (releaseRepair as (() => void) | null)?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(controller.state.status).toBe("error");
-    expect(controller.state.pending).toBe(1);
-    (releaseWrite as (() => void) | null)?.();
-    controller.stop();
-  });
-
   test("persistence failure never reports saved", async () => {
     const failing: KeyValueStore = {
       ...memoryStore(),

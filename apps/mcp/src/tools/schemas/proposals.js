@@ -9,6 +9,7 @@ export function proposalToolDefinitions() {
   return [
     {
       name: "list_plugins",
+      title: "Check Obsidian plugins",
       description:
         "Check the Obsidian plugins already in this context's bucket and report, for each one, "
         + "whether Context can run it, whether it needs the owner to approve a host it calls, "
@@ -20,6 +21,7 @@ export function proposalToolDefinitions() {
     },
     {
       name: "propose_note",
+      title: "Propose note",
       description:
         "Queue a new markdown note for a correct destination that this connection cannot currently write. The proposal is hidden from team listings and must be approved by a personal connection; it never overwrites an existing note.",
       inputSchema: {
@@ -37,6 +39,7 @@ export function proposalToolDefinitions() {
     },
     {
       name: "list_proposals",
+      title: "List proposed notes",
       description:
         "Private connection only. List pending note proposals with destination, submitter, reason, timestamp, and size; content is omitted.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -44,6 +47,7 @@ export function proposalToolDefinitions() {
     },
     {
       name: "read_proposal",
+      title: "Read proposed note",
       description: "Private connection only. Read one pending note proposal by proposal id.",
       inputSchema: {
         type: "object",
@@ -55,6 +59,7 @@ export function proposalToolDefinitions() {
     },
     {
       name: "review_proposal",
+      title: "Review proposed note",
       description:
         "Private connection only. Approve or reject a pending note proposal. Approval creates a new note only when the destination does not exist; destination may be corrected during review. Rejected and approved proposal records remain in hidden reviewed history.",
       inputSchema: {

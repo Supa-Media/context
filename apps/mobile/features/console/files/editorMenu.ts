@@ -34,6 +34,9 @@
  * the browser's menu are one **Shift-right-click** away — `LiveEditor.web.tsx`
  * leaves that chord alone precisely so this menu is never the *only* menu, and
  * spellcheck is on in this editor by deliberate decision (P1 in the sweep).
+ * The menu says so in a browser (`spellingHint`); the desktop app asks the
+ * operating system's checker and puts the suggestions at the top instead
+ * (`spelling`, see `liveEditorWeb/spelling.ts`).
  */
 
 import { describeBinding, type Command } from "../../design/keymap";
@@ -70,7 +73,13 @@ export type EditorMenuId =
   /** Speak into the note, at the caret. */
   | "dictate"
   /** Hand the note to the agent, in the console's right panel. */
-  | "ask";
+  | "ask"
+  /** One of the checker's suggestions, by its place in the list. */
+  | `spelling:${number}`
+  /** A flagged word the checker could not place. Inert. */
+  | "noSuggestions"
+  /** Where a browser keeps its suggestions. Inert. */
+  | "spellingHint";
 
 export interface EditorMenuContext {
   /** False for `privacy.md`, an encrypted note, and a reader in someone else's context. */
@@ -98,6 +107,17 @@ export interface EditorMenuContext {
   canAsk?: boolean;
   /** A folder list can be drawn here: the surface has a copy of the notes. */
   canList?: boolean;
+  /**
+   * The checker's suggestions for a misspelled word under the click, from the
+   * desktop app's `spelling` member. `null` or absent for a word it accepts,
+   * and always in a browser, which has no checker a page can ask.
+   */
+  spelling?: { suggestions: readonly string[] } | null;
+  /**
+   * Say where the browser keeps its suggestions. True where no checker can be
+   * asked — a browser, or a desktop app from before version 8.
+   */
+  spellingHint?: boolean;
 }
 
 /** The chord a row prints, or nothing — which `describeBinding` treats as legitimate. */
@@ -124,6 +144,30 @@ function chord(command: Command, apple: boolean): { shortcut: string } | undefin
 export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenuId>[] {
   const { canEdit, hasSelection, apple } = context;
   const items: MenuItem<EditorMenuId>[] = [];
+
+  /*
+    SPELLING FIRST, WHERE EVERY BROWSER PUTS IT.
+
+    A misspelled word is the most specific thing a right-click can be about,
+    and somebody who clicked a red underline came for the fix. Only on a note
+    they can write: a suggestion is an edit.
+  */
+  if (canEdit && context.spelling != null) {
+    const { suggestions } = context.spelling;
+    if (suggestions.length === 0) {
+      /*
+        Disabled, which this menu otherwise never uses (see `MenuItem`), for
+        the tab menu's reason rather than a permission's: the row is an answer
+        to "why is this underlined and what should it be", and an absent row
+        would read as the menu not having looked.
+      */
+      items.push({ id: "noSuggestions", label: "No spelling suggestions", disabled: true });
+    } else {
+      suggestions.forEach((suggestion, index) => {
+        items.push({ id: `spelling:${index}`, label: suggestion });
+      });
+    }
+  }
 
   if (hasSelection) {
     if (canEdit) items.push({ id: "cut", label: "Cut" });
@@ -193,6 +237,22 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
     { id: "table", label: "Table…", separatorBefore: true },
   );
   if (context.canList === true) items.push({ id: "folderList", label: "Folder list" });
+
+  /*
+    The browser's suggestions are one chord away, and the row says which. It
+    is inert because it names a gesture rather than doing anything — a page
+    cannot open the browser's menu for somebody — and it is here at all
+    because a red underline with nothing under it reads as a broken feature.
+  */
+  if (context.spellingHint === true) {
+    items.push({
+      id: "spellingHint",
+      label: "Spelling suggestions",
+      shortcut: apple ? "⇧ Right-click" : "Shift+Right-click",
+      disabled: true,
+      separatorBefore: true,
+    });
+  }
 
   return items;
 }

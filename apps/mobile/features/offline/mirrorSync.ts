@@ -111,12 +111,10 @@ export interface MirrorSyncDeps {
   mine: () => boolean;
   now: () => number;
   onProgress?: (workspaceId: string, progress: MirrorProgress) => void;
-  /**
-   * A context's metadata — every path and folder, no bodies — has just been
-   * committed to its index. The console redraws its tree from this, long
-   * before the notes themselves have arrived.
-   */
+  /** Every path and folder, no bodies, is in the index: the tree redraws before notes arrive. */
   onListed?: (workspaceId: string) => void;
+  /** This run committed new note bodies, which `onListed` came before. */
+  onFetched?: (workspaceId: string) => void;
   /** Tests only. */
   batchSize?: number;
   concurrency?: number;
@@ -627,6 +625,7 @@ async function fetchContext(
     return true;
   });
   if (!reconciled || !deps.mine()) return aborted();
+  if (run.fetched > 0) deps.onFetched?.(workspaceId);
   return run;
 }
 

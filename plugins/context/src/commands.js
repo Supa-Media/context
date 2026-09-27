@@ -27,19 +27,24 @@ import {
   discover,
   exchangeCode,
   listenForCode,
-  refreshTokens,
   registerClient,
   stateMatches,
 } from "./oauth.js";
 import { captureBody, transcriptToMarkdown } from "./transcript.js";
-import { PROJECT_FILE, normalizeWorkspace, resolveSettings, workspaceUrl, writeSetting } from "./settings.js";
+import { PROJECT_FILE, normalizeWorkspace, resolveSettings, settingsPath, workspaceUrl, writeSetting } from "./settings.js";
 import { callTool, listTools, listWorkspaces } from "./mcp.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, stat, unlink as unlinkFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, unlink as unlinkFile, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { hostname } from "node:os";
+
+// Re-exported so every caller and test keeps one import site for "give me a
+// token", wherever the machinery behind it lives.
+export { accessTokenFor, acquireLock, LOCK_STALE_MS, REFRESH_DEADLINE_MS } from "./token.js";
+import { accessTokenFor } from "./token.js";
 
 /**
  * Sign in once, then write the hook into the client's settings.
@@ -176,83 +181,6 @@ export async function authorize({
     },
     configPath
   );
-}
-
-/**
- * A usable access token, refreshing if the stored one is spent.
- *
- * The refreshed pair is written back before it is used, because a rotating
- * refresh token that is spent and not persisted leaves the install permanently
- * unable to authenticate — and the failure surfaces at the end of some future
- * session, where nobody is looking.
- */
-export async function accessTokenFor({ endpoint, configPath, fetchImpl = fetch }) {
-  const record = await loadEndpoint(endpoint, configPath);
-  if (!record?.refreshToken && !record?.accessToken) {
-    throw new Error(`not signed in for ${endpointKey(endpoint)} — run: npx -y @supa-media/context login`);
-  }
-  if (record.accessToken && Number(record.expiresAt) > Date.now()) return record.accessToken;
-  if (!record.refreshToken) {
-    throw new Error("the stored session has expired — run: npx -y @supa-media/context install");
-  }
-
-  // One refresh at a time per credentials file. Refresh tokens rotate and the
-  // gateway treats a spent one as a replay, so two hooks refreshing together
-  // (two sessions closing at once) would lose the sign-in. Whoever waits
-  // re-reads the file and uses the token the other one stored.
-  const release = await acquireLock(`${configPath}.lock`);
-  try {
-    const current = await loadEndpoint(endpoint, configPath);
-    if (current?.accessToken && Number(current.expiresAt) > Date.now()) return current.accessToken;
-    if (!current?.refreshToken) {
-      throw new Error("the stored session has expired — run: npx -y @supa-media/context login");
-    }
-    const discovery = await discover(endpoint, { fetchImpl });
-    const tokens = await refreshTokens(
-      discovery,
-      { clientId: current.clientId, refreshToken: current.refreshToken },
-      { fetchImpl }
-    );
-    await saveEndpoint(
-      endpoint,
-      {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken || current.refreshToken,
-        expiresAt: tokens.expiresAt,
-        scope: tokens.scope || current.scope,
-      },
-      configPath
-    );
-    return tokens.accessToken;
-  } finally {
-    await release();
-  }
-}
-
-/**
- * An exclusive lock file, created with `wx` so only one process wins.
- *
- * A lock older than `staleMs` belonged to a process that died holding it and is
- * taken over rather than waited on forever.
- */
-async function acquireLock(path, { waitMs = 10_000, staleMs = 30_000 } = {}) {
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    try {
-      const handle = await open(path, "wx", 0o600);
-      await handle.close();
-      return () => unlinkFile(path).catch(() => {});
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      const age = await stat(path).then((info) => Date.now() - info.mtimeMs).catch(() => 0);
-      if (age > staleMs) {
-        await unlinkFile(path).catch(() => {});
-        continue;
-      }
-      if (Date.now() > deadline) throw new Error("another Context process is refreshing the sign-in; try again");
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  }
 }
 
 /**
@@ -509,6 +437,7 @@ export async function sessionStart({
   const payload = await readJsonStdin(stdin); // drained: Claude Code closes the pipe on our exit
   let orientation = null;
   let workspace = null;
+  let loginHint = null;
   try {
     const { settings, sources } = await resolveSettings({ flags: { endpoint }, cwd: payload?.cwd || homedir() });
     // Only a project's own binding is named: a person's default workspace is
@@ -516,6 +445,7 @@ export async function sessionStart({
     if (sources.workspace === "project") workspace = settings.workspace;
     endpoint = settings.endpoint;
     const record = await loadEndpoint(endpoint, configPath);
+    loginHint = record || settings.capture === "off" ? null : await takeLoginHint();
     // No point spending a round trip to be told no. A capture-only grant cannot
     // read, and asking anyway would put an error in the logs on every session.
     // Live orientation is the person's choice (orient: live). The one exception
@@ -537,9 +467,32 @@ export async function sessionStart({
   emit(
     `${JSON.stringify({
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context },
+      // Shown to the person, not the agent. See `takeLoginHint`.
+      ...(loginHint ? { systemMessage: loginHint } : {}),
     })}\n`
   );
   return { injected: context, live: Boolean(orientation) };
+}
+
+/**
+ * The one-time "turn on session saving" message, or null once it has been said.
+ *
+ * A plugin installed from a repository or a directory brings the connection and
+ * the skills, but the session-end hook saves only with this CLI's own sign-in,
+ * which nothing in that install makes. Without a word, capture fails silently
+ * forever; said every session, it is noise. So it is said once, and a marker
+ * beside the settings file remembers that.
+ */
+async function takeLoginHint() {
+  const marker = join(dirname(settingsPath()), "login-hint-shown");
+  try {
+    await mkdir(dirname(marker), { recursive: true, mode: 0o700 });
+    const handle = await open(marker, "wx", 0o600);
+    await handle.close();
+  } catch {
+    return null; // already said, or nowhere to remember it: stay quiet
+  }
+  return "Context: to save your sessions to your inbox when they end, run /context:login (or npx @supa-media/context login in a terminal).";
 }
 
 export async function status({ endpoint, configPath = defaultConfigPath(), cwd = process.cwd(), home = homedir(), log = console.log }) {
@@ -576,12 +529,45 @@ export async function uninstallHooks({
   return { removed, forgotten };
 }
 
-/** Whether `cwd` is one of the excluded folders or inside one. `~` means home. */
+/**
+ * Is this session's folder one the person excluded from capture?
+ *
+ * The comparison is made twice, because **an exclusion names a folder and not
+ * a spelling of one**. The hook is handed whatever path the agent reports, and
+ * one directory answers to several: through a symlink, and — on macOS and
+ * Windows, where this CLI mostly runs — in more than one capitalisation.
+ * Comparing the typed strings alone means the control a person set does
+ * nothing at the only moment it mattered, and it fails in the direction that
+ * sends the transcript.
+ *
+ * So both sides are also canonicalised. `realpathSync.native` resolves the
+ * links and, on a case-insensitive filesystem, returns the on-disk spelling,
+ * so the two names meet. A path that no longer exists cannot be canonicalised
+ * and keeps its lexical form.
+ *
+ * The two comparisons are ORed rather than swapped in: canonicalising can only
+ * ever *add* an exclusion, never drop one that holds today — including for a
+ * folder that has since been deleted or moved.
+ */
+function sameName(path) {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
+function within(here, folder) {
+  return here === folder || here.startsWith(folder + sep);
+}
+
 function isExcluded(cwd, excluded = []) {
+  if (excluded.length === 0) return false;
   const here = resolvePath(cwd);
+  const hereNamed = sameName(here);
   return excluded.some((entry) => {
     const folder = resolvePath(entry.replace(/^~(?=$|\/)/, homedir()));
-    return here === folder || here.startsWith(folder + sep);
+    return within(here, folder) || within(hereNamed, sameName(folder));
   });
 }
 

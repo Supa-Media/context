@@ -16,7 +16,11 @@ import { MARKERS, toggleWrap } from "../markdownFormat";
 import { runCommand } from "../editorSetup";
 import { insertFolderList } from "../listBlock/insert";
 import { listHost } from "../listBlock/model";
-import type { EditorHandlers, MenuPoint } from "./contract";
+import type { EditorHandlers, MenuOpen, MenuPoint } from "./contract";
+import { applySpellingFix, desktopSpeller, hasFinePointer, wordUnder, type SpellingFix } from "./spelling";
+
+/** How long a right-click waits on the desktop checker before opening without it. */
+const SPELLING_WAIT_MS = 250;
 
   /**
    * Right-click over the note body.
@@ -31,12 +35,14 @@ import type { EditorHandlers, MenuPoint } from "./contract";
    *
    * ## Three things it deliberately does not do
    *
-   *  - **Shift-right-click falls through to the browser.** Spelling
-   *    suggestions live in the browser's own menu and nowhere else, and
-   *    spellcheck is on in this editor by decision (P1 in the editor sweep) —
-   *    so replacing that menu unconditionally would have taken away the
-   *    feature somebody deliberately turned on. Firefox already spells this
-   *    chord the same way; the other engines learn it here.
+   *  - **Shift-right-click falls through to the browser.** In a browser,
+   *    spelling suggestions live in the browser's own menu and nowhere else,
+   *    and spellcheck is on in this editor by decision (P1 in the editor
+   *    sweep) — so replacing that menu unconditionally would have taken away
+   *    the feature somebody deliberately turned on. Firefox already spells
+   *    this chord the same way; the other engines learn it here, and the menu
+   *    says so in its last row. The desktop app asks the operating system's
+   *    checker instead and puts the suggestions at the top (`spelling.ts`).
    *  - **It never suppresses a menu it will not answer.** A read-only note
    *    with nothing selected has no verbs, `editorMenuItems` returns an empty
    *    list, and the browser's menu opens instead of an empty box.
@@ -57,9 +63,16 @@ export function contextMenuListener({
 }: {
   created: EditorView;
   handlers: { current: EditorHandlers };
-  setMenuAt: (at: MenuPoint | null) => void;
+  setMenuAt: (at: MenuOpen | null) => void;
   setTableAt: (at: MenuPoint | null) => void;
 }): (event: MouseEvent) => void {
+  /*
+    Which right-click is the latest. The checker answers through a promise, and
+    a second right-click before the first answer lands must not have its menu
+    replaced by the first one's.
+  */
+  let latest = 0;
+
   const onContextMenu = (event: MouseEvent) => {
     if (event.defaultPrevented) return;
     if (event.shiftKey) return;
@@ -120,7 +133,42 @@ export function contextMenuListener({
     event.preventDefault();
     event.stopPropagation();
     setTableAt(null);
-    setMenuAt(at);
+
+    const canEdit = !created.state.readOnly;
+    const check = canEdit ? desktopSpeller() : null;
+    const target =
+      check !== null && created.state.selection.main.empty
+        ? wordUnder(created.state, position)
+        : null;
+    const ticket = ++latest;
+    if (check === null || target === null) {
+      setMenuAt({ ...at, spellingHint: canEdit && check === null && hasFinePointer() });
+      return;
+    }
+
+    /*
+      The menu opens once, with the checker's answer — not empty and then
+      again with suggestions pushed in above the row somebody was reaching
+      for. The desktop checker answers synchronously behind the promise, so
+      the wait is a microtask; the timer is for a checker that never answers,
+      which still gets a menu, just without suggestions.
+    */
+    let opened = false;
+    const open = (spelling: SpellingFix | null) => {
+      if (opened || ticket !== latest) return;
+      opened = true;
+      setMenuAt({ ...at, spelling });
+    };
+    check(target.word).then(
+      (answer) =>
+        open(
+          answer.misspelled && created.state.sliceDoc(target.from, target.to) === target.word
+            ? { ...target, suggestions: answer.suggestions }
+            : null,
+        ),
+      () => open(null),
+    );
+    setTimeout(() => open(null), SPELLING_WAIT_MS);
   };
   return onContextMenu;
 }
@@ -151,7 +199,7 @@ export function runEditorMenuAction(
     handlers,
   }: {
     view: { current: EditorView | null };
-    menuAt: MenuPoint | null;
+    menuAt: MenuOpen | null;
     setTableAt: (at: MenuPoint | null) => void;
     handlers: { current: EditorHandlers };
   },
@@ -190,8 +238,16 @@ export function runEditorMenuAction(
     return;
   }
 
+  if (id.startsWith("spelling:")) {
+    const fix = menuAt?.spelling ?? null;
+    const suggestion = fix?.suggestions[Number(id.slice("spelling:".length))];
+    if (fix !== null && suggestion !== undefined) applySpellingFix(current, fix, suggestion);
+    current.focus();
+    return;
+  }
+
   if (id === "table") {
-    setTableAt(menuAt);
+    setTableAt(menuAt === null ? null : { x: menuAt.x, y: menuAt.y });
     return;
   }
 

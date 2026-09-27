@@ -269,3 +269,50 @@ describe("dictating and asking from the caret", () => {
     }
   });
 });
+
+describe("spelling", () => {
+  test("suggestions for a misspelled word come first, one row each", () => {
+    const got = ids({
+      canEdit: true,
+      hasSelection: false,
+      apple: true,
+      spelling: { suggestions: ["permission", "permissions"] },
+    });
+    expect(got.slice(0, 2)).toEqual(["spelling:0", "spelling:1"]);
+    expect(got).toContain("bold");
+  });
+
+  test("a flagged word with nothing to suggest says so, inertly", () => {
+    const items = editorMenuItems({
+      canEdit: true,
+      hasSelection: false,
+      apple: true,
+      spelling: { suggestions: [] },
+    });
+    expect(items[0]).toMatchObject({ id: "noSuggestions", disabled: true });
+  });
+
+  test("a note nobody may write is offered no spelling fix", () => {
+    const got = ids({
+      canEdit: false,
+      hasSelection: true,
+      apple: true,
+      spelling: { suggestions: ["permission"] },
+      spellingHint: true,
+    });
+    expect(got).toEqual(["copy"]);
+  });
+
+  test("a browser is told where its suggestions are, last and inert", () => {
+    const items = editorMenuItems({ canEdit: true, hasSelection: false, apple: true, spellingHint: true });
+    const last = items[items.length - 1];
+    expect(last).toMatchObject({ id: "spellingHint", disabled: true, separatorBefore: true });
+    expect(last?.shortcut).toBe("⇧ Right-click");
+    const windows = editorMenuItems({ canEdit: true, hasSelection: false, apple: false, spellingHint: true });
+    expect(windows[windows.length - 1]?.shortcut).toBe("Shift+Right-click");
+  });
+
+  test("no hint where a checker was asked", () => {
+    expect(ids({ canEdit: true, hasSelection: false, apple: true })).not.toContain("spellingHint");
+  });
+});

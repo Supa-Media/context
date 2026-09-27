@@ -87,6 +87,11 @@ export interface TabStripProps {
   /** Close everything after this tab, keeping it and everything before it. */
   onCloseToRight: (path: string) => void;
   onReopen: () => void;
+  /**
+   * The open note's name as its title is being typed — see `linkedTitle.ts`.
+   * The tab keeps its path and its place; only what it reads changes.
+   */
+  relabel?: { path: string; label: string | null } | null;
 }
 
 /** Roughly a dozen characters. Long enough to be a name, short enough to fit six. */
@@ -214,6 +219,7 @@ export function TabStrip({
   onCloseOthers,
   onCloseToRight,
   onReopen,
+  relabel,
 }: TabStripProps) {
   const styles = useThemedStyles(makeStyles);
   const [menu, setMenu] = useState<MenuAt | null>(null);
@@ -290,7 +296,11 @@ export function TabStrip({
             <TabItem
               key={tab.path}
               tab={tab}
-              label={tabLabel(state, tab.path)}
+              label={
+                relabel?.path === tab.path && relabel.label !== null
+                  ? relabel.label
+                  : tabLabel(state, tab.path)
+              }
               active={tab.path === state.activePath}
               onActivate={() => onActivate(tab.path)}
               onClose={() => onClose(tab.path)}

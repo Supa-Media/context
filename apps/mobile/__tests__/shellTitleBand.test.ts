@@ -47,6 +47,7 @@ import {
   shellBandDraws,
   shellLightsLeadPx,
   shellTitleBandPx,
+  windowFillsScreen,
   shouldShowShellTitleBand,
 } from "../features/app/shellTitleBand";
 import {
@@ -425,3 +426,30 @@ function readHook<T>(read: () => T): T {
   if (seen === null) throw new Error("the probe never rendered");
   return (seen as { value: T }).value;
 }
+
+/**
+ * FULL SCREEN, READ FROM THE WINDOW'S OWN SIZE.
+ *
+ * macOS hides the traffic lights in full screen, and the frame stops leaving
+ * room for them (`useFrameController`). The signal is geometry rather than a
+ * shell message, so it works on every shell already installed: a full-screen
+ * window is exactly the screen, menu bar included, and a zoomed or dragged
+ * window never reaches the menu bar's strip.
+ */
+describe("windowFillsScreen", () => {
+  test("a window the screen's exact size is full screen", () => {
+    expect(windowFillsScreen(1512, 982, 1512, 982)).toBe(true);
+  });
+
+  test("a zoomed window stops short of the menu bar, so it is not", () => {
+    expect(windowFillsScreen(1512, 949, 1512, 982)).toBe(false);
+  });
+
+  test("a narrower window is not, however tall", () => {
+    expect(windowFillsScreen(1200, 982, 1512, 982)).toBe(false);
+  });
+
+  test("no screen to measure against is never full screen", () => {
+    expect(windowFillsScreen(0, 0, 0, 0)).toBe(false);
+  });
+});

@@ -38,13 +38,13 @@ import {
   isCrawler,
   OG_CARD_PATH,
   consoleNoteFrom,
-  shortLinkFrom,
   previewFor,
   shareCardTokenFrom,
   shortLinkCardFrom,
   shareTokenFrom,
   type PreviewMeta,
 } from "./preview";
+import { handleSiteFrom, siteCardFrom } from "./preview/sites";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
 export type Upstream = "expo" | "convex";
@@ -69,6 +69,19 @@ export type RouteDecision =
   // here, so `slug` and `path` are well-formed and nothing an attacker types
   // reaches an upstream unchecked.
   | { kind: "note-preview"; slug: string; path: string }
+  // A crawler asking for an address a website may own: the page's own tags
+  // when it is a live public page, else the legacy short link at the same
+  // address when there is one, else the product card. See `preview/sites.ts`.
+  | {
+      kind: "site-preview";
+      handle: string;
+      routePath: string;
+      legacySlug?: string;
+      /** Where the page lives, for its canonical URL and its card's. */
+      origin: string;
+      prefix: string;
+    }
+  | { kind: "site-card"; handle: string; routePath: string; version: string | null }
   | {
       kind: "short-link-preview";
       handle: string;
@@ -192,6 +205,17 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     };
   }
 
+  // A website page's card, addressed by the handle and path the crawler used.
+  const siteCard = siteCardFrom(url, false);
+  if (siteCard !== null && siteCard.handle !== null) {
+    return {
+      kind: "site-card",
+      handle: siteCard.handle,
+      routePath: siteCard.routePath,
+      version: siteCard.version,
+    };
+  }
+
   if (pathname.startsWith(IMMUTABLE_PREFIX)) {
     return { kind: "proxy", upstream: "expo", path, cache: "immutable" };
   }
@@ -209,17 +233,22 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
       return { kind: "note-preview", slug: note.slug, path: note.path };
     }
 
-    // A short link. Guessable like the readable team link above, and bounded
-    // the same way: the probe space is names the owner typed, and the control
-    // plane refuses every name this product writes, so the guessable ones
-    // cannot be claimed. `/@seyi` alone is untouched and still frozen — a
-    // handle is guessable *and* unbounded, which is a different question.
-    const short = shortLinkFrom(url);
-    if (short !== null) {
+    // A website address, `/@seyi/writing`. It unfurls as the page
+    // only when that is a live public page of a site its owner turned on,
+    // which is what the address already shows anyone who opens it; a short
+    // link at the same address is asked about next, exactly as the app
+    // resolves it, and everything else is the product card. The short link's
+    // own bound is unchanged: the probe space is names the owner typed. `/@seyi`
+    // alone is not one of these and stays frozen; see `handleSiteFrom`.
+    const site = handleSiteFrom(url);
+    if (site !== null) {
       return {
-        kind: "short-link-preview",
-        handle: short.handle,
-        slug: short.slug,
+        kind: "site-preview",
+        handle: site.handle,
+        routePath: site.routePath,
+        ...(site.legacySlug === null ? {} : { legacySlug: site.legacySlug }),
+        origin: `https://${APEX}`,
+        prefix: `/@${site.handle}`,
       };
     }
 

@@ -101,3 +101,11 @@ Moved to [A live editing room holds note text, and the enumeration does not list
 ## Automatic collaboration extends the storage contract
 
 Moved to [Automatic collaboration extends the storage contract](./storage-and-credentials/collaboration-and-live-rooms.md#automatic-collaboration-extends-the-storage-contract).
+
+## Note text is read by a model in flight, and nothing of it is kept
+
+Moved to [Note text is read by a model in flight, and nothing of it is kept](./storage-and-credentials/inference.md#note-text-is-read-by-a-model-in-flight-and-nothing-of-it-is-kept).
+
+## Every use of Jev goes through Jev smarts
+
+Moved to [Every use of Jev goes through Jev smarts](./storage-and-credentials/inference.md#every-use-of-jev-goes-through-jev-smarts).

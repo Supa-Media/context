@@ -216,6 +216,20 @@ export function ensureStyles(colors: Colors): void {
   */
   .cm-lp-root { --lp-content: ${colors.text}; }
 }
+/*
+  The line under a note's title (titleLine.ts): the Text "error" variant's
+  size, in the tone's text colour. Values rather than --lp-* properties
+  because only this half draws it — the guest has no title line, so a
+  property here would be one the contract above says it must also declare.
+*/
+.cm-lp-root .cm-lp-title-note {
+  font-family: ${fonts.body};
+  font-size: 13px;
+  line-height: 20px;
+  margin: 2px 0 6px;
+}
+.cm-lp-root .cm-lp-title-note-problem { color: ${colors.critText}; }
+.cm-lp-root .cm-lp-title-note-held { color: ${colors.warnText}; }
 ${livePreviewStyles}
 `;
   if (fresh) document.head.appendChild(style);

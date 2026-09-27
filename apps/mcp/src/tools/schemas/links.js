@@ -9,6 +9,7 @@ export function saveAndLinkToolDefinitions() {
   return [
     {
       name: "save_context",
+      title: "Save session",
       description:
         "Save what mattered from this session back into the user's context, before it ends. " +
         "Call it when the work is done or the conversation is wrapping up — the decisions, the " +
@@ -60,6 +61,7 @@ export function saveAndLinkToolDefinitions() {
     },
     {
       name: "create_link",
+      title: "Create share link",
       description:
         "Mint a link to one note or folder and get the URL back. Use it whenever they ask for " +
         "a link to send, publish, or put in a signature — never assemble a URL yourself, and " +
@@ -117,6 +119,7 @@ export function saveAndLinkToolDefinitions() {
     },
     {
       name: "list_links",
+      title: "List share links",
       description:
         "Every live link in this context: what it opens, who it is for, whether it is taking " +
         "answers, and its URL. Answers \"what have I published\" without opening the console.",
@@ -125,6 +128,7 @@ export function saveAndLinkToolDefinitions() {
     },
     {
       name: "revoke_link",
+      title: "Revoke share link",
       description:
         "Take a link back, by the id list_links gives. Immediate and final for that link — the " +
         "note and everything in it stay exactly as they are. A card that already unfurled in a " +

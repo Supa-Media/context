@@ -6,38 +6,39 @@ import {
   websiteRouteLookupKey,
   type WebsiteRouteStatus,
 } from "@context/shared";
-import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
-import type { ActionCtx, MutationCtx } from "../../../_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/server";
 import { callerId } from "../filesFns/access";
+import { isEncryptedNote } from "../noteEncryption";
+import { websiteTextRestricts } from "./changes";
 import { workspaceNotFound } from "../workspaceAuth";
+import { PUBLICATION_CLEARANCE, ensureWebsitePublicationRule } from "./publication";
+import { narrowedRows } from "./narrowing";
+import { referencedWebsitePages } from "./folders";
+import {
+  READ_BATCH,
+  commitPublicationSnapshot,
+  scanError,
+  type IndexedRoute,
+} from "./releases";
 import { ensureWebsiteStarter } from "./state";
 
 const MAX_WEBSITE_ROUTES = 500;
-const READ_BATCH = 50;
 
 type Clearance = {
   scope: "private" | "team";
   grantedNames: string[];
 };
 
-type IndexedRoute = WebsiteRouteStatus & {
-  sourceEtag: string;
-  releaseId?: string;
-  releasePageId?: string;
-};
-
 type ReconciliationCommit = {
   committed: boolean;
   cleanupReleaseId: string | null;
+  /** The release this commit demoted to grace, and its pages that go now. */
+  retiredReleaseId: string | null;
+  retiredPageIds: string[];
 };
 
-function scanError(
-  message: string,
-): ConvexError<{ code: string; message: string }> {
-  return new ConvexError({ code: "WEBSITE_SCAN_INCOMPLETE", message });
-}
 
 /**
  * Read one complete, privacy-filtered website snapshot through the existing
@@ -48,8 +49,15 @@ export async function scanWebsiteRoutes(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   clearance: Clearance,
-): Promise<{ statuses: WebsiteRouteStatus[]; indexed: IndexedRoute[] }> {
+  options: { publication?: boolean } = {},
+): Promise<{
+  statuses: WebsiteRouteStatus[];
+  indexed: IndexedRoute[];
+  restricted: string[];
+}> {
   const paths: string[] = [];
+  /* Every other note this clearance may list, for the folders a page names. */
+  const elsewhere: string[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   do {
@@ -68,16 +76,16 @@ export async function scanWebsiteRoutes(
     if (manifest.kind !== "manifest")
       throw scanError("The website listing returned an invalid result.");
     for (const entry of manifest.entries) {
-      if (
-        entry.path.startsWith(`${DEFAULT_WEBSITE_ROOT}/`) &&
-        /\.md$/i.test(entry.path)
-      ) {
-        paths.push(entry.path);
-        if (paths.length > MAX_WEBSITE_ROUTES) {
-          throw scanError(
-            `A website may contain at most ${MAX_WEBSITE_ROUTES} route files.`,
-          );
-        }
+      if (!/\.md$/i.test(entry.path)) continue;
+      if (!entry.path.startsWith(`${DEFAULT_WEBSITE_ROOT}/`)) {
+        elsewhere.push(entry.path);
+        continue;
+      }
+      paths.push(entry.path);
+      if (paths.length > MAX_WEBSITE_ROUTES) {
+        throw scanError(
+          `A website may contain at most ${MAX_WEBSITE_ROUTES} route files.`,
+        );
       }
     }
     // `truncated` means the manifest is only a non-resumable floor. Ordinary
@@ -99,6 +107,39 @@ export async function scanWebsiteRoutes(
     }
   } while (cursor !== undefined);
 
+  const read = (keys: string[]) =>
+    readScanPages(ctx, workspaceId, clearance, keys, options.publication === true);
+  const { pages, etags } = await read(paths);
+  const own = buildWebsiteRouteStatuses(pages);
+  /*
+    The folders the site's pages name. Their notes are read through the same
+    barrier at the same clearance as the pages, so a note `privacy.md` holds
+    back was never listed above and is not here either.
+  */
+  const referenced = await referencedWebsitePages(own, pages, elsewhere, read);
+  for (const [key, etag] of referenced.etags) etags.set(key, etag);
+  const statuses = [...own, ...referenced.statuses];
+  const allPages = [...pages, ...referenced.pages];
+  return {
+    restricted: allPages
+      .filter((page) => websiteTextRestricts(page.markdown))
+      .map((page) => page.objectKey),
+    statuses,
+    indexed: statuses.map((status) => ({
+      ...status,
+      sourceEtag: etags.get(status.objectKey)!,
+    })),
+  };
+}
+
+/** Read `paths` through the barrier at `clearance`: what it lets through, with each note's etag. */
+async function readScanPages(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  clearance: Clearance,
+  paths: string[],
+  publication: boolean,
+): Promise<{ pages: Array<{ objectKey: string; markdown: string }>; etags: Map<string, string> }> {
   const pages: Array<{ objectKey: string; markdown: string }> = [];
   const etags = new Map<string, string>();
   for (let offset = 0; offset < paths.length; offset += READ_BATCH) {
@@ -131,6 +172,12 @@ export async function scanWebsiteRoutes(
         // snapshot; hidden and missing are already the same result below the
         // barrier, so no existence detail escapes.
         if (result.outcome !== "read") continue;
+        // Ciphertext can never be published, so a publication snapshot holds
+        // it as it holds a private note: absent. As a "problem" it would stop
+        // every later rebuild while it sat in the folder.
+        if (publication && isEncryptedNote(result.note.text)) {
+          continue;
+        }
         pages.push({ objectKey: result.path, markdown: result.note.text });
         // The effective etag includes collaboration updates. Using only the
         // provider object's raw etag could leave changed frontmatter live when
@@ -147,14 +194,7 @@ export async function scanWebsiteRoutes(
     }
   }
 
-  const statuses = buildWebsiteRouteStatuses(pages);
-  return {
-    statuses,
-    indexed: statuses.map((status) => ({
-      ...status,
-      sourceEtag: etags.get(status.objectKey)!,
-    })),
-  };
+  return { pages, etags };
 }
 
 async function websiteState(
@@ -215,6 +255,7 @@ export async function commitRouteReconciliationHandler(
     releaseId?: string;
     enabledOnly?: boolean;
     problemsOnlyIfUnpublished?: boolean;
+    restricted?: string[];
   },
 ): Promise<ReconciliationCommit> {
   const state = await websiteState(ctx, args.workspaceId);
@@ -224,12 +265,27 @@ export async function commitRouteReconciliationHandler(
     (args.problemsOnlyIfUnpublished === true &&
       state.routeReconciledGeneration !== undefined)
   ) {
-    return { committed: false, cleanupReleaseId: null };
+    return {
+      committed: false,
+      cleanupReleaseId: null,
+      retiredReleaseId: null,
+      retiredPageIds: [],
+    };
   }
   const existing = await ctx.db
     .query("websiteRouteIndex")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .collect();
+  // The release this commit demotes to grace keeps a copy of every page it
+  // held; the ones this snapshot narrowed go now, not a generation later.
+  const retiredPageIds =
+    args.releaseId === undefined
+      ? []
+      : narrowedRows(existing, args.routes, new Set(args.restricted ?? []))
+          .filter((row) => row.releaseId === state.publishedReleaseId)
+          .flatMap((row) =>
+            row.releasePageId === undefined ? [] : [row.releasePageId],
+          );
   for (const row of existing) await ctx.db.delete(row._id);
   const now = Date.now();
   for (const route of args.routes) {
@@ -260,117 +316,91 @@ export async function commitRouteReconciliationHandler(
     routeReconciledGeneration: args.generation,
     routeReconciledAt: now,
     routeUnsafeGeneration: undefined,
+    siteRevision: (state.siteRevision ?? 0) + 1,
     ...(args.releaseId === undefined
       ? {}
       : {
           publishedReleaseId: args.releaseId,
           previousReleaseId: state.publishedReleaseId,
+          publishedAt: now,
         }),
   });
-  return { committed: true, cleanupReleaseId };
+  return {
+    committed: true,
+    cleanupReleaseId,
+    retiredReleaseId:
+      retiredPageIds.length > 0 ? (state.publishedReleaseId ?? null) : null,
+    retiredPageIds,
+  };
 }
 
-async function stageWebsiteRelease(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  routes: IndexedRoute[],
-): Promise<{ releaseId: string; routes: IndexedRoute[] }> {
-  const releaseId = crypto.randomUUID();
-  const released = routes.map((route) =>
-    route.status === "live"
-      ? { ...route, releaseId, releasePageId: crypto.randomUUID() }
-      : route,
-  );
-  const pages = released.flatMap((route) =>
-    route.releasePageId === undefined
-      ? []
-      : [
-          {
-            pageId: route.releasePageId,
-            path: route.objectKey,
-            expectedEtag: route.sourceEtag,
-          },
-        ],
-  );
-  try {
-    for (let offset = 0; offset < pages.length; offset += READ_BATCH) {
-      const written = await ctx.runAction(
-        internal.functions.files.runFileOperation,
-        {
-          workspaceId,
-          scope: "private",
-          grantedNames: [],
-          operation: {
-            kind: "writeWebsiteRelease",
-            releaseId,
-            pages: pages.slice(offset, offset + READ_BATCH),
-          },
-        },
-      );
-      if (written.kind !== "websiteReleaseWritten") {
-        throw scanError("The bucket returned an invalid website release result.");
-      }
-    }
-  } catch (error) {
-    await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: { kind: "deleteWebsiteRelease", releaseId },
-      })
-      .catch(() => {});
-    throw error;
+/**
+ * The narrowing half of a scan that does not publish. Fenced like a commit;
+ * drops the rows `narrowedRows` names without adding any, and retires the
+ * grace release (which holds a copy of every page the current one does).
+ *
+ * The scan is then complete for everything it may change, so the reconciled
+ * generation advances and the unsafe marker lifts: widening is no longer a
+ * later scan's job but the next Publish's.
+ */
+export async function narrowRouteIndexHandler(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    generation: number;
+    routes: IndexedRoute[];
+    restricted: string[];
+    enabledOnly?: boolean;
+  },
+): Promise<{
+  releaseId: string | null;
+  pageIds: string[];
+  previousReleaseId: string | null;
+}> {
+  const nothing = {
+    releaseId: null,
+    pageIds: [] as string[],
+    previousReleaseId: null,
+  };
+  const state = await websiteState(ctx, args.workspaceId);
+  if (
+    state?.routeGeneration !== args.generation ||
+    state.routeReconciledGeneration === undefined ||
+    (args.enabledOnly === true && state.state !== "enabled")
+  ) {
+    return nothing;
   }
-  return { releaseId, routes: released };
-}
-
-async function finishWebsiteRelease(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  generation: number,
-  routes: IndexedRoute[],
-  enabledOnly: boolean,
-): Promise<boolean> {
-  const release = await stageWebsiteRelease(ctx, workspaceId, routes);
-  const result = await ctx.runMutation(
-    internal.functions.websites.commitRouteReconciliation,
-    {
-      workspaceId,
-      generation,
-      routes: release.routes,
-      releaseId: release.releaseId,
-      ...(enabledOnly ? { enabledOnly: true } : {}),
-    },
-  );
-  if (!result.committed) {
-    await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: {
-          kind: "deleteWebsiteRelease",
-          releaseId: release.releaseId,
-        },
-      })
-      .catch(() => {});
-    return false;
+  const existing = await ctx.db
+    .query("websiteRouteIndex")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .collect();
+  const narrowed = narrowedRows(existing, args.routes, new Set(args.restricted));
+  const liftUnsafe =
+    state.routeUnsafeGeneration !== undefined &&
+    state.routeUnsafeGeneration <= args.generation;
+  const reconciled = {
+    routeReconciledGeneration: args.generation,
+    routeReconciledAt: Date.now(),
+    ...(liftUnsafe ? { routeUnsafeGeneration: undefined } : {}),
+    // What a visitor is served changed, or its menu is back.
+    ...(narrowed.length > 0 || liftUnsafe
+      ? { siteRevision: (state.siteRevision ?? 0) + 1 }
+      : {}),
+  };
+  if (narrowed.length === 0) {
+    await ctx.db.patch(state._id, reconciled);
+    return nothing;
   }
-  if (result.cleanupReleaseId !== null) {
-    await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: {
-          kind: "deleteWebsiteRelease",
-          releaseId: result.cleanupReleaseId,
-        },
-      })
-      .catch(() => {});
-  }
-  return true;
+  for (const row of narrowed) await ctx.db.delete(row._id);
+  const pageIds = narrowed
+    .filter((row) => row.releaseId === state.publishedReleaseId)
+    .flatMap((row) => (row.releasePageId === undefined ? [] : [row.releasePageId]));
+  await ctx.db.patch(state._id, { ...reconciled, previousReleaseId: undefined });
+  return {
+    releaseId: pageIds.length > 0 ? (state.publishedReleaseId ?? null) : null,
+    pageIds,
+    previousReleaseId: state.previousReleaseId ?? null,
+  };
 }
 
 /** Mark a complete derivative stale after a runtime source mismatch. */
@@ -460,25 +490,24 @@ export async function refreshRouteStatusesHandler(
     grantedNames: access.grantedNames,
   });
   if (generation !== null) {
-    if (snapshot.statuses.some((status) => status.status === "problem")) {
-      await ctx.runMutation(
-        internal.functions.websites.commitRouteReconciliation,
-        {
-          workspaceId: args.workspaceId,
-          generation,
-          routes: snapshot.indexed,
-          problemsOnlyIfUnpublished: true,
-        },
-      );
-    } else {
-      await finishWebsiteRelease(
-        ctx,
-        args.workspaceId,
-        generation,
-        snapshot.indexed,
-        false,
-      );
-    }
+    // The caller's own view says what they can see; what the site publishes
+    // is decided at the publication clearance. An owner reads every note, so
+    // committing their snapshot would put private notes on the internet.
+    const published = await scanWebsiteRoutes(
+      ctx,
+      args.workspaceId,
+      PUBLICATION_CLEARANCE,
+      { publication: true },
+    );
+    // Looking at the statuses applies restrictions; only Publish widens.
+    await commitPublicationSnapshot(
+      ctx,
+      args.workspaceId,
+      generation,
+      published,
+      false,
+      await firstScan(ctx, args.workspaceId),
+    );
   }
   return snapshot.statuses;
 }
@@ -486,7 +515,12 @@ export async function refreshRouteStatusesHandler(
 /** Unattended repair pass; disabled sites are re-checked and refused. */
 export async function reconcileWorkspaceHandler(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; expectedGeneration?: number },
+  args: {
+    workspaceId: Id<"workspaces">;
+    expectedGeneration?: number;
+    /** Someone pressed Publish or turned the site on: widen as well. */
+    publish?: boolean;
+  },
 ): Promise<boolean> {
   let generation = await ctx.runMutation(
     internal.functions.websites.beginRouteReconciliation,
@@ -522,33 +556,73 @@ export async function reconcileWorkspaceHandler(
     );
     if (generation === null) return false;
   }
-  const snapshot = await scanWebsiteRoutes(ctx, args.workspaceId, {
-    scope: "private",
-    grantedNames: [],
-  });
-  // A half-written frontmatter block, a temporary empty document, or a route
-  // clash is not a release. Keep serving the previous complete derivative;
-  // a later save owns a newer generation and schedules another attempt.
-  if (snapshot.statuses.some((status) => status.status === "problem")) {
-    await ctx.runMutation(
-      internal.functions.websites.commitRouteReconciliation,
-      {
-        workspaceId: args.workspaceId,
-        generation,
-        routes: snapshot.indexed,
-        enabledOnly: true,
-        problemsOnlyIfUnpublished: true,
-      },
+  const repairPublication = await ctx.runQuery(
+    internal.functions.websites.websitePublicationRepairNeeded,
+    { workspaceId: args.workspaceId },
+  );
+  if (repairPublication) {
+    // A missing or unreadable `privacy.md` leaves the repair for a later
+    // pass; the scan below then publishes only what the manifest allows,
+    // which without a manifest is nothing.
+    const repaired = await ensureWebsitePublicationRule(ctx, {
+      workspaceId: args.workspaceId,
+    }).then(
+      () => true,
+      () => false,
     );
-    return false;
+    if (repaired) {
+      await ctx.runMutation(
+        internal.functions.websites.markWebsitePublicationEnsured,
+        { workspaceId: args.workspaceId },
+      );
+      // A manifest write is a website change and advances the fence.
+      generation = await ctx.runMutation(
+        internal.functions.websites.beginRouteReconciliation,
+        { workspaceId: args.workspaceId, enabledOnly: true },
+      );
+      if (generation === null) return false;
+    }
   }
-  return await finishWebsiteRelease(
+  // The committed index is what anonymous visitors are served from, so it is
+  // built at the clearance a link resolves at, never at the owner's.
+  const snapshot = await scanWebsiteRoutes(
+    ctx,
+    args.workspaceId,
+    PUBLICATION_CLEARANCE,
+    { publication: true },
+  );
+  return await commitPublicationSnapshot(
     ctx,
     args.workspaceId,
     generation,
-    snapshot.indexed,
+    snapshot,
     true,
+    args.publish === true || (await firstScan(ctx, args.workspaceId)),
   );
+}
+
+/**
+ * A site that has never had a complete scan has nothing published to keep,
+ * so its first scan publishes: turning a site on is the first Publish.
+ */
+async function firstScan(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<boolean> {
+  return !(await ctx.runQuery(internal.functions.websites.websiteEverReconciled, {
+    workspaceId,
+  }));
+}
+
+export async function websiteEverReconciledHandler(
+  ctx: QueryCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<boolean> {
+  const state = await ctx.db
+    .query("websiteStates")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  return state?.routeReconciledGeneration !== undefined;
 }
 
 /** Queue a bounded oldest-attempted batch so one broken bucket cannot starve peers. */

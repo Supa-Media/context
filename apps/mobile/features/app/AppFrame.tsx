@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { View } from "react-native";
 import { viewportHeight } from "../design/css";
 import { useThemedStyles } from "../design/theme";
-import { FrameContext } from "./appFrame/context";
+import { FrameContext, type FrameHistory } from "./appFrame/context";
 import { frameBody } from "./appFrame/body";
 import { frameBottomBar, frameStatusRow } from "./appFrame/bottomEdge";
 import { makeStyles } from "./appFrame/styles";
@@ -60,7 +60,7 @@ import { useFrameController } from "./appFrame/useFrameController";
   resizers and the seams, and the one stylesheet they all share. This module
   keeps the component and its props, and re-exports what it always exported.
 */
-export { useFrame, type FrameApi } from "./appFrame/context";
+export { useFrame, type FrameApi, type FrameHistory } from "./appFrame/context";
 export { FrameIconButton } from "./appFrame/controls";
 export { PEEK_DELAY_MS } from "./appFrame/seams";
 
@@ -70,26 +70,24 @@ export { PEEK_DELAY_MS } from "./appFrame/seams";
 
 export interface AppFrameProps {
   /**
-   * The context switcher, at the leading edge of the top bar. **Pointer
-   * layouts only** — at compact the leading edge is `accountSlot` and the
-   * contexts are not in this bar at all (see `accountSlot`).
+   * The account button — you, and behind you the workspaces, Settings and
+   * Sign out (`features/console/SwitcherMenu.tsx`). **Pointer layouts only**,
+   * and only while the file tree is not a column: its home is the foot of the
+   * tree, which the explorer draws itself. The frame puts this one at the
+   * leading end of the status bar when the tree is folded away or the route
+   * has none, so folding the tree never takes the only pointer sign-out with
+   * it.
    *
-   * It used to travel with a `switcherLabel: string`, and that prop is gone
-   * with the control it named. The chip was *pressable* on a phone — it was
-   * how the rail sheet came in — and a pressable's accessible name cannot be
-   * derived from its content on native: `aria-hidden` is destructured by
-   * `View` and not by `Text`, so it is dropped as an unknown prop, and
-   * `RCTRecursiveAccessibilityLabel` concatenates every descendant's text
-   * regardless — VoiceOver announced "@seyi personal black down-pointing small
-   * triangle". Here the chip is not a control at all, so it has no name to
-   * spell out, and a prop nothing reads is a prop that goes.
-   *
-   * **That rule has not expired, it has moved**: every control on the phone's
-   * top row now carries an explicit `accessibilityLabel` of its own, and
-   * `ContextStrip` states it as one of its three drawing rules. If this slot
-   * ever becomes pressable again, the label comes back with it.
+   * It replaced the context switcher chip that led the title bar (2026-09-26):
+   * the owner asked for Discord's shape, one button at the bottom left.
    */
-  switcher: ReactNode;
+  account?: ReactNode;
+  /**
+   * The leading element of a pointer layout's title bar. The console leaves it
+   * empty — its workspace switcher is the account button above — and the
+   * homepage's picture of the console carries its own name here.
+   */
+  lead?: ReactNode;
   /**
    * The open notes, hanging from the foot of the title bar. **Pointer layouts
    * only** — tabs are a pointer instrument and a phone has `RecentSheet`.
@@ -166,6 +164,12 @@ export interface AppFrameProps {
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
   /**
+   * `‹ ›` over the console's history, drawn in the title row above the file
+   * tree (or leading the bar while it is folded). Pointer layouts only; a
+   * phone carries the pair in its bottom bar.
+   */
+  history?: FrameHistory;
+  /**
    * The file tree, rendered as a column or inside the drawer.
    *
    * Omit it for a route that has no tree — Map and Connections are app-level
@@ -194,12 +198,14 @@ export interface AppFrameProps {
 }
 
 export function AppFrame({
-  switcher,
+  account,
+  lead,
   tabs,
   topTrailing,
   accountSlot,
   syncSlot,
   onSearch,
+  history,
   explorer,
   aside,
   status,
@@ -263,7 +269,7 @@ export function AppFrame({
           lightsLeadPx,
           density,
           accountSlot,
-          switcher,
+          lead,
           tabs,
           syncSlot,
           topTrailing,
@@ -271,6 +277,10 @@ export function AppFrame({
           asideToggle,
           regions,
           toggleAside,
+          history,
+          hasExplorer,
+          explorerWidth: state.explorerWidth,
+          toggleExplorer,
         })}
 
         {frameBody({
@@ -291,7 +301,7 @@ export function AppFrame({
           insets,
         })}
 
-        {frameStatusRow({ styles, regions, status, hasExplorer, toggleExplorer })}
+        {frameStatusRow({ styles, regions, status, hasExplorer, toggleExplorer, account })}
 
         {frameBottomBar({ styles, bottomBarShowing, chromeGap, bottomBar })}
       </View>

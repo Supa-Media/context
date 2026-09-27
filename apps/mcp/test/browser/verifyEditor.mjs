@@ -737,6 +737,30 @@ async function main() {
       await append(b.page,"\nAFTER HALF OPEN");
       check("typing after a half-open socket reaches the peer and storage",await until(async()=>(await text(a.page)).includes("AFTER HALF OPEN")&&(await rawNote("1-projects/half-open.md")).text.includes("AFTER HALF OPEN"),{timeout:20000}));
     });
+    // A note made at a name an earlier note used — every untitled-<date> of a
+    // day, once the first takes its title — must open as itself: the device's
+    // record for that path belongs to the earlier note and used to pin it.
+    await pair("1-projects/offline-create-seed.md",async(a,b)=>{
+      const path="1-projects/reused.md";
+      const createAndType=async(words)=>{
+        await a.page.evaluate(()=>window.fixture.files.createNote("1-projects","reused"));
+        await until(async()=> { const s=await state(a.page); return s.editorText?.includes("# reused") && s.collaboration?.status==="saved"; },{timeout:15000});
+        await append(a.page,"\n"+words);
+      };
+      await createAndType("FIRST life");
+      check("first note saves",await until(async()=> (await rawNote(path))?.text?.includes("FIRST life"),{timeout:20000}));
+      await a.page.evaluate(()=>window.fixture.files.select("1-projects/verify.md"));
+      await until(async()=> (await text(a.page)).includes("first line"));
+      const read=textOf(await callTool(ANA,"read_note",{path}));
+      const moved=await callTool(ANA,"move_note",{source:path,destination:"1-projects/moved-away.md",expected_source_etag:read.match(/^etag: (.+)$/m)?.[1]});
+      check("moved away",!moved.isError,textOf(moved).slice(0,200));
+      await a.page.reload();await a.page.locator(".cm-content").waitFor();
+      await until(async()=> (await text(a.page)).includes("first line"));
+      await new Promise(r=>setTimeout(r,1500));
+      await createAndType("SECOND life");
+      const ok=await until(async()=> (await rawNote(path))?.text?.includes("SECOND life"),{timeout:25000});
+      check("a note made at a name used before still saves",ok,JSON.stringify({bucket:(await rawNote(path))?.text,notice:await a.page.evaluate(()=>window.fixture.files.notice),state:await state(a.page),traffic:a.traffic.slice(-8)}).slice(0,5000));
+    });
     await pair("1-projects/revoked.md",async(a,b)=>{
       const path="1-projects/revoked.md";
       await controlPlane.revoke(BO);

@@ -6,11 +6,24 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../design/components/Button";
 import { TextLink } from "../../design/components/TextLink";
 import { Card, Row } from "../../design/components/Card";
-import { FormError } from "../../design/components/Input";
+import { ChoiceGroup, FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { leading, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { PRIVACY_DEFAULT_NOTE, REVERSIBLE_NOTE, paraFolderLines } from "../../onboarding/structure";
+import {
+  PRIVACY_DEFAULT_NOTE,
+  REVERSIBLE_NOTE,
+  paraFolderLines,
+  toApplyStructureArgs,
+} from "../../onboarding/structure";
+import { WORKSPACE_PRIVACY_NOTE } from "../../workspace/create";
+import {
+  DEFAULT_PRESET,
+  WORKSPACE_PRESETS,
+  presetRows,
+  templateFor,
+  type WorkspacePresetKey,
+} from "../../workspace/presets";
 import { setupCopy, type ContextSetup } from "../setup";
 
 /**
@@ -36,6 +49,17 @@ import { setupCopy, type ContextSetup } from "../setup";
  * been told their context is empty is exactly the person who should see the
  * importer's own warnings rather than a shortened version of them.
  *
+ * ## A shared workspace is asked what kind it is
+ *
+ * The managed-storage route out of `/workspace/new` skips its "What kind of
+ * workspace is it?" step, so the one place a business could ever get a
+ * `3-clients` and a `2-teams` folder was a step nobody on that route saw. For
+ * a shared workspace with an empty bucket this card therefore offers the same
+ * kinds (`../../workspace/presets`), one press each, and writes the one
+ * chosen. A personal workspace keeps the standard five: the kinds are
+ * shapes for a group, and a half-written layout is only ever finished with
+ * the layout that started it.
+ *
  * ## Custom folders are deliberately not here
  *
  * The flows offer "name your own folders" beside the standard layout, and this
@@ -49,22 +73,30 @@ import { setupCopy, type ContextSetup } from "../setup";
 export function SetupPrompt({
   setup,
   workspaceId,
+  shared = false,
   onImportVault,
 }: {
   setup: ContextSetup;
   /** The context being set up. */
   workspaceId: string;
+  /** A shared workspace: offer the kinds of workspace rather than PARA alone. */
+  shared?: boolean;
   /** Opens Settings → Storage, where the importer lives. */
   onImportVault?: () => void;
 }) {
   const applyStructure = useMutation(api.functions.workspaces.applyStructure);
   const [applying, setApplying] = useState(false);
   const [failure, setFailure] = useState<string | undefined>(undefined);
+  const [preset, setPreset] = useState<WorkspacePresetKey>(DEFAULT_PRESET);
+  const choosing = offersKinds(setup, shared);
 
   const apply = useCallback(() => {
     setApplying(true);
     setFailure(undefined);
-    void applyStructure({ workspaceId: workspaceId as Id<"workspaces">, template: "para" })
+    const args = choosing
+      ? toApplyStructureArgs(workspaceId, templateFor(preset), presetRows(preset))
+      : { template: "para" as const };
+    void applyStructure({ ...args, workspaceId: workspaceId as Id<"workspaces"> })
       .catch((error: unknown) => {
         /*
           Our sentence, never the backend's — a Convex error can carry a
@@ -80,7 +112,7 @@ export function SetupPrompt({
         );
       })
       .finally(() => setApplying(false));
-  }, [applyStructure, workspaceId]);
+  }, [applyStructure, choosing, preset, workspaceId]);
 
   return (
     <SetupPromptBody
@@ -89,8 +121,35 @@ export function SetupPrompt({
       failure={failure}
       onApplyLayout={apply}
       onImportVault={onImportVault}
+      kind={choosing ? { preset, onChoose: setPreset } : undefined}
+      shared={shared}
     />
   );
+}
+
+/**
+ * The kinds the card offers: every one that names its own folders, plus the
+ * standard layout. "Something else" is the custom editor, which this card
+ * deliberately does not carry (see the header).
+ */
+export const SETUP_KINDS = WORKSPACE_PRESETS.filter((entry) => entry.key !== "custom");
+
+/**
+ * Whether the card asks what kind of workspace this is.
+ *
+ * Only for a shared workspace with an empty bucket: an unfinished layout is
+ * finished with the standard one (`../setup.ts` never offers to finish a
+ * custom one), and a personal workspace is one person's, which is what PARA
+ * is for.
+ */
+export function offersKinds(setup: ContextSetup, shared: boolean): boolean {
+  return shared && setup.kind === "empty";
+}
+
+/** The folder lines the card lists for a choice: the preset's, or PARA's. */
+function folderLinesFor(preset: WorkspacePresetKey | undefined): { folder: string; line: string }[] {
+  if (preset === undefined || preset === "para") return paraFolderLines();
+  return presetRows(preset).map((row) => ({ folder: row.name, line: row.description }));
 }
 
 /**
@@ -103,15 +162,21 @@ export function SetupPromptBody({
   failure,
   onApplyLayout,
   onImportVault,
+  kind,
+  shared = false,
 }: {
   setup: ContextSetup;
   applying: boolean;
   failure?: string;
   onApplyLayout: () => void;
   onImportVault?: () => void;
+  /** Present when the card asks what kind of workspace this is. */
+  kind?: { preset: WorkspacePresetKey; onChoose: (preset: WorkspacePresetKey) => void };
+  /** A shared workspace, whose folders start open to its members. */
+  shared?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const copy = setupCopy(setup);
+  const copy = setupCopy(setup, kind !== undefined);
   if (copy === null) return null;
 
   return (
@@ -128,8 +193,24 @@ export function SetupPromptBody({
         anybody can consent to. Five lines is cheap and it is the difference
         between a button somebody presses and one they leave alone.
       */}
+      {kind === undefined ? null : (
+        <ChoiceGroup<WorkspacePresetKey>
+          label="Kind of workspace"
+          options={SETUP_KINDS.map((entry) => ({
+            value: entry.key,
+            label: entry.key === DEFAULT_PRESET ? `${entry.label} (recommended)` : entry.label,
+            detail: entry.summary,
+          }))}
+          value={kind.preset}
+          onChange={kind.onChoose}
+          disabled={applying}
+          style={styles.kinds}
+          testID="console-setup-kind"
+        />
+      )}
+
       <View style={styles.folders} testID="console-setup-folders">
-        {paraFolderLines().map(({ folder, line }) => (
+        {folderLinesFor(kind?.preset).map(({ folder, line }) => (
           <View key={folder} style={styles.folderRow}>
             <Text variant="check" style={styles.folderName}>
               {folder}
@@ -169,7 +250,7 @@ export function SetupPromptBody({
       </Row>
 
       <Text variant="foot" style={styles.foot}>
-        {PRIVACY_DEFAULT_NOTE} {REVERSIBLE_NOTE}
+        {shared ? WORKSPACE_PRIVACY_NOTE : PRIVACY_DEFAULT_NOTE} {REVERSIBLE_NOTE}
       </Text>
     </Card>
   );
@@ -179,6 +260,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     card: { gap: space.x2 },
     body: { lineHeight: leading(12.5, 1.7) },
+    kinds: { marginTop: space.x2 },
     folders: { marginTop: space.x2, gap: space.x2 },
     folderRow: { flexDirection: "row", gap: space.x3, flexWrap: "wrap" },
     folderName: { minWidth: 92 },

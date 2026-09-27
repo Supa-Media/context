@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { ShareScreen } from "../share/ShareScreen";
 import { shortLinkAddress } from "../share/share";
 import { WebsitePage } from "./website/WebsitePage";
+import { useSiteFavicon } from "./useSiteFavicon";
 import { useWebsiteAddress } from "./useWebsiteAddress";
 
 const HANDLE = /^@[a-z0-9][a-z0-9-]{0,62}$/;
@@ -35,6 +36,9 @@ export function HandleSite({
           ...(legacy === null ? {} : { legacySlug: legacy.slug }),
         },
   );
+  // Worn while the address is a website (or still resolving to one); a legacy
+  // short link is a share, not the site, and keeps the Context favicon.
+  useSiteFavicon(view?.kind === "legacy_short_link" ? null : handle);
 
   if (handle === null) return null;
   if (view === undefined) return <View />;

@@ -39,14 +39,14 @@ export function compareGroups(a, b) {
  * within each group. Values that differ only by case share a group, named as
  * the first row spelled it.
  */
-export function orderByGroup(items) {
+export function orderByGroup(items, compare = compareGroups) {
   const names = new Map();
   for (const item of items) {
     const folded = item.group.toLowerCase();
     if (!names.has(folded)) names.set(folded, item.group);
     item.group = names.get(folded);
   }
-  const order = [...names.values()].sort(compareGroups);
+  const order = [...names.values()].sort(compare);
   const rank = new Map(order.map((name, index) => [name, index]));
   return items
     .map((item, index) => ({ item, index }))

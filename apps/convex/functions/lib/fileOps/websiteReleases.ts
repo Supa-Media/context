@@ -94,6 +94,27 @@ export async function readWebsiteRelease(
   );
 }
 
+/**
+ * Delete named pages from one release, leaving the rest of it servable.
+ *
+ * A release copy must not outlive the plaintext it copies: a page that was
+ * deleted, encrypted, withdrawn or held back loses its copies without waiting
+ * for a clean rebuild, which a broken page elsewhere in the site can postpone
+ * indefinitely.
+ */
+export async function deleteWebsiteReleasePages(
+  store: FileStore,
+  releaseId: string,
+  pageIds: readonly string[],
+): Promise<number> {
+  if (pageIds.length > MAX_RELEASE_BATCH) {
+    throw new FileOpError("PATH_INVALID", "Too many website release pages.");
+  }
+  const keys = pageIds.map((pageId) => releaseKey(releaseId, pageId));
+  for (const key of keys) await store.delete(key);
+  return keys.length;
+}
+
 export async function deleteWebsiteRelease(store: FileStore, releaseId: string): Promise<number> {
   // Validate before using a value as a prefix. A malformed empty id must never
   // turn cleanup of one retired release into cleanup of the whole namespace.

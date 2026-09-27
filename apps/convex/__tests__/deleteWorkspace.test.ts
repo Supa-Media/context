@@ -94,6 +94,12 @@ describe("deleteWorkspace", () => {
         problems: [],
         updatedAt: Date.now(),
       });
+      await ctx.db.insert("organizerSettings", {
+        workspaceId,
+        autopilot: { done: false, archive: false, file: false },
+        pending: 0,
+        updatedAt: Date.now(),
+      });
     });
 
     // The pre-state, asserted first: an "is gone afterwards" check over a row
@@ -137,6 +143,11 @@ describe("deleteWorkspace", () => {
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .collect();
       expect(websiteRoutes).toEqual([]);
+      const organizer = await ctx.db
+        .query("organizerSettings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      expect(organizer).toEqual([]);
     });
 
     // And it is claimable again, by anybody — the whole point of freeing it.

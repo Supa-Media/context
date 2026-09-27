@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
+import { space } from "../../design/tokens";
 import { topBarLeadFor, type Density, type Regions } from "../frame";
-import type { FrameApi } from "./context";
+import type { FrameApi, FrameHistory } from "./context";
 import { FrameIconButton, SearchTrigger } from "./controls";
 import type { FrameStyles } from "./styles";
 
 /**
- * The frame's top bar: the switcher or the phone's account mark, the tabs, the
+ * The frame's top bar: the phone's account mark, the tabs, the
  * sync pill and the trailing group.
  *
  * A function that returns the element rather than a component, so the tree
@@ -23,7 +24,7 @@ export function frameTopBar({
   lightsLeadPx,
   density,
   accountSlot,
-  switcher,
+  lead,
   tabs,
   syncSlot,
   topTrailing,
@@ -31,6 +32,10 @@ export function frameTopBar({
   asideToggle,
   regions,
   toggleAside,
+  history,
+  hasExplorer,
+  explorerWidth,
+  toggleExplorer,
 }: {
   styles: FrameStyles;
   compact: boolean;
@@ -40,7 +45,7 @@ export function frameTopBar({
   lightsLeadPx: number;
   density: Density;
   accountSlot?: ReactNode;
-  switcher: ReactNode;
+  lead?: ReactNode;
   tabs?: ReactNode;
   syncSlot?: ReactNode;
   topTrailing?: ReactNode;
@@ -48,7 +53,63 @@ export function frameTopBar({
   asideToggle: boolean;
   regions: Regions;
   toggleAside: () => void;
+  history?: FrameHistory;
+  hasExplorer: boolean;
+  explorerWidth: number;
+  toggleExplorer: () => void;
 }) {
+  /*
+    THE FILE TREE'S OWN TITLE ROW.
+
+    While the tree is a column, the stretch of this bar above it belongs to
+    it: exactly the column's width, holding the window's buttons, `‹ ›` and
+    the tree's own toggle, so the column reads as running from the top edge
+    of the window to its foot rather than starting under a blank strip. The
+    owner chose this (2026-09-26) over a column with separate rows for inbox,
+    activity and meetings — everything in the column stays a folder or a
+    page, and this row is chrome, not a place.
+
+    The rest of the bar — the tabs, the trailing group — then starts where
+    the editor starts, so a tab sits over the page it opens.
+
+    Folded, the same controls lead the bar instead, so neither `‹ ›` nor the
+    way back to the tree goes away with the column.
+  */
+  const pointer = !compact && topBarLeadFor(density) !== "account";
+  const columnHead = pointer && hasExplorer && regions.explorer === "column";
+  const navigation =
+    !pointer || (history === undefined && !hasExplorer) ? null : (
+      <>
+        {history === undefined ? null : (
+          <>
+            <FrameIconButton
+              label="Go back"
+              icon="chevronLeft"
+              onPress={history.onBack}
+              disabled={!history.canBack}
+              testID="frame-back"
+            />
+            <FrameIconButton
+              label="Go forward"
+              icon="chevronRight"
+              onPress={history.onForward}
+              disabled={!history.canForward}
+              testID="frame-forward"
+            />
+          </>
+        )}
+        {columnHead ? <View style={styles.columnHeadFill} /> : null}
+        {hasExplorer ? (
+          <FrameIconButton
+            label={regions.explorer === "column" ? "Hide the file tree" : "Show the file tree"}
+            icon="panelLeft"
+            onPress={toggleExplorer}
+            testID="frame-toggle-explorer"
+          />
+        ) : null}
+      </>
+    );
+
   return (
     <View
       style={[
@@ -70,14 +131,27 @@ export function frameTopBar({
 
           Every slot below sets `no-drag` on itself — see `topLead`. What
           stays draggable is the bar's own background: the gaps between
-          slots, the run between the chip and the tabs, and the air above
-          the tabs, which hang from the foot.
+          slots, the run before the tabs, and the air above the tabs, which
+          hang from the foot.
         */
         holdsLights && { paddingLeft: lightsLeadPx },
         holdsLights && styles.topBarDrag,
+        // The column's head starts at the window's own edge and carries the
+        // buttons' room itself.
+        columnHead && { paddingLeft: 0 },
       ]}
       testID="app-top-bar"
     >
+      {columnHead ? (
+        <View
+          style={[styles.columnHead, { width: explorerWidth, paddingLeft: lightsLeadPx || space.x3 }]}
+          testID="frame-column-head"
+        >
+          {navigation}
+        </View>
+      ) : navigation === null ? null : (
+        <View style={styles.topNav}>{navigation}</View>
+      )}
       {/*
         The phone's top row, in two parts: a pinned account mark and the
         trailing capsule. The contexts were the third and are now the first
@@ -92,8 +166,10 @@ export function frameTopBar({
         left is not a bar with two buttons and a gap: it is a row of slots,
         and the middle one is a list.
 
-        At medium and wide the switcher is unchanged and still the leading
-        element of a real bar with a surface and a hairline.
+        At medium and wide the console leads with nothing any more: the
+        workspace switcher chip moved to the account button at the foot of
+        the file tree (see `AppFrame`'s `account`), so its tabs start here.
+        `lead` is for a surface that still names itself, like the homepage.
       */}
       {topBarLeadFor(density) === "account" ? (
         <>
@@ -106,8 +182,8 @@ export function frameTopBar({
             <View style={styles.accountLead}>{accountSlot}</View>
           )}
         </>
-      ) : (
-        <View style={styles.topLead}>{switcher}</View>
+      ) : lead == null ? null : (
+        <View style={styles.topLead}>{lead}</View>
       )}
 
       {/*

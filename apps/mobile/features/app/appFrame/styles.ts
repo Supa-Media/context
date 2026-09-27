@@ -108,6 +108,31 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     borderBottomWidth: 0,
     backgroundColor: "transparent",
   },
+  /**
+   * The stretch of the bar over the file tree, the column's width exactly.
+   *
+   * No fill of its own: the bar and the column are both `chromeSurface`, so
+   * the two already read as one surface and this only has to line up. It is
+   * still the window's drag handle between its buttons (the bar's
+   * `DRAG_REGION` reaches it); each button opts out on its own.
+   */
+  columnHead: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingRight: space.x2,
+    flexShrink: 0,
+  },
+  /** Pushes the tree's toggle to the column's trailing edge. */
+  columnHeadFill: { flex: 1 },
+  /** The same controls leading the bar while the tree is folded. */
+  topNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    ...NO_DRAG_REGION,
+  },
   topLead: {
     flexDirection: "row",
     alignItems: "center",
@@ -453,6 +478,9 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
   /** The room the status node spreads into. `minWidth: 0` so a long path clips. */
   statusFill: { flex: 1, minWidth: 0 },
 
+  /** The account button's fallback home, ahead of the panel toggle. */
+  statusAccount: { marginRight: space.x2, flexShrink: 0 },
+
   statusDivider: {
     width: 1,
     height: 12,
@@ -588,6 +616,8 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     borderRadius: radii.md,
     alignItems: "center",
     justifyContent: "center",
+    // A button in a bar that drags the window still has to take its press.
+    ...NO_DRAG_REGION,
   },
   iconButtonRound: {
     width: layout.chromeButton,

@@ -102,6 +102,8 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 }));
 
 jest.mock("convex/react", () => ({
+  // An owner picker searches through the client; nothing here opens one.
+  useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
@@ -299,7 +301,7 @@ function mountConsole(next: Shape = {}) {
     press,
     /** Open the workspace switcher, which is where the rail's offer went. */
     openSwitcher: () =>
-      press(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]')),
+      press(document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]')),
     unmount: () => {
       act(() => root.unmount());
       container.remove();

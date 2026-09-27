@@ -1,6 +1,7 @@
 /**
  * @jest-environment jsdom
  */
+import type { FrameHistory } from "../../features/app/AppFrame";
 
 import { jest } from "@jest/globals";
 import { act, createElement, useEffect, useState, type ReactNode } from "react";
@@ -51,7 +52,7 @@ jest.mock("react-native-safe-area-context", () => ({
 // Imported after the mock, which `jest.mock` hoists above it anyway.
 const { AppFrame, useFrame } =
   require("../../features/app/AppFrame") as typeof import("../../features/app/AppFrame");
-const { layout } = require("../../features/design/tokens") as typeof import("../../features/design/tokens");
+const { layout, space } = require("../../features/design/tokens") as typeof import("../../features/design/tokens");
 const { bottomChromeHeight } =
   require("../../features/app/bottomChrome") as typeof import("../../features/app/bottomChrome");
 const { viewportHeight } = require("../../features/design/css") as typeof import("../../features/design/css");
@@ -74,6 +75,7 @@ export {
   AppFrame,
   useFrame,
   layout,
+  space,
   bottomChromeHeight,
   viewportHeight,
   topChromeHoldsLights,
@@ -105,7 +107,12 @@ export interface Mounted {
 export function mountFrame(
   width: number,
   children: ReactNode = "the note",
-  options: { explorer?: boolean; accountSlot?: boolean; aside?: boolean } = {},
+  options: {
+    explorer?: boolean;
+    accountSlot?: boolean;
+    aside?: boolean;
+    history?: FrameHistory;
+  } = {},
 ): Mounted {
   // Widening the window in jsdom takes more than it looks like it should, and
   // getting it wrong is silent rather than loud.
@@ -139,7 +146,9 @@ export function mountFrame(
   act(() => {
     root.render(
       createElement(AppFrame, {
-        switcher: createElement("span", { "data-testid": "switcher" }, "@seyi"),
+        lead: createElement("span", { "data-testid": "switcher" }, "@seyi"),
+        // The account button's fallback, drawn only while the tree is not a column.
+        account: createElement("span", { "data-testid": "account-fallback" }, "S"),
         /*
           The phone's leading slot, as a stub. `AppFrame` "knows about geometry
           and nothing else", so what a test needs from it is that it is laid out
@@ -176,6 +185,7 @@ export function mountFrame(
         status: createElement("span", { "data-testid": "status" }, "490 words"),
         bottomBar: createElement("span", { "data-testid": "bottom" }, "toolbar"),
         onSearch: () => {},
+        ...(options.history === undefined ? {} : { history: options.history }),
         children,
       }),
     );

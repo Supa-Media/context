@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { buildWebsiteRouteStatuses, parseWebsitePage } from "@context/shared";
+import { buildWebsiteRouteStatuses, parseWebsitePage, websitePageTitle } from "@context/shared";
 
 describe("website page metadata", () => {
   test("defaults a titled content page to a live public route", () => {
@@ -77,24 +77,19 @@ describe("website page metadata", () => {
     ]);
   });
 
-  test("requires a title and content independently", () => {
-    expect(parseWebsitePage("Body only\n").problems).toEqual([
-      {
-        code: "untitled_page",
-        message: "Add a non-empty title to publish this page.",
-      },
-    ]);
-    expect(parseWebsitePage("---\ntitle: Empty\n---\n\n  \n").problems).toEqual(
-      [
-        {
-          code: "empty_page",
-          message: "Add page content to publish this route.",
-        },
-      ],
-    );
+  test("a missing title or an empty body is not a problem", () => {
+    expect(parseWebsitePage("Body only\n").problems).toEqual([]);
+    expect(parseWebsitePage("---\ntitle: Empty\n---\n\n  \n").problems).toEqual([]);
+    expect(parseWebsitePage("").problems).toEqual([]);
+  });
+
+  test("an untitled page is titled by its first heading, else its file name", () => {
+    expect(websitePageTitle("website/a.md", "Own", "# Heading\n")).toBe("Own");
+    expect(websitePageTitle("website/a.md", null, "Intro\n\n# Use cases #\n")).toBe("Use cases");
+    expect(websitePageTitle("website/Legal/use-cases.md", null, "")).toBe("use-cases");
     expect(
-      parseWebsitePage("").problems.map((problem) => problem.code),
-    ).toEqual(["untitled_page", "empty_page"]);
+      buildWebsiteRouteStatuses([{ objectKey: "website/roadmap.md", markdown: "# Roadmap\n\nSoon.\n" }]),
+    ).toMatchObject([{ status: "live", title: "Roadmap", routePath: "/roadmap" }]);
   });
 
   test("rejects multiline controlled values and invisible titles", () => {
@@ -109,13 +104,8 @@ describe("website page metadata", () => {
       },
     ]);
     expect(
-      parseWebsitePage('---\ntitle: "   "\n---\n\nBody\n').problems,
-    ).toEqual([
-      {
-        code: "untitled_page",
-        message: "Add a non-empty title to publish this page.",
-      },
-    ]);
+      parseWebsitePage('---\ntitle: "   "\n---\n\nBody\n').title,
+    ).toBeNull();
   });
 
   test("normalizes CRLF without changing body line structure", () => {

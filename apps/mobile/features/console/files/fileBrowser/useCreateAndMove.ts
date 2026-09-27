@@ -20,6 +20,7 @@ import {
   describeMoveProblem,
   describeNameProblem,
   displayName,
+  drawingFileName,
   ensureMarkdown,
   isMarkdown,
   joinPath,
@@ -298,8 +299,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
    */
   const createDrawing = useCallback(
     (folder: string, rawName: string) => {
-      const trimmed = rawName.trim();
-      createNote(folder, isDrawingPath(ensureMarkdown(trimmed)) ? trimmed : `${trimmed}.excalidraw`);
+      createNote(folder, drawingFileName(rawName));
     },
     [createNote],
   );

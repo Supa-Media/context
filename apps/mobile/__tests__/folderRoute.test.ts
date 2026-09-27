@@ -18,6 +18,8 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
  * the pane mount.
  */
 jest.mock("convex/react", () => ({
+  // An owner picker searches through the client; nothing here opens one.
+  useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
     throw new Error("not used in this test");
   },

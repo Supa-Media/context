@@ -132,7 +132,6 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   );
 
   const canSystemAudio = snapshot.capture.systemAudio;
-  const needsPicker = snapshot.capture.systemAudioNeedsPicker;
   const live = snapshot.live;
 
   /*
@@ -198,7 +197,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
           this build can do without asking again", which is the honest answer
           for a surface that never drew the switch.
         */
-        const systemAudio = canSystemAudio ? await recallSystemAudio(store, needsPicker) : false;
+        const systemAudio = canSystemAudio ? await recallSystemAudio(store) : false;
         const id = await controller.start({
           title,
           destination: answer.destination,
@@ -221,7 +220,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
         starting.current = false;
       }
     })();
-  }, [canSystemAudio, contexts, controller, live, needsPicker, show, snapshot.status, store, title]);
+  }, [canSystemAudio, contexts, controller, live, show, snapshot.status, store, title]);
 
   const dismiss = useCallback(() => {
     setRefusal(null);

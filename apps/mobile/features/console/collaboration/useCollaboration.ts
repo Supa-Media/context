@@ -73,6 +73,9 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
   callbacks.current = options;
   const [state, setState] = useState<DurableCollaboration>(emptyState);
   const [generation, setGeneration] = useState(0);
+  // Bumped when the controller finds the note at this path is a different
+  // document from the one it held, so a fresh one starts. See `adoptGeneration`.
+  const [restarts, setRestarts] = useState(0);
 
   const active =
     options.enabled !== false &&
@@ -160,6 +163,13 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       transport,
       online: () => typeof navigator === "undefined" || navigator.onLine !== false,
       canWrite: () => callbacks.current.editable,
+      onRestart: () => {
+        if (stopped) return;
+        // The replacement is not ready until it has read the note, and the
+        // editor must not take typing on the strength of this one's state.
+        setState(emptyState);
+        setRestarts((value) => value + 1);
+      },
       onText: (text) => {
         if (!stopped) callbacks.current.onText(text);
       },
@@ -212,7 +222,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     };
     // The note identity is the resource. Text and callbacks are read through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, options.endpoint, mint, options.path, options.scope, options.workspaceId]);
+  }, [active, options.endpoint, mint, options.path, options.scope, options.workspaceId, restarts]);
 
   const current = controller.current;
   const subscribeLiveUpdates = useCallback((listener: (frame: LiveUpdate) => void) =>

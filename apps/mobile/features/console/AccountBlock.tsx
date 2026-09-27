@@ -153,10 +153,16 @@ export function AccountBlock({
   );
 }
 
-export function Avatar({ initial }: { initial: string }) {
+export function Avatar({ initial, size }: { initial: string; size?: number }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.avatar} aria-hidden>
+    <View
+      style={[
+        styles.avatar,
+        size === undefined ? null : { width: size, height: size, borderRadius: size / 2 },
+      ]}
+      aria-hidden
+    >
       <Text style={styles.avatarInitial}>{initial}</Text>
     </View>
   );

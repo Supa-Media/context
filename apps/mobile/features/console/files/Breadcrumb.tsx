@@ -11,14 +11,13 @@ import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, pointerType as t, radii, space } from "../../design/tokens";
+import { layout, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useRightClick } from "./rightClick";
 import { crumbsFor, type Crumb } from "./crumbs";
-import { isGroupVisibility, type Visibility } from "./types";
 
 /**
- * Where the open note lives, and who can see it.
+ * Where the open note lives.
  *
  * This is what freed the top of the editor. The note used to carry a card
  * header — its name, two chips, a byte count — and beneath that a row of seven
@@ -42,12 +41,13 @@ import { isGroupVisibility, type Visibility } from "./types";
  * scroller*, so they are gone the moment somebody reads past the first screen;
  * the band is what stays. `crumbs.ts` carries the rule and the argument.
  *
- * ## The visibility chip is the whole sentence, not the tree's marker
+ * ## No visibility chip, on either density
  *
- * The tree marks only exceptions, because drawing a folder's default on every
- * one of its files buries the one note that differs. Here there is room, so the
- * chip is explicit — "team — follows its folder" rather than an absent marker —
- * and a note that inherits says so instead of merely looking unlabelled.
+ * It ended the line with "team · inherited", "private · set here" and so on.
+ * Over every note that is the ordinary state of a note, spelled in words a
+ * reader had to decode, so it read as clutter (owner, 2026-09-27). Who can read
+ * a note is answered where somebody goes to change it: the Share dialog, and
+ * the tree's marks on the exceptions.
  *
  * ## On a phone it is a line above the note, not a bar across it
  *
@@ -61,7 +61,7 @@ import { isGroupVisibility, type Visibility } from "./types";
  * **And it drops the context segment**, which is not a cosmetic trim. The
  * phone's top bar carries the context switcher two lines above this, so
  * "@seyi" here is the same word twice on a 390pt screen — and it was the word
- * being paid for: at three segments plus a chip the line ellipsised at *both*
+ * being paid for: at three segments plus a chip (since removed) the line ellipsised at *both*
  * ends, so the one segment that actually names the open note read "context…".
  * The folders are still there and still pressable; what is gone is the segment
  * the chrome above already states. A pointer layout has the width for both and
@@ -78,9 +78,7 @@ import { isGroupVisibility, type Visibility } from "./types";
  * - **The leaf, and the folders, and nothing else.** This is a *position*: the
  *   line answers "where am I" completely, or it does not answer it. See the
  *   header for what deleting the leaf cost.
- * - **No visibility chip.** A note carries it as a Properties row and a folder
- *   states it in a sentence directly beneath. Both are fuller than the brief
- *   chip, and both are already on screen.
+ * - **No visibility chip.** Neither density draws one any more; see above.
  * - **No context segment, because it is not a segment any more — it is the
  *   button in front of these.** `NavBand` draws `CurrentContextPill` at the
  *   head of this row, so the context is named once, is pressable, and opens its
@@ -127,10 +125,6 @@ import { isGroupVisibility, type Visibility } from "./types";
 export function Breadcrumb({
   path,
   title,
-  visibility,
-  inherited,
-  exception,
-  readOnly,
   onSelectFolder,
   onFolderMenu,
   pathOnly,
@@ -156,10 +150,6 @@ export function Breadcrumb({
    * what the leaf says.
    */
   title?: string;
-  visibility: Visibility;
-  inherited: Visibility;
-  exception: boolean;
-  readOnly: boolean;
   onSelectFolder?: (folder: string) => void;
   /**
    * Right-click on a folder segment.
@@ -178,8 +168,8 @@ export function Breadcrumb({
    * Draw the path and nothing else — see the header. The phone's shape.
    *
    * The whole path — every ancestor **and** the place itself, whichever kind
-   * it names. What it drops is the context segment and the visibility chip,
-   * both of which the surfaces around it already carry.
+   * it names. What it drops is the context segment, which the pill in front
+   * of it already carries.
    */
   pathOnly?: boolean;
   /**
@@ -217,8 +207,7 @@ export function Breadcrumb({
     The whole path, leaf included, on both densities. `pathOnly` is the phone:
     a context pill, then this, on a `ScrollView` row — see the header for why
     that scroller is the answer to "does the leaf fit" rather than a folder
-    count or a character budget. The pointer layout draws the same crumbs
-    beside a visibility chip it has the width for.
+    count or a character budget. The pointer layout draws the same crumbs.
   */
   const crumbs = crumbsFor(path, { title });
 
@@ -325,64 +314,12 @@ export function Breadcrumb({
       ))}
 
       {/*
-        WHO CAN SEE THIS, AS PART OF THE LINE RATHER THAN A BADGE ON IT.
-
-        It was a filled, bordered pill against the trailing edge — and at
-        `team` it was a green capsule, which made "this note follows its
-        folder" the loudest object on the page. That is a status nobody needs
-        shouted: the note's audience is the ordinary state of a note, and the
-        cases worth noticing (an exception set here, a group, a generated file)
-        are the ones the *words* already name.
-        
-        So it joins the path: a separator, the state's own glyph, and the
-        sentence, in the state's own text colour. The colour still tells the
-        four apart at a glance; the box is what goes. And it sits beside the
-        crumbs rather than pushed to the far edge, because a line that names
-        where the note is and who can see it is one sentence, not two ends of
-        a bar.
+        No "who can see this" clause at the end of the line. It said `team ·
+        inherited` over every note, which is the ordinary state of a note and
+        read as clutter a reader had to decode (owner, 2026-09-27). Who can
+        read a note is answered where somebody goes to change it: the Share
+        dialog, and the tree's own marks.
       */}
-      <Text style={styles.separator}>·</Text>
-      <View style={styles.access}>
-        {/*
-          One grey, and one exception to it.
-
-          Four states in four colours was the badge's logic surviving the badge:
-          a hue per case is how a *chip* tells them apart, and this is a clause
-          in a sentence. The canvas draws it in the same grey as the path. What
-          keeps its colour is the one state that WIDENS who can read the note —
-          `team`, and a named group — in the same violet the file tree marks it
-          with, because that is the only case where the reader is being told
-          something they might want to change. `private` narrowing access is the
-          safe direction and does not need a colour to say so.
-        */}
-        <Icon
-          name={readOnly ? "gear" : visibility === "private" ? "lock" : "people"}
-          size={11}
-          color={
-            !readOnly && (visibility === "team" || isGroupVisibility(visibility))
-              ? colors.markTeam
-              : colors.chromeMuted
-          }
-        />
-        <Text
-          style={[
-            styles.chipLabel,
-            !readOnly && (visibility === "team" || isGroupVisibility(visibility))
-              ? styles.chipTeamLabel
-              : styles.chipQuietLabel,
-          ]}
-        >
-          {/*
-            The phone's shorter wording at every density. `describe`'s long form
-            — "team — follows its folder" — was written for a line that also
-            carried the workspace and the note's name and had room for a clause;
-            on the line the canvas draws it is the longest thing there. The
-            distinction it exists to draw survives the trim: `set here` and
-            `inherited` are still two different answers.
-          */}
-          {describe({ visibility, inherited, exception, readOnly, brief: true })}
-        </Text>
-      </View>
       <View style={styles.spacer} />
     </View>
   );
@@ -546,42 +483,6 @@ function Separator() {
   );
 }
 
-/**
- * The chip's words.
- *
- * Exported and tested on its own because it is a **claim about who can read
- * this note**, and the three cases are easy to collapse into two by somebody
- * tidying up — at which point a note that merely follows a `team` folder and a
- * note deliberately shared as an exception look identical, and the one you can
- * safely make private without thinking is no longer distinguishable.
- *
- * `brief` is the phone's wording, and it is a second *phrasing* rather than a
- * second function for exactly that reason: the branch stays here, so a case
- * cannot be dropped from one surface and kept on the other. "team — follows
- * its folder" is 24 characters beside a note name on a 390pt screen, and it
- * was winning — the name ellipsised while the sentence did not. The
- * distinction the long form exists to draw survives the trim: `set here` and
- * `inherited` are still two different answers, and still not the same as the
- * manifest's own.
- */
-export function describe({
-  visibility,
-  inherited,
-  exception,
-  readOnly,
-  brief = false,
-}: {
-  visibility: Visibility;
-  inherited: Visibility;
-  exception: boolean;
-  readOnly: boolean;
-  /** The phone's shorter wording. Same three cases. */
-  brief?: boolean;
-}): string {
-  if (readOnly) return brief ? "access map" : "the access map";
-  if (exception) return brief ? `${visibility} · set here` : `${visibility} — set on this note`;
-  return brief ? `${inherited} · inherited` : `${inherited} — follows its folder`;
-}
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /**
@@ -736,19 +637,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   pathLeaf: { color: colors.text, fontSize: t.label, fontWeight: "600" },
   spacer: { flex: 1, minWidth: space.x3 },
 
-  /** The glyph and the sentence, as one run of the line. */
-  access: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
-  chipLabel: { fontSize: t.label, fontFamily: fonts.body },
-  /*
-    Two tones where there were four. See the use site: `team` and a named group
-    are the states that widen who can read the note, and they keep the violet
-    the file tree marks `team` with; everything else is the line's own grey.
-
-    The four fills that went with the four tones went when the chip became a
-    clause — `chipTeam`, `chipPrivate`, `chipGroup` and `chipGenerated` were
-    already unreferenced by then and are deleted rather than left as a
-    stylesheet describing a control that is not drawn.
-  */
-  chipTeamLabel: { color: colors.markTeam },
-  chipQuietLabel: { color: colors.chromeMuted },
 });

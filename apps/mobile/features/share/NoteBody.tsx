@@ -13,10 +13,13 @@
  */
 
 import { createContext, useContext, type ReactNode } from "react";
-import { Linking, Text as RNText, StyleSheet, View } from "react-native";
+import { Image, Linking, Text as RNText, StyleSheet, View } from "react-native";
+import { Button } from "../design/components/Button";
+import { TextLink } from "../design/components/TextLink";
 import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
+import type { EmojiPictures } from "./emojiPictures";
 import type { Block, Inline } from "./markdown";
 import { SITE_HEADING_SIZE, SITE_WIDE_HEADING_SIZE, makeSiteStyles, makeSiteWideStyles } from "./siteLook";
 
@@ -35,6 +38,12 @@ const Look = createContext<NoteLook>("note");
  * website page supplies one; without it such a link is drawn as its words.
  */
 const SiteLink = createContext<((href: string) => void) | null>(null);
+
+/**
+ * The workspace emoji the page carries (`emojiPictures.ts`). A `:name:` with
+ * no picture here is drawn as its words, as it would be anywhere else.
+ */
+const Emoji = createContext<EmojiPictures>({});
 
 function useBodyStyles() {
   const note = useThemedStyles(makeStyles);
@@ -57,21 +66,27 @@ function useBodyStyles() {
  *
  * Every caller that does not pass one renders exactly what it rendered before.
  */
+const NO_EMOJI: EmojiPictures = {};
+
 export function NoteBody({
   blocks,
   renderCode,
   look = "note",
   onSiteLink,
+  emoji = NO_EMOJI,
 }: {
   blocks: readonly Block[];
   renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
   look?: NoteLook;
   onSiteLink?: (href: string) => void;
+  emoji?: EmojiPictures;
 }) {
   return (
     <Look.Provider value={look}>
       <SiteLink.Provider value={onSiteLink ?? null}>
-        <Blocks blocks={blocks} renderCode={renderCode} />
+        <Emoji.Provider value={emoji}>
+          <Blocks blocks={blocks} renderCode={renderCode} />
+        </Emoji.Provider>
       </SiteLink.Provider>
     </Look.Provider>
   );
@@ -103,6 +118,7 @@ function BlockView({
 }) {
   const styles = useBodyStyles();
   const look = useContext(Look);
+  const siteLink = useContext(SiteLink);
   if (block.kind === "code" && renderCode !== undefined) {
     const replaced = renderCode(block);
     if (replaced !== null && replaced !== undefined) return <>{replaced}</>;
@@ -121,6 +137,7 @@ function BlockView({
       );
 
     case "paragraph":
+      if (isButtonRow(block.content, siteLink !== null)) return <ButtonRow runs={block.content} />;
       return (
         <Text variant="body" style={styles.paragraph}>
           <Runs runs={block.content} />
@@ -215,6 +232,7 @@ function BlockView({
 function Runs({ runs }: { runs: readonly Inline[] }) {
   const styles = useBodyStyles();
   const siteLink = useContext(SiteLink);
+  const pictures = useContext(Emoji);
   return (
     <>
       {runs.map((run, index) => {
@@ -243,6 +261,28 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
                 {run.text}
               </RNText>
             );
+          case "emoji": {
+            const picture = pictures[run.name];
+            if (picture === undefined) return <RNText key={index}>{run.text}</RNText>;
+            // Inside the line of text, the height of its capitals: an Image in
+            // a Text is drawn inline on both platforms.
+            return (
+              <Image
+                key={index}
+                source={{ uri: picture }}
+                style={styles.emoji}
+                resizeMode="contain"
+                accessibilityLabel={run.text}
+              />
+            );
+          }
+          case "kbd":
+            return (
+              <RNText key={index} style={styles.kbd}>
+                {run.text}
+              </RNText>
+            );
+          case "button":
           case "link": {
             const onPage = run.href.startsWith("/");
             if (onPage && siteLink === null) {
@@ -274,6 +314,51 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
         }
       })}
     </>
+  );
+}
+
+/**
+ * A paragraph that is only `[<kbd>…</kbd>](…)` buttons, and the spaces between
+ * them, is drawn as the app's own action row: the first one the primary
+ * button, the rest links beside it. A button inside a sentence stays a link, because a box in the
+ * middle of a line of text is harder to read than the words.
+ *
+ * A button to a path on this site, where there is no site to move within (a
+ * shared note), is never drawn as a button that does nothing: the row falls
+ * back to the paragraph, which draws it as its words, like any such link.
+ */
+export function isButtonRow(runs: readonly Inline[], onSite: boolean): boolean {
+  let buttons = 0;
+  for (const run of runs) {
+    if (run.kind === "button") {
+      if (!onSite && run.href.startsWith("/")) return false;
+      buttons += 1;
+    }
+    else if (run.kind !== "text" || run.text.trim() !== "") return false;
+  }
+  return buttons > 0;
+}
+
+function ButtonRow({ runs }: { runs: readonly Inline[] }) {
+  const styles = useBodyStyles();
+  const siteLink = useContext(SiteLink);
+  const buttons = runs.filter((run): run is Extract<Inline, { kind: "button" }> => run.kind === "button");
+  return (
+    <View style={styles.buttons}>
+      {buttons.map((run, index) => {
+        const onPage = run.href.startsWith("/");
+        const follow = () => {
+          if (onPage) siteLink?.(run.href);
+          else void Linking.openURL(run.href).catch(() => {});
+        };
+        // The app's rule for an action row: one primary, the rest links.
+        return index === 0 ? (
+          <Button key={index} label={run.text} variant="accent" onPress={follow} testID="note-button" />
+        ) : (
+          <TextLink key={index} label={run.text} onPress={follow} testID="note-button" />
+        );
+      })}
+    </View>
   );
 }
 
@@ -360,4 +445,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text,
   },
   link: { color: colors.codeKey, textDecorationLine: "underline" },
+  emoji: { width: 20, height: 20, marginBottom: -3 },
+  kbd: {
+    fontFamily: fonts.mono,
+    fontSize: t.meta,
+    color: colors.text,
+    backgroundColor: colors.well,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.xs,
+    paddingHorizontal: 5,
+  },
+  buttons: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 18, marginVertical: 6 },
 });

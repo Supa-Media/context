@@ -114,6 +114,19 @@ export {
   type WorkspaceIcon,
 } from "./workspaceIcon";
 
+/** A workspace's own emoji: names, leaves and `:name:` shortcodes. */
+export {
+  CUSTOM_EMOJI_EXTENSIONS,
+  CUSTOM_EMOJI_LEAF_PREFIX,
+  CUSTOM_EMOJI_MAX_BYTES,
+  CUSTOM_EMOJI_NAME,
+  customEmojiLeaf,
+  customEmojiNameFrom,
+  publishedEmojiNames,
+  findShortcodes,
+  parseCustomEmojiLeaf,
+} from "./customEmoji";
+
 /**
  * The path-only contract for bucket-backed website routes. Page metadata and
  * source-reference parsing remain separate so an open product decision cannot
@@ -134,9 +147,17 @@ export {
 export {
   buildWebsiteRouteStatuses,
   parseWebsitePage,
+  websitePageTitle,
   type ParsedWebsitePage,
   type WebsitePageSource,
 } from "./websiteMetadata";
+export {
+  MAX_REFERENCED_WEBSITE_NOTES,
+  isWebsiteRootKey,
+  referencedWebsiteKey,
+  websiteFolderPath,
+  websiteFolderReference,
+} from "./websiteFolders";
 export {
   WEBSITE_CONTRACT_VERSION,
   WEBSITE_STARTER_MARKDOWN,
@@ -147,6 +168,7 @@ export type {
   ResolvedWebsitePage,
   WebsiteEnableResult,
   WebsiteNavigationItem,
+  WebsitePublishResult,
   WebsiteRouteAudience,
   WebsiteRouteProblem,
   WebsiteRouteProblemCode,

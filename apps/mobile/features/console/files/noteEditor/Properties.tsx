@@ -5,7 +5,7 @@ import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles } from "../../../design/theme";
-import { describe as describeVisibility } from "../Breadcrumb";
+import { describe as describeVisibility } from "../visibilityWords";
 import type { Property } from "../frontmatter";
 import type { Visibility } from "../types";
 import { propertyRows, type PropertyRow } from "./propertyEdit";
@@ -185,7 +185,7 @@ export function withVisibility<Row extends Property>(
   },
 ): (Row | Property)[] {
   if (visibility === undefined) return rows;
-  // The phone's wording, from `Breadcrumb`, so the two surfaces cannot come to
+  // The brief wording from `visibilityWords`, so no two surfaces can come to
   // describe the same three cases differently — a note that merely follows a
   // `team` folder and a note deliberately shared as an exception have to stay
   // distinguishable wherever either is printed.

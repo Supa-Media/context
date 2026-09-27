@@ -82,9 +82,9 @@ describe("every context this account can reach is on the screen", () => {
 
     expect(app.find("console-rail")).toBeNull();
     expect(app.find("context-strip")).toBeNull();
-    expect(app.find("frame-switcher")).not.toBeNull();
+    expect(app.find("account-switcher")).not.toBeNull();
 
-    app.press(app.find("frame-switcher"));
+    app.press(app.find("account-switcher"));
     expect(app.find("switcher-context-public-worship")).not.toBeNull();
 
     app.unmount();

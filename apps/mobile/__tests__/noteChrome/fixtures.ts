@@ -13,7 +13,7 @@
  * is why its first screen of text scrolls up behind the chrome.
  *
  * Ours spent two: a bar carrying a `@seyi personal` chip, and a breadcrumb row
- * under it carrying a path and a `team · inherited` chip. Each of the three
+ * under it carrying a path and a `team · inherited` chip (the chip is gone now). Each of the three
  * things that row carried had to go somewhere rather than be deleted, and this
  * file is the proof that each of them arrived:
  *
@@ -68,6 +68,8 @@ jest.mock("../../features/agent/useConsoleGrant", () => ({
 }));
 
 jest.mock("convex/react", () => ({
+  // An owner picker searches through the client; nothing here opens one.
+  useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
     throw new Error("not used in this test");
   },

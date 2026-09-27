@@ -6,6 +6,7 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import type { SetupAgent } from "../../agentSetup/guides";
 import { ConnectClients } from "../clients/ConnectClients";
 import { ClientGroupRow } from "../clients/ClientGroupRow";
 import { groupClients } from "../clients/grouped";
@@ -240,7 +241,14 @@ export function AccountSection({
  * the one that was already there. Drawing an account-wide fact on a
  * context-scoped page is only a lie if the page keeps quiet about it.
  */
-export function ConnectedAppsCard({ data }: { data: ConsoleData }) {
+export function ConnectedAppsCard({
+  data,
+  onConnectAgent,
+}: {
+  data: ConsoleData;
+  /** The full screen Claude/ChatGPT setup, where it can open. */
+  onConnectAgent?: (agent: SetupAgent) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View>
@@ -263,7 +271,11 @@ export function ConnectedAppsCard({ data }: { data: ConsoleData }) {
         the named URLs only choose where a client starts.
       */}
       <View style={styles.spaced}>
-        <ConnectClients endpoint={data.endpoint} clients={data.clients} />
+        <ConnectClients
+          endpoint={data.endpoint}
+          clients={data.clients}
+          onConnectAgent={onConnectAgent}
+        />
       </View>
 
       <Card style={styles.spaced}>

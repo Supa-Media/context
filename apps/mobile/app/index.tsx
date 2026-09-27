@@ -1,4 +1,4 @@
-import { RootScreen } from "../features/landing/RootScreen";
+import { RootScreen } from "../features/home/RootScreen";
 
 /**
  * `/` — the landing page on the web, and the console on a phone.

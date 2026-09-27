@@ -386,7 +386,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
     expect(app.find("rail-sign-out")).toBeNull();
     expect(app.find("account-menu")).toBeNull();
 
-    app.press(app.find("frame-switcher"));
+    app.press(app.find("account-switcher"));
     const signOut = app.find("switcher-sign-out");
     expect(signOut).not.toBeNull();
     expect(signOut!.textContent).toContain("Sign out");

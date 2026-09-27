@@ -95,17 +95,22 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
           </>
         ),
       };
-    case "devmode":
+    case "create":
       return {
-        next: "It's on",
+        next: "I've created it",
         node: (
           <>
-            <Heading>Turn on developer mode</Heading>
+            <Heading>Add Context as an app</Heading>
             <P>
-              On a computer, open chatgpt.com and go to{" "}
-              <MenuPath parts={["Settings", "Apps", "Advanced settings"]} />. Switch on <B>Developer mode</B>.
+              On a computer, open chatgpt.com and go to <MenuPath parts={["Settings", "Apps"]} />. Press{" "}
+              <B>Create app</B> and fill it in.
             </P>
-            <P>It only lets ChatGPT use apps you add yourself. Nothing else changes.</P>
+            <CopyRow label="Name" value="Context" />
+            <CopyRow label="MCP server URL" value={MCP_ENDPOINT} testID="agent-setup-copy-url" />
+            <P small>
+              Set <B>Authentication</B> to <B>OAuth</B>, tick the box that says you understand, then press{" "}
+              <B>Create</B>. ChatGPT opens the Context sign-in next.
+            </P>
             <P small>
               Needs ChatGPT Plus, Pro, Business, Enterprise or Edu. That's your ChatGPT plan; there's nothing to buy
               from us. On ChatGPT's free plan? <Link label="Set up Claude instead" onPress={onSwitchAgent} />, which
@@ -118,24 +123,6 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
               style={{ alignSelf: "flex-start" }}
               testID="agent-setup-open-link"
             />
-          </>
-        ),
-      };
-    case "create":
-      return {
-        next: "I've created it",
-        node: (
-          <>
-            <Heading>Add Context as an app</Heading>
-            <P>
-              Still in <MenuPath parts={["Settings", "Apps"]} />, press <B>Create app</B> and fill it in.
-            </P>
-            <CopyRow label="Name" value="Context" />
-            <CopyRow label="MCP server URL" value={MCP_ENDPOINT} testID="agent-setup-copy-url" />
-            <P small>
-              Set <B>Authentication</B> to <B>OAuth</B>, tick the box that says you understand, then press{" "}
-              <B>Create</B>. ChatGPT opens the Context sign-in next.
-            </P>
           </>
         ),
       };
@@ -232,7 +219,7 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
             {agent === "chatgpt" ? (
               <>
                 <Gap />
-                <P small>ChatGPT only uses Context in chats where you switch it on: + › More › Developer mode › Context.</P>
+                <P small>ChatGPT only uses Context in chats where you switch it on, from + under the message box.</P>
               </>
             ) : null}
           </>

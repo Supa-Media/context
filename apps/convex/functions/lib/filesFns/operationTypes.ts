@@ -58,7 +58,12 @@ export type FileOperation =
       kind: "readWebsiteRelease";
       pages: Array<{ releaseId: string; pageId: string; path: string }>;
     }
-  | { kind: "deleteWebsiteRelease"; releaseId: string }
+  | {
+      kind: "deleteWebsiteRelease";
+      releaseId: string;
+      /** Only these pages; absent deletes the whole release. */
+      pageIds?: string[];
+    }
   | {
       kind: "search";
       query: string;
@@ -102,9 +107,20 @@ export type FileOperation =
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
   | { kind: "setFolderGroup"; path: string; group: string }
-  | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
+  | {
+      kind: "setFolderVisibility";
+      path: string;
+      visibility: "private" | "team";
+      /** Leave a rule the manifest already has for this folder untouched. */
+      onlyIfUnset?: boolean;
+    }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
+  | { kind: "emojiList" }
+  | { kind: "emojiRead"; name: string }
+  | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; replace: boolean }
+  | { kind: "emojiRemove"; name: string }
+  | { kind: "emojiRename"; from: string; to: string }
   | { kind: "pluginInventory" }
   | { kind: "pluginManagedList" }
   | { kind: "contextPlugins" }
@@ -149,7 +165,13 @@ export type FileOperation =
     }
   | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
-  | { kind: "readStorageLayout" };
+  | { kind: "readStorageLayout" }
+  | {
+      kind: "organizer";
+      action: "gather" | "record" | "read" | "resolve" | "clear" | "autopilot" | "undo";
+      input: string;
+      autopilot?: boolean;
+    };
 
 /**
  * What a file operation hands back to the console.
@@ -329,4 +351,9 @@ export type OperationResult =
       partial: boolean;
     }
   | { kind: "imageWritten"; key: string; etag: string }
-  | { kind: "image"; bytes: ArrayBuffer };
+  | { kind: "image"; bytes: ArrayBuffer }
+  | { kind: "emojiList"; emoji: Array<{ name: string; leaf: string }> }
+  | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
+  | { kind: "emojiStored"; name: string; leaf: string }
+  | { kind: "emojiRemoved" }
+  | { kind: "organizerResult"; output: string };

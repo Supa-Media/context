@@ -134,9 +134,9 @@ Moved to [Making a workspace is its own flow, not onboarding with a flag](./app-
 
 Moved to [Two name fields for a shared workspace, one for a personal one](./app-and-console/workspace-creation-and-rail.md#two-name-fields-for-a-shared-workspace-one-for-a-personal-one).
 
-### The layout presets are company-shaped, and PARA is not the default
+### The layout presets are business-shaped, and PARA is not the default
 
-Moved to [The layout presets are company-shaped, and PARA is not the default](./app-and-console/workspace-creation-and-rail.md#the-layout-presets-are-company-shaped-and-para-is-not-the-default).
+Moved to [The layout presets are business-shaped, and PARA is not the default](./app-and-console/workspace-creation-and-rail.md#the-layout-presets-are-business-shaped-and-para-is-not-the-default).
 
 ### Invitations are queued, and a partial send keeps its successes
 
@@ -341,6 +341,10 @@ Moved to [Why this one, and what the other four cost](./app-and-console/folder-r
 ### What the row costs, and where it is paid
 
 Moved to [What the row costs, and where it is paid](./app-and-console/folder-rows-and-settings.md#what-the-row-costs-and-where-it-is-paid).
+
+## One account button at the bottom left replaces the chip and the row
+
+Moved to [One account button at the bottom left replaces the chip and the row](./app-and-console/folder-rows-and-settings.md#one-account-button-at-the-bottom-left-replaces-the-chip-and-the-row).
 
 ### "Move to…" is one dialog, and the other context is a destination rather than a mode
 

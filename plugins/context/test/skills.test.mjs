@@ -68,8 +68,8 @@ for (const tool of TOOLS_NAMED) {
   check(`...and the gateway still defines \`${tool}\``, gateway.includes(`name: "${tool}",`));
 }
 check(
-  "every skill points a person without the tools at the installer",
-  Object.values(texts).every((text) => text.includes("npx -y @supa-media/context install"))
+  "every skill gives a person without the tools a terminal command that works",
+  Object.values(texts).every((text) => /npx -y @supa-media\/context (install|login)/.test(text))
 );
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

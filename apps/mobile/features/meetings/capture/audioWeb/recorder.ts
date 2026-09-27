@@ -452,10 +452,9 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         nothing to do with what anybody chose. Asked first, the picker rides the
         press that opened it.
 
-        Only when the person asked. `options.systemAudio` is the sheet's switch
-        and it is **off** by default on this surface (`useMeetingFlow` says
-        why) — a picker nobody asked for, in front of every meeting, is the
-        version of this feature that gets turned off entirely.
+        Only when the person's setting asks for it. `options.systemAudio` is on
+        by default here too (`machineAudio.ts` says why): a picker in front of
+        every meeting is the price of not recording one side of a call.
       */
       const wanted = options?.systemAudio === true && canShareSystemAudio;
       displayStream = wanted ? await shareSystemAudio() : null;

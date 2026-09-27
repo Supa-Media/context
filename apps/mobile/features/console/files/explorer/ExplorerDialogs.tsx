@@ -15,6 +15,7 @@ import { baseName, folderLabel, parentPath } from "../paths";
 import { findEntry } from "../tree";
 import type { AccessMember, AccessRow, RemovalRoute } from "../access";
 import type { RecipientGroup } from "../recipients";
+import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 
 /**
  * The dialogs the tree can raise.
@@ -208,6 +209,11 @@ export function ExplorerDialogs({
       return (
         <ShareDialog
           path={dialog.path}
+          footExtra={
+            files.contextId !== null && isWebsiteFolder(dialog.path) ? (
+              <PublishWebsite workspaceId={files.contextId} testID="share-publish" />
+            ) : undefined
+          }
           shares={files.shares}
           origin={consoleOrigin()}
           onShare={(recipient) => files.share(dialog.path, recipient)}

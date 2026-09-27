@@ -123,7 +123,9 @@ describe("a person gets the app, untouched", () => {
     );
   });
 
-  it.each(["/", "/login", "/@alice", "/console/storage"])(
+  // `/` is the one document that also asks for the homepage's site: see
+  // homeSite.test.ts.
+  it.each(["/login", "/@alice", "/console/storage"])(
     "a browser on %s is proxied to the Expo origin",
     async (path) => {
       const response = await get(path, BROWSER_UA);

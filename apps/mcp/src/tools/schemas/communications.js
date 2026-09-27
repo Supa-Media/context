@@ -11,6 +11,7 @@ export function communicationsToolDefinitions() {
   return [
     {
       name: "list_meetings",
+      title: "List meetings",
       description:
         "List the meetings filed in the user's default meetings folder (0-inbox/meetings) — what " +
         "they were called, when, how long they ran and who was there, newest first. Reach for " +
@@ -31,6 +32,7 @@ export function communicationsToolDefinitions() {
     },
     {
       name: "read_meeting",
+      title: "Read meeting",
       description:
         "Read one recorded meeting: its summary, and the notes the user typed while it was " +
         "happening. The full transcript of what was said is held at the end of the same note and " +
@@ -52,6 +54,7 @@ export function communicationsToolDefinitions() {
     },
     {
       name: "list_channel_days",
+      title: "List message days",
       description:
         "List the days of the user's communications this connection can see — one entry per " +
         "channel per day, newest first, with how many messages and threads it holds. A channel " +
@@ -74,6 +77,7 @@ export function communicationsToolDefinitions() {
     },
     {
       name: "read_channel_day",
+      title: "Read a day of messages",
       description:
         "Read one day of one channel: who wrote, when, about what, and the anchor of each " +
         "message. The message bodies are held in the same note and are left out by default " +
@@ -96,6 +100,7 @@ export function communicationsToolDefinitions() {
     },
     {
       name: "list_contacts",
+      title: "List contacts",
       description:
         "List the people this context holds a contact page for — the pages a connected mailbox " +
         "or chat account builds from who wrote and who was written to, one per person, under " +
@@ -116,6 +121,7 @@ export function communicationsToolDefinitions() {
     },
     {
       name: "read_contact",
+      title: "Read contact",
       description:
         "Read one person's contact page: the addresses and handles they are known by, any " +
         "disagreement an import recorded, whatever the user has written about them under " +

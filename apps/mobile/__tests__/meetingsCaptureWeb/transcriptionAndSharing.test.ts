@@ -104,6 +104,12 @@ describe("the whole call, where a browser can ask for it", () => {
     installAudioContext();
     expect(audioRecorder("web").capability.systemAudio).toBe(false);
 
+    // A picker that never shares audio (Firefox, Safari) is no offer either:
+    // with the offer on by default it would be a prompt per meeting for nothing.
+    installGetUserMedia(true, false);
+    installAudioContext();
+    expect(audioRecorder("web").capability.systemAudio).toBe(false);
+
     installSharing();
     const capability = audioRecorder("web").capability;
     expect(capability.systemAudio).toBe(true);

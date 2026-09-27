@@ -11,6 +11,7 @@ export function searchAndMoveToolDefinitions() {
   return [
     {
       name: "search_notes",
+      title: "Search notes",
       description:
         "Search the user's own notes. Reach for this whenever they mention a project, a person, a " +
         "client, a decision, a preference, or something they have written before — it is usually " +
@@ -34,6 +35,7 @@ export function searchAndMoveToolDefinitions() {
     },
     {
       name: "archive_note",
+      title: "Archive note",
       description:
         "Retract a note from its canonical location into this context's own archive folder, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has an archive folder (`4-archive`, `5-archive`, `archive`); elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
       inputSchema: {
@@ -49,6 +51,7 @@ export function searchAndMoveToolDefinitions() {
     },
     {
       name: "move_note",
+      title: "Move note",
       description:
         "Move or rename one note without recreating it. Links to it are rewritten across every note this connection can see, so references follow the note rather than breaking — you do not need to find and fix them yourself. Private overrides are preserved and privacy is never implicitly reduced. A team note moved by personal access into a private-default folder safely becomes private.",
       inputSchema: {
@@ -83,6 +86,7 @@ export function searchAndMoveToolDefinitions() {
     },
     {
       name: "move_notes",
+      title: "Move notes in batch",
       description:
         "Preflight or apply an all-or-rollback batch of up to 100 independent note moves. Links to every moved note are rewritten across the notes this connection can see. Set dry_run=true to validate every source, etag, destination, conflict, and scope without changing data. Cycles and destination/source overlap are rejected.",
       inputSchema: {
@@ -112,6 +116,7 @@ export function searchAndMoveToolDefinitions() {
     },
     {
       name: "move_folder",
+      title: "Move folder",
       description:
         "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Folders above 500 visible objects are moved logically immediately and physically synced by a resumable materialization job. Private overrides are preserved and privacy is never implicitly reduced.",
       inputSchema: {
@@ -128,6 +133,7 @@ export function searchAndMoveToolDefinitions() {
     },
     {
       name: "materialize_move",
+      title: "Finish folder move",
       description:
         "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete.",
       inputSchema: {

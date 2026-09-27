@@ -18,6 +18,7 @@ import { useCreateWorkspace, type CreateWorkspaceController } from "./useCreateW
 import { WorkspaceNameStep } from "./steps/WorkspaceNameStep";
 import { WorkspaceStorageStep } from "./steps/WorkspaceStorageStep";
 import { WorkspaceLayoutStep } from "./steps/WorkspaceLayoutStep";
+import { WorkspaceImageStep } from "./steps/WorkspaceImageStep";
 import { WorkspacePeopleStep } from "./steps/WorkspacePeopleStep";
 import { WorkspaceDoneStep } from "./steps/WorkspaceDoneStep";
 
@@ -139,6 +140,8 @@ function StepBody({
       return <WorkspaceStorageStep controller={controller} />;
     case "layout":
       return <WorkspaceLayoutStep controller={controller} />;
+    case "image":
+      return <WorkspaceImageStep controller={controller} />;
     case "people":
       return <WorkspacePeopleStep controller={controller} />;
     case "done":

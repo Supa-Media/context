@@ -159,7 +159,6 @@ function mount(): Mounted {
   act(() => {
     root.render(
       createElement(AppFrame, {
-        switcher: null,
         status: null,
         onSearch: () => {},
         children: createElement(Host),

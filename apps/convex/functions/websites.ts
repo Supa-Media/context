@@ -11,9 +11,11 @@ import {
 import {
   beginRouteReconciliationHandler,
   commitRouteReconciliationHandler,
+  narrowRouteIndexHandler,
   invalidateRouteIndexHandler,
   recordRouteChangeHandler,
   reconcileWorkspaceHandler,
+  websiteEverReconciledHandler,
   refreshRouteStatusesHandler,
   sweepRouteReconciliationHandler,
 } from "./lib/websites/routes";
@@ -27,9 +29,14 @@ import {
   siteRevisionHandler,
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
+import { homeSiteWorkspaceHandler, websiteSnapshot } from "./lib/websites/snapshot";
+import { publishWebsiteHandler } from "./lib/websites/publish";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
+  markWebsitePublicationEnsuredHandler,
   markWebsiteStarterEnsuredHandler,
+  websitePublicationRepairNeededHandler,
   websiteStarterRepairNeededHandler,
 } from "./lib/websites/state";
 
@@ -74,6 +81,7 @@ const resolvedPageValidator = v.union(
     description: v.union(v.string(), v.null()),
     markdown: v.string(),
     navigation: navigationValidator,
+    emoji: v.optional(v.record(v.string(), v.string())),
   }),
   authenticationRequiredValidator,
   unavailableValidator,
@@ -109,7 +117,6 @@ const resolutionPlanValidator = v.union(
     workspaceId: v.id("workspaces"),
     routePath: v.string(),
     viewer: v.union(v.literal("anonymous"), v.literal("member"), v.literal("other")),
-    invalidate: v.boolean(),
   }),
   v.object({
     kind: v.literal("read"),
@@ -123,8 +130,18 @@ const resolutionPlanValidator = v.union(
     title: v.string(),
     description: v.union(v.string(), v.null()),
     viewerAudience: v.union(v.literal("public"), v.literal("members")),
+    releaseFallback: v.boolean(),
     releaseId: v.optional(v.string()),
     releasePageId: v.optional(v.string()),
+    folderPages: v.optional(
+      v.array(
+        v.object({
+          routePath: v.string(),
+          title: v.string(),
+          description: v.union(v.string(), v.null()),
+        }),
+      ),
+    ),
   }),
 );
 const linkCatalogValidator = v.object({
@@ -150,6 +167,72 @@ export const siteRevision = query({
   args: { handle: v.string() },
   returns: v.union(v.string(), v.null()),
   handler: siteRevisionHandler,
+});
+
+/**
+ * The homepage's `website/` folder, every note it publishes, or `null` for
+ * any other handle or a site that is off. See `lib/websites/snapshot.ts`.
+ */
+export const siteSnapshot = action({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      siteName: v.string(),
+      revision: v.union(v.string(), v.null()),
+      pages: v.array(
+        v.object({ path: v.string(), routePath: v.string(), title: v.string(), markdown: v.string() }),
+      ),
+      emoji: v.record(v.string(), v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => await websiteSnapshot(ctx, { handle: args.handle }),
+});
+
+export const homeSiteWorkspace = internalQuery({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      siteName: v.string(),
+      pages: v.array(
+        v.object({
+          objectKey: v.string(),
+          routePath: v.string(),
+          description: v.union(v.string(), v.null()),
+          sourceEtag: v.string(),
+          releaseId: v.optional(v.string()),
+          releasePageId: v.optional(v.string()),
+        }),
+      ),
+    }),
+  ),
+  handler: homeSiteWorkspaceHandler,
+});
+
+/**
+ * The workspace icon a published site draws as its favicon, or `null`. Takes a
+ * handle and nothing that could name an object; see `lib/websites/siteIcon.ts`.
+ */
+export const siteIcon = action({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+    v.object({ kind: v.literal("photo"), bytes: v.bytes(), contentType: v.string() }),
+  ),
+  handler: siteIconHandler,
+});
+
+export const siteIconPlan = internalQuery({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+    v.object({ kind: v.literal("photo"), workspaceId: v.id("workspaces"), leaf: v.string() }),
+  ),
+  handler: siteIconPlanHandler,
 });
 
 export const resolveAddress = action({
@@ -198,6 +281,19 @@ export const websiteLinkCatalog = internalQuery({
   handler: websiteLinkCatalogHandler,
 });
 
+/**
+ * Make what `website/` holds now the site visitors see. Owners and editors;
+ * see `lib/websites/publish.ts`.
+ */
+export const publish = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    published: v.boolean(),
+    problems: v.array(v.object({ path: v.string(), message: v.string() })),
+  }),
+  handler: publishWebsiteHandler,
+});
+
 export const refreshRouteStatuses = action({
   args: { workspaceId: v.id("workspaces") },
   returns: v.array(statusValidator),
@@ -222,12 +318,31 @@ export const commitRouteReconciliation = internalMutation({
     releaseId: v.optional(v.string()),
     enabledOnly: v.optional(v.boolean()),
     problemsOnlyIfUnpublished: v.optional(v.boolean()),
+    restricted: v.optional(v.array(v.string())),
   },
   returns: v.object({
     committed: v.boolean(),
     cleanupReleaseId: v.union(v.string(), v.null()),
+    retiredReleaseId: v.union(v.string(), v.null()),
+    retiredPageIds: v.array(v.string()),
   }),
   handler: commitRouteReconciliationHandler,
+});
+
+export const narrowRouteIndex = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    generation: v.number(),
+    routes: v.array(indexedStatusValidator),
+    restricted: v.array(v.string()),
+    enabledOnly: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    releaseId: v.union(v.string(), v.null()),
+    pageIds: v.array(v.string()),
+    previousReleaseId: v.union(v.string(), v.null()),
+  }),
+  handler: narrowRouteIndexHandler,
 });
 
 export const invalidateRouteIndex = internalMutation({
@@ -260,13 +375,32 @@ export const markWebsiteStarterEnsured = internalMutation({
   handler: markWebsiteStarterEnsuredHandler,
 });
 
+export const websitePublicationRepairNeeded = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: websitePublicationRepairNeededHandler,
+});
+
+export const markWebsitePublicationEnsured = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: markWebsitePublicationEnsuredHandler,
+});
+
 export const reconcileWorkspace = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     expectedGeneration: v.optional(v.number()),
+    publish: v.optional(v.boolean()),
   },
   returns: v.boolean(),
   handler: reconcileWorkspaceHandler,
+});
+
+export const websiteEverReconciled = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: websiteEverReconciledHandler,
 });
 
 export const sweepRouteReconciliation = internalMutation({

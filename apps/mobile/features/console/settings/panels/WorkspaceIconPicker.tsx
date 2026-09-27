@@ -44,11 +44,19 @@ export function WorkspaceIconPicker({
   workspaceId,
   icon,
   onClose,
+  allowPhoto = true,
 }: {
   workspaceId: string;
   /** What the mark draws now, so the current choice can be marked as chosen. */
   icon?: MarkIcon;
   onClose: () => void;
+  /**
+   * Whether "Choose a photo…" is offered. A photo is written into the
+   * workspace's bucket, so the new-workspace flow turns it off on a run with no
+   * verified bucket rather than offering a button whose only outcome is an
+   * error. Settings always has one to offer.
+   */
+  allowPhoto?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const setIcon = useMutation(api.functions.workspaces.setWorkspaceIcon);
@@ -193,12 +201,14 @@ export function WorkspaceIconPicker({
       </View>
 
       <View style={styles.actions}>
-        <Button
-          label="Choose a photo…"
-          onPress={() => void pickPhoto()}
-          disabled={busy}
-          testID="workspace-icon-photo"
-        />
+        {allowPhoto ? (
+          <Button
+            label="Choose a photo…"
+            onPress={() => void pickPhoto()}
+            disabled={busy}
+            testID="workspace-icon-photo"
+          />
+        ) : null}
         {/*
           Only where there is something to undo. "Use the letter" on a workspace
           already drawing its letter is a control whose only outcome is nothing

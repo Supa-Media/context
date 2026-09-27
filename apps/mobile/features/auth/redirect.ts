@@ -176,19 +176,6 @@ export function resolveAuthRoute(state: AuthState, next?: string): RouteDecision
 }
 
 /**
- * The landing page is public, and stays public when you are signed in — the CTA
- * changes instead of the page disappearing. This exists so the CTA has one
- * place to ask where it points.
- */
-export function landingCtaHref(state: AuthState): string {
-  return state.isAuthenticated ? CONSOLE_ROUTE : LOGIN_ROUTE;
-}
-
-export function landingCtaLabel(state: AuthState): string {
-  return state.isAuthenticated ? "Open your console" : "Create your workspace";
-}
-
-/**
  * Narrows a caller-supplied redirect target to a same-origin path.
  *
  * Anything that could leave the app — an absolute URL, a protocol-relative

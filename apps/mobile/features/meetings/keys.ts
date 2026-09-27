@@ -128,9 +128,8 @@ export function destinationKey(): string {
  * the press.
  *
  * No workspace segment, for `destinationKey`'s reason: it is a fact about the
- * machine somebody is recording on, not about a context. Absent is the same
- * default the sheet had — off where it costs a picker, on where the shell can
- * tap silently — and that default lives in `machineAudio.ts` rather than here.
+ * machine somebody is recording on, not about a context. Absent means on,
+ * picker or not, and that default lives in `machineAudio.ts` rather than here.
  */
 export function machineAudioKey(): string {
   return `${PREFIX}machine-audio`;

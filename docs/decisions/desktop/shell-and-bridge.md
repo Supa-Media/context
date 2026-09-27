@@ -175,6 +175,14 @@ answers `1`, is accepted, and simply has none; the page asks for the *member*
 rather than comparing the version. Editing row 1 is how a bundle starts refusing
 shells that are doing nothing wrong.
 
+**Version 8 adds `spelling.check(word)`**, the operating system's spell checker
+for the note's right-click menu. The note replaces the browser's context menu,
+and a page has no API for spelling suggestions, so without it the red underline
+had nothing under it. It is answered in the preload by `webFrame` — the checker
+that drew the underline — and crosses no IPC channel, so the word never reaches
+the main process. A browser, and a shell older than 8, gets a menu row pointing
+at Shift-right-click, which has always fallen through to the browser's menu.
+
 Four decisions inside that shape.
 
 **Every subscription returns its own unsubscribe.** The existing

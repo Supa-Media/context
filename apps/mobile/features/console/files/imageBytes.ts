@@ -86,3 +86,14 @@ export function bytesFromBase64(value: string): ArrayBuffer {
   }
   return bytes.buffer;
 }
+
+/**
+ * Is this embed target a remote image, to be drawn through the image proxy
+ * (`readRemoteImage`) rather than read out of the workspace's own store?
+ *
+ * https only. A plain-http link is not proxied, and not drawn: the server would
+ * refuse it anyway, and asking costs a round trip to learn that.
+ */
+export function isRemoteImageTarget(target: string): boolean {
+  return /^https:\/\//i.test(target.trim());
+}

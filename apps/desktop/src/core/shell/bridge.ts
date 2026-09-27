@@ -69,6 +69,7 @@ import {
   type MeetingWriteAck,
   type OutboxStatus,
   type PendingMachineApproval,
+  type SpellingCheck,
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
@@ -96,6 +97,44 @@ export interface PreloadIpc {
 /** The half of `contextBridge` this file uses. */
 export interface PreloadHost {
   exposeInMainWorld(key: string, value: unknown): void;
+}
+
+/**
+ * The half of Electron's `webFrame` the spelling member uses.
+ *
+ * Injected rather than imported for this file's reason: it imports no
+ * Electron. Absent in a test that does not stage a checker, and then every
+ * word is answered as spelled right — the menu simply offers no suggestions.
+ */
+export interface PreloadSpeller {
+  isWordMisspelled(word: string): boolean;
+  getWordSuggestions(word: string): string[];
+}
+
+/**
+ * The longest word the checker is asked about, and the most suggestions handed
+ * back. A word is what CodeMirror found under the pointer, so a long run of
+ * letters is a URL fragment or a hash rather than something to spell, and a
+ * menu is a list somebody reads.
+ */
+export const SPELLING_WORD_MAX = 64;
+export const SPELLING_SUGGESTIONS_MAX = 5;
+
+/** One word, asked of the checker; never a throw, never more than the caps. */
+export function checkSpelling(speller: PreloadSpeller | undefined, word: unknown): SpellingCheck {
+  const none: SpellingCheck = { misspelled: false, suggestions: [] };
+  if (speller === undefined || typeof word !== "string") return none;
+  if (word === "" || word.length > SPELLING_WORD_MAX || /\s/.test(word)) return none;
+  try {
+    if (speller.isWordMisspelled(word) !== true) return none;
+    const offered = speller.getWordSuggestions(word);
+    const suggestions = (Array.isArray(offered) ? offered : [])
+      .filter((suggestion): suggestion is string => typeof suggestion === "string" && suggestion !== "")
+      .slice(0, SPELLING_SUGGESTIONS_MAX);
+    return { misspelled: true, suggestions };
+  } catch {
+    return none;
+  }
 }
 
 /** Where the preload is running, as two facts `shouldExposeBridge` reads. */
@@ -420,7 +459,7 @@ function subscribe<T>(
  * are public: the origin is already in the window's own URL, and the app's name
  * and version are on the About panel.
  */
-export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
+export function desktopBridge(ipc: PreloadIpc, speller?: PreloadSpeller): DesktopBridge {
   let shell: DesktopShell | null = null;
   try {
     shell = shellFrom(ipc.sendSync(BRIDGE_CHANNELS.shell));
@@ -609,6 +648,14 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
       ask: (request: LocalAgentAsk): Promise<LocalAgentReply> =>
         ask(ipc, BRIDGE_CHANNELS.agentAsk, request, localAgentReplyFrom),
     }),
+    /*
+      Version 8. Answered here, in the preload, with no channel: the checker
+      that drew the red underline lives in this renderer, so the word never
+      travels to the main process at all.
+    */
+    spelling: Object.freeze({
+      check: async (word: string): Promise<SpellingCheck> => checkSpelling(speller, word),
+    }),
   });
 }
 
@@ -626,6 +673,7 @@ export function installDesktopBridge(
   host: PreloadHost,
   ipc: PreloadIpc,
   document: PreloadDocument,
+  speller?: PreloadSpeller,
 ): boolean {
   let pinned = "";
   try {
@@ -638,6 +686,6 @@ export function installDesktopBridge(
     return false;
   }
 
-  host.exposeInMainWorld("desktop", desktopBridge(ipc));
+  host.exposeInMainWorld("desktop", desktopBridge(ipc, speller));
   return true;
 }

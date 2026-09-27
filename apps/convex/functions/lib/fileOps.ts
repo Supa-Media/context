@@ -116,6 +116,14 @@ export {
   pasteImageLeaf,
   workspaceIconLeaf,
 } from "./fileOps/images";
+export {
+  listCustomEmoji,
+  readCustomEmoji,
+  removeCustomEmoji,
+  renameCustomEmoji,
+  storeCustomEmoji,
+} from "./fileOps/emoji";
+export type { CustomEmoji } from "./fileOps/emoji";
 export { notePathIndex, searchNotes, maintainSearchIndex } from "./fileOps/search";
 export type { SearchHit, SearchResults, ProjectionClient } from "./fileOps/search";
 export { projectSearchIndex } from "./fileOps/projection";

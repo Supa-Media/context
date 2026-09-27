@@ -91,6 +91,12 @@ breaking one, stop and say so rather than working around it.
    published to the workspace and never more, which is why this is a wider
    *locator* and not a wider *tier*. The whole context is never the subject of
    one. See [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
+   A workspace's **website** is this exception for `website/` and the folders
+   its pages name with `folder:`: turning it on is the owner minting that
+   locator, and every page, referenced notes included, resolves the same way,
+   so frontmatter can narrow a page but never publish one `privacy.md` holds
+   back, and no page may name the whole context
+   ([websites](./docs/decisions/websites.md)).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture
 address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
