@@ -70,6 +70,7 @@ export type EditorMenuId =
   | "table"
   /** A live list of a folder's notes; see `listBlock/`. */
   | "folderList"
+  | "comment"
   /** Speak into the note, at the caret. */
   | "dictate"
   /** Hand the note to the agent, in the console's right panel. */
@@ -107,6 +108,8 @@ export interface EditorMenuContext {
   canAsk?: boolean;
   /** A folder list can be drawn here: the surface has a copy of the notes. */
   canList?: boolean;
+  /** Somebody is signed in to sign a comment with (files/comments/). */
+  canComment?: boolean;
   /**
    * The checker's suggestions for a misspelled word under the click, from the
    * desktop app's `spelling` member. `null` or absent for a word it accepts,
@@ -204,6 +207,11 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
   }
   if (voice.length > 0) {
     items.push({ ...voice[0]!, separatorBefore: items.length > 0 }, ...voice.slice(1));
+  }
+
+  // A comment is about the selected words, so it is offered only over some.
+  if (canEdit && hasSelection && context.canComment === true) {
+    items.push({ id: "comment", label: "Comment", separatorBefore: items.length > 0 });
   }
 
   if (!canEdit) return items;

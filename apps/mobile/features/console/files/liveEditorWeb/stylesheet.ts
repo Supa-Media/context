@@ -1,4 +1,5 @@
 import { livePreviewStyles } from "../livePreview";
+import { commentStyles } from "../comments/styles";
 import { fonts, layout } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
@@ -231,6 +232,7 @@ export function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-lp-title-note-problem { color: ${colors.critText}; }
 .cm-lp-root .cm-lp-title-note-held { color: ${colors.warnText}; }
 ${livePreviewStyles}
+${commentStyles(colors)}
 `;
   if (fresh) document.head.appendChild(style);
 }

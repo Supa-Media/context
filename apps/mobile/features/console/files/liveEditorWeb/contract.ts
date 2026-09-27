@@ -273,6 +273,12 @@ export interface LiveEditorProps {
    * per link, and `pluginPreview.ts` draws that in a tooltip of Context's own.
    * Absent where no plugin can run, and the extension is then not installed.
    */
+  /**
+   * The \`@handle\` a comment written here is signed with (files/comments/).
+   * Absent or null where nobody can comment, which leaves the highlights and
+   * the threads readable and offers no way to add to them.
+   */
+  commenter?: string | null;
   onPreviewLinks?: (links: { href: string; text: string }[]) =>
     Promise<{ href: string; text: string }[]>;
 }
@@ -293,6 +299,7 @@ export interface EditorHandlers {
   onTitleCaret: LiveEditorProps["onTitleCaret"];
   onDictate: LiveEditorProps["onDictate"];
   onAsk: LiveEditorProps["onAsk"];
+  commenter?: LiveEditorProps["commenter"];
 }
 
 /** Where the pointer was when the menu or the table picker was opened. */

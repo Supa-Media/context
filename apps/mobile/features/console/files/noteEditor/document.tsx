@@ -78,6 +78,7 @@ export function noteDocument(view: NoteView) {
     onRetractFormResponse,
     onLoadImage,
     onStoreImage,
+    commenter,
     onImageProblem,
     folderLists,
     onTitleCaret,
@@ -398,6 +399,7 @@ export function noteDocument(view: NoteView) {
           onStoreImage={onStoreImage}
           onImageProblem={onImageProblem}
           folderLists={folderLists}
+          commenter={commenter}
         />
         </>
         )}

@@ -65,6 +65,7 @@ import { mountEditor } from "./mount";
 import { showTitleNote } from "./titleLine";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
+import { canComment } from "../comments/extension";
 
 export function LiveEditor({
   value,
@@ -76,6 +77,7 @@ export function LiveEditor({
   onFocus,
   onBlur,
   onTitleCaret,
+  commenter,
   titleNote,
   accessibilityLabel,
   onOpenNote,
@@ -284,8 +286,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -547,6 +549,7 @@ export function LiveEditor({
             canDictate: onDictate !== undefined,
             canAsk: onAsk !== undefined,
             canList: view.current.state.facet(listHost)?.current != null,
+            canComment: canComment(view.current.state),
             spelling: menuAt.spelling ?? null,
             spellingHint: menuAt.spellingHint === true,
           })}

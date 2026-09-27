@@ -25,6 +25,8 @@ import type { EmojiHostRef } from "../emoji/host";
 import type { EditorControls, EditorHandlers, LiveEditorProps, MenuOpen, MenuPoint } from "./contract";
 import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
+import { comments } from "../comments/extension";
+import { commentRail } from "../comments/rail";
 
 export function mountEditor({
   host,
@@ -197,6 +199,15 @@ export function mountEditor({
       // The title: the caret in it, and the line under it. Web only, like
       // find-in-note; see `titleLine.ts`.
       titleLine(() => handlers.current.onTitleCaret),
+      /*
+        Comments: the highlights, the hidden markers and block, and the margin
+        of cards (files/comments/). Web only, like find-in-note: the margin is
+        DOM beside the text, and the native guest has no way to learn who is
+        commenting. The name is read at the moment of commenting, off the
+        handlers ref, so a sign-in that resolves after mount still signs.
+      */
+      comments({ author: () => handlers.current.commenter ?? null }),
+      commentRail,
       // Folder lists: web only, like find-in-note. The native guest has no
       // copy of the workspace to read, so its lists stay as source.
       listHost.of(lists),

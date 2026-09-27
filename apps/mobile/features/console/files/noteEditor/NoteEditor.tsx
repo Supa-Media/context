@@ -107,6 +107,7 @@ export function NoteEditor({
   onLoadImage,
   onStoreImage,
   onImageProblem,
+  commenter,
   folderLists,
   onTitleCaret,
   titleNote,
@@ -385,6 +386,7 @@ export function NoteEditor({
   const { durability, canDiscard, explains, manualSave } = noteFoot({ state, presence, editable, compact, button });
 
   const view: NoteView = {
+    commenter: commenter ?? null,
     // Props, as destructured above.
     state, presence, drawingCollaboration, canEdit, reading, visibility, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
