@@ -106,6 +106,52 @@ describe("the framework-scoped production CUJ provider", () => {
   });
 });
 
+/**
+ * A fixed code is the same digits every time, and `authVerificationCodes` is
+ * indexed on the hash of a code alone, across every address and provider. So
+ * two outstanding rows for one fixed-code provider are two rows under one key,
+ * and the lookup that redeems a code reads that key with `.unique()`.
+ *
+ * Starting a sign-in is unauthenticated, and the address check that makes a
+ * fixed-code provider exclusive runs in `sendVerificationRequest` — after the
+ * row has been written by a separate mutation, which a later throw does not
+ * roll back. A stranger naming two addresses of their own choosing therefore
+ * leaves two rows behind, and the account the provider exists for cannot
+ * redeem its code while they are there.
+ *
+ * The staging personas already avoid this by binding their fixed digits to the
+ * address before hashing (`patches/@convex-dev__auth.patch`, which says so in
+ * as many words). These two tests hold the framework-scoped providers — the
+ * CUJ account's and the directory reviewer's — to the same rule.
+ */
+describe("a fixed code is bound to its address before it is hashed", () => {
+  /** Start a sign-in the provider will refuse; the write happens regardless. */
+  async function refusedStart(t: TestConvex, email: string) {
+    await expect(
+      t.action(api.auth.signIn, { provider: "test-email", params: { email } }),
+    ).rejects.toThrow(/not available/);
+  }
+
+  test("two addresses a stranger names do not land under one key", async () => {
+    const t = setupTest();
+    await refusedStart(t, "stranger-one@example.invalid");
+    await refusedStart(t, "stranger-two@example.invalid");
+    const hashes = await t.run(async (ctx) =>
+      (await ctx.db.query("authVerificationCodes").collect()).map((row) => row.code),
+    );
+    expect(hashes).toHaveLength(2);
+    expect(new Set(hashes).size).toBe(2);
+  });
+
+  test("the account the provider exists for still signs in afterwards", async () => {
+    const t = setupTest();
+    await refusedStart(t, "stranger-one@example.invalid");
+    await refusedStart(t, "stranger-two@example.invalid");
+    const result = await requestThenVerifyScoped(t, TEST_EMAIL, TEST_CODE);
+    expect(result.tokens).not.toBeNull();
+  });
+});
+
 describe("with the test account configured", () => {
   test("the named address signs in with the fixed code", async () => {
     enableTestAccount();
