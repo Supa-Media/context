@@ -483,6 +483,16 @@ note that quotes the text it attaches to (which silently drops a step once
 those words change) and over generated lines (which take the words out of
 their hands).
 
+**Comments are the one step that quotes words**, because a comment is about
+words: `Codex comments on "free, you cheapo": …` writes a real thread
+(`comments.cjs`: the anchor markers and a line in the note's `comments`
+block) around their first appearance, and `replies:` / `resolves` act on the
+last thread that page's cast started. The margin then draws it as it draws
+anybody's comment, a person's reply is typed into its line, and resolving
+hides the card. If the quoted words are gone, that comment and its replies
+do nothing rather than anchor elsewhere. A comment author written
+`@jon's Claude` is an agent in the margin too, not a person.
+
 **Only the homepage plays it; every served page is drawn without it.**
 `renderWebsitePage` strips the blocks for every site, and the homepage's
 snapshot keeps them so the homepage can split them out before building its
