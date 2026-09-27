@@ -167,6 +167,37 @@ describe("the host's half", () => {
     ]);
   });
 
+  test("a note handed to one page is not writable from the next", async () => {
+    const set = jest.fn(async (_path: string, _key: string, _value: string | null) => null);
+    const extras = hostExtras(() => {}, { onLoadList: async () => NOTES, onSetListProperty: set });
+    const replies: ToGuest[] = [];
+    const reply = (message: ToGuest) => replies.push(message);
+    const write = (token: string) =>
+      extras.receive({ v: PROTOCOL_VERSION, type: "list-set", token, path: "1-projects/website.md", key: "owner", value: "Ada" }, reply);
+    extras.setLists(true, true);
+    extras.receive({ v: PROTOCOL_VERSION, type: "list-load", token: "l1", folder: "1-projects", subfolders: false }, reply);
+    await settle();
+
+    // The web view starts over: nothing it was handed before counts.
+    extras.resend(() => {});
+    write("w1");
+    // Lists go read-only and back: the same.
+    extras.receive({ v: PROTOCOL_VERSION, type: "list-load", token: "l2", folder: "1-projects", subfolders: false }, reply);
+    await settle();
+    extras.setLists(true, false);
+    extras.setLists(true, true);
+    write("w2");
+    await settle();
+    expect(set).not.toHaveBeenCalled();
+
+    // And loading again is all it takes to write.
+    extras.receive({ v: PROTOCOL_VERSION, type: "list-load", token: "l3", folder: "1-projects", subfolders: false }, reply);
+    await settle();
+    write("w3");
+    await settle();
+    expect(set.mock.calls).toEqual([["1-projects/website.md", "owner", "Ada"]]);
+  });
+
   test("notes off the wire are checked field by field before a list draws them", () => {
     const read = listSource({
       complete: true,

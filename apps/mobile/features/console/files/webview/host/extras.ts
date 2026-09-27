@@ -64,8 +64,11 @@ export function hostExtras(post: (message: ToGuest) => void, sink: ExtrasSink): 
     The notes a list has been handed. A `list-set` may only name one of these:
     the web view is the least trusted thing in the app, and a write whose path
     it could choose freely would let it pick which file a write touches — the
-    rule `form-submit` follows by carrying no path at all. A list can only
-    change a note it is showing, so this refuses nothing a person can do.
+    rule `form-submit` follows by carrying no path at all. This is a bound,
+    not a wall: `list-load` names its own folder, so the set is at most what
+    the person could open and edit by hand. It is emptied when the web view
+    starts over (`ready`) and when lists stop being available, so a path
+    handed to one page of the editor is not still writable from the next.
   */
   const listed = new Set<string>();
   const commenter = (): ToGuest => ({ v: PROTOCOL_VERSION, type: "commenter", author });
@@ -80,6 +83,7 @@ export function hostExtras(post: (message: ToGuest) => void, sink: ExtrasSink): 
     setLists: (available, editable) => {
       const next = { available, editable: available && editable };
       if (next.available === lists.available && next.editable === lists.editable) return;
+      if (!next.editable) listed.clear();
       lists = next;
       post(listing());
     },
@@ -87,6 +91,8 @@ export function hostExtras(post: (message: ToGuest) => void, sink: ExtrasSink): 
       if (lists.available) post({ v: PROTOCOL_VERSION, type: "lists-changed" });
     },
     resend: (send) => {
+      // A `ready` is a fresh page: whatever lists it draws, it loads again.
+      listed.clear();
       send(commenter());
       send(listing());
     },
