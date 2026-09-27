@@ -30,6 +30,7 @@ const mockPushed: unknown[] = [];
 const mockServer: string[] = [];
 const mockCopied: string[] = [];
 const mockAuth = { isAuthenticated: false, isLoading: false };
+const mockParams: { page?: string } = {};
 const mockSite = {
   kind: "live",
   snapshot: {
@@ -53,7 +54,7 @@ jest.mock("expo-router", () => ({
     back: () => {},
   }),
   usePathname: () => "/",
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockParams,
   useGlobalSearchParams: () => ({}),
 }));
 
@@ -108,6 +109,7 @@ afterEach(() => {
   mockServer.length = 0;
   mockCopied.length = 0;
   mockAuth.isAuthenticated = false;
+  delete mockParams.page;
 });
 
 function mountHome(width = 1280) {
@@ -174,6 +176,19 @@ describe("the homepage is the console's frame", () => {
     expect(home.find("share-audience")).toBeNull();
   });
 
+  /*
+    `/pricing` is the page's address (it used to be `/?page=pricing`, and
+    `/pricing` was the not-found screen). What Share hands out is the one a
+    person would type.
+  */
+  test("Share copies a page's clean address, not its query string", async () => {
+    mockParams.page = "pricing";
+    const home = mountHome();
+    home.press(home.find("browse-share"));
+    await act(async () => {});
+    expect(mockCopied).toEqual([`${window.location.origin}/pricing`]);
+  });
+
   test("a phone gets the console's phone chrome, and its Share copies too", async () => {
     const home = mountHome(390);
     expect(home.find("note-read")).not.toBeNull();
@@ -181,6 +196,34 @@ describe("the homepage is the console's frame", () => {
     await act(async () => {});
     expect(mockCopied).toEqual([`${window.location.origin}/`]);
     expect(home.find("share-audience")).toBeNull();
+  });
+
+  /*
+    The owner's phone screenshot (2026-09-27): the homepage's search listed
+    `01-context.md` over a lone `/`, and three letters got "That search could
+    not be run". It searches the notes in the tab now, and names them.
+  */
+  test("search names each page by its title and quotes the line that matched", async () => {
+    const home = mountHome();
+    home.press(home.find("frame-search"));
+    const input = home.find("palette-input") as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, "pri");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Past the search's debounce, and its answer.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    const rows = [...document.body.querySelectorAll('[data-testid^="palette-row-"]')].map(
+      (row) => row.textContent ?? "",
+    );
+    expect(rows[0]).toContain("Pricing");
+    expect(rows.join("|")).not.toMatch(/\.md/);
+    expect(rows.some((row) => row.includes("Welcome") && row.includes("@context · See pricing."))).toBe(true);
+    expect(home.find("palette-empty")).toBeNull();
+    expect(mockServer).toEqual([]);
   });
 
   test("nothing on it asks the server anything", async () => {

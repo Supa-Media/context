@@ -21,6 +21,7 @@ import {
   homeTree,
   liveHomeTree,
   noteLinkHref,
+  pageHref,
   pageParam,
   routeFromParam,
 } from "./homeSite";
@@ -52,7 +53,8 @@ const NO_COLORS: ReadonlyMap<string, string> = new Map();
  * after it (`useHomeSite`); when the site is off or unreachable the built-in
  * copy (`builtInPages.ts`) is drawn for the whole visit instead. The open page
  * is `?page=` in the address, so a link to `/?page=pricing` opens Pricing and
- * back works.
+ * back works. A page's shared address is the clean one, `/pricing`, which
+ * `app/[handle]` hands to this page as `?page=pricing` (`homePagePath`).
  *
  * A visitor can write in it the way they would in their own workspace: every
  * note opens in the editor, and notes, drawings and folders can be made,
@@ -189,8 +191,8 @@ export function HomeShell() {
         const route = routeOf(path);
         if (route === undefined) return null;
         const origin = Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "";
-        const page = pageParam(route);
-        return page === undefined ? `${origin}/` : `${origin}/?page=${encodeURIComponent(page)}`;
+        // `/pricing`, the address a person would type (`app/[handle]` opens it).
+        return `${origin}${pageHref(route)}`;
       },
       copy: writeClipboard,
     },
