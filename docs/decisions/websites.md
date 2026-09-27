@@ -455,3 +455,59 @@ publishes their private notes. Copying the notes into `website/` makes two
 sources that drift. Accepting `folder: /` makes the whole context one
 setting away from public, which non-negotiable #5 forbids.
 `apps/convex/__tests__/websiteFolders.test.ts` fails if any of these comes back.
+
+## The homepage's cast is written in its pages, and plays through real presence
+
+Decided by the owner, 2026-09-27: the homepage should feel like a workspace
+people are working in, with people and agents typing, reading and adding
+notes while a visitor watches, and the owner writes what they do. A page
+scripts its cast in a fenced `cast` block placed where the words should
+appear (`packages/shared/src/websiteCast.ts`):
+
+````
+```cast
+@maya adds to the line above: (the baby can read.)
+Claude writes: new here? [[getting-started]] is the tour.
+Claude reads: pricing
+Claude adds note: getting-started
+  # Getting started
+wait 3s
+```
+````
+
+**A block's position is its anchor.** A new line lands where the block was;
+"adds to the line above" lands at the end of whatever paragraph is above it
+now. Nothing matches quoted words, so editing a page can move where a step
+lands and never makes one fail. The owner chose this over a separate script
+note that quotes the text it attaches to (which silently drops a step once
+those words change) and over generated lines (which take the words out of
+their hands).
+
+**Only the homepage plays it; every served page is drawn without it.**
+`renderWebsitePage` strips the blocks for every site, and the homepage's
+snapshot keeps them so the homepage can split them out before building its
+tree (`features/home/cast/castSite.ts`).
+
+**It is the console's presence, not a homepage animation.** Each page's show
+is a local `SharedDoc` the web editor binds exactly as it binds a room
+(`castPresence`), so typing arrives as a colleague's keystrokes do and the
+carets, name flags, highlights, facepile, tree squares and agents line are
+the console's own code drawing ordinary `PresenceMember`s and an
+`AgentActivityView`. A change to how the console shows presence reaches the
+homepage in the same commit, which is the standing rule for the homepage.
+The two things added for it serve the console too: the chip draws an agent
+as a square, and a `demo` presence says `· demo` in the chip, so nobody takes
+a scripted @maya for a person watching them.
+
+**The visitor comes first.** A change the visitor makes to a note ends that
+note's show at once and the cast leaves it. Each page plays once a visit,
+nothing is written anywhere but the visitor's in-tab copy, and with reduced
+motion text lands whole instead of being typed.
+
+**What a simplification costs.** Drawing the cast with homepage-only
+components forks the shell the homepage exists to show. Anchoring steps by
+quoted text makes routine edits break the show silently. Serving the blocks
+on other sites prints the script as a code block on someone's public page.
+`apps/mobile/__tests__/homeCast.test.ts`, `websiteCast.test.ts` and the cast
+case in `apps/convex/__tests__/websiteResolution.test.ts` fail if any of
+these comes back.

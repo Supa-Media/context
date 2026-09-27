@@ -14,6 +14,12 @@ export interface Presence {
   phase: PresencePhase;
   /** "2 here", "Reconnecting", or "" when there is nothing worth saying. */
   summary: string;
+  /**
+   * These members are a demonstration, not people: the homepage's cast
+   * (`features/home/cast`). The chip says so, so a visitor never takes a
+   * scripted @maya for somebody watching them.
+   */
+  demo?: boolean;
   /** Tell the room where this editor's caret is. Safe to call on every change. */
   report: (anchor: number, head: number) => void;
   /**

@@ -12,6 +12,7 @@ import { railGroup } from "./rail";
 import { selectedContext, type ConsoleData } from "./types";
 import { tierChipLabel } from "./visibility";
 import type { Presence } from "./presence/usePresence";
+import { agentName, handleInitials } from "./presence/agentName";
 
 /**
  * The console chrome: title bar, left rail, and the pane body.
@@ -282,6 +283,8 @@ export function PresenceChip({ presence }: { presence: Presence }) {
             // `null` when a peer sent no usable colour; the muted chrome token
             // reads as present and unremarkable rather than as a ninth hue.
             { backgroundColor: member.color ?? c.chromeMuted },
+            // People are circles and agents are squares, as in the tree.
+            member.isAgent ? styles.agent : null,
             index === 0 ? null : styles.overlap,
           ]}
         >
@@ -300,13 +303,13 @@ export function PresenceChip({ presence }: { presence: Presence }) {
  * count is about other editors. The account avatar in the console chrome is
  * the current person, so `1 here` was ambiguous about whether it counted them.
  */
-export function presenceChipLabel(presence: Pick<Presence, "phase" | "members" | "summary">): string {
+export function presenceChipLabel(presence: Pick<Presence, "phase" | "members" | "summary" | "demo">): string {
   if (presence.phase === "reconnecting") return "Reconnecting";
   if (presence.members.length === 0) return presence.summary;
   const names = presence.members.slice(0, 2).map((member) => member.name).join(", ");
   const extra = presence.members.length > 2 ? ` +${presence.members.length - 2}` : "";
   const count = presence.members.length === 1 ? "1 other here" : `${presence.members.length} others here`;
-  return `${names}${extra} · ${count}`;
+  return `${names}${extra} · ${count}${presence.demo === true ? " · demo" : ""}`;
 }
 
 /**
@@ -317,8 +320,8 @@ export function presenceChipLabel(presence: Pick<Presence, "phase" | "members" |
  * which the count beside them already said.
  */
 function initialsFor(name: string): string {
-  const bare = name.startsWith("@") ? name.slice(1) : name;
-  return bare.slice(0, 2).toLowerCase() || "?";
+  // An agent's avatar is square and carries its owner's initials: whose it is.
+  return handleInitials(agentName(name).owner ?? name);
 }
 
 /** The tokens the avatars need as *values* rather than as a style sheet. */
@@ -334,6 +337,7 @@ const presenceStyles = (c: Colors) =>
       alignItems: "center",
       justifyContent: "center",
     },
+    agent: { borderRadius: 6 },
     // Tightened into a stack, each lifted off the one behind it by a ring in
     // the bar's own colour so the overlap reads as depth rather than a smudge.
     overlap: { marginLeft: -7, borderWidth: 2, borderColor: c.chromeSurface },

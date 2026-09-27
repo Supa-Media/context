@@ -33,4 +33,10 @@ describe("presence chip copy", () => {
       presenceChipLabel({ phase: "reconnecting", summary: "Reconnecting", members: [member("m1", "@ana")] }),
     ).toBe("Reconnecting");
   });
+
+  test("a demonstration says so, so nobody takes the homepage's cast for real people", () => {
+    expect(
+      presenceChipLabel({ phase: "live", summary: "1 here", members: [member("m1", "@maya")], demo: true }),
+    ).toBe("@maya · 1 other here · demo");
+  });
 });
