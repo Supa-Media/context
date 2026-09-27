@@ -40,7 +40,9 @@ import { NavBandProvider } from "../../features/console/NavBand";
  *
  * So this asks one question at both densities and does not care which component
  * answers it: is every context this account can reach on the screen, named, and
- * pressable? At compact that is `ContextStrip`; at wide it is `ConsoleRail`.
+ * pressable? At compact that is the account sheet (`SwitcherMenu`'s
+ * `"phone"` trigger, since 2026-09-27; it was `ContextStrip`); at wide it is
+ * the switcher's card.
  * `frame.ts` is explicit that it is never both at once, so that is asserted
  * here too — the strip's dot means *kind* and the rail's means *storage
  * status*, and one glyph with two meanings on one screen is worse than either.
@@ -61,12 +63,27 @@ describe("every context this account can reach is on the screen", () => {
       .map((node) => `${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`)
       .filter((label) => label.includes("@public-worship")).length;
 
-  test("a phone offers every context, on the strip", () => {
+  /**
+   * **This was `a phone offers every context, on the strip`.** The strip went
+   * into the account sheet (owner, 2026-09-27, the phone artboards, screen 9):
+   * the top-left slot opens the desktop card's rows as a bottom sheet, and
+   * every workspace is a row in it. Behind one press now, as on a pointer.
+   *
+   * SABOTAGE: `trigger="avatar"` back on the phone's `accountSlot`. Fails —
+   * the popover has no `menu-sheet`.
+   */
+  test("a phone offers every context, in the account sheet", () => {
     const app = mountConsole(390);
 
-    expect(app.find("context-strip")).not.toBeNull();
+    expect(app.find("context-strip")).toBeNull();
     expect(app.find("console-rail")).toBeNull();
-    expect(reachable(app)).toBeGreaterThan(0);
+    expect(reachable(app)).toBe(0);
+
+    app.press(app.find("account-menu"));
+    expect(app.find("menu-sheet")).not.toBeNull();
+    expect(app.find("switcher-context-public-worship")).not.toBeNull();
+    // The one you are in is ticked; "yours" marks your own.
+    expect(app.find("switcher-context-seyi")!.getAttribute("aria-checked")).toBe("true");
 
     app.unmount();
   });

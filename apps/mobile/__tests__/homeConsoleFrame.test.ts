@@ -189,10 +189,19 @@ describe("the homepage is the console's frame", () => {
     expect(mockCopied).toEqual([`${window.location.origin}/pricing`]);
   });
 
-  test("a phone gets the console's phone chrome, and its Share copies too", async () => {
+  /*
+    Share moved into ••• on a phone (owner, 2026-09-27, screen 2): a visitor's
+    note-actions sheet offers Copy link, which is the same copy the pointer
+    Share makes, and nothing that would write outside the tab.
+  */
+  test("a phone gets the console's phone chrome, and its Copy link copies too", async () => {
     const home = mountHome(390);
     expect(home.find("note-read")).not.toBeNull();
-    home.press(home.find("note-share"));
+    expect(home.find("note-share")).toBeNull();
+    home.press(home.find("note-actions"));
+    expect(home.find("note-action-share")).toBeNull();
+    expect(home.find("note-action-archive")).toBeNull();
+    home.press(home.find("note-action-copy-link"));
     await act(async () => {});
     expect(mockCopied).toEqual([`${window.location.origin}/`]);
     expect(home.find("share-audience")).toBeNull();
@@ -224,6 +233,23 @@ describe("the homepage is the console's frame", () => {
     expect(rows.some((row) => row.includes("Welcome") && row.includes("@context · See pricing."))).toBe(true);
     expect(home.find("palette-empty")).toBeNull();
     expect(mockServer).toEqual([]);
+  });
+
+  /*
+    The account slot on a phone is the same component as the pointer's
+    switcher, drawn as a "Sign in" pill for a visitor, and it opens the same
+    rows as a bottom sheet (screen 9).
+  */
+  test("a phone visitor's account slot is a Sign in pill opening the same sheet", async () => {
+    const home = mountHome(390);
+    const pill = home.find("account-sign-in-pill");
+    expect(pill).not.toBeNull();
+    expect(pill!.textContent).toContain("Sign in");
+    home.press(home.find("account-menu"));
+    expect(home.find("menu-sheet")).not.toBeNull();
+    expect(home.find("switcher-sign-in")).not.toBeNull();
+    expect(home.find("switcher-create-account")!.textContent).toContain("Create workspace");
+    expect(home.find("switcher-sign-out")).toBeNull();
   });
 
   test("nothing on it asks the server anything", async () => {

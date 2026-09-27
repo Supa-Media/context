@@ -1,14 +1,11 @@
-import { ContextStrip, CurrentContextPill } from "../ContextStrip";
+import { CurrentContextPill } from "../ContextStrip";
 import { currentContextPress, hrefFor, sameRoute, type ConsoleRoute } from "../nav";
-import { DEFAULT_SETTINGS_SECTION } from "../settings/sections";
 import type { ConsoleContext, ConsoleData } from "../types";
-import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
-import { WELCOME_ROUTE } from "../../onboarding/route";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
 
 /**
- * The phone's navigation band: the context you are in, and the others.
+ * The phone's navigation band: the context you are in, at the head of its path.
  *
  * Returns the `nodes` `NavBandProvider` takes, built fresh each render exactly
  * as the object literal it replaced was.
@@ -20,7 +17,6 @@ export function consoleNavBandNodes({
   router,
   data,
   contextHrefFrom,
-  places,
 }: {
   phone: boolean;
   current: ConsoleContext | null;
@@ -28,7 +24,6 @@ export function consoleNavBandNodes({
   router: ConsoleRouter;
   data: ConsoleData;
   contextHrefFrom: ConsoleAside["contextHrefFrom"];
-  places: ConsoleAside["places"];
 }) {
   return {
     /*
@@ -104,57 +99,13 @@ export function consoleNavBandNodes({
           }}
         />
       ) : null,
-    contexts: phone ? (
-      <ContextStrip
-        contexts={data.contexts}
-        currentSlug={current?.slug ?? null}
-        recent={places}
-        loading={data.loading}
-        /*
-          Resolved at press time, never when the strip rendered: the
-          log moves on every navigation, so an href worked out at
-          render is the answer to where somebody was two contexts ago.
-
-          This is what keeps a switch on the path you had open there
-          rather than dropping you at the root. `contextHrefFrom` falls
-          back to the root on its own when nothing is remembered, when
-          the slug is no longer reachable, or when the path does not
-          resolve.
-
-          Every pill here is a context you are **not** in — the current
-          one is `CurrentContextPill` above — so there is no case where
-          this resolves to where somebody already is.
-        */
-        onOpen={(slug) => router.replace(contextHrefFrom(slug))}
-        onSelect={(next) => {
-          /*
-            Settings on the context you are already in is a parameter,
-            not a navigation: `hrefFor` emits the legacy path for a
-            settings route, and replacing with it drops the `?note=`
-            beside it — closing somebody's note as a side effect of
-            opening settings, which is the whole defect the overlay
-            exists to fix.
-          */
-          if (
-            next.kind === "context" &&
-            next.view === "settings" &&
-            route.kind === "context" &&
-            next.slug === route.slug
-          ) {
-            router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
-            return;
-          }
-          if (!sameRoute(next, route)) router.replace(hrefFor(next));
-        }}
-        onLeaveContext={(id) => {
-          void data.leaveContext?.(id);
-          router.replace("/console");
-        }}
-        onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
-        onCreateWorkspace={
-          data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)
-        }
-      />
-    ) : null,
+    /*
+      No workspace chip row on a phone any more (owner, 2026-09-27, the phone
+      artboards, screen 9). Switching workspaces — with the claim offer and
+      New workspace — lives in the account sheet behind the top-left slot
+      (`SwitcherMenu`'s `"phone"` trigger), which a phone always shows, and
+      the path row keeps the context you are in at its head as the way up.
+    */
+    contexts: null,
   };
 }

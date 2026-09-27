@@ -10,6 +10,13 @@ import { useThemedStyles, type Colors } from "../design/theme";
  * Two rows: the contexts you can switch **to**, and the path you are on with
  * the context you are **in** at the head of it.
  *
+ * **The console draws only the second row now.** The owner's phone artboards
+ * (2026-09-27, screen 9) moved switching into the account sheet behind the
+ * top-left slot, so `consoleNavBandNodes` passes `contexts: null` and this is
+ * the path row alone. The first row stays supported for the fixtures that
+ * still draw a strip; the history below is why the current context sits at
+ * the head of the path rather than on a strip.
+ *
  *     ┌─────────────────────────────────────────────┐
  *     │ ● @public-worship   ● @supa   + New workspace│   row 1 — switch to
  *     │ ● @seyi / 1-projects / october-trip          │   row 2 — where you are
@@ -154,7 +161,18 @@ export function NavBand({
   */
   if (contexts == null && current == null && path == null) return null;
   return (
-    <View style={[styles.band, gutter > 0 && { paddingHorizontal: gutter }]} testID="nav-band">
+    <View
+      style={[styles.band, gutter > 0 && { paddingHorizontal: gutter }]}
+      /*
+        The phone's navigation landmark. It was the workspace strip's; the
+        strip went into the account sheet (2026-09-27), and this row — the
+        context you are in and the path under it, every segment a way to a
+        folder — is the navigation that is left on the glass.
+      */
+      role="navigation"
+      aria-label="Path"
+      testID="nav-band"
+    >
       {contexts}
       {current == null && path == null ? null : (
         <View style={styles.trailRow}>

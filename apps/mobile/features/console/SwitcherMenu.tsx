@@ -3,6 +3,7 @@ import { StyleSheet, View, type GestureResponderEvent } from "react-native";
 
 import { PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
+import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { layout, radii, space } from "../design/tokens";
@@ -14,6 +15,7 @@ import {
   type AccountCardRow,
   type AccountCardSection,
 } from "./AccountCard";
+import type { MenuItem } from "./files/menuItem";
 import { atName } from "./format";
 import { isOwnWorkspace, railGroup } from "./rail";
 import { selectedContext, type ConsoleData } from "./types";
@@ -35,8 +37,17 @@ import { WorkspaceMark } from "./WorkspaceMark";
  * the one door on a pointer layout. The breadcrumb's head still names the
  * workspace you are in, so nothing that said "where am I" was lost.
  *
- * A phone is unchanged: it has no sidebar, its workspaces are `NavBand`'s strip
- * and its account is `AccountBlock` in the top row.
+ * ## A phone draws the same list as a bottom sheet
+ *
+ * `trigger="phone"` is the top-left account slot of the phone shell (owner,
+ * 2026-09-27, the phone artboards, screen 9): your avatar, or — for the
+ * homepage's visitor — a "Sign in" pill in the same place. Pressing it opens
+ * these same rows as a bottom sheet (the shared `Menu`): your workspaces with
+ * the current one ticked, New workspace, Meetings, Settings, Sign out; for a
+ * visitor, Sign in and Create workspace. It replaced two things that had
+ * forked: the phone's own `AccountBlock` menu (Meetings, Settings, Sign out)
+ * and the chip row of workspaces above the path (`ContextStrip`), since
+ * switching workspaces lives here now.
  *
  * ## What it keeps
  *
@@ -106,12 +117,17 @@ export function SwitcherMenu({
   onCreateAccount?: () => void;
   /** …or who is signed in and reading it: the way back to their own. */
   onOpenApp?: () => void;
-  trigger?: "row" | "avatar";
+  /**
+   * `"phone"`: the top-left account slot, opening a bottom sheet — see the
+   * header. A visitor who is not signed in sees a "Sign in" pill there.
+   */
+  trigger?: "row" | "avatar" | "phone";
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const triggerRef = useRef<View>(null);
   const [anchor, setAnchor] = useState<AccountCardAnchor | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const iconFor = useWorkspaceIcons();
   const current = selectedContext(data) ?? undefined;
 
@@ -200,8 +216,13 @@ export function SwitcherMenu({
     ...(onSignIn
       ? [{ id: "signin", label: "Sign in", testID: "switcher-sign-in" }]
       : []),
+    /*
+      "Create workspace", which is what the homepage's own link says ("create a
+      workspace") and what signing up actually makes — the phone artboards'
+      word (2026-09-27). The testID is unchanged.
+    */
     ...(onCreateAccount
-      ? [{ id: "signup", label: "Create account", leading: <Icon name="plus" size={14} />, testID: "switcher-create-account" }]
+      ? [{ id: "signup", label: "Create workspace", leading: <Icon name="plus" size={14} />, testID: "switcher-create-account" }]
       : []),
     ...(onSignOut
       ? [{ id: "signout", label: "Sign out", leading: <Icon name="signOut" size={14} />, danger: true, testID: "switcher-sign-out" }]
@@ -229,6 +250,7 @@ export function SwitcherMenu({
 
   const select = (id: string) => {
     setAnchor(null);
+    setSheetOpen(false);
     if (id.startsWith("ctx:")) onOpenContext(id.slice(4));
     else if (id === "meetings") onOpenMeetings?.();
     else if (id === "claim") onClaimContext?.();
@@ -240,6 +262,58 @@ export function SwitcherMenu({
     else if (id === "signup") onCreateAccount?.();
     else if (id === "app") onOpenApp?.();
   };
+
+  if (trigger === "phone") {
+    /*
+      A visitor who is not signed in: the slot says what it offers. This is
+      the one call to action the phone's top bar carries, and it is in the
+      account slot rather than beside the note's own buttons — the owner's
+      rule that the top bar has no call to action of its own (websites.md).
+    */
+    const signedOut = onSignIn !== undefined;
+    return (
+      <>
+        <PressRow
+          accessibilityLabel={
+            signedOut
+              ? "Sign in or create a workspace"
+              : `${data.viewer.name} — account menu${elsewhere ? ", another workspace has changed" : ""}`
+          }
+          onPress={() => setSheetOpen(true)}
+          radius={radii.pill}
+          style={signedOut ? styles.signInTarget : styles.phoneTarget}
+          hoverStyle={styles.hover}
+          ariaHasPopup="menu"
+          ariaExpanded={sheetOpen}
+          testID="account-menu"
+        >
+          {signedOut ? (
+            <View style={styles.signInPill} testID="account-sign-in-pill">
+              <Text variant="rowTitle" style={styles.signInText}>
+                Sign in
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.markSlot}>
+              <Avatar initial={data.viewer.initial} />
+              {elsewhere ? (
+                <View style={[styles.newDot, styles.avatarDot]} aria-hidden testID="account-switcher-activity" />
+              ) : null}
+            </View>
+          )}
+        </PressRow>
+        {sheetOpen ? (
+          <Menu<string>
+            items={sheetItems(sections)}
+            title={data.viewer.name}
+            titleDetail={data.viewer.detail}
+            onSelect={select}
+            onDismiss={() => setSheetOpen(false)}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   const avatar = (
     <View style={styles.markSlot}>
@@ -297,6 +371,32 @@ export function SwitcherMenu({
   );
 }
 
+/**
+ * The card's sections as one list for the phone's sheet: a rule between
+ * groups, and the dot a sighted person sees on a changed workspace said in
+ * words, since a sheet row has no mark slot for it.
+ */
+export function sheetItems(sections: readonly AccountCardSection[]): MenuItem<string>[] {
+  const items: MenuItem<string>[] = [];
+  for (const section of sections) {
+    section.rows.forEach((row, index) => {
+      const changed = row.accessibilityLabel !== undefined && row.accessibilityLabel !== row.label;
+      const detail = [row.detail, changed ? "changed" : undefined].filter(Boolean).join(" · ");
+      items.push({
+        id: row.id,
+        label: row.label,
+        ...(detail === "" ? {} : { detail }),
+        ...(row.leading === undefined ? {} : { leading: row.leading }),
+        ...(row.checked === undefined ? {} : { checked: row.checked }),
+        ...(row.danger === true ? { danger: true } : {}),
+        ...(index === 0 && items.length > 0 ? { separatorBefore: true } : {}),
+        testID: row.testID,
+      });
+    });
+  }
+  return items;
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     /** A hairline above, and the panel's own surface: the bottom of the tree. */
@@ -322,6 +422,26 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
     },
     hover: { backgroundColor: colors.surface3 },
+    /** The phone's avatar: a 26pt mark inside a 44pt target. */
+    phoneTarget: {
+      width: layout.minTouchTarget,
+      height: layout.minTouchTarget,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    /** The visitor's pill, in the same slot, at the same touch height. */
+    signInTarget: {
+      minHeight: layout.minTouchTarget,
+      justifyContent: "center",
+    },
+    signInPill: {
+      paddingHorizontal: space.x3,
+      paddingVertical: 6,
+      borderRadius: radii.pill,
+      backgroundColor: colors.chrome,
+      boxShadow: "0 2px 8px rgba(0,0,0,.08)",
+    },
+    signInText: { fontWeight: "600" },
     markSlot: { position: "relative" },
     /**
      * The activity dot, straddling the mark's leading top corner, ringed in

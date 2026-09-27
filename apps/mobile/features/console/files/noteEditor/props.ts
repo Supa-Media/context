@@ -83,6 +83,7 @@ export interface NoteEditorProps {
    * "Sign in to reply" and opens this. Absent for a signed-in reader.
    */
   onSignInToComment?: () => void;
+  /**
    * The homepage's visitor, whose edits stay in this browser tab. The foot of
    * the note then says so rather than "Saved in your bucket" — see `noteFoot`.
    */

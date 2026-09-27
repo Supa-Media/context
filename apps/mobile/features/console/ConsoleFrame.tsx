@@ -54,7 +54,6 @@ import { consoleTopTrailing } from "./layout/topTrailing";
 import { NoteActionsSheet } from "./layout/NoteActionsSheet";
 import { noteActionItems } from "./layout/noteActions";
 import {
-  consoleAccountSlot,
   consoleAsidePanel,
   consoleBottomBar,
   consoleExplorer,
@@ -277,7 +276,7 @@ export function ConsoleFrame({
   }, [actionsEntry]);
 
   const {
-    meetingsAt, newChatAt, phoneChatAt, setPhoneChatAt, showMeetings, places, contextHrefFrom,
+    meetingsAt, newChatAt, phoneChatAt, setPhoneChatAt, showMeetings, contextHrefFrom,
     startMeetingFlow, meetingSheet, startNewChat, startMeeting, canCreate, agentPlace, asked,
     setAsked, openAsideAt, agentEngine, resumeRow, voiceHost,
   } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, pathname });
@@ -318,7 +317,15 @@ export function ConsoleFrame({
     label: insideContext ? contextLabel : "Your context",
     onOpenContext: (slug: string) => {
       const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
-      if (!sameRoute(next, route)) router.replace(hrefFor(next));
+      if (sameRoute(next, route)) return;
+      /*
+        On a phone, back to where you were in that workspace — the job the
+        workspace strip did (`contextHrefFrom` resolves the device's log at
+        press time, and falls back to the root). The strip is gone and this
+        sheet is how a phone switches now, so the resume moved with it. A
+        pointer layout keeps opening the root, as it always has.
+      */
+      router.replace(phone ? contextHrefFrom(slug) : hrefFor(next));
     },
     onOpenMeetings: data.demo ? undefined : () => router.push(MEETINGS_ROUTE),
     onClaimContext: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
@@ -430,11 +437,15 @@ export function ConsoleFrame({
               }
         }
         syncSlot={consoleSyncSlot({ phone, browsing, data, setSyncOpen })}
-        accountSlot={
-          visitor === undefined
-            ? consoleAccountSlot({ data, requestSignOut, router, current })
-            : <SwitcherMenu {...switcherProps} trigger="avatar" />
-        }
+        /*
+          The phone's top-left account slot: one component for a member and a
+          visitor, opening the switcher's own rows as a bottom sheet — see
+          `SwitcherMenu`'s `"phone"` trigger. It was two: `AccountBlock`'s menu
+          for a member and this popover for a visitor, which is how the two
+          drifted (the visitor's had no workspaces, the member's had no
+          switching, and neither could say the other's rows).
+        */
+        accountSlot={<SwitcherMenu {...switcherProps} trigger="phone" />}
         /*
           `browsing`, not `insideContext`.
 
@@ -478,20 +489,21 @@ export function ConsoleFrame({
           }
         />
         {/*
-          The contexts, built here and drawn inside whatever scroller the
-          surface below owns — Browse's on a note or a folder,
-          `EditorRegion`'s on Map, Connections and Settings. See `NavBand`.
+          The context you are in, at the head of the path, built here and
+          drawn inside whatever scroller the surface below owns — Browse's on
+          a note or a folder, `EditorRegion`'s on Map, Connections and
+          Settings. See `NavBand`. (The row of other workspaces that used to
+          lead it went into the account sheet, 2026-09-27.)
 
-          `phone` gates it because at every other density the contexts are the
-          rail, which is a permanent column there. Building it here rather than
-          at the leaf is what keeps one strip in the app: it needs the context
-          list, the recently-visited log and the router, and a second copy
-          assembled where it is drawn is how one of them ends up with a handler
-          the other does not have.
+          `phone` gates it because at every other density the breadcrumb
+          carries the path. Building it here rather than at the leaf is what
+          keeps one context pill in the app: it needs the router and the
+          recently-visited log, and a second copy assembled where it is drawn
+          is how one of them ends up with a handler the other does not have.
         */}
         <NavBandProvider
           nodes={consoleNavBandNodes({
-            phone, current, route, router, data, contextHrefFrom, places,
+            phone, current, route, router, data, contextHrefFrom,
           })}
         >
           <EditorRegion browse={browsing} failure={data.failure} phone={phone}>
