@@ -307,7 +307,9 @@ describe("a thumb has to be able to hit it", () => {
     for (const item of toolbar()) {
       const target = bar.need(`bottom-bar-${item.id}`);
       expect(px(target, "flex-basis")).toBe(layout.bottomBarTarget);
-      expect(px(target, "flex-grow")).toBe(1);
+      // Its natural width and no more: the capsule is sized by its keys now
+      // (owner, 2026-09-27), so a target does not grow into spare room.
+      expect(px(target, "flex-grow")).toBe(0);
     }
     // And the share each wants is still above the floor, which is the rule the
     // width has to keep rather than replace.
@@ -346,18 +348,24 @@ describe("a thumb has to be able to hit it", () => {
     expect(440 - 2 * 52).toBe(REFERENCE_BAR);
   });
 
-  test("the bar fills the slot rather than sizing itself", () => {
+  /**
+   * **This was `the bar fills the slot rather than sizing itself`, and the
+   * owner reversed it** (2026-09-27, the phone artboards, screen 1): a short
+   * centred capsule of five icon-only keys, Obsidian's shape. The old worry —
+   * the pill's edges moving with the number of actions a route offers — was a
+   * worry about a row whose length varied; the console's row is five keys on
+   * every route that draws it (`bottomRowWidth.test.ts` pins which five).
+   *
+   * The frame's inset is still the most the capsule may reach
+   * (`appFrameRender.test.ts`), and the pad is still the pill's own.
+   *
+   * SABOTAGE: `alignSelf: "stretch"` back in `BottomBar`'s `bar`. Fails here.
+   */
+  test("the bar is a centred capsule, sized by its keys", () => {
     const bar = mountBar(toolbar(), 440);
     const style = window.getComputedStyle(bar.need("bottom-bar"));
 
-    // The inset is the frame's (`AppFrame`'s `bottomBar` slot,
-    // `layout.bottomBarInset`), and `appFrameRender.test.ts` is where that
-    // number is asserted against the frame. The pass before this reached the
-    // width through the targets — `alignSelf: "center"` over six fixed boxes —
-    // which is only the reference's geometry on a route that happens to offer
-    // six actions: a device found the pill 78pt in from an edge on a context
-    // with no New note.
-    expect(style.alignSelf).toBe("stretch");
+    expect(style.alignSelf).toBe("center");
     expect(px(bar.need("bottom-bar"), "padding-left")).toBe(layout.bottomBarPad);
   });
 

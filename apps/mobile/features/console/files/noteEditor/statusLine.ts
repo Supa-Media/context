@@ -79,9 +79,12 @@ export function noteFoot({
   const explains =
     durability !== "" &&
     (compact || state.status === "error" || state.status === "queued");
-  /* The manual write, where autosave will not make it. Never on a phone: Save
-     is on the bottom toolbar there (`check`), and this row is not a toolbar. */
-  const manualSave = !compact && !button.disabled && decision;
+  /* The manual write, where autosave will not make it — on a phone too, now.
+     It was pointer-only because the phone's bottom row carried a `✓` Save;
+     that key went with the five-key capsule (owner, 2026-09-27), and this row,
+     beside the sentence saying why the save failed, is the one place left a
+     thumb can retry it from. */
+  const manualSave = !button.disabled && decision;
   return { durability, canDiscard, explains, manualSave };
 }
 
