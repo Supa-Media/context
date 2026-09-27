@@ -86,7 +86,6 @@ export function NoteEditor({
   drawingCollaboration,
   canEdit,
   reading = false,
-  visibility,
   notices,
   pathBar,
   onChange,
@@ -388,7 +387,7 @@ export function NoteEditor({
   const view: NoteView = {
     commenter: commenter ?? null,
     // Props, as destructured above.
-    state, presence, drawingCollaboration, canEdit, reading, visibility, notices, pathBar,
+    state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,

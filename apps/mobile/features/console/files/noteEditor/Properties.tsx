@@ -5,9 +5,7 @@ import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles } from "../../../design/theme";
-import { describe as describeVisibility } from "../visibilityWords";
 import type { Property } from "../frontmatter";
-import type { Visibility } from "../types";
 import { propertyRows, type PropertyRow } from "./propertyEdit";
 import { AddProperty, EditableProperty, type SetProperty } from "./PropertyFields";
 import { makeStyles } from "./styles";
@@ -45,7 +43,6 @@ import { makeStyles } from "./styles";
  */
 export function Properties({
   frontmatter,
-  visibility,
   gutter,
   compact,
   onSet,
@@ -56,13 +53,6 @@ export function Properties({
    * changed — a reader without edit access, or an activity list.
    */
   onSet?: SetProperty;
-  /** See `NoteEditor`'s prop of the same name. */
-  visibility?: {
-    visibility: Visibility;
-    inherited: Visibility;
-    exception: boolean;
-    readOnly: boolean;
-  };
   /** Where the note's own first character is. See the call site. */
   gutter: number;
   /**
@@ -79,7 +69,7 @@ export function Properties({
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const rows = withVisibility(propertyRows(frontmatter), visibility);
+  const rows = withoutVisibility(propertyRows(frontmatter));
 
   return (
     <View style={[styles.properties, { paddingLeft: gutter, paddingRight: gutter }]}>
@@ -154,46 +144,23 @@ export function Properties({
   );
 }
 
-/** The stated visibility row is never one; see `withVisibility`. */
 function isEditable(row: Property): row is PropertyRow {
   return (row as PropertyRow).editable === true;
 }
 
 /**
- * The frontmatter's rows, with the one the frontmatter cannot answer.
+ * The frontmatter's rows, less any `visibility:` line.
  *
- * `visibility` is a property of a note in every sense that matters to a
- * reader — it is what the breadcrumb's chip used to say, and it belongs in the
- * panel that lists what is filed about this note. What it must **not** come
- * from is the file: `ManifestNotice` says it plainly, and so does
- * `fileOps.ts` — a `visibility:` line inside a note changes nothing, because
- * `privacy.md` decides access. So a note that carries one has that row
- * *replaced* rather than shown alongside, and the panel never states two
- * different answers to "who can read this".
+ * A `visibility:` line inside a note decides nothing — `privacy.md` does, and
+ * the Share dialog is where that is read and changed (`ManifestNotice` and
+ * `fileOps.ts` say the same). Shown here it reads as a setting, and a stale
+ * `visibility: private` on a note the whole team can read is a false claim
+ * about who can see somebody's writing. So the panel leaves it out; the line
+ * itself stays in the file, untouched, like every other byte the panel does
+ * not edit.
  *
- * Exported for its test: this is a claim about who can read somebody's note,
- * and "the row quietly stopped being added" is the kind of regression that is
- * invisible on screen until it matters.
+ * Exported for its test.
  */
-export function withVisibility<Row extends Property>(
-  rows: Row[],
-  visibility?: {
-    visibility: Visibility;
-    inherited: Visibility;
-    exception: boolean;
-    readOnly: boolean;
-  },
-): (Row | Property)[] {
-  if (visibility === undefined) return rows;
-  // The brief wording from `visibilityWords`, so no two surfaces can come to
-  // describe the same three cases differently — a note that merely follows a
-  // `team` folder and a note deliberately shared as an exception have to stay
-  // distinguishable wherever either is printed.
-  const stated: Property = {
-    key: "visibility",
-    value: describeVisibility({ ...visibility, brief: true }),
-  };
-  const written = rows.findIndex((row) => row.key === "visibility");
-  if (written === -1) return [stated, ...rows];
-  return rows.map((row, index) => (index === written ? stated : row));
+export function withoutVisibility<Row extends Property>(rows: Row[]): Row[] {
+  return rows.filter((row) => row.key !== "visibility");
 }

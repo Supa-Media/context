@@ -7,5 +7,5 @@
  */
 
 export { NoteEditor } from "./noteEditor/NoteEditor";
-export { withVisibility } from "./noteEditor/Properties";
+export { withoutVisibility } from "./noteEditor/Properties";
 export type { NoteEditorProps } from "./noteEditor/props";

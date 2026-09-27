@@ -96,16 +96,13 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-const TEAM = { visibility: "team", inherited: "team", exception: false, readOnly: false } as const;
-
 function mount(
   width: number,
   {
     canEdit = true,
     draft = FILE,
-    visibility,
     presence,
-  }: { canEdit?: boolean; draft?: string; visibility?: typeof TEAM; presence?: unknown } = {},
+  }: { canEdit?: boolean; draft?: string; presence?: unknown } = {},
 ) {
   const changes: string[] = [];
   Object.defineProperty(document.documentElement, "clientWidth", { value: width, configurable: true });
@@ -125,7 +122,6 @@ function mount(
       createElement(NoteEditor, {
         state,
         canEdit,
-        visibility,
         presence: presence as never,
         onChange: (text: string) => {
           changes.push(text);
@@ -166,7 +162,9 @@ function mount(
       input.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
     });
   };
-  press(find("note-properties"));
+  // Open the panel where there is one; a note with nothing filed has none.
+  const head = find("note-properties");
+  if (head !== null) press(head);
   return { changes, find, press, type, key, latest: () => changes.at(-1) };
 }
 
@@ -277,14 +275,17 @@ describe("removing and adding", () => {
     expect(app.find("note-properties-problem")!.textContent).toMatch(/already has audience/);
   });
 
-  test("a note with no frontmatter gets one on a phone, where the panel is always drawn", () => {
+  /*
+    A phone used to draw the panel on every note, for a `visibility` row taken
+    from the access map, and so offered `+ Add property` on a note with no
+    frontmatter. That row is gone (2026-09-27), so a phone matches a pointer
+    layout: nothing filed, no panel, and a property starts as YAML typed in
+    the editor.
+  */
+  test("a note with no frontmatter has no panel on a phone either", () => {
     const plain = "# Plain\n\nText\n";
-    const app = mount(390, { draft: plain, visibility: TEAM });
-    app.press(app.find("note-properties-add"));
-    app.type("note-properties-add-name", "status");
-    app.type("note-properties-add-value", "active");
-    app.key("note-properties-add-value", "Enter");
-    expect(app.latest()).toBe("---\nstatus: active\n---\n\n# Plain\n\nText\n");
+    const app = mount(390, { draft: plain });
+    expect(app.find("note-properties")).toBeNull();
   });
 });
 
