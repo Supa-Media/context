@@ -328,7 +328,7 @@ export class ListView {
   /** A value beside a title; a button that opens its menu when the reader may change it. */
   private drawValue(path: string, key: string, value: ListRow["values"][number]["value"], className: string, now: number): HTMLElement {
     const text = formatValue(key, value, now);
-    if (!this.canSet() || !isEditableValue(key, value)) return el("span", className, text);
+    if (!this.canSet() || !isEditableValue(key, value, path)) return el("span", className, text);
     const button = el("button", `${className} cm-lp-list-edit${text === "" ? " cm-lp-list-unset" : ""}`, text === "" ? "Set" : text);
     button.type = "button";
     button.title = `Change ${key}`;

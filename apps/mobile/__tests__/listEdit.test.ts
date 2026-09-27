@@ -37,13 +37,20 @@ type Call = [path: string, key: string, value: string | null];
 
 function mount(
   text: string,
-  options: { writes?: Call[]; answer?: string | null; canWrite?: boolean; searchOwners?: OwnerSearch; suggestOwner?: OwnerSuggest } = {},
+  options: {
+    writes?: Call[];
+    answer?: string | null;
+    canWrite?: boolean;
+    searchOwners?: OwnerSearch;
+    suggestOwner?: OwnerSuggest;
+    notes?: ListNote[];
+  } = {},
 ): EditorView {
-  const { writes = [], answer = null, canWrite = true, searchOwners, suggestOwner } = options;
+  const { writes = [], answer = null, canWrite = true, searchOwners, suggestOwner, notes = NOTES } = options;
   const host: ListHostContext = {
     ...(searchOwners === undefined ? {} : { searchOwners }),
     ...(suggestOwner === undefined ? {} : { suggestOwner }),
-    load: async () => ({ notes: NOTES, complete: true }),
+    load: async () => ({ notes, complete: true }),
     open: () => undefined,
     selfPath: "p/README.md",
     ...(canWrite
@@ -94,6 +101,34 @@ describe("changing a value from a list", () => {
     await flush();
     expect(edits(view).map((b) => b.textContent)).toEqual(["Seyi", "Seyi's Codex", "Set"]);
     expect(view.dom.querySelectorAll('.cm-lp-list-edit[title="Change visibility"]')).toHaveLength(0);
+    view.destroy();
+  });
+
+  /*
+    A website page's `folder:` line publishes that folder's team-visible notes
+    to the internet (docs/decisions/websites.md, #1014). A cell in a list is
+    the one place that cannot say so — the folder it lists and the column it
+    shows are written in the block, which need not be the reader's own note —
+    so the list draws the value and does not offer to change it. The page
+    itself is where somebody publishes a folder.
+  */
+  test("a website page's folder is shown and never offered as a value to change", async () => {
+    const pages: ListNote[] = [
+      { path: "website/features.md", updatedAt: 3, properties: { folder: "features", owner: "Seyi" } },
+      { path: "website/pricing.md", updatedAt: 2, properties: { owner: "Seyi" } },
+    ];
+    const view = mount(doc("from: website", "show: folder, owner"), { notes: pages });
+    await flush();
+    expect(edits(view).map((b) => b.textContent)).toEqual(["Seyi", "Seyi"]);
+    expect(view.dom.querySelectorAll('.cm-lp-list-edit[title="Change folder"]')).toHaveLength(0);
+    view.destroy();
+  });
+
+  test("a folder property on an ordinary note is still a value to change", async () => {
+    const notes: ListNote[] = [{ path: "p/web.md", updatedAt: 3, properties: { folder: "inbox" } }];
+    const view = mount(doc("from: p", "show: folder"), { notes });
+    await flush();
+    expect(edits(view).map((b) => b.textContent)).toEqual(["inbox"]);
     view.destroy();
   });
 
@@ -308,6 +343,27 @@ describe("the read, the change and the write", () => {
     }
     expect(reads).toBe(0);
     expect(written).toEqual([]);
+  });
+
+  test("a website page's folder is refused before the note is read, in any case and even as a create", async () => {
+    let reads = 0;
+    const { store, written } = io({ "website/features.md": note });
+    const counted: NoteReadWrite = { read: (path) => (reads++, store.read(path)), write: store.write };
+    for (const key of ["folder", "Folder", " FOLDER "]) {
+      expect(await writeNoteProperty(counted, "website/features.md", key, "1-projects")).toMatch(/publishes/);
+      expect(await writeNoteProperty(counted, "website/features.md", key, null)).toMatch(/publishes/);
+      expect(await writeNoteProperty(counted, "website/Legal/terms.md", key, "3-resources", { create: true })).toMatch(/publishes/);
+    }
+    expect(reads).toBe(0);
+    expect(written).toEqual([]);
+  });
+
+  test("a folder property outside the site is written like any other", async () => {
+    const { store, written } = io({ "x.md": note, "websites/x.md": note });
+    expect(await writeNoteProperty(store, "x.md", "folder", "inbox")).toBeNull();
+    // `websites/` is not `website/`, and neither is a note whose name starts with it.
+    expect(await writeNoteProperty(store, "websites/x.md", "folder", "inbox")).toBeNull();
+    expect(written.map(([path]) => path)).toEqual(["x.md", "websites/x.md"]);
   });
 
   test("nothing is written when nothing would change", async () => {
