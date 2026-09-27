@@ -270,7 +270,7 @@ export function FolderView({
     tree beside this, with its own multi-selection — and only where there is a
     selection menu to act through. See `folderSelect.tsx`.
   */
-  const selection = useFolderSelection(rows);
+  const selection = useFolderSelection(rows, entry.path);
   const onSelection = menu?.onSelection;
   const canSelect = compact && onSelection !== undefined && rows.length > 0;
   const selecting = canSelect && selection.selecting;

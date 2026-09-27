@@ -40,9 +40,22 @@ export interface FolderSelection {
   done: () => void;
 }
 
-export function useFolderSelection(rows: readonly FileEntry[]): FolderSelection {
+export function useFolderSelection(rows: readonly FileEntry[], folder: string): FolderSelection {
   const [selecting, setSelecting] = useState(false);
   const [paths, setPaths] = useState<ReadonlySet<string>>(new Set());
+  /*
+    Opening another folder ends the mode. The page is the same component from
+    folder to folder, so without this a person who pressed Select in one would
+    land in the next with every press picking instead of opening. Reset while
+    rendering rather than in an effect, so the next folder never draws a frame
+    in select mode.
+  */
+  const [shownFolder, setShownFolder] = useState(folder);
+  if (shownFolder !== folder) {
+    setShownFolder(folder);
+    setSelecting(false);
+    setPaths(new Set());
+  }
 
   /*
     Derived from the listing rather than held: a row that was moved, archived

@@ -78,6 +78,8 @@ interface Mounted {
   rows: () => HTMLElement[];
   press: (node: Element | null) => void;
   hold: (node: Element | null) => void;
+  /** Show another folder in the same page, as opening one from it does. */
+  open: (folder: string) => void;
 }
 
 function mount(width: number, options: { menu?: boolean } = {}): Mounted {
@@ -103,10 +105,9 @@ function mount(width: number, options: { menu?: boolean } = {}): Mounted {
       return true;
     },
   };
-  act(() => {
-    root.render(
+  const render = (folder: FileEntry) => root.render(
       createElement(FolderView, {
-        entry: entry("", "folder"),
+        entry: folder,
         listing: listing([entry("alpha.md"), entry("beta.md"), entry("gamma.md")]),
         canSetVisibility: true,
         contextLabel: "@seyi",
@@ -116,7 +117,7 @@ function mount(width: number, options: { menu?: boolean } = {}): Mounted {
         ...(options.menu === false ? {} : { menu }),
       }),
     );
-  });
+  act(() => render(entry("", "folder")));
   const press = (node: Element | null) => {
     if (node === null) throw new Error("nothing to press");
     act(() => {
@@ -144,6 +145,7 @@ function mount(width: number, options: { menu?: boolean } = {}): Mounted {
     rows: () => [...container.querySelectorAll<HTMLElement>('[data-testid="folder-row"]')],
     press,
     hold,
+    open: (folder) => act(() => render({ ...entry("", "folder"), path: folder, name: folder })),
   };
 }
 
@@ -190,6 +192,18 @@ describe("Select on a phone's folder page", () => {
     app.press(app.rows()[0]!);
     app.press(app.find("folder-select-actions"));
     expect(app.selections).toEqual([["1-projects/alpha.md", "1-projects/gamma.md"]]);
+  });
+
+  test("opening another folder leaves select mode", () => {
+    const app = mount(390);
+    app.press(app.find("folder-select"));
+    app.press(app.rows()[0]!);
+    expect(app.find("folder-select-count")).not.toBeNull();
+
+    app.open("2-areas");
+    expect(app.find("folder-select-count")).toBeNull();
+    app.press(app.rows()[1]!);
+    expect(app.opened).toEqual(["1-projects/beta.md"]);
   });
 
   test("Actions is not offered with nothing picked", () => {
