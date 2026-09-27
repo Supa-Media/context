@@ -11,7 +11,6 @@ import {
 } from "@codemirror/view";
 import { indexByName, parseLinks, resolveLink } from "@context/shared/src/links";
 
-import { selectionTouches } from "./livePreview";
 import { webUrl } from "./webUrl";
 
 export { webUrl } from "./webUrl";
@@ -42,11 +41,11 @@ export { webUrl } from "./webUrl";
  *
  *  - **⌥/Alt-click** places the caret and navigates nothing. It is the
  *    deliberate "I am editing this link" gesture.
- *  - **A click on a link that already holds the caret** places the caret too.
- *    Live preview has already unfolded that link to its `[[…]]` source, and
- *    source is text: clicking text puts the caret in it. So the way to fix a
- *    path is the way you were already going to try — click into it, then click
- *    again — rather than a chord you have to be told about.
+ *  - **A click on a link with the caret already inside it** places the caret
+ *    too. Live preview has already unfolded that link to its `[[…]]` source,
+ *    and source is text: clicking text puts the caret in it. The caret has to
+ *    be strictly inside, not at an edge. See `editing` for why an edge caret
+ *    made links unreliable on a phone.
  *
  * ⌘/Ctrl-click opens the note **behind** the one you are reading, which is what
  * the modifier means in a browser and is the one thing the old binding was
@@ -407,32 +406,31 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   };
 
   /**
-   * Whether this link is currently showing its source, with a caret in it.
+   * Whether somebody is working *inside* this link, so a click or tap on it
+   * belongs to the caret rather than to the link.
    *
-   * The second of the two ways into a link's text, and the one nobody has to
-   * be told about: live preview unfolds the link the selection touches, so
-   * what is under the pointer at that moment is `[[…]]` rather than a rendered
-   * link. Clicking source has to put the caret where somebody aimed, exactly
-   * as clicking any other text does.
+   * The second of the two ways into a link's text: once the caret is inside a
+   * link, live preview has unfolded it to `[[…]]` source, and clicking source
+   * has to put the caret where somebody aimed, exactly as clicking any other
+   * text does.
    *
-   * `selectionTouches` is **live preview's own predicate**, imported rather
-   * than re-derived, because the question here is precisely the one it
-   * answers: is this link drawn as source right now? Two implementations of it
-   * would drift into a state where the editor shows a path and a click on that
-   * path navigates instead of putting a caret in it.
+   * **Inside means strictly inside, and a caret at either edge does not count.**
+   * This was live preview's own `selectionTouches`, which counts the edges
+   * because an edge caret unfolds the link. With that rule, clicking beside a
+   * link and then on it placed a caret, when the owner wanted "only open the
+   * link if I click directly on the link". A caret at an edge now leaves the
+   * link followable, and ⌥-click is how a pointer gets into the words
+   * directly. **Only a click asks this.** A tap never does; see `touchstart`
+   * for why.
    *
    * **`hasFocus` is what stops a freshly opened note eating its first click.**
-   * A view that nobody has clicked into still has a selection — at position 0
-   * — so a note whose first characters are a link would count as "the caret is
-   * in it" before anybody had touched it, and following that link would do
-   * nothing. An unfocused editor has no caret anybody can see and nobody is
-   * editing it; there is nothing there to protect.
+   * A view that nobody has clicked into still has a selection at position 0,
+   * which is inside a link a note opens with. An unfocused editor has no caret
+   * anybody can see and nobody is editing it; there is nothing to protect.
    */
-  const ranges = (view: EditorView): { from: number; to: number }[] =>
-    view.state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
-
   const editing = (view: EditorView, span: { from: number; to: number }): boolean =>
-    view.hasFocus && selectionTouches(span, ranges(view));
+    view.hasFocus &&
+    view.state.selection.ranges.some((range) => range.to > span.from && range.from < span.to);
 
   /**
    * What is under the pointer: a note to open, a web address to open, or
@@ -515,20 +513,24 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       const span = targetAtCoords(view, touch.clientX, touch.clientY, event.target);
       if (span === null) return false;
       /*
-        THE PHONE'S WAY INTO A LINK'S TEXT, and without it there is none.
+        A TAP ON A LINK'S WORDS ALWAYS OPENS IT. Unlike a click, a tap does not
+        ask `editing`, and that asymmetry is deliberate.
 
-        A touch screen has no ⌥, so the caret rule is the *only* one of the two
-        escape hatches it has — and a tap that always followed would make the
-        characters inside a link unreachable on a phone, which is the whole
-        objection the old ⌘-click rule was built around, surviving on one
-        platform.
+        On a phone the caret-inside rule decided almost at random. Link
+        brackets are hidden, so a tap just past a link, or at the end of a line
+        of links like `home - pricing - dev log`, leaves the caret between the
+        label and its hidden `]]`. That is strictly inside the link, which
+        unfolds to source, and the next tap on it placed a caret. Measured in
+        Chromium with touch against the WebView bundle: tap past the end of
+        that line, then tap "dev log", and nothing opened. The owner's words:
+        "sometimes it goes into editing, and sometimes it opens, it should
+        always open up the page, and only go into an editing position if i
+        directly click the side of the link".
 
-        It reads as: tap beside the link to put the caret there, which unfolds
-        it to source (live preview reveals what the selection touches, ends
-        included), and tap again to land in the path. The same two taps a
-        pointer spends, without the modifier.
+        So the phone's way into a link's text is beside it: a tap there places
+        the caret, which unfolds the link. The caret then moves in with the
+        phone's own caret drag or a long-press selection, and neither is a tap.
       */
-      if (editing(view, span)) return false;
       tap = {
         x: touch.clientX,
         y: touch.clientY,
