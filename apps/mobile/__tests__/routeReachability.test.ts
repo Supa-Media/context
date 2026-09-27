@@ -182,18 +182,17 @@ const REGION_DENSITIES: Record<
   ReadonlySet<ReachabilityDensity>
 > = {
   switcher: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "switcher")),
-  contextStrip: new Set(
-    DENSITIES.filter((d) => topBarLeadFor(d) === "account"),
-  ),
   bottomBar: new Set(
     DENSITIES.filter((d) => regionsFor(d, initialFrame).bottomBar),
   ),
   /*
     The pinned account mark, which is the phone's — `topBarLeadFor` answers
     "account" at exactly the densities that draw it, and it is the same set
-    `contextStrip` reads. Two regions off one answer is right rather than
-    redundant: they are two controls in that corner and either can be deleted
-    without the other.
+    the switcher's phone trigger is drawn in. It used to be shared with a
+    `contextStrip` region, the phone's workspace strip; the strip went into
+    the account sheet (owner, 2026-09-27) and its region went with it, so
+    every phone claim to a workspace, the claim offer, New workspace and
+    Meetings is this one.
   */
   account: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "account")),
   screen: new Set(DENSITIES),
@@ -282,7 +281,6 @@ describe("the guard can see", () => {
     */
     expect([...claimed].sort()).toEqual([
       "account",
-      "contextStrip",
       "screen",
       "switcher",
     ]);
@@ -290,7 +288,6 @@ describe("the guard can see", () => {
     // And the table itself is not empty on either side, which is what makes
     // "claimed at a density this region is not drawn at" a reachable failure.
     expect([...REGION_DENSITIES.switcher]).toEqual(["medium", "wide"]);
-    expect([...REGION_DENSITIES.contextStrip]).toEqual(["compact"]);
     expect([...REGION_DENSITIES.account]).toEqual(["compact"]);
     expect([...REGION_DENSITIES.bottomBar]).toEqual(["compact"]);
   });
@@ -476,20 +473,35 @@ describe("every route is reachable, or says why not", () => {
       from the rail's module and is now its own, drawn on the phone's chrome —
       and it is a separate file, so the line did not have to be split after all.
     */
+    /*
+      **Since 2026-09-27 the same file draws the phone's account sheet too**
+      (its `"phone"` trigger, in the top-left slot), so a SwitcherMenu control
+      is either the switcher's or the account slot's. The second is allowed
+      only when the claim names the phone arm itself — the needle
+      `trigger === "phone"`, which the rule above checks is still in the file —
+      so `account` is still not a word somebody can simply retype.
+    */
     const SWITCHER = "features/console/SwitcherMenu.tsx";
+    const PHONE_ARM = 'trigger === "phone"';
     let claims = 0;
+    let phoneClaims = 0;
     for (const entry of ROUTE_REACHABILITY) {
       if (!entry.reachable) continue;
       for (const point of entry.from) {
         if (point.control?.file !== SWITCHER) continue;
         claims += 1;
+        const phoneArm = point.control.contains.includes(PHONE_ARM);
+        if (phoneArm) phoneClaims += 1;
         expect(
           `${entry.route}: drawn by the switcher, claimed as ${point.region}`,
-        ).toBe(`${entry.route}: drawn by the switcher, claimed as switcher`);
+        ).toBe(
+          `${entry.route}: drawn by the switcher, claimed as ${phoneArm ? "account" : "switcher"}`,
+        );
       }
     }
     // The rule has input. Its predecessor did not, which is why it never fired.
     expect(claims).toBeGreaterThanOrEqual(3);
+    expect(phoneClaims).toBeGreaterThanOrEqual(3);
   });
 
   test("an exemption is stated where somebody adding a route would find it", () => {

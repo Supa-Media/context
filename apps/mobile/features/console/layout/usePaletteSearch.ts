@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useDeviceSearch, useMirrorPaths } from "../../offline/useDeviceSearch";
-import { itemsFromListings, itemsFromPaths } from "../files/palette";
+import { recentPaths, type HistoryState } from "../files/history";
+import { itemsFromListings, itemsFromPaths, recentItems, type NoteNaming } from "../files/palette";
 import { useContextSearch } from "../files/useContextSearch";
 import type { ConsoleContext, ConsoleData } from "../types";
 
@@ -14,11 +15,14 @@ export function usePaletteSearch({
   insideContext,
   current,
   paletteOpen,
+  history,
 }: {
   data: ConsoleData;
   insideContext: boolean;
   current: ConsoleContext | null;
   paletteOpen: boolean;
+  /** Where this context has been, for what an untyped search lists. */
+  history?: HistoryState;
 }) {
   /*
     Whole-context search, behind the same palette that filters what is loaded.
@@ -41,7 +45,30 @@ export function usePaletteSearch({
         : { reachability, status: mirrorStatus, search: deviceSearch },
     [deviceSearch, reachability, mirrorStatus],
   );
-  const search = useContextSearch(insideContext ? data.files.search : null, device);
+  const searched = useContextSearch(insideContext ? data.files.search : null, device);
+  /*
+    Rows named the way the note is: its title from the bodies the browser
+    holds, and the workspace's own name for the top of it ("@context" on the
+    homepage) rather than a lone `/`.
+  */
+  const heldNotes = data.files.heldNotes;
+  const root = current?.displayName;
+  const naming = useMemo<NoteNaming>(
+    () => ({ texts: heldNotes, ...(root === undefined ? {} : { root }) }),
+    [heldNotes, root],
+  );
+  const search = useMemo(
+    () =>
+      root === undefined
+        ? searched
+        : {
+            ...searched,
+            items: searched.items.map((item) =>
+              item.kind === "note" && item.detail === undefined ? { ...item, detail: root } : item,
+            ),
+          },
+    [searched, root],
+  );
   /*
     Quick open by name, offline, over every note the mirror holds rather than
     only the folders that had been expanded before the signal went.
@@ -53,10 +80,18 @@ export function usePaletteSearch({
   );
   const listings = data.files.listings;
   const paletteItems = useMemo(
-    () => (paletteOpen ? itemsFromPaths(mirrorPaths, itemsFromListings(listings)) : []),
-    [paletteOpen, mirrorPaths, listings],
+    () => (paletteOpen ? itemsFromPaths(mirrorPaths, itemsFromListings(listings, naming), naming) : []),
+    [paletteOpen, mirrorPaths, listings, naming],
   );
-  return { search, paletteItems };
+  /* An untyped search lists the notes somebody was just in. */
+  const recent = useMemo(
+    () =>
+      paletteOpen && history !== undefined && insideContext
+        ? recentItems(recentPaths(history), paletteItems, naming)
+        : [],
+    [paletteOpen, history, insideContext, paletteItems, naming],
+  );
+  return { search, paletteItems, recent };
 }
 
 export type PaletteSearch = ReturnType<typeof usePaletteSearch>;

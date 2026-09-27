@@ -258,7 +258,9 @@ describe("the stylesheet outranks CodeMirror's own", () => {
    * uses does not become safe by being added here.
    */
   test("every CodeMirror selector it sets is qualified by the host element", () => {
-    const OURS = [".cm-lp-", ".cm-dictation-"];
+    // `.cm-cmt-` is the comments' own (files/comments/styles.ts), drawn in the
+    // guest since the iOS editor learned comments; CodeMirror has no such names.
+    const OURS = [".cm-lp-", ".cm-dictation-", ".cm-cmt-"];
     const withoutComments = guestStyles().replace(/\/\*[\s\S]*?\*\//g, "");
     const unqualified = withoutComments
       .split("}")

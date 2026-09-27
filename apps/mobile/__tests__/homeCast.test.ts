@@ -187,6 +187,23 @@ describe("comments in the cast", () => {
     expect(thread!.status).toBe("resolved");
   });
 
+  test("each comment, reply and resolve points the editor at the thread, so a phone opens its sheet", () => {
+    const opened: string[] = [];
+    const show = stage(SCENE, { commented: (thread) => opened.push(thread) });
+    jest.advanceTimersByTime(LIVELY.startMs);
+    const [thread] = parseComments(show.text()).threads;
+    // The comment has landed before the editor is told, so the thread it opens exists.
+    expect(opened).toEqual([thread!.id]);
+    jest.advanceTimersByTime(30_000);
+    expect(opened).toEqual([thread!.id, thread!.id, thread!.id]);
+  });
+
+  test("the cast's room carries the thread it acted on, and each action is a new step", () => {
+    const shared = createSharedDoc({});
+    expect(castPresence(shared, []).commentFocus).toBeNull();
+    expect(castPresence(shared, [], { thread: "k7f2", step: 2 }).commentFocus).toEqual({ thread: "k7f2", step: 2 });
+  });
+
   test("words that are not on the page skip the comment and every reply to it", () => {
     const show = stage('Codex comments on "nowhere to be seen": hm\n@jon replies: ok\n@jon resolves\nClaude writes: still here');
     jest.advanceTimersByTime(30_000);

@@ -41,6 +41,12 @@ import {
 export interface CommentHost {
   /** The `@handle` new comments are signed with, or null when nobody can comment here. */
   author: () => string | null;
+  /**
+   * Where a visitor goes to be able to reply, or absent where signing in is
+   * not the answer (a member who may read but not write). A thread says
+   * "Sign in to reply" only when this is there.
+   */
+  signIn?: () => (() => void) | undefined;
 }
 
 export const commentHost = Facet.define<CommentHost, CommentHost>({
@@ -182,14 +188,40 @@ export function canComment(state: EditorState): boolean {
 
 /** Start writing a comment on the selection. False when there is nothing to comment on. */
 export function startComment(view: EditorView): boolean {
-  if (!canComment(view.state)) return false;
   const { from, to } = view.state.selection.main;
+  return startCommentOn(view, { from, to });
+}
+
+/**
+ * Start writing a comment on `range`, which a touch chip remembers from the
+ * moment it was pressed: on a phone the tap that reaches the chip can move or
+ * collapse the selection before the click arrives.
+ */
+export function startCommentOn(view: EditorView, { from, to }: { from: number; to: number }): boolean {
+  if (!canComment(view.state)) return false;
+  const length = view.state.doc.length;
+  if (from < 0 || to > length || from >= to) return false;
   const text = view.state.sliceDoc(from, to);
   const lead = text.length - text.trimStart().length;
   const trail = text.length - text.trimEnd().length;
   if (to - trail <= from + lead) return false;
   view.dispatch({ effects: setDraft.of({ from: from + lead, to: to - trail }) });
   return true;
+}
+
+/**
+ * The selection a Comment chip would offer to comment on, or null when there
+ * is no chip: nobody can comment here, nothing is selected, the selection is
+ * only whitespace or inside the comments block, or a comment is already being
+ * written. The margin's chip and the phone's floating chip both ask this.
+ */
+export function commentableSelection(state: EditorState): { from: number; to: number } | null {
+  if (!canComment(state) || state.field(commentUi).draft !== null) return null;
+  const { from, to } = state.selection.main;
+  if (from === to || state.sliceDoc(from, to).trim() === "") return null;
+  const block = state.field(commentsParsed).block;
+  if (block !== null && to > block.start) return null;
+  return { from, to };
 }
 
 /** The transaction that turns the draft into a thread, or the reason it cannot. */

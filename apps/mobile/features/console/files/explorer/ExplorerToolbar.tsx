@@ -12,6 +12,7 @@ import { baseName, folderLabel } from "../paths";
 import { IconButton } from "./IconButton";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
+import { useFieldFont } from "../../../design/fieldFont";
 
 type NewId = "new-note" | "new-folder" | "new-drawing";
 type ViewId = "sort-asc" | "sort-desc" | "collapse";
@@ -61,6 +62,7 @@ export function ExplorerToolbar({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const [filterOpen, setFilterOpen] = useState(false);
   const [open, setOpen] = useState<"new" | "view" | null>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
@@ -167,7 +169,7 @@ export function ExplorerToolbar({
             blurClosedAt.current = Date.now();
             setFilterOpen(false);
           }}
-          style={styles.filter}
+          style={[styles.filter, fieldFont]}
           accessibilityLabel="Filter notes and folders"
           autoCapitalize="none"
           autoCorrect={false}

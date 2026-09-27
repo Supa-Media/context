@@ -360,7 +360,8 @@ same commit because there is one frame.
 What differs is `data.visitor`, and only where an account is the point:
 Settings, the agent setup, Sign out and the right panel are not drawn, the
 account button offers Sign in and Create account (or the way back to the app
-for somebody signed in), and Share copies the page's public `/?page=` link
+for somebody signed in), and Share copies the page's public link — its clean
+address, `/pricing` (see "A homepage page is addressed by its own name") —
 rather than opening a dialog that needs a workspace. `demo` stays true, which
 keeps every server-backed control out, so the page asks Convex nothing.
 
@@ -380,6 +381,32 @@ visibility and downloads stay off because each is a claim about a real
 workspace. Until the visitor changes something the tree follows the site; after
 that it is theirs. There is no call to action in the top bar: the page is the
 product, and a signed-out visitor gets Sign in.
+
+### A homepage page is addressed by its own name
+
+_Approved by the owner with the phone redesign, 2026-09-27._
+
+`/pricing` is the homepage's Pricing page. It used to be the not-found screen,
+and Share handed out `/?page=pricing`. A clean address reaches the app through
+the `app/[handle]` routes (the only dynamic top-level route), which redirect a
+name that is not an `@handle` to `/?page=<name>` on the web, so a visit stays
+one homepage and moving between pages is a change of `?page=` on one screen —
+the visitor's in-tab edits are not dropped by a second copy of it mounting. A
+name the site has no page for gets the homepage's own "Nothing here". The
+router (`infra/router/src/homeSite.ts`) puts the site in a page address's
+HTML as it does in `/`'s, when the site has that page, so the first paint is
+the page rather than a wait for the app to ask.
+
+The app's own screens and people's websites keep winning: Expo Router matches
+static routes first, and `APP_SEGMENTS` in
+`apps/mobile/features/home/homeSite.ts` names every top-level route so that
+Share never hands out `/login` for a site page called `login` (that one keeps
+`/?page=login`).
+
+**What a "simplification" would cost:** drawing the homepage at `/pricing`
+instead of redirecting remounts it on the first click; dropping a segment
+from the list makes Share's link open an app screen. `homeSite.test.ts` reads
+`app/` and fails on a route the list does not name.
 
 A visit decides once between the site and the built-in copy
 (`apps/mobile/features/home/homeSnapshot.ts`): with no block in the HTML the
@@ -522,10 +549,22 @@ note's show at once and the cast leaves it. Each page plays once a visit,
 nothing is written anywhere but the visitor's in-tab copy, and with reduced
 motion text lands whole instead of being typed.
 
+**In the owner's editor a block is one row.** A cast block folds to
+"▸ Demo script · N steps" while the caret is elsewhere, N being the steps the
+shared parser will play from it (counted over the page, so a `replies` that
+needs an earlier block's thread counts where it plays), and gives its source
+back when the caret reaches it, the frontmatter's rule; tapping the row puts
+the caret on its first line (`livePreview/castBlock.ts`). An unclosed block is
+a line of text rather than a code block running to the end of the note, as
+the shared parser already shows it (`livePreview/castGrammar.ts`). Web and the
+iOS editor draw it from the same code.
+
 **What a simplification costs.** Drawing the cast with homepage-only
 components forks the shell the homepage exists to show. Anchoring steps by
 quoted text makes routine edits break the show silently. Serving the blocks
 on other sites prints the script as a code block on someone's public page.
 `apps/mobile/__tests__/homeCast.test.ts`, `websiteCast.test.ts` and the cast
 case in `apps/convex/__tests__/websiteResolution.test.ts` fail if any of
-these comes back.
+these comes back. Printing the script in the editor puts the page's loudest
+lines where the owner writes it; `livePreview/castFences.test.ts` fails if
+the row or its count goes, or an unclosed block swallows the note again.

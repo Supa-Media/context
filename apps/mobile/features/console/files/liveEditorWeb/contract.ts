@@ -185,6 +185,8 @@ export interface LiveEditorProps {
     /** Whether this client is the one that writes to the bucket. */
     canWrite: boolean;
     collaboration?: DurableCollaboration;
+    /** A thread the room is acting on, for the editor to open. See `Presence.commentFocus`. */
+    commentFocus?: { thread: string; step: number } | null;
   };
   /**
    * Scroll the surface this editor is laid out inside, by `delta` points.
@@ -279,6 +281,8 @@ export interface LiveEditorProps {
    * the threads readable and offers no way to add to them.
    */
   commenter?: string | null;
+  /** A visitor's sign-in; a thread's reply field then says "Sign in to reply". */
+  onSignInToComment?: () => void;
   onPreviewLinks?: (links: { href: string; text: string }[]) =>
     Promise<{ href: string; text: string }[]>;
 }
@@ -300,6 +304,7 @@ export interface EditorHandlers {
   onDictate: LiveEditorProps["onDictate"];
   onAsk: LiveEditorProps["onAsk"];
   commenter?: LiveEditorProps["commenter"];
+  onSignInToComment?: LiveEditorProps["onSignInToComment"];
 }
 
 /** Where the pointer was when the menu or the table picker was opened. */

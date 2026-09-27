@@ -61,9 +61,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Keyboard,
-  Linking,
   Platform,
   StyleSheet,
   TextInput,
@@ -72,7 +70,7 @@ import {
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
-import { linkPromptMessage } from "./linkPrompt";
+import { confirmOpenUrl } from "./confirmOpenUrl";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -86,6 +84,7 @@ import {
   editorBox,
   themeVars,
 } from "./webview/host";
+import { listSink, useExtras } from "./webview/host/useExtras";
 import { ACCESSORY_HEIGHT, accessoryUp } from "./accessory";
 import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
@@ -125,6 +124,8 @@ export function LiveEditor({
   onPickSuggestion,
   onLoadImage,
   onStoreImage,
+  commenter,
+  folderLists,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -192,6 +193,7 @@ export function LiveEditor({
     onPickSuggestion,
     onLoadImage,
     onStoreImage,
+    folderLists,
   });
   handlers.current = {
     onChange,
@@ -212,6 +214,7 @@ export function LiveEditor({
     onPickSuggestion,
     onLoadImage,
     onStoreImage,
+    folderLists,
   };
 
   /**
@@ -369,6 +372,7 @@ export function LiveEditor({
             handlers.current.onSuggest?.(line, ch) ?? Promise.resolve([]),
           onPickSuggestion: (index) =>
             handlers.current.onPickSuggestion?.(index) ?? Promise.resolve(null),
+          ...listSink(() => handlers.current.folderLists),
         },
       ),
     [keepCaretClear],
@@ -486,6 +490,8 @@ export function LiveEditor({
   useEffect(() => {
     bridge.setSuggest(onSuggest !== undefined);
   }, [bridge, onSuggest]);
+
+  useExtras(bridge, commenter, folderLists, onOpenNote !== undefined);
 
   /**
    * KEEPING THE CARET OFF THE KEYBOARD, and it is answered differently at the
@@ -745,17 +751,3 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingBottom: space.x8,
   },
 });
-
-/**
- * Ask, naming the address, then hand it to the system.
- *
- * The question draws the *contained* address and the answer opens the raw one:
- * this dialog is the only thing between a note's link and the browser, and it
- * works by being read. See `linkPrompt.ts`.
- */
-function confirmOpenUrl(url: string): void {
-  Alert.alert("Open this link?", linkPromptMessage(url), [
-    { text: "Cancel", style: "cancel" },
-    { text: "Open", onPress: () => void Linking.openURL(url).catch(() => {}) },
-  ]);
-}

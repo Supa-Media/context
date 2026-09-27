@@ -76,10 +76,48 @@ Simplifying it back to a full margin toggled on activity brings back the jump.
 The comments e2e test checks that the text stays still while a card opens and
 closes.
 
+## On a phone, a thread opens in a sheet
+
+Dev2 approved this on 2026-09-27 (phone artboards 3 and 4). Below the
+margin's width (`hasMargin` in `files/comments/model.ts`) the margin draws
+nothing, and `files/comments/sheet.ts` takes over:
+
+- Tapping highlighted words opens the thread in a bottom sheet: the quoted
+  words, each message with its author and age, whether it is resolved, and a
+  reply field. There is no count badge in the text, since it would sit inside
+  headings. The highlight is enough.
+- A visitor can read threads. For them, the field reads "Sign in to reply" and
+  opens sign-in.
+- Selecting text shows a floating Comment chip under the selection. Tapping it
+  opens the same sheet with an empty composer. The keyboard bar gets no
+  Comment key: it already carries seven keys, and Mobile Safari does not let
+  a page add to its own text menu.
+- Every comment field is 16px on a phone. Below that size, iOS zooms the page
+  when a field takes focus.
+- The homepage cast's comment, reply and resolve steps point the editor at
+  their thread (`Presence.commentFocus`). On a phone that opens the same sheet
+  a visitor opens themselves, so the demo shows no UI of its own.
+
+The margin and the sheet read the same width rule, so a thread never shows in
+both. The sheet sits on `<body>` rather than inside the editor, so a person
+typing a reply is not typing in the note, and the note's keyboard bar is
+hidden while they do. The iOS editor opens the same panel inline, under its
+line. That web view is as tall as its note, so the bottom of its page is the
+bottom of the note, not the bottom of the screen.
+
+## The iOS editor draws comments and lists
+
+The iOS guest installs the same comments extension
+(`webview/guestExtras.ts`), so markers and the log are hidden there too. The
+host sends the viewer's `@handle` over the bridge as a `commenter` message.
+Folder lists cross the bridge as `list-load`/`list-loaded`, read from the same
+`FolderListSource` the web editor uses, so a ```` ```list ```` block draws as
+it does on the web.
+
 ## Known limits
 
-- The margin is web-only. The iOS editor shows the raw markers and block until
-  its guest learns who is commenting.
+- On iOS, a reply field inside the note counts as focus in the note, so the
+  keyboard bar stays up while someone types a comment there.
 - An anchor that starts a paragraph puts `<!--` at the start of a line. In
   CommonMark that begins an HTML block, so Obsidian and GitHub render that
   one line's Markdown literally while the anchor exists. Our own renderers

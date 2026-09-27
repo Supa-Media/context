@@ -186,6 +186,7 @@ export function hiddenMarkRanges(
   selection: readonly TextRange[],
   docLength: number,
   doc?: { sliceString: (from: number, to: number) => string },
+  options: { quietHeadings?: boolean } = {},
 ): TextRange[] {
   const hidden: TextRange[] = [];
 
@@ -253,8 +254,14 @@ export function hiddenMarkRanges(
       // than a no-op.
       if (node.to <= node.from) return;
 
-      const unit = revealUnitFor(node.node);
-      if (selectionTouches(unit, selection)) return;
+      if (options.quietHeadings === true && node.name === "HeaderMark") {
+        // After a tap, a heading's marks answer only to work on the marks —
+        // see `caretInput` in `engagement.ts`.
+        if (headingMarksEngaged(node.node, selection, doc)) return;
+      } else {
+        const unit = revealUnitFor(node.node);
+        if (selectionTouches(unit, selection)) return;
+      }
 
       hidden.push({
         from: node.from,
@@ -275,6 +282,35 @@ export function hiddenMarkRanges(
     produce the right answer today and would stop being a check tomorrow.
   */
   return mergeOrdered(hidden, wiki.flatMap((span) => span.hides));
+}
+
+/**
+ * Whether the selection is working on a heading's marks rather than its words:
+ * a non-empty range that reaches them, or a caret strictly inside them. The
+ * touch rule, argued at `caretInput` in `engagement.ts`.
+ *
+ * The span is the heading's *opening* marks and their space for an ATX
+ * heading — so the closing `#`s of `# Title #` go with the opening ones rather
+ * than revealing on their own — and the underline itself for a setext one.
+ */
+function headingMarksEngaged(
+  mark: SyntaxNode,
+  selection: readonly TextRange[],
+  doc: { sliceString: (from: number, to: number) => string } | undefined,
+): boolean {
+  const heading = mark.parent;
+  const setext = heading !== null && heading.name.startsWith("SetextHeading");
+  const first = setext || heading === null ? mark : (heading.getChild("HeaderMark") ?? mark);
+  const span = setext
+    ? { from: mark.from, to: mark.to }
+    : { from: first.from, to: swallowTrailingSpace(doc, first.to) };
+  // Strict at both ends, for a range as for a caret: a double-tapped first
+  // word starts exactly where the marks end, and it does not include them.
+  return selection.some((range) =>
+    range.from < range.to
+      ? range.from < span.to && range.to > span.from
+      : range.from > span.from && range.from < span.to,
+  );
 }
 
 /** Two ranges lists, already in document order, as one. */

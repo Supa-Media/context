@@ -48,7 +48,9 @@ import { editorMenuItems, type EditorMenuId } from "../editorMenu";
 import { insertTable } from "../markdownFormat";
 import { TableSizePicker } from "../TableSizePicker.web";
 import { closeFindPanel } from "../findInNote";
-import { setRemoteCarets } from "../../presence/remoteCarets";
+import { setCaretLabels, setRemoteCarets } from "../../presence/remoteCarets";
+import { useWindowDimensions } from "react-native";
+import { densityFor } from "../../../app/frame";
 import type { SharedDoc } from "../../presence/sharedDoc";
 import { editability, replaceDocument } from "../editorSetup";
 import type { NoteLinkContext } from "../noteLinks";
@@ -65,7 +67,7 @@ import { mountEditor } from "./mount";
 import { showTitleNote } from "./titleLine";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
-import { canComment } from "../comments/extension";
+import { canComment, commentUi, setActiveThread } from "../comments/extension";
 
 export function LiveEditor({
   value,
@@ -78,6 +80,7 @@ export function LiveEditor({
   onBlur,
   onTitleCaret,
   commenter,
+  onSignInToComment,
   titleNote,
   accessibilityLabel,
   onOpenNote,
@@ -286,8 +289,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -409,6 +412,36 @@ export function LiveEditor({
     if (!current) return;
     current.dispatch({ effects: setRemoteCarets.of(presence?.members ?? []) });
   }, [presence?.members]);
+
+  /*
+    No name flags on a phone (owner, 2026-09-27, the phone artboards, screen
+    1): at 390pt a flag covers the words being read and clips at the edge.
+    The caret and the selection wash stay; the presence pile says who is
+    here. Follows a resize, so a window narrowed past the breakpoint drops
+    them. See `remoteCarets.ts`.
+  */
+  const caretFlags = densityFor(useWindowDimensions().width) !== "compact";
+  useEffect(() => {
+    const current = view.current;
+    if (!current) return;
+    current.dispatch({ effects: setCaretLabels.of(caretFlags) });
+  }, [caretFlags]);
+
+  /*
+    A thread the room points at: the homepage cast commenting, replying or
+    resolving (`Presence.commentFocus`). It opens the way a tap on the
+    highlight would, so on a phone the cast drives the same sheet a visitor
+    opens themselves. Only ever opened from here, never closed: dismissing it
+    stays the reader's.
+  */
+  const focusStep = presence?.commentFocus?.step;
+  useEffect(() => {
+    const current = view.current;
+    const thread = presence?.commentFocus?.thread;
+    if (!current || thread === undefined) return;
+    if (current.state.field(commentUi).active !== thread) current.dispatch({ effects: setActiveThread.of(thread) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the step is the event; see above
+  }, [focusStep]);
 
   // An authoritative change from outside: a draft discarded, a conflict
   // resolved, a note arriving into an editor that is already on it.

@@ -59,8 +59,7 @@
  * routes that really rested on the rail claimed it from a file the list did not
  * name. Now every entry point declares where it is drawn, and `frame.ts`
  * decides which densities that is true at: `topBarLeadFor` answers `switcher`
- * at a pointer density and `account` at compact, the context strip is drawn
- * exactly where the switcher is not, and a claim that disagrees fails
+ * at a pointer density and `account` at compact, and a claim that disagrees fails
  * whichever way somebody edits it.
  *
  * **The `rail` region became `switcher` when the rail folded into the menu
@@ -105,16 +104,17 @@ export type ReachabilityDensity = (typeof DENSITIES)[number];
  *
  * Not a label: the guard reads each of these off `frame.ts` and refuses a claim
  * made at a density that region is not drawn at. `bottomBar` is a `Regions`
- * key and is read directly; `switcher` and `contextStrip` are the two arms of
- * `topBarLeadFor`, which is the strip's whole reason for existing — the same
- * list of destinations drawn twice, once per layout.
+ * key and is read directly; `switcher` and `account` are the two arms of
+ * `topBarLeadFor` — the same list of destinations drawn twice, once per
+ * layout. (`contextStrip` was a third, the phone's workspace strip; it went
+ * into the account sheet on 2026-09-27 and its region went with it.)
  *
  * `screen` is a control the route's own surface draws — a screen, a sheet, a
  * menu, the recording bar. Those are drawn wherever the route is, so the region
  * constrains nothing and the density claim rests on the evidence alone.
  */
 export type ReachabilityRegion =
-  "switcher" | "contextStrip" | "bottomBar" | "account" | "screen";
+  "switcher" | "bottomBar" | "account" | "screen";
 
 /** One file that must still contain the wiring, and the strings that prove it. */
 export interface Evidence {
@@ -207,19 +207,19 @@ const PHONE = ["compact"] as const;
 const CONSOLE_LAYOUT = "features/console/ConsoleFrame.tsx";
 /**
  * The layout's pieces, which it keeps under `features/console/layout/` because
- * every file under `app/` is a route. The phone's strip and the context pill
- * are built in `navBand.tsx`, the account mark in `slots.tsx`, and the palette
- * in `palette.tsx` — so a claim about one of those presses names that file.
+ * every file under `app/` is a route. The context pill is built in
+ * `navBand.tsx` and the palette in `palette.tsx` — so a claim about one of
+ * those presses names that file. The phone's account sheet is `SwitcherMenu`,
+ * wired in the frame itself.
  */
 const CONSOLE_NAV_BAND = "features/console/layout/navBand.tsx";
-const CONSOLE_SLOTS = "features/console/layout/slots.tsx";
 const CONSOLE_PALETTE = "features/console/layout/palette.tsx";
 /** The app gate, which applies every redirect decision `redirect.ts` returns. */
 const APP_LAYOUT = "app/(app)/_layout.tsx";
 
 /**
- * The context strip along the top of a phone, and the switcher in the title
- * bar on a pointer layout, are the same list of destinations drawn twice — so
+ * The account sheet on a phone, and the switcher in the title bar on a
+ * pointer layout, are the same list of destinations drawn twice — so
  * most of what follows names both and neither claims all three densities on
  * its own.
  */
@@ -451,29 +451,38 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "a pill on the context strip",
+        /*
+          It was a pill on the phone's workspace strip. The strip went into
+          the account sheet (owner, 2026-09-27, the phone artboards, screen
+          9): the top-left slot opens the switcher's own rows as a bottom
+          sheet, so a phone's claim is the same control as a pointer's, in
+          the region a phone draws it in.
+        */
+        surface: "a workspace in the account sheet",
         control: {
-          file: "features/console/ContextStrip.tsx",
-          contains: ["onPress={() => onOpen(context.slug)}"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: [
+            "testID: `switcher-context-${context.slug}`",
+            "onOpenContext(id.slice(4))",
+            'trigger === "phone"',
+          ],
         },
         navigation: [
           {
-            file: CONSOLE_NAV_BAND,
+            file: CONSOLE_LAYOUT,
             /*
-              One needle, and it is the whole expression rather than its two
-              halves. Split as `["contextHrefFrom(slug)", "router.replace("]`
-              this guard was nearly vacuous: the layout holds seven
-              `router.replace(` calls, so that half matched whatever the strip's
-              own handler became — swapping it for `router.push` left the claim
-              green over a press that no longer replaces. The needle a claim
-              rests on has to be unique to the wiring it claims.
+              One needle, and it is the whole expression rather than its
+              halves: the layout holds several `router.replace(` calls, so a
+              split needle matches whatever the handler became. The phone arm
+              resumes where you were (`contextHrefFrom`); the pointer arm opens
+              the context's root.
             */
             contains: [
-              "onOpen={(slug) => router.replace(contextHrefFrom(slug))}",
+              "router.replace(phone ? contextHrefFrom(slug) : hrefFor(next))",
             ],
           },
         ],
-        region: "contextStrip",
+        region: "account",
         densities: PHONE,
       },
       {
@@ -486,7 +495,12 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
           ],
         },
         navigation: [
-          { file: CONSOLE_LAYOUT, contains: ["router.replace(hrefFor(next))"] },
+          {
+            file: CONSOLE_LAYOUT,
+            contains: [
+              "router.replace(phone ? contextHrefFrom(slug) : hrefFor(next))",
+            ],
+          },
         ],
         region: "switcher",
         densities: POINTER,
@@ -695,14 +709,18 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
           So the row is on the account menu, which is the one menu a phone
           always has, beside the only sign-out it has.
         */
-        surface: "Meetings, on the account menu",
+        surface: "Meetings, in the account sheet",
         control: {
-          file: "features/console/AccountBlock.tsx",
-          contains: ['testID: "account-meetings"', "onOpenMeetings?.()"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: [
+            'testID: "switcher-meetings"',
+            "onOpenMeetings?.()",
+            'trigger === "phone"',
+          ],
         },
         navigation: [
           {
-            file: CONSOLE_SLOTS,
+            file: CONSOLE_LAYOUT,
             contains: ["MEETINGS_ROUTE", "router.push(MEETINGS_ROUTE)"],
           },
         ],
@@ -814,21 +832,29 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "Claim your @name, at the end of the context strip",
+        /*
+          It was a pill on the phone's workspace strip. The strip went into
+          the account sheet (owner, 2026-09-27, the phone artboards, screen
+          9): the top-left slot opens the switcher's own rows as a bottom
+          sheet, so a phone's claim is the same control as a pointer's, in
+          the region a phone draws it in.
+        */
+        surface: "Claim your @name, in the account sheet",
         control: {
-          file: "features/console/ContextStrip.tsx",
+          file: "features/console/SwitcherMenu.tsx",
           contains: [
-            'testID="context-strip-claim"',
-            "onPress={onClaimContext!}",
+            'testID: "switcher-claim"',
+            "onClaimContext?.()",
+            'trigger === "phone"',
           ],
         },
         navigation: [
           {
-            file: CONSOLE_NAV_BAND,
+            file: CONSOLE_LAYOUT,
             contains: ["WELCOME_ROUTE", "router.push(WELCOME_ROUTE)"],
           },
         ],
-        region: "contextStrip",
+        region: "account",
         densities: PHONE,
       },
       {
@@ -871,24 +897,32 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "New workspace, at the end of the context strip",
+        /*
+          It was a pill on the phone's workspace strip. The strip went into
+          the account sheet (owner, 2026-09-27, the phone artboards, screen
+          9): the top-left slot opens the switcher's own rows as a bottom
+          sheet, so a phone's claim is the same control as a pointer's, in
+          the region a phone draws it in.
+        */
+        surface: "New workspace, in the account sheet",
         control: {
-          file: "features/console/ContextStrip.tsx",
+          file: "features/console/SwitcherMenu.tsx",
           contains: [
-            'testID="context-strip-create"',
-            "onPress={onCreateWorkspace!}",
+            'testID: "switcher-new"',
+            "onNewWorkspace?.()",
+            'trigger === "phone"',
           ],
         },
         navigation: [
           {
-            file: CONSOLE_NAV_BAND,
+            file: CONSOLE_LAYOUT,
             contains: [
               "NEW_WORKSPACE_ROUTE",
               "router.push(NEW_WORKSPACE_ROUTE)",
             ],
           },
         ],
-        region: "contextStrip",
+        region: "account",
         densities: PHONE,
       },
       {

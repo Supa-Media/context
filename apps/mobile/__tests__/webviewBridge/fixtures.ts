@@ -45,7 +45,7 @@ import {
   type MountedGuest,
 } from "../../features/console/files/webview/guest";
 import { guestStyles } from "../../features/console/files/webview/styles";
-import { createHostBridge, themeVars } from "../../features/console/files/webview/host";
+import { createHostBridge, themeVars, type HostSink } from "../../features/console/files/webview/host";
 import {
   PROTOCOL_VERSION,
   type EditorCommand,
@@ -141,7 +141,7 @@ export interface Wired {
  * after mounting would never exercise that, and the first thing a person would
  * see on a phone is an empty editor.
  */
-export function connect(initial: { doc: string; editable: boolean }): Wired {
+export function connect(initial: { doc: string; editable: boolean }, sink: Partial<HostSink> = {}): Wired {
   const root = document.createElement("div");
   document.body.appendChild(root);
 
@@ -157,6 +157,7 @@ export function connect(initial: { doc: string; editable: boolean }): Wired {
       counters.saves += 1;
     },
     onFocus: (focused) => focus.push(focused),
+    ...sink,
   });
 
   host.setDoc(initial.doc);

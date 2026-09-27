@@ -3,7 +3,8 @@
  * beside the Expo HTML and puts the answer in an inert JSON block, so the
  * app's first paint is the live site. What is checked here: the block cannot
  * break out of its element, only named fields go in, every failure is the
- * untouched HTML, and nothing but `/` on the apex asks.
+ * untouched HTML, and nothing but `/` and a page's own address on the apex
+ * asks.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
@@ -97,7 +98,23 @@ describe("the homepage's HTML", () => {
     expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({ handle: "context-lc" });
   });
 
-  it.each(["/login", "/@context-lc", "/console"])("%s does not ask", async (path) => {
+  /*
+    `/Legal/privacy` is a page's own address, which the app opens as that page
+    (`homePagePath` in the app), so its document carries the site too — the
+    first paint is the page rather than a wait for the app to ask.
+  */
+  it("a page's own address carries the site", async () => {
+    const html = await (await get("/Legal/privacy")).text();
+    expect(carried(html)).toEqual(SITE);
+  });
+
+  it("a name the site has no page for is left as it came", async () => {
+    const response = await get("/pricing-typo");
+    expect(await response.text()).toBe(HTML);
+    expect(response.headers.get("ETag")).toBe('"abc"');
+  });
+
+  it.each(["/login", "/@context-lc", "/console", "/s/abc", "/favicon.ico", "/Legal/logo.png"])("%s does not ask", async (path) => {
     await get(path);
     expect(fetchSpy.mock.calls.map(([input]) => String(typeof input === "string" ? input : input.url))).toEqual([
       `https://context.expo.app${path}`,

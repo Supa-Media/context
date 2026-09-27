@@ -6,7 +6,6 @@ import { StatusBar } from "../../design/components/StatusBar";
 import { layout, radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { withMirrorSegment } from "../../offline/mirrorCopy";
-import { AccountBlock } from "../AccountBlock";
 import { statusSegments } from "../files/status";
 import { describeIndexProgress } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
@@ -74,48 +73,6 @@ export function StorageChip({
     >
       {pill}
     </PressRow>
-  );
-}
-
-/**
- * Who you are signed in as, and the way out.
- *
- * Presentational now. Ending a session is `useSignOutFlow`, which the console
- * layout owns and hands to both this block and the settings overlay's Sign out
- * row — see that hook for what sign-out actually does to the device's cache
- * and its unsent writes, and why the person is asked first.
- */
-export function Account({
-  data,
-  compact,
-  touch = false,
-  onOpenSettings,
-  onOpenMeetings,
-  onSignOut,
-}: {
-  data: ConsoleData;
-  compact: boolean;
-  touch?: boolean;
-  onOpenSettings?: () => void;
-  onOpenMeetings?: () => void;
-  onSignOut: () => void;
-}) {
-  return (
-    <AccountBlock
-      // The viewer, resolved once in `identity.ts` — never the viewed context.
-      // This block used to take the first `kind === "personal"` context (which
-      // is somebody else's the moment one is shared with you) and the selected
-      // context's capture address, so opening a shared context renamed the
-      // signed-in person after it.
-      name={data.viewer.name}
-      detail={data.viewer.detail}
-      initial={data.viewer.initial}
-      compact={compact}
-      touch={touch}
-      onOpenSettings={onOpenSettings}
-      onOpenMeetings={onOpenMeetings}
-      onSignOut={onSignOut}
-    />
   );
 }
 

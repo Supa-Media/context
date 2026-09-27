@@ -28,6 +28,7 @@ import {
 } from "../../meetings/resume";
 import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
 import { NO_MEETING } from "./tabs";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * The Meetings tab: a meeting you can work in, not a window onto one.
@@ -167,6 +168,7 @@ const RECENT = 6;
 
 function LiveMeeting({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const snapshot = useMeetingsSnapshot();
   const id = record.session.id;
@@ -304,7 +306,7 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
           onSubmitEditing={addNote}
           placeholder={`Add a note at ${elapsed}`}
           placeholderTextColor={colors.muted}
-          style={styles.field}
+          style={[styles.field, fieldFont]}
           submitBehavior="submit"
           testID="aside-meeting-note-field"
         />

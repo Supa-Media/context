@@ -8,6 +8,7 @@ import { kdfSupport } from "./kdf";
 import { UNSUPPORTED_TITLE } from "./acknowledgement";
 import { PassphraseActionDialog } from "./PassphraseActionDialog";
 import type { NoteEncryptionController } from "./useNoteEncryption";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * What a passphrase-locked note actually renders as, in the console.
@@ -60,6 +61,7 @@ export function LockedNoteView({
   onWritten?: (etag: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const support = kdfSupport();
 
@@ -167,7 +169,7 @@ export function LockedNoteView({
           {path}
         </Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, fieldFont]}
           value={passphrase}
           onChangeText={setPassphrase}
           placeholder="Passphrase"
@@ -273,7 +275,7 @@ export function LockedNoteView({
       </View>
 
       <TextInput
-        style={styles.body}
+        style={[styles.body, fieldFont]}
         value={draft}
         /*
           Typing is what "idle" is measured against.

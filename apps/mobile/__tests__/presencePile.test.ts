@@ -1,7 +1,15 @@
 import { describe, expect, test } from "@jest/globals";
 import { createSharedDoc, seedSharedDoc } from "../features/console/presence/sharedDoc";
 import { cursorPosition } from "../features/console/presence/sync";
-import { lineWords, memberWhere, pileFaces, presenceLabel, presenceListTitle, presenceShown } from "../features/console/presence/pile";
+import {
+  lineWords,
+  memberWhere,
+  pileFaces,
+  pileGeometry,
+  presenceLabel,
+  presenceListTitle,
+  presenceShown,
+} from "../features/console/presence/pile";
 
 const member = (id: string, name: string) => ({
   id,
@@ -57,6 +65,22 @@ describe("presence pile", () => {
     // Never wider than the limit: the last slot becomes the count.
     expect(pileFaces([1, 2, 3, 4, 5, 6], 3)).toEqual({ faces: [1, 2], more: 4 });
     expect(pileFaces([1, 2, 3, 4, 5], 4)).toEqual({ faces: [1, 2, 3], more: 2 });
+  });
+
+  /**
+   * A phone's pile is smaller: 18pt faces overlapping by 6, so three people
+   * take about 44pt of the breadcrumb row rather than about 66 (owner,
+   * 2026-09-27, the phone artboards). Still three slots, the last a +n.
+   *
+   * SABOTAGE: `pileGeometry` answering the pointer's numbers for `compact`.
+   */
+  test("a phone's pile is 18pt faces overlapping by 6, three slots at most", () => {
+    const phone = pileGeometry(true);
+    expect(phone).toEqual({ face: 18, overlap: 6, limit: 3 });
+    // Three faces, drawn: 18 + 2 × (18 − 6) = 42pt — about 44 with the padding.
+    expect(phone.face + (phone.limit - 1) * (phone.face - phone.overlap)).toBe(42);
+    // The pointer layout is unchanged.
+    expect(pileGeometry(false)).toEqual({ face: 24, overlap: 3, limit: 4 });
   });
 
   test("the list heading counts others, not the reader", () => {

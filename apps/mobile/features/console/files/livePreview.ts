@@ -45,6 +45,7 @@
   when it was one 4,985-line file, and nothing under `livePreview/` imports it.
   Imports point down this list, never up:
 
+    castGrammar.ts   CAST_OPEN, castGrammar (an unclosed cast fence is text)
     language.ts      the GFM dialect, fence languages, fence highlight style
     frontmatter.ts   frontmatterRange/Block and the two frontmatter decorations
     reveal.ts        the inline reveal rule: hidden marks, reveal units,
@@ -54,7 +55,10 @@
     writingTable.ts  STATE: setWritingTable / writingTable (the table shown as
                      source), stopWritingTable, showTableSource
     engagement.ts    STATE: setEditorEngaged / editorEngaged, engageEditor,
-                     revealSelection (the selection the reveal rule may use)
+                     revealSelection (the selection the reveal rule may use);
+                     STATE: setCaretInput / caretInput, quietHeadings (a tap
+                     does not reveal a heading's marks)
+    castBlock.ts     cast fences folded to "Demo script · N steps", CastWidget
     cellText.ts      one table cell's Markdown as styled runs (cellRuns)
     tableModel.ts    TableGrid, readTable, tableGrids, alignmentsIn, tableLines
     gridDom.ts       STATE: drawnGrids (WeakMap) — painting, finding and

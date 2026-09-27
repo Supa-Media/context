@@ -7,20 +7,14 @@ import type { TreePick } from "../files/selection";
 import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
-import { MEETINGS_ROUTE } from "../../meetings/route";
-import {
-  DEFAULT_ACCOUNT_SETTINGS_SECTION,
-  DEFAULT_SETTINGS_SECTION,
-} from "../settings/sections";
 import { SwitcherMenu } from "../SwitcherMenu";
-import type { ConsoleContext, ConsoleData } from "../types";
-import { Account } from "./chrome";
+import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
 
 /*
-  The console's pieces of `AppFrame`'s slots: the phone's sync pill and
-  account mark, the right panel, the file tree, and the phone's toolbar. Each
+  The console's pieces of `AppFrame`'s slots: the phone's sync pill,
+  the right panel, the file tree, and the phone's toolbar. Each
   is a function returning the element rather than a component, so the tree the
   layout renders is exactly the one it rendered when these were inline.
 */
@@ -54,61 +48,6 @@ export function consoleSyncSlot({
         onPress={() => setSyncOpen(true)}
       />
     ) : undefined
-  );
-}
-
-export function consoleAccountSlot({
-  data,
-  requestSignOut,
-  router,
-  current,
-}: {
-  data: ConsoleData;
-  requestSignOut: () => void;
-  router: ConsoleRouter;
-  current: ConsoleContext | null;
-}) {
-  /*
-    A phone's top row, and the one thing left pinned in it.
-
-    The account never scrolls away — it is the only sign-out control in
-    the product, and a control you have to scroll to find is one somebody
-    concludes is missing. The contexts used to be pinned beside it and are
-    now the first row of `NavBand`, inside the scroller: navigation that
-    lay across the note has become navigation that scrolls with it. The
-    trailing capsule is untouched, because the scope and Share act on what
-    is on screen and were never navigation.
-  */
-  return (
-    <Account
-      data={data}
-      compact
-      touch
-      onSignOut={requestSignOut}
-      /*
-        The phone's only way to the meetings it has already recorded.
-
-        Its key records now — the sheet that used to carry a "Past
-        meetings" row is gone — and at every pointer density this row is
-        on the switcher instead, so there is exactly one of it per
-        surface. `data.demo` has no meetings behind it.
-      */
-      onOpenMeetings={data.demo ? undefined : () => router.push(MEETINGS_ROUTE)}
-      /*
-        Present with no context too. The account scope is about the
-        person, so "nothing selected" is a reason to open on an account
-        section rather than a reason to withhold the only settings
-        control a phone has.
-      */
-      onOpenSettings={() =>
-        router.setParams({
-          settings:
-            current === null
-              ? DEFAULT_ACCOUNT_SETTINGS_SECTION
-              : DEFAULT_SETTINGS_SECTION,
-        })
-      }
-    />
   );
 }
 
@@ -229,7 +168,8 @@ export function consoleExplorer({
 
           `phone` is not a condition here. A phone has no file tree at all
           (`features/app/frame.ts`), so this slot has no supplier at that
-          density and `NavBand`'s strip goes on being its answer.
+          density and the account sheet in its top-left slot (this same
+          component, `trigger="phone"`) is its answer.
         */
         workspaces={<SwitcherMenu {...switcherProps} />
         }

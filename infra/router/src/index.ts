@@ -78,7 +78,7 @@ export default {
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
     const decision = route(url, request.headers.get("User-Agent"));
     if (decision.kind === "proxy" && decision.upstream === "expo" && isHomeDocument(request, url)) {
-      return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx);
+      return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx, url);
     }
     return await respond(decision, request, env, ctx);
   },

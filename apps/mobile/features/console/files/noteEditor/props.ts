@@ -78,6 +78,16 @@ export interface NoteEditorProps {
    * with (files/comments/). Absent where nobody can comment.
    */
   commenter?: string | null;
+  /**
+   * A visitor's way to be able to reply: a thread's reply field then reads
+   * "Sign in to reply" and opens this. Absent for a signed-in reader.
+   */
+  onSignInToComment?: () => void;
+  /**
+   * The homepage's visitor, whose edits stay in this browser tab. The foot of
+   * the note then says so rather than "Saved in your bucket" — see `noteFoot`.
+   */
+  local?: boolean;
   /** Where a folder list block reads its notes. Absent: lists stay as source. */
   folderLists?: FolderListSource;
   /**

@@ -189,6 +189,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Agents comment through write_note, and cannot choose their name
 - Comments are never published
 - Opening a card never moves the text
+- On a phone, a thread opens in a sheet
+- The iOS editor draws comments and lists
 
 ## [Bucket-backed websites](./websites.md)
 
@@ -260,6 +262,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A folder page is a page, and a folder is acted on like a note
 - A folder's placeholder is not a row
 - A phone gets a path bar, which is half of the line that was deleted
+- The phone shell is the artboards' five pieces, and a visitor gets the same ones
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
 - Making a workspace is its own flow, not onboarding with a flag
@@ -294,6 +297,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A control on a table belongs to the row or the column it acts on
 - A note may declare the mode it opens in, and the person still outranks it
 - The note is a measured column, and the demo note stopped faking one
+- On a touch screen, a tap on a heading does not reveal its `#`
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
 - A folder row says what differs, so `0-inbox` gets no count

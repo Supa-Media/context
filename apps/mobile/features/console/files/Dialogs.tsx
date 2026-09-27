@@ -7,6 +7,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { MoveDestination } from "./browser";
 import { describeNameProblem } from "./paths";
 import { createRows, type CreateRow } from "./createSheet";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * The console's dialogs.
@@ -19,21 +20,34 @@ function Shell({
   title,
   children,
   onClose,
+  sheet = false,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  /**
+   * Anchored to the bottom edge with only its top corners rounded, rather
+   * than a card in the middle. For the phone's create menu (owner,
+   * 2026-09-27, the phone artboards): its rows are a thumb's, and a thumb is
+   * at the bottom of the glass.
+   */
+  sheet?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose} visible>
       <Pressable
-        style={styles.scrim}
+        style={[styles.scrim, sheet && styles.sheetScrim]}
         accessibilityLabel="Close"
         onPress={onClose}
       >
         {/* Swallow presses inside the card so the scrim only closes on the scrim. */}
-        <Pressable style={styles.card} onPress={() => {}} accessibilityLabel={title}>
+        <Pressable
+          style={[styles.card, sheet && styles.sheet]}
+          onPress={() => {}}
+          accessibilityLabel={title}
+          testID={sheet ? "dialog-sheet" : undefined}
+        >
           <Text variant="paneTitle" role="heading" aria-level={2}>
             {title}
           </Text>
@@ -141,7 +155,7 @@ export function CreatePrompt({
   }
 
   return (
-    <Shell title="Create" onClose={onCancel}>
+    <Shell title="Create" onClose={onCancel} sheet>
       <Text variant="paneSub">
         {`In ${folder || "the root of your context"}.`}
       </Text>
@@ -244,6 +258,7 @@ export function NamePrompt({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const [value, setValue] = useState(initialValue);
   const problem = value.trim() === "" ? null : describeNameProblem(value);
   const ready = value.trim() !== "" && problem === null;
@@ -255,7 +270,7 @@ export function NamePrompt({
         value={value}
         onChangeText={setValue}
         autoFocus
-        style={styles.input}
+        style={[styles.input, fieldFont]}
         placeholder="name"
         placeholderTextColor={colors.muted}
         accessibilityLabel={title}
@@ -499,6 +514,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 22,
     paddingHorizontal: 24,
     boxShadow: "0 40px 100px -30px rgba(0,0,0,1)",
+  },
+  /** The scrim under a bottom sheet: the card sits on the bottom edge. */
+  sheetScrim: { justifyContent: "flex-end", padding: 0 },
+  /**
+   * A bottom sheet: full width, flat along the edge it sits on, and paid
+   * enough at the foot to clear a home indicator.
+   */
+  sheet: {
+    maxWidth: "100%",
+    borderBottomWidth: 0,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingBottom: 34,
   },
   body: { marginTop: 12, gap: 12 },
   input: {

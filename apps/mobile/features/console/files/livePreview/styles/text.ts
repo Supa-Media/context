@@ -21,6 +21,27 @@ export const textStyles = `
   color: var(--lp-muted);
 }
 /*
+  A cast block (the homepage's demo script), folded to one row while nobody
+  is in it. Drawn like the frontmatter it folds like: small, muted, the mono
+  face for the count. A press opens it; see castBlock.ts.
+*/
+.cm-lp-cast {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45em;
+  margin: 0.25em 0;
+  padding: 0.35em 0.6em;
+  border-radius: 6px;
+  background: var(--lp-code-bg);
+  color: var(--lp-muted);
+  font-size: 0.9em;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cm-lp-cast-name { font-weight: 600; color: var(--lp-heading); }
+.cm-lp-cast-count { font-family: var(--lp-mono); font-size: 0.92em; }
+/*
   A dictated phrase the engine has not settled on yet.
 
   Grey and italic because that is what "heard, not written" has to look like:

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "@jest/globals";
 import { parseWebsitePage } from "@context/shared";
@@ -15,13 +15,17 @@ import {
 } from "../features/console/settings/panels/premium";
 import { BUILT_IN_PAGES } from "../features/home/builtInPages";
 import {
+  APP_SEGMENTS,
   BUILT_IN_SITE,
   LEGAL_PAGES,
   PRIVATE_PAGE,
   homeLink,
+  homePagePath,
+  homeRedirect,
   noteLinkHref,
   homeTree,
   liveHomeTree,
+  pageHref,
   pageParam,
   routeFromParam,
 } from "../features/home/homeSite";
@@ -224,6 +228,66 @@ describe("links inside a page", () => {
     expect(routeFromParam("pricing")).toBe("/pricing");
     expect(routeFromParam(["/pricing/", "x"])).toBe("/pricing");
     expect(routeFromParam("/")).toBe("/");
+  });
+});
+
+/*
+  `/pricing` used to be the not-found screen, and Share handed out
+  `/?page=pricing`. A page's address is now the one a person would type, and
+  the app's own screens and people's websites keep theirs.
+*/
+describe("a page's clean address", () => {
+  test("a name the app does not own is a page of the homepage", () => {
+    expect(homePagePath(["pricing"])).toBe("/pricing");
+    expect(homePagePath(["legal", "privacy"])).toBe("/legal/privacy");
+    expect(homePagePath(["login-help"])).toBe("/login-help");
+  });
+
+  test("the app's screens, the edge's paths and people's websites keep winning", () => {
+    for (const segments of [["login"], ["console", "seyi"], ["workspace", "new"], ["s", "abc"], ["privacy"],
+      ["terms"], ["note", "@seyi", "a.md"], ["_expo", "static"], ["api", "auth"], ["@seyi"], ["@seyi", "writing"],
+      ["LOGIN"], []]) {
+      expect({ segments, page: homePagePath(segments) }).toEqual({ segments, page: null });
+    }
+  });
+
+  test("on the web it opens the homepage on that page; elsewhere it is not found", () => {
+    expect(homeRedirect(["pricing"], true)).toEqual({ pathname: "/", params: { page: "pricing" } });
+    expect(homeRedirect(["legal", "privacy"], true)).toEqual({ pathname: "/", params: { page: "legal/privacy" } });
+    expect(homeRedirect(["login"], true)).toBeNull();
+    expect(homeRedirect(["pricing"], false)).toBeNull();
+  });
+
+  test("Share gives the clean address, and the query form only where the clean one is taken", () => {
+    expect(pageHref("/")).toBe("/");
+    expect(pageHref("/pricing")).toBe("/pricing");
+    expect(pageHref("/Public Worship/notes")).toBe("/Public%20Worship/notes");
+    expect(pageHref("/login")).toBe("/?page=login");
+    // Every clean address comes back to the page it was made from.
+    for (const route of ["/pricing", "/legal/privacy", "/Public Worship"]) {
+      const segments = decodeURI(pageHref(route)).slice(1).split("/");
+      expect(homeRedirect(segments, true)?.params.page).toBe(route.slice(1));
+    }
+  });
+
+  /**
+   * The list is only right while it names every screen under `app/`. A route
+   * added there and not here would lose to a site page of the same name in
+   * Share's links — and win in the router, so the link would open the screen.
+   */
+  test("every top-level route of the app is on the list", () => {
+    const appDir = join(__dirname, "../app");
+    const top = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        if (/^\(.*\)$/.test(name)) return top(join(dir, name));
+        const segment = name.replace(/\.tsx?$/, "");
+        if (segment.startsWith("_") || segment.startsWith("+") || segment.startsWith("[") || segment === "index") {
+          return [];
+        }
+        return [segment];
+      });
+    const missing = top(appDir).filter((segment) => !APP_SEGMENTS.has(segment));
+    expect(missing).toEqual([]);
   });
 });
 

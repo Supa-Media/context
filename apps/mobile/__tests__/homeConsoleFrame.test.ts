@@ -30,6 +30,7 @@ const mockPushed: unknown[] = [];
 const mockServer: string[] = [];
 const mockCopied: string[] = [];
 const mockAuth = { isAuthenticated: false, isLoading: false };
+const mockParams: { page?: string } = {};
 const mockSite = {
   kind: "live",
   snapshot: {
@@ -53,7 +54,7 @@ jest.mock("expo-router", () => ({
     back: () => {},
   }),
   usePathname: () => "/",
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockParams,
   useGlobalSearchParams: () => ({}),
 }));
 
@@ -108,6 +109,7 @@ afterEach(() => {
   mockServer.length = 0;
   mockCopied.length = 0;
   mockAuth.isAuthenticated = false;
+  delete mockParams.page;
 });
 
 function mountHome(width = 1280) {
@@ -174,13 +176,114 @@ describe("the homepage is the console's frame", () => {
     expect(home.find("share-audience")).toBeNull();
   });
 
-  test("a phone gets the console's phone chrome, and its Share copies too", async () => {
+  /*
+    `/pricing` is the page's address (it used to be `/?page=pricing`, and
+    `/pricing` was the not-found screen). What Share hands out is the one a
+    person would type.
+  */
+  test("Share copies a page's clean address, not its query string", async () => {
+    mockParams.page = "pricing";
+    const home = mountHome();
+    home.press(home.find("browse-share"));
+    await act(async () => {});
+    expect(mockCopied).toEqual([`${window.location.origin}/pricing`]);
+  });
+
+  /*
+    Share moved into ••• on a phone (owner, 2026-09-27, screen 2): a visitor's
+    note-actions sheet offers Copy link, which is the same copy the pointer
+    Share makes, and nothing that would write outside the tab.
+  */
+  test("a phone gets the console's phone chrome, and its Copy link copies too", async () => {
     const home = mountHome(390);
     expect(home.find("note-read")).not.toBeNull();
-    home.press(home.find("note-share"));
+    expect(home.find("note-share")).toBeNull();
+    home.press(home.find("note-actions"));
+    expect(home.find("note-action-share")).toBeNull();
+    expect(home.find("note-action-archive")).toBeNull();
+    home.press(home.find("note-action-copy-link"));
     await act(async () => {});
     expect(mockCopied).toEqual([`${window.location.origin}/`]);
     expect(home.find("share-audience")).toBeNull();
+  });
+
+  /*
+    The owner's phone screenshot (2026-09-27): the homepage's search listed
+    `01-context.md` over a lone `/`, and three letters got "That search could
+    not be run". It searches the notes in the tab now, and names them.
+  */
+  test("search names each page by its title and quotes the line that matched", async () => {
+    const home = mountHome();
+    home.press(home.find("frame-search"));
+    const input = home.find("palette-input") as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, "pri");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Past the search's debounce, and its answer.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    const rows = [...document.body.querySelectorAll('[data-testid^="palette-row-"]')].map(
+      (row) => row.textContent ?? "",
+    );
+    expect(rows[0]).toContain("Pricing");
+    expect(rows.join("|")).not.toMatch(/\.md/);
+    expect(rows.some((row) => row.includes("Welcome") && row.includes("@context · See pricing."))).toBe(true);
+    expect(home.find("palette-empty")).toBeNull();
+    expect(mockServer).toEqual([]);
+  });
+
+  /*
+    The live site's Pricing page is `pricing.md` headed "free, you cheapo", and
+    in a real build "pricing" found nothing: the row carried the heading and
+    the ranker matched only that (2026-09-27).
+  */
+  test("search finds a page by its name when its heading says something else", async () => {
+    mockSite.snapshot.pages.push({
+      path: "plans.md",
+      routePath: "/plans",
+      title: "plans",
+      markdown: "\n# free, you cheapo\n\nFive bucks a month.",
+    });
+    try {
+      const home = mountHome();
+      home.press(home.find("frame-search"));
+      const input = home.find("palette-input") as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      act(() => {
+        setter.call(input, "plans");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      });
+      const rows = [...document.body.querySelectorAll('[data-testid^="palette-row-"]')].map(
+        (row) => row.textContent ?? "",
+      );
+      expect(rows[0]).toContain("free, you cheapo");
+      expect(home.find("palette-empty")).toBeNull();
+    } finally {
+      mockSite.snapshot.pages.pop();
+    }
+  });
+
+  /*
+    The account slot on a phone is the same component as the pointer's
+    switcher, drawn as a "Sign in" pill for a visitor, and it opens the same
+    rows as a bottom sheet (screen 9).
+  */
+  test("a phone visitor's account slot is a Sign in pill opening the same sheet", async () => {
+    const home = mountHome(390);
+    const pill = home.find("account-sign-in-pill");
+    expect(pill).not.toBeNull();
+    expect(pill!.textContent).toContain("Sign in");
+    home.press(home.find("account-menu"));
+    expect(home.find("menu-sheet")).not.toBeNull();
+    expect(home.find("switcher-sign-in")).not.toBeNull();
+    expect(home.find("switcher-create-account")!.textContent).toContain("Create workspace");
+    expect(home.find("switcher-sign-out")).toBeNull();
   });
 
   test("nothing on it asks the server anything", async () => {

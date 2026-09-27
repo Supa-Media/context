@@ -164,6 +164,24 @@ export function acceptsCommand(editable: boolean, command: EditorCommand): boole
 }
 
 /** Host → guest. */
+/**
+ * A listed note as it crosses: `ListNote` from `listBlock/model.ts`, written
+ * out here because this module imports nothing. The guest checks each field
+ * before a list draws it (`guestExtras.ts`).
+ */
+export interface WireListNote {
+  path: string;
+  updatedAt?: number;
+  properties: Record<string, string | string[]>;
+  heading?: string | null;
+  lede?: string | null;
+}
+
+export interface WireListSource {
+  notes: WireListNote[];
+  complete: boolean;
+}
+
 export type ToGuest =
   /**
    * Authoritative text. Sent when a different note is opened, a draft is
@@ -297,6 +315,24 @@ export type ToGuest =
       error?: string;
     }
   | { v: number; type: "form-result"; token: string; ok: boolean; message: string }
+  /**
+   * Who is commenting here: the viewer's `@handle`, or `null` where nobody
+   * can. Desired state, resent on `ready` like `suggest`. The guest signs new
+   * comments and replies with it, and with `null` a thread is read-only.
+   */
+  | { v: number; type: "commenter"; author: string | null }
+  /**
+   * Whether this surface can read notes for a ```list block. `false` leaves
+   * every list as its source, which is what the guest did before lists
+   * crossed the bridge. Desired state, resent on `ready`.
+   */
+  | { v: number; type: "lists"; available: boolean; editable: boolean }
+  /** The notes under one list's folder, answering `list-load`; `null` when there are none to read. */
+  | { v: number; type: "list-loaded"; token: string; source: WireListSource | null }
+  /** The workspace's notes may have changed: every list reloads. */
+  | { v: number; type: "lists-changed" }
+  /** The answer to `list-set`: `null` once written, or a sentence saying why not. */
+  | { v: number; type: "list-set-result"; token: string; error: string | null }
   | {
       v: number;
       type: "form-responses-result";
@@ -425,6 +461,20 @@ export type ToHost =
     }
   | { v: number; type: "form-responses"; token: string; responsesPath: string }
   /**
+   * The notes a ```list block needs: those under `folder`, and under its
+   * subfolders when `subfolders`. A request/reply pair with a token, like
+   * `image-load`, because a note can hold several lists that load at once.
+   * The host reads through the same source the web editor does, which only
+   * holds what this viewer's clearance may see.
+   */
+  | { v: number; type: "list-load"; token: string; folder: string; subfolders: boolean }
+  /**
+   * Change one frontmatter property of one listed note, from a list's value
+   * menu. The host refuses unless its source can write (`lists.editable`),
+   * and the server refuses again behind the credential barrier.
+   */
+  | { v: number; type: "list-set"; token: string; path: string; key: string; value: string | null }
+  /**
    * Ask the host for the bytes behind an image this note embeds.
    *
    * A request/reply pair like `form-submit`, with a token for the same reason: a
@@ -519,6 +569,11 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "suggest-pick-result",
   "image-loaded",
   "image-stored",
+  "commenter",
+  "lists",
+  "list-loaded",
+  "lists-changed",
+  "list-set-result",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
@@ -541,6 +596,8 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "suggest-pick",
   "image-load",
   "image-store",
+  "list-load",
+  "list-set",
 ] as const);
 
 /**

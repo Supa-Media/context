@@ -1,34 +1,55 @@
 import { BottomBar } from "./BottomBar";
+import { parentPath } from "./files/paths";
 import { targetFolder } from "./files/tree";
-import { canGoBack, canGoForward, type HistoryState } from "./files/history";
+import { canGoBack, type HistoryState } from "./files/history";
+import type { FolderListing } from "./files/types";
 import type { ConsoleData } from "./types";
 
 /**
- * THE PHONE'S SIX KEYS.
+ * Where the Browse key goes: the folder page of what is open.
  *
- * Lifted out of `app/(app)/console/_layout.tsx` — every comment below is the one
- * it was written with, and nothing about the bar's geometry moved with it.
+ * A note opens the folder it is in. A folder page is already a folder, so the
+ * key goes one up — pressing it on `1-projects/trips` shows `1-projects`, which
+ * is what "the folder this is in" means for a folder. `""` is the context's own
+ * page, which the pane draws with nothing selected, so the caller deselects
+ * rather than selecting `""` (`NavBand`'s root pill argues why a selection of
+ * `""` is the wrong spelling of it).
  *
- * It was seven. The seventh was a microphone that opened the meeting sheet, and
- * it is gone: *"we no longer need a dedicated mic button on the bottom row, just
- * a plus button that opens different options"*. Recording is one of the things
- * the `+` now offers, so the row lost a key rather than a capability.
+ * `null` when nothing is open: the phone is already on the context's own page
+ * and the key has nowhere further out to take you.
+ */
+export function browseDestination(
+  listings: Readonly<Record<string, FolderListing | undefined>>,
+  selectedPath: string | null,
+): string | null {
+  if (selectedPath === null) return null;
+  const folder = targetFolder(listings, selectedPath);
+  return folder === selectedPath ? parentPath(folder) : folder;
+}
+
+/**
+ * THE PHONE'S FIVE KEYS: Back, Browse, Search, New, Recent.
  *
- * It left the route file for two reasons, and the second is the one that
- * prompted it:
+ * Approved by the owner on 2026-09-27 (the phone artboards, screen 1): a short
+ * centred capsule of five icon-only keys, the shape of Obsidian's, for a
+ * visitor on the homepage and a signed-in member alike. It was six — `‹ ›`,
+ * Search, `+`, Recent and a `✓` Save — and two went:
  *
- *  1. `_layout.tsx` is a route, and this repository's own lint rule says a
- *     route file should be thin. This was 210 lines of it.
- *  2. **A component defined inside a route cannot be mounted by anything
- *     else** — including `features/e2e/AppFrameVisualFixture.tsx`, which is
- *     where the design canvas is compared against the running app. So the
- *     phone board had `<Text>toolbar</Text>` in the slot where the product
- *     draws this, and "does the phone match the design" was a question that
- *     surface could not answer. A fixture that stubs the thing under review is
- *     a fixture reporting on itself.
+ *  - **`›` (forward)** was the least-pressed key on the row. Recent reaches the
+ *    page you came back from, and holding `‹` opens that list too.
+ *  - **`✓` (save)** duplicated autosave, which writes two seconds after the
+ *    last keystroke, and the top bar's sync mark, which says whether it
+ *    landed. The one state autosave will not retry from — a failed save — has
+ *    its Save button at the foot of the note on a phone now (`noteFoot`'s
+ *    `manualSave`), beside the sentence explaining what went wrong.
  *
- * Every rule about *which* keys and *why* stays in the comments inside; the
- * bar's own geometry, its dimming policy and its separator are `BottomBar`'s.
+ * Browse took a slot: it opens the folder page of the note you are on, the
+ * page the breadcrumb's segments already open, so the listing a phone lost
+ * with its file tree is one press from any note.
+ *
+ * It lives outside `app/(app)/console/_layout.tsx` so the design canvas
+ * (`features/e2e/AppFrameVisualFixture.tsx`) can mount the real row rather
+ * than a stub. The bar's own geometry and its dimming policy are `BottomBar`'s.
  */
 export function ConsoleBottomBar({
   data,
@@ -40,7 +61,7 @@ export function ConsoleBottomBar({
   onCreate,
 }: {
   data: ConsoleData;
-  /** Where you have been, for `‹` and `›`. */
+  /** Where you have been, for `‹`. */
   history: HistoryState;
   /**
    * Whether the Recent sheet has anywhere to send you.
@@ -49,6 +70,7 @@ export function ConsoleBottomBar({
    * contains the note on screen, so "not empty" is the wrong question.
    */
   hasRecent: boolean;
+  /** One step through `history`. The phone's row only ever steps back. */
   onStep: (delta: -1 | 1) => void;
   onSearch: () => void;
   onOpenRecent: () => void;
@@ -65,52 +87,24 @@ export function ConsoleBottomBar({
   // The same rule the explorer's own `+` uses, from the same function: a
   // selected *folder* is the destination, anything else means its parent.
   const folder = targetFolder(files.listings, files.selectedPath);
+  const browse = browseDestination(files.listings, files.selectedPath);
 
   return (
     <BottomBar
       actions={[
         /*
-          No drawer toggle here.
+          `‹` leads the bar, where Obsidian and every browser put it. A phone
+          shows one note at a time, so "the one I was just looking at" is a
+          destination somebody reaches constantly and cannot see.
 
-          There were two — this one and `AppFrame`'s top-bar button — with the
-          same icon, calling the same function, on one 390pt screen. The
-          defence written here was thumb reach: "the tree toggle is here as
-          well as in the top bar because this is where a thumb is, and the top
-          bar is a stretch on a tall phone."
+          Dimmed in place rather than removed at the start of the history —
+          `BottomBar`'s rule: a bar whose first position comes and goes moves
+          every other target under a thumb already travelling to it.
 
-          That was never a fallback for any layout. `regionsFor` turns
-          `drawerToggle` on only at `compact`, which is the one density where
-          `bottomBar` is unconditionally true — so the two existed together or
-          not at all, and neither was ever the only way in.
-
-          The owner chose the top-left one (2026-08). It is where Obsidian
-          puts the sidebar toggle and where the panel it opens comes from, so
-          the button and its result are on the same side. The thumb-reach half
-          of the old argument is answered by the edge-swipe, not by a second
-          button in the other corner.
-        */
-        /*
-          `‹` and `›` lead the bar, which is where Obsidian puts them and where
-          every browser puts them. A phone shows one note at a time, so "the one
-          I was just looking at" is a destination somebody reaches constantly
-          and cannot see — and before this the only route to it was to open the
-          drawer and find it in the tree again.
-
-          Dimmed in place rather than removed at the ends of the history, which
-          is `BottomBar`'s own rule for Save and is doubly right here: these two
-          spend most of a session with at least one of them unavailable, and a
-          bar whose first two positions come and go moves every other target.
-        */
-        /*
-          Held, `‹` opens the same Recent sheet its own target further along the
-          row opens. That is where every browser on every platform keeps its
-          history list, so it costs nothing to honour and it puts the list under
-          the thumb that just pressed back and found it went one step too few.
-
-          A second route, never the only one — see `onLongPress` in
-          `BottomBar`. `disabled` suppresses the hold with the press, which is
-          right: at the start of a history there is nothing behind you, and that
-          is precisely when the sheet has nothing to offer either.
+          Held, it opens the Recent sheet, which is where every browser keeps
+          its history list. A second route, never the only one: Recent is on
+          the row too. `disabled` suppresses the hold with the press, which is
+          right — at the start of a history the sheet has nothing to offer.
         */
         {
           id: "back",
@@ -121,41 +115,38 @@ export function ConsoleBottomBar({
           onPress: () => onStep(-1),
           onLongPress: hasRecent ? onOpenRecent : undefined,
         },
+        /*
+          Browse: the folder page of what is open. See `browseDestination`.
+          Dimmed in place on the context's own page, where there is nowhere
+          further out to go, for the reason `‹` dims rather than vanishing.
+        */
         {
-          id: "forward",
-          label: "Go forward",
-          icon: "chevronRight" as const,
-          disabled: !canGoForward(history),
-          onPress: () => onStep(1),
+          id: "browse",
+          label: "Browse this folder",
+          icon: "folder" as const,
+          disabled: browse === null,
+          onPress: () => {
+            if (browse === null) return;
+            if (browse === "") files.deselect();
+            else files.select(browse);
+          },
         },
         { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
         /*
           ONE KEY FOR EVERYTHING YOU START.
 
-          This used to call `createNote(folder, "Untitled")` directly, which
-          made one icon mean two different things on one screen: the drawer's
-          `+` asked for a name and said where it was going, this one wrote
-          immediately and said neither. Worse, `folder` is derived from a
-          selection that lives *in the drawer* — normally shut when this button
-          is pressed — so the destination was invisible, defaulted to the
-          bucket root, and a second press failed on the name collision rather
-          than making a second note.
+          It raises the sheet that offers everything a `+` can start — a note,
+          a drawing, a folder, a chat, a meeting — the same rows in the same
+          order as `CreateButton`'s menu (`files/createSheet.ts`), presented as
+          a bottom sheet on a phone (`CreatePrompt`). Nothing is written until a
+          row is chosen, so the destination is said before anything lands.
 
-          It then raised a chooser of three files, and now raises the sheet that
-          offers all five things a `+` can start, because the row beside it went:
-          *"we no longer need a dedicated mic button on the bottom row, just a
-          plus button that opens different options"*. Same rows, same order, from
-          the same function as `CreateButton`'s menu — see `CreatePrompt` and
-          `files/createSheet.ts`.
-
-          **Present for a read-only context too, where it used to be absent.**
-          `menu.ts`'s rule — read-only means the control is *gone*, not present
-          and refusing — still holds, a row lower down: the sheet draws no Note,
-          Drawing or Folder row without `canEdit`, and a meeting is something a
-          reader can still start. Dropping the key on `canEdit` would take
-          meeting capture off every shared context somebody reads, which is what
-          the seventh key used to guarantee it had. `null` is still absent, for
-          the one case where there is genuinely nothing behind it.
+          **Present for a read-only context too.** `menu.ts`'s rule — read-only
+          means the control is gone, not present and refusing — holds a row
+          lower down: the sheet draws no Note, Drawing or Folder row without
+          `canEdit`, and a meeting is something a reader can still start. `null`
+          is absent, for the one case where there is genuinely nothing behind
+          it.
         */
         ...(onCreate === null
           ? []
@@ -168,36 +159,13 @@ export function ConsoleBottomBar({
               },
             ]),
         /*
-          Recent, in the slot the tab count used to hold.
+          Recent: somewhere you were, from `history.ts`.
 
-          **The count is gone rather than fixed, and that is the change.** It
-          was Obsidian's, Safari's and Chrome's number-in-a-square, and its
-          whole affordance was that the number moves as you work — on a phone it
-          could not. Nothing here opens a second tab: `openInNewTab` is
-          `platform === "web"` only (`menu.ts`), its row menu lives in the
-          Explorer, and `frame.ts` hides the Explorer at `compact`. Every open
-          arrives as a `preview`, and a preview replaces the preview slot. A `1`
-          that is always `1` is a label pretending to be a state.
-
-          What a phone actually needs from that slot is the thing `‹` gives one
-          step at a time: somewhere you were. `history.ts` already holds it.
-
-          No `count` and no `marker`. A recency list has no number worth
-          printing, and the dot the tab control carried said "unsaved" about a
-          console that autosaves at 2s — a warning that resolves itself while
-          you read it. The states that do not resolve are a conflict and a
-          failed save, and those are `needsDecision`, which speaks in the notice
-          line rather than as a dot in a sheet.
-
-          **Dimmed in place, never absent** — the rule `‹` and `›` two positions
-          up already live by, and this is the third control over the same
-          history. The tab count it replaces was conditional, and its own
-          comment defended that as "the last item on the bar", which it was not:
-          Save, a rule and the meeting key all sat after it, so every one of
-          them slid sideways the first time a note opened. A recency control is
-          unavailable for the first moments of every session and available for
-          the rest, which is precisely the shape `BottomBar` says must not come
-          and go.
+          No count and no marker. A phone opens one note at a time, so a tab
+          count there could only ever read `1`; a recency list has no number
+          worth printing. **Dimmed in place, never absent**, for the first
+          moments of a session when there is nowhere to go back to — the rule
+          `‹` lives by, since this is a second control over the same history.
         */
         {
           id: "recent",
@@ -205,18 +173,6 @@ export function ConsoleBottomBar({
           icon: "clock" as const,
           disabled: !hasRecent,
           onPress: onOpenRecent,
-        },
-        {
-          id: "save",
-          label: "Save this note",
-          icon: "check" as const,
-          // Absent rather than dead would move every other button mid-reach,
-          // so it dims in place — see `BottomBar`. Live for `error` too: that
-          // is the one state autosave will not retry from, so the thumb has to
-          // be able to. Same set as ⌘S; see `Shortcuts`.
-          disabled: files.editor.status !== "dirty" && files.editor.status !== "error",
-          marker: files.editor.status === "dirty" || files.editor.status === "error",
-          onPress: files.save,
         },
       ]}
     />

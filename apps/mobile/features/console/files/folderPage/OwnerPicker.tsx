@@ -25,6 +25,7 @@ import { place } from "../../../design/components/popoverPlacement";
 import { fonts, layout, pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { ownerRows, type OwnerResults, type OwnerRow, type OwnerSearch } from "../owners";
+import { useFieldFont } from "../../../design/fieldFont";
 
 /** How long the field waits for typing to pause before it asks. */
 export const OWNER_SEARCH_DELAY_MS = 150;
@@ -56,6 +57,7 @@ export function OwnerPicker({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const view = useWindowDimensions();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OwnerResults | null>(null);
@@ -146,7 +148,7 @@ export function OwnerPicker({
             accessibilityLabel="Search people and agents"
             autoCapitalize="none"
             autoCorrect={false}
-            style={styles.field}
+            style={[styles.field, fieldFont]}
             testID="owner-picker-field"
             onKeyPress={(event) => {
               const key = event.nativeEvent.key;

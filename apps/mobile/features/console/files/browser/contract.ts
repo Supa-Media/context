@@ -597,6 +597,16 @@ export interface FileBrowser {
    */
   linkPaths: readonly string[];
   /**
+   * Every note body this browser holds in memory, by path — so search can
+   * name a row by its title rather than its file without a round trip.
+   *
+   * Optional, and only a browser that already has them says so: the homepage's
+   * notes live in the tab (`useLocalFileBrowser`). The console fetches a body
+   * when it is opened and names the rest by file, which is `noteHeading`'s
+   * last rung and the honest answer for a note nobody has read yet.
+   */
+  heldNotes?: Readonly<Record<string, string>>;
+  /**
    * Write a working `privacy.md` over one that is missing or unreadable.
    *
    * Present on every browser and inert on most of them, like every other
