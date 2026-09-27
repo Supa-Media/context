@@ -23,7 +23,7 @@ export function fieldFontSize(size: number, compact: boolean): number {
 }
 
 /**
- * The style a field adds last: `{ fontSize: 16 }` on a phone when the field's
+ * The style a field adds last: `FIELD_MIN_PHONE` as its size on a phone when its
  * own size is under that, and nothing otherwise, so a desktop field is the
  * size it always was. Pass the field's own size; leave it out for a field that
  * sets none.

@@ -128,10 +128,9 @@ export function withoutSortPrefix(name: string): string {
  * `crumbsFor` applies segment by segment, in the one other shape a path gets
  * drawn in.
  *
- * **Not for a destination picker.** Where somebody is choosing a folder — the
- * move dialog's list, the palette's folder rows — the real key is the point,
- * and a trimmed one would offer a folder that is not there. The line under a
- * note's title in search is a place again, and uses this.
+ * **Not for a picker.** Where somebody is choosing a destination — the move
+ * dialog's list, the palette — the real key is the point, and a trimmed one
+ * would offer a folder that is not there.
  */
 export function displayPath(path: string): string {
   return isolateForDisplay(path.split("/").map(withoutSortPrefix).join("/"));
