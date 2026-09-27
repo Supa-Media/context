@@ -38,7 +38,9 @@
  */
 
 import { drawingName, isDrawingPath } from "@context/drawings";
+import { MARKER_RE } from "@context/shared/src/comments.cjs";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { standardEmojiNamed } from "./emoji/standardEmoji";
 import { withoutSortPrefix } from "./paths";
 
 import { stripFrontmatter } from "../../share/markdown";
@@ -155,13 +157,46 @@ export function noteHeading(source: string, path: string): string {
     Wrapping the exit rather than each `return` is deliberate — a fifth rung
     added later is contained without anybody remembering to.
   */
-  return isolateForDisplay(headingText(source, path));
+  return isolateForDisplay(withStandardEmoji(headingText(source, path)));
+}
+
+/**
+ * `:tada:` as 🎉, the way the note's own body draws it.
+ *
+ * Only names in the standard table change. A workspace's own emoji stays as its
+ * shortcode here, because its picture has to be fetched: `EmojiTitle` draws it
+ * where a title is on screen. An unknown name — `10:30:45`, a Rails symbol —
+ * is left exactly as written.
+ */
+function withStandardEmoji(title: string): string {
+  return title.replace(/:([a-z0-9_+-]+):/g, (whole, name: string) => standardEmojiNamed(name)?.char ?? whole);
+}
+
+/**
+ * The words a title shows, without comment anchors.
+ *
+ * A comment on words inside the heading wraps them in `<!--c:id-->…<!--/c:id-->`
+ * (`comments.cjs`). The editor hides those markers, but a title is read off the
+ * raw line, so without this the breadcrumb, the tab and the note head all spell
+ * them out. Nothing is written back: the anchors stay in the file, where the
+ * comment needs them.
+ */
+function withoutAnchors(text: string): string {
+  return text.replace(MARKER_RE, "");
+}
+
+/** The frontmatter's title without anchors, or `null` when that leaves nothing. */
+function statedTitle(frontmatter: string): string | null {
+  const stated = frontmatterTitle(frontmatter);
+  if (stated === null) return null;
+  const words = withoutAnchors(stated).trim();
+  return words === "" ? null : words;
 }
 
 function headingText(source: string, path: string): string {
   const { frontmatter, body } = splitNote(source);
 
-  const stated = frontmatterTitle(frontmatter);
+  const stated = statedTitle(frontmatter);
   if (stated !== null) return stated;
 
   /*
@@ -234,7 +269,7 @@ export type HeadingSource = "frontmatter" | "heading" | "filename";
  */
 export function noteHeadingSource(source: string, path?: string | null): HeadingSource {
   const { frontmatter, body } = splitNote(source);
-  if (frontmatterTitle(frontmatter) !== null) return "frontmatter";
+  if (statedTitle(frontmatter) !== null) return "frontmatter";
   if (typeof path === "string" && isDrawingPath(path)) return "filename";
   if (firstHeading(body) !== null) return "heading";
   return "filename";
@@ -271,7 +306,7 @@ function scanFirstHeading(body: string): { text: string; index: number } | null 
     if (inFence) continue;
     const match = /^\s*#(?:\s+(.*))?$/.exec(line);
     if (match === null) continue;
-    const text = (match[1] ?? "").replace(/\s+#+\s*$/, "").trim();
+    const text = withoutAnchors(match[1] ?? "").replace(/\s+#+\s*$/, "").trim();
     if (text !== "") return { text, index };
   }
   return null;

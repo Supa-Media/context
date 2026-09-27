@@ -428,3 +428,24 @@ describe("the rule itself", () => {
     });
   });
 });
+
+describe("a comment on words in the title is not a new title", () => {
+  // Commenting wraps the words in anchors (`comments.cjs`). Read as text, that
+  // was a title change, and leaving it would have renamed the file after the
+  // markers. The title is the words the reader sees.
+  const commented = "# <!--c:tvty-->roadmap<!--/c:tvty-->\n\nBody.\n";
+
+  test("a linked note stays linked once its title carries a comment", () => {
+    expect(isLinkedTitle("1-projects/roadmap.md", commented)).toBe(true);
+  });
+
+  test("adding the comment proposes no rename", () => {
+    expect(
+      proposeTitle({ path: "1-projects/roadmap.md", draft: commented, listings: { "1-projects": undefined }, sharesWarning: null }),
+    ).toEqual({ kind: "same" });
+  });
+
+  test("and it does not count as editing the title", () => {
+    expect(editChangesTitle("# roadmap\n\nBody.\n", commented)).toBe(false);
+  });
+});
