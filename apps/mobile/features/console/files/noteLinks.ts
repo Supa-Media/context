@@ -446,7 +446,9 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     view: EditorView,
     x: number,
     y: number,
+    under: EventTarget | null,
   ): { from: number; to: number; path?: string; url?: string } | null => {
+    if (!onLinkText(view, under)) return null;
     const pos = view.posAtCoords({ x, y });
     if (pos === null) return null;
     const note = noteLinkAt(spansOf(view), pos);
@@ -492,7 +494,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         click belongs to the caret.
       */
       if (event.altKey) return false;
-      const span = targetAtCoords(view, event.clientX, event.clientY);
+      const span = targetAtCoords(view, event.clientX, event.clientY, event.target);
       if (span === null) return false;
       // The link is unfolded to its source and somebody is working inside it.
       if (editing(view, span)) return false;
@@ -510,7 +512,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       forget();
       if (event.touches.length !== 1) return false;
       const touch = event.touches[0]!;
-      const span = targetAtCoords(view, touch.clientX, touch.clientY);
+      const span = targetAtCoords(view, touch.clientX, touch.clientY, event.target);
       if (span === null) return false;
       /*
         THE PHONE'S WAY INTO A LINK'S TEXT, and without it there is none.
@@ -578,6 +580,31 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   });
 
   return [decorations, tooltip, events, linkTheme];
+}
+
+/**
+ * Whether the pointer is on a link's drawn words, rather than merely on its line.
+ *
+ * `posAtCoords` answers "the nearest position", not "the character under the
+ * pointer": a click in the empty space past the end of a line lands on the
+ * line's last position, and when the line ends in a link that position is the
+ * link's closing edge. So a click beside a link opened it — the owner's words:
+ * "the hitbox is just too wide" — when all anybody wanted was the caret at the
+ * end of the line. The same snapping reached a link from the blank margin of a
+ * wrapped line and from the gap below a short one.
+ *
+ * The element under the pointer is the honest answer, because it is the one
+ * the browser hit-tested: a link is drawn inside `.cm-note-link` (this module's
+ * mark) or `.cm-lp-link` (live preview's), and empty space past the text is the
+ * line element itself. Both classes are the same ones that give a link its
+ * pointer cursor, so the words that look clickable and the words that are
+ * clickable are one set.
+ */
+export function onLinkText(view: EditorView, under: EventTarget | null): boolean {
+  const element =
+    under instanceof Element ? under : under instanceof Node ? under.parentElement : null;
+  const link = element?.closest(".cm-note-link, .cm-lp-link") ?? null;
+  return link !== null && view.contentDOM.contains(link);
 }
 
 /** A user agent, or nothing, without assuming there is a browser. */
