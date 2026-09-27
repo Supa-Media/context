@@ -499,6 +499,14 @@ The two things added for it serve the console too: the chip draws an agent
 as a square, and a `demo` presence says `· demo` in the chip, so nobody takes
 a scripted @maya for a person watching them.
 
+**An agent is named by whose it is**, in the cast and in the console alike
+(the owner, 2026-09-27): several people's agents work in one shared
+workspace, so the gateway's `presenceActor` names one `@jon's Claude`, and
+the console draws that compactly (`agentName.ts`): the caret's flag reads
+`jo Claude`, and a facepile avatar for an agent is a square with its owner's
+initials. The full name stays in the chip's words, the agents list and the
+flag's tooltip.
+
 **The visitor comes first.** A change the visitor makes to a note ends that
 note's show at once and the cast leaves it. Each page plays once a visit,
 nothing is written anywhere but the visitor's in-tab copy, and with reduced
