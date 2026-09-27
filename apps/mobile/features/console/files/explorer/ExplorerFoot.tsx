@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../../design/components/Button";
 import { Icon } from "../../../design/components/Icon";
+import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles } from "../../../design/theme";
@@ -97,6 +98,8 @@ export function ExplorerFoot({
         because it is the more current of the two: minutes rather than since
         you last looked.
       */}
+      {/* Eased in and out: agents start and stop on their own, and the tree above shrinks by this line when they do. */}
+      <Reveal open={agents !== undefined && agentsLabel !== null}>
       {agents !== undefined && agentsLabel !== null ? (
         <PressRow
           accessibilityLabel={`${agentsLabel}. Show which`}
@@ -123,7 +126,9 @@ export function ExplorerFoot({
           />
         </PressRow>
       ) : null}
+      </Reveal>
 
+      <Reveal open={organizer !== undefined && suggestions !== null}>
       {organizer !== undefined && suggestions !== null ? (
         <SuggestionsLine
           count={suggestions}
@@ -136,6 +141,7 @@ export function ExplorerFoot({
           }}
         />
       ) : null}
+      </Reveal>
 
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow

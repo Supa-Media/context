@@ -23,6 +23,7 @@ export {
   clamp,
   tracking,
   leading,
+  motion,
 } from "./tokens";
 export type { Colors, GraphColors, GraphKind, Shadows } from "./tokens";
 
@@ -59,6 +60,7 @@ export { autoFitColumns, autoFitItemWidth } from "./grid";
 export { withAlpha } from "./color";
 export { Line } from "./components/Line";
 export { FocusRing } from "./components/FocusRing";
+export { Reveal } from "./components/Reveal";
 export { StageBackdrop, ConsoleHalo } from "./components/StageBackdrop";
 
 export { useCopy } from "./useCopy";

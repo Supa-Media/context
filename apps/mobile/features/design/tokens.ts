@@ -43,3 +43,5 @@ export {
 } from "./tokens/layout";
 
 export { darkShadows, type Shadows, lightShadows } from "./tokens/shadows";
+
+export { motion } from "./tokens/motion";

@@ -262,8 +262,7 @@ export function PaneHead({
 export function PresenceChip({ presence }: { presence: Presence }) {
   const styles = useThemedStyles(presenceStyles);
   const c = useThemedStyles(presenceInk);
-  if (presence.phase === "unavailable" || presence.phase === "idle") return null;
-  if (presence.summary === "") return null;
+  if (!presenceChipShown(presence)) return null;
 
   const shown = presence.members.slice(0, 4);
   const label = presenceChipLabel(presence);
@@ -296,6 +295,15 @@ export function PresenceChip({ presence }: { presence: Presence }) {
       <Pill tone={presence.phase === "reconnecting" ? "warn" : "neutral"}>{label}</Pill>
     </View>
   );
+}
+
+/**
+ * Whether the chip draws anything: somebody else is here, or the room is
+ * reconnecting. Callers that make room for it ease that room in on this.
+ */
+export function presenceChipShown(presence: Pick<Presence, "phase" | "summary">): boolean {
+  if (presence.phase === "unavailable" || presence.phase === "idle") return false;
+  return presence.summary !== "";
 }
 
 /**

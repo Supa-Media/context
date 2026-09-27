@@ -266,6 +266,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The first run is two screens, and the rest is a checklist in the console
 - Connecting an AI is a guide that checks itself
 - An action row is primary first, and the way out sits beside it
+- What arrives in the flow eases in, and one curve serves the whole console
 - Two name fields for a shared workspace, one for a personal one
 - The layout presets are business-shaped, and PARA is not the default
 - A new workspace is asked for its image

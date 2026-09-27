@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
+import { Reveal } from "../design/components/Reveal";
 import { FormError } from "../design/components/Input";
 import { space } from "../design/tokens";
 import { useThemedStyles } from "../design/theme";
@@ -73,7 +74,9 @@ export function EditorRegion({
           effect is the reason it had to move: a strip drawn *on* the page has
           no boundary to meet. See the prop.
         */}
-        {banner === null ? null : <View style={styles.bannerInset}>{banner}</View>}
+        <Reveal open={banner !== null}>
+          {banner === null ? null : <View style={styles.bannerInset}>{banner}</View>}
+        </Reveal>
         {children}
       </View>
     );

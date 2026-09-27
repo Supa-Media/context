@@ -1,5 +1,6 @@
 import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
+import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
 import { noteHeading } from "../frontmatter";
 import { EncryptedNotice, ManifestNotice } from "./notices";
@@ -111,6 +112,7 @@ export function noteFlow(view: NoteView) {
     */}
     {noteDocument(view)}
 
+    <Reveal open={state.status === "conflict"}>
     {state.status === "conflict" ? (
       <View style={styles.conflict}>
         <Text variant="hint" style={styles.conflictText}>
@@ -122,6 +124,7 @@ export function noteFlow(view: NoteView) {
         </View>
       </View>
     ) : null}
+    </Reveal>
 
     {/*
       The durability line, and it is not chrome.
@@ -172,6 +175,8 @@ export function noteFlow(view: NoteView) {
       and, in a conflict, Overwrite theirs — off every pointer layout with it,
       because the row is where that button lives.
     */}
+    {/* Eased rather than popped: on a pointer layout this row arriving on its own (a failed save, a conflict) shrinks the editor from below. */}
+    <Reveal open={Boolean(explains || canDiscard || manualSave)}>
     {explains || canDiscard || manualSave ? (
       <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
         {/*
@@ -240,6 +245,7 @@ export function noteFlow(view: NoteView) {
         )}
       </View>
     ) : null}
+    </Reveal>
   </>
   );
 }
