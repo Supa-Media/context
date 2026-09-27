@@ -48,7 +48,9 @@ import { editorMenuItems, type EditorMenuId } from "../editorMenu";
 import { insertTable } from "../markdownFormat";
 import { TableSizePicker } from "../TableSizePicker.web";
 import { closeFindPanel } from "../findInNote";
-import { setRemoteCarets } from "../../presence/remoteCarets";
+import { setCaretLabels, setRemoteCarets } from "../../presence/remoteCarets";
+import { useWindowDimensions } from "react-native";
+import { densityFor } from "../../../app/frame";
 import type { SharedDoc } from "../../presence/sharedDoc";
 import { editability, replaceDocument } from "../editorSetup";
 import type { NoteLinkContext } from "../noteLinks";
@@ -410,6 +412,20 @@ export function LiveEditor({
     if (!current) return;
     current.dispatch({ effects: setRemoteCarets.of(presence?.members ?? []) });
   }, [presence?.members]);
+
+  /*
+    No name flags on a phone (owner, 2026-09-27, the phone artboards, screen
+    1): at 390pt a flag covers the words being read and clips at the edge.
+    The caret and the selection wash stay; the presence pile says who is
+    here. Follows a resize, so a window narrowed past the breakpoint drops
+    them. See `remoteCarets.ts`.
+  */
+  const caretFlags = densityFor(useWindowDimensions().width) !== "compact";
+  useEffect(() => {
+    const current = view.current;
+    if (!current) return;
+    current.dispatch({ effects: setCaretLabels.of(caretFlags) });
+  }, [caretFlags]);
 
   /*
     A thread the room points at: the homepage cast commenting, replying or

@@ -22,12 +22,20 @@
  * the paragraph every time somebody else moved, which is the visual equivalent
  * of somebody typing in your line. It is `pointer-events: none` for the same
  * reason — a peer's name must never eat a click meant for the word under it.
+ *
+ * ## A phone draws no label at all
+ *
+ * The owner's phone artboards (2026-09-27, screen 1): "Cursor name tags are
+ * hidden on phones." At 390pt a flag lies over the very words being read and
+ * clips at the edge of the glass. The caret and the selection wash stay, since
+ * they say *where* somebody is, and the presence pile says *who*. The editor
+ * decides by density and says so with `setCaretLabels`; this file only obeys.
  */
 
 import { EditorView, Decoration, WidgetType } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
-import type { Extension } from "@codemirror/state";
+import type { EditorState, Extension } from "@codemirror/state";
 import { clampToDocument, type PresenceMember } from "./protocol";
 import { cursorOffset } from "./sync";
 import { agentName, handleInitials } from "./agentName";
@@ -116,6 +124,12 @@ export function buildCaretDecorations(
    * yet, and is why this returns `null` rather than guessing at zero.
    */
   resolve?: (encoded: string) => number | null,
+  /**
+   * Whether any caret may carry its name flag. False on a phone, where the
+   * flag covers what is being read — see the file header. It overrides a
+   * tool's never-fading flag too.
+   */
+  labels = true,
 ): DecorationSet {
   const ranges: { from: number; to: number; deco: Decoration }[] = [];
 
@@ -151,7 +165,7 @@ export function buildCaretDecorations(
       which is the question this feature exists to answer.
     */
     const movedAt = lastMoved.get(member.id) ?? 0;
-    const labelled = member.isAgent || now - movedAt < CARET_LABEL_MS;
+    const labelled = labels && (member.isAgent || now - movedAt < CARET_LABEL_MS);
     ranges.push({
       from: head,
       to: head,
@@ -221,6 +235,28 @@ const caretState = StateField.define<CaretState>({
 });
 
 /**
+ * Whether carets carry name flags in this editor. The editor sets it from its
+ * density (`LiveEditor.web.tsx`): off on a phone. On until told otherwise, so
+ * an editor nobody configures behaves as it always did.
+ */
+export const setCaretLabels = StateEffect.define<boolean>();
+
+const caretLabels = StateField.define<boolean>({
+  create: () => true,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setCaretLabels)) return effect.value;
+    }
+    return value;
+  },
+});
+
+/** Read back what `setCaretLabels` last said, for the editor's own checks. */
+export function caretLabelsShown(state: EditorState): boolean {
+  return state.field(caretLabels, false) ?? true;
+}
+
+/**
  * The document carets are resolved against, set when the room binds.
  *
  * A relative position is meaningless without the document it refers to, so the
@@ -241,7 +277,7 @@ const caretDocument = StateField.define<Y.Doc | null>({
 });
 
 const caretDecorations = EditorView.decorations.compute(
-  [caretState, caretDocument, "doc"],
+  [caretState, caretDocument, caretLabels, "doc"],
   (state) => {
     const held = state.field(caretState);
     const doc = state.field(caretDocument);
@@ -251,6 +287,7 @@ const caretDecorations = EditorView.decorations.compute(
       Date.now(),
       held.lastMoved,
       doc === null ? undefined : (encoded) => cursorOffset(encoded, doc),
+      state.field(caretLabels),
     );
   },
 );
@@ -331,5 +368,5 @@ export type Reporter = (anchor: number, head: number) => void;
 
 /** The whole extension, for `editorExtensions` to include. */
 export function remoteCarets(): Extension {
-  return [caretState, caretDocument, caretDecorations, caretLabelTimer, caretTheme];
+  return [caretState, caretDocument, caretLabels, caretDecorations, caretLabelTimer, caretTheme];
 }
