@@ -8,6 +8,7 @@ import { CAST_ORIGIN, LIVELY, castColors, playCast, type CastHost } from "../fea
 import { castPresence, castSite } from "../features/home/cast/castSite";
 import { pageNamed, recordAgent } from "../features/home/cast/useHomeCast";
 import { presenceChipLabel } from "../features/console/ConsoleShell";
+import { parseComments } from "@context/shared/src/comments.cjs";
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -144,6 +145,54 @@ describe("playCast", () => {
     show.run.stop();
     jest.advanceTimersByTime(60_000);
     expect(show.text()).not.toContain("never");
+  });
+});
+
+describe("comments in the cast", () => {
+  const SCENE = [
+    '@maya\'s Codex comments on "notion had a baby": this seems a little unprofessional.',
+    "@jon replies: eh, I don't really care",
+    "@jon resolves",
+  ].join("\n");
+
+  test("an agent's comment is a real thread around the quoted words, with those words selected", () => {
+    const show = stage(SCENE);
+    jest.advanceTimersByTime(LIVELY.startMs);
+    const { threads, anchors } = parseComments(show.text());
+    expect(threads).toHaveLength(1);
+    expect(threads[0]).toMatchObject({ quote: "notion had a baby", status: "open" });
+    expect(threads[0]!.events[0]).toMatchObject({ author: "@maya's Codex", text: "this seems a little unprofessional." });
+    const anchor = anchors.get(threads[0]!.id)!;
+    const codex = show.last()[0]!;
+    expect(cursorOffset(codex.anchor!, show.shared.doc)).toBe(anchor.from);
+    expect(cursorOffset(codex.head!, show.shared.doc)).toBe(anchor.to);
+    expect(show.did).toEqual([["@maya's Codex", "write", "01-Home.md"]]);
+  });
+
+  test("a person's reply is typed into the thread a letter at a time, then they resolve it", () => {
+    const show = stage(SCENE);
+    jest.advanceTimersByTime(LIVELY.startMs + LIVELY.gapMs + LIVELY.keyMs * 3 + LIVELY.keyMs * 4);
+    const partial = parseComments(show.text()).threads[0]!.events[1]!;
+    expect(partial.author).toBe("@jon");
+    expect(partial.text.length).toBeGreaterThan(0);
+    expect("eh, I don't really care".startsWith(partial.text)).toBe(true);
+    expect(partial.text).not.toBe("eh, I don't really care");
+    jest.advanceTimersByTime(20_000);
+    const [thread] = parseComments(show.text()).threads;
+    expect(thread!.events.map((event) => [event.author, event.kind, event.text ?? ""])).toEqual([
+      ["@maya's Codex", "comment", "this seems a little unprofessional."],
+      ["@jon", "comment", "eh, I don't really care"],
+      ["@jon", "resolved", ""],
+    ]);
+    expect(thread!.status).toBe("resolved");
+  });
+
+  test("words that are not on the page skip the comment and every reply to it", () => {
+    const show = stage('Codex comments on "nowhere to be seen": hm\n@jon replies: ok\n@jon resolves\nClaude writes: still here');
+    jest.advanceTimersByTime(30_000);
+    expect(parseComments(show.text()).threads).toEqual([]);
+    expect(show.text()).not.toContain("<!--c:");
+    expect(show.text()).toContain("still here");
   });
 });
 

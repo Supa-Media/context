@@ -12,6 +12,11 @@
  * No socket and no bucket: the document lives in this tab, and every change
  * reaches only the visitor's own copy of the page (`useLocalFileBrowser`).
  *
+ * Comments go through the same document: a thread is its anchor markers and
+ * its lines in the note's `comments` block (`comments.cjs`), so the margin
+ * draws the cast's comment as it draws anybody's, and a person's reply is
+ * typed into its line a letter at a time.
+ *
  * **The visitor comes first.** The moment they change the note themselves the
  * cast stops and leaves it, so nobody ever types into a sentence a visitor is
  * writing.
@@ -22,6 +27,7 @@
 
 import * as Y from "yjs";
 import type { CastActor, CastStep } from "@context/shared";
+import { addThread, appendEvent, findAnchors, type CommentChange } from "@context/shared/src/comments.cjs";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { agentName } from "../../console/presence/agentName";
 import { presenceColors } from "../../design/tokens";
@@ -173,6 +179,17 @@ export function playCast(
   const write = (index: number, words: string) => {
     doc.transact(() => text.insert(index, words), CAST_ORIGIN);
   };
+  /** Changes against the text as it is now, applied together, last first. */
+  const change = (changes: readonly CommentChange[]) => {
+    doc.transact(() => {
+      for (const one of [...changes].sort((a, b) => b.from - a.from)) {
+        if (one.to > one.from) text.delete(one.from, one.to - one.from);
+        text.insert(one.from, one.insert);
+      }
+    }, CAST_ORIGIN);
+  };
+  // The thread this page's cast started last: what "replies" and "resolves" act on.
+  let thread: string | null = null;
 
   // The visitor typed: step out of their way, at once and for good.
   const onChange = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
@@ -228,6 +245,11 @@ export function playCast(
       return then();
     }
 
+    if (step.kind === "comment" || step.kind === "reply" || step.kind === "resolve") {
+      comment(step, then);
+      return;
+    }
+
     const id = join(step.actor);
     let cursor = resolve(anchors[index]!);
     if (step.kind === "line") {
@@ -266,6 +288,71 @@ export function playCast(
     place(id, at(cursor, -1), at(cursor, -1));
     later(pace.keyMs * 3, () => key(0));
   };
+
+  /*
+    A comment, a reply or a resolve. The words a thread is about are
+    highlighted as the author's selection while they write, the way the
+    console shows somebody commenting; the comment itself is typed into its
+    log line, where the margin reads it. Words no longer on the page, or a
+    reply to a thread that never started, are skipped without a trace.
+  */
+  function comment(step: Extract<CastStep, { kind: "comment" | "reply" | "resolve" }>, then: () => void) {
+    const source = text.toString();
+    let result: { changes: CommentChange[]; error?: undefined } | { error: string };
+    if (step.kind === "comment") {
+      const made = addThread(source, { quote: step.quote, author: step.actor.name, body: step.text });
+      thread = made.error === undefined ? made.id : null;
+      result = made;
+    } else if (thread === null) {
+      result = { error: "no thread" };
+    } else {
+      result = appendEvent(source, {
+        thread,
+        kind: step.kind === "reply" ? "comment" : "resolved",
+        author: step.actor.name,
+        body: step.kind === "reply" ? step.text : undefined,
+      });
+    }
+    if (result.error !== undefined) return then();
+    const id = join(step.actor);
+    const words = () => findAnchors(text.toString()).get(thread!) ?? null;
+    const select = () => {
+      const range = words();
+      if (range === null) return;
+      if (step.kind === "resolve") place(id, at(range.to, -1), at(range.to, -1));
+      else place(id, at(range.from, 0), at(range.to, -1));
+    };
+    const done = () => {
+      if (step.actor.kind === "agent") host.agentDid(step.actor, "write", path);
+      const range = words();
+      if (range !== null) later(pace.highlightMs, () => place(id, at(range.to, -1), at(range.to, -1)));
+      then();
+    };
+
+    const body = step.kind === "resolve" ? "" : step.text;
+    const last = result.changes[result.changes.length - 1]!;
+    const within = body === "" ? -1 : last.insert.lastIndexOf(body);
+    // An agent's comment lands whole, as does anything that is not one plain line.
+    if (step.actor.kind === "agent" || host.instant() || within === -1 || body.includes("\n")) {
+      change(result.changes);
+      select();
+      return done();
+    }
+
+    // A person: the words are selected first, then the comment is typed.
+    const shift = result.changes.slice(0, -1).reduce((sum, one) => sum + (one.from < last.from ? one.insert.length : 0), 0);
+    change([...result.changes.slice(0, -1), { ...last, insert: last.insert.slice(0, within) + last.insert.slice(within + body.length) }]);
+    select();
+    let cursor = last.from + shift + within;
+    const keys = [...body];
+    const key = (k: number) => {
+      if (k >= keys.length) return done();
+      write(cursor, keys[k]!);
+      cursor += keys[k]!.length;
+      later(keyDelay(keys[k]!, k, pace.keyMs), () => key(k + 1));
+    };
+    later(pace.keyMs * 3, () => key(0));
+  }
 
   later(pace.startMs, () => next(0));
   return { stop };

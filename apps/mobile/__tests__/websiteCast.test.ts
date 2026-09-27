@@ -114,4 +114,16 @@ describe("splitWebsiteCast", () => {
       { kind: "line", actor: { name: "@maya", kind: "person" }, text: "hi", at: 0 },
     ]);
   });
+
+  test("comments quote words; replies and resolves need a comment before them", () => {
+    const { steps, problems } = splitWebsiteCast(
+      '```cast\n@jon resolves\n@maya\u2019s Codex comments on \u201cfree, you cheapo\u201d: tone it down?\n@jon replies: eh, I don\'t really care\n@jon resolves\n```\n',
+    );
+    expect(problems).toEqual(["Nothing to reply to or resolve yet: @jon resolves"]);
+    expect(steps).toEqual([
+      { kind: "comment", actor: { name: "@maya's Codex", kind: "agent" }, quote: "free, you cheapo", text: "tone it down?" },
+      { kind: "reply", actor: { name: "@jon", kind: "person" }, text: "eh, I don't really care" },
+      { kind: "resolve", actor: { name: "@jon", kind: "person" } },
+    ]);
+  });
 });

@@ -19,6 +19,9 @@
  *   # Getting started
  *   The 90-second tour.
  * wait 4s
+ * @maya's Codex comments on "free, you cheapo": a little unprofessional?
+ * @jon replies: eh, I don't really care
+ * @jon resolves
  * ```
  * ````
  *
@@ -26,6 +29,12 @@
  * was; "adds to the line above" lands at the end of whatever paragraph is
  * above it now. Nothing matches quoted words, so editing the page around a
  * block can move where a step lands but can never make one fail.
+ *
+ * **Comments are the exception, because a comment is about words.** "comments
+ * on" quotes them and writes a real thread (`comments.cjs`) around the first
+ * place they appear; "replies" and "resolves" act on the last thread this
+ * page's cast started. Words that are no longer on the page make that step,
+ * and the replies to it, do nothing, rather than anchoring somewhere else.
  *
  * A block is never shown as text. `splitWebsiteCast` removes every block and
  * says, in offsets into what is left, where each step belongs; a site that
@@ -51,6 +60,12 @@ export type CastStep =
   | { kind: "read"; actor: CastActor; page: string | null }
   /** A new note in the tree, beside this page. */
   | { kind: "note"; actor: CastActor; name: string; text: string }
+  /** A comment thread on the first appearance of `quote`, with `text` as its first comment. */
+  | { kind: "comment"; actor: CastActor; quote: string; text: string }
+  /** A reply to the last thread this page's cast started. */
+  | { kind: "reply"; actor: CastActor; text: string }
+  /** Resolving the last thread this page's cast started. */
+  | { kind: "resolve"; actor: CastActor }
   | { kind: "wait"; ms: number };
 
 export interface WebsiteCast {
@@ -74,6 +89,9 @@ const LINE = new RegExp(String.raw`^${ACTOR}\s+(?:types|writes)\s*:\s*(.+)$`, "i
 const APPEND = new RegExp(String.raw`^${ACTOR}\s+adds to the line above\s*:\s*(.+)$`, "i");
 const READ = new RegExp(String.raw`^${ACTOR}\s+reads(?:\s*:\s*(.+))?$`, "i");
 const NOTE = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?note\s*:\s*(.+)$`, "i");
+const COMMENT = new RegExp(String.raw`^${ACTOR}\s+comments on\s+["\u201c](.+?)["\u201d]\s*:\s*(.+)$`, "i");
+const REPLY = new RegExp(String.raw`^${ACTOR}\s+replies\s*:\s*(.+)$`, "i");
+const RESOLVE = new RegExp(String.raw`^${ACTOR}\s+resolves(?:\s+(?:it|the comment))?$`, "i");
 const WAIT = /^wait\s+(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds?)?$/i;
 
 function actor(written: string): CastActor {
@@ -123,6 +141,12 @@ function parseBlock(
       else steps.push({ kind: "append", actor: actor(match[1]!), text: words, at: anchors.append });
     } else if ((match = LINE.exec(text)) !== null) {
       steps.push({ kind: "line", actor: actor(match[1]!), text: clip(match[2]!), at: anchors.line });
+    } else if ((match = COMMENT.exec(text)) !== null) {
+      steps.push({ kind: "comment", actor: actor(match[1]!), quote: match[2]!.slice(0, 200), text: clip(match[3]!) });
+    } else if ((match = REPLY.exec(text)) !== null || (match = RESOLVE.exec(text)) !== null) {
+      if (!steps.some((step) => step.kind === "comment")) problems.push(`Nothing to reply to or resolve yet: ${text.slice(0, 120)}`);
+      else if (match[2] === undefined) steps.push({ kind: "resolve", actor: actor(match[1]!) });
+      else steps.push({ kind: "reply", actor: actor(match[1]!), text: clip(match[2]) });
     } else if ((match = READ.exec(text)) !== null) {
       const page = match[2]?.trim();
       steps.push({ kind: "read", actor: actor(match[1]!), page: page ? page.slice(0, 120) : null });

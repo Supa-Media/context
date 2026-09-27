@@ -44,6 +44,8 @@ group("the margin's rules", () => {
     expect(isPerson("@dev2")).toBe(true);
     expect(isPerson("Codex")).toBe(false);
     expect(isPerson("dev2")).toBe(false);
+    expect(isPerson("@jon's Claude")).toBe(false);
+    expect(initialsFor("@jon's Claude")).toBe("Cl");
   });
 
   test("initials: one letter for a person, two for an agent", () => {

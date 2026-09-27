@@ -10,6 +10,7 @@
  */
 
 import type { CommentEvent, CommentThread } from "@context/shared/src/comments.cjs";
+import { agentName } from "../../presence/agentName";
 
 /**
  * A person or an agent, told apart by the name alone.
@@ -19,15 +20,16 @@ import type { CommentEvent, CommentThread } from "@context/shared/src/comments.c
  * because `sanitizeAuthor` there is fed the client name and nothing else. So
  * the `@` is the whole test, and a hand-typed line without one reads as an
  * agent's, which is the cautious direction: nobody is shown as a person who
- * might not be one.
+ * might not be one. Somebody's agent, `@jon's Claude` (as presence names it),
+ * is an agent too, although it starts with an `@`.
  */
 export function isPerson(author: string): boolean {
-  return author.startsWith("@");
+  return author.startsWith("@") && agentName(author).owner === null;
 }
 
 /** Two letters for an agent's square, one for a person's circle. */
 export function initialsFor(author: string): string {
-  const name = author.replace(/^@/, "").trim();
+  const name = (isPerson(author) ? author : agentName(author).agent).replace(/^@/, "").trim();
   if (!name) return "?";
   if (isPerson(author)) return name[0]!.toUpperCase();
   const words = name.split(/\s+/).filter(Boolean);
