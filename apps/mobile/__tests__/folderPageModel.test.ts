@@ -8,6 +8,7 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   defaultFolderView,
+  isProjectsFolder,
   folderItems,
   groupFolderItems,
   dropValue,
@@ -159,6 +160,20 @@ describe("the view a folder opens in", () => {
     const without = folderItems("p", [folder("p/a"), folder("p/b")], []).items;
     expect(defaultFolderView(withStatus)).toBe("list");
     expect(defaultFolderView(without)).toBe("files");
+  });
+});
+
+describe("which folders track progress", () => {
+  test("a folder named for projects, with any prefix or case, and everything under it", () => {
+    for (const folder of ["1-projects", "Projects", "project", "work/Side-Projects", "1-projects/trip", "1-projects/trip/days"]) {
+      expect(isProjectsFolder(folder)).toBe(true);
+    }
+  });
+
+  test("areas, resources, the archive and the root do not", () => {
+    for (const folder of ["", "2-areas", "2-areas/apps", "3-resources/books", "4-archive", "website", "clients/acme"]) {
+      expect(isProjectsFolder(folder)).toBe(false);
+    }
   });
 });
 

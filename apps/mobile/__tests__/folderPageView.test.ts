@@ -28,7 +28,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FolderView } from "../features/console/files/FolderView";
 import type { FolderPageHost } from "../features/console/files/folderPage/FolderPage";
 import { SETTLE_AFTER } from "../features/console/files/folderPage/useFolderPage";
-import { forgetViews } from "../features/console/files/folderPage/viewMemory";
+import { forgetViews, rememberView } from "../features/console/files/folderPage/viewMemory";
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 
@@ -313,6 +313,41 @@ describe("on a phone", () => {
     await press(one("menu-item-choice:2"));
     expect(writes).toEqual([["1-projects/do this/overview.md", "status", "finished", { create: true }]]);
     expect(view.container.textContent).toBeTruthy();
+  });
+});
+
+describe("a folder outside projects", () => {
+  // Reported by the owner: areas and resources are places to keep things, not
+  // work in progress, and Files · List · Board there was only clutter.
+  const AREA_NOTES: ListNote[] = [
+    { path: "2-areas/apps/overview.md", updatedAt: 5, properties: { status: "active" } },
+    { path: "2-areas/health/overview.md", updatedAt: 6, properties: {} },
+    { path: "2-areas/loose.md", updatedAt: 7, properties: { status: "paused" } },
+  ];
+  const AREAS = listing("2-areas", [entry("folder", "2-areas/apps"), entry("folder", "2-areas/health"), entry("file", "2-areas/loose.md")]);
+  const areas = (): FolderPageHost => ({ ...host([]), source: { load: async () => ({ notes: AREA_NOTES, complete: true }), setProperty: async () => null } });
+
+  test("is its files, with no switch and no nudge, even when things in it have a status", async () => {
+    await mount(entry("folder", "2-areas"), AREAS, areas());
+    expect(all("folder-view-switch")).toHaveLength(0);
+    expect(all("folder-nudge")).toHaveLength(0);
+    expect(all("folder-groups")).toHaveLength(0);
+    expect(all("folder-row")).toHaveLength(3);
+  });
+
+  test("a subfolder offers no Set status, and a status it has is not drawn as a project", async () => {
+    await mount(entry("folder", "2-areas/apps"), listing("2-areas/apps", []), areas());
+    expect(all("folder-view-switch")).toHaveLength(0);
+    expect(all("folder-property-line")).toHaveLength(0);
+    await mount(entry("folder", "2-areas/health"), listing("2-areas/health", []), areas());
+    expect(all("folder-property-line")).toHaveLength(0);
+  });
+
+  test("a view picked there before is not brought back", async () => {
+    rememberView("ws_test", "2-areas", "board");
+    await mount(entry("folder", "2-areas"), AREAS, areas());
+    expect(all("folder-board-band")).toHaveLength(0);
+    expect(all("folder-row")).toHaveLength(3);
   });
 });
 
