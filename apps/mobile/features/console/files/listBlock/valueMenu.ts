@@ -58,10 +58,12 @@ export function valueChoices(notes: readonly ListNote[], key: string): string[] 
 
 /**
  * Whether a drawn value can be changed from the list: one plain value, or
- * none, of a key a list may write (never `visibility`; see `writable.ts`).
+ * none, of a key a list may write on that note — never `visibility`, and never
+ * the `folder:` of a page that publishes one; see `writable.ts`, which both
+ * this and the write itself ask.
  */
-export function isEditableValue(key: string, value: unknown): boolean {
-  return key !== "updated" && key !== "title" && isWritableProperty(key) && !Array.isArray(value);
+export function isEditableValue(key: string, value: unknown, path?: string): boolean {
+  return key !== "updated" && key !== "title" && isWritableProperty(key, path) && !Array.isArray(value);
 }
 
 export class ValueMenu {
