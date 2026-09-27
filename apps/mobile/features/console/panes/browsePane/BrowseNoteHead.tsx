@@ -6,6 +6,8 @@ import { useThemedStyles } from "../../../design/theme";
 import { Breadcrumb } from "../../files/Breadcrumb";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
+import { PresencePile } from "../../presence/PresencePile";
+import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
@@ -23,6 +25,7 @@ export function BrowseNoteHead({
   setHeadWidth,
   onShare,
   openCrumbMenu,
+  presence,
 }: {
   files: FileBrowser;
   selected: NonNullable<ReturnType<typeof entryAt>>;
@@ -32,6 +35,8 @@ export function BrowseNoteHead({
   /** Share, or `undefined` for somebody who may not share this. */
   onShare: ((path: string) => void) | undefined;
   openCrumbMenu: FolderListingState["openCrumbMenu"];
+  /** The open note's room, for the pile beside the note's own controls. */
+  presence?: Presence;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -157,6 +162,14 @@ export function BrowseNoteHead({
         row too and gets no eye: there is no document to read, which is the
         reason `_layout.tsx` gives for the same gate.
       */}
+      {/*
+        Who else is in this note, on the note's own header row rather than a
+        row of its own over the title, so somebody arriving never moves the
+        note. Only for the note the editor holds — the room is that note's.
+      */}
+      {presence !== undefined && selected.kind === "file" && files.editor.path === selected.path ? (
+        <PresencePile presence={presence} compact={false} />
+      ) : null}
       {selected.kind === "file" ? (
         <FrameIconButton
           icon={reading ? "pencil" : "eye"}

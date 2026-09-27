@@ -36,6 +36,7 @@
  * `MenuActionId` against a `FileBrowser`.
  */
 
+import type { ReactNode } from "react";
 import { describeBinding, type Command } from "../../design/keymap";
 import type { Clipboard } from "./clipboard";
 import { baseName, folderLabel, parentPath, restoreTargetFor } from "./paths";
@@ -176,6 +177,11 @@ export interface MenuItem<Id extends string = MenuActionId> {
    * asserted directly rather than through the `menu-item-` convention.
    */
   testID?: string;
+  /**
+   * A mark before the label, such as the face on a row of the presence list.
+   * Decorative: the accessible name is still `label`.
+   */
+  leading?: ReactNode;
 }
 
 export type MenuTarget =

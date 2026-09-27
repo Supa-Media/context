@@ -105,9 +105,15 @@ export function NavBand({
   gutter = 0,
   path,
   trailKey,
+  trailing,
 }: {
   gutter?: number;
   path?: ReactNode;
+  /**
+   * Drawn at the end of the path row, outside its scroller, so it stays put
+   * while a deep path scrolls: the note's presence pile. Nothing else is here.
+   */
+  trailing?: ReactNode;
   /**
    * What "the same row" means, for the scroll position that survives a
    * re-render.
@@ -151,39 +157,42 @@ export function NavBand({
     <View style={[styles.band, gutter > 0 && { paddingHorizontal: gutter }]} testID="nav-band">
       {contexts}
       {current == null && path == null ? null : (
-        <View style={styles.trailAnchor}>
-          <ScrollView
-            key={trailKey}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.trail}
-            /*
-              The row is what scrolls; the band is as tall as the pill. Without
-              this the ScrollView takes its height from the tallest thing in it
-              and the row floats in a band of its own making — the same rule
-              `ContextStrip` states about its own scroller.
-            */
-            style={styles.trailScroll}
-            testID="nav-band-trail"
-          >
-            {current}
-            {path}
-          </ScrollView>
-          {/*
-            The falloff at the trailing edge, and it is `ContextStrip`'s rule
-            rather than a second opinion: "a pill cut in half by a hard edge
-            reads as a rendering bug, and the same pill under a falloff reads as
-            a list". A deep path overflows this row far more often than the
-            contexts overflow the one above — `1-projects/october-group-airbnb-trip`
-            is already past a 390pt screen — so the row that needed it most was
-            the one that shipped without it, which a screenshot caught and no
-            test could.
+        <View style={styles.trailRow}>
+          <View style={styles.trailAnchor}>
+            <ScrollView
+              key={trailKey}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.trail}
+              /*
+                The row is what scrolls; the band is as tall as the pill. Without
+                this the ScrollView takes its height from the tallest thing in it
+                and the row floats in a band of its own making — the same rule
+                `ContextStrip` states about its own scroller.
+              */
+              style={styles.trailScroll}
+              testID="nav-band-trail"
+            >
+              {current}
+              {path}
+            </ScrollView>
+            {/*
+              The falloff at the trailing edge, and it is `ContextStrip`'s rule
+              rather than a second opinion: "a pill cut in half by a hard edge
+              reads as a rendering bug, and the same pill under a falloff reads as
+              a list". A deep path overflows this row far more often than the
+              contexts overflow the one above — `1-projects/october-group-airbnb-trip`
+              is already past a 390pt screen — so the row that needed it most was
+              the one that shipped without it, which a screenshot caught and no
+              test could.
 
-            `pointerEvents="none"` because it lies over the last segment, and a
-            gradient that ate a press would make the folder nearest the edge
-            unpressable — the failure a decoration is allowed least of all.
-          */}
-          <View style={styles.fade} pointerEvents="none" aria-hidden testID="nav-band-fade" />
+              `pointerEvents="none"` because it lies over the last segment, and a
+              gradient that ate a press would make the folder nearest the edge
+              unpressable — the failure a decoration is allowed least of all.
+            */}
+            <View style={styles.fade} pointerEvents="none" aria-hidden testID="nav-band-fade" />
+          </View>
+          {trailing}
         </View>
       )}
     </View>
@@ -212,7 +221,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    */
   band: { gap: space.x1 },
   /** Positioned, so the falloff can lie over the scroller rather than in it. */
-  trailAnchor: { position: "relative" },
+  trailAnchor: { position: "relative", flexShrink: 1, flexGrow: 1 },
+  /** The path's scroller and whatever trails it, on one line. */
+  trailRow: { flexDirection: "row", alignItems: "center", gap: space.x1 },
   trailScroll: { flexGrow: 0 },
   /**
    * The trailing falloff.

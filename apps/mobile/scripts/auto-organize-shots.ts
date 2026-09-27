@@ -215,7 +215,7 @@ function stampViewport(width: number, height: number): void {
 const FONTS = `
 @font-face { font-family: "Instrument Sans"; src: url("InstrumentSans.woff2") format("woff2"); font-weight: 400 700; }
 @font-face { font-family: "JetBrains Mono"; src: url("JetBrainsMono.woff2") format("woff2"); font-weight: 400 700; }`;
-const QUIET_CSS = `[data-testid="presence-chip"] { display: none !important; }
+const QUIET_CSS = `[data-testid="presence-pile"] { display: none !important; }
 .cm-scroller > .cm-content.cm-lineWrapping { flex-shrink: 1; min-width: 0; max-width: 100%; }`;
 
 function page(title: string, body: string, css: string, size: { width: number; height: number }, ground: string, scroll: boolean): string {

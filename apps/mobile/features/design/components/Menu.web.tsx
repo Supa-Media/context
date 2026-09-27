@@ -424,6 +424,7 @@ function ItemRow({
       id={item.id}
       label={item.label}
       detail={item.detail}
+      leading={item.leading}
       touch={touch}
       danger={item.danger === true}
       shortcut={item.shortcut}

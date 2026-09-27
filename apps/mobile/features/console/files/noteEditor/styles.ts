@@ -258,7 +258,6 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   status: { flexGrow: 1, flexShrink: 1 },
 
-  presenceRow: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, paddingTop: 6 },
   conflict: {
     paddingVertical: 12,
     paddingHorizontal: 15,

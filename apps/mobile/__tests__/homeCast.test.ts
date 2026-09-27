@@ -7,7 +7,7 @@ import { agentName, handleInitials } from "../features/console/presence/agentNam
 import { CAST_ORIGIN, LIVELY, castColors, playCast, type CastHost } from "../features/home/cast/castRun";
 import { castPresence, castSite } from "../features/home/cast/castSite";
 import { pageNamed, recordAgent } from "../features/home/cast/useHomeCast";
-import { presenceChipLabel } from "../features/console/ConsoleShell";
+import { presenceLabel } from "../features/console/presence/pile";
 import { parseComments } from "@context/shared/src/comments.cjs";
 
 beforeEach(() => {
@@ -213,7 +213,7 @@ describe("castSite", () => {
     const member = { id: "cast:@maya", name: "@maya", color: "#ec4899", anchor: null, head: null, canWrite: false, isAgent: false };
     const presence = castPresence(shared, [member]);
     expect(presence).toMatchObject({ phase: "live", settled: true, canWrite: true, summary: "1 here" });
-    expect(presenceChipLabel(presence)).toBe("@maya · 1 other here · demo");
+    expect(presenceLabel(presence)).toBe("@maya · 1 other here · demo");
     expect(castPresence(shared, []).summary).toBe("");
   });
 });
