@@ -123,3 +123,30 @@ describe("a tapped heading keeps its marks hidden", () => {
     expect(lineText(view, 0)).toBe("some **bold** words");
   });
 });
+
+describe("the demo-script row", () => {
+  const DOC = ["# Page", "", "```cast", "@maya types: hi", "Claude reads: pricing", "```", "", "after"].join("\n");
+
+  test("is drawn in place of the fence, with the step count", () => {
+    const view = mount(DOC);
+    const row = view.contentDOM.querySelector(".cm-lp-cast");
+    expect(row?.textContent).toBe("▸Demo script· 2 steps");
+    expect(view.contentDOM.textContent).not.toContain("@maya types");
+  });
+
+  test("a tap on it opens the script with the caret on its first line", () => {
+    const view = mount(DOC);
+    const row = view.contentDOM.querySelector(".cm-lp-cast") as HTMLElement;
+    row.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(view.state.selection.main.head).toBe(DOC.indexOf("@maya"));
+    expect(view.contentDOM.querySelector(".cm-lp-cast")).toBeNull();
+    expect(view.contentDOM.textContent).toContain("@maya types: hi");
+  });
+
+  test("a tap does nothing in a note that cannot be edited", () => {
+    const view = mount(DOC, { editable: false });
+    const row = view.contentDOM.querySelector(".cm-lp-cast") as HTMLElement;
+    row.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(view.contentDOM.querySelector(".cm-lp-cast")).not.toBeNull();
+  });
+});

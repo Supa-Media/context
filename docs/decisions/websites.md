@@ -522,10 +522,22 @@ note's show at once and the cast leaves it. Each page plays once a visit,
 nothing is written anywhere but the visitor's in-tab copy, and with reduced
 motion text lands whole instead of being typed.
 
+**In the owner's editor a block is one row.** A cast block folds to
+"▸ Demo script · N steps" while the caret is elsewhere, N being the steps the
+shared parser will play from it (counted over the page, so a `replies` that
+needs an earlier block's thread counts where it plays), and gives its source
+back when the caret reaches it, the frontmatter's rule; tapping the row puts
+the caret on its first line (`livePreview/castBlock.ts`). An unclosed block is
+a line of text rather than a code block running to the end of the note, as
+the shared parser already shows it (`livePreview/castGrammar.ts`). Web and the
+iOS editor draw it from the same code.
+
 **What a simplification costs.** Drawing the cast with homepage-only
 components forks the shell the homepage exists to show. Anchoring steps by
 quoted text makes routine edits break the show silently. Serving the blocks
 on other sites prints the script as a code block on someone's public page.
 `apps/mobile/__tests__/homeCast.test.ts`, `websiteCast.test.ts` and the cast
 case in `apps/convex/__tests__/websiteResolution.test.ts` fail if any of
-these comes back.
+these comes back. Printing the script in the editor puts the page's loudest
+lines where the owner writes it; `livePreview/castFences.test.ts` fails if
+the row or its count goes, or an unclosed block swallows the note again.

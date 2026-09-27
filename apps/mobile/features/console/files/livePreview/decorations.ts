@@ -32,6 +32,7 @@ import {
   type ImageRow,
 } from "../imageBlock";
 import { CalloutTitleWidget, callouts } from "./callouts";
+import { CastWidget, castFences } from "./castBlock";
 import { quietHeadings, revealSelection } from "./engagement";
 import { frontmatterBlock, frontmatterHidden, frontmatterLine, frontmatterRange } from "./frontmatter";
 import { HtmlPreviewWidget, htmlPreviews } from "./htmlPreview";
@@ -217,11 +218,17 @@ export function decorationsFor(state: EditorState): DecorationSet {
     toolbar on the selected image is what replaced it.
   */
   const rows: ImageRow[] = imageRows(state, frontEnd);
+  /*
+    A `cast` fence — the homepage's demo script — folds to one row while the
+    caret is elsewhere, under the frontmatter's rule — see `castFences`.
+  */
+  const casts = castFences(state, frontEnd);
   const insidePreview = (pos: number): boolean =>
     previews.some((preview) => pos >= preview.from && pos < preview.to) ||
     forms.some((form) => pos >= form.from && pos < form.to) ||
     lists.some((list) => pos >= list.from && pos < list.to) ||
     rows.some((row) => pos >= row.from && pos < row.to) ||
+    casts.some((cast) => pos >= cast.from && pos < cast.to) ||
     insideGrid(pos);
 
   /*
@@ -327,6 +334,15 @@ export function decorationsFor(state: EditorState): DecorationSet {
         widget: new ListWidget(list, listHostRef),
         block: true,
       }).range(list.from, list.to),
+    );
+  }
+
+  for (const cast of casts) {
+    hides.push(
+      Decoration.replace({ widget: new CastWidget(cast.steps), block: true }).range(
+        cast.from,
+        cast.to,
+      ),
     );
   }
 
