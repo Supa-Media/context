@@ -79,10 +79,6 @@ export function BrowsePathBar({
                 ? noteHeading(files.editor.draft, selected.path)
                 : undefined
             }
-            visibility={selected.visibility}
-            inherited={selected.inherited}
-            exception={selected.exception}
-            readOnly={selected.readOnly}
             onSelectFolder={files.select}
             onFolderMenu={openCrumbMenu}
           />

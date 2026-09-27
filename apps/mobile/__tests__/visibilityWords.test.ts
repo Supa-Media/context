@@ -1,5 +1,5 @@
 /**
- * The breadcrumb's visibility chip.
+ * The words for a note's visibility, as the Properties panel prints them.
  *
  * Pure, so it runs in plain node. It is tested on its own because it is a
  * **claim about who can read this note**, printed where somebody decides
@@ -10,12 +10,12 @@
  * deliberately shared as an exception read identically. Those are different
  * situations: the first becomes private the moment its folder does, the second
  * stays shared until someone changes the note. The tree deliberately marks only
- * the exception, so the breadcrumb is the only place the distinction is spelled
+ * the exception, so the Properties row is the only place the distinction is spelled
  * out in words.
  */
 
 import { describe as group, expect, test } from "@jest/globals";
-import { describe } from "../features/console/files/Breadcrumb";
+import { describe } from "../features/console/files/visibilityWords";
 
 group("what the chip says", () => {
   test("a note carrying its own rule says so", () => {
