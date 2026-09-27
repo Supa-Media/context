@@ -88,4 +88,9 @@ describe("production CUJ provider routing", () => {
     expect(signInProviderForEmail(normalizeSignInEmail(" AgentSeyi@AgentMail.To "))).toBe("test-email");
     expect(signInProviderForEmail(normalizeSignInEmail("customer@example.com"))).toBe("email");
   });
+
+  test("only the directory reviewer's address uses the reviewer provider", () => {
+    expect(signInProviderForEmail(normalizeSignInEmail(" Connector-Review@Supa.Media "))).toBe("test-email-reviewer");
+    expect(signInProviderForEmail(normalizeSignInEmail("connector-review@supa.media.evil.test"))).toBe("email");
+  });
 });
