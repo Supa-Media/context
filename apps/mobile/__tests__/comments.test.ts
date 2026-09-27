@@ -22,6 +22,7 @@ import {
   setShowResolved,
 } from "../features/console/files/comments/extension";
 import { initialsFor, isPerson, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
+import { shiftFor } from "../features/console/files/comments/rail";
 
 const NOTE = [
   "# <!--c:k7f2-->free, you cheapo<!--/c:k7f2--> :annoyed:",
@@ -98,6 +99,23 @@ group("the margin's rules", () => {
       { id: "a", top: -68 },
       { id: "b", top: 40 },
     ]);
+  });
+});
+
+group("the column moves only by what a card is short of", () => {
+  test("room enough beside the column: the note stays exactly where it is", () => {
+    expect(shiftFor(296)).toBe(0);
+    expect(shiftFor(420)).toBe(0);
+  });
+
+  test("a little short: the column moves by the shortfall, in steps of 8px", () => {
+    // Dev2's window: about 228px beside a centred column.
+    expect(shiftFor(228)).toBe(72);
+    expect(shiftFor(290)).toBe(8);
+  });
+
+  test("never more than the full margin", () => {
+    expect(shiftFor(-500)).toBe(300);
   });
 });
 

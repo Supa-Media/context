@@ -8,10 +8,17 @@
  *
  * ## Two layouts, decided by the pane's width
  *
- *  - **Wide** (the pane has room for the reading column and a 300px margin):
- *    the note shifts left to make room and every visible thread has a card
- *    beside its line. `stackCards` keeps them from overlapping and keeps the
- *    active one exactly level with its words.
+ *  - **Wide**: every visible thread has a card beside its line. `stackCards`
+ *    keeps them from overlapping and keeps the active one exactly level with
+ *    its words.
+ *
+ *    **The text never moves when a card opens** (Dev2, 2026-09-27, mockup
+ *    https://claude.ai/artifact/42zcZ2oQ5dBEmhw4SJDhGJ). On a desktop window
+ *    the space right of the centred column is already wider than a card, so
+ *    the cards sit there and the note stays put. A pane with a little less room
+ *    moves the column left by just the shortfall, and decides that from its
+ *    width and whether the note has comments at all, never from which card is
+ *    open. Cards fade in and glide to their lines instead of appearing.
  *  - **Narrow**: there is no margin to put cards in, so only the active thread
  *    (or the comment being written) opens, as a card under its line. Clicking a
  *    highlight is how a thread is opened.
@@ -26,7 +33,8 @@
  * have written, so a string never reaches the DOM as markup.
  */
 
-import { ViewPlugin, type EditorView, type PluginValue, type ViewUpdate } from "@codemirror/view";
+import { StateEffect, StateField } from "@codemirror/state";
+import { EditorView, ViewPlugin, type PluginValue, type ViewUpdate } from "@codemirror/view";
 import type { CommentThread } from "@context/shared/src/comments.cjs";
 import {
   addToThread,
@@ -44,11 +52,37 @@ import { initialsFor, isPerson, messages, resolvedBy, stackCards, visibleThreads
 /** The margin the note gives up when it has comments: the card width plus air. */
 export const RAIL_RESERVE = 300;
 const CARD_WIDTH = 256;
+/** The air between the reading column and a card, and between a card and the edge. */
+const CARD_GAP = 20;
 /** Below this pane width a margin would squeeze the reading column too far. */
 const WIDE_MIN = 780;
 const HEAD = "__head";
 const DRAFT = "__draft";
 const CHIP = "__chip";
+
+/**
+ * How far (px) the reading column moves left to make room for the cards; 0 when
+ * the space beside it is already enough. A state field rather than a class
+ * toggled on the editor's element: CodeMirror owns that element's attributes
+ * and rewrites them on update, which dropped a hand-added class between frames
+ * and let the text slide back under the cards.
+ */
+const setMarginShift = StateEffect.define<number>();
+const marginShift = StateField.define<number>({
+  create: () => 0,
+  update(value, tr) {
+    for (const effect of tr.effects) if (effect.is(setMarginShift)) value = effect.value;
+    return value;
+  },
+  provide: (field) =>
+    EditorView.editorAttributes.from(field, (shift): Record<string, string> => (shift > 0 ? { class: "cm-cmt-wide", style: `--cmt-shift: ${shift}px` } : {})),
+});
+
+/** The column's shift for a given room beside it, in steps so small resizes don't churn. */
+export function shiftFor(gutter: number): number {
+  const shortfall = CARD_WIDTH + 2 * CARD_GAP - gutter;
+  return shortfall <= 0 ? 0 : Math.min(RAIL_RESERVE, Math.ceil(shortfall / 8) * 8);
+}
 
 interface CardSpec {
   id: string;
@@ -138,6 +172,7 @@ class Rail implements PluginValue {
   private readonly dom: HTMLDivElement;
   private readonly cards = new Map<string, { node: HTMLElement; signature: string; pos: number }>();
   private wide = false;
+  private hasComments = false;
   private destroyed = false;
 
   constructor(private readonly view: EditorView) {
@@ -157,7 +192,6 @@ class Rail implements PluginValue {
   destroy() {
     this.destroyed = true;
     this.dom.remove();
-    this.view.dom.classList.remove("cm-cmt-wide");
   }
 
   private specs(): CardSpec[] {
@@ -207,9 +241,8 @@ class Rail implements PluginValue {
     // The mode is read from the scroller's width alone, never from the content
     // column, so reserving the margin cannot flip it back.
     this.wide = this.view.scrollDOM.clientWidth >= WIDE_MIN;
-    const reserve = this.wide && (parsed.threads.length > 0 || ui.draft !== null);
-    this.view.dom.classList.toggle("cm-cmt-wide", reserve);
     this.dom.classList.toggle("cm-cmt-rail-narrow", !this.wide);
+    this.hasComments = parsed.threads.length > 0 || ui.draft !== null;
 
     const specs = this.specs();
     const keep = new Set(specs.map((spec) => spec.id));
@@ -227,9 +260,14 @@ class Rail implements PluginValue {
       }
       const node = spec.build();
       if (existing) {
+        // A rebuilt card (it became active, a reply arrived) keeps its place
+        // and does not play its entrance again.
         carryOver(existing.node, node);
+        node.style.cssText = existing.node.style.cssText;
+        node.classList.add("cm-cmt-placed");
         existing.node.replaceWith(node);
       } else {
+        node.classList.add("cm-cmt-enter");
         this.dom.append(node);
       }
       this.cards.set(spec.id, { node, signature: spec.signature, pos: spec.pos });
@@ -247,19 +285,34 @@ class Rail implements PluginValue {
     const offset = view.documentTop - scrollerRect.top + scroller.scrollTop;
     const columnLeft = contentRect.left - scrollerRect.left + scroller.scrollLeft + parseFloat(style.paddingLeft || "0");
     const columnRight = contentRect.right - scrollerRect.left + scroller.scrollLeft - parseFloat(style.paddingRight || "0");
+    // The room right of the column when the note keeps its usual centred
+    // layout. Read from the content box's full width and the measure, neither
+    // of which the margin changes, so reserving it cannot undo the decision.
+    const measure = parseFloat(style.getPropertyValue("--lp-measure")) * parseFloat(style.fontSize);
+    const gutter = Number.isFinite(measure) ? (contentRect.width - measure) / 2 : 0;
     const length = view.state.doc.length;
     const cards = [...this.cards].map(([id, card]) => {
       const block = view.lineBlockAt(Math.min(card.pos, length));
       return { id, top: block.top + offset, bottom: block.bottom + offset, height: card.node.offsetHeight };
     });
-    return { cards, columnLeft, columnRight, offset };
+    return { cards, columnLeft, columnRight, offset, gutter };
   }
 
   private place(layout: ReturnType<Rail["measure"]>) {
     if (this.destroyed) return;
     const active = this.view.state.field(commentUi).active;
+    const shift = this.wide && this.hasComments ? shiftFor(layout.gutter) : 0;
+    if (shift !== this.view.state.field(marginShift)) {
+      // Not from inside a measure cycle; the next frame lays the note out once
+      // and places the cards against the new column.
+      requestAnimationFrame(() => {
+        if (!this.destroyed && this.view.state.field(marginShift) !== shift) {
+          this.view.dispatch({ effects: setMarginShift.of(shift) });
+        }
+      });
+    }
     if (this.wide) {
-      const left = layout.columnRight + (RAIL_RESERVE - CARD_WIDTH) / 2;
+      const left = layout.columnRight + CARD_GAP;
       const focus = this.cards.has(DRAFT) ? DRAFT : active;
       const placed = stackCards(
         layout.cards.map((card) => ({ id: card.id, want: card.id === HEAD ? layout.offset : card.top, height: card.height })),
@@ -272,6 +325,7 @@ class Rail implements PluginValue {
         node.style.left = `${left}px`;
         // The Comment button sits at the margin's edge at its own size.
         node.style.width = id === CHIP ? "auto" : `${CARD_WIDTH}px`;
+        settle(node);
       }
     } else {
       const width = Math.min(360, layout.columnRight - layout.columnLeft);
@@ -281,6 +335,7 @@ class Rail implements PluginValue {
         node.style.top = `${card.bottom + 6}px`;
         node.style.left = `${layout.columnLeft}px`;
         node.style.width = `${width}px`;
+        settle(node);
       }
     }
   }
@@ -374,6 +429,18 @@ class Rail implements PluginValue {
   }
 }
 
+/**
+ * After a card's first placement: let it fade in where it now stands, and from
+ * then on glide rather than jump when the cards around it move.
+ */
+function settle(node: HTMLElement) {
+  if (!node.classList.contains("cm-cmt-enter")) return;
+  requestAnimationFrame(() => {
+    node.classList.remove("cm-cmt-enter");
+    node.classList.add("cm-cmt-placed");
+  });
+}
+
 /** Keep somebody's half-typed reply, and their focus, across a card rebuild. */
 function carryOver(from: HTMLElement, to: HTMLElement) {
   const before = from.querySelector("textarea");
@@ -389,4 +456,4 @@ function carryOver(from: HTMLElement, to: HTMLElement) {
   }
 }
 
-export const commentRail = ViewPlugin.fromClass(Rail);
+export const commentRail = [marginShift, ViewPlugin.fromClass(Rail)];

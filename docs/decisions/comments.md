@@ -61,6 +61,21 @@ the text leaves, so a link holder never receives them. Websites strip them in
 `parseWebsitePage`, which every site surface reads its body from. The share
 viewer's `parseNote` strips them as well.
 
+## Opening a card never moves the text
+
+Dev2 picked this on 2026-09-27 after the first margin jumped: the column
+snapped 300px left when a card needed room, and sometimes snapped back under
+the card. The cards now sit in the space to the right of the centred column. A
+pane with a little less room than a card needs moves the column left by only
+the shortfall, which is `shiftFor` in `files/comments/rail.ts`. That depends on
+the pane's width and on whether the note has comments at all, and never on
+which card is open. The shift eases in, and cards fade in and glide to their
+lines. The shift is a state field and not a class on the editor element,
+because CodeMirror rewrites that element's attributes on every update.
+Simplifying it back to a full margin toggled on activity brings back the jump.
+The comments e2e test checks that the text stays still while a card opens and
+closes.
+
 ## Known limits
 
 - The margin is web-only. The iOS editor shows the raw markers and block until
