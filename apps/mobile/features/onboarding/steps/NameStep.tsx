@@ -18,16 +18,16 @@ import type { OnboardingController } from "../useOnboarding";
 /**
  * A-03 — claim your handle.
  *
- * The single thing this screen has to get across is that **the name is the
- * context**, not a label on it. People arrive expecting to pick a username and
- * then, separately, to make a folder somewhere; here those are the same act.
- * So the three things it becomes are shown live, updating as they type, rather
- * than described in a paragraph nobody reads.
+ * The field and what the name becomes, and nothing else. **The name is the
+ * workspace**, not a label on it, and the live preview says so better than
+ * the paragraph that used to sit above the field did — the owner cut that
+ * paragraph as too wordy (2026-09-27). The preview updates as they type.
  *
- * The second thing is that it is permanent. There is no release, rename, or
- * reclaim path in the control plane (issue #10), so this says so plainly and up
- * front. Finding that out later, from a support reply, is the outcome this
- * sentence exists to prevent.
+ * The capture address is labelled reserved rather than working (see
+ * `captureHonesty.test.ts`). The one sentence kept is that it is permanent.
+ * There is no release, rename, or reclaim path in the control plane (issue
+ * #10), and finding that out later, from a support reply, is the outcome it
+ * exists to prevent.
  *
  * ## Two rules about what is shown back
  *
@@ -57,12 +57,6 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
 
   return (
     <View>
-      <Text variant="rowSub" style={styles.lede}>
-        It <Text style={styles.em}>is</Text> the workspace — not a label on one. It is the path
-        your notes are addressed by and the name others reach you at, and it reserves your
-        capture address for mail to your notes.
-      </Text>
-
       {/*
         A-03's field: the `@` inside the box, and "✓ Available" at its end
         rather than on a line of its own — the answer sits where the question
@@ -70,9 +64,6 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
         from the server) still gets the full sentence under the field, because
         those are the ones that need explaining.
       */}
-      <Text variant="eyebrow" style={styles.label} nativeID="welcome-name-label">
-        Your handle
-      </Text>
       <View style={[styles.box, focused && styles.boxFocused, feedback?.tone === "crit" && styles.boxError]}>
         <Text style={styles.at} aria-hidden>
           @
@@ -92,7 +83,6 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
           onSubmitEditing={() => {
             if (controller.canClaim) void controller.claim();
           }}
-          aria-labelledby="welcome-name-label"
           accessibilityLabel="Your handle"
           aria-describedby="welcome-name-hint"
           aria-invalid={feedback?.tone === "crit"}
@@ -121,17 +111,13 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
       ) : null}
 
       <View style={styles.consequences}>
-        <Text variant="eyebrow" style={styles.consequencesHead}>
-          Which makes it
-        </Text>
-        <Consequence label="Your workspace" value={shown.context} first />
-        <Consequence label="How others address a note in it" value={shown.path} />
-        <Consequence label="Your capture address" value={shown.mailbox} />
+        <Consequence label="Workspace" value={shown.context} first />
+        <Consequence label="A note in it" value={shown.path} />
+        <Consequence label="Reserved capture address" value={shown.mailbox} />
       </View>
 
       <Text variant="foot" style={styles.permanent}>
-        One personal workspace per person, and the name cannot be changed once it is claimed — pick
-        one you will still want in a year.
+        You can't change it later.
       </Text>
 
       {/*
@@ -158,7 +144,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
   );
 }
 
-/** One line of "Which makes it": what it is, then the literal value. */
+/** One line of the preview: what it is, then the literal value. */
 function Consequence({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -175,10 +161,8 @@ function Consequence({ label, value, first = false }: { label: string; value: st
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    lede: { color: colors.text2, lineHeight: leading(15, 1.6), fontSize: t.lede },
-    em: { fontStyle: "italic" },
-    label: { marginTop: 24, marginBottom: 8, color: colors.muted },
     box: {
+      marginTop: 10,
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
@@ -212,7 +196,6 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 16,
       paddingHorizontal: 18,
     },
-    consequencesHead: { marginBottom: 8, color: colors.muted },
     consequence: { paddingVertical: 8, gap: 3 },
     consequenceRule: { borderTopWidth: 1, borderTopColor: colors.line },
     consequenceLabel: { color: colors.text2 },
