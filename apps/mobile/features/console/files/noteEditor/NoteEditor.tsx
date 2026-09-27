@@ -108,6 +108,7 @@ export function NoteEditor({
   onImageProblem,
   commenter,
   onSignInToComment,
+  local = false,
   folderLists,
   onTitleCaret,
   titleNote,
@@ -383,7 +384,7 @@ export function NoteEditor({
 
   // The line at the foot of the document, and whether anything belongs down
   // there at all — see `noteFoot`, which carries the whole rule.
-  const { durability, canDiscard, explains, manualSave } = noteFoot({ state, presence, editable, compact, button });
+  const { durability, canDiscard, explains, manualSave } = noteFoot({ state, presence, editable, compact, button, local });
 
   const view: NoteView = {
     commenter: commenter ?? null,

@@ -211,6 +211,7 @@ export function BrowseDocument({
             drag={folderDrag}
             pendingStateFor={files.pending?.stateFor}
             page={folderPage}
+            showAudience={data.visitor === undefined}
           />
         )
       ) : null
@@ -255,6 +256,7 @@ export function BrowseDocument({
         drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}
         page={folderPage}
+        showAudience={data.visitor === undefined}
       />
     ) : files.conflict?.path === selected.path ? (
       /*
@@ -297,6 +299,8 @@ export function BrowseDocument({
         commenter={data.viewer?.name?.startsWith("@") ? data.viewer.name : null}
         // A visitor reads threads; replying is what signing in is for.
         onSignInToComment={data.visitor?.signIn}
+        // A visitor's edits stay in their tab; the foot must not say "bucket".
+        local={data.visitor !== undefined}
         activityShared={(data.members?.members?.length ?? 1) > 1}
         /*
           Owner-only, and the rule is `capabilities.ts`'s rather than this

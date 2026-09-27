@@ -174,6 +174,7 @@ export function FolderView({
   drag,
   pendingStateFor,
   page,
+  showAudience = true,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -218,6 +219,12 @@ export function FolderView({
    * keeps no copy to read, and the page is the Files listing alone.
    */
   page?: FolderPageHost;
+  /**
+   * Whether to say who can read this folder. False for the homepage's
+   * visitor, for whom "visible to the people you granted access" is untrue:
+   * they granted nobody anything.
+   */
+  showAudience?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -327,13 +334,21 @@ export function FolderView({
           pageWidth={pageWidth}
           onSelect={onSelect}
           rule={
-            <Text variant="treeMeta" style={styles.rule}>
-              {groupRule
-                ? `${groupRule} — visible to that group, and to nobody else in this context`
-                : isTeam
-                  ? "team — visible to the people you granted access, unless a note is held back"
-                  : "private — yours alone, unless a note is shared as an exception"}
-            </Text>
+            /*
+              The owner's sentence about who can read this folder, and only for
+              somebody it is true of. A homepage visitor granted nobody access
+              and has no workspace for "yours alone" to mean anything in, so
+              the line is not drawn for them at all.
+            */
+            !showAudience ? null : (
+              <Text variant="treeMeta" style={styles.rule} testID="folder-audience">
+                {groupRule
+                  ? `${groupRule} — visible to that group, and to nobody else in this context`
+                  : isTeam
+                    ? "team — visible to the people you granted access, unless a note is held back"
+                    : "private — yours alone, unless a note is shared as an exception"}
+              </Text>
+            )
           }
           files={
             <>
