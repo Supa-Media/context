@@ -8,6 +8,7 @@ import { untitledName } from "../console/files/untitled";
 import { demoNote, useStaticFileBrowser } from "../console/files/useDemoFileBrowser";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
 import type { HomeTree } from "./homeSite";
+import { searchLocalNotes } from "./localSearch";
 import {
   addFolder,
   addNote,
@@ -335,6 +336,9 @@ export function useLocalFileBrowser(
       archiveMany: remove,
       destroyMany: remove,
       linkPaths: knownNotePaths(tree.listings),
+      // Every body is here, so search reads them and rows carry their titles.
+      heldNotes: tree.notes,
+      search: async (query: string) => searchLocalNotes(treeRef.current.notes, query),
       readRaw: async (path: string) => {
         const text = treeRef.current.notes[path];
         return text === undefined ? null : { text, etag: "local" };
@@ -357,6 +361,7 @@ export function useLocalFileBrowser(
       setDraft,
       toggleFolder,
       tree.listings,
+      tree.notes,
     ],
   );
 

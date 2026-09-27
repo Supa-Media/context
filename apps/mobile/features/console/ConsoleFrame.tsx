@@ -221,7 +221,7 @@ export function ConsoleFrame({
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
-  const { search, paletteItems } = usePaletteSearch({ data, insideContext, current, paletteOpen });
+  const { search, paletteItems, recent } = usePaletteSearch({ data, insideContext, current, paletteOpen, history });
   /*
     A panel is not a preference — `frame.ts` states the rule for its own two,
     and this is a third one living outside it. The sheet can only be raised on
@@ -532,7 +532,7 @@ export function ConsoleFrame({
         })}
 
         {consolePalette({
-          paletteOpen, setAsked, paletteItems, search, setPaletteOpen, router, data,
+          paletteOpen, setAsked, paletteItems, recent, search, setPaletteOpen, router, data,
         })}
         {/*
           The meeting sheet, rendered once and inside the frame so it sits over

@@ -20,7 +20,10 @@ import {
   fuzzyMatch,
   itemsFromListings,
   itemsFromPaths,
+  noteItem,
   rank,
+  recentItems,
+  ROOT_DETAIL,
   type PaletteItem,
 } from "../features/console/files/palette";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
@@ -296,8 +299,8 @@ describe("itemsFromPaths", () => {
     );
     expect(items).toEqual(
       expect.arrayContaining([
-        { id: "1-projects/garden/plan.md", label: "plan.md", detail: "1-projects/garden", kind: "note" },
-        { id: "index.md", label: "index.md", detail: "/", kind: "note" },
+        { id: "1-projects/garden/plan.md", label: "plan", detail: "projects/garden", kind: "note" },
+        { id: "index.md", label: "index", detail: ROOT_DETAIL, kind: "note" },
         { id: "1-projects", label: "1-projects", kind: "folder" },
         { id: "1-projects/garden", label: "1-projects/garden", kind: "folder" },
       ]),
@@ -326,17 +329,26 @@ describe("itemsFromListings", () => {
     expect(items.some((item) => item.id === "3-resources")).toBe(true);
   });
 
-  test("a note is its name, detailed with the folder it lives in", () => {
+  /*
+    Was the file name over its raw key (`q3.md` over `1-projects/plans`) until
+    the phone redesign of 2026-09-27: search showed `01-context.md` over a lone
+    `/`, which is storage, not a note. A row now reads as the note does when it
+    is open; the id is still the key that opens it.
+  */
+  test("a note is its title, detailed with the folder it lives in", () => {
     expect(items.find((item) => item.id === "1-projects/plans/q3.md")).toEqual({
       id: "1-projects/plans/q3.md",
-      label: "q3.md",
-      detail: "1-projects/plans",
+      label: "q3",
+      detail: "projects/plans",
       kind: "note",
     });
   });
 
-  test("a note at the root says so rather than saying nothing", () => {
-    expect(items.find((item) => item.id === "index.md")?.detail).toBe("/");
+  test("a note at the root names the top of the workspace rather than printing a slash", () => {
+    expect(items.find((item) => item.id === "index.md")?.detail).toBe(ROOT_DETAIL);
+    expect(
+      itemsFromListings(listings, { root: "@context" }).find((item) => item.id === "index.md")?.detail,
+    ).toBe("@context");
   });
 
   test("a folder is its path", () => {
@@ -410,5 +422,67 @@ describe("folderItems", () => {
 
   test("the picker is filterable, which is the whole point of replacing the list", () => {
     expect(ranked("plans", folderItems(listings, null))).toEqual(["1-projects/plans"]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                         names, and the untyped list                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The owner's phone screenshot of the homepage's search (2026-09-27) listed
+ * `01-context.md` over `/`, four times. A row is the note's title — the
+ * same three rungs the open note's heading stands on — over where it lives.
+ */
+describe("noteItem", () => {
+  test("the frontmatter title wins, then the first heading, then the file", () => {
+    const texts = {
+      "website/01-context.md": "---\ntitle: wth is this\n---\n# Context\n",
+      "website/02-pricing.md": "# Pricing\n\nfree, you cheapo\n",
+      "website/03-devlog.md": "no heading at all\n",
+    };
+    expect(noteItem("website/01-context.md", { texts }).label).toBe("wth is this");
+    expect(noteItem("website/02-pricing.md", { texts }).label).toBe("Pricing");
+    expect(noteItem("website/03-devlog.md", { texts }).label).toBe("devlog");
+    // No body held: the file, without its sort number or `.md`.
+    expect(noteItem("website/04-use cases.md").label).toBe("use cases");
+  });
+
+  test("the folder is drawn the way the tree draws it", () => {
+    expect(noteItem("4-website/02-pricing.md").detail).toBe("website");
+  });
+
+  test("a title is what the ranker matches, so typing the title finds the note", () => {
+    const texts = { "01-context.md": "# wth is this\n" };
+    const items = [noteItem("01-context.md", { texts }), noteItem("02-pricing.md")];
+    expect(ranked("wth", items)).toEqual(["01-context.md"]);
+    expect(ranked("pricing", items)).toEqual(["02-pricing.md"]);
+  });
+});
+
+describe("recentItems", () => {
+  const items = itemsFromListings(listings);
+
+  test("notes somebody was just in, newest first, as the listings draw them", () => {
+    const recent = recentItems(["1-projects/plans/q3.md", "index.md"], items);
+    expect(recent.map((item) => item.id)).toEqual(["1-projects/plans/q3.md", "index.md"]);
+    expect(recent[0]).toEqual(items.find((item) => item.id === "1-projects/plans/q3.md"));
+  });
+
+  test("folders are places, not notes, and are left out", () => {
+    expect(recentItems(["1-projects", "3-resources/unloaded", "index.md"], items).map((i) => i.id)).toEqual([
+      "index.md",
+    ]);
+  });
+
+  test("a note whose folder is no longer loaded is still listed, from its path", () => {
+    expect(recentItems(["3-resources/reading.md"], items)).toEqual([
+      { id: "3-resources/reading.md", label: "reading", detail: "resources", kind: "note" },
+    ]);
+  });
+
+  test("capped", () => {
+    const paths = Array.from({ length: 20 }, (_, index) => `n${index}.md`);
+    expect(recentItems(paths, [], {}, 5)).toHaveLength(5);
   });
 });

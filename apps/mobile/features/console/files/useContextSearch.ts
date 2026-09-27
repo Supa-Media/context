@@ -66,7 +66,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SearchAnswer } from "./browser";
 import type { PaletteItem } from "./palette";
-import { parentPath } from "./paths";
+import { displayPath, parentPath } from "./paths";
 import { raceTimeout } from "../storage/timeout";
 import type { Reachability } from "../../offline/copy";
 import {
@@ -217,11 +217,14 @@ export function itemsFromHits(hits: SearchHit[]): PaletteItem[] {
     // is here, which a folder path alone never shows. Trimmed hard: a palette
     // row is one line, and a snippet that wraps pushes the next result off a
     // phone screen.
-    const snippet = hit.snippets[0]?.trim();
+    // A note at the top has no folder to name here; the palette's caller knows
+    // what the workspace is called and fills it in (`usePaletteSearch`).
+    const snippet = hit.snippets[0]?.trim().slice(0, 120);
     return {
       id: hit.path,
       label: hit.title,
-      detail: snippet ? `${folder === "" ? "" : `${folder} · `}${snippet}`.slice(0, 120) : folder,
+      ...(folder === "" ? {} : { detail: displayPath(folder) }),
+      ...(snippet ? { snippet } : {}),
       kind: "note" as const,
     };
   });
