@@ -61,6 +61,12 @@ export interface PaletteItem {
    * the second.
    */
   snippet?: string;
+  /**
+   * The note's name in the tree, when its title says something else: the
+   * homepage's `pricing.md` is headed "free, you cheapo", and "pricing" is
+   * what people type. Ranked as well as `label`, never drawn.
+   */
+  name?: string;
   kind: "note" | "folder" | "command";
 }
 
@@ -320,8 +326,13 @@ export function rank(
   const matches: Match[] = [];
   for (const item of items) {
     const hit = fuzzyMatch(trimmed, item.label);
-    if (hit === null) continue;
-    matches.push({ item, score: hit.score, ranges: hit.ranges });
+    // The name is a second way in, and lights nothing in a title it is not.
+    const byName = item.name === undefined ? null : fuzzyMatch(trimmed, item.name);
+    if (hit !== null && (byName === null || hit.score >= byName.score)) {
+      matches.push({ item, score: hit.score, ranges: hit.ranges });
+    } else if (byName !== null) {
+      matches.push({ item, score: byName.score, ranges: [] });
+    }
   }
   matches.sort(compareMatches);
   return matches.slice(0, cap);
@@ -418,10 +429,13 @@ export const ROOT_DETAIL = "Top level";
 export function noteItem(path: string, naming: NoteNaming = {}): PaletteItem {
   const text = naming.texts?.[path];
   const folder = parentPath(path);
+  const name = displayName(baseName(path));
+  const label = text === undefined ? name : noteHeading(text, path);
   return {
     id: path,
-    label: text === undefined ? displayName(baseName(path)) : noteHeading(text, path),
+    label,
     detail: folder === "" ? (naming.root ?? ROOT_DETAIL) : displayPath(folder),
+    ...(label === name ? {} : { name }),
     kind: "note",
   };
 }

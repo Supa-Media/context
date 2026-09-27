@@ -236,6 +236,40 @@ describe("the homepage is the console's frame", () => {
   });
 
   /*
+    The live site's Pricing page is `pricing.md` headed "free, you cheapo", and
+    in a real build "pricing" found nothing: the row carried the heading and
+    the ranker matched only that (2026-09-27).
+  */
+  test("search finds a page by its name when its heading says something else", async () => {
+    mockSite.snapshot.pages.push({
+      path: "plans.md",
+      routePath: "/plans",
+      title: "plans",
+      markdown: "\n# free, you cheapo\n\nFive bucks a month.",
+    });
+    try {
+      const home = mountHome();
+      home.press(home.find("frame-search"));
+      const input = home.find("palette-input") as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      act(() => {
+        setter.call(input, "plans");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      });
+      const rows = [...document.body.querySelectorAll('[data-testid^="palette-row-"]')].map(
+        (row) => row.textContent ?? "",
+      );
+      expect(rows[0]).toContain("free, you cheapo");
+      expect(home.find("palette-empty")).toBeNull();
+    } finally {
+      mockSite.snapshot.pages.pop();
+    }
+  });
+
+  /*
     The account slot on a phone is the same component as the pointer's
     switcher, drawn as a "Sign in" pill for a visitor, and it opens the same
     rows as a bottom sheet (screen 9).

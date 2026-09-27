@@ -458,6 +458,23 @@ describe("noteItem", () => {
     expect(ranked("wth", items)).toEqual(["01-context.md"]);
     expect(ranked("pricing", items)).toEqual(["02-pricing.md"]);
   });
+
+  /*
+    The homepage's Pricing page is `pricing.md` headed "free, you cheapo", and
+    searching "pricing" in a real build found nothing (2026-09-27): the row is
+    drawn by its title, but the name in the tree is still what people type.
+  */
+  test("a note whose title is not its name is still found by its name", () => {
+    const texts = { "02-pricing.md": "\n# free, you cheapo :annoyed:\n\nPremium is five bucks.\n" };
+    const items = [noteItem("01-context.md"), noteItem("02-pricing.md", { texts })];
+    expect(items[1]!.label).toBe("free, you cheapo :annoyed:");
+    expect(ranked("pricing", items)).toEqual(["02-pricing.md"]);
+    expect(ranked("pri", items)).toEqual(["02-pricing.md"]);
+    // The title still wins where it matches, and highlights what matched.
+    expect(rank("cheapo", items)[0]!.ranges.length).toBeGreaterThan(0);
+    // A name match lights nothing in a title it is not part of.
+    expect(rank("pricing", items)[0]!.ranges).toEqual([]);
+  });
 });
 
 describe("recentItems", () => {
