@@ -2,7 +2,8 @@ import type { Dispatch, SetStateAction } from "react";
 import { FrameIconButton } from "../../app/AppFrame";
 import { StagingPill } from "../../app/StagingNotice";
 import { ConsoleLiveMeeting } from "../ConsoleLiveMeeting";
-import { SaveChip, TierChip } from "../ConsoleShell";
+import { TierChip } from "../ConsoleShell";
+import { SaveMark } from "../SaveMark";
 import type { Dialog } from "../files/Explorer";
 import { setReadMode } from "../files/readMode";
 import { settingsHref } from "../nav";
@@ -149,12 +150,12 @@ export function consoleTopTrailing({
         <ConsoleLiveMeeting onOpen={showMeetings} />
         {/*
           Whether the last keystroke is in the bucket, leading the group —
-          see `SaveChip` for why this is a chip here rather than a Save
+          see `SaveMark` for why this is a mark here rather than a Save
           button over the note. Not gated on `insideContext` either: it is
           a claim about the note that is open, and a note stays open
           behind Map, Connections and the settings overlay.
         */}
-        <SaveChip editor={data.files.editor} />
+        <SaveMark editor={data.files.editor} local={data.visitor !== undefined} />
         {/*
           Gated on `insideContext`, and the two chips beside it are not.
           That is deliberate rather than an oversight to tidy: a bucket is

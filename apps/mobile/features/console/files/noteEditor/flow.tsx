@@ -152,7 +152,7 @@ export function noteFlow(view: NoteView) {
       so the sentence went compact-only and the bar, the surface that never
       moves, kept the claim.
 
-      The claim has since moved again, to the top bar's `SaveChip`, and this
+      The claim has since moved again, to the top bar's `SaveMark`, and this
       sentence came part of the way back with it. It is drawn at a pointer
       width in exactly the states `decision` names — a failed save, a
       conflict, a queued draft — because in those the sentence is not a

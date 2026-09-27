@@ -4,7 +4,7 @@ import { AppFrame, FrameIconButton, useFrame } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
 import { ConsoleBottomBar } from "../console/ConsoleBottomBar";
-import { SaveChip } from "../console/ConsoleShell";
+import { SaveMark } from "../console/SaveMark";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { selectedContext } from "../console/types";
@@ -250,12 +250,12 @@ export function AppFrameVisualFixture({
             /*
               And the pointer width's own chip, which is a *claim about the
               open note* in a corner this board is reviewed at. It is where the
-              editor's Save button went — see `SaveChip` — so a board that drew
+              editor's Save button went — see `SaveMark` — so a board that drew
               nothing here would show the note with the button removed and
               nothing put in its place, which is the half of the change a
               reviewer is most likely to object to and could not see.
             */
-            <SaveChip editor={data.files.editor} />
+            <SaveMark editor={data.files.editor} />
           )
         }
         accountSlot={

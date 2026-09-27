@@ -73,13 +73,13 @@ function px(node: HTMLElement, property: string): number {
  * -------------------------------------------------------------------------- */
 
 /**
- * Two icons in the set — `eye` and `pencil` — are stroked `<Path>`s rather than
+ * Five icons in the set — `eye`, `pencil` and the three save-mark clouds — are stroked `<Path>`s rather than
  * stacks of `View`s, because a rounded border cannot hold one weight around a
  * shallow curve. See the header of `Icon.tsx`.
  *
  * That is only allowed to be a different *drawing technique*, never a hole in
  * the set-wide guards below. A path icon that skipped "stays inside its box"
- * would be two icons quietly dropped from a check the other forty pass, which
+ * would be icons quietly dropped from a check the other forty pass, which
  * is the exact shape of false green this project keeps finding. So the geometry
  * is read back out of the DOM and held to the same claims: the arcs are
  * sampled, not reduced to their endpoints, because an arc's bulge is the part
