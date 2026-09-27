@@ -35,6 +35,8 @@ export function FolderRow({
   drag,
   card = false,
   sync = null,
+  picked,
+  onHold,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
@@ -44,6 +46,18 @@ export function FolderRow({
   card?: boolean;
   /** This note's edit is not in the bucket yet. `null` for one that is. */
   sync?: SyncMark | null;
+  /**
+   * The phone's select mode (`folderSelect.tsx`): `undefined` outside it,
+   * otherwise whether this row is picked. In the mode a press picks rather
+   * than opens — the caller's `onSelect` is the toggle then.
+   */
+  picked?: boolean;
+  /**
+   * What a long press does instead of the row menu: on a phone, enter the
+   * select mode with this row picked. Absent everywhere else, where the long
+   * press (or right-click) is still the row's own menu.
+   */
+  onHold?: (path: string) => void;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -69,7 +83,15 @@ export function FolderRow({
     // Absent rather than a no-op, which is the fact that stops a right-click
     // being swallowed by a row with nothing to put in the browser menu's
     // place. See `rowInteractions.web.ts`.
-    onMenu: menu === undefined ? undefined : (anchor) => menu.onRow(row, anchor),
+    onMenu:
+      onHold !== undefined
+        ? () => {
+            onHold(row.path);
+            return true;
+          }
+        : menu === undefined
+          ? undefined
+          : (anchor) => menu.onRow(row, anchor),
     canDrag: drag !== undefined && drag.canDrag(row),
     canDrop: drag !== undefined && drag.canDrop(row),
     onDragStart: drag?.onDragStart ?? noopPath,
@@ -91,7 +113,10 @@ export function FolderRow({
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
-      accessibilityLabel={withSyncMark(row.kind === "folder" ? `${label}, folder` : label, sync)}
+      accessibilityLabel={
+        withSyncMark(row.kind === "folder" ? `${label}, folder` : label, sync) +
+        (picked === true ? ", selected" : "")
+      }
       testID="folder-row"
       // Unconditional: `useRowInteractions` returns nothing to spread when
       // there is no menu, and one copy of that rule is the point — a second
@@ -114,7 +139,19 @@ export function FolderRow({
         still the only thing carrying "this is a folder" and it stays.
       */}
       <View style={styles.chevron}>
-        {card ? (
+        {picked !== undefined ? (
+          /*
+            In select mode the glyph slot is the pick mark: a ring, filled with
+            a tick when picked. The slot and not a new column, so the names
+            do not move when the mode is entered.
+          */
+          <View
+            style={[styles.pick, picked && styles.picked]}
+            testID={picked ? "folder-row-picked" : "folder-row-unpicked"}
+          >
+            {picked ? <Icon name="check" size={12} color={colors.surface} /> : null}
+          </View>
+        ) : card ? (
           <Icon
             name={row.kind === "folder" ? "folder" : "file"}
             size={16}
@@ -238,6 +275,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     touch floor, so `hitSlop` stops doing work here.
   */
   rowCard: { height: 48, paddingLeft: space.x4, paddingRight: space.x4 },
+  /** The select mode's pick ring, in the glyph slot. */
+  pick: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: colors.muted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  picked: { backgroundColor: colors.accent, borderColor: colors.accent },
   /** The chevron gutter, so a file's name lines up with a folder's. */
   chevron: { width: 18, alignItems: "center", justifyContent: "center" },
   rowName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },

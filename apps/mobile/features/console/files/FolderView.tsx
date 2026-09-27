@@ -91,6 +91,7 @@ import { densityFor, noteColumnWidth } from "../../app/frame";
 import type { DragModifier } from "./dnd";
 import { FolderPage, type FolderPageHost } from "./folderPage/FolderPage";
 import { FolderRow } from "./FolderRow";
+import { FolderSelectBar, useFolderSelection } from "./folderSelect";
 import { useListingOrder } from "./listingOrder";
 import { baseName, folderLabel } from "./paths";
 import type { SyncMark } from "./pendingMarks";
@@ -130,6 +131,12 @@ import type { FileEntry, FolderListing } from "./types";
 export interface FolderMenu {
   onRow: (entry: FileEntry, anchor: { x: number; y: number }) => boolean;
   onBackground: (anchor: { x: number; y: number }) => boolean;
+  /**
+   * The tree's multi-selection menu over several picked rows — the phone's
+   * select mode (`folderSelect.tsx`). Absent where there is none, and a phone
+   * then draws no Select button.
+   */
+  onSelection?: (entries: readonly FileEntry[], anchor: { x: number; y: number }) => boolean;
 }
 
 /**
@@ -257,6 +264,16 @@ export function FolderView({
   */
   const descending = useListingOrder();
   const rows = listedEntries(listing?.entries ?? [], { descending });
+  /*
+    The phone's select mode: a Select button over the listing and a long
+    press on a row as the way in. Only on a phone — a pointer layout has the
+    tree beside this, with its own multi-selection — and only where there is a
+    selection menu to act through. See `folderSelect.tsx`.
+  */
+  const selection = useFolderSelection(rows);
+  const onSelection = menu?.onSelection;
+  const canSelect = compact && onSelection !== undefined && rows.length > 0;
+  const selecting = canSelect && selection.selecting;
 
   /*
     The background gesture is on the **whole view**, not on a filler strip under
@@ -389,6 +406,13 @@ export function FolderView({
                   tree is on screen beside this and the two really are one thing
                   shown twice.
                 */
+                <>
+                {canSelect ? (
+                  <FolderSelectBar
+                    selection={selection}
+                    onActions={(picked) => void onSelection!(picked, { x: 0, y: 0 })}
+                  />
+                ) : null}
                 <View style={compact ? styles.card : undefined}>
                   {rows.map((row, index) => (
                     <Fragment key={row.path}>
@@ -405,15 +429,24 @@ export function FolderView({
                       {compact && index > 0 ? <View style={styles.rowRule} /> : null}
                       <FolderRow
                         row={row}
-                        onSelect={onSelect}
+                        onSelect={selecting ? selection.toggle : onSelect}
                         menu={menu}
-                        drag={drag}
+                        drag={selecting ? undefined : drag}
                         card={compact}
                         sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
+                        picked={selecting ? selection.pickedOf(row.path) : undefined}
+                        onHold={
+                          !canSelect
+                            ? undefined
+                            : selecting
+                              ? selection.toggle
+                              : selection.start
+                        }
                       />
                     </Fragment>
                   ))}
                 </View>
+                </>
               )}
               {listing?.truncated ? (
                 <Text variant="treeMeta" style={styles.aside}>
