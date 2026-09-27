@@ -173,6 +173,26 @@ describe("the account button", () => {
     );
     expect(here.find("account-switcher-activity")).toBeNull();
   });
+
+  test("somebody with no name yet gets the faceless figure, not a question mark", () => {
+    const visitor = {
+      ...data([supa], "supa"),
+      viewer: { name: "Visitor", detail: "Not signed in", initial: "?" },
+    } as ConsoleData;
+    const ui = mount(createElement(SwitcherMenu, { data: visitor, label: "@supa", onOpenContext: () => {} }));
+    expect(ui.find("account-switcher")!.querySelector('[data-testid="avatar-anonymous"]')).not.toBeNull();
+    ui.press("account-switcher");
+    const card = ui.find("account-card")!;
+    expect(card.querySelector('[data-testid="avatar-anonymous"]')).not.toBeNull();
+    expect(card.textContent).not.toContain("?");
+
+    live.pop()!();
+    const named = mount(
+      createElement(SwitcherMenu, { data: data([seyi], "seyi"), label: "@seyi", onOpenContext: () => {} }),
+    );
+    expect(named.find("avatar-anonymous")).toBeNull();
+    expect(named.find("account-switcher")!.textContent).toContain("S");
+  });
 });
 
 describe("cardPlacement: the card stays inside the window", () => {

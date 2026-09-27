@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Image, StyleSheet, View } from "react-native";
 import { PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
@@ -7,6 +7,13 @@ import { Text } from "../design/components/Text";
 import { layout, pointerType as t, radii, space } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { MenuItem } from "./files/menu";
+import { UNKNOWN_INITIAL } from "./identity";
+/*
+  Whoever has no name to take an initial from — a homepage visitor, or an
+  account whose identity has not loaded — gets a faceless figure rather than a
+  "?", which read as an error. Chosen by the owner, 2026-09-27.
+*/
+import ANONYMOUS_AVATAR from "../../assets/avatars/visitor.png";
 
 /**
  * Who you are signed in as, and the way out.
@@ -163,7 +170,11 @@ export function Avatar({ initial, size }: { initial: string; size?: number }) {
       ]}
       aria-hidden
     >
-      <Text style={styles.avatarInitial}>{initial}</Text>
+      {initial === UNKNOWN_INITIAL ? (
+        <Image source={ANONYMOUS_AVATAR} style={styles.avatarImage} testID="avatar-anonymous" />
+      ) : (
+        <Text style={styles.avatarInitial}>{initial}</Text>
+      )}
     </View>
   );
 }
@@ -316,8 +327,10 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       /* See `ConsoleShell`'s avatar: one hue, flat, no retired defaults. */
       backgroundColor: colors.accent,
+      overflow: "hidden",
     },
     avatarInitial: { fontSize: t.label, fontWeight: "700", color: colors.ink },
+    avatarImage: { width: "100%", height: "100%" },
     signOut: {
       width: 28,
       height: 28,

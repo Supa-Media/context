@@ -44,7 +44,11 @@ module.exports = {
   // no transform, and it renders real DOM with the real text in it — which is
   // what lets a test assert that a screen does *not* show somebody a capture
   // address for a name the field is rejecting.
-  moduleNameMapper: { "^react-native$": "react-native-web" },
+  moduleNameMapper: {
+    "^react-native$": "react-native-web",
+    // Metro turns an image import into an asset reference; here it is a name.
+    "\\.png$": "<rootDir>/jest.imageStub.js",
+  },
   /**
    * Resolve `.web.ts` / `.web.tsx` ahead of the bare extension, the way Metro
    * does when it bundles for the browser.

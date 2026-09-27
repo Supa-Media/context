@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { AgentActivityView } from "../console/agents/agentActivity";
 import type { FileBrowser, NoteRename } from "../console/files/browser/contract";
 import type { ConsoleContext, ConsoleData } from "../console/types";
+import { UNKNOWN_INITIAL } from "../console/identity";
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import type { ToastSpec } from "../design/components/Toast";
 import { HOME_WORKSPACE_LABEL } from "./homeSite";
@@ -35,14 +36,14 @@ export const HOME_CONTEXT: ConsoleContext = {
   status: "ok",
 };
 
-const VISITOR = { name: "Visitor", detail: "Not signed in", initial: "?" };
+const VISITOR = { name: "Visitor", detail: "Not signed in", initial: UNKNOWN_INITIAL };
 /*
   Somebody signed in can read the homepage too — `/` on the web is always the
   site. They are not a visitor, and their own workspaces are a press away, but
   this page has none of their data: it asks the server nothing, so it cannot
   name them. "Signed in" is `viewerIdentity`'s own word for that gap.
 */
-const SIGNED_IN = { name: "Signed in", detail: "Your workspaces are in the app", initial: "?" };
+const SIGNED_IN = { name: "Signed in", detail: "Your workspaces are in the app", initial: UNKNOWN_INITIAL };
 
 export function useVisitorConsoleData(
   files: FileBrowser,

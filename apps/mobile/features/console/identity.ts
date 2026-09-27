@@ -31,6 +31,9 @@
 import { atName } from "./format";
 import { placeholderIngestionAddress } from "./placeholderData";
 
+/** The initial for a viewer with no name yet; avatars draw a faceless figure for it. */
+export const UNKNOWN_INITIAL = "?";
+
 export interface ViewerIdentity {
   /** "@seyi", or the sign-in email, or "Signed in". */
   name: string;
@@ -86,5 +89,5 @@ export function viewerIdentity({
     return { name: address, initial: address.slice(0, 1).toUpperCase() };
   }
 
-  return { name: "Signed in", initial: "?" };
+  return { name: "Signed in", initial: UNKNOWN_INITIAL };
 }
