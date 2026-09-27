@@ -495,3 +495,57 @@ afterwards rather than trusting its own removals. Leaving a context clears it
 `{ left: false }` for a row it did not find, and clearing on the press would
 discard the copies of a context the person still has.
 
+
+### The phone shell is the artboards' five pieces, and a visitor gets the same ones (2026-09-27)
+
+The owner approved the phone artboards (screens 1, 2, 7 and 9) on 2026-09-27.
+Each piece is a change to the one shell, and none is a homepage-only surface: a
+signed-out visitor differs only by data and permissions.
+
+- **The bottom bar is a centred capsule of five icon keys**: Back (hold for
+  Recent), Browse, Search, New, Recent. The › forward and ✓ save keys went.
+  Browse opens the folder page of whatever is open: a note's folder, or a
+  folder's parent (`browseDestination`). A save the queue can take by hand is
+  still offered, in the note's footer, on every density. New opens the
+  existing create menu, drawn as a bottom sheet (`Shell`'s `sheet`). Pinned by
+  `bottomRowWidth.test.ts`, `browseKey.test.ts` and `createPrompt.test.ts`.
+- **Top right is one capsule: read/edit and •••.** Share moved into •••, which
+  opens a "note actions" sheet with Share…, Rename, Move to…, Copy link, and
+  Move to archive (or Restore). Every row reuses an existing action
+  (`runMenuAction`, the share dialog, `copyShareLink`, the visitor's own
+  `share`). **Comments and History are not on it**: the console has no
+  comments hook and no per-note history surface to open, and a row that
+  pretends otherwise would be inventing an operation. Copy link needs share
+  rights, so a member who is not an owner does not get it. A visitor sees
+  Rename and Move to… (in their tab) and Copy link. See `noteActions.ts`.
+- **The account slot, top left, is `SwitcherMenu`'s `"phone"` trigger.** Signed
+  in, it is the avatar and opens the desktop card's rows as a bottom sheet:
+  workspaces with the current one ticked, New workspace, Meetings, Settings,
+  Sign out. A visitor gets a "Sign in" pill in the same slot, opening the same
+  sheet with Sign in and Create workspace. The forked phone popover
+  (`consoleAccountSlot`) and **the workspace chip row above the path are
+  gone**. The path row keeps the context you are in at its head, so the way
+  up survives. The sheet lists workspaces in the card's order, not in the
+  strip's recency order. Choosing one on a phone still resumes where you were
+  (`contextHrefFrom`). `routeReachability` claims these as the `account`
+  region, and the `contextStrip` region is deleted.
+- **Presence on a phone is 18pt faces overlapping by 6**, still three and a
+  "+n" (`pileGeometry`).
+- **A visitor is told the truth.** The note foot says "Your edits stay in this
+  tab" rather than "Saved in your bucket", and the folder page's sentence about
+  who can read the folder is not drawn for them.
+- **A folder page on a phone has Select.** A button over the listing enters a
+  multi-select mode, and a long press on a row is the shortcut in. On a
+  phone, that gesture no longer opens the row's menu, which is instead one
+  press further in: one picked row's Actions is that row's menu. Actions opens the
+  tree's own selection menu (`FolderMenu.onSelection` → `menu.ts`'s
+  `selection` target → `runMenuAction`). Rename is there for one row; move,
+  archive or restore, and delete are there for several. Share is not offered,
+  for the reason the listing's row menu gives. Every target is padded to 44pt
+  because `hitSlop` is inert on react-native-web. `PressRow` now forwards
+  `onLongPress`, which it used to drop, so the native long press did nothing.
+  Pinned by `folderSelect.test.ts` and `noteChrome/folderSelect.test.ts`.
+
+Content under the floating bar already pays for it: `contentInsets.bottom` is
+spent as scroller padding (`DocumentSurface`, `noteEditor/scroller`), so the
+last line scrolls clear.

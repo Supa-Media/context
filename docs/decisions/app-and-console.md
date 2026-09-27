@@ -493,3 +493,7 @@ Moved to [The first run is two screens, and the rest is a checklist in the conso
 ### An action row is primary first, and the way out sits beside it (2026-09-25)
 
 Moved to [An action row is primary first, and the way out sits beside it](./app-and-console/design-tokens-and-interaction.md#an-action-row-is-primary-first-and-the-way-out-sits-beside-it-2026-09-25).
+
+### The phone shell is the artboards' five pieces, and a visitor gets the same ones (2026-09-27)
+
+Moved to [The phone shell is the artboards' five pieces, and a visitor gets the same ones](./app-and-console/mobile-navigation-shell.md#the-phone-shell-is-the-artboards-five-pieces-and-a-visitor-gets-the-same-ones-2026-09-27).

@@ -262,6 +262,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A folder page is a page, and a folder is acted on like a note
 - A folder's placeholder is not a row
 - A phone gets a path bar, which is half of the line that was deleted
+- The phone shell is the artboards' five pieces, and a visitor gets the same ones
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
 - Making a workspace is its own flow, not onboarding with a flag
