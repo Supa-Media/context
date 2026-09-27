@@ -49,6 +49,19 @@ export function pileFaces<T>(members: readonly T[], limit: number): { faces: rea
   return { faces: members.slice(0, limit - 1), more: members.length - (limit - 1) };
 }
 
+/**
+ * How big the pile's faces are, how far they overlap, and how many it shows.
+ *
+ * A phone's is smaller (owner, 2026-09-27, the phone artboards, screen 1): 18pt
+ * faces overlapping by 6 rather than 24 overlapping by 3, so three people take
+ * about 44pt of the breadcrumb row instead of about 66 — the row a phone's path
+ * has to share with them. Still at most three slots there, the last becoming
+ * `+n` past it (`pileFaces`).
+ */
+export function pileGeometry(compact: boolean): { face: number; overlap: number; limit: number } {
+  return compact ? { face: 18, overlap: 6, limit: 3 } : { face: 24, overlap: 3, limit: 4 };
+}
+
 /** The heading over the list: how many, not who, since the rows say who. */
 export function presenceListTitle(presence: Pick<Presence, "members">): string {
   const count = presence.members.length;

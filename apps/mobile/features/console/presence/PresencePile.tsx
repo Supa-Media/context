@@ -8,7 +8,14 @@ import { radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { MenuItem } from "../files/menuItem";
 import { agentName, handleInitials } from "./agentName";
-import { memberWhere, pileFaces, presenceLabel, presenceListTitle, presenceShown } from "./pile";
+import {
+  memberWhere,
+  pileFaces,
+  pileGeometry,
+  presenceLabel,
+  presenceListTitle,
+  presenceShown,
+} from "./pile";
 import type { Presence } from "./presenceContract";
 import type { PresenceMember } from "./protocol";
 
@@ -37,7 +44,10 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
   if (!presenceShown(presence)) return null;
 
   const reconnecting = presence.phase === "reconnecting";
-  const { faces, more } = pileFaces(presence.members, compact ? 3 : 4);
+  const geometry = pileGeometry(compact);
+  const { faces, more } = pileFaces(presence.members, geometry.limit);
+  // Size and overlap as styles, so a phone's smaller pile is one object.
+  const sized = sizeStyle(geometry);
   const items: MenuItem<string>[] = presence.members.map((member) => ({
     id: member.id,
     label: member.name,
@@ -70,11 +80,14 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
         >
           <View style={[styles.faces, reconnecting && styles.dim]}>
             {faces.map((member, index) => (
-              <Face key={member.id} member={member} stacked={index > 0} />
+              <Face key={member.id} member={member} stacked={index > 0} sized={sized} />
             ))}
             {more > 0 ? (
-              <View style={[styles.face, styles.ring, styles.more, styles.stacked]}>
-                <Text variant="treeMeta" style={styles.moreText}>{`+${more}`}</Text>
+              <View
+                style={[styles.face, sized.face, styles.ring, styles.more, sized.stacked]}
+                testID="presence-more"
+              >
+                <Text variant="treeMeta" style={[styles.moreText, sized.text]}>{`+${more}`}</Text>
               </View>
             ) : null}
           </View>
@@ -105,9 +118,12 @@ function Face({
   member,
   stacked = false,
   ring = true,
+  sized,
 }: {
   member: PresenceMember;
   stacked?: boolean;
+  /** The pile's size for this density; the list's own faces take the default. */
+  sized?: ReturnType<typeof sizeStyle>;
   /** Off in the list, where the face sits on the menu's surface, not the note. */
   ring?: boolean;
 }) {
@@ -115,17 +131,19 @@ function Face({
   return (
     <View
       aria-hidden
+      testID="presence-face"
       style={[
         styles.face,
+        sized?.face,
         ring ? styles.ring : null,
         // `null` when a peer sent no usable colour; the muted token reads as
         // present and unremarkable rather than as a ninth hue.
         member.color === null ? styles.noColor : { backgroundColor: member.color },
-        member.isAgent ? styles.agent : null,
-        stacked ? styles.stacked : null,
+        member.isAgent ? [styles.agent, sized?.agent] : null,
+        stacked ? (sized?.stacked ?? styles.stacked) : null,
       ]}
     >
-      <Text variant="treeMeta" style={styles.initials}>
+      <Text variant="treeMeta" style={[styles.initials, sized?.text]}>
         {initialsFor(member.name)}
       </Text>
     </View>
@@ -140,7 +158,20 @@ function initialsFor(name: string): string {
   return handleInitials(agentName(name).owner ?? name);
 }
 
-const FACE = 24;
+const FACE = pileGeometry(false).face;
+
+/**
+ * The per-density half of a face's style: its size, its overlap, and type that
+ * still fits two initials inside the ring at 18pt.
+ */
+function sizeStyle({ face, overlap }: { face: number; overlap: number }) {
+  return {
+    face: { width: face, height: face, borderRadius: face / 2 },
+    agent: { borderRadius: Math.round((face * 7) / 24) },
+    stacked: { marginLeft: -overlap },
+    text: face < FACE ? { fontSize: 8, lineHeight: 10 } : null,
+  };
+}
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
