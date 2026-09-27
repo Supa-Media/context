@@ -243,6 +243,17 @@ export function groupFolderItems(items: readonly FolderItem[], key = "status", l
     }));
 }
 
+/**
+ * Whether a folder is a projects folder, or inside one: some segment of its
+ * path has "project" in its name, whatever its prefix or case (`1-projects`,
+ * `Projects`, `side-projects/launch`). Only these pages offer List and Board,
+ * and a status of their own; areas, resources and the rest are file listings,
+ * where tracking progress means nothing and the switch was clutter.
+ */
+export function isProjectsFolder(folder: string): boolean {
+  return folder.split("/").some((segment) => segment.toLowerCase().includes("project"));
+}
+
 /** The grouped list once anything has a status; the files otherwise. */
 export function defaultFolderView(items: readonly FolderItem[]): FolderPageView {
   return items.some((item) => item.status !== "") ? "list" : "files";

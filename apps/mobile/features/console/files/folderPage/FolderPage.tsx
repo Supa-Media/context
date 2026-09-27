@@ -1,11 +1,13 @@
 /**
  * A folder page's head and body, around the file listing `FolderView` draws.
  *
- * Every folder page can be seen three ways — **Files**, the listing as it has
+ * A projects folder's page, and every page beneath it (`isProjectsFolder`),
+ * can be seen three ways — **Files**, the listing as it has
  * always been; **List**, its folders and notes grouped by status; **Board**,
  * the same groups as columns — switched by three words on the title's row and
  * remembered per viewer, per folder (`viewMemory.ts`). A folder opens in List
- * once anything in it has a status, and in Files otherwise.
+ * once anything in it has a status, and in Files otherwise. Any other folder
+ * is its Files listing with no switch, no nudge and no `Set status`.
  *
  * Any folder or note in it becomes a tracked item by getting a status: a
  * note's goes in its own frontmatter, a folder's in its front note, and a
@@ -36,6 +38,7 @@ import {
   defaultFolderView,
   folderItems,
   groupFolderItems,
+  isProjectsFolder,
   propertyChoices,
   summarizeFolder,
   type FolderPageView,
@@ -164,8 +167,10 @@ export function FolderPage({
     );
   }
 
+  // Only a projects folder and what is under it tracks progress; anywhere else a view once picked is ignored.
+  const tracks = isProjectsFolder(folder);
   // Until the notes can say which view fits, and which group each item is in, a List or Board waits.
-  const view: FolderPageView = picked ?? (!loaded.settled ? "files" : defaultFolderView(items));
+  const view: FolderPageView = !tracks ? "files" : picked ?? (!loaded.settled ? "files" : defaultFolderView(items));
   // A List or Board somebody picked holds its place, empty, rather than drawing everything as No status first.
   const waiting = view !== "files" && !loaded.settled;
   const choose = (view: FolderPageView) => {
@@ -173,15 +178,16 @@ export function FolderPage({
     rememberView(host.workspaceId, folder, view);
   };
   const status = summary === null ? "" : textOf(summary.properties, "status");
-  const isProject = status !== "";
+  const isProject = tracks && status !== "";
   // A folder is offered a status on its own page when it is not a top-level
   // area and is not being shown as the list of what is in it.
-  const offersStatus = summary !== null && loaded.canEdit && folder.includes("/") && view === "files";
+  const offersStatus = tracks && summary !== null && loaded.canEdit && folder.includes("/") && view === "files";
   const edit = loaded.canEdit ? loaded.choose : null;
   // Spec A7: subfolders that could be tracked, none tracked yet, and nobody has picked a view here.
   // Only to somebody who could then set a status: a member would be offered
   // a list of "No status" rows with nothing on them to press.
   const nudge =
+    tracks &&
     loaded.canEdit &&
     view === "files" &&
     picked === null &&
@@ -216,7 +222,7 @@ export function FolderPage({
       <FolderHead
         title={summary?.title ?? fallbackTitle}
         onOpenTitle={summary !== null && !summary.creates && summary.title !== null ? () => onSelect(summary.target) : undefined}
-        switcher={<ViewSwitch view={view} onChange={choose} compact={compact} />}
+        switcher={tracks ? <ViewSwitch view={view} onChange={choose} compact={compact} /> : null}
         actions={host !== undefined && isWebsiteFolder(folder) ? <PublishWebsite workspaceId={host.workspaceId} /> : null}
       >
         {summary !== null && (isProject || offersStatus) ? (
