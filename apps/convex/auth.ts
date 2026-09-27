@@ -1,5 +1,6 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
+import { reviewerTestEmail } from "./functions/lib/reviewerAccount";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -54,8 +55,14 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   magicLink: { maxAge: 60 * 60 },
   // Dedicated production CUJ identity. The framework registers a separate
   // provider that refuses every other address; this is not the global dev
-  // bypass and cannot change the ordinary customer email provider.
-  testEmail: { email: "agentseyi@agentmail.to", code: "000000" },
+  // bypass and cannot change the ordinary customer email provider. The
+  // connector-directory reviewer gets a provider of its own the same way,
+  // with a code that lives only in the deployment's environment (the CUJ
+  // code above is public).
+  testEmail: [
+    { email: "agentseyi@agentmail.to", code: "000000" },
+    ...reviewerTestEmail(),
+  ],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and
   // `CONVEX_SITE_URL` contains it. Passing nothing is not "no opinion": it is

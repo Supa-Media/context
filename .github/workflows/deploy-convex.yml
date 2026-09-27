@@ -159,6 +159,10 @@ jobs:
           # state: the Domain section says the deployment does not offer them.
           CUSTOM_DOMAINS_ZONE_ID: ${{ secrets.CUSTOM_DOMAINS_ZONE_ID }}
           CUSTOM_DOMAINS_TARGET: ${{ secrets.CUSTOM_DOMAINS_TARGET }}
+          # The six-digit code the Claude and ChatGPT directory reviewers sign
+          # in with (`functions/lib/reviewerAccount.ts`). Absent is a working
+          # state: no reviewer provider is registered.
+          REVIEWER_SIGNIN_CODE: ${{ secrets.REVIEWER_SIGNIN_CODE }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -180,7 +184,8 @@ jobs:
                      MANAGED_R2_ACCOUNT_ID \
                      STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
                      TURNSTILE_SECRET_KEY \
-                     CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET; do
+                     CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
+                     REVIEWER_SIGNIN_CODE; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.
