@@ -107,8 +107,11 @@ minus what a phone already says:
 
 - **No leaf.** The next line down is the note's inline title or the folder's
   heading, so a trailing segment is the same words twice.
-- **No visibility chip.** A note carries it as a Properties row and a folder
-  states it in a sentence directly beneath, both fuller than the brief chip.
+- **No visibility chip.** A folder states it in a sentence directly beneath. A
+  note says nothing about it anywhere on its page: the Properties row that
+  once carried it was removed by the owner (2026-09-27) because it controlled
+  nothing and read like a setting to new people. The Share dialog is where a
+  note's audience is read and changed.
 - **The context is not a segment, it is the button in front of them.** It was a
   monospace segment, pressable, on the argument that it is not a label but the
   way *up* — without it the bar bottoms out one level short of home. That

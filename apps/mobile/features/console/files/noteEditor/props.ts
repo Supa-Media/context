@@ -13,7 +13,6 @@ import type {
   FormSubmission,
   FormVote,
 } from "../formBlock";
-import type { Visibility } from "../types";
 import type { FolderListSource } from "../listBlock/model";
 
 /** What a surface mounts `NoteEditor` with. */
@@ -89,28 +88,6 @@ export interface NoteEditorProps {
   onTitleCaret?: (inTitle: boolean) => void;
   titleNote?: { tone: "problem" | "held"; message: string } | null;
   titleFocus?: { path: string; id: number } | null;
-  /**
-   * Who can read this note, as the access map answers it — a Properties row.
-   *
-   * `visibility:` is filing metadata about a note, which is exactly what the
-   * Properties panel is for, and it is where the breadcrumb's chip went when
-   * the breadcrumb went. The value comes from the *manifest* rather than from
-   * the file's own frontmatter, because a `visibility:` line inside a note
-   * decides nothing — `privacy.md` does, which is what `ManifestNotice` says in
-   * so many words. So a note carrying its own `visibility:` has that row
-   * replaced by this one rather than showing two answers to one question.
-   *
-   * Optional, and absent everywhere but the console's Browse pane: a
-   * `NoteEditor` mounted without an entry beside it has no honest answer, and
-   * inventing "private" would be a claim about access made by a component that
-   * was not told.
-   */
-  visibility?: {
-    visibility: Visibility;
-    inherited: Visibility;
-    exception: boolean;
-    readOnly: boolean;
-  };
   /**
    * What the pane has to say about this note, inside the note's own scroller.
    *

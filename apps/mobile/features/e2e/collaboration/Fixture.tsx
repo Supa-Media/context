@@ -80,12 +80,6 @@ function Session({ user, note }: { user: string; note: string }) {
       state={files.editor}
       canEdit={user !== "reader"}
       presence={presence}
-      visibility={{
-        visibility: files.editor.visibility,
-        inherited: files.editor.inherited,
-        exception: files.editor.exception,
-        readOnly: files.editor.readOnly,
-      }}
       onChange={files.setDraft}
       onSave={files.save}
       onDiscard={files.discard}

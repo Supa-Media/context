@@ -334,18 +334,6 @@ export function BrowseDocument({
         onLoadImage={files.loadImage}
         onStoreImage={files.storeImage}
         onImageProblem={files.say}
-        /*
-          What the note's own frontmatter cannot say. `visibility:` in a note
-          is prose — `privacy.md` decides access — so the Properties panel
-          shows the manifest's answer under that key rather than the file's,
-          which is where the breadcrumb's chip has gone.
-        */
-        visibility={{
-          visibility: selected.visibility,
-          inherited: selected.inherited,
-          exception: selected.exception,
-          readOnly: selected.readOnly,
-        }}
         notices={compact ? notices : null}
         pathBar={pathBar}
         onChange={files.setDraft}
