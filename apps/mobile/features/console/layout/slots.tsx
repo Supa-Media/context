@@ -44,7 +44,7 @@ export function consoleSyncSlot({
 
     `browsing`, as the Recent sheet is: the sheet's rows open notes, and
     Browse is where a note is opened. `AppFrame` refuses the slot at a
-    pointer density on its own, where the strip and `SaveChip` say it.
+    pointer density on its own, where the strip and `SaveMark` say it.
   */
   return (
     phone && browsing ? (

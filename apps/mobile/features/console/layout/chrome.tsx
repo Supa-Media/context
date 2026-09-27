@@ -23,23 +23,24 @@ import type { ConsoleData } from "../types";
  */
 
 /**
- * The bucket this context is bound to, in the top bar.
+ * A context with nowhere to keep notes, in the top bar — and nothing else
+ * about storage.
  *
- * It sat beside the Browse pane's title, which meant it disappeared on every
- * other route even though the binding is a property of the context you are in.
- * A context with nowhere to keep notes is a legitimate state and one you have
- * to be able to *see*, so it is warn-toned rather than another grey chip.
+ * **It used to name every binding** — `R2 · notes-bucket`, `R2 · managed`,
+ * `Dropbox · second/` — as a pill beside search, on every route. For a managed
+ * bucket that was a fact the person never chose and cannot act on; for their
+ * own it repeated the status strip along the bottom, which already names the
+ * bucket, with Settings → Storage behind both. Three pills of equal weight in
+ * one corner made the one that mattered impossible to find.
  *
- * The words come from `storagePillLabel`, which is what stopped a Dropbox
- * binding — no bucket, by design — from printing "dropbox · undefined" here.
+ * So the bar keeps the only storage state that is a problem with a fix behind
+ * it: "no bucket connected", warn-toned, and a way in to the storage settings
+ * where one gets connected. A connected binding — any provider, managed or
+ * not — draws nothing here.
  *
- * And it is a way in, not just a fact: pressing it opens the selected
- * context's storage settings, for every provider alike. It always was the one
- * place the binding is stated on every route, and a stated fact you cannot act
- * on — "no bucket connected", with the connect form two unadvertised
- * navigations away — is most of the way to a bug. The press target fills the
- * top bar's height (`topBarHeight` is `minTouchTarget + 1`), so it is
- * reachable by a thumb without growing the bar.
+ * `undefined` is a binding that has not answered. Saying "no bucket connected"
+ * about it is a warn pill on somebody's own bucket, and `data.loading` does
+ * not cover it — see `ConsoleData.storage`.
  */
 export function StorageChip({
   data,
@@ -53,17 +54,13 @@ export function StorageChip({
   // `undefined` is a binding that has not answered. Saying "no bucket
   // connected" about it is a warn pill on somebody's own bucket, and
   // `data.loading` does not cover it — see `ConsoleData.storage`.
-  if (data.loading || data.storage === undefined) return null;
-  const label = storagePillLabel(data.storage);
+  if (data.loading || data.storage !== null) return null;
 
-  const pill =
-    label === null ? (
-      <Pill tone="warn" leading={<Dot tone="warn" />}>
-        no bucket connected
-      </Pill>
-    ) : (
-      <Pill tone="neutral">{label}</Pill>
-    );
+  const pill = (
+    <Pill tone="warn" leading={<Dot tone="warn" />}>
+      no bucket connected
+    </Pill>
+  );
 
   if (onOpenSettings === undefined) return pill;
   return (
@@ -147,10 +144,12 @@ export function Status({
   const segments = statusSegments({
     editor: data.files.editor,
     conflictCheck: data.files.editor.conflictCheck,
-    // The same words as the top bar's chip, from the same function — two call
-    // sites interpolating `provider · bucket` themselves is how one of them
-    // printed "dropbox · undefined".
-    storageLabel: storagePillLabel(data.storage),
+    // The bucket's name, from `storagePillLabel` — two call sites once
+    // interpolated `provider · bucket` themselves, which is how one of them
+    // printed "dropbox · undefined". Not for a managed bucket: its name is a
+    // workspace id nobody chose, "R2 · managed" tells somebody nothing they
+    // can act on, and this segment's detail says "a bucket which you own".
+    storageLabel: data.storage?.managed === true ? null : storagePillLabel(data.storage),
     // How much of this context is in the hosted index, on every console route
     // rather than only in settings — which is the whole of what made a stuck
     // backfill and a working one look the same. `null` for a member, for a

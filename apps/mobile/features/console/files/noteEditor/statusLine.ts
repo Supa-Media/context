@@ -40,7 +40,7 @@ export function noteFoot({
     words are the error message itself ("we don't know whether that save
     landed"), and a crit chip in the top bar cannot carry a paragraph.
 
-    Every other state says it in the top bar's `SaveChip` — "Saving soon",
+    Every other state says it in the top bar's `SaveMark` — "Saving soon",
     "Saving…", "Saved" — which is a claim you can read without anything
     standing over the note. See `status.ts`'s `saveChip`.
   */
