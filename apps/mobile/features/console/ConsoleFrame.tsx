@@ -51,6 +51,8 @@ import { useConsoleCommands } from "./layout/useConsoleCommands";
 import { noteTargetsFor } from "./layout/noteTargets";
 import { useConsoleAside } from "./layout/useConsoleAside";
 import { consoleTopTrailing } from "./layout/topTrailing";
+import { NoteActionsSheet } from "./layout/NoteActionsSheet";
+import { noteActionItems } from "./layout/noteActions";
 import {
   consoleAccountSlot,
   consoleAsidePanel,
@@ -251,8 +253,28 @@ export function ConsoleFrame({
   // Auto-organize, for the surfaces that draw it; absent-as-nothing everywhere else.
   const organizer = useConsoleOrganizer(data.organizer, router);
 
-  const { selectedEntry, shareTarget, readable } = noteTargetsFor({ browsing, data });
+  const { selectedEntry, readable } = noteTargetsFor({ browsing, data });
   const reading = useReadMode();
+  /*
+    The phone's ••• over the open note or folder: its actions as a bottom
+    sheet (`NoteActionsSheet`). Drawn only where there is at least one row
+    this person may use — `noteActionItems` decides, so the button and the
+    sheet cannot disagree about whether there is anything behind it.
+  */
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsEntry =
+    phone && browsing && selectedEntry !== null &&
+    noteActionItems({
+      entry: selectedEntry,
+      canEdit: data.files.canEdit,
+      canShare: data.files.canShare,
+      visitor: visitor !== undefined,
+    }).length > 0
+      ? selectedEntry
+      : null;
+  useEffect(() => {
+    if (actionsEntry === null) setActionsOpen(false);
+  }, [actionsEntry]);
 
   const {
     meetingsAt, newChatAt, phoneChatAt, setPhoneChatAt, showMeetings, places, contextHrefFrom,
@@ -387,8 +409,8 @@ export function ConsoleFrame({
           ) : undefined
         }
         topTrailing={consoleTopTrailing({
-          phone, readable, shareTarget, reading, setBarDialog, showMeetings, data, insideContext,
-          current, router,
+          phone, readable, reading, showMeetings, data, insideContext, current, router,
+          onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         /*
@@ -450,6 +472,7 @@ export function ConsoleFrame({
             treeOverlay ||
             recentOpen ||
             syncOpen ||
+            actionsOpen ||
             openSettingsSection !== null ||
             connectAgent !== null
           }
@@ -494,6 +517,16 @@ export function ConsoleFrame({
         {visitor === undefined ? signOutDialog : null}
 
         {consoleCloseTabConfirm({ closingTab, tabs, setClosingTab })}
+
+        {actionsOpen && actionsEntry !== null ? (
+          <NoteActionsSheet
+            data={data}
+            entry={actionsEntry}
+            contextLabel={contextLabel}
+            setBarDialog={setBarDialog}
+            onDismiss={() => setActionsOpen(false)}
+          />
+        ) : null}
 
         {consoleBarDialogs({
           data, barDialog, setBarDialog, startMeeting, startNewChat, resumeRow, current,

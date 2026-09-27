@@ -14,6 +14,19 @@ function openAudience(app: { press: (node: HTMLElement | null) => void }): void 
   app.press(sheet("share-audience"));
 }
 
+/**
+ * Share lives in the ••• sheet now (owner, 2026-09-27, the phone artboards,
+ * screens 1 and 7), so a test reaches the dialog the way a person does: •••,
+ * then Share….
+ */
+function openShare(app: {
+  press: (node: HTMLElement | null) => void;
+  find: (testID: string) => HTMLElement | null;
+}): void {
+  app.press(app.find("note-actions"));
+  app.press(sheet("note-action-share"));
+}
+
 describe("the top row ends in one group, and it is the note's", () => {
   /**
    * **This was `the top bar is a toggle and one group › nothing sits between
@@ -33,14 +46,15 @@ describe("the top row ends in one group, and it is the note's", () => {
    * above the note**, and the trailing group on it holds what acts on the note.
    * So the row is asserted by its three slots rather than by an emptiness.
    */
-  test("an account, the contexts, and the note's own actions", () => {
+  test("an account, and the note's own actions", () => {
     const app = mountConsole(dataWith());
 
     // The slot's own control, not `account-sign-out`: that testID now names a
     // row inside the menu this trigger opens, not something on screen at rest.
     expect(app.find("account-menu")).not.toBeNull();
-    expect(app.find("context-strip")).not.toBeNull();
-    expect(app.find("note-share")).not.toBeNull();
+    // The note's own actions: read/edit and •••, with Share inside •••.
+    expect(app.find("note-actions")).not.toBeNull();
+    expect(app.find("note-share")).toBeNull();
 
     // Retired chrome, absent: the two toggles and the chip.
     expect(app.find("frame-drawer-toggle")).toBeNull();
@@ -66,14 +80,14 @@ describe("the top row ends in one group, and it is the note's", () => {
    * but never passing `reading` into `NoteEditor`: **1** — the editability
    * check, which is the one that says the press does anything.
    */
-  test("the note carries a reading toggle, before Share", () => {
+  test("the note carries a reading toggle, before •••", () => {
     const app = mountConsole(dataWith());
     const eye = app.find("note-read");
     expect(eye).not.toBeNull();
-    // Before Share in the DOM, which is what "leads the group" means on a row
+    // Before ••• in the DOM, which is what "leads the group" means on a row
     // laid out in order.
-    const share = app.find("note-share");
-    expect(eye!.compareDocumentPosition(share!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const more = app.find("note-actions");
+    expect(eye!.compareDocumentPosition(more!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   /**
@@ -170,14 +184,35 @@ describe("the top row ends in one group, and it is the note's", () => {
     const app = mountConsole(dataWith());
     expect(document.body.querySelector('[aria-label="Share plan.md"]')).toBeNull();
 
-    app.press(app.find("note-share"));
+    openShare(app);
 
     expect(document.body.querySelector('[aria-label="Share plan.md"]')).not.toBeNull();
   });
 
+  /**
+   * ••• runs the operations the tree's menu runs, through the same dialogs:
+   * Move to… raises the move prompt for the note on screen. The sheet invents
+   * nothing — see `noteActions.ts`.
+   *
+   * SABOTAGE: `NoteActionsSheet` dispatching nothing for `moveTo`. Fails here.
+   */
+  test("••• → Move to… opens the move dialog for the note in front of you", () => {
+    const app = mountConsole(dataWith());
+    app.press(app.find("note-actions"));
+    // The sheet names what it is about.
+    expect(sheet("menu-sheet")).not.toBeNull();
+    app.press(sheet("note-action-move"));
+    // The sheet closed and the existing dialog opened in its place.
+    expect(sheet("note-action-move")).toBeNull();
+    expect(document.body.querySelector('[aria-label="Move plan.md"]')).not.toBeNull();
+  });
+
   test("and it is absent — not dimmed — for anybody the server would refuse", () => {
     const editor = mountConsole(dataWith({ canShare: false }));
-    expect(editor.find("note-share")).toBeNull();
+    // ••• is still there for an editor — Rename, Move — but Share is not in it.
+    editor.press(editor.find("note-actions"));
+    expect(sheet("note-action-rename")).not.toBeNull();
+    expect(sheet("note-action-share")).toBeNull();
     // The positive control: the same fixture with ownership shows it, so this
     // cannot pass because the note failed to open.
     expect(editor.find("note-inline-title")).not.toBeNull();
@@ -203,7 +238,8 @@ describe("the top row ends in one group, and it is the note's", () => {
     const app = mountConsole(
       dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
     );
-    expect(app.find("note-share")).not.toBeNull();
+    app.press(app.find("note-actions"));
+    expect(sheet("note-action-share")).not.toBeNull();
     // The padlock is gone for a folder too — there is only ever one icon now.
     expect(app.find("note-visibility")).toBeNull();
   });
@@ -223,7 +259,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     const app = mountConsole(
       dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
     );
-    app.press(app.find("note-share"));
+    openShare(app);
     openAudience(app);
     expect(sheet("share-audience-private")).not.toBeNull();
     expect(sheet("share-audience-team")).not.toBeNull();
@@ -244,7 +280,7 @@ describe("the top row ends in one group, and it is the note's", () => {
    */
   test("the sheet names the context rather than saying `team`", () => {
     const app = mountConsole(dataWith());
-    app.press(app.find("note-share"));
+    openShare(app);
     openAudience(app);
     const team = sheet("share-audience-team")!;
     expect(team.getAttribute("aria-label")).toMatch(/^Everyone in @/);
@@ -258,7 +294,7 @@ describe("the top row ends in one group, and it is the note's", () => {
    */
   test("the sheet names every position and marks the one it is in", () => {
     const shared = mountConsole(dataWith());
-    shared.press(shared.find("note-share"));
+    openShare(shared);
     openAudience(shared);
     expect(sheet("share-audience-team")!.getAttribute("aria-checked")).toBe("true");
     expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("false");
@@ -273,7 +309,7 @@ describe("the top row ends in one group, and it is the note's", () => {
   */
   test("…and marks Restricted on a private note", () => {
     const priv = mountConsole(dataWith({}, { visibility: "private", inherited: "private" }));
-    priv.press(priv.find("note-share"));
+    openShare(priv);
     openAudience(priv);
     expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("true");
   });
@@ -288,7 +324,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     const app = mountConsole(
       dataWith({ setScope: (...args: unknown[]) => moved.push(args) } as never),
     );
-    app.press(app.find("note-share"));
+    openShare(app);
     openAudience(app);
     app.press(sheet("share-audience-private"));
     expect(moved).toEqual([[NOTE, "file", "team", "private"]]);
@@ -307,7 +343,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     const app = mountConsole(
       dataWith({ setScope: (...args: unknown[]) => moved.push(args) } as never),
     );
-    app.press(app.find("note-share"));
+    openShare(app);
     openAudience(app);
     app.press(sheet("share-audience-anyone"));
 
@@ -330,7 +366,7 @@ describe("the top row ends in one group, and it is the note's", () => {
       dataWith({ openLinkPaths: new Set([NOTE]), shares: [OPEN_LINK] } as never),
       390,
     );
-    app.press(app.find("note-share"));
+    openShare(app);
     openAudience(app);
     expect(sheet("share-audience-anyone")!.getAttribute("aria-checked")).toBe("true");
   });
@@ -345,7 +381,7 @@ describe("the top row ends in one group, and it is the note's", () => {
         inherited: "private",
       }),
     );
-    app.press(app.find("note-share"));
+    openShare(app);
     openAudience(app);
     expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("true");
     expect(sheet("share-audience-anyone")!.getAttribute("aria-checked")).toBe("false");
@@ -353,7 +389,7 @@ describe("the top row ends in one group, and it is the note's", () => {
 
   test("the audience control is absent — not dimmed — for anybody the server would refuse", () => {
     const member = mountConsole(dataWith({ canSetVisibility: false }));
-    member.press(member.find("note-share"));
+    openShare(member);
     expect(sheet("share-audience")).toBeNull();
     // The positive control: the sheet did open, so this cannot pass by mounting
     // nothing at all.
@@ -368,7 +404,12 @@ describe("the top row ends in one group, and it is the note's", () => {
     // Share is absent, so there is no sheet and therefore no audience control:
     // `privacy.md` *is* the access map, and a control offering to change its
     // visibility would be offering to edit the file that decides everybody
-    // else's.
+    // else's. ••• may still offer Copy link; it never offers Share or Rename.
+    if (app.find("note-actions") !== null) {
+      app.press(app.find("note-actions"));
+      expect(sheet("note-action-share")).toBeNull();
+      expect(sheet("note-action-rename")).toBeNull();
+    }
     expect(app.find("note-share")).toBeNull();
     expect(app.find("note-visibility")).toBeNull();
   });

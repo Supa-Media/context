@@ -1,10 +1,8 @@
-import type { Dispatch, SetStateAction } from "react";
 import { FrameIconButton } from "../../app/AppFrame";
 import { StagingPill } from "../../app/StagingNotice";
 import { ConsoleLiveMeeting } from "../ConsoleLiveMeeting";
 import { TierChip } from "../ConsoleShell";
 import { SaveMark } from "../SaveMark";
-import type { Dialog } from "../files/Explorer";
 import { setReadMode } from "../files/readMode";
 import { settingsHref } from "../nav";
 import { DEFAULT_SETTINGS_SECTION } from "../settings/sections";
@@ -22,9 +20,8 @@ import type { ConsoleRouter } from "./types";
 export function consoleTopTrailing({
   phone,
   readable,
-  shareTarget,
+  onOpenActions,
   reading,
-  setBarDialog,
   showMeetings,
   data,
   insideContext,
@@ -33,9 +30,12 @@ export function consoleTopTrailing({
 }: {
   phone: boolean;
   readable: boolean;
-  shareTarget: string | null;
+  /**
+   * Opens the note-actions sheet. Absent when the open note or folder has no
+   * action this person may take, and the ••• is then not drawn.
+   */
+  onOpenActions: (() => void) | undefined;
   reading: boolean;
-  setBarDialog: Dispatch<SetStateAction<Dialog>>;
   showMeetings: () => void;
   data: ConsoleData;
   insideContext: boolean;
@@ -98,7 +98,15 @@ export function consoleTopTrailing({
         them, and `setScope` is still the single point every surface goes
         through. Only the control that drove it changed.
       */
-      !readable && shareTarget === null ? undefined : (
+      /*
+        **Share moved into •••** (owner, 2026-09-27, the phone artboards,
+        screens 1 and 7). The capsule is two buttons now — read/edit and
+        ••• — and ••• raises the note-actions sheet (`NoteActionsSheet`),
+        whose first row is this Share, raised through the same `barDialog`.
+        One control for the note's verbs rather than one per verb, because
+        iPhone Safari has no right-click to reach the rest.
+      */
+      !readable && onOpenActions === undefined ? undefined : (
         <>
           {/*
             Reading mode, leading the group.
@@ -128,13 +136,13 @@ export function consoleTopTrailing({
               testID="note-read"
             />
           ) : null}
-          {shareTarget === null ? null : (
+          {onOpenActions === undefined ? null : (
             <FrameIconButton
-              label="Share this"
-              icon="share"
+              label="Note actions"
+              icon="more"
               grouped
-              onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
-              testID="note-share"
+              onPress={onOpenActions}
+              testID="note-actions"
             />
           )}
         </>
