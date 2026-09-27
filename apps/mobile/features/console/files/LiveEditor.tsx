@@ -71,6 +71,7 @@ import {
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
 import { confirmOpenUrl } from "./confirmOpenUrl";
+import { bridgeControls } from "./webview/host/controls";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -395,34 +396,7 @@ export function LiveEditor({
    * cannot.
    */
   const api = useRef<EditorControls | null>(null);
-  if (api.current === null) {
-    api.current = {
-      wrap: (before, after) => bridge.run({ name: "wrap", before, after }),
-      toggleLinePrefix: (prefix) => bridge.run({ name: "toggleLinePrefix", prefix }),
-      /*
-        The `ask` is held here rather than sent: a function cannot cross the
-        bridge, so the guest is told only that there is one, and answers with a
-        `link-request` that the sink above hands to it.
-      */
-      insertLink: (ask) => {
-        askLink.current = ask ?? null;
-        bridge.run(ask === undefined ? { name: "insertLink" } : { name: "insertLink", ask: true });
-      },
-      applyLink: (link) => bridge.run({ name: "applyLink", link }),
-      cancelLink: () => bridge.run({ name: "cancelLink" }),
-      undo: () => bridge.run({ name: "undo" }),
-      redo: () => bridge.run({ name: "redo" }),
-      blur: () => bridge.run({ name: "blur" }),
-      /*
-        Reachable, and deliberately not reached today: no phone build has a
-        dictation engine (`features/voice/engine.ts`), so nothing calls this.
-        It is wired anyway because the *joining* rule lives in `runCommand` on
-        both sides of the bridge — a surface that grew an engine later and
-        found this missing would reimplement the spacing and get it different.
-      */
-      dictate: (text) => bridge.run({ name: "dictate", text }),
-    };
-  }
+  if (api.current === null) api.current = bridgeControls(bridge, askLink);
 
   /**
    * Hand the handle over, and take it back on unmount.
