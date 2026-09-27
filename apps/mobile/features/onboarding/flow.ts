@@ -101,7 +101,7 @@ export function headerLabel(step: StepKey, slug: string | null): string {
 export function stepTitle(key: StepKey, shape?: FlowShape): string {
   switch (key) {
     case "name":
-      return "Pick the name your notes live under";
+      return "Pick your handle";
     case "fork":
       return "Where should we start you?";
     case "storage":
