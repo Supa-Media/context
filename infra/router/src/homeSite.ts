@@ -260,7 +260,7 @@ export async function homeDocumentResponse(
 }
 
 /**
- * `/` with its site: asked for while the HTML is fetched, so waiting for one
+ * A home page address (`/`, `/pricing`) with its site: asked for while the HTML is fetched, so waiting for one
  * costs no more than the other. `HOME_SITE_HANDLE` names another workspace
  * for a self-host; anything not shaped like a handle is ignored.
  */
@@ -269,8 +269,9 @@ export async function withHomeSite(
   env: { HOME_SITE_HANDLE?: string },
   convexOrigin: string | null,
   ctx: ExecutionContext,
-  routePath = "/",
+  url: URL,
 ): Promise<Response> {
+  const routePath = homePagePathOf(url) ?? "/";
   const named = env.HOME_SITE_HANDLE ?? "";
   const handle = /^[a-z0-9-]{1,64}$/.test(named) ? named : DEFAULT_HOME_SITE_HANDLE;
   const snapshot = fetchHomeSnapshot(convexOrigin, handle, ctx);

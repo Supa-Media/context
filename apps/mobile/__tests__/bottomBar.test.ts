@@ -307,8 +307,7 @@ describe("a thumb has to be able to hit it", () => {
     for (const item of toolbar()) {
       const target = bar.need(`bottom-bar-${item.id}`);
       expect(px(target, "flex-basis")).toBe(layout.bottomBarTarget);
-      // Its natural width and no more: the capsule is sized by its keys now
-      // (owner, 2026-09-27), so a target does not grow into spare room.
+      // Its natural width: the capsule is sized by its keys (owner, 2026-09-27).
       expect(px(target, "flex-grow")).toBe(0);
     }
     // And the share each wants is still above the floor, which is the rule the
@@ -349,17 +348,9 @@ describe("a thumb has to be able to hit it", () => {
   });
 
   /**
-   * **This was `the bar fills the slot rather than sizing itself`, and the
-   * owner reversed it** (2026-09-27, the phone artboards, screen 1): a short
-   * centred capsule of five icon-only keys, Obsidian's shape. The old worry —
-   * the pill's edges moving with the number of actions a route offers — was a
-   * worry about a row whose length varied; the console's row is five keys on
-   * every route that draws it (`bottomRowWidth.test.ts` pins which five).
-   *
-   * The frame's inset is still the most the capsule may reach
-   * (`appFrameRender.test.ts`), and the pad is still the pill's own.
-   *
-   * SABOTAGE: `alignSelf: "stretch"` back in `BottomBar`'s `bar`. Fails here.
+   * Was "the bar fills the slot"; the owner reversed it (2026-09-27, screen 1)
+   * for a centred capsule of five icon keys, the same five on every route
+   * (`bottomRowWidth.test.ts`). SABOTAGE: `alignSelf: "stretch"` in `BottomBar`.
    */
   test("the bar is a centred capsule, sized by its keys", () => {
     const bar = mountBar(toolbar(), 440);

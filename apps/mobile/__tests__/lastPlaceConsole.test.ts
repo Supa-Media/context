@@ -321,10 +321,7 @@ async function mountConsole(): Promise<Mounted> {
     container.remove();
   });
 
-  /*
-    The whole document, not the container: the account sheet is a `Modal`,
-    which react-native-web portals to `document.body`.
-  */
+  // The whole document: the account sheet is a `Modal`, portalled to the body.
   const find = (testID: string) =>
     document.body.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
 
@@ -346,10 +343,7 @@ async function mountConsole(): Promise<Mounted> {
         .map((node) => node.dataset.testid!.slice("switcher-context-".length));
     },
     press,
-    /*
-      A phone switches workspaces in the account sheet now (owner,
-      2026-09-27): the top-left slot, then the workspace's row.
-    */
+    // A phone switches in the account sheet (owner, 2026-09-27): slot, then row.
     open: (slug: string) => {
       if (find("menu-sheet") === null) press("account-menu");
       press(`switcher-context-${slug}`);
@@ -369,11 +363,8 @@ async function settle(): Promise<void> {
 /* -------------------------------------------------------------------------- */
 
 /*
-  **This was the strip's.** The phone's workspace strip went into the account
-  sheet (owner, 2026-09-27, the phone artboards, screen 9), and the resume went
-  with it: a workspace chosen there on a phone opens where you were in it,
-  through the same `contextHrefFrom`. So every claim below is the same claim,
-  reached by the press a phone has now.
+  **This was the strip's.** The strip went into the account sheet (owner,
+  2026-09-27, screen 9) and the resume went with it, through `contextHrefFrom`.
 */
 describe("choosing a workspace on a phone goes back to where you were in it", () => {
   /**
@@ -443,16 +434,9 @@ describe("choosing a workspace on a phone goes back to where you were in it", ()
    * on the root — which is a working switch rather than a refusal.
    */
   /**
-   * **The order changed with the surface, deliberately.** The strip sorted by
-   * this device's log (`stripOrder`), most recent first, with the current
-   * context lifted out into the breadcrumb. The account sheet is the desktop
-   * card drawn as a sheet (screen 9: "the same card as the desktop account
-   * button"), so it lists the workspaces the card lists them: your own first
-   * and marked "yours", the current one ticked, the rest in the control
-   * plane's order — whatever the log says. `stripOrder` is still pinned on its
-   * own in `contextStrip.test.ts`.
-   *
-   * SABOTAGE: `railGroup` order replaced by the log in `SwitcherMenu`. Fails.
+   * **The order changed with the surface, deliberately.** The account sheet is
+   * the desktop card (screen 9): your own first, then the control plane's
+   * order, whatever the log says. SABOTAGE: sort `SwitcherMenu` by the log.
    */
   test("the account sheet lists workspaces in the card's order, not the log's", async () => {
     await seedLog([

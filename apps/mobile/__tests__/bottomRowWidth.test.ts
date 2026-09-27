@@ -84,12 +84,8 @@ const KEYS = 7;
 const RULES = 1;
 
 /**
- * And what the console actually draws now: back, browse, search, `+`, recent —
- * the five-key capsule the owner approved on 2026-09-27. Forward and `✓` Save
- * went: Recent (and holding `‹`) reaches the page you came back from, and
- * autosave plus the sync mark cover saving, with a failed save's Save button at
- * the foot of the note. No rule, because the microphone key it separated is
- * long gone.
+ * And what the console draws now: back, browse, search, `+`, recent (owner,
+ * 2026-09-27). Recent replaced forward; autosave and the sync mark replaced ✓.
  *
  * Asserted separately from `KEYS` on purpose. Pointing the console's own tests
  * at the seven-key probe is how "how many keys does the product draw" stops
@@ -723,15 +719,10 @@ describe("the console's own bottom row", () => {
 
     expect(row).toHaveLength(CONSOLE_KEYS);
     // Icon-only, so the label is the whole of each key's name.
-    expect(row.map((node) => node.getAttribute("aria-label"))).toEqual([
-      "Go back",
-      "Browse this folder",
-      "Search notes",
-      "Create",
-      "Recently opened",
-    ]);
-    expect(container.querySelector('[data-testid="bottom-bar-forward"]')).toBeNull();
-    expect(container.querySelector('[data-testid="bottom-bar-save"]')).toBeNull();
+    expect(row.map((node) => node.getAttribute("aria-label"))).toEqual(
+      ["Go back", "Browse this folder", "Search notes", "Create", "Recently opened"],
+    );
+    for (const gone of ["forward", "save"]) expect(container.querySelector(`[data-testid="bottom-bar-${gone}"]`)).toBeNull();
 
     drop();
   });

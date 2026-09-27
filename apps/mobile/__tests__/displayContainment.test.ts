@@ -299,11 +299,11 @@ describe("the console contains a name it did not choose", () => {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     /* eslint-enable @typescript-eslint/no-require-imports */
-    const source = readFileSync(
-      `${__dirname}/../features/console/files/LiveEditor.tsx`,
-      "utf8",
-    );
-    // Contained where it is read...
+    const files = `${__dirname}/../features/console/files`;
+    // The iOS editor asks through the dialog, which lives in its own file...
+    expect(readFileSync(`${files}/LiveEditor.tsx`, "utf8")).toContain("onOpenUrl: confirmOpenUrl");
+    const source = readFileSync(`${files}/confirmOpenUrl.ts`, "utf8");
+    // ...contained where it is read...
     expect(source).toMatch(/Alert\.alert\([^;]*linkPromptMessage\(url\)/s);
     // ...and untouched where it is used. Containing the value handed to the
     // system would be this file's other rule broken: an address is not a label.
