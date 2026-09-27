@@ -54,7 +54,9 @@
     writingTable.ts  STATE: setWritingTable / writingTable (the table shown as
                      source), stopWritingTable, showTableSource
     engagement.ts    STATE: setEditorEngaged / editorEngaged, engageEditor,
-                     revealSelection (the selection the reveal rule may use)
+                     revealSelection (the selection the reveal rule may use);
+                     STATE: setCaretInput / caretInput, quietHeadings (a tap
+                     does not reveal a heading's marks)
     cellText.ts      one table cell's Markdown as styled runs (cellRuns)
     tableModel.ts    TableGrid, readTable, tableGrids, alignmentsIn, tableLines
     gridDom.ts       STATE: drawnGrids (WeakMap) — painting, finding and

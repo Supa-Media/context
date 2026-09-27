@@ -286,6 +286,10 @@ Moved to [The read toggle's glyph is the act, so the accent fill is gone](./app-
 
 Moved to [Properties are edited in the panel, one line at a time](./app-and-console/note-editing-surface.md#properties-are-edited-in-the-panel-one-line-at-a-time).
 
+### On a touch screen, a tap on a heading does not reveal its `#` (2026-09-27)
+
+In [note-editing-surface](./app-and-console/note-editing-surface.md#on-a-touch-screen-a-tap-on-a-heading-does-not-reveal-its--2026-09-27).
+
 ### The staff console is shaped for ten customers, and its figures count rows
 
 Moved to [The staff console is shaped for ten customers, and its figures count rows](./app-and-console/staff-console-and-panels.md#the-staff-console-is-shaped-for-ten-customers-and-its-figures-count-rows).

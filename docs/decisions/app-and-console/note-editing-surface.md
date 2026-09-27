@@ -402,3 +402,36 @@ writer rests on: every other byte of somebody's note stays theirs.
 another line, if a list or nested child is offered for editing, if adding
 overwrites an existing key, if a reader is offered controls, or if the phone
 path writes the body instead of the note.
+
+### On a touch screen, a tap on a heading does not reveal its `#` (2026-09-27)
+
+Live Preview brings markup back where the caret is, because you cannot edit
+syntax you cannot see. With a keyboard or a mouse that is right. On a phone
+the caret is also wherever a thumb landed on the way to reading, and a heading
+is the widest target on the screen: every tap on a title made it jump sideways
+to `# Title`. The design review of 2026-09-27 (artboard 6) asked for it to stop.
+
+**The rule.** After a caret placed by a finger or a pen (`pointerdown`'s
+`pointerType`, held in the `caretInput` state field), a heading's marks stay
+hidden for a caret anywhere in its words, and reveal only when somebody works
+on the marks themselves: a selection that overlaps them (a long-press drag, a
+select-all), or a caret strictly inside them — between two `#`s, or between
+the last one and its space. A tap cannot put the caret there, because the marks
+are not on screen, so only editing can. Typing `#` at the start of the line is
+exactly that: the heading becomes `## Title` with the caret between the
+hashes, and the marks show while the level is being changed. An arrow key
+(any CodeMirror motion, `select` without `.pointer`) or a mouse click switches
+the rule off again, so an iPad with a keyboard and every desktop reveal as
+they always did.
+
+**Headings only.** `**`, a link's brackets and the rest sit inside the words
+being edited and are narrow; a tap on them is usually a tap to edit them.
+Extending the touch rule to them is a separate decision.
+
+**What a simplification costs.** Gating on "is this a touch device" rather
+than on the input that placed the caret breaks an iPad with a keyboard in one
+direction and a touch laptop in the other. Hiding the marks for every caret
+on touch removes the only way to change a heading's level on a phone.
+`apps/mobile/__tests__/livePreviewTouch.test.ts` fails if a finger reveals the
+marks, if a mouse or arrow key stops revealing them, or if typing `#` at the
+line start does not.

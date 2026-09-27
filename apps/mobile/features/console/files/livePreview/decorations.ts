@@ -32,7 +32,7 @@ import {
   type ImageRow,
 } from "../imageBlock";
 import { CalloutTitleWidget, callouts } from "./callouts";
-import { revealSelection } from "./engagement";
+import { quietHeadings, revealSelection } from "./engagement";
 import { frontmatterBlock, frontmatterHidden, frontmatterLine, frontmatterRange } from "./frontmatter";
 import { HtmlPreviewWidget, htmlPreviews } from "./htmlPreview";
 import { completedTasks, hangingIndents, listGlyphs } from "./lists";
@@ -273,7 +273,10 @@ export function decorationsFor(state: EditorState): DecorationSet {
   });
 
   // `hiddenMarkRanges` excludes the frontmatter itself — see its own comment.
-  const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc)
+  // And a heading tapped on a touch screen keeps its `#` — see `caretInput`.
+  const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc, {
+    quietHeadings: quietHeadings(state),
+  })
     .filter((range) => !insidePreview(range.from) && !insideMarker(range.from))
     .map((range) => hideMark.range(range.from, range.to));
 
