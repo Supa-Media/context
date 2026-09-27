@@ -66,6 +66,19 @@ describe("the note names itself, inside itself", () => {
     expect(app.find("note-inline-title")).toBeNull();
     expect(app.container.querySelector('[aria-label="Open 1-projects"]')).not.toBeNull();
   });
+
+  /*
+    The path line used to end "· team · inherited". Over every note that is the
+    ordinary state of a note, and the owner removed it as clutter (2026-09-27).
+    The Properties row below keeps the words; the line above the note does not.
+  */
+  test.each([390, 1440])("the line above the note says nothing about visibility (%i)", (width) => {
+    const app = mountConsole(dataWith(), width);
+    const properties = app.find("note-properties-open");
+    expect(properties).toBeNull();
+    expect(app.container.textContent).not.toContain("inherited");
+    expect(app.container.textContent).not.toContain("set here");
+  });
 });
 
 describe("visibility survives into Properties", () => {
@@ -80,7 +93,7 @@ describe("visibility survives into Properties", () => {
     const open = app.find("note-properties-open");
     expect(open).not.toBeNull();
     expect(open!.textContent).toContain("visibility");
-    // The same three-case wording the breadcrumb printed, from the same
+    // The same three-case wording the breadcrumb once printed, from the same
     // function: a note that merely follows a `team` folder and one deliberately
     // shared as an exception have to stay distinguishable.
     expect(open!.textContent).toContain("team · inherited");
