@@ -3,6 +3,8 @@ import { NavBand } from "../../NavBand";
 import { Breadcrumb } from "../../files/Breadcrumb";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
+import { PresencePile } from "../../presence/PresencePile";
+import type { Presence } from "../../presence/usePresence";
 import type { entryAt } from "../../files/tree";
 import type { FolderListingState } from "./useFolderListing";
 
@@ -33,11 +35,14 @@ export function BrowsePathBar({
   selected,
   settled,
   openCrumbMenu,
+  presence,
 }: {
   files: FileBrowser;
   selected: ReturnType<typeof entryAt>;
   settled: boolean;
   openCrumbMenu: FolderListingState["openCrumbMenu"];
+  /** The open note's room, for the pile at the end of the path. */
+  presence?: Presence;
 }) {
   return (
     <NavBand
@@ -57,6 +62,19 @@ export function BrowsePathBar({
         See `NavBand`'s `trailKey` for what not doing this costs.
       */
       trailKey={`${files.contextId ?? ""}:${selected?.path ?? ""}`}
+      /*
+        Who else is in this note, at the end of a row that is always drawn, so
+        somebody arriving never pushes the note down. Only for the note the
+        editor holds: the room is that note's, and the selection can move
+        ahead of it.
+      */
+      trailing={
+        presence !== undefined &&
+        selected?.kind === "file" &&
+        files.editor.path === selected.path ? (
+          <PresencePile presence={presence} compact />
+        ) : null
+      }
       path={
         selected === null || !settled ? null : (
           <Breadcrumb

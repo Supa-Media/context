@@ -17,6 +17,7 @@
  * key or as the value of a fixed, literal property name.
  */
 
+import comments from "../../../../packages/shared/src/comments.cjs";
 import { termsOf } from "./text.js";
 import {
   drawingSearchText,
@@ -172,9 +173,16 @@ export function extractFields(path, content) {
       links: extractLinks(drawingLinkText(drawing), folderOf(path)),
     };
   }
-  const fmMatch = normalized.match(FRONTMATTER_RE);
+  /*
+    Comments are not the note's words. Their anchors would index as terms (`c`,
+    the thread id) and could title the note with markers, and the threads'
+    text would make a reply findable as if the note said it. The fields are
+    taken from the note with both removed (`comments.cjs`).
+  */
+  const words = comments.stripComments(normalized);
+  const fmMatch = words.match(FRONTMATTER_RE);
   const tags = fmMatch ? parseFrontmatterTags(fmMatch[1]) : [];
-  const rest = fmMatch ? normalized.slice(fmMatch[0].length) : normalized;
+  const rest = fmMatch ? words.slice(fmMatch[0].length) : words;
 
   const headingTexts = [];
   for (const m of rest.matchAll(HEADING_TEXT_RE)) {

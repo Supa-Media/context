@@ -1,5 +1,4 @@
 import { Platform, View } from "react-native";
-import { PresenceChip, presenceChipShown } from "../../ConsoleShell";
 import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
 import { Reveal } from "../../../design/components/Reveal";
@@ -253,24 +252,6 @@ export function noteDocument(view: NoteView) {
           />
         ) : (
         <>
-        {/*
-          Who else is in this note, over the note rather than in the console's
-          top bar.
-
-          The bar belongs to the console and stays put while notes come and
-          go; this is a fact about the note in front of you and leaves with
-          it. It draws nothing when nobody else is here, which is almost
-          always, so the ordinary editor is unchanged — see `PresenceChip`.
-          When somebody arrives the row eases in rather than shoving the
-          note down by its height in one frame.
-        */}
-        <Reveal open={presence !== undefined && presenceChipShown(presence)}>
-          {presence === undefined ? null : (
-            <View style={styles.presenceRow}>
-              <PresenceChip presence={presence} />
-            </View>
-          )}
-        </Reveal>
         <LiveEditor
           /*
             The body alone on a phone, and the whole file everywhere else.

@@ -11,8 +11,6 @@ import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import { railGroup } from "./rail";
 import { selectedContext, type ConsoleData } from "./types";
 import { tierChipLabel } from "./visibility";
-import type { Presence } from "./presence/usePresence";
-import { agentName, handleInitials } from "./presence/agentName";
 
 /**
  * The console chrome: title bar, left rail, and the pane body.
@@ -238,119 +236,6 @@ export function PaneHead({
     </View>
   );
 }
-
-/**
- * Who else has this note open, beside the chip that says whether it is saved.
- *
- * Beside `SaveMark` for that chip's own reason: the two answer one question
- * between them. Where the note lives and whether the last keystroke is there,
- * and then — the thing you want to know a moment before you start typing over
- * somebody — whether anybody else is in it.
- *
- * **It renders nothing when nobody else is here**, which is almost always, and
- * nothing at all when presence is unavailable: a self-host without the binding,
- * a note opened offline, a gateway that refused. A component that can return
- * `null` is what lets the bar mount it unconditionally rather than repeating
- * that rule at the call site. An absent capability is reported, never faked,
- * and here reporting it is drawing the bar that existed before this feature.
- *
- * The avatars are initials on the colour the room gave each person, the same
- * colour their caret is drawn in, so the row and the text agree without anybody
- * having to match a name to a hue. Past four they stop being faces and become a
- * count — the rest is in the label beside them.
- */
-export function PresenceChip({ presence }: { presence: Presence }) {
-  const styles = useThemedStyles(presenceStyles);
-  const c = useThemedStyles(presenceInk);
-  if (!presenceChipShown(presence)) return null;
-
-  const shown = presence.members.slice(0, 4);
-  const label = presenceChipLabel(presence);
-
-  return (
-    <View
-      accessible
-      accessibilityLabel={label}
-      testID="presence-chip"
-      style={styles.row}
-    >
-      {shown.map((member, index) => (
-        <View
-          key={member.id}
-          style={[
-            styles.avatar,
-            // `null` when a peer sent no usable colour; the muted chrome token
-            // reads as present and unremarkable rather than as a ninth hue.
-            { backgroundColor: member.color ?? c.chromeMuted },
-            // People are circles and agents are squares, as in the tree.
-            member.isAgent ? styles.agent : null,
-            index === 0 ? null : styles.overlap,
-          ]}
-        >
-          <Text variant="meta" style={styles.initials}>
-            {initialsFor(member.name)}
-          </Text>
-        </View>
-      ))}
-      <Pill tone={presence.phase === "reconnecting" ? "warn" : "neutral"}>{label}</Pill>
-    </View>
-  );
-}
-
-/**
- * Whether the chip draws anything: somebody else is here, or the room is
- * reconnecting. Callers that make room for it ease that room in on this.
- */
-export function presenceChipShown(presence: Pick<Presence, "phase" | "summary">): boolean {
-  if (presence.phase === "unavailable" || presence.phase === "idle") return false;
-  return presence.summary !== "";
-}
-
-/**
- * The chip names the people represented by its avatars and says that the
- * count is about other editors. The account avatar in the console chrome is
- * the current person, so `1 here` was ambiguous about whether it counted them.
- */
-export function presenceChipLabel(presence: Pick<Presence, "phase" | "members" | "summary" | "demo">): string {
-  if (presence.phase === "reconnecting") return "Reconnecting";
-  if (presence.members.length === 0) return presence.summary;
-  const names = presence.members.slice(0, 2).map((member) => member.name).join(", ");
-  const extra = presence.members.length > 2 ? ` +${presence.members.length - 2}` : "";
-  const count = presence.members.length === 1 ? "1 other here" : `${presence.members.length} others here`;
-  return `${names}${extra} · ${count}${presence.demo === true ? " · demo" : ""}`;
-}
-
-/**
- * Two characters from a handle.
- *
- * The handle is `@sayo`, so the `@` is dropped rather than shown: a row of
- * avatars all reading "@" tells you how many people are here and nothing else,
- * which the count beside them already said.
- */
-function initialsFor(name: string): string {
-  // An agent's avatar is square and carries its owner's initials: whose it is.
-  return handleInitials(agentName(name).owner ?? name);
-}
-
-/** The tokens the avatars need as *values* rather than as a style sheet. */
-const presenceInk = (c: Colors) => ({ chromeMuted: c.chromeMuted });
-
-const presenceStyles = (c: Colors) =>
-  StyleSheet.create({
-    row: { flexDirection: "row", alignItems: "center", gap: 6 },
-    avatar: {
-      width: 22,
-      height: 22,
-      borderRadius: 999,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    agent: { borderRadius: 6 },
-    // Tightened into a stack, each lifted off the one behind it by a ring in
-    // the bar's own colour so the overlap reads as depth rather than a smudge.
-    overlap: { marginLeft: -7, borderWidth: 2, borderColor: c.chromeSurface },
-    initials: { color: c.ink, fontWeight: "700" },
-  });
 
 /**
  * `team level only` — worn by a pane that is showing somebody else's context.

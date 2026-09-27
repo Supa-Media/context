@@ -264,6 +264,7 @@ export function BrowsePane({
       selected={selected}
       settled={settled}
       openCrumbMenu={openCrumbMenu}
+      presence={presence}
     />
   ) : null;
 
@@ -355,6 +356,7 @@ export function BrowsePane({
             data.visitor !== undefined ? data.visitor.share : files.canShare ? setSharing : undefined
           }
           openCrumbMenu={openCrumbMenu}
+          presence={presence}
         />
       ) : null}
 

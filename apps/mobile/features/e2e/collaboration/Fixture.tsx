@@ -7,6 +7,7 @@ import { ConvexError } from "convex/values";
 import { useFileBrowser } from "../../console/files/useFileBrowser";
 import { useNoteRoom } from "../../console/presence/useNoteRoom";
 import { NoteEditor } from "../../console/files/NoteEditor";
+import { PresencePile } from "../../console/presence/PresencePile";
 import { ConsoleGrantSessionContext } from "../../agent/useConsoleGrant";
 
 type FixtureWindow = Window & {
@@ -76,6 +77,8 @@ function Session({ user, note }: { user: string; note: string }) {
     <button onClick={()=>files.select("1-projects/second.md")}>Second note</button>
     <button onClick={()=>files.save()}>Save</button>
     <p>{files.notice}</p>
+    {/* The console draws this on the breadcrumb row, which this page has none of. */}
+    <PresencePile presence={presence} compact={false} />
     {files.editor.path !== null && <NoteEditor
       state={files.editor}
       canEdit={user !== "reader"}

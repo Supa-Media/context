@@ -470,14 +470,14 @@ async function main() {
       const [aRoster,bRoster]=await Promise.all([rosterReady(a,BO_NAME),rosterReady(b,ANA_NAME)]);
       check("two named peers reach the live room roster",aRoster&&bRoster,JSON.stringify({a:await state(a.page),b:await state(b.page)}).slice(0,1000));
       const chipReady=async(page)=>until(async()=>{
-        const chip=page.locator('[data-testid="presence-chip"]');
+        const chip=page.locator('[data-testid="presence-pile"]');
         if(await chip.count()===0)return false;
         return Boolean(await chip.getAttribute("aria-label"));
       },{timeout:5000,every:50});
       const [aChipReady,bChipReady]=await Promise.all([chipReady(a.page),chipReady(b.page)]);
       const [aChip,bChip]=await Promise.all([
-        aChipReady ? a.page.locator('[data-testid="presence-chip"]').getAttribute("aria-label") : null,
-        bChipReady ? b.page.locator('[data-testid="presence-chip"]').getAttribute("aria-label") : null,
+        aChipReady ? a.page.locator('[data-testid="presence-pile"]').getAttribute("aria-label") : null,
+        bChipReady ? b.page.locator('[data-testid="presence-pile"]').getAttribute("aria-label") : null,
       ]);
       check("presence indicators render exactly one named peer each",aChip===`${BO_NAME} · 1 other here`&&bChip===`${ANA_NAME} · 1 other here`,JSON.stringify({aChip,bChip}));
 

@@ -295,6 +295,7 @@ export function Menu<Id extends string = MenuActionId>({
                   id={item.id}
                   label={item.label}
                   detail={item.detail}
+                  leading={item.leading}
                   danger={item.danger === true}
                   checked={item.checked}
                   disabled={item.disabled === true}
