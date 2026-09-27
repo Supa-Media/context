@@ -12,6 +12,7 @@ import { ACTIVITY_PATH } from "../../activity/activity";
 import { isPassphraseNote } from "../../encryption/envelope";
 import type { EditorControls } from "../LiveEditor";
 import { NoteAccessory } from "../NoteAccessory";
+import { LinkSheet } from "../LinkSheet";
 import { useVoiceHost } from "../../../voice/VoiceHost";
 import { makeStyles } from "./styles";
 import { noteFoot } from "./statusLine";
@@ -234,6 +235,10 @@ export function NoteEditor({
    */
   const [docWidth, setDocWidth] = useState(0);
   const controls = useRef<EditorControls | null>(null);
+  /** The selected words the Link sheet is open over, or `null` when it is shut. */
+  const [linkWords, setLinkWords] = useState<string | null>(null);
+  // A different note is a different editor, which holds no saved selection.
+  useEffect(() => setLinkWords(null), [state.path]);
   const frame = useFrame();
   const padding = useSurfacePadding();
   const barUp = accessoryUp({ compact, editable, focused });
@@ -450,7 +455,29 @@ export function NoteEditor({
         `LiveEditor.tsx` for why this bar is the only way out of the keyboard
         rather than one of two.
       */}
-      {barUp ? <NoteAccessory controls={() => controls.current} /> : null}
+      {barUp ? <NoteAccessory controls={() => controls.current} onAskLink={setLinkWords} /> : null}
+
+      {/*
+        Outside `barUp`: the sheet's field takes the keyboard, the editor loses
+        focus, and the bar goes down underneath the sheet it opened. Every way
+        out answers the editor, which holds the selection until it is told
+        what became of it (`linkSelection.ts`).
+      */}
+      {linkWords === null ? null : (
+        <LinkSheet
+          words={linkWords}
+          paths={notePaths ?? []}
+          self={state.path}
+          onPick={(link) => {
+            setLinkWords(null);
+            controls.current?.applyLink(link);
+          }}
+          onCancel={() => {
+            setLinkWords(null);
+            controls.current?.cancelLink();
+          }}
+        />
+      )}
 
       {/*
         The microphone, anchored to the region for the same reason the bar

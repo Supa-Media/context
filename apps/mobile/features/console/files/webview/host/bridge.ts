@@ -69,6 +69,8 @@ export interface HostSink extends ExtrasSink {
    * `http:` or `mailto:`. See the `open-url` case.
    */
   onOpenUrl?: (url: string) => void;
+  /** The link key was pressed over these words. See the `link-request` case. */
+  onLinkRequest?: (text: string) => void;
   /**
    * A form block on the note was filled in and submitted.
    *
@@ -485,6 +487,15 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
         case "open-url":
           if (typeof message.url !== "string" || webUrl(message.url) !== message.url) return;
           sink.onOpenUrl?.(message.url);
+          return;
+        /*
+          Gated on `editable` like `save`: it opens a sheet whose only outcome
+          is an edit, and a guest that sent one for a note this viewer may only
+          read has no business being answered.
+        */
+        case "link-request":
+          if (typeof message.text !== "string" || !acceptsChange(editable)) return;
+          sink.onLinkRequest?.(message.text);
           return;
         /*
           Also not gated on `editable`, and for a stronger reason than the two

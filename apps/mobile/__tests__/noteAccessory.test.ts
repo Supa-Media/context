@@ -70,7 +70,9 @@ import { createRoot } from "react-dom/client";
 type MockControls = {
   wrap(before: string, after: string): void;
   toggleLinePrefix(prefix: string): void;
-  insertLink(): void;
+  insertLink(ask?: (text: string) => void): void;
+  applyLink(link: unknown): void;
+  cancelLink(): void;
   undo(): void;
   redo(): void;
   blur(): void;
@@ -88,6 +90,8 @@ interface MockEditorProps {
 /** The caret/selection the commands act on, in the *body*'s coordinates. */
 const mockSelection = { start: 0, end: 0 };
 const mockCalls = { undo: 0, redo: 0, blur: 0 };
+/** What the Link sheet told the editor: each pick, and each cancel. */
+const mockLink: { applied: unknown[]; cancelled: number } = { applied: [], cancelled: 0 };
 let mockProps: MockEditorProps | null = null;
 
 jest.mock("../features/console/files/LiveEditor", () => ({
@@ -114,16 +118,25 @@ jest.mock("../features/console/files/LiveEditor", () => ({
             : text.slice(0, from) + prefix + text.slice(from),
         );
       },
-      insertLink() {
-        // The real `insertLink` (editorSetup.ts) drops any selected text
-        // rather than wrapping it — `[[some text]]` names nothing — so this
-        // mirrors that against the mock's own selection rather than
-        // reproducing `wrap`'s behaviour under a different name.
+      insertLink(ask?: (text: string) => void) {
+        // The real command (`runCommand` in editorSetup.ts): with words
+        // selected and a sheet to ask, it saves them and asks, writing
+        // nothing; otherwise `[[]]` over the selection, as it always was.
         const text = props.value;
         const { start, end } = mockSelection;
+        if (ask !== undefined && end > start) {
+          ask(text.slice(start, end));
+          return;
+        }
         props.onChange(`${text.slice(0, start)}[[]]${text.slice(end)}`);
         mockSelection.start = start + 2;
         mockSelection.end = start + 2;
+      },
+      applyLink(link: unknown) {
+        mockLink.applied.push(link);
+      },
+      cancelLink() {
+        mockLink.cancelled += 1;
       },
       undo() {
         mockCalls.undo += 1;
@@ -201,6 +214,8 @@ beforeEach(() => {
   mockCalls.undo = 0;
   mockCalls.redo = 0;
   mockCalls.blur = 0;
+  mockLink.applied = [];
+  mockLink.cancelled = 0;
 });
 
 /**
@@ -213,9 +228,10 @@ beforeEach(() => {
  */
 function mountEditor(
   width: number,
-  { state = stateFor(), canEdit = true, presence }: {
+  { state = stateFor(), canEdit = true, presence, notePaths }: {
     state?: EditorState;
     canEdit?: boolean;
+    notePaths?: readonly string[];
     presence?: import("../features/console/presence/usePresence").Presence;
   } = {},
 ) {
@@ -250,6 +266,7 @@ function mountEditor(
         state,
         canEdit,
         presence,
+        notePaths,
         onChange: (text: string) => changes.push(text),
         onSave: jest.fn() as () => void,
         onDiscard: jest.fn() as () => void,
@@ -490,25 +507,22 @@ describe("what the keys do", () => {
    * earlier argument against a link key — see
    * `docs/decisions/app-and-console.md`, "A link key on the accessory bar".
    */
-  test("link inserts [[]] at the caret, dropping any selected text", () => {
+  test("link with nothing selected inserts [[]] at the caret", () => {
     const app = mountEditor(390);
     app.focus();
 
     const { frontmatter, body } = splitNote(FILE);
     const start = body.indexOf("first");
-    // Selected text on purpose: a link names a note, it does not wrap one
-    // that is already typed — the one way this key must not behave like
-    // `wrap`.
     mockSelection.start = start;
-    mockSelection.end = start + "first".length;
+    mockSelection.end = start;
 
     app.press(app.find("note-accessory-link"));
 
-    expect(app.changes[0]).toBe(
-      frontmatter + body.slice(0, start) + "[[]]" + body.slice(start + "first".length),
-    );
-    expect(app.changes[0]).not.toContain("first]]");
+    expect(app.changes[0]).toBe(frontmatter + body.slice(0, start) + "[[]]" + body.slice(start));
+    expect(sheet()).toBeNull();
   });
+
+
 
   test("undo and redo reach the editor rather than being reimplemented here", () => {
     const app = mountEditor(390);
@@ -530,6 +544,122 @@ describe("what the keys do", () => {
 
     app.press(app.find("note-accessory-dismiss"));
     expect(mockCalls.blur).toBe(1);
+  });
+});
+
+/**
+ * THE LINK SHEET, screen 10 of the phone artboards.
+ *
+ * This used to be the test that pinned "link drops the selected text", and
+ * that was the behaviour the owner reported: select words, press the key,
+ * lose them. Now the key hands the words to a sheet with one field, and the
+ * editor is told what was picked — or that nothing was. The text each pick
+ * writes is `linkSelection.test.ts`'s; this is the sheet between the press
+ * and the pick.
+ *
+ * The sheet is a `Modal`, which react-native-web portals to `document.body`,
+ * so it is looked up there rather than inside the editor's container.
+ */
+function sheet(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-testid="link-sheet"]');
+}
+
+function typeInto(node: HTMLElement | null, text: string): void {
+  if (!(node instanceof HTMLInputElement)) throw new Error("the sheet has no field");
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(node, text);
+    node.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function rowTitles(): string[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="link-sheet-row-"]')).map(
+    (row) => row.getAttribute("aria-label") ?? "",
+  );
+}
+
+describe("the link key over selected words", () => {
+  function withWordsSelected(notePaths?: readonly string[]) {
+    const app = mountEditor(390, { notePaths });
+    app.focus();
+    const { body } = splitNote(FILE);
+    const start = body.indexOf("first paragraph");
+    mockSelection.start = start;
+    mockSelection.end = start + "first paragraph".length;
+    app.press(app.find("note-accessory-link"));
+    return app;
+  }
+
+  test("opens the sheet on those words and writes nothing", () => {
+    const app = withWordsSelected();
+    expect(sheet()).not.toBeNull();
+    expect(sheet()?.textContent).toContain("Link");
+    expect(sheet()?.textContent).toContain("“first paragraph”");
+    expect(app.changes).toEqual([]);
+    // Nothing typed yet: no rows, the field's placeholder says what to do.
+    expect(rowTitles()).toEqual([]);
+  });
+
+  test("a web address offers one row, and picking it links the words to that page", () => {
+    const app = withWordsSelected();
+    typeInto(document.querySelector('[data-testid="link-sheet-field"]'), "example.com/launch");
+    expect(rowTitles()).toEqual(["Link to this web page, https://example.com/launch"]);
+
+    app.press(document.querySelector('[data-testid="link-sheet-row-web"]'));
+    expect(mockLink.applied).toEqual([{ kind: "url", url: "https://example.com/launch" }]);
+    expect(sheet()).toBeNull();
+  });
+
+  test("a name offers a link to the name itself, which may not exist yet", () => {
+    const app = withWordsSelected();
+    typeInto(document.querySelector('[data-testid="link-sheet-field"]'), "launch");
+    expect(rowTitles()).toEqual(['Link to "launch", A note that may not exist yet']);
+
+    app.press(document.querySelector('[data-testid="link-sheet-row-free"]'));
+    expect(mockLink.applied).toEqual([{ kind: "note", target: "launch" }]);
+  });
+
+  test("a name lists the notes it matches, by title and folder, and picks the path `[[` writes", () => {
+    const app = withWordsSelected(["1-projects/launch-plan.md", "2-areas/ops/launch-checklist.md", PATH]);
+    typeInto(document.querySelector('[data-testid="link-sheet-field"]'), "launch");
+    expect(rowTitles()).toEqual([
+      "launch-plan, 1-projects",
+      "launch-checklist, 2-areas/ops",
+      'Link to "launch", A note that may not exist yet',
+    ]);
+
+    app.press(document.querySelector('[data-testid="link-sheet-row-note:1-projects/launch-plan"]'));
+    expect(mockLink.applied).toEqual([{ kind: "note", target: "1-projects/launch-plan" }]);
+  });
+
+  test("the scrim closes it, and the editor is told to put the selection back", () => {
+    const app = withWordsSelected();
+    app.press(document.querySelector('[aria-label="Close without linking"]'));
+    expect(sheet()).toBeNull();
+    expect(mockLink).toEqual({ applied: [], cancelled: 1 });
+  });
+
+  test("so does Escape in the field", () => {
+    withWordsSelected();
+    const field = document.querySelector<HTMLElement>('[data-testid="link-sheet-field"]');
+    act(() => {
+      field?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(sheet()).toBeNull();
+    expect(mockLink.cancelled).toBe(1);
+  });
+
+  test("Return picks the first row, which is drawn as the default", () => {
+    withWordsSelected();
+    const field = document.querySelector<HTMLElement>('[data-testid="link-sheet-field"]');
+    typeInto(field, "https://example.com");
+    act(() => {
+      field?.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", bubbles: true }));
+      field?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(mockLink.applied).toEqual([{ kind: "url", url: "https://example.com" }]);
+    expect(mockLink.cancelled).toBe(0);
   });
 });
 

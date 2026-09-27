@@ -257,6 +257,9 @@ export function LiveEditor({
     });
   }, []);
 
+  /** Who to tell when the guest answers `insertLink(ask)` with a `link-request`. */
+  const askLink = useRef<((text: string) => void) | null>(null);
+
   const bridge = useMemo(
     () =>
       createHostBridge(
@@ -315,6 +318,8 @@ export function LiveEditor({
             `open-url` case in `host.ts`.
           */
           onOpenUrl: confirmOpenUrl,
+          // The Link sheet belongs to whoever pressed the key; see `insertLink`.
+          onLinkRequest: (text) => askLink.current?.(text),
           /*
             Also off the ref, and here the staleness would be worse than a
             mis-aimed navigation: the host resolves a submission against the
@@ -394,7 +399,17 @@ export function LiveEditor({
     api.current = {
       wrap: (before, after) => bridge.run({ name: "wrap", before, after }),
       toggleLinePrefix: (prefix) => bridge.run({ name: "toggleLinePrefix", prefix }),
-      insertLink: () => bridge.run({ name: "insertLink" }),
+      /*
+        The `ask` is held here rather than sent: a function cannot cross the
+        bridge, so the guest is told only that there is one, and answers with a
+        `link-request` that the sink above hands to it.
+      */
+      insertLink: (ask) => {
+        askLink.current = ask ?? null;
+        bridge.run(ask === undefined ? { name: "insertLink" } : { name: "insertLink", ask: true });
+      },
+      applyLink: (link) => bridge.run({ name: "applyLink", link }),
+      cancelLink: () => bridge.run({ name: "cancelLink" }),
       undo: () => bridge.run({ name: "undo" }),
       redo: () => bridge.run({ name: "redo" }),
       blur: () => bridge.run({ name: "blur" }),
