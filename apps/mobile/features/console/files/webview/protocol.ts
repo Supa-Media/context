@@ -6,7 +6,10 @@
  * not React, not React Native, not CodeMirror — because one half of it is
  * compiled by Metro for Hermes and the other is compiled by esbuild for
  * WKWebView, and anything either bundler cannot see through would have to be
- * written twice.
+ * written twice. The one exception is `linkMarkdown.ts`, which is imported for
+ * `decodeLinkTarget` and is itself dependency-free apart from two modules that
+ * are too (`webUrl`, `noteChoices`) — the native path may import it, and
+ * `editorBundle.test.ts` says so.
  *
  * ## Why the message set is this small
  *
@@ -51,6 +54,8 @@
  * not recognise rather than acting on a half-understood message.
  */
 
+import { decodeLinkTarget, type LinkTarget } from "../linkMarkdown";
+
 export const PROTOCOL_VERSION = 1;
 
 /**
@@ -66,6 +71,9 @@ export const PROTOCOL_VERSION = 1;
  * is a verb one of the two surfaces will get wrong quietly, because only one
  * of them is exercised by any given run. `insertLink` (A2) grew the list from
  * five to six on that standard, not as a precedent for a seventh.
+ * `applyLink` and `cancelLink` are the two answers the Link sheet gives to an
+ * `insertLink` that asked — the same key, finished — and both surfaces run
+ * them (`linkSelection.test.ts`, `accessoryBarCommands.test.ts`).
  */
 export type EditorCommand =
   /** Wrap the selection, or insert the pair at the caret with it between them. */
@@ -80,7 +88,21 @@ export type EditorCommand =
    * a bare `[[name]]` resolves (L1) and a phone has somewhere to show a link
    * at all (L3).
    */
-  | { name: "insertLink" }
+  | {
+      name: "insertLink";
+      /**
+       * The host has a Link sheet to show. With it, a key press over selected
+       * words saves the selection and posts `link-request` instead of writing
+       * `[[]]` — see "A link key on the accessory bar" in
+       * `docs/decisions/app-and-console.md`. Without it (a surface with no
+       * sheet, or an older host) the key does exactly what it always did.
+       */
+      ask?: boolean;
+    }
+  /** Write the link the person picked in the sheet over the saved selection. */
+  | { name: "applyLink"; link: LinkTarget }
+  /** The sheet was dismissed: put the saved selection back as it was. */
+  | { name: "cancelLink" }
   | { name: "undo" }
   | { name: "redo" }
   /**
@@ -129,7 +151,13 @@ export function decodeCommand(value: unknown): EditorCommand | null {
       if (typeof command.prefix !== "string") return null;
       return { name: "toggleLinePrefix", prefix: command.prefix };
     case "insertLink":
-      return { name: "insertLink" };
+      return (command as { ask?: unknown }).ask === true ? { name: "insertLink", ask: true } : { name: "insertLink" };
+    case "applyLink": {
+      const link = decodeLinkTarget((command as { link?: unknown }).link);
+      return link === null ? null : { name: "applyLink", link };
+    }
+    case "cancelLink":
+      return { name: "cancelLink" };
     case "undo":
       return { name: "undo" };
     case "redo":
@@ -146,7 +174,8 @@ export function decodeCommand(value: unknown): EditorCommand | null {
 
 /** Would running this change the document? */
 export function writesDocument(command: EditorCommand): boolean {
-  return command.name !== "blur";
+  // `cancelLink` only puts a selection back.
+  return command.name !== "blur" && command.name !== "cancelLink";
 }
 
 /**
@@ -375,6 +404,13 @@ export type ToHost =
    * `host.ts` for why this one is not simply opened.
    */
   | { v: number; type: "open-url"; url: string }
+  /**
+   * The link key was pressed over these words, and the selection is saved in
+   * the guest until an `applyLink` or `cancelLink` command answers. Sent only
+   * when the host asked for it (`insertLink.ask`), so a host with no sheet is
+   * never left holding a request it cannot answer.
+   */
+  | { v: number; type: "link-request"; text: string }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
   /**
@@ -587,6 +623,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "failed",
   "open-link",
   "open-url",
+  "link-request",
   "form-submit",
   "form-responses",
   "form-vote",

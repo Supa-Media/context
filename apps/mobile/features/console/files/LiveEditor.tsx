@@ -71,6 +71,7 @@ import {
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
 import { confirmOpenUrl } from "./confirmOpenUrl";
+import { bridgeControls } from "./webview/host/controls";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -257,6 +258,9 @@ export function LiveEditor({
     });
   }, []);
 
+  /** Who to tell when the guest answers `insertLink(ask)` with a `link-request`. */
+  const askLink = useRef<((text: string) => void) | null>(null);
+
   const bridge = useMemo(
     () =>
       createHostBridge(
@@ -315,6 +319,8 @@ export function LiveEditor({
             `open-url` case in `host.ts`.
           */
           onOpenUrl: confirmOpenUrl,
+          // The Link sheet belongs to whoever pressed the key; see `insertLink`.
+          onLinkRequest: (text) => askLink.current?.(text),
           /*
             Also off the ref, and here the staleness would be worse than a
             mis-aimed navigation: the host resolves a submission against the
@@ -390,24 +396,7 @@ export function LiveEditor({
    * cannot.
    */
   const api = useRef<EditorControls | null>(null);
-  if (api.current === null) {
-    api.current = {
-      wrap: (before, after) => bridge.run({ name: "wrap", before, after }),
-      toggleLinePrefix: (prefix) => bridge.run({ name: "toggleLinePrefix", prefix }),
-      insertLink: () => bridge.run({ name: "insertLink" }),
-      undo: () => bridge.run({ name: "undo" }),
-      redo: () => bridge.run({ name: "redo" }),
-      blur: () => bridge.run({ name: "blur" }),
-      /*
-        Reachable, and deliberately not reached today: no phone build has a
-        dictation engine (`features/voice/engine.ts`), so nothing calls this.
-        It is wired anyway because the *joining* rule lives in `runCommand` on
-        both sides of the bridge — a surface that grew an engine later and
-        found this missing would reimplement the spacing and get it different.
-      */
-      dictate: (text) => bridge.run({ name: "dictate", text }),
-    };
-  }
+  if (api.current === null) api.current = bridgeControls(bridge, askLink);
 
   /**
    * Hand the handle over, and take it back on unmount.

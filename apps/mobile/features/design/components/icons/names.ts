@@ -101,11 +101,13 @@ export const ICON_NAMES = [
    */
   "bulletList",
   /**
-   * The accessory bar's link key, A2 in the editor-polish sweep: `[[]]`,
-   * caret between the brackets, completion opened. Two offset capsule rings
-   * rather than `attach`'s nested pair — a chain link overlaps its neighbour,
-   * it does not sit inside it, and the two shapes need to read apart at 20pt
-   * on the same bar.
+   * The accessory bar's link key, A2 in the editor-polish sweep, and the
+   * Link sheet it opens over a selection. Two closed links on the rising
+   * diagonal, each running through the other — the chain every platform
+   * draws. It used to be two upright capsules that did not touch, which the
+   * owner could not name ("what is this 5th icon???"): a chain is read off
+   * the overlap. Distinct from `attach`'s nested pair, where one ring sits
+   * *inside* the other.
    */
   "link",
   /**

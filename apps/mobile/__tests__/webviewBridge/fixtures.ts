@@ -124,6 +124,8 @@ export interface Wired {
   saves: number;
   /** Every `focused` the host's `onFocus` was called with, in order. */
   focus: boolean[];
+  /** Every set of words the guest asked the Link sheet about. */
+  linkRequests: string[];
   /** Run whatever the guest has queued for the next frame. */
   flush: () => void;
   /** Deliver a raw payload as if the web view had posted it. */
@@ -147,6 +149,7 @@ export function connect(initial: { doc: string; editable: boolean }, sink: Parti
 
   const changes: string[] = [];
   const focus: boolean[] = [];
+  const linkRequests: string[] = [];
   const counters = { saves: 0 };
   const frames: (() => void)[] = [];
 
@@ -157,6 +160,7 @@ export function connect(initial: { doc: string; editable: boolean }, sink: Parti
       counters.saves += 1;
     },
     onFocus: (focused) => focus.push(focused),
+    onLinkRequest: (text) => linkRequests.push(text),
     ...sink,
   });
 
@@ -182,6 +186,7 @@ export function connect(initial: { doc: string; editable: boolean }, sink: Parti
     view: guest.view,
     changes,
     focus,
+    linkRequests,
     get saves() {
       return counters.saves;
     },

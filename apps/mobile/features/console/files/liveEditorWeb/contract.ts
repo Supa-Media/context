@@ -22,6 +22,7 @@ import type {
   FormVote,
 } from "../formBlock";
 import type { SpellingFix } from "./spelling";
+import type { LinkTarget } from "../linkMarkdown";
 
 /**
  * The handful of things a *button* can ask the editor to do.
@@ -49,8 +50,17 @@ export interface EditorControls {
   wrap(before: string, after: string): void;
   /** Put `prefix` at the start of the caret's line, or remove it if already there. */
   toggleLinePrefix(prefix: string): void;
-  /** `[[]]`, caret between the brackets, with the `[[` completion opened. A2. */
-  insertLink(): void;
+  /**
+   * The link key. With nothing selected, `[[]]` with the `[[` completion
+   * opened (A2). With words selected and `ask` given, the selection is saved
+   * and `ask` is called with the words: the caller shows the Link sheet and
+   * answers with `applyLink` or `cancelLink`. See `linkSelection.ts`.
+   */
+  insertLink(ask?: (text: string) => void): void;
+  /** Link the words saved by `insertLink(ask)` to the pick. */
+  applyLink(link: LinkTarget): void;
+  /** The sheet closed without a pick: the saved selection comes back as it was. */
+  cancelLink(): void;
   undo(): void;
   redo(): void;
   blur(): void;

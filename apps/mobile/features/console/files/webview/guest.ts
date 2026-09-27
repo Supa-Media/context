@@ -863,7 +863,12 @@ export function mountGuest(
         const command = decodeCommand(message.command);
         if (command === null) return;
         if (!acceptsCommand(effectiveEditable(), command)) return;
-        runCommand(view, command);
+        // Asked for by the host only when it has a Link sheet to answer with.
+        const askLink =
+          command.name === "insertLink" && command.ask === true
+            ? (text: string) => bridge.post({ v: PROTOCOL_VERSION, type: "link-request", text })
+            : undefined;
+        runCommand(view, command, askLink);
         return;
       }
     }

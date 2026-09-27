@@ -142,6 +142,12 @@ describe("the native path never imports the editor, only the bundle", () => {
     "features/console/files/LiveEditor.tsx",
     "features/console/files/webview/host.ts",
     "features/console/files/webview/protocol.ts",
+    // The Link sheet is native, and `protocol.ts` decodes its answer with
+    // `linkMarkdown`, which ranks notes with `noteChoices`: all three stay
+    // out of the editor's module graph so the native bundle stays out of it.
+    "features/console/files/LinkSheet.tsx",
+    "features/console/files/linkMarkdown.ts",
+    "features/console/files/noteChoices.ts",
   ];
 
   /*
