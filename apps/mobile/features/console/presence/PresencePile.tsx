@@ -144,7 +144,7 @@ function Face({
       ]}
     >
       <Text variant="treeMeta" style={[styles.initials, sized?.text]}>
-        {initialsFor(member.name)}
+        {sized?.oneInitial ? initialsFor(member.name).slice(0, 1) : initialsFor(member.name)}
       </Text>
     </View>
   );
@@ -161,15 +161,23 @@ function initialsFor(name: string): string {
 const FACE = pileGeometry(false).face;
 
 /**
- * The per-density half of a face's style: its size, its overlap, and type that
- * still fits two initials inside the ring at 18pt.
+ * The per-density half of a face's style: its size, its overlap, and what the
+ * face can hold.
+ *
+ * A face smaller than the pointer's draws **one** initial, at the scale's
+ * smallest size, on a line as tall as the space inside the ring. Two initials
+ * do not fit inside an 18pt ring at any size on the type scale, and a size
+ * below the scale is the literal `typeScale.test.ts` refuses. The member's
+ * full name is in the list the pile opens, which is where it is read.
  */
 function sizeStyle({ face, overlap }: { face: number; overlap: number }) {
+  const small = face < FACE;
   return {
     face: { width: face, height: face, borderRadius: face / 2 },
     agent: { borderRadius: Math.round((face * 7) / 24) },
     stacked: { marginLeft: -overlap },
-    text: face < FACE ? { fontSize: 8, lineHeight: 10 } : null,
+    text: small ? { lineHeight: face - 4 } : null,
+    oneInitial: small,
   };
 }
 
