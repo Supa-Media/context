@@ -98,4 +98,25 @@ describe("the caret decorations", () => {
     const long = buildCaretDecorations([tool], 10, 1_000 + CARET_LABEL_MS * 100, moved, resolve);
     expect(label(long)).toBe("Some Client");
   });
+
+  test("somebody's agent is flagged compactly: their initials, then the agent", () => {
+    const set = buildCaretDecorations(
+      [member({ head: at(3), name: "@jon's Claude", isAgent: true })],
+      10,
+      0,
+      new Map(),
+      resolve,
+    );
+    const cursor = set.iter();
+    let flag: HTMLElement | null = null;
+    while (cursor.value !== null && flag === null) {
+      const spec = cursor.value.spec as { widget?: { toDOM: () => HTMLElement } };
+      if (spec.widget) flag = spec.widget.toDOM().querySelector(".cm-presence-label");
+      cursor.next();
+    }
+    expect(flag?.querySelector(".cm-presence-owner")?.textContent).toBe("jo");
+    expect(flag?.textContent).toBe("joClaude");
+    // The whole name is still there, for whoever hovers it.
+    expect(flag?.title).toBe("@jon's Claude");
+  });
 });

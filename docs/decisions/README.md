@@ -197,6 +197,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The homepage is the console's frame, never a copy of it
 - A page's emoji travel with the page
 - A website page can name a folder, and the folder narrows
+- The homepage's cast is written in its pages, and plays through real presence
 
 ## [Search and the derived index](./search.md)
 

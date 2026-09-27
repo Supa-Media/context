@@ -30,6 +30,7 @@ import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { clampToDocument, type PresenceMember } from "./protocol";
 import { cursorOffset } from "./sync";
+import { agentName, handleInitials } from "./agentName";
 import type * as Y from "yjs";
 import { darkColors } from "../../design/tokens";
 
@@ -71,7 +72,18 @@ class CaretWidget extends WidgetType {
       const label = document.createElement("span");
       label.className = "cm-presence-label";
       label.style.backgroundColor = this.color;
-      label.textContent = this.name;
+      // "@jon's Claude" is drawn as `jo Claude`: whose, compactly, then what.
+      const { owner, agent } = agentName(this.name);
+      if (owner !== null) {
+        const whose = document.createElement("span");
+        whose.className = "cm-presence-owner";
+        whose.textContent = handleInitials(owner);
+        whose.style.cssText =
+          "background: rgba(16, 15, 14, 0.2); border-radius: 3px; padding: 0 3px; margin-right: 4px; font-weight: 700;";
+        label.appendChild(whose);
+      }
+      label.appendChild(document.createTextNode(agent));
+      label.title = this.name;
       caret.appendChild(label);
     }
     return caret;

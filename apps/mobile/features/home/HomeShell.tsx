@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
+import type { CastStep } from "@context/shared";
 import { densityFor } from "../app/frame";
 import { ConsoleFrame } from "../console/ConsoleFrame";
 import type { NoteRename } from "../console/files/browser/contract";
@@ -24,11 +25,14 @@ import {
   routeFromParam,
 } from "./homeSite";
 import { HomePage } from "./HomePage";
+import { castSite } from "./cast/castSite";
+import { useHomeCast } from "./cast/useHomeCast";
 import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
 import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
 
 const NO_EMOJI: EmojiPictures = {};
+const NO_COLORS: ReadonlyMap<string, string> = new Map();
 
 /**
  * The homepage, as the app itself: the console's own frame (`ConsoleFrame`)
@@ -72,13 +76,25 @@ export function HomeShell() {
   const routePath = routeFromParam(params.page);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const source = useHomeSite();
-  const site = source.kind === "live" ? source.snapshot.pages : null;
+  const live = source.kind === "live" ? source.snapshot.pages : null;
   const emoji = usePublishedEmoji(source.kind === "live" ? source.snapshot.emoji : NO_EMOJI);
+  // The pages without their cast blocks, and what each one's cast does.
+  const cast = useMemo(() => (live === null ? null : castSite(live)), [live]);
+  const site = cast === null ? null : cast.pages;
 
   const home = useMemo(
     () => (source.kind === "builtIn" ? BUILT_IN : site === null ? NOTHING : liveHomeTree(site)),
     [source.kind, site],
   );
+  // Each page's cast, by the note it is in the tree.
+  const scripts = useMemo(() => {
+    const byPath = new Map<string, readonly CastStep[]>();
+    for (const [route, steps] of cast?.scripts ?? []) {
+      const path = home.paths.get(route);
+      if (path !== undefined) byPath.set(path, steps);
+    }
+    return byPath;
+  }, [cast, home]);
 
   /*
     A note the visitor renamed, for the console's tabs to follow — the live
@@ -95,6 +111,22 @@ export function HomeShell() {
   });
   const browser = local.files;
   const { routeOf, pathOf, notes } = local;
+
+  /*
+    The people and agents the owner scripted into the site's pages, drawn by
+    the console's own presence: carets and the chip in the note, squares in
+    the tree, the agents line at its foot. Web only, where the editor that
+    binds a shared document is.
+  */
+  const castRoom = useHomeCast({
+    enabled: Platform.OS === "web" && cast !== null,
+    scripts,
+    colors: cast?.colors ?? NO_COLORS,
+    selectedPath: browser.selectedPath,
+    notes,
+    pages: home.pages,
+    addNote: local.addNote,
+  });
 
   // A push, not `setParams`: that replaces the entry, and Back then left the
   // site instead of going to the page before.
@@ -163,6 +195,7 @@ export function HomeShell() {
       copy: writeClipboard,
     },
     renamed,
+    castRoom.agents,
   );
 
   /*
@@ -207,7 +240,7 @@ export function HomeShell() {
           // The site's own emoji, over the console's library (which a visitor
           // has none of), so a published page draws what its author typed.
           <CustomEmojiContext.Provider value={emoji}>
-            <BrowsePane data={data} />
+            <BrowsePane data={data} presence={castRoom.presence} />
           </CustomEmojiContext.Provider>
         )}
       </ConsoleFrame>

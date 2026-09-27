@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import {
   buildWebsiteRouteStatuses,
   parseWebsitePage,
+  stripWebsiteCast,
   websiteRouteLookupKey,
   type ResolvedWebsiteAddress,
   type ResolvedWebsitePage,
@@ -590,7 +591,9 @@ async function renderWebsitePage(
   };
   const withLists = await renderPublicWebsiteLists(ctx, {
     workspaceId: args.workspaceId,
-    markdown: args.body,
+    // A cast block scripts the homepage's demo cast, which only the homepage
+    // plays (`websiteCast.ts`); every served page is drawn without them.
+    markdown: stripWebsiteCast(args.body),
     selfPath: args.objectKey,
     viewerAudience: args.viewerAudience,
     catalog: catalog.entries,

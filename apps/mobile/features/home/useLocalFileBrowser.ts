@@ -57,6 +57,11 @@ export interface LocalHome {
   pathOf: (routePath: string) => string | undefined;
   /** The visitor has changed something; the site no longer replaces the tree. */
   touched: boolean;
+  /**
+   * A note somebody else added: in the tree, and not opened. The homepage's
+   * cast (`features/home/cast`); the visitor's own `+` opens what it makes.
+   */
+  addNote: (folder: string, name: string, text: string) => string | null;
 }
 
 /** How long typing rests before the editor calls it kept. */
@@ -355,6 +360,17 @@ export function useLocalFileBrowser(
     ],
   );
 
+  const addQuietly = useCallback(
+    (folder: string, name: string, text: string) => {
+      const made = addNote(treeRef.current, folder, name, text);
+      if (made === null) return null;
+      change(made.tree);
+      reveal(made.path);
+      return made.path;
+    },
+    [change, reveal],
+  );
+
   const routeOf = useCallback((path: string) => routes.get(path), [routes]);
-  return { files, notes: tree.notes, routeOf, pathOf, touched };
+  return { files, notes: tree.notes, routeOf, pathOf, touched, addNote: addQuietly };
 }

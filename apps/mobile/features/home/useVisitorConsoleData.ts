@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import type { AgentActivityView } from "../console/agents/agentActivity";
 import type { FileBrowser, NoteRename } from "../console/files/browser/contract";
 import type { ConsoleContext, ConsoleData } from "../console/types";
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
@@ -55,6 +56,8 @@ export function useVisitorConsoleData(
     copy: (text: string) => Promise<boolean>;
   },
   renamed: NoteRename | null,
+  /** What the homepage's cast of agents has read and written this visit. */
+  agents?: AgentActivityView,
 ): ConsoleData {
   const demo = useDemoConsoleData();
   const [toast, setToast] = useState<ToastSpec | null>(null);
@@ -93,7 +96,7 @@ export function useVisitorConsoleData(
     // No bucket to name: the storage chip and its status segment stay away.
     storage: undefined,
     activity: undefined,
-    agents: undefined,
+    agents,
     members: { ...demo.members, members: [], invitations: [] },
     shares: { ...demo.shares, shares: [] },
     files: withToast,

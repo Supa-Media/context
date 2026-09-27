@@ -395,7 +395,7 @@ export async function runAgentActivityChecks(check) {
       role: "owner",
       scopes: ["context:read", "context:write", "context:private"],
       clientId: "mcp_client_agentact_owner",
-      clientName: "Owner's Claude",
+      clientName: "Claude",
       userId: "user_agentact_owner",
     });
     await controlPlane.addGrant({
@@ -471,12 +471,13 @@ export async function runAgentActivityChecks(check) {
     );
     check(
       "...nor the agent whose only work was on it",
-      team.body.agents.every((agent) => agent.name !== "Owner's Claude"),
+      team.body.agents.every((agent) => !agent.name.endsWith("Claude")),
     );
     check(
       "the owner sees the private read, and whose it was",
       owner.body.marks.some((mark) => mark.path === "1-projects/rates.md" && mark.kind === "read") &&
-        owner.body.agents.some((agent) => agent.name === "Owner's Claude"),
+        // Whose it was is in the name: several people's agents share a workspace.
+        owner.body.agents.some((agent) => agent.name === "@agentacttest's Claude"),
     );
     check(
       "the console opening a note is not an agent reading it",
