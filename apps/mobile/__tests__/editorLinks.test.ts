@@ -46,6 +46,7 @@
  *   Ctrl honoured on an Apple keyboard, taking the context menu     1
  *   the tap's slop check dropped, so a scroll navigates             1
  *   the tap's ceiling dropped, so a long press navigates            1
+ *   `onLinkText` dropped, so a click beside a link opens it         2
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -74,6 +75,10 @@ interface Mounted {
   opened: Opened[];
   paths: () => string[];
   content: HTMLElement;
+  /** The link's drawn words: where a click that means the link lands. */
+  link: HTMLElement;
+  /** The line holding it: where a click beside the link, past its words, lands. */
+  line: HTMLElement;
   destroy: () => void;
 }
 
@@ -111,6 +116,14 @@ function mount(options: { caretAt?: number } = {}): Mounted {
     opened,
     paths: () => opened.map((entry) => entry.path),
     content: view.contentDOM,
+    get link() {
+      const link = view.contentDOM.querySelector<HTMLElement>(".cm-note-link");
+      if (link === null) throw new Error("no link drawn");
+      return link;
+    },
+    get line() {
+      return view.contentDOM.querySelector<HTMLElement>(".cm-line")!;
+    },
     destroy: () => {
       view.destroy();
       parent.remove();
@@ -164,7 +177,7 @@ describe("one click follows the link", () => {
       clicking it once, similar to Obsidian, shouldnt have to command click".
     */
     mounted = mount();
-    mounted.content.dispatchEvent(mouse("mousedown"));
+    mounted.link.dispatchEvent(mouse("mousedown"));
     expect(mounted.opened).toEqual([{ path: TARGET, mode: "foreground" }]);
   });
 
@@ -173,7 +186,7 @@ describe("one click follows the link", () => {
     // you have just left would take a caret on its way out.
     mounted = mount();
     const event = mouse("mousedown");
-    mounted.content.dispatchEvent(event);
+    mounted.link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -198,9 +211,47 @@ describe("one click follows the link", () => {
     // text. Claiming button 2 here would delete that menu over every link.
     mounted = mount();
     const event = mouse("mousedown", { button: 2 });
-    mounted.content.dispatchEvent(event);
+    mounted.link.dispatchEvent(event);
     expect(mounted.opened).toEqual([]);
     expect(event.defaultPrevented).toBe(false);
+  });
+});
+
+describe("only the link's words are the link, not the line it sits on", () => {
+  /*
+    The owner's words: "even if you click on a row that has a link, it opens a
+    link even though I'm just trying to click to the end of it … the hitbox is
+    just too wide". `posAtCoords` snaps a click in the empty space past a line's
+    end onto the line's last position, which is a link's closing edge whenever
+    the line ends in one — so the click opened it instead of placing the caret.
+
+    jsdom resolves every coordinate to position 0, which is inside the link, so
+    these are exactly that snapped state: the position says "link" and only the
+    element under the pointer says "beside it". Without `onLinkText` both fail.
+  */
+  test("a click on the line beside a link places the caret and opens nothing", () => {
+    mounted = mount();
+    const event = mouse("mousedown");
+    mounted.line.dispatchEvent(event);
+    expect(mounted.opened).toEqual([]);
+  });
+
+  test("so does a tap beside it", () => {
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.line.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.line.dispatchEvent(touch("touchend", []));
+    expect(mounted.opened).toEqual([]);
+  });
+
+  test("a click on a word inside the link still opens it", () => {
+    // The control: the words are nested marks, so the pointer can land on an
+    // inner span rather than the link's own element.
+    mounted = mount();
+    const inner = document.createElement("span");
+    mounted.link.appendChild(inner);
+    inner.dispatchEvent(mouse("mousedown"));
+    expect(mounted.paths()).toEqual([TARGET]);
   });
 });
 
@@ -214,13 +265,13 @@ describe("⌘-click and middle-click open it behind", () => {
    */
   test("Ctrl-click opens the note without moving anybody", () => {
     mounted = mount();
-    mounted.content.dispatchEvent(mouse("mousedown", { ctrlKey: true }));
+    mounted.link.dispatchEvent(mouse("mousedown", { ctrlKey: true }));
     expect(mounted.opened).toEqual([{ path: TARGET, mode: "background" }]);
   });
 
   test("the middle button does the same", () => {
     mounted = mount();
-    mounted.content.dispatchEvent(mouse("mousedown", { button: 1 }));
+    mounted.link.dispatchEvent(mouse("mousedown", { button: 1 }));
     expect(mounted.opened).toEqual([{ path: TARGET, mode: "background" }]);
   });
 
@@ -229,7 +280,7 @@ describe("⌘-click and middle-click open it behind", () => {
     // would be an edit nobody asked for, in a note they were not even reading.
     mounted = mount();
     const event = mouse("mousedown", { button: 1 });
-    mounted.content.dispatchEvent(event);
+    mounted.link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   });
 });
@@ -244,13 +295,13 @@ describe("the two ways to edit a link instead of following it", () => {
     */
     mounted = mount();
     const event = mouse("mousedown", { altKey: true });
-    mounted.content.dispatchEvent(event);
+    mounted.link.dispatchEvent(event);
     expect(mounted.opened).toEqual([]);
   });
 
   test("⌥ wins over the background modifier too, rather than racing it", () => {
     mounted = mount();
-    mounted.content.dispatchEvent(mouse("mousedown", { altKey: true, ctrlKey: true }));
+    mounted.link.dispatchEvent(mouse("mousedown", { altKey: true, ctrlKey: true }));
     expect(mounted.opened).toEqual([]);
   });
 
@@ -263,7 +314,7 @@ describe("the two ways to edit a link instead of following it", () => {
       click, then click, which is what somebody would try anyway.
     */
     mounted = mount({ caretAt: 4 });
-    mounted.content.dispatchEvent(mouse("mousedown"));
+    mounted.link.dispatchEvent(mouse("mousedown"));
     expect(mounted.opened).toEqual([]);
   });
 
@@ -275,8 +326,8 @@ describe("the two ways to edit a link instead of following it", () => {
       built around, surviving on one platform.
     */
     mounted = mount({ caretAt: 4 });
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.content.dispatchEvent(touch("touchend", []));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchend", []));
     expect(mounted.opened).toEqual([]);
   });
 
@@ -285,7 +336,7 @@ describe("the two ways to edit a link instead of following it", () => {
     // somewhere at all times; if any caret counted, links would stop working
     // the moment somebody started writing.
     mounted = mount({ caretAt: OUTSIDE });
-    mounted.content.dispatchEvent(mouse("mousedown"));
+    mounted.link.dispatchEvent(mouse("mousedown"));
     expect(mounted.opened).toEqual([{ path: TARGET, mode: "foreground" }]);
   });
 
@@ -302,7 +353,7 @@ describe("the two ways to edit a link instead of following it", () => {
     */
     mounted = mount();
     expect(mounted.view.hasFocus).toBe(false);
-    mounted.content.dispatchEvent(mouse("mousedown"));
+    mounted.link.dispatchEvent(mouse("mousedown"));
     expect(mounted.paths()).toEqual([TARGET]);
   });
 });
@@ -311,9 +362,9 @@ describe("a tap follows, and a long press and a scroll do not", () => {
   test("touch down and up on a link is a tap", () => {
     jest.useFakeTimers();
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
     jest.advanceTimersByTime(80);
-    mounted.content.dispatchEvent(touch("touchend", []));
+    mounted.link.dispatchEvent(touch("touchend", []));
     expect(mounted.opened).toEqual([{ path: TARGET, mode: "foreground" }]);
   });
 
@@ -322,9 +373,9 @@ describe("a tap follows, and a long press and a scroll do not", () => {
     // the arriving note, which has scrolled to wherever the finger was.
     jest.useFakeTimers();
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
     const end = touch("touchend", []);
-    mounted.content.dispatchEvent(end);
+    mounted.link.dispatchEvent(end);
     expect(end.defaultPrevented).toBe(true);
   });
 
@@ -340,10 +391,10 @@ describe("a tap follows, and a long press and a scroll do not", () => {
     */
     jest.useFakeTimers();
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
     jest.advanceTimersByTime(TAP_MAX_MS + 50);
     const end = touch("touchend", []);
-    mounted.content.dispatchEvent(end);
+    mounted.link.dispatchEvent(end);
     expect(mounted.opened).toEqual([]);
     // And it is not claimed, so the selection the platform started survives.
     expect(end.defaultPrevented).toBe(false);
@@ -357,9 +408,9 @@ describe("a tap follows, and a long press and a scroll do not", () => {
     */
     jest.useFakeTimers();
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.content.dispatchEvent(touch("touchmove", [{ clientX: 1, clientY: 60 }]));
-    mounted.content.dispatchEvent(touch("touchend", []));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchmove", [{ clientX: 1, clientY: 60 }]));
+    mounted.link.dispatchEvent(touch("touchend", []));
     expect(mounted.opened).toEqual([]);
   });
 
@@ -368,19 +419,19 @@ describe("a tap follows, and a long press and a scroll do not", () => {
     // make the gesture impossible to perform rather than hard.
     jest.useFakeTimers();
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.content.dispatchEvent(touch("touchmove", [{ clientX: 4, clientY: 3 }]));
-    mounted.content.dispatchEvent(touch("touchend", []));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchmove", [{ clientX: 4, clientY: 3 }]));
+    mounted.link.dispatchEvent(touch("touchend", []));
     expect(mounted.paths()).toEqual([TARGET]);
   });
 
   test("a second finger cancels, rather than starting a second tap", () => {
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.content.dispatchEvent(
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(
       touch("touchstart", [{ clientX: 1, clientY: 1 }, { clientX: 40, clientY: 40 }]),
     );
-    mounted.content.dispatchEvent(touch("touchend", []));
+    mounted.link.dispatchEvent(touch("touchend", []));
     expect(mounted.opened).toEqual([]);
   });
 
@@ -389,7 +440,7 @@ describe("a tap follows, and a long press and a scroll do not", () => {
     // is most of them.
     mounted = mount();
     const event = touch("touchstart", [{ clientX: 1, clientY: 1 }]);
-    mounted.content.dispatchEvent(event);
+    mounted.link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
   });
 
@@ -402,9 +453,9 @@ describe("a tap follows, and a long press and a scroll do not", () => {
       cancel as anything but a touch that stopped being one.
     */
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.content.dispatchEvent(touch("touchcancel", []));
-    mounted.content.dispatchEvent(touch("touchend", []));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchcancel", []));
+    mounted.link.dispatchEvent(touch("touchend", []));
     expect(mounted.opened).toEqual([]);
   });
 
@@ -417,7 +468,7 @@ describe("a tap follows, and a long press and a scroll do not", () => {
     */
     mounted = mount();
     const event = mouse("contextmenu");
-    mounted.content.dispatchEvent(event);
+    mounted.link.dispatchEvent(event);
     expect(mounted.opened).toEqual([]);
     expect(event.defaultPrevented).toBe(false);
   });
