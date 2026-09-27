@@ -34,3 +34,29 @@ test("no two tools share a title", () => {
     seen.set(tool.title, tool.name);
   }
 });
+
+/*
+ * Both directories read the behaviour hints as well as the title: Claude's
+ * wants readOnlyHint or destructiveHint on every tool, and ChatGPT's also
+ * checks openWorldHint and rejects a listing whose hints misstate what a tool
+ * does. So every tool states all three explicitly, and the tools that can
+ * publish past the workspace say so.
+ */
+test("every advertised tool states readOnlyHint, destructiveHint and openWorldHint", () => {
+  const missing = [];
+  for (const tool of tools) {
+    const hints = tool.annotations ?? {};
+    for (const hint of ["readOnlyHint", "openWorldHint"]) {
+      if (typeof hints[hint] !== "boolean") missing.push(`${tool.name}.${hint}`);
+    }
+    if (hints.readOnlyHint === false && typeof hints.destructiveHint !== "boolean") missing.push(`${tool.name}.destructiveHint`);
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("tools that can publish to people with no account are marked open world", () => {
+  for (const name of ["write_note", "create_link"]) {
+    const tool = tools.find((candidate) => candidate.name === name);
+    assert.equal(tool?.annotations?.openWorldHint, true, `${name}: can publish outside the workspace`);
+  }
+});

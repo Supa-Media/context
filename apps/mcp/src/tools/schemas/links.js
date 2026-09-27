@@ -115,7 +115,9 @@ export function saveAndLinkToolDefinitions() {
         required: ["path"],
         additionalProperties: false,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      // Open world: an `anyone` or `collect` link opens to people with no
+      // account, which is publishing outside the workspace.
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     {
       name: "list_links",
