@@ -33,9 +33,35 @@ const ACTIONS = new Set(["add", "reply", "resolve", "reopen"]);
 
 /** The author written into the log for this connection. Never taken from arguments. */
 export function commentAuthor(actor) {
-  if (actor?.client) return sanitizeAuthor(actor.client);
-  if (actor?.name) return sanitizeAuthor(`${actor.name}'s agent`);
+  if (actor?.client) return agentName(actor.client);
+  if (actor?.name) return agentName(`${actor.name}'s agent`);
   return "An agent";
+}
+
+/**
+ * An agent's name, which may never read as a person's.
+ *
+ * The console tells a person from an agent by the `@` alone — `isPerson` in
+ * `comments/model.ts` is `author.startsWith("@")`, and it draws a person's
+ * circle with no "agent" tag. **The name signed here is the connection's
+ * client name, and that is client-asserted**: RFC 7591 registration is
+ * unauthenticated by construction (`adminFns/census.ts` says so at length), so
+ * a client can call itself `@dev2` and every line it wrote would read as that
+ * person's, to the people in the margin and to the next agent that reads the
+ * note. So a leading `@` is removed here, where the agent's name is decided.
+ *
+ * This is the half a gateway can hold. The block is plain Markdown in the
+ * note, by design (non-negotiable #3), so anybody who may write the note may
+ * also type any line into it by hand — including one that looks like a
+ * colleague's. The audit trail, not the note, is where authorship is a claim
+ * the product makes.
+ */
+function agentName(raw) {
+  // The emptiness test is on the stripped name rather than on what
+  // `sanitizeAuthor` returns for nothing, so this does not depend on that
+  // function's choice of word for an anonymous author.
+  const bare = String(raw ?? "").replace(/^[@\s]+/, "").trim();
+  return bare ? sanitizeAuthor(bare) : "An agent";
 }
 
 /**

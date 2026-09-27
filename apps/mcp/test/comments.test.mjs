@@ -29,6 +29,7 @@
  */
 
 import comments from "../../../packages/shared/src/comments.cjs";
+import { commentAuthor } from "../src/tools/notes/comment.js";
 
 const { addThread, appendEvent, applyChanges, findAnchors, locateQuote, parseComments, sanitizeAuthor, stripComments, describeComments } = comments;
 
@@ -58,6 +59,39 @@ function sequence(...values) {
 }
 
 export function runCommentFormatChecks(check) {
+  /*
+    AN AGENT'S NAME MAY NEVER READ AS A PERSON'S.
+
+    The console tells the two apart by the `@` alone (`comments/model.ts`:
+    `isPerson = author.startsWith("@")`), drawing a person's circle and no
+    "agent" tag. The gateway signs an agent with its connection's **client
+    name**, and that name is client-asserted: RFC 7591 registration is
+    unauthenticated by construction (`adminFns/census.ts` says so), so a client
+    can call itself anything — including somebody's handle.
+  */
+  {
+    check(
+      "comments: an agent whose client name is a handle is not signed as one",
+      !commentAuthor({ client: "@dev2" }).startsWith("@"),
+    );
+    check(
+      "comments: …and the name it is signed with still says who it was",
+      commentAuthor({ client: "@dev2" }).includes("dev2"),
+    );
+    check(
+      "comments: an ordinary client name is untouched",
+      commentAuthor({ client: "Codex" }) === "Codex",
+    );
+    check(
+      "comments: a client name of nothing but an @ is still an agent",
+      !commentAuthor({ client: "@" }).startsWith("@") && commentAuthor({ client: "@" }).length > 0,
+    );
+    check(
+      "comments: a person's own handle is written by the console, not through here",
+      commentAuthor({ name: "Dev2" }) === "Dev2's agent",
+    );
+  }
+
   // --- reading the format ---------------------------------------------------
   {
     const parsed = parseComments(DEMO);
