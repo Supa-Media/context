@@ -37,6 +37,18 @@ test("a comment is written, answered and resolved in the margin", async ({ page 
   await expect(page.locator(".cm-content")).not.toContainText("<!--c:");
   await expect(page.locator(".cm-content")).not.toContainText("```comments");
 
+  // Opening and closing a card never moves the text being read.
+  const textLeft = async () => (await line.boundingBox())?.x ?? NaN;
+  await page.waitForTimeout(400);
+  const settled = await textLeft();
+  await page.locator(".cm-line").filter({ hasNotText: "Tenancy is bucket-level" }).first().click();
+  await expect(page.locator(".cm-cmt-card-active")).toHaveCount(0);
+  await page.waitForTimeout(400);
+  expect(await textLeft()).toBe(settled);
+  await page.locator(".cm-cmt-hl").click();
+  await page.waitForTimeout(400);
+  expect(await textLeft()).toBe(settled);
+
   await card.locator("textarea").fill("eh, I don't really care");
   await page.keyboard.press("Enter");
   await expect(card).toContainText("eh, I don't really care");

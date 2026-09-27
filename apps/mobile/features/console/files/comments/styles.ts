@@ -10,19 +10,21 @@
 
 import { fonts } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
-import { RAIL_RESERVE } from "./rail";
 
 export function commentStyles(colors: Colors): string {
   return `
 .cm-lp-root .cm-scroller { position: relative; }
 /*
-  With comments in a wide pane the reading column moves left and the right
-  side keeps a margin for the cards: the same centring formula as the content's
-  own padding, computed over the width minus the margin.
+  A pane without quite enough room beside the centred column for a card moves
+  the column left by the shortfall (--cmt-shift, set by rail.ts): the content's
+  own centring formula, less the shift on the left and plus it on the right.
+  This happens when a note has comments, from the moment it opens, never when a
+  card opens, and it eases rather than snaps.
 */
 .cm-lp-root .cm-cmt-wide .cm-content {
-  padding-left: max(0px, calc((100% - var(--lp-measure) * 1em - ${RAIL_RESERVE}px) / 2));
-  padding-right: calc(max(0px, calc((100% - var(--lp-measure) * 1em - ${RAIL_RESERVE}px) / 2)) + ${RAIL_RESERVE}px);
+  transition: padding 220ms cubic-bezier(.2,.8,.2,1);
+  padding-left: max(0px, calc((100% - var(--lp-measure) * 1em) / 2 - var(--cmt-shift, 0px)));
+  padding-right: calc(max(0px, calc((100% - var(--lp-measure) * 1em) / 2 - var(--cmt-shift, 0px))) + 2 * var(--cmt-shift, 0px));
 }
 .cm-lp-root .cm-cmt-hl {
   background: ${colors.commentWash};
@@ -46,8 +48,13 @@ export function commentStyles(colors: Colors): string {
 .cm-cmt-card, .cm-cmt-head, .cm-cmt-chip {
   position: absolute;
   box-sizing: border-box;
-  transition: top 160ms ease;
 }
+/* A new card fades in and slides a little from the right, where it stands. */
+.cm-cmt-enter { opacity: 0; transform: translateX(8px); }
+.cm-cmt-placed {
+  transition: top 220ms cubic-bezier(.2,.8,.2,1), opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+.cm-lp-root .cm-cmt-hl { transition: background-color 120ms ease; }
 .cm-cmt-card {
   display: flex;
   flex-direction: column;
@@ -106,7 +113,8 @@ export function commentStyles(colors: Colors): string {
 .cm-cmt-head { display: flex; justify-content: flex-end; }
 .cm-cmt-rail-narrow .cm-cmt-card { box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.12); }
 @media (prefers-reduced-motion: reduce) {
-  .cm-cmt-card, .cm-cmt-head, .cm-cmt-chip { transition: none; }
+  .cm-cmt-placed, .cm-lp-root .cm-cmt-wide .cm-content, .cm-lp-root .cm-cmt-hl { transition: none; }
+  .cm-cmt-enter { transform: none; }
 }
 `;
 }
