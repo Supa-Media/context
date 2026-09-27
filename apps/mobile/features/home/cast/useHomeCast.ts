@@ -57,7 +57,8 @@ export function useHomeCast(options: {
     const shared = createSharedDoc({});
     seedSharedDoc(shared, latest.current.notes[path] ?? "");
     setRoom({ path, shared, members: [] });
-    played.current.add(path);
+    const seen = played.current;
+    seen.add(path);
     let begun = false;
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
     const run = playCast(
@@ -83,7 +84,7 @@ export function useHomeCast(options: {
       run.stop();
       // Taken down before it did anything (a remount, the site arriving): it
       // has not been seen, so it still plays.
-      if (!begun) played.current.delete(path);
+      if (!begun) seen.delete(path);
     };
   }, [enabled, selectedPath, scripts, colors]);
 

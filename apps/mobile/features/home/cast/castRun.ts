@@ -122,7 +122,6 @@ export function playCast(
   const colors = options.colors ?? castColors(steps);
   const members = new Map<string, PresenceMember>();
   let stopped = false;
-  let cancel: (() => void) | null = null;
   const pending = new Set<() => void>();
 
   // Where each step lands, pinned to the text now, so earlier steps' writes
@@ -147,7 +146,6 @@ export function playCast(
       if (!stopped) run();
     });
     pending.add(off);
-    cancel = off;
   };
   const publish = () => host.room([...members.values()]);
   const join = (actor: CastActor) => {
@@ -185,7 +183,6 @@ export function playCast(
     stopped = true;
     for (const off of pending) off();
     pending.clear();
-    cancel = null;
     text.unobserve(onChange);
     members.clear();
     publish();
