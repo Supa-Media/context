@@ -182,6 +182,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Status groups
 - An owner is picked, never typed
 
+## [Comments on notes](./comments.md)
+
+- Comments are in the note, never beside it
+- The log is append-only
+- Agents comment through write_note, and cannot choose their name
+- Comments are never published
+
 ## [Bucket-backed websites](./websites.md)
 
 - `privacy.md` decides what a website publishes

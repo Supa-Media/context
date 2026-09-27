@@ -74,6 +74,11 @@ export interface NoteEditorProps {
   }) => Promise<{ target: string } | { error: string }>;
   /** Say a refused paste out loud. */
   onImageProblem?: (message: string) => void;
+  /**
+   * The viewer's \`@handle\`, which a comment written in this note is signed
+   * with (files/comments/). Absent where nobody can comment.
+   */
+  commenter?: string | null;
   /** Where a folder list block reads its notes. Absent: lists stay as source. */
   folderLists?: FolderListSource;
   /**

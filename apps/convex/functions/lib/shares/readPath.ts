@@ -18,6 +18,7 @@ import { normalizePath } from "../fileOps";
 import { linkedNotePaths } from "../noteLinks";
 import { isEncryptedNote } from "../noteEncryption";
 import { withinSharedFolder } from "./paths";
+import { stripComments } from "@context/shared/src/comments.cjs";
 import { anonymousSafe, notAuthenticated, shareUnavailable } from "./errors";
 import type { readShortLinkArgs, readSharedNoteArgs } from "./validators";
 
@@ -423,7 +424,15 @@ async function readThroughShare(
     if (openToAnyone && isEncryptedNote(result.text)) {
       throw anonymousSafe(actorUserId, shareUnavailable());
     }
-    return { text: result.text };
+    /*
+      COMMENTS STAY WITH THE NOTE'S OWN READERS.
+
+      A link publishes the note, not the conversation about it: the anchors
+      and the `comments` block (packages/shared/src/comments.cjs) are removed
+      here, before the text leaves the control plane, so a link holder never
+      receives them rather than merely not seeing them drawn.
+    */
+    return { text: stripComments(result.text) };
   } catch (error) {
     const code =
       error instanceof ConvexError

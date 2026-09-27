@@ -18,6 +18,7 @@ import { insertFolderList } from "../listBlock/insert";
 import { listHost } from "../listBlock/model";
 import type { EditorHandlers, MenuOpen, MenuPoint } from "./contract";
 import { applySpellingFix, desktopSpeller, hasFinePointer, wordUnder, type SpellingFix } from "./spelling";
+import { canComment, startComment } from "../comments/extension";
 
 /** How long a right-click waits on the desktop checker before opening without it. */
 const SPELLING_WAIT_MS = 250;
@@ -112,6 +113,7 @@ export function contextMenuListener({
           become somebody else's to read.
         */
         canDictate: handlers.current.onDictate !== undefined,
+        canComment: canComment(created.state),
         canAsk: handlers.current.onAsk !== undefined,
         canList: created.state.facet(listHost)?.current != null,
       }).length === 0;
@@ -248,6 +250,11 @@ export function runEditorMenuAction(
 
   if (id === "table") {
     setTableAt(menuAt === null ? null : { x: menuAt.x, y: menuAt.y });
+    return;
+  }
+
+  if (id === "comment") {
+    startComment(current);
     return;
   }
 

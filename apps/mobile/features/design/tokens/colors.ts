@@ -167,6 +167,14 @@ export const darkColors = {
   warnText: "#E9C47E",
   warnWash: "rgba(223,172,82,0.10)",
   warnBorder: "rgba(223,172,82,0.22)",
+  /**
+   * Words somebody commented on (\`files/comments/\`): the warn hue as a
+   * highlighter, the convention every document editor uses, and a stronger
+   * wash for the thread that is open. Deeper than \`warnWash\` because it sits
+   * under running text and has to read as a mark, not as a tint.
+   */
+  commentWash: "rgba(223,172,82,0.20)",
+  commentWashActive: "rgba(223,172,82,0.40)",
 
   crit: "#F08C7C",
   critText: "#F5B0A4",
@@ -406,6 +414,9 @@ export const lightColors: Colors = {
   warnText: "#7A4E08",
   warnWash: "rgba(150,96,10,0.12)",
   warnBorder: "rgba(150,96,10,0.30)",
+  /** See the dark palette's note. */
+  commentWash: "rgba(222,168,62,0.26)",
+  commentWashActive: "rgba(222,168,62,0.50)",
 
   crit: "#B23A2B",
   critText: "#962E21",

@@ -36,6 +36,7 @@
  */
 
 import { standardEmojiNamed } from "../console/files/emoji/standardEmoji";
+import { stripComments } from "@context/shared/src/comments.cjs";
 
 export type Inline =
   | { kind: "text"; text: string }
@@ -389,7 +390,10 @@ function matchLink(
  * unrecognised construct degrades to a paragraph instead of disappearing.
  */
 export function parseNote(source: string): ParsedNote {
-  const lines = stripFrontmatter(source).split(/\r?\n/);
+  // Comments are for the note's own readers and never shown on a published
+  // surface; the control plane already strips them from a share read, and
+  // this is the same rule for any other text handed to the reader.
+  const lines = stripFrontmatter(stripComments(source)).split(/\r?\n/);
   const blocks: Block[] = [];
   let i = 0;
   let truncated = false;

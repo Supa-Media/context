@@ -47,12 +47,38 @@ export function noteWriteToolDefinitions() {
         "\n\nTHIS TOOL ALSO UPLOADS IMAGES. Pass images: [{ name, data | url, alt? }] and embed each one in the content by its name, e.g. ![[chart.png]] or ![a chart](chart.png). " +
         "data is the image's base64 (a data: URI works too); url is an https address the gateway fetches once. Either way the bytes are stored inside this workspace, the embed is rewritten to point at that copy, and the image follows the note's visibility. " +
         "PNG, JPEG, GIF, WebP and HEIC, up to 5 MB each and 10 per call; SVG is refused. An image the content does not embed is added at the end. " +
-        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead.",
+        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead." +
+        "\n\nTHIS TOOL ALSO COMMENTS, the way people comment in a shared document. read_note lists a note's open comment threads; " +
+        "pass comment: { action: \"add\", quote, text } to highlight words and say something about them, or { action: \"reply\" | \"resolve\" | \"reopen\", thread, text? } to answer one. " +
+        "Resolve a thread once you have acted on it. Comments are never deleted: resolving keeps the whole thread in the note's history.",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string", description: "Destination path ending in .md" },
-          content: { type: "string" },
+          content: { type: "string", description: "The whole note. Required unless comment is passed instead." },
+          comment: {
+            type: "object",
+            description:
+              "Comment on this note instead of rewriting it; pass this without content. " +
+              "add highlights the quoted words and starts a thread; reply, resolve and reopen act on a thread by the id read_note lists. " +
+              "The gateway writes the anchor and the log line into the note itself, signed with this connection's name.",
+            properties: {
+              action: { type: "string", enum: ["add", "reply", "resolve", "reopen"] },
+              quote: {
+                type: "string",
+                description: "add: the exact words to highlight, as they read in the note (without markup the reader does not see).",
+              },
+              occurrence: {
+                type: "integer",
+                minimum: 1,
+                description: "add: which appearance of quote, counting from 1, when it appears more than once.",
+              },
+              thread: { type: "string", description: "reply, resolve, reopen: the thread id, e.g. k7f2." },
+              text: { type: "string", description: "add and reply: what you are saying, up to 5000 characters." },
+            },
+            required: ["action"],
+            additionalProperties: false,
+          },
           expected_etag: { type: "string", description: "Etag from read_note; omit only when creating a new note." },
           visibility: {
             type: "string",
@@ -101,7 +127,7 @@ export function noteWriteToolDefinitions() {
               "With share, a memorable name under their handle: context.lc/@name/<short>, lowercase letters, digits and hyphens. When they ask for a form or a link to send people, pick one from the note's name (new-client, feedback) rather than asking, and tell them it is guessable by anyone who types it, which is the point of having one and is not true of the long link. A name that is taken or reserved does not lose the link — you are told why it was refused.",
           },
         },
-        required: ["path", "content"],
+        required: ["path"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

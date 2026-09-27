@@ -22,6 +22,13 @@ describe("website page metadata", () => {
     });
   });
 
+  test("a page's comments are never part of what the site publishes", () => {
+    const page = parseWebsitePage(
+      '---\ntitle: pricing\n---\n\n# <!--c:k7f2-->free, you cheapo<!--/c:k7f2-->\n\nBody.\n\n```comments\nk7f2 "free, you cheapo"\n- 2026-09-27T07:30:12Z Codex: tone it down\n```\n',
+    );
+    expect(page.body).toBe("# free, you cheapo\n\nBody.\n");
+  });
+
   test("parses the approved audience, draft and navigation fields", () => {
     expect(
       parseWebsitePage(
