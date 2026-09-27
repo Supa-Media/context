@@ -13,6 +13,7 @@ import { getVisibleMovedNote, listVisibleNoteKeysWithMoves } from "../notes/visi
 import { isEncryptedNote } from "../encryption.js";
 import { listScannableNoteKeys } from "./maintenance.js";
 import { mapInBatches } from "../notes/storage.js";
+import comments from "../../../../packages/shared/src/comments.cjs";
 import { noteTitle, SEARCH_RESULT_LIMIT } from "./visible.js";
 
 /**
@@ -76,13 +77,16 @@ export async function scanVisibleNotes(store, scope, rules, overrides, query, pr
       // fallback path and reads live bytes, so this is the one place the check
       // has to be on the body rather than on what an index holds.
       if (isEncryptedNote(text)) return null;
-      if (!text.toLowerCase().includes(needle)) return null;
-      const snippets = text
+      // Matched and quoted on the note's words, as the index does: comment
+      // anchors and threads are not part of them (`comments.cjs`).
+      const words = comments.stripComments(text);
+      if (!words.toLowerCase().includes(needle)) return null;
+      const snippets = words
         .split("\n")
         .filter((line) => line.toLowerCase().includes(needle))
         .slice(0, 3)
         .map((line) => line.trim().slice(0, 200));
-      return { key, title: noteTitle(key, text), snippets };
+      return { key, title: noteTitle(key, words), snippets };
     });
     for (const match of matches) {
       if (match) hits.push(match);
