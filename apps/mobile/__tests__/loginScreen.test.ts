@@ -138,3 +138,39 @@ describe("signing in", () => {
     container.remove();
   });
 });
+
+/*
+  Board 8 of the phone redesign (2026-09-27): the button is the width of the
+  form on a phone, and the line under it is in plain words. The old line spoke
+  of "the control plane", which is our architecture, not the reader's concern.
+*/
+describe("the request screen on a phone", () => {
+  function atWidth(width: number) {
+    Object.defineProperty(document.documentElement, "clientWidth", { value: width, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+
+  test("says what happens in plain words", () => {
+    atWidth(390);
+    const view = mount();
+    expect(view.text()).toContain("We'll email you a code. There's no password to remember.");
+    expect(view.text()).not.toContain("control plane");
+    view.unmount();
+  });
+
+  test("the send button is full width on a phone and sized to its label on a desktop", () => {
+    atWidth(390);
+    const phone = mount();
+    expect(getComputedStyle(phone.byId("login-submit")!).alignSelf).toBe("stretch");
+    phone.unmount();
+
+    atWidth(1280);
+    const desktop = mount();
+    expect(getComputedStyle(desktop.byId("login-submit")!).alignSelf).toBe("flex-start");
+    desktop.unmount();
+    atWidth(0);
+  });
+});
