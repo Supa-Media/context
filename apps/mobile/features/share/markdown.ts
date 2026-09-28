@@ -44,6 +44,8 @@ export type Inline =
   | { kind: "em"; text: string }
   | { kind: "code"; text: string }
   | { kind: "strike"; text: string }
+  /** `==words==`, Obsidian's highlighter; the editor draws it as `cm-lp-mark`. */
+  | { kind: "mark"; text: string }
   /** `href` is already vetted by `safeHref`; a rejected one arrives as `text`. */
   | { kind: "link"; text: string; href: string }
   /**
@@ -241,6 +243,18 @@ export function parseInline(source: string): Inline[] {
       out.push({ kind: "strike", text: strike[1] });
       i += strike[0].length;
       continue;
+    }
+
+    // Words hard against both pairs, as the editor's grammar requires, so an
+    // `a == b` in a sentence stays text, and never a run of three.
+    if (source[i - 1] !== "=") {
+      const mark = /^==(?!=)(\S(?:[^\n]*?\S)?)==(?!=)/.exec(rest);
+      if (mark) {
+        flush();
+        out.push({ kind: "mark", text: mark[1] });
+        i += mark[0].length;
+        continue;
+      }
     }
 
     // Single `*` only, and never `_`: `snake_case_names` are ordinary words in

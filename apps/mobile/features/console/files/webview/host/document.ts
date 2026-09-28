@@ -55,6 +55,8 @@ export function themeVars(
     "--lp-muted": colors.text2,
     "--lp-link": colors.codeKey,
     "--lp-code-bg": colors.well,
+    // `==highlighted==` words; see `markWash`.
+    "--lp-mark": colors.markWash,
     // Hairlines. See the web half's note: a rule that wants an edge used to
     // borrow the code fence's fill, which is not one.
     "--lp-line": colors.line,

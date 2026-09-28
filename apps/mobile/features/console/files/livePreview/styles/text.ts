@@ -57,6 +57,18 @@ export const textStyles = `
 .cm-lp-strong { font-weight: 650; color: var(--lp-heading); }
 .cm-lp-em { font-style: italic; }
 .cm-lp-strike { text-decoration: line-through; opacity: 0.7; }
+/*
+  ==highlighted== words: a marker-pen fill and nothing else. No underline and
+  no pointer, which is what a comment's wash carries, so the two never read as
+  each other even when they overlap.
+*/
+.cm-lp-mark {
+  background: var(--lp-mark);
+  border-radius: 2px;
+  padding: 0.05em 0;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
 .cm-lp-code {
   font-family: var(--lp-mono);
   font-size: 0.92em;
