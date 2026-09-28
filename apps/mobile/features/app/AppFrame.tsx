@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { View } from "react-native";
 import { viewportHeight } from "../design/css";
 import { useThemedStyles } from "../design/theme";
-import { FrameContext, type FrameHistory } from "./appFrame/context";
+import { FrameContext } from "./appFrame/context";
 import { frameBody } from "./appFrame/body";
 import { frameBottomBar, frameStatusRow } from "./appFrame/bottomEdge";
 import { makeStyles } from "./appFrame/styles";
@@ -60,7 +60,7 @@ import { useFrameController } from "./appFrame/useFrameController";
   resizers and the seams, and the one stylesheet they all share. This module
   keeps the component and its props, and re-exports what it always exported.
 */
-export { useFrame, type FrameApi, type FrameHistory } from "./appFrame/context";
+export { useFrame, type FrameApi } from "./appFrame/context";
 export { FrameIconButton } from "./appFrame/controls";
 export { PEEK_DELAY_MS } from "./appFrame/seams";
 
@@ -164,12 +164,6 @@ export interface AppFrameProps {
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
   /**
-   * `‹ ›` over the console's history, drawn in the title row above the file
-   * tree (or leading the bar while it is folded). Pointer layouts only; a
-   * phone carries the pair in its bottom bar.
-   */
-  history?: FrameHistory;
-  /**
    * The file tree, rendered as a column or inside the drawer.
    *
    * Omit it for a route that has no tree — Map and Connections are app-level
@@ -205,7 +199,6 @@ export function AppFrame({
   accountSlot,
   syncSlot,
   onSearch,
-  history,
   explorer,
   aside,
   status,
@@ -277,7 +270,6 @@ export function AppFrame({
           asideToggle,
           regions,
           toggleAside,
-          history,
           hasExplorer,
           explorerWidth: state.explorerWidth,
           toggleExplorer,

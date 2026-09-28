@@ -426,22 +426,6 @@ export function ConsoleFrame({
           onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
-        /*
-          `‹ ›` in the title row over the file tree. They were at the head of
-          the note's breadcrumb, which only a note or folder page drew; up
-          here they are on every console page, Settings included, which is
-          what `history.ts` has always walked.
-        */
-        history={
-          phone
-            ? undefined
-            : {
-                canBack: nav.canBack,
-                canForward: nav.canForward,
-                onBack: nav.back,
-                onForward: nav.forward,
-              }
-        }
         syncSlot={consoleSyncSlot({ phone, browsing, data, setSyncOpen })}
         /*
           The phone's top-left account slot: one component for a member and a
