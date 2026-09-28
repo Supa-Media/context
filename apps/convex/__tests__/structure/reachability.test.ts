@@ -179,6 +179,12 @@ describe("no public function can reach a storage secret", () => {
         // its scoped token; ordinary customer-account deletion never reaches
         // this edge and continues to leave customer storage untouched.
         "functions.managedProvisioning.deleteManagedTestResources",
+        // THE CUSTOMER HANDOFF'S RESOURCE FUNERAL. Opens the same operator
+        // token only after the verified raw-object copy has atomically moved
+        // the live binding to the customer's bucket. The scheduled arguments
+        // are the deterministic managed bucket and its scoped token id; the
+        // action re-derives and compares that bucket name before deleting it.
+        "functions.managedProvisioning.deleteManagedStorageAfterHandoff",
         // Opens the parked per-bucket destination credential for one bounded,
         // resumable copy page. Internal-only; the source binding remains live
         // until a quiet verification pass and atomic source-id-checked cutover.

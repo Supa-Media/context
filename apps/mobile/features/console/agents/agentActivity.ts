@@ -46,10 +46,32 @@ export interface ActiveAgent {
   writes: number;
 }
 
+/**
+ * Somebody with this workspace open right now.
+ *
+ * The gateway counts a person while their console keeps asking for this
+ * answer, so "active" means "has it open in a visible tab", not "opened it
+ * this week". No note, deliberately: an open console is not a claim about
+ * where in the workspace somebody is.
+ */
+export interface ActivePerson {
+  id: string;
+  name: string;
+  color: string | null;
+  /** The viewer's own entry. */
+  self: boolean;
+}
+
 /** The hook's answer, as a plain value the explorer can be handed in a test. */
 export interface AgentActivityView {
   agents: readonly ActiveAgent[];
   marks: readonly AgentMark[];
+  /**
+   * Who has the workspace open, newest first and capped, and how many there
+   * are in all. Absent from an older gateway, which the bar reads as nobody.
+   */
+  people?: readonly ActivePerson[];
+  peopleCount?: number;
 }
 
 const EMPTY: AgentActivityView = { agents: [], marks: [] };
@@ -69,14 +91,14 @@ function colour(value: unknown): string | null {
  * module also talks to self-hosted and older gateways, and a name is drawn
  * straight into somebody's sidebar.
  */
-function label(value: unknown): string {
-  if (typeof value !== "string") return "An agent";
+function label(value: unknown, fallback = "An agent"): string {
+  if (typeof value !== "string") return fallback;
   const cleaned = value
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufff9-\ufffb]/g, "")
     .trim()
     .slice(0, 64);
-  return cleaned.length > 0 ? cleaned : "An agent";
+  return cleaned.length > 0 ? cleaned : fallback;
 }
 
 /** Parse the route's JSON. Anything malformed is dropped, never thrown. */
@@ -111,7 +133,18 @@ export function decodeAgentActivity(value: unknown): AgentActivityView {
     });
   }
   agents.sort((a, b) => b.at - a.at);
-  return { agents, marks };
+  const people: ActivePerson[] = [];
+  for (const entry of Array.isArray(raw.people) ? raw.people : []) {
+    if (!entry || typeof entry !== "object") continue;
+    const one = entry as Record<string, unknown>;
+    if (typeof one.id !== "string" || !one.id) continue;
+    people.push({ id: one.id, name: label(one.name, "Someone"), color: colour(one.color), self: one.self === true });
+  }
+  const counted =
+    typeof raw.peopleCount === "number" && Number.isFinite(raw.peopleCount) && raw.peopleCount >= 0
+      ? Math.floor(raw.peopleCount)
+      : 0;
+  return { agents, marks, people, peopleCount: Math.max(counted, people.length) };
 }
 
 /**
@@ -142,11 +175,68 @@ export function agentMarkRows(
   return rows;
 }
 
-/** The foot's line. `null` when no agent is active, and then nothing is drawn. */
+/**
+ * A count the bar can afford: "940", "2.4k", "12k", "1.2m".
+ *
+ * Exact below a thousand, where every person is somebody the reader might
+ * know; rounded above it, where the number is a sense of size.
+ */
+export function compactCount(count: number): string {
+  const n = Math.max(0, Math.floor(count));
+  if (n < 1_000) return String(n);
+  const [unit, suffix] = n < 1_000_000 ? [1_000, "k"] : [1_000_000, "m"];
+  const scaled = n / unit;
+  const shown = scaled < 10 ? Math.floor(scaled * 10) / 10 : Math.floor(scaled);
+  return `${String(shown).replace(/\.0$/, "")}${suffix}`;
+}
+
+/**
+ * How many people the bar counts, or `null` when it says nothing about people.
+ *
+ * Nothing until somebody *else* has the workspace open: "1 person active" to
+ * the one person looking is not news, and a personal workspace is always
+ * exactly that. Once somebody else is here the count includes the viewer, the
+ * way any room's headcount does.
+ */
+export function peopleActive(view: AgentActivityView | undefined): number | null {
+  const count = view?.peopleCount ?? 0;
+  const others = count - ((view?.people ?? []).some((person) => person.self) ? 1 : 0);
+  return others > 0 ? count : null;
+}
+
+/**
+ * The two halves of the activity bar: people, then agents, either absent.
+ *
+ * One bar, not two: people and agents are the same fact about a workspace
+ * (who is working in it now) and are drawn by one component, circles for
+ * people and squares for agents, as everywhere else in the console.
+ *
+ * Short, because the sidebar is narrow: "13 ppl, 2 agents active", with one
+ * "active" for the whole line (Dev2, 2026-09-28). The spoken form is
+ * `agentsLine`, in whole words.
+ */
+export function activeParts(view: AgentActivityView | undefined): { people: string | null; agents: string | null } {
+  const people = peopleActive(view);
+  const agents = view?.agents.length ?? 0;
+  const peopleWords = people === null ? null : `${compactCount(people)} ${people === 1 ? "person" : "ppl"}`;
+  return {
+    people: peopleWords === null ? null : agents === 0 ? `${peopleWords} active` : `${peopleWords},`,
+    agents: agents === 0 ? null : `${compactCount(agents)} ${agents === 1 ? "agent" : "agents"} active`,
+  };
+}
+
+/**
+ * The bar's whole line in words, for its label: "13 people and 2 agents
+ * active". `null` when nobody and no agent is active, and then nothing is drawn.
+ */
 export function agentsLine(view: AgentActivityView | undefined): string | null {
-  const count = view?.agents.length ?? 0;
-  if (count === 0) return null;
-  return count === 1 ? "1 agent active" : `${count} agents active`;
+  const people = peopleActive(view);
+  const agents = view?.agents.length ?? 0;
+  const parts = [
+    people === null ? null : `${compactCount(people)} ${people === 1 ? "person" : "people"}`,
+    agents === 0 ? null : `${compactCount(agents)} ${agents === 1 ? "agent" : "agents"}`,
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? null : `${parts.join(" and ")} active`;
 }
 
 /** How long ago, in the short form a list row can afford. */

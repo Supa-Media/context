@@ -21,6 +21,8 @@ import type {
   FormSubmission,
   FormVote,
 } from "../formBlock";
+import type { SpellingFix } from "./spelling";
+import type { LinkTarget } from "../linkMarkdown";
 
 /**
  * The handful of things a *button* can ask the editor to do.
@@ -48,8 +50,17 @@ export interface EditorControls {
   wrap(before: string, after: string): void;
   /** Put `prefix` at the start of the caret's line, or remove it if already there. */
   toggleLinePrefix(prefix: string): void;
-  /** `[[]]`, caret between the brackets, with the `[[` completion opened. A2. */
-  insertLink(): void;
+  /**
+   * The link key. With nothing selected, `[[]]` with the `[[` completion
+   * opened (A2). With words selected and `ask` given, the selection is saved
+   * and `ask` is called with the words: the caller shows the Link sheet and
+   * answers with `applyLink` or `cancelLink`. See `linkSelection.ts`.
+   */
+  insertLink(ask?: (text: string) => void): void;
+  /** Link the words saved by `insertLink(ask)` to the pick. */
+  applyLink(link: LinkTarget): void;
+  /** The sheet closed without a pick: the saved selection comes back as it was. */
+  cancelLink(): void;
   undo(): void;
   redo(): void;
   blur(): void;
@@ -86,6 +97,13 @@ export interface EditorControls {
    * was left alone, which the caller has to tell somebody rather than swallow.
    */
   discardDictation?(): boolean;
+  /**
+   * Put the caret in the note's title with its words selected, and say
+   * whether there was a title to go to. Web only, as above — see
+   * `titleLine.ts`. Rename on the open note's row, and a new note's
+   * placeholder, both land here.
+   */
+  selectTitle?(): boolean;
 }
 
 export interface LiveEditorProps {
@@ -145,6 +163,14 @@ export interface LiveEditorProps {
   onFocus?: () => void;
   onBlur?: () => void;
   /**
+   * The caret entered or left the note's title. Web only: see `titleLine.ts`,
+   * and `useLinkedTitle.ts` for why leaving it is when a title renames its
+   * file. A surface that never calls this reads as "not in the title".
+   */
+  onTitleCaret?: (inTitle: boolean) => void;
+  /** The line drawn under the title, or `null` for none. Web only. */
+  titleNote?: { tone: "problem" | "held"; message: string } | null;
+  /**
    * Who else has this note open, and where to send this editor's own caret.
    *
    * Absent on every surface with no room behind it — the landing page's demo
@@ -169,6 +195,8 @@ export interface LiveEditorProps {
     /** Whether this client is the one that writes to the bucket. */
     canWrite: boolean;
     collaboration?: DurableCollaboration;
+    /** A thread the room is acting on, for the editor to open. See `Presence.commentFocus`. */
+    commentFocus?: { thread: string; step: number } | null;
   };
   /**
    * Scroll the surface this editor is laid out inside, by `delta` points.
@@ -257,6 +285,14 @@ export interface LiveEditorProps {
    * per link, and `pluginPreview.ts` draws that in a tooltip of Context's own.
    * Absent where no plugin can run, and the extension is then not installed.
    */
+  /**
+   * The \`@handle\` a comment written here is signed with (files/comments/).
+   * Absent or null where nobody can comment, which leaves the highlights and
+   * the threads readable and offers no way to add to them.
+   */
+  commenter?: string | null;
+  /** A visitor's sign-in; a thread's reply field then says "Sign in to reply". */
+  onSignInToComment?: () => void;
   onPreviewLinks?: (links: { href: string; text: string }[]) =>
     Promise<{ href: string; text: string }[]>;
 }
@@ -274,9 +310,24 @@ export interface EditorHandlers {
   controls: LiveEditorProps["controls"];
   onFocus: LiveEditorProps["onFocus"];
   onBlur: LiveEditorProps["onBlur"];
+  onTitleCaret: LiveEditorProps["onTitleCaret"];
   onDictate: LiveEditorProps["onDictate"];
   onAsk: LiveEditorProps["onAsk"];
+  commenter?: LiveEditorProps["commenter"];
+  onSignInToComment?: LiveEditorProps["onSignInToComment"];
 }
 
 /** Where the pointer was when the menu or the table picker was opened. */
 export type MenuPoint = { x: number; y: number };
+
+/**
+ * An open right-click menu: where, and what it found about spelling there.
+ * Decided once by the `contextmenu` handler and read by the render, so the
+ * menu drawn is the menu that handler decided to open.
+ */
+export type MenuOpen = MenuPoint & {
+  /** A misspelled word under the click, with the checker's suggestions. */
+  spelling?: SpellingFix | null;
+  /** No checker to ask here: point at Shift-right-click instead. */
+  spellingHint?: boolean;
+};

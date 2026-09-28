@@ -161,7 +161,14 @@ export async function presenceActor(actor) {
     places. `actorFor` already carries both — the handle for the audit line,
     the client name for the sentence a person reads.
   */
-  const name = actor?.client || (actor?.name ? `${actor.name}'s agent` : "An agent");
+  /*
+    And whose it is (the owner, 2026-09-27): several people's agents work in
+    one shared workspace, so "Claude" alone does not say which. "@jon's
+    Claude" does, and the console draws it compactly (`agentName.ts`).
+  */
+  const owner = actor?.name || null;
+  const client = actor?.client || null;
+  const name = client ? (owner ? `${owner}'s ${client}` : client) : owner ? `${owner}'s agent` : "An agent";
   return { id: await presenceClientKey(actor?.clientId), name };
 }
 

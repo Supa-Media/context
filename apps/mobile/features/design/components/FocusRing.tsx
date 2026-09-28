@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { focusFromKeyboard } from "../focusModality";
 import { useThemedStyles, type Colors } from "../theme";
 
 /**
@@ -6,13 +8,23 @@ import { useThemedStyles, type Colors } from "../theme";
  *
  * RN's style API has no `outline`, and RN-Web does not surface `:focus-visible`
  * to JS — so this is an absolutely positioned ring, drawn outside the control's
- * bounds, that the pressables toggle from `onFocus`/`onBlur`. The one visible
- * difference from CSS is that a mouse press also focuses, so the ring can
- * appear on click where the browser would have suppressed it.
+ * bounds, that the pressables toggle from `onFocus`/`onBlur`.
+ *
+ * A mouse press also focuses, and a ring on click is the thing `:focus-visible`
+ * exists to prevent, so the ring asks `focusFromKeyboard` once, when the focus
+ * begins, and draws only for the keyboard. Every pressable that draws this ring
+ * gets that without passing anything.
  */
 export function FocusRing({ visible, radius }: { visible: boolean; radius: number }) {
-  const styles = useThemedStyles(makeStyles);
   if (!visible) return null;
+  return <Ring radius={radius} />;
+}
+
+/** Mounted when focus begins, so the modality it reads is the one that caused it. */
+function Ring({ radius }: { radius: number }) {
+  const styles = useThemedStyles(makeStyles);
+  const [fromKeyboard] = useState(focusFromKeyboard);
+  if (!fromKeyboard) return null;
   return (
     <View
       aria-hidden

@@ -86,7 +86,7 @@ describe("every crawler gets server-rendered tags", () => {
 
     const html = await response.text();
     expect(html).toContain('<meta property="og:type" content="website">');
-    expect(html).toContain('<meta property="og:site_name" content="Context">');
+    expect(html).toContain('<meta property="og:site_name" content="Context.LC">');
     expect(html).toContain(
       '<meta property="og:image" content="https://context.lc/og/card.png">',
     );
@@ -123,7 +123,9 @@ describe("a person gets the app, untouched", () => {
     );
   });
 
-  it.each(["/", "/login", "/@alice", "/console/storage"])(
+  // `/` is the one document that also asks for the homepage's site: see
+  // homeSite.test.ts.
+  it.each(["/login", "/@alice", "/console/storage"])(
     "a browser on %s is proxied to the Expo origin",
     async (path) => {
       const response = await get(path, BROWSER_UA);
@@ -145,6 +147,38 @@ describe("a person gets the app, untouched", () => {
     await expect(response.text()).resolves.toBe(
       "proxied:https://context.expo.app/login?next=%2Fconsole",
     );
+  });
+
+  it("serves the app from the versioned assets binding when it is present", async () => {
+    const assets = vi.fn((request: Request) => new Response(`asset:${request.url}`));
+    const response = (await worker.fetch(
+      new Request("https://context.lc/console/storage?tab=connected", {
+        headers: { "User-Agent": BROWSER_UA },
+      }),
+      { ...ENV, ASSETS: { fetch: assets } as unknown as Fetcher },
+      CTX,
+    )) as Response;
+
+    await expect(response.text()).resolves.toBe(
+      "asset:https://context.lc/console/storage?tab=connected",
+    );
+    expect(assets).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps auth on Convex when the assets binding is present", async () => {
+    fetchSpy.mockImplementation((request: Request) => new Response(`proxied:${request.url}`));
+    const assets = vi.fn(() => new Response("wrong upstream"));
+    const response = (await worker.fetch(
+      new Request("https://context.lc/api/auth/callback/github?code=abc"),
+      { ...ENV, ASSETS: { fetch: assets } as unknown as Fetcher },
+      CTX,
+    )) as Response;
+
+    await expect(response.text()).resolves.toBe(
+      "proxied:https://example-deployment.convex.site/api/auth/callback/github?code=abc",
+    );
+    expect(assets).not.toHaveBeenCalled();
   });
 });
 

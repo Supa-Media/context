@@ -9,6 +9,7 @@ export function coreToolDefinitions() {
   return [
     {
       name: "orient",
+      title: "Orient in your context",
       description:
         "CALL THIS FIRST, once per session, before answering anything about the user's own work. " +
         "One cheap call returns their front page, what they touched most recently, and a map of " +
@@ -24,6 +25,7 @@ export function coreToolDefinitions() {
     // for the model deciding whether to reach for this connector at all.
     {
       name: "search",
+      title: "Search memory",
       description:
         "Search the user's own memory: their notes about their projects, people, decisions, " +
         "preferences and past work. The first place to look for any question about the user — " +
@@ -39,6 +41,7 @@ export function coreToolDefinitions() {
     },
     {
       name: "fetch",
+      title: "Fetch note",
       description:
         "Fetch one note from the user's memory in full, by the id a search result returned.",
       inputSchema: {
@@ -51,6 +54,7 @@ export function coreToolDefinitions() {
     },
     {
       name: "scope_info",
+      title: "Show write access",
       description:
         "Show team-writable folder defaults and the access model. Optionally inspect a proposed path. Personal connections receive its effective visibility; team connections receive only the folder default so private note existence is never disclosed.",
       inputSchema: {
@@ -69,6 +73,7 @@ export function coreToolDefinitions() {
     },
     {
       name: "list_notes",
+      title: "List notes",
       description:
         "List note paths under a folder prefix (e.g. '1-projects'), or everywhere when omitted. " +
         "Use it to open up an area that orient only summarized — a project folder's contents, " +
@@ -84,6 +89,7 @@ export function coreToolDefinitions() {
     },
     {
       name: "read_note",
+      title: "Read note",
       description:
         "Read one of the user's notes in full — the paths come from orient, list_notes, or " +
         "search_notes. Returns its content and an etag; pass that etag back to write_note so a " +
@@ -98,6 +104,7 @@ export function coreToolDefinitions() {
     },
     {
       name: "evaluate_lists",
+      title: "Evaluate folder lists",
       description:
         "Evaluate every Folder list block in one note against the notes this connection can currently open. " +
         "Returns selected rows without hidden-note counts; use read_note when you need the source block itself.",

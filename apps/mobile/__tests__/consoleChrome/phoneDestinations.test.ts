@@ -361,8 +361,14 @@ describe("the phone reaches a destination with nothing opened first", () => {
     expect(Number.parseFloat(box.width)).toBeGreaterThanOrEqual(layout.minTouchTarget);
     expect(Number.parseFloat(box.height)).toBeGreaterThanOrEqual(layout.minTouchTarget);
 
+    /*
+      The row is the account sheet's now (owner, 2026-09-27, screen 9): the
+      phone's slot opens the desktop card's rows as a bottom sheet, so it is
+      the card's `switcher-sign-out` rather than the old popover's.
+    */
     app.press(trigger);
-    const signOut = document.body.querySelector<HTMLElement>('[data-testid="account-sign-out"]');
+    expect(document.body.querySelector('[data-testid="menu-sheet"]')).not.toBeNull();
+    const signOut = document.body.querySelector<HTMLElement>('[data-testid="switcher-sign-out"]');
     expect(signOut).not.toBeNull();
     expect(signOut!.textContent).toContain("Sign out");
 
@@ -386,7 +392,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
     expect(app.find("rail-sign-out")).toBeNull();
     expect(app.find("account-menu")).toBeNull();
 
-    app.press(app.find("frame-switcher"));
+    app.press(app.find("account-switcher"));
     const signOut = app.find("switcher-sign-out");
     expect(signOut).not.toBeNull();
     expect(signOut!.textContent).toContain("Sign out");

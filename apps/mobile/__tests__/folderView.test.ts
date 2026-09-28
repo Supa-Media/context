@@ -78,6 +78,7 @@ function mount(props: {
   entry?: FileEntry;
   listing?: FolderListing;
   canSetVisibility?: boolean;
+  showAudience?: boolean;
 }): Mounted {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -95,6 +96,7 @@ function mount(props: {
         listing: props.listing,
         canSetVisibility: props.canSetVisibility ?? true,
         contextLabel: "@seyi",
+        ...(props.showAudience === undefined ? {} : { showAudience: props.showAudience }),
         onSelect: (path: string) => {
           selected.push(path);
         },
@@ -312,6 +314,25 @@ describe("the controls", () => {
     const text = mount({ listing: listing([]) }).container.textContent ?? "";
     expect(text).toContain("team —");
     expect(text).not.toContain("There is no public tier");
+  });
+
+  /**
+   * A homepage visitor is not told who they granted access to.
+   *
+   * "team — visible to the people you granted access" is the owner's sentence,
+   * and the homepage showed it to somebody who is not signed in and granted
+   * nobody anything (the phone artboards' design review, 2026-09-27). The
+   * console passes `showAudience={data.visitor === undefined}`.
+   *
+   * SABOTAGE: ignore `showAudience` in `FolderView`. Fails here.
+   */
+  test("a visitor is not shown the owner's audience sentence", () => {
+    const text = mount({ listing: listing([file("pricing.md")]), showAudience: false })
+      .container.textContent ?? "";
+    expect(text).not.toContain("granted access");
+    expect(text).not.toContain("team —");
+    // The listing itself is unaffected.
+    expect(text).toContain("pricing");
   });
 });
 

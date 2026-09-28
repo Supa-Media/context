@@ -7,7 +7,7 @@
 
 import { createServer } from "node:http";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -128,6 +128,35 @@ await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "
 await writeSetting("captureExclude", [join(home, "work")]);
 landed = await captureIn(projectDir);
 check("a folder this person excluded sends nothing, subfolders included", landed.posted === 0 && landed.result.reason === "excluded");
+
+/*
+  AN EXCLUSION NAMES A FOLDER, NOT A SPELLING OF ONE.
+
+  The hook is handed whatever path the agent reports, and one directory has
+  more than one name: through a symlink, and — on macOS and Windows, where
+  this CLI mostly runs — in more than one capitalisation. A person who
+  excluded a client's folder excluded the folder; if the transcript goes out
+  because the session arrived by the other name, the control they set did
+  nothing at the only moment it mattered.
+*/
+const realWork = join(home, "client-real");
+const linkedWork = join(home, "client-link");
+await mkdir(join(realWork, "repo"), { recursive: true });
+await symlink(realWork, linkedWork, "dir").catch(() => {});
+
+await writeSetting("captureExclude", [linkedWork]);
+landed = await captureIn(join(realWork, "repo"));
+check(
+  "a folder excluded by its symlink is excluded when the session reports the real path",
+  landed.posted === 0 && landed.result.reason === "excluded"
+);
+
+await writeSetting("captureExclude", [realWork]);
+landed = await captureIn(join(linkedWork, "repo"));
+check(
+  "and a folder excluded by its real path is excluded when the session reports the symlink",
+  landed.posted === 0 && landed.result.reason === "excluded"
+);
 await writeSetting("captureExclude", null);
 
 // -- session start names the project's workspace

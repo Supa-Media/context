@@ -12,6 +12,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
 import type { WebsiteLinkCatalogEntry } from "./links";
+import { PUBLICATION_SCOPE } from "./publication";
 
 type ViewerAudience = "public" | "members";
 type ListConfig = {
@@ -72,7 +73,7 @@ function canonicalEntries(
   return byPath;
 }
 
-async function readBatches(
+export async function readBatches(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   scope: "private" | "team",
@@ -152,7 +153,7 @@ export async function renderPublicWebsiteLists(
         )
         .map((entry) => entry.objectKey);
       const [routes, shares] = await Promise.all([
-        readBatches(ctx, args.workspaceId, "private", missingRoutes),
+        readBatches(ctx, args.workspaceId, PUBLICATION_SCOPE, missingRoutes),
         readBatches(ctx, args.workspaceId, "team", missingShares),
       ]);
       for (const path of missingRoutes)

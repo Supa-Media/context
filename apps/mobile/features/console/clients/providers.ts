@@ -341,7 +341,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     matches: /chatgpt|openai/i,
     name: "ChatGPT",
     form: "connector",
-    note: "Opens Settings → Connectors with the create form already open. Custom connectors need a paid plan and developer mode, under Settings → Apps → Advanced.",
+    note: "Opens Settings → Connectors with the create form already open. Custom apps need a paid ChatGPT plan.",
     customization: {
       hint: "Paste it into Settings → Personalization → Custom instructions.",
     },

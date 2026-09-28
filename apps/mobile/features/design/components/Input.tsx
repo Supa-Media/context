@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { fonts, pointerType as t, radii } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
+import { useFieldFont } from "../fieldFont";
 import { FocusRing } from "./FocusRing";
 import { Text } from "./Text";
 
@@ -58,6 +59,9 @@ export function TextField({
   const [focused, setFocused] = useState(false);
   const labelId = testID ? `${testID}-label` : undefined;
   const describedBy = testID && (hint || error) ? `${testID}-note` : undefined;
+  // 16px on a phone, whatever size the caller set, so focusing it never zooms.
+  const own = StyleSheet.flatten([styles.input, props.style]).fontSize;
+  const fieldFont = useFieldFont(typeof own === "number" ? own : t.lede);
 
   return (
     <View style={containerStyle}>
@@ -111,6 +115,7 @@ export function TextField({
           focused && styles.inputFocused,
           error !== undefined && styles.inputError,
           props.style,
+          fieldFont,
         ]}
       />
       {error !== undefined ? (

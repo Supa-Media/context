@@ -44,7 +44,7 @@ describe("the signed-in console carries no marketing chrome", () => {
     const app = mountConsole();
     expect(app.find("rail-sign-out")).toBeNull();
 
-    app.press(app.find("frame-switcher"));
+    app.press(app.find("account-switcher"));
     expect(app.find("switcher-sign-out")).not.toBeNull();
 
     app.unmount();

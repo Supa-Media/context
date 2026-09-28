@@ -278,7 +278,7 @@ function mountConsole(next: Shape = {}, width = 1440) {
      * fold makes to what they assert.
      */
     openSwitcher: () => {
-      clickNode(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]'));
+      clickNode(document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]'));
     },
     text: () => container.textContent ?? "",
     find,
@@ -350,8 +350,20 @@ describe("the widget note command is consumed", () => {
   });
 });
 
+/*
+  The top bar names no connected binding any more. It was a pill beside search
+  on every route — "R2 · managed", "R2 · example-bucket", "Dropbox · second/" —
+  and for a managed bucket it was a fact nobody chose and nobody can act on.
+  A connected binding is named once, in the status strip along the bottom
+  (except a managed one, which has no name worth reading); the bar keeps only
+  "no bucket connected", which is a problem with a fix behind it.
+
+  SABOTAGE: return the neutral pill from `StorageChip` for a connected binding
+  and "puts no pill in the top bar" fails for every provider below; drop the
+  `managed` check from `Status` and "a managed bucket is named nowhere" fails.
+*/
 describe("the storage pill on a Dropbox binding", () => {
-  test("says Dropbox — never 'undefined' — with the folder when there is one", () => {
+  test("the strip says Dropbox — never 'undefined' — with the folder when there is one", () => {
     const bare = mountConsole({ storage: DROPBOX_STORAGE });
     expect(bare.text()).toContain("Dropbox");
     expect(bare.text()).not.toContain("undefined");
@@ -365,25 +377,31 @@ describe("the storage pill on a Dropbox binding", () => {
     scoped.unmount();
   });
 
-  test("pressing it opens this context's storage settings", () => {
+  test("and puts no pill in the top bar", () => {
     const app = mountConsole({ storage: DROPBOX_STORAGE });
-    app.press(app.find("storage-pill"));
-    expect(mockParamsSet).toEqual([{ settings: "workspace" }]);
+    expect(app.find("storage-pill")).toBeNull();
     app.unmount();
   });
 });
 
 describe("the storage pill on every other binding", () => {
-  test("an S3-family binding keeps its provider · bucket words", () => {
+  test("an S3-family binding keeps its provider · bucket words, in the strip", () => {
     const app = mountConsole({});
     expect(app.text()).toContain("R2 · example-bucket");
     app.unmount();
   });
 
-  test("and is a press target too — the way in is not Dropbox-only", () => {
+  test("and puts no pill in the top bar either", () => {
     const app = mountConsole({});
-    app.press(app.find("storage-pill"));
-    expect(mockParamsSet).toEqual([{ settings: "workspace" }]);
+    expect(app.find("storage-pill")).toBeNull();
+    app.unmount();
+  });
+
+  test("a managed bucket is named nowhere — not in the bar, not in the strip", () => {
+    const app = mountConsole({ storage: { ...S3_STORAGE, managed: true } });
+    expect(app.find("storage-pill")).toBeNull();
+    expect(app.text()).not.toContain("managed");
+    expect(app.text()).not.toContain("example-bucket");
     app.unmount();
   });
 

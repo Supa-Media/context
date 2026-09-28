@@ -1,6 +1,8 @@
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
+import { Reveal } from "../../design/components/Reveal";
+import { useArrivals } from "../../design/useArrivals";
 import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -140,40 +142,50 @@ export function FileTree({
   agentMarks?: ReadonlyMap<string, AgentMarkKind>;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    A note somebody else just made, or an agent just wrote, eases into the
+    tree instead of shoving every row under it down in one frame. See
+    `useArrivals` for why a folder opening or a workspace loading does not.
+  */
+  const arrived = useArrivals(rows.map((row) => row.key));
   return (
     <>
-      {rows.map((row) => {
-        if (row.kind === "loading" || row.kind === "empty") {
-          return (
-            <View
-              key={row.key}
-              style={[styles.node, { paddingLeft: indentFor(row.depth + 1) }]}
-            >
-              <Text variant="treeMeta">{row.label}</Text>
-            </View>
-          );
-        }
-
-        return (
-          <FileRow
-            key={row.key}
-            row={row}
-            canSetVisibility={canSetVisibility}
-            onSelect={onSelect}
-            onToggle={onToggle}
-            onCycleVisibility={onCycleVisibility}
-            onMenu={onMenu}
-            onPick={onPick}
-            drag={drag}
-            isDropTarget={dropTarget === row.path}
-            sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
-            marked={markedPaths?.has(row.path) ?? false}
-            agent={agentMarks?.get(row.path) ?? null}
-          />
-        );
-      })}
+      {rows.map((row) => (
+        <Reveal key={row.key} open appear={arrived.has(row.key)}>
+          {treeRow(row)}
+        </Reveal>
+      ))}
     </>
   );
+
+  function treeRow(row: TreeRow) {
+    if (row.kind === "loading" || row.kind === "empty") {
+      return (
+        <View
+          style={[styles.node, { paddingLeft: indentFor(row.depth + 1) }]}
+        >
+          <Text variant="treeMeta">{row.label}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <FileRow
+        row={row}
+        canSetVisibility={canSetVisibility}
+        onSelect={onSelect}
+        onToggle={onToggle}
+        onCycleVisibility={onCycleVisibility}
+        onMenu={onMenu}
+        onPick={onPick}
+        drag={drag}
+        isDropTarget={dropTarget === row.path}
+        sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
+        marked={markedPaths?.has(row.path) ?? false}
+        agent={agentMarks?.get(row.path) ?? null}
+      />
+    );
+  }
 }
 
 /** What the tree needs from whoever owns the drag. */

@@ -42,6 +42,7 @@ import {
   type MeetingWriteAck,
   type OutboxStatus,
   type PendingMachineApproval,
+  type SpellingCheck,
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
@@ -135,6 +136,10 @@ export interface FakeBridgeOptions {
    * **6**, the highest that legitimately has none, for `noImessage`'s reason.
    */
   noAgent?: boolean;
+  /** What `spelling.check()` answers. Default: every word is spelled right. */
+  spelling?: (word: string) => SpellingCheck;
+  /** Answer no `spelling` member — a **version-7** shell, from before it existed. */
+  noSpelling?: boolean;
   /**
    * Answer no `imessage` member at all — a shell older than **version 5**,
    * which is every shell in anybody's Applications folder today.
@@ -215,7 +220,9 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
           ? 2
           : options.noImessage === true
             ? 4
-            : BRIDGE_VERSION),
+            : options.noSpelling === true
+              ? 7
+              : BRIDGE_VERSION),
     shell:
       options.shell === undefined
         ? { app: "Context", version: "0.0.0-test", platform: "macos" as const }
@@ -406,6 +413,16 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
                   steps: [],
                 }
               );
+            },
+          }),
+        }),
+    ...(options.noSpelling === true
+      ? {}
+      : {
+          spelling: Object.freeze({
+            async check(word: string): Promise<SpellingCheck> {
+              calls.push("spelling.check");
+              return options.spelling?.(word) ?? { misspelled: false, suggestions: [] };
             },
           }),
         }),

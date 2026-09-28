@@ -19,6 +19,7 @@ export function consolePalette({
   paletteOpen,
   setAsked,
   paletteItems,
+  recent = [],
   search,
   setPaletteOpen,
   router,
@@ -27,6 +28,7 @@ export function consolePalette({
   paletteOpen: boolean;
   setAsked: ConsoleAside["setAsked"];
   paletteItems: PaletteSearch["paletteItems"];
+  recent?: PaletteSearch["recent"];
   search: PaletteSearch["search"];
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   router: ConsoleRouter;
@@ -39,6 +41,8 @@ export function consolePalette({
         render={(onAskAgent, askable) => (
       <Palette
         items={paletteItems}
+        recent={recent}
+        emptyHeading={recent.length > 0 ? "Recent" : undefined}
         placeholder="Search this context"
         /*
           Reached only when the whole-context search is idle too — under
@@ -65,10 +69,15 @@ export function consolePalette({
           Narrowing it back to one is a chip away and is in the URL when you
           do it.
         */
-        onSeeAll={(query) => {
-          setPaletteOpen(false);
-          router.push(searchHref(query));
-        }}
+        onSeeAll={
+          // The search page is a console route, and a visitor has no console.
+          data.visitor !== undefined
+            ? undefined
+            : (query) => {
+                setPaletteOpen(false);
+                router.push(searchHref(query));
+              }
+        }
         /*
           The other handoff: hand the words to the agent instead of to
           search, and open the panel they are answered in.

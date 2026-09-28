@@ -381,3 +381,34 @@ edge reads as unrelated to the one it qualifies.
 What a "simplification" would cost: a ghost button or a space-between action
 row is the review's complaint coming back one screen at a time.
 
+
+### What arrives in the flow eases in, and one curve serves the whole console (2026-09-27)
+
+The owner reported the console "just jumps": on the homepage a presence row
+appeared over the note and shoved the title and body down in one frame. The
+same was true of every row that mounts on its own while somebody reads — the
+notices above a note, the save row and conflict block under it, the agents and
+suggestions lines at the sidebar's foot, a failure banner, a note somebody
+else created appearing in the tree.
+
+**Such a row is wrapped in `Reveal`** (`features/design/components/Reveal.tsx`),
+which grows its room over `motion.layoutMs` with `motion.ease`
+(`features/design/tokens/motion.ts`) and gives it back the same way, keeping
+the last content drawn while it closes. Closed is no element at all. On web it
+eases `grid-template-rows` from `0fr` to `1fr`, which needs no measuring and
+follows content that changes size while open; on native it hands the commit to
+`LayoutAnimation`. Reduced motion skips all of it.
+
+**Lists ease in only what arrived** (`useArrivals`): not the first load, not a
+rename or a move (something also left), and not more than three rows at once —
+a folder opening or a workspace loading is a new list, not rows pushing in.
+
+**One duration and one curve.** Two things easing at different speeds on one
+screen read as two bugs rather than one design; a new animation of layout uses
+the token rather than its own numbers. What a click opens (a menu, a popover)
+is not this rule — it answers the click, and nothing was pushed out from under
+a reader.
+
+Reversing it costs the jump back; `__tests__/reveal.test.ts` fails if closed
+draws an element, if opening does not start collapsed, or if closing drops its
+content before the room has closed.

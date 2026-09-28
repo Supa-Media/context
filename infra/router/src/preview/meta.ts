@@ -9,8 +9,52 @@
 /** Canonical origin. Every absolute URL a preview emits is built from this. */
 export const ORIGIN = "https://context.lc";
 
-/** The product name, as it appears in `og:site_name`. */
+/** The product name, as generic previews title themselves. */
 export const SITE_NAME = "Context";
+
+/**
+ * The name search results show above the title, in `og:site_name` and the
+ * home page's WebSite structured data. "Context" alone is too common a word
+ * for Google to accept as a site name, and when it rejects one it prints the
+ * bare domain instead, so this is the name the product already signs with.
+ */
+export const BRAND_NAME = "Context.LC";
+
+/**
+ * The home page's structured data: Google reads `WebSite` for the site name
+ * over the result and `Organization.logo` as a brand image. Constant JSON,
+ * never interpolated, so there is nothing to escape but `<` (a `</script>` in
+ * a future edit would otherwise close the block).
+ */
+const HOME_STRUCTURED_DATA = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": `${ORIGIN}/#website`,
+      name: BRAND_NAME,
+      alternateName: [SITE_NAME, "context.lc"],
+      url: `${ORIGIN}/`,
+      publisher: { "@id": `${ORIGIN}/#organization` },
+    },
+    {
+      "@type": "Organization",
+      "@id": `${ORIGIN}/#organization`,
+      name: BRAND_NAME,
+      url: `${ORIGIN}/`,
+      logo: `${ORIGIN}/favicon-192.png`,
+    },
+  ],
+}).replace(/</g, "\\u003c");
+
+/**
+ * The favicon set, absolute so the tags mean the same on every host that
+ * renders this page. Served by the Worker itself; see `../icons.ts`.
+ */
+const ICON_LINKS = `
+  <link rel="icon" href="${ORIGIN}/favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" sizes="192x192" href="${ORIGIN}/favicon-192.png">
+  <link rel="apple-touch-icon" href="${ORIGIN}/apple-touch-icon.png">`;
 
 /**
  * Path the Worker serves the 1200x630 card from. Not a bundle asset: the card
@@ -45,9 +89,18 @@ export interface PreviewMeta {
    * `previewForShare`. Everything else on the domain keeps the one frozen
    * image, which is what the nine-variant byte-identity test above pins.
    */
-  readonly imageUrl?: string;
+  readonly imageUrl?: string | null;
   /** `<meta name="robots">`, when the route should stay out of search. */
   readonly robots?: string;
+  /**
+   * `og:site_name`, when the page belongs to somebody's website rather than to
+   * Context. `canonical` is then that page's own address and `homeLabel` the
+   * words on the body's one link to it. See `sites.ts`.
+   */
+  readonly siteName?: string;
+  readonly homeLabel?: string;
+  /** Emit the home page's WebSite/Organization JSON-LD. Home only. */
+  readonly structuredData?: boolean;
 }
 
 /**
@@ -88,13 +141,16 @@ const PREVIEW_ROUTES: ReadonlyMap<string, PreviewMeta> = new Map<
   [
     "",
     Object.freeze({
-      title: "Context — Free your context. Share your context.",
+      title: "Context.LC — Free your context. Share your context.",
+      // What a search result shows under the title. Plain words first: a
+      // stranger deciding whether to click has not met "MCP" or "bucket".
       description:
-        "One MCP endpoint for ChatGPT, Claude, Codex, Notion AI and whatever " +
-        "comes next — backed by plain markdown in a bucket you own. Revoke " +
-        "the key and we're gone.",
+        "Shared memory for you, your team and every AI you use. ChatGPT, " +
+        "Claude, Codex and Notion AI read the same plain Markdown notes, " +
+        "kept in storage you own.",
       canonical: `${ORIGIN}/`,
       imageAlt: "Context — free your context, share your context.",
+      structuredData: true,
     }),
   ],
   [
@@ -178,11 +234,21 @@ export function escapeHtml(value: string): string {
  * path and there is no path here worth the exception.
  */
 export function renderPreviewHtml(meta: PreviewMeta): string {
-  const imageUrl = escapeHtml(meta.imageUrl ?? OG_CARD_URL);
+  // `null` is a page with no picture of its own: no image tags at all, rather
+  // than the product's card standing in for somebody else's page.
+  const imageUrl = meta.imageUrl === null ? null : escapeHtml(meta.imageUrl ?? OG_CARD_URL);
+  const siteName = escapeHtml(meta.siteName ?? BRAND_NAME);
+  const home = meta.siteName === undefined ? `${ORIGIN}/` : meta.canonical;
+  const homeLabel = escapeHtml(meta.homeLabel ?? "Open Context.LC");
   const title = escapeHtml(meta.title);
   const description = escapeHtml(meta.description);
   const canonical = escapeHtml(meta.canonical);
   const imageAlt = escapeHtml(meta.imageAlt);
+  // Somebody's website keeps its own icon; only Context's pages link ours.
+  const icons = meta.siteName === undefined ? ICON_LINKS : "";
+  const jsonLd = meta.structuredData
+    ? `\n  <script type="application/ld+json">${HOME_STRUCTURED_DATA}</script>`
+    : "";
   const robots = meta.robots
     ? `\n  <meta name="robots" content="${escapeHtml(meta.robots)}">`
     : "";
@@ -194,25 +260,25 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <meta name="description" content="${description}">${robots}
-  <link rel="canonical" href="${canonical}">
+  <link rel="canonical" href="${canonical}">${icons}${jsonLd}
 
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="${SITE_NAME}">
+  <meta property="og:site_name" content="${siteName}">
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${description}">
-  <meta property="og:url" content="${canonical}">
+  <meta property="og:url" content="${canonical}">${imageUrl === null ? "" : `
   <meta property="og:image" content="${imageUrl}">
   <meta property="og:image:secure_url" content="${imageUrl}">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="${OG_CARD_WIDTH}">
   <meta property="og:image:height" content="${OG_CARD_HEIGHT}">
-  <meta property="og:image:alt" content="${imageAlt}">
+  <meta property="og:image:alt" content="${imageAlt}">`}
 
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="${imageUrl === null ? "summary" : "summary_large_image"}">
   <meta name="twitter:title" content="${title}">
-  <meta name="twitter:description" content="${description}">
+  <meta name="twitter:description" content="${description}">${imageUrl === null ? "" : `
   <meta name="twitter:image" content="${imageUrl}">
-  <meta name="twitter:image:alt" content="${imageAlt}">
+  <meta name="twitter:image:alt" content="${imageAlt}">`}
 
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#050506">
@@ -235,7 +301,7 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <main>
     <h1>${title}</h1>
     <p>${description}</p>
-    <p><a href="${ORIGIN}/">Open Context.LC</a></p>
+    <p><a href="${escapeHtml(home)}">${homeLabel}</a></p>
   </main>
 </body>
 </html>

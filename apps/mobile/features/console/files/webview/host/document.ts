@@ -55,6 +55,8 @@ export function themeVars(
     "--lp-muted": colors.text2,
     "--lp-link": colors.codeKey,
     "--lp-code-bg": colors.well,
+    // `==highlighted==` words; see `markWash`.
+    "--lp-mark": colors.markWash,
     // Hairlines. See the web half's note: a rule that wants an edge used to
     // borrow the code fence's fill, which is not one.
     "--lp-line": colors.line,
@@ -66,6 +68,13 @@ export function themeVars(
     "--lp-danger": colors.crit,
     "--lp-caret": colors.text,
     "--lp-selection": colors.accentDim,
+    // Comments, drawn by `comments/styles.ts` in the web half's own colours.
+    "--lp-comment-wash": colors.commentWash,
+    "--lp-comment-wash-active": colors.commentWashActive,
+    "--lp-warn": colors.warn,
+    "--lp-ok": colors.okText,
+    "--lp-accent": colors.accent,
+    "--lp-agent": colors.markTeam,
     // `fonts.body` is `undefined` on native on purpose — there are no bundled
     // faces and a comma-separated stack is meaningless to a native text node.
     // Inside the web view we *are* a browser, so the system stack is available

@@ -6,6 +6,7 @@ import { CopyField } from "../../design/components/CopyField";
 import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { SETUP_AGENTS, type SetupAgent } from "../../agentSetup/guides";
 import { openProviderLink } from "./open";
 import {
   CLIENT_PROVIDERS,
@@ -72,15 +73,29 @@ const AFTER_SENTENCE =
  * on two machines. Each connection is its own grant, revocable on its own, so
  * there is nothing to disable once one exists — the button just says what
  * pressing it does now, and the count says how many there already are.
+ *
+ * ## Claude and ChatGPT go to the guide instead
+ *
+ * Those two have the full screen setup (`AgentSetupOverlay`, `?connect=`),
+ * which walks the same form one step at a time and stays with the person
+ * until the agent has signed in and written something. Where the guide can
+ * open, their rows hand off to it: the button opens the guide rather than the
+ * client, and there is no Details panel, because a second copy of the same
+ * fields beside a guide that already has them is two answers to one question.
+ * Where it cannot — the demo, the owner of a shared workspace, whose grant list
+ * is everybody's — `onConnectAgent` is absent and the rows are what they were.
  */
 type Panel = { id: string; section: "details" | "hook" } | null;
 
 export function ConnectClients({
   endpoint,
   clients = [],
+  onConnectAgent,
 }: {
   endpoint: string;
   clients?: readonly { name: string }[];
+  /** Opens the full screen setup for Claude or ChatGPT. See above. */
+  onConnectAgent?: (agent: SetupAgent) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [panel, setPanel] = useState<Panel>(null);
@@ -98,6 +113,7 @@ export function ConnectClients({
           provider={provider}
           endpoint={endpoint}
           connected={counts[provider.id] || 0}
+          onGuide={guideFor(provider.id, onConnectAgent)}
           panel={panel?.id === provider.id ? panel.section : null}
           onToggle={(section) =>
             setPanel(
@@ -112,16 +128,28 @@ export function ConnectClients({
   );
 }
 
+/** The press that opens the guide, for a row that has one. */
+function guideFor(
+  id: string,
+  onConnectAgent: ((agent: SetupAgent) => void) | undefined,
+): (() => void) | undefined {
+  const agent = SETUP_AGENTS.find((candidate) => candidate === id);
+  if (agent === undefined || onConnectAgent === undefined) return undefined;
+  return () => onConnectAgent(agent);
+}
+
 function ProviderRow({
   provider,
   endpoint,
   connected,
+  onGuide,
   panel,
   onToggle,
 }: {
   provider: ClientProvider;
   endpoint: string;
   connected: number;
+  onGuide?: () => void;
   panel: "details" | "hook" | null;
   onToggle: (section: "details" | "hook") => void;
 }) {
@@ -162,6 +190,7 @@ function ProviderRow({
               testID={`provider-${provider.id}-hook-toggle`}
             />
           ) : null}
+          {onGuide ? null : (
           <Button
             label={panel === "details" ? "Hide" : "Details"}
             accessibilityLabel={
@@ -172,21 +201,31 @@ function ProviderRow({
             onPress={() => onToggle("details")}
             testID={`provider-${provider.id}-toggle`}
           />
-          <Button
-            label={actionLabel}
-            accessibilityLabel={
-              connected
-                ? `Connect another ${provider.name} — opens ${provider.name}`
-                : `${link.label} — opens ${provider.name}`
-            }
-            onPress={() => openProviderLink(link.href)}
-            testID={`provider-${provider.id}-open`}
-            trailing={
-              <Text variant="mini" style={styles.arrow} aria-hidden>
-                ↗
-              </Text>
-            }
-          />
+          )}
+          {onGuide ? (
+            <Button
+              label={connected ? "Connect another" : `Connect ${provider.name}`}
+              accessibilityLabel={`${connected ? "Connect another" : "Connect"} ${provider.name}, step by step`}
+              onPress={onGuide}
+              testID={`provider-${provider.id}-open`}
+            />
+          ) : (
+            <Button
+              label={actionLabel}
+              accessibilityLabel={
+                connected
+                  ? `Connect another ${provider.name} — opens ${provider.name}`
+                  : `${link.label} — opens ${provider.name}`
+              }
+              onPress={() => openProviderLink(link.href)}
+              testID={`provider-${provider.id}-open`}
+              trailing={
+                <Text variant="mini" style={styles.arrow} aria-hidden>
+                  ↗
+                </Text>
+              }
+            />
+          )}
         </View>
       </Row>
 
@@ -209,7 +248,7 @@ function ProviderRow({
         </View>
       ) : null}
 
-      {panel === "details" ? (
+      {panel === "details" && !onGuide ? (
         <View style={styles.details} testID={`provider-${provider.id}-details`}>
           {/*
             The caveat that used to sit on the row. It is the only place a plan

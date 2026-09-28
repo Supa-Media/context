@@ -167,6 +167,21 @@ export const darkColors = {
   warnText: "#E9C47E",
   warnWash: "rgba(223,172,82,0.10)",
   warnBorder: "rgba(223,172,82,0.22)",
+  /**
+   * Words somebody commented on (\`files/comments/\`): the warn hue as a
+   * highlighter, the convention every document editor uses, and a stronger
+   * wash for the thread that is open. Deeper than \`warnWash\` because it sits
+   * under running text and has to read as a mark, not as a tint.
+   */
+  commentWash: "rgba(223,172,82,0.20)",
+  commentWashActive: "rgba(223,172,82,0.40)",
+  /**
+   * `==highlighted==` words in a note: a lemon marker pen. Deliberately not
+   * the amber of \`commentWash\` — a highlight is the author's own emphasis
+   * and a comment is somebody's thread, and one has to be told from the other
+   * at a glance (the comment also carries an underline, this does not).
+   */
+  markWash: "rgba(255,226,64,0.26)",
 
   crit: "#F08C7C",
   critText: "#F5B0A4",
@@ -260,6 +275,15 @@ export const darkColors = {
    * and out of a dozen times an hour. Obsidian barely tints it.
    */
   scrim: "rgba(10,9,8,0.60)",
+
+  /**
+   * The avatar for somebody with no name yet — a homepage visitor. A flat,
+   * dark head and shoulders on light grey-blue, picked by the owner
+   * (2026-09-28) as a picture rather than a theme colour, so both palettes
+   * carry the same two values.
+   */
+  anonymousGround: "#CCD5D7",
+  anonymousFigure: "#1F2B37",
 } as const;
 
 /**
@@ -406,6 +430,10 @@ export const lightColors: Colors = {
   warnText: "#7A4E08",
   warnWash: "rgba(150,96,10,0.12)",
   warnBorder: "rgba(150,96,10,0.30)",
+  /** See the dark palette's note. */
+  commentWash: "rgba(222,168,62,0.26)",
+  commentWashActive: "rgba(222,168,62,0.50)",
+  markWash: "rgba(255,229,0,0.42)",
 
   crit: "#B23A2B",
   critText: "#962E21",
@@ -452,6 +480,10 @@ export const lightColors: Colors = {
 
   /** See the dark palette's note: a tint here, not a blackout. */
   scrim: "rgba(26,23,20,0.22)",
+
+  /** The same picture in both worlds; see the dark palette. */
+  anonymousGround: "#CCD5D7",
+  anonymousFigure: "#1F2B37",
 };
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
@@ -480,3 +512,44 @@ export const lightGraphColors: GraphColors = {
   client: "#3E7A4E",
   you: "#1A1714",
 };
+
+/**
+ * The colours a presence room gives its members, as the gateway assigns them
+ * (`PRESENCE_COLORS` in `apps/mcp/src/presence.js`), in that order.
+ *
+ * The app never chooses one of these for a real member: the room does, and a
+ * caret is drawn in whatever colour arrives. They are written down here for
+ * the one place the app stands in for the room, the homepage's cast
+ * (`features/home/cast`), so a scripted member is drawn in a colour a real
+ * one could have. Two of them are hues the palette retired for chrome; as
+ * somebody's caret they are the room's colours, not ours.
+ */
+export const presenceColors = {
+  blue: "#3b82f6",
+  pink: "#ec4899",
+  green: "#10b981",
+  amber: "#f59e0b",
+  violet: "#8b5cf6",
+  red: "#ef4444",
+  cyan: "#06b6d4",
+  lime: "#84cc16",
+} as const;
+
+/**
+ * The ground behind the Supa mark, the face everybody has until they choose a
+ * picture (Dev2, 2026-09-28: "for the background color, use anything").
+ * Which one a person gets is a hash of their handle (`faces/defaultFace.ts`),
+ * so it never changes unless they upload a photo or choose a workspace icon.
+ * The same in both themes, like a photo would be. Each is `[ground, ink]`:
+ * the mark is drawn in near-black on light grounds and in white on dark ones.
+ */
+export const DEFAULT_FACE_GROUNDS: ReadonlyArray<readonly [string, "dark" | "light"]> = [
+  ["#F6A04D", "dark"],
+  ["#7BC67E", "dark"],
+  ["#6FA8F5", "dark"],
+  ["#B79CF2", "dark"],
+  ["#F28C8C", "dark"],
+  ["#5BC8C0", "dark"],
+  ["#F2C94C", "dark"],
+  ["#2F5D8A", "light"],
+];

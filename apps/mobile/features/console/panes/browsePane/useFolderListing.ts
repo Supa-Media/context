@@ -219,6 +219,23 @@ export function useFolderListing({
           folderLabel(baseName(folder)) || contextLabel,
           anchor,
         ),
+      /*
+        The phone's select mode (`files/folderSelect.tsx`): the tree's own
+        multi-selection menu, over the rows picked on this page. Same
+        `menu.ts` target, same `runMenuAction` on the way out, so a phone is
+        offered exactly what a pointer's ⌘-click selection is.
+      */
+      onSelection: (entries, anchor) => {
+        const folderDefault = files.listings[folder]?.folderDefault ?? "private";
+        const rows = entries.map((entry) => treeRowFor(entry, folderDefault));
+        return openFolderTarget(
+          { kind: "selection", rows },
+          rows.length === 1
+            ? folderLabel(baseName(entries[0]!.path))
+            : `${rows.length} items`,
+          anchor,
+        );
+      },
     }),
     [openFolderTarget, files.listings, contextLabel],
   );

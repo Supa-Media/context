@@ -224,9 +224,18 @@ export function mount(
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
     },
+    /*
+      From wherever focus is — the filter, since it autofocuses — and never
+      from `document`. A browser delivers a keystroke to the focused element
+      and bubbles it up, and react-native-web's `TextInput` stops every
+      keydown at the React root on the way. Dispatching on `document` skipped
+      that hop, so this suite stayed green for a month while ↑, ↓ and Escape
+      never reached the console's palette at all.
+    */
     press: (key: string) => {
+      const target = document.activeElement ?? document;
       act(() => {
-        document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
       });
     },
     click: (testID: string) => {

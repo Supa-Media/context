@@ -134,9 +134,9 @@ Moved to [Making a workspace is its own flow, not onboarding with a flag](./app-
 
 Moved to [Two name fields for a shared workspace, one for a personal one](./app-and-console/workspace-creation-and-rail.md#two-name-fields-for-a-shared-workspace-one-for-a-personal-one).
 
-### The layout presets are company-shaped, and PARA is not the default
+### The layout presets are business-shaped, and PARA is not the default
 
-Moved to [The layout presets are company-shaped, and PARA is not the default](./app-and-console/workspace-creation-and-rail.md#the-layout-presets-are-company-shaped-and-para-is-not-the-default).
+Moved to [The layout presets are business-shaped, and PARA is not the default](./app-and-console/workspace-creation-and-rail.md#the-layout-presets-are-business-shaped-and-para-is-not-the-default).
 
 ### Invitations are queued, and a partial send keeps its successes
 
@@ -286,6 +286,10 @@ Moved to [The read toggle's glyph is the act, so the accent fill is gone](./app-
 
 Moved to [Properties are edited in the panel, one line at a time](./app-and-console/note-editing-surface.md#properties-are-edited-in-the-panel-one-line-at-a-time).
 
+### On a touch screen, a tap on a heading does not reveal its `#` (2026-09-27)
+
+In [note-editing-surface](./app-and-console/note-editing-surface.md#on-a-touch-screen-a-tap-on-a-heading-does-not-reveal-its--2026-09-27).
+
 ### The staff console is shaped for ten customers, and its figures count rows
 
 Moved to [The staff console is shaped for ten customers, and its figures count rows](./app-and-console/staff-console-and-panels.md#the-staff-console-is-shaped-for-ten-customers-and-its-figures-count-rows).
@@ -341,6 +345,10 @@ Moved to [Why this one, and what the other four cost](./app-and-console/folder-r
 ### What the row costs, and where it is paid
 
 Moved to [What the row costs, and where it is paid](./app-and-console/folder-rows-and-settings.md#what-the-row-costs-and-where-it-is-paid).
+
+## One account button at the bottom left replaces the chip and the row
+
+Moved to [One account button at the bottom left replaces the chip and the row](./app-and-console/folder-rows-and-settings.md#one-account-button-at-the-bottom-left-replaces-the-chip-and-the-row).
 
 ### "Move to…" is one dialog, and the other context is a destination rather than a mode
 
@@ -485,3 +493,7 @@ Moved to [The first run is two screens, and the rest is a checklist in the conso
 ### An action row is primary first, and the way out sits beside it (2026-09-25)
 
 Moved to [An action row is primary first, and the way out sits beside it](./app-and-console/design-tokens-and-interaction.md#an-action-row-is-primary-first-and-the-way-out-sits-beside-it-2026-09-25).
+
+### The phone shell is the artboards' five pieces, and a visitor gets the same ones (2026-09-27)
+
+Moved to [The phone shell is the artboards' five pieces, and a visitor gets the same ones](./app-and-console/mobile-navigation-shell.md#the-phone-shell-is-the-artboards-five-pieces-and-a-visitor-gets-the-same-ones-2026-09-27).

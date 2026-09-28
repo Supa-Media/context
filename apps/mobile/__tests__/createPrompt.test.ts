@@ -257,6 +257,22 @@ describe("the phone's +", () => {
     expect(labels()).toContain("New meeting");
   });
 
+  /**
+   * **A bottom sheet, not a centred card** (owner, 2026-09-27, the phone
+   * artboards: New opens the create menu as a bottom sheet). The rows are a
+   * thumb's, and a thumb is at the bottom of the glass.
+   *
+   * SABOTAGE: drop `sheet` from `CreatePrompt`'s `Shell`. Fails here.
+   */
+  test("it is presented as a bottom sheet", () => {
+    mount("1-projects");
+    const sheet = document.body.querySelector<HTMLElement>('[data-testid="dialog-sheet"]');
+    expect(sheet).not.toBeNull();
+    const scrim = sheet!.parentElement!;
+    expect(window.getComputedStyle(scrim).justifyContent).toBe("flex-end");
+    expect(window.getComputedStyle(sheet!).borderBottomLeftRadius).toBe("0px");
+  });
+
   test("nothing is created by opening the sheet", () => {
     // A `+` that wrote a note the moment it was pressed is what this replaced:
     // the bar used to call `createNote(folder, "Untitled")` directly.

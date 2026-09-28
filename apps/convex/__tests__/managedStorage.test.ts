@@ -200,30 +200,25 @@ it("staging bucket names are distinct, deterministic and easy to remove", () => 
   } finally { vi.unstubAllEnvs(); }
 });
 
-/*
-  The free managed tier is off in production until the export and hand-off
-  path lands (non-negotiable #1; docs/decisions/billing.md, "The free managed
-  tier"). These pin that the default is off, and that nothing short of the
-  exact switch value turns it on.
-*/
+/* The free tier is the production default; `disabled` is the emergency brake. */
 describe("the free managed tier's deployment switch", () => {
-  it("is off by default", () => {
+  it("is on by default", () => {
     vi.stubEnv("APP_ENV", "production");
     vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, undefined);
     try {
-      expect(freeManagedStorageSwitchedOn()).toBe(false);
+      expect(freeManagedStorageSwitchedOn()).toBe(true);
     } finally { vi.unstubAllEnvs(); }
   });
 
-  it("turns on only for the exact value", () => {
+  it("turns off only for the exact emergency value", () => {
     vi.stubEnv("APP_ENV", "production");
     try {
-      for (const value of ["", "1", "true", "on", "Enabled", " enabled "]) {
+      for (const value of ["", "1", "true", "on", "enabled", "Disabled", " disabled "]) {
         vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, value);
-        expect(freeManagedStorageSwitchedOn(), `"${value}"`).toBe(false);
+        expect(freeManagedStorageSwitchedOn(), `"${value}"`).toBe(true);
       }
-      vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, "enabled");
-      expect(freeManagedStorageSwitchedOn()).toBe(true);
+      vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, "disabled");
+      expect(freeManagedStorageSwitchedOn()).toBe(false);
     } finally { vi.unstubAllEnvs(); }
   });
 

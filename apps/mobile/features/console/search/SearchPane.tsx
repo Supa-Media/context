@@ -21,6 +21,7 @@ import {
   type UpsellTarget,
 } from "./results";
 import { useBlendedSearch, type BlendedDeviceSearch } from "./useBlendedSearch";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * One row of the upsell: what to say about a context that answered the slow
@@ -138,6 +139,7 @@ export function SearchPane({
   device?: BlendedDeviceSearch | null;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const search = useBlendedSearch({ query, slugs, device });
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -209,7 +211,7 @@ export function SearchPane({
         value={query}
         onChangeText={onQuery}
         placeholder="Search every context"
-        style={styles.field}
+        style={[styles.field, fieldFont]}
         accessibilityLabel="Search every context"
         autoCapitalize="none"
         autoCorrect={false}

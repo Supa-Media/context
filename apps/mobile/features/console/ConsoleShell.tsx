@@ -1,19 +1,16 @@
 import type { ReactNode } from "react";
-import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { PressRow, WindowDots } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
 import { Pill } from "../design/components/Pill";
 import { Text } from "../design/components/Text";
 import { layout, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
-import type { EditorState } from "./files/editor";
-import { saveChip } from "./files/status";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import { railGroup } from "./rail";
 import { selectedContext, type ConsoleData } from "./types";
 import { tierChipLabel } from "./visibility";
-import type { Presence } from "./presence/usePresence";
 
 /**
  * The console chrome: title bar, left rail, and the pane body.
@@ -239,175 +236,6 @@ export function PaneHead({
     </View>
   );
 }
-
-/**
- * Whether what you have typed is in the bucket yet, in the top bar.
- *
- * **This is where the Save button went.** The console autosaves a couple of
- * seconds after typing stops (`autosave.ts`), and while that write was pending
- * the editor drew "Discard changes" and "Save" across the foot of the note —
- * two controls over somebody's own text, in the middle of the screen, for the
- * whole time they were writing. They were not there to be pressed: ⌘S and the
- * autosave timer both do what Save does, and the row appeared in `dirty`,
- * which is the state every keystroke produces. What a person actually wants
- * during that second or two is *reassurance*, and reassurance is a chip, not a
- * button.
- *
- * So the states split by whether a person has to do something:
- *
- *  - **Nothing owed** — typing, saving, saved, a cached body, a queued draft
- *    draining on its own — this chip, and nothing over the note.
- *  - **A decision owed** — a save that failed, a conflict — `NoteEditor` still
- *    draws the row, because `editor.ts` is explicit that the manual route has
- *    to stay reachable exactly where autosave refuses.
- *
- * Beside the bucket chip rather than anywhere else, because the two answer one
- * question between them: where the note lives, and whether it is there yet.
- * `saveChip` supplies the words and the tone — the same arms, the same detail
- * strings and the same tests as when the status strip carried them.
- *
- * **Leading the trailing group**, which is a layout rule rather than a
- * preference: this is the only chip in the bar whose text changes while
- * somebody types, and in a row aligned to the trailing edge the leading item is
- * the one that can grow without pushing its neighbours about.
- */
-export function SaveChip({ editor }: { editor: EditorState }) {
-  const chip = saveChip({ editor, now: Date.now() });
-  if (chip === null) return null;
-
-  /*
-    A dot for the two tones that want the eye, and none for the rest. Every
-    state here has a tone, so a dot on all of them would be a row of lights —
-    `status.ts` makes the same argument about the strip's pip. "Saving…" is the
-    ordinary case and gets the ordinary chip; "Queued" and "Not saved" are
-    states somebody is being asked to notice.
-  */
-  const tone = chip.tone === "quiet" ? "neutral" : chip.tone;
-  const loud = chip.tone === "warn" || chip.tone === "crit";
-
-  /*
-    The sentence behind the word, the same way `StatusBarSegment` carries it:
-    RN-Web forwards `title` to the DOM node, and the accessible name says both
-    so a screen reader is not left with "Queued".
-  */
-  const tip =
-    Platform.OS === "web" && chip.detail ? ({ title: chip.detail } as object) : null;
-
-  return (
-    <View
-      accessible
-      accessibilityLabel={chip.detail ? `${chip.text}. ${chip.detail}` : chip.text}
-      testID="save-chip"
-      {...tip}
-    >
-      <Pill tone={tone} leading={loud ? <Dot tone={tone} /> : undefined}>
-        {chip.text}
-      </Pill>
-    </View>
-  );
-}
-
-/**
- * Who else has this note open, beside the chip that says whether it is saved.
- *
- * Beside `SaveChip` for that chip's own reason: the two answer one question
- * between them. Where the note lives and whether the last keystroke is there,
- * and then — the thing you want to know a moment before you start typing over
- * somebody — whether anybody else is in it.
- *
- * **It renders nothing when nobody else is here**, which is almost always, and
- * nothing at all when presence is unavailable: a self-host without the binding,
- * a note opened offline, a gateway that refused. A component that can return
- * `null` is what lets the bar mount it unconditionally rather than repeating
- * that rule at the call site. An absent capability is reported, never faked,
- * and here reporting it is drawing the bar that existed before this feature.
- *
- * The avatars are initials on the colour the room gave each person, the same
- * colour their caret is drawn in, so the row and the text agree without anybody
- * having to match a name to a hue. Past four they stop being faces and become a
- * count — the rest is in the label beside them.
- */
-export function PresenceChip({ presence }: { presence: Presence }) {
-  const styles = useThemedStyles(presenceStyles);
-  const c = useThemedStyles(presenceInk);
-  if (presence.phase === "unavailable" || presence.phase === "idle") return null;
-  if (presence.summary === "") return null;
-
-  const shown = presence.members.slice(0, 4);
-  const label = presenceChipLabel(presence);
-
-  return (
-    <View
-      accessible
-      accessibilityLabel={label}
-      testID="presence-chip"
-      style={styles.row}
-    >
-      {shown.map((member, index) => (
-        <View
-          key={member.id}
-          style={[
-            styles.avatar,
-            // `null` when a peer sent no usable colour; the muted chrome token
-            // reads as present and unremarkable rather than as a ninth hue.
-            { backgroundColor: member.color ?? c.chromeMuted },
-            index === 0 ? null : styles.overlap,
-          ]}
-        >
-          <Text variant="meta" style={styles.initials}>
-            {initialsFor(member.name)}
-          </Text>
-        </View>
-      ))}
-      <Pill tone={presence.phase === "reconnecting" ? "warn" : "neutral"}>{label}</Pill>
-    </View>
-  );
-}
-
-/**
- * The chip names the people represented by its avatars and says that the
- * count is about other editors. The account avatar in the console chrome is
- * the current person, so `1 here` was ambiguous about whether it counted them.
- */
-export function presenceChipLabel(presence: Pick<Presence, "phase" | "members" | "summary">): string {
-  if (presence.phase === "reconnecting") return "Reconnecting";
-  if (presence.members.length === 0) return presence.summary;
-  const names = presence.members.slice(0, 2).map((member) => member.name).join(", ");
-  const extra = presence.members.length > 2 ? ` +${presence.members.length - 2}` : "";
-  const count = presence.members.length === 1 ? "1 other here" : `${presence.members.length} others here`;
-  return `${names}${extra} · ${count}`;
-}
-
-/**
- * Two characters from a handle.
- *
- * The handle is `@sayo`, so the `@` is dropped rather than shown: a row of
- * avatars all reading "@" tells you how many people are here and nothing else,
- * which the count beside them already said.
- */
-function initialsFor(name: string): string {
-  const bare = name.startsWith("@") ? name.slice(1) : name;
-  return bare.slice(0, 2).toLowerCase() || "?";
-}
-
-/** The tokens the avatars need as *values* rather than as a style sheet. */
-const presenceInk = (c: Colors) => ({ chromeMuted: c.chromeMuted });
-
-const presenceStyles = (c: Colors) =>
-  StyleSheet.create({
-    row: { flexDirection: "row", alignItems: "center", gap: 6 },
-    avatar: {
-      width: 22,
-      height: 22,
-      borderRadius: 999,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    // Tightened into a stack, each lifted off the one behind it by a ring in
-    // the bar's own colour so the overlap reads as depth rather than a smudge.
-    overlap: { marginLeft: -7, borderWidth: 2, borderColor: c.chromeSurface },
-    initials: { color: c.ink, fontWeight: "700" },
-  });
 
 /**
  * `team level only` — worn by a pane that is showing somebody else's context.

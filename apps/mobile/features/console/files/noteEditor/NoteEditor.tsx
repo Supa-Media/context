@@ -12,6 +12,7 @@ import { ACTIVITY_PATH } from "../../activity/activity";
 import { isPassphraseNote } from "../../encryption/envelope";
 import type { EditorControls } from "../LiveEditor";
 import { NoteAccessory } from "../NoteAccessory";
+import { LinkSheet } from "../LinkSheet";
 import { useVoiceHost } from "../../../voice/VoiceHost";
 import { makeStyles } from "./styles";
 import { noteFoot } from "./statusLine";
@@ -86,7 +87,6 @@ export function NoteEditor({
   drawingCollaboration,
   canEdit,
   reading = false,
-  visibility,
   notices,
   pathBar,
   onChange,
@@ -107,7 +107,13 @@ export function NoteEditor({
   onLoadImage,
   onStoreImage,
   onImageProblem,
+  commenter,
+  onSignInToComment,
+  local = false,
   folderLists,
+  onTitleCaret,
+  titleNote,
+  titleFocus,
   encryption,
   activity,
   activityShared = false,
@@ -229,6 +235,10 @@ export function NoteEditor({
    */
   const [docWidth, setDocWidth] = useState(0);
   const controls = useRef<EditorControls | null>(null);
+  /** The selected words the Link sheet is open over, or `null` when it is shut. */
+  const [linkWords, setLinkWords] = useState<string | null>(null);
+  // A different note is a different editor, which holds no saved selection.
+  useEffect(() => setLinkWords(null), [state.path]);
   const frame = useFrame();
   const padding = useSurfacePadding();
   const barUp = accessoryUp({ compact, editable, focused });
@@ -340,6 +350,18 @@ export function NoteEditor({
     region, the toolbar is a sibling of it), so no `zIndex` either of them asks
     for can order them against each other.
   */
+  /*
+    Rename on the open note's row, and a note made untitled a moment ago: the
+    caret goes to the title with its words selected, so typing replaces them.
+    Keyed on the request's id, so asking twice is two asks; and on the path
+    being the one this editor holds, so a request for a note still opening is
+    answered once it has.
+  */
+  const titleFocusId = titleFocus?.path === state.path ? (titleFocus?.id ?? null) : null;
+  useEffect(() => {
+    if (titleFocusId === null) return;
+    controls.current?.selectTitle?.();
+  }, [titleFocusId]);
   const { setAccessoryOpen } = frame;
   useEffect(() => {
     setAccessoryOpen(barUp);
@@ -367,15 +389,17 @@ export function NoteEditor({
 
   // The line at the foot of the document, and whether anything belongs down
   // there at all — see `noteFoot`, which carries the whole rule.
-  const { durability, canDiscard, explains, manualSave } = noteFoot({ state, presence, editable, compact, button });
+  const { durability, canDiscard, explains, manualSave } = noteFoot({ state, presence, editable, compact, button, local });
 
   const view: NoteView = {
+    commenter: commenter ?? null,
+    onSignInToComment,
     // Props, as destructured above.
-    state, presence, drawingCollaboration, canEdit, reading, visibility, notices, pathBar,
+    state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
-    folderLists, encryption, activity, activityShared, activityEditable, onOpenNote,
+    folderLists, onTitleCaret, titleNote, encryption, activity, activityShared, activityEditable, onOpenNote,
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
@@ -431,7 +455,29 @@ export function NoteEditor({
         `LiveEditor.tsx` for why this bar is the only way out of the keyboard
         rather than one of two.
       */}
-      {barUp ? <NoteAccessory controls={() => controls.current} /> : null}
+      {barUp ? <NoteAccessory controls={() => controls.current} onAskLink={setLinkWords} /> : null}
+
+      {/*
+        Outside `barUp`: the sheet's field takes the keyboard, the editor loses
+        focus, and the bar goes down underneath the sheet it opened. Every way
+        out answers the editor, which holds the selection until it is told
+        what became of it (`linkSelection.ts`).
+      */}
+      {linkWords === null ? null : (
+        <LinkSheet
+          words={linkWords}
+          paths={notePaths ?? []}
+          self={state.path}
+          onPick={(link) => {
+            setLinkWords(null);
+            controls.current?.applyLink(link);
+          }}
+          onCancel={() => {
+            setLinkWords(null);
+            controls.current?.cancelLink();
+          }}
+        />
+      )}
 
       {/*
         The microphone, anchored to the region for the same reason the bar

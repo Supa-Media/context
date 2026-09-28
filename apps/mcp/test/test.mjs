@@ -1,4 +1,4 @@
-import { check, call, contextStore, lacks, env, accessTokenFor, suite, getFailures } from "./harness.mjs";
+import { check, call, contextStore, lacks, env, accessTokenFor, suite, getFailures, controlPlane, storedText, WORKSPACE_ID } from "./harness.mjs";
 import { runStoreChecks } from "./store.test.mjs";
 import { runCommunicationsChecks } from "./communications.test.mjs";
 import { runContactsChecks } from "./contacts.test.mjs";
@@ -26,7 +26,9 @@ import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
 import { runListChecks } from "./lists.test.mjs";
 import { runProjectListChecks } from "./listProjects.test.mjs";
+import { runOrganizerChecks } from "./organizer.test.mjs";
 import { runSetPropertyChecks } from "./listSetProperty.test.mjs";
+import { runStatusAdviceChecks, runStatusChecks } from "./listStatuses.test.mjs";
 import { runLinkToolChecks } from "./linkTools.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
@@ -42,6 +44,7 @@ import { runAgentActivityChecks } from "./agentActivity.test.mjs";
 import { runNoteCapGatewayChecks } from "./noteCapGateway.test.mjs";
 import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
+import { runCommentFormatChecks, runCommentToolChecks } from "./comments.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
@@ -49,9 +52,11 @@ import { runDayPlacementChecks } from "./dayPlacement.test.mjs";
 import { runGoogleChatChecks } from "./googleChat.test.mjs";
 import { runChatContributionStoreChecks } from "./chatContributionStore.test.mjs";
 import { runCalendarContributionStoreChecks } from "./calendarContributionStore.test.mjs";
+import { runHarnessExitChecks } from "./harnessExit.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runAuditPartialMoveChecks } from "./auditPartialMove.test.mjs";
+import { runReferenceRewriteAuditChecks } from "./auditReferenceRewrite.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
@@ -74,6 +79,7 @@ import { runMovesAndBatchChecks } from "./movesAndBatch.test.mjs";
 import { runWebhooksAndCalendarChecks } from "./webhooksAndCalendar.test.mjs";
 import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
 import { runAttachmentsEdgeChecks } from "./attachmentsEdge.test.mjs";
+import { runUploadedImageChecks } from "./uploadedImages.test.mjs";
 
 /**
  * This file used to hold the ~4,100 lines of sequential checks below inline.
@@ -96,6 +102,7 @@ await runMovesAndBatchChecks();
 await runWebhooksAndCalendarChecks();
 await runAttachmentsCoreChecks();
 await runAttachmentsEdgeChecks();
+await runUploadedImageChecks();
 
 await suite("runStoreChecks", () => runStoreChecks(check, {
   // The hostile-backend checks need a real way in; there is only one.
@@ -137,7 +144,10 @@ await suite("runPrivacyGroupChecks", () => runPrivacyGroupChecks(check));
 await suite("runFormChecks", () => runFormChecks(check));
 await suite("runListChecks", () => runListChecks(check));
 await suite("runProjectListChecks", () => runProjectListChecks(check));
+await suite("runOrganizerChecks", () => runOrganizerChecks(check));
 await suite("runSetPropertyChecks", () => runSetPropertyChecks(check));
+await suite("runStatusChecks", () => runStatusChecks(check));
+await suite("runStatusAdviceChecks", () => runStatusAdviceChecks(check));
 await suite("runLinkToolChecks", () => runLinkToolChecks(check));
 
 // A path is not a place to write privacy rules. Its own bucket, because the
@@ -205,6 +215,8 @@ await suite("runForwardingChecks", () => runForwardingChecks(check));
 await suite("runActivityChecks", () => runActivityChecks(check));
 await suite("runTreeHintChecks", () => runTreeHintChecks(check));
 await suite("runDrawingChecks", () => runDrawingChecks(check));
+await suite("runCommentFormatChecks", () => runCommentFormatChecks(check));
+await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, controlPlane, contextStore, storedText, WORKSPACE_ID }));
 
 /*
   A MESSAGE DEEP LINK IS A KEY THE READ TOOLS ACCEPT.
@@ -301,6 +313,7 @@ await suite("runSearchD1Checks", () => runSearchD1Checks(check));
 // above still owns that global.
 await suite("runSearchProjectionChecks", () => runSearchProjectionChecks(check));
 await suite("runAuditPartialMoveChecks", () => runAuditPartialMoveChecks(check));
+await suite("runReferenceRewriteAuditChecks", () => runReferenceRewriteAuditChecks(check));
 await suite("runCredentialShapeChecks", () => runCredentialShapeChecks(check));
 await suite("runEncryptionChecks", () => runEncryptionChecks(check));
 await suite("runEncryptionGatewayChecks", () => runEncryptionGatewayChecks(check));
@@ -339,5 +352,10 @@ await suite("runCollaborationChecks", () => runCollaborationChecks(check));
 await suite("runAgentActivityChecks", () => runAgentActivityChecks(check));
 await suite("runNoteCapGatewayChecks", () => runNoteCapGatewayChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
+
+// Last, and about this file rather than the gateway: that a failure here
+// reaches the shell at all. Every check above is read by CI through an exit
+// status, so this one is the reason to believe the rest of them.
+await suite("runHarnessExitChecks", () => runHarnessExitChecks(check));
 
 console.log(getFailures() ? `\n${getFailures()} FAILURES` : "\nALL PASS");

@@ -24,6 +24,7 @@
  */
 
 import { livePreviewStyles } from "../livePreview";
+import { commentStyles, type CommentPalette } from "../comments/styles";
 
 /**
  * The stylesheet, as one string.
@@ -53,6 +54,7 @@ export function guestStyles(): string {
   --lp-muted: #666666;
   --lp-link: #2a5db0;
   --lp-code-bg: rgba(0,0,0,0.06);
+  --lp-mark: rgba(255,229,0,0.42);
   --lp-line: rgba(0,0,0,0.09);
   --lp-line-strong: rgba(0,0,0,0.18);
   --lp-focus-ring: rgba(0,0,0,0.08);
@@ -61,6 +63,13 @@ export function guestStyles(): string {
   --lp-selection: rgba(0,0,0,0.14);
   --lp-mono: ui-monospace, Menlo, monospace;
   --lp-body: -apple-system, system-ui, sans-serif;
+  /* Comments: the highlight, its underline, a person's and an agent's marks. */
+  --lp-comment-wash: rgba(223,172,82,0.20);
+  --lp-comment-wash-active: rgba(223,172,82,0.40);
+  --lp-warn: #B7791F;
+  --lp-ok: #2F7A4B;
+  --lp-accent: #444444;
+  --lp-agent: #555555;
 
   /* The type scale. See themeVars for the two sets of values. */
   --lp-size: 16px;
@@ -176,5 +185,31 @@ html, body {
 #root .cm-editor[aria-readonly="true"] .cm-cursor { display: none; }
 
 ${livePreviewStyles}
+${commentStyles(GUEST_COMMENT_PALETTE, "var(--lp-body)").replaceAll(".cm-lp-root", "#root")}
 `;
 }
+
+/*
+  The comment colours, as the custom properties themeVars sends: the palette
+  arrives over the bridge after this stylesheet is written, so the guest names
+  where each colour will be rather than what it is. The web half's selectors
+  are scoped to .cm-lp-root, the element it mounts in; here that element is
+  #root, which also out-ranks CodeMirror's own theme, as the header above says.
+*/
+const GUEST_COMMENT_PALETTE: CommentPalette = {
+  commentWash: "var(--lp-comment-wash)",
+  commentWashActive: "var(--lp-comment-wash-active)",
+  warn: "var(--lp-warn)",
+  text: "var(--lp-heading)",
+  text2: "var(--lp-muted)",
+  muted: "var(--lp-muted)",
+  surface: "var(--lp-bg)",
+  line: "var(--lp-line)",
+  lineStrong: "var(--lp-line-strong)",
+  accent: "var(--lp-accent)",
+  accentDim: "var(--lp-focus-ring)",
+  chipFill: "var(--lp-code-bg)",
+  markTeam: "var(--lp-agent)",
+  critText: "var(--lp-danger)",
+  okText: "var(--lp-ok)",
+};

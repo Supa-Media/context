@@ -9,6 +9,7 @@ import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryS3 } from "./storeStub.helpers";
+import { publishWebsiteFolder } from "./website.helpers";
 import {
   FAKE_STORAGE,
   addMember,
@@ -50,6 +51,7 @@ async function fixture(slug = "atlas"): Promise<Fixture> {
 }
 
 async function publish(f: Fixture): Promise<void> {
+  await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
   await f.t.run(async (ctx) => {
     await ctx.db.insert("websiteStates", {
       workspaceId: f.workspaceId,

@@ -43,15 +43,30 @@
  * ever is not, the fix is to rank fewer items, not to remember them.
  */
 
-import { baseName, isPrivacyManifest, parentPath } from "./paths";
+import { noteHeading } from "./frontmatter";
+import { baseName, displayName, displayPath, isPrivacyManifest, parentPath } from "./paths";
 import type { FileEntry, FolderListing } from "./types";
 
 export interface PaletteItem {
   id: string;
-  /** What matched — the note name, the command name, the folder path. */
+  /** What matched — the note's title, the command name, the folder path. */
   label: string;
   /** Dimmer second line: the containing folder, or the command's shortcut. */
   detail?: string;
+  /**
+   * The words inside the note that matched, when a search of the bodies found
+   * it. Drawn after `detail` on the same dim line, and kept apart from it so
+   * one row can carry both halves: a note the name filter found *and* the body
+   * search found is one row, with the folder of the first and the reason of
+   * the second.
+   */
+  snippet?: string;
+  /**
+   * The note's name in the tree, when its title says something else: the
+   * homepage's `pricing.md` is headed "free, you cheapo", and "pricing" is
+   * what people type. Ranked as well as `label`, never drawn.
+   */
+  name?: string;
   kind: "note" | "folder" | "command";
 }
 
@@ -311,8 +326,13 @@ export function rank(
   const matches: Match[] = [];
   for (const item of items) {
     const hit = fuzzyMatch(trimmed, item.label);
-    if (hit === null) continue;
-    matches.push({ item, score: hit.score, ranges: hit.ranges });
+    // The name is a second way in, and lights nothing in a title it is not.
+    const byName = item.name === undefined ? null : fuzzyMatch(trimmed, item.name);
+    if (hit !== null && (byName === null || hit.score >= byName.score)) {
+      matches.push({ item, score: hit.score, ranges: hit.ranges });
+    } else if (byName !== null) {
+      matches.push({ item, score: byName.score, ranges: [] });
+    }
   }
   matches.sort(compareMatches);
   return matches.slice(0, cap);
@@ -360,6 +380,7 @@ function entriesOf(
  */
 export function itemsFromListings(
   listings: Readonly<Record<string, FolderListing | undefined>>,
+  naming: NoteNaming = {},
 ): PaletteItem[] {
   const items = new Map<string, PaletteItem>();
   for (const folder of knownFolderPaths(listings)) {
@@ -371,16 +392,52 @@ export function itemsFromListings(
         entry.path,
         entry.kind === "folder"
           ? { id: entry.path, label: entry.path, kind: "folder" }
-          : {
-              id: entry.path,
-              label: entry.name,
-              detail: parentPath(entry.path) === "" ? "/" : parentPath(entry.path),
-              kind: "note",
-            },
+          : noteItem(entry.path, naming),
       );
     }
   }
   return [...items.values()];
+}
+
+/**
+ * What note rows are called, and what the top of the workspace is called.
+ *
+ * `texts` is the bodies the browser already holds in memory — the homepage's
+ * notes live in the tab — and nothing is fetched to fill it: a note whose body
+ * is not here is named by its file, the last rung `noteHeading` stands on.
+ * `root` names the folder of a note that has none, because a lone `/` under a
+ * title reads as a stray character rather than as a place (the owner's phone
+ * screenshots, 2026-09-27).
+ */
+export interface NoteNaming {
+  texts?: Readonly<Record<string, string | undefined>>;
+  root?: string;
+}
+
+/** The folder line of a note at the top, when nobody named the workspace. */
+export const ROOT_DETAIL = "Top level";
+
+/**
+ * A note as a row: its title over the folder it is in.
+ *
+ * The title is `noteHeading`'s — the frontmatter's `title`, else the first
+ * heading, else the file name without its sort number and `.md` — so the row
+ * reads the way the note does once it is open, not as `01-context.md`. The id
+ * stays the path, which is what opens it. The folder is `displayPath`: a
+ * reader's line under a reader's title, not a key somebody types.
+ */
+export function noteItem(path: string, naming: NoteNaming = {}): PaletteItem {
+  const text = naming.texts?.[path];
+  const folder = parentPath(path);
+  const name = displayName(baseName(path));
+  const label = text === undefined ? name : noteHeading(text, path);
+  return {
+    id: path,
+    label,
+    detail: folder === "" ? (naming.root ?? ROOT_DETAIL) : displayPath(folder),
+    ...(label === name ? {} : { name }),
+    kind: "note",
+  };
 }
 
 /**
@@ -401,6 +458,7 @@ export function itemsFromListings(
 export function itemsFromPaths(
   paths: Iterable<string>,
   loaded: readonly PaletteItem[],
+  naming: NoteNaming = {},
 ): PaletteItem[] {
   const seen = new Set(loaded.map((item) => item.id));
   const added: PaletteItem[] = [];
@@ -412,12 +470,45 @@ export function itemsFromPaths(
   for (const path of paths) {
     if (isPrivacyManifest(path)) continue;
     const folder = parentPath(path);
-    add({ id: path, label: baseName(path), detail: folder === "" ? "/" : folder, kind: "note" });
+    add(noteItem(path, naming));
     for (let at = folder; at !== ""; at = parentPath(at)) {
       add({ id: at, label: at, kind: "folder" });
     }
   }
   return [...loaded, ...added];
+}
+
+/** How many recent notes an untyped search lists. A phone shows about this many. */
+export const RECENT_LIMIT = 8;
+
+/**
+ * What an untyped search lists: the notes somebody was just in, newest first.
+ *
+ * `paths` is `recentPaths(history)`, which records folders as well, and a
+ * search's empty state is a list of notes, so a folder is left out. A path the
+ * loaded listings know is drawn as they draw it; one they do not (its folder
+ * has not been opened since) is still a note somebody was reading a moment ago
+ * and is drawn from its path — only a path with an extension, since a bare
+ * name there is a folder the listings never loaded.
+ */
+export function recentItems(
+  paths: readonly string[],
+  items: readonly PaletteItem[],
+  naming: NoteNaming = {},
+  limit: number = RECENT_LIMIT,
+): PaletteItem[] {
+  const known = new Map(items.map((item) => [item.id, item]));
+  const recent: PaletteItem[] = [];
+  for (const path of paths) {
+    if (recent.length >= limit) break;
+    const item = known.get(path);
+    if (item !== undefined) {
+      if (item.kind === "note") recent.push(item);
+      continue;
+    }
+    if (/\.[^./]+$/.test(baseName(path)) && !isPrivacyManifest(path)) recent.push(noteItem(path, naming));
+  }
+  return recent;
 }
 
 /**

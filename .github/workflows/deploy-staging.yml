@@ -1,10 +1,38 @@
 name: Deploy Staging
 
 # Staging is a separate backend and separate Workers; never deploy from a PR.
+#
+# Only the components a commit can affect are deployed. `plan` compares this
+# commit with what staging is running (scripts/deploy-plan.mjs explains how,
+# and when it falls back to deploying everything) and the jobs below read its
+# answer. Independent work runs side by side:
+#
+#   plan ─┬─ convex ──────────────┬─ workers ──────────┬─ verify
+#         ├─ worker-tests ────────┘                    │
+#         └─ web-build ─┬─ router-with-assets ─────────┤
+#                       └─ OTA ────────────────────────┘
+#
+# Why each edge exists:
+# - Workers deploy after Convex, because a new gateway may call functions the
+#   old backend does not have. Their tests do not need Convex and run alongside.
+# - The web app is built once. Staging's router publishes that exact export as
+#   Static Assets in the same version as its routing code.
+# - The OTA update needs the same backends, not the web alias, so it publishes
+#   alongside the web deploy.
+# - `verify` always runs, as the one end-to-end check, even when nothing else
+#   deployed.
+#
+# After rotating a staging secret, run this workflow manually with `full`: a
+# component's secrets are synced only when that component deploys.
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full:
+        description: Deploy every component, whatever changed
+        type: boolean
+        default: true
 
 concurrency:
   group: deploy-staging
@@ -14,10 +42,41 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  plan:
+    name: Choose what to deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      convex: ${{ steps.plan.outputs.convex }}
+      app: ${{ steps.plan.outputs.app }}
+      router: ${{ steps.plan.outputs.router }}
+      workers: ${{ steps.plan.outputs.workers }}
+      any_worker: ${{ steps.plan.outputs.any_worker }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Compare with what staging is running
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
+        run: node scripts/deploy-plan.mjs
+
+  convex:
+    name: Deploy Convex
+    needs: plan
+    if: ${{ needs.plan.outputs.convex == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       APP_ENV: staging
       STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
@@ -25,12 +84,6 @@ jobs:
       EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
       CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
       APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
-      EXPO_PUBLIC_SITE_ORIGIN: https://staging.context.lc
-      EXPO_PUBLIC_MCP_URL: https://mcp-staging.context.lc/mcp
-      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
       STORAGE_SECRET_ENCRYPTION_KEY: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY }}
       STORAGE_SECRET_ENCRYPTION_KEY_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_ID }}
@@ -66,6 +119,83 @@ jobs:
           cache: pnpm
       - name: Verify staging targets
         run: node scripts/staging-env.mjs
+      - run: pnpm install --frozen-lockfile
+      - name: Verify staging configuration
+        run: node --test scripts/staging-config.test.mjs
+      - name: Sync staging backend variables
+        run: node scripts/staging-env.mjs --sync
+      - name: Deploy staging Convex
+        run: pnpm exec convex deploy --yes
+
+  worker-tests:
+    name: Test ${{ matrix.worker.name }}
+    needs: plan
+    if: ${{ needs.plan.outputs.any_worker == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: ${{ fromJSON(needs.plan.outputs.workers) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test ${{ matrix.worker.package }}
+        run: pnpm --filter "${{ matrix.worker.package }}" test
+
+  router-test:
+    name: Test router
+    needs: plan
+    if: ${{ needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/router..." --frozen-lockfile
+      - run: pnpm --dir infra/router typecheck
+      - run: pnpm --dir infra/router test
+
+  workers:
+    name: Deploy ${{ matrix.worker.name }}
+    needs: [plan, convex, worker-tests]
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.any_worker == 'true' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    strategy:
+      # A Worker that already deployed must not be cancelled half way because
+      # another one failed; each one is independently recoverable by rerun.
+      fail-fast: false
+      matrix:
+        worker: ${{ fromJSON(needs.plan.outputs.workers) }}
+    env:
+      WORKER: ${{ matrix.worker.name }}
+      WORKER_DIR: ${{ matrix.worker.dir }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+      GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
+      EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+      TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+      TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+      PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
       - name: Verify Cloudflare credentials (preflight)
         run: |
           set -euo pipefail
@@ -74,51 +204,155 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
             | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(!JSON.parse(s).success)process.exit(1);console.log("Cloudflare Workers access verified.");});'
       - run: pnpm install --frozen-lockfile
-      - name: Verify staging configuration
-        run: node --test scripts/staging-config.test.mjs
-      - name: Sync staging backend variables
-        run: node scripts/staging-env.mjs --sync
-      - name: Deploy staging Convex
-        run: pnpm exec convex deploy --yes
-      - name: Test Workers
-        run: |
-          pnpm --filter @context/router test
-          pnpm --filter @context/transcribe-worker test
-          pnpm --filter @context/email-worker test
-          pnpm --filter @context/egress-service test
-          pnpm --filter @context/mcp test
-      - name: Deploy staging Workers
-        run: |
-          pnpm --dir infra/transcribe-worker exec wrangler deploy --env staging
-          pnpm --dir infra/egress-service exec wrangler deploy --env staging
-          pnpm --dir infra/email-worker exec wrangler deploy --env staging
-          pnpm --dir apps/mcp exec wrangler deploy --env staging
-          pnpm --dir infra/router exec wrangler deploy --env staging
+      - name: Deploy staging Worker
+        run: pnpm --dir "$WORKER_DIR" exec wrangler deploy --env staging
       - name: Sync staging Worker secrets
         run: |
-          printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir infra/transcribe-worker exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
-          printf '%s' "$PLUGIN_EGRESS_SECRET" | pnpm --dir infra/egress-service exec wrangler secret put EGRESS_SERVICE_SECRET --env staging
-          printf '%s' "$EMAIL_WORKER_SECRET" | pnpm --dir infra/email-worker exec wrangler secret put EMAIL_WORKER_SECRET --env staging
-          printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/email-worker exec wrangler secret put CONTROL_PLANE_URL --env staging
-          printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/mcp exec wrangler secret put CONTROL_PLANE_URL --env staging
-          printf '%s' "$GATEWAY_SECRET" | pnpm --dir apps/mcp exec wrangler secret put GATEWAY_SECRET --env staging
-          printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
-          printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_URL --env staging
-          printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
+          set -euo pipefail
+          case "$WORKER" in
+            transcribe)
+              printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir infra/transcribe-worker exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
+              ;;
+            egress)
+              printf '%s' "$PLUGIN_EGRESS_SECRET" | pnpm --dir infra/egress-service exec wrangler secret put EGRESS_SERVICE_SECRET --env staging
+              ;;
+            email)
+              printf '%s' "$EMAIL_WORKER_SECRET" | pnpm --dir infra/email-worker exec wrangler secret put EMAIL_WORKER_SECRET --env staging
+              printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/email-worker exec wrangler secret put CONTROL_PLANE_URL --env staging
+              ;;
+            mcp)
+              printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/mcp exec wrangler secret put CONTROL_PLANE_URL --env staging
+              printf '%s' "$GATEWAY_SECRET" | pnpm --dir apps/mcp exec wrangler secret put GATEWAY_SECRET --env staging
+              printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
+              printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_URL --env staging
+              ;;
+            *)
+              echo "No secret list for Worker '$WORKER'; add one before deploying it." >&2
+              exit 1
+              ;;
+          esac
+
+  web-build:
+    name: Export web
+    needs: plan
+    if: ${{ needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    env:
+      APP_ENV: staging
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SITE_ORIGIN: https://staging.context.lc
+      EXPO_PUBLIC_MCP_URL: https://mcp-staging.context.lc/mcp
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build drawing editor
+        run: node scripts/build-drawing-editor.mjs
+      - name: Export staging web
+        working-directory: apps/mobile
+        run: pnpm exec expo export --platform web --clear
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-web
+          path: apps/mobile/dist
+          include-hidden-files: true
+          retention-days: 3
+          if-no-files-found: error
+
+  router:
+    name: Deploy router with web assets
+    needs: [plan, convex, web-build, router-test]
+    if: ${{ !cancelled() && !failure() && (needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true') }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/router..." --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: staging-web
+          path: apps/mobile/dist
+      # Deploy first, then the secret — the order every other Worker here uses,
+      # and the one #302 cost us: `wrangler secret put` acts on the version that
+      # is currently live, so pushing a name the live script still declares as a
+      # plaintext `vars` entry collides (Cloudflare 10053) and the deploy that
+      # would have retired the var never runs. `check-workflow-secret-order.mjs`
+      # is the guard for it, and it could not see either of these lines.
+      - name: Deploy staging router and the exact export together
+        run: pnpm --dir infra/router exec wrangler deploy --env staging --message "Staging ${GITHUB_SHA}"
+      - name: Sync the staging Convex origin
+        run: printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
+
+  ota:
+    name: Publish OTA
+    needs: [plan, convex, workers]
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    env:
+      APP_ENV: staging
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SITE_ORIGIN: https://staging.context.lc
+      EXPO_PUBLIC_MCP_URL: https://mcp-staging.context.lc/mcp
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Build drawing editor
         run: node scripts/build-drawing-editor.mjs
-      - name: Export staging web
-        working-directory: apps/mobile
-        run: pnpm exec expo export --platform web --clear
-      - name: Deploy staging web alias
-        working-directory: apps/mobile
-        run: eas deploy --alias staging --environment=preview --non-interactive
-      - name: Verify live staging
-        run: node scripts/staging-smoke.mjs
       - name: Publish staging OTA
         working-directory: apps/mobile
         run: eas update --branch staging --clear-cache --message "Staging ${GITHUB_SHA}" --non-interactive
+
+  verify:
+    name: Verify live staging
+    needs: [plan, convex, workers, router, ota]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+      TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true' }}
+        with:
+          name: staging-web
+          path: apps/mobile/dist
+      - name: Verify live staging
+        run: node scripts/staging-smoke.mjs

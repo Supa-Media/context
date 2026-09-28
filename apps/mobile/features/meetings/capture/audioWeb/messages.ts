@@ -95,11 +95,11 @@ export const NO_SPEECH =
   same reason `desktop.ts` reports `micOnly` rather than failing the start.
 */
 export const SYSTEM_AUDIO_UNSHARED =
-  "Only your microphone is in this recording — the call's own audio was not shared. To capture both sides, start a meeting again and share the tab the call is in, with its audio.";
+  "Only your side of this call is being recorded: the call's audio wasn't shared. Press Share call audio, then pick the tab the call is in with its audio on, or the entire screen with system audio on.";
 
 /** The share was stopped from the browser's own bar, mid-meeting. */
 export const SYSTEM_AUDIO_ENDED =
-  "Sharing stopped, so the rest of this meeting is your microphone only. What was recorded before it stopped still has both sides.";
+  "Sharing stopped, so only your side of this call is being recorded now. Press Share call audio to bring the other side back.";
 
 /** `navigator.onLine === false`, the one direction of it that is reliable. */
 export function browserOffline(): boolean {

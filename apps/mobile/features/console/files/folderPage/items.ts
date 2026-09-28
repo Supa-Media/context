@@ -1,0 +1,88 @@
+/** What the List and Board views of a folder page share about one item. */
+
+import type { PropertyValue } from "../listBlock/model";
+import type { OwnerSearch, OwnerSuggest } from "../owners";
+import type { Face } from "./Glyphs";
+import type { FolderItem } from "./model";
+import type { StatusGroup, StatusMenuSection } from "./statuses";
+import type { StatusTone } from "./StatusPill";
+import type { TaskControls } from "./tasks/useTaskActions";
+import type { TaskMenuModel } from "./tasks/useTaskMenu";
+
+/** A save older than this is drawn a step quieter (spec: staleness is only a date). */
+const STALE_AFTER = 14 * 24 * 60 * 60 * 1000;
+
+export interface ItemActions {
+  /** Open a row: beside the list in the side panel on a desktop page, or its own page on a phone. */
+  onOpen(item: FolderItem): void;
+  /**
+   * Open a row in the side panel, from its hover "Open" button; null or
+   * absent where there is no panel (a phone), and no button is drawn.
+   */
+  onPeek?: ((item: FolderItem) => void) | null;
+  /** The values a menu offers for `key`. */
+  choices(key: string): readonly string[];
+  /** Null for somebody who may not write. */
+  onChoose: ((item: FolderItem, key: string, value: string | null) => void) | null;
+  /** The status menu's groups, from the folder's status list. */
+  statusMenu: readonly StatusMenuSection[];
+  /** Which group tints a status. */
+  toneOf(status: string): StatusTone;
+  /** Opens the folder's status list for editing; null for somebody who may not. */
+  onEditStatuses: (() => void) | null;
+  /** Puts a word nobody placed into a group of the folder's list; null for somebody who may not. */
+  onPlaceStatus: ((word: string, group: StatusGroup) => void) | null;
+  /** Where an owner is picked from: people and agents, never a typed word. */
+  owners?: OwnerChoice;
+  /** The face an owner line is drawn with: a person's initials, or an AI helper's robot. */
+  faceOf?: (owner: string) => Face;
+  /** Gives a plain note the folder's first To do status; null for somebody who may not. */
+  onMakeTask?: ((item: FolderItem) => void) | null;
+  /** What that button says: "Make it a task", or "Make it a project" where the rows are projects. */
+  makeTaskLabel?: string;
+  /** The row open in the side panel, marked where it is drawn; null or absent for none. */
+  selected?: string | null;
+  /** Adding, picking, dragging and the right-click menu, for somebody who may write (`tasks/useTaskActions.ts`). */
+  tasks?: TaskControls | null;
+  /** A row's menu, for a phone's ⋯, hold and swipe (`tasks/useTaskMenu.tsx`); absent for who may not write. */
+  taskMenu?: TaskMenuModel | null;
+}
+
+/** An owner picker's search, and the owners the folder already uses, most used first. */
+export interface OwnerChoice {
+  readonly search: OwnerSearch;
+  readonly prefer: readonly string[];
+  /** Who a note names as its owner; bound to one note with `ownerChoiceFor`. */
+  readonly suggestFor?: OwnerSuggest;
+  /** Who this note names as its owner, given what the picker prefers. */
+  readonly suggest?: (prefer: readonly string[]) => Promise<string | null>;
+  /** How an owner line is shown: `@seyi` for an owner written as their address. */
+  readonly label?: (value: string) => string;
+  /** Add a name to the workspace's agents (`agents.ts`); resolves to why not, or null. */
+  readonly addAgent?: (name: string) => Promise<string | null>;
+  /** Whether an owner line names an agent (`@shay's Claude`, any agent), marked in the column. */
+  readonly isAgent?: (value: string) => boolean;
+}
+
+/** `value` as `choice` shows it. */
+export function ownerLabel(choice: OwnerChoice | undefined, value: string): string {
+  return value === "" || choice?.label === undefined ? value : choice.label(value);
+}
+
+/** `choice` for the note at `path`: one that does not exist yet names nobody. */
+export function ownerChoiceFor(choice: OwnerChoice, path: string | null): OwnerChoice {
+  const suggestFor = choice.suggestFor;
+  if (suggestFor === undefined || path === null) return choice;
+  return { ...choice, suggest: (prefer) => suggestFor(path, prefer) };
+}
+
+/** A single-valued property as trimmed text; `""` when unset. */
+export function textOf(properties: Readonly<Record<string, PropertyValue>>, key: string): string {
+  const raw = properties[key];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function isStale(at: number | null, now: number): boolean {
+  return at !== null && now - at > STALE_AFTER;
+}

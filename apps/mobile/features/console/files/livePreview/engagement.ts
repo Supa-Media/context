@@ -122,3 +122,68 @@ export function revealSelection(state: EditorState): Array<{ from: number; to: n
   if ((state.field(editorEngaged, false) ?? true) === false) return [];
   return state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
 }
+
+/* ------------------------- how the caret got there ------------------------- */
+
+/**
+ * Whether the caret was last placed by a finger.
+ *
+ * ## THE RULE: ON A TOUCH SCREEN, A TAP IS NOT A REQUEST TO EDIT A HEADING'S SYNTAX
+ *
+ * The reveal rule above brings a construct's markup back when the caret enters
+ * it, and with a keyboard or a mouse that is right: the caret is where you are
+ * about to type, and typing next to syntax you cannot see is how syntax gets
+ * broken. On a phone the caret is also where a thumb landed on the way to
+ * reading, scrolling or fixing a typo — and a heading is the widest target on
+ * the screen. Every tap on a title made it jump sideways to `# Title`, and back
+ * on the next tap somewhere else. The design review of 2026-09-27 (artboard 6)
+ * asked for it to stop.
+ *
+ * So after a touch, a heading's marks stay hidden for a caret anywhere in its
+ * text, and come back only when somebody is working on the marks themselves:
+ *
+ *  - **a selection that includes them** — a long-press or drag that reaches
+ *    the `#`s, a select-all;
+ *  - **a caret strictly inside them** — between two `#`s, or between the last
+ *    one and its space. A tap cannot put it there (the marks are not on
+ *    screen), so only typing or moving it there can, and typing `#` at the
+ *    start of the line is exactly that: `# Title` becoming `## Title` leaves
+ *    the caret between the hashes, and the marks come back while you change
+ *    them.
+ *
+ * A keyboard or a mouse turns the rule off again: a caret moved by an arrow
+ * key (`select` without `.pointer`, which is what every CodeMirror motion
+ * command says) or placed by a mouse (`livePreview()`'s `pointerdown`
+ * handler) reveals exactly as it always did. That is an iPad with a keyboard,
+ * and every desktop.
+ *
+ * Headings only. Other marks — `**`, a link's brackets — are narrow, sit
+ * inside the words being edited, and a tap on them is usually a tap to edit
+ * them; widening this to them would be a different decision.
+ *
+ * A `StateField` for the reason `editorEngaged` is one: `decorationsFor` is a
+ * pure function of the state. A state without it (every bare unit test)
+ * behaves as a keyboard does.
+ */
+export type CaretInput = "touch" | "precise";
+
+export const setCaretInput = StateEffect.define<CaretInput>();
+
+export const caretInput = StateField.define<CaretInput>({
+  create: () => "precise",
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setCaretInput)) return effect.value;
+    }
+    // An arrow key, Home/End, a keyboard selection: somebody with keys.
+    if (transaction.isUserEvent("select") && !transaction.isUserEvent("select.pointer")) {
+      return "precise";
+    }
+    return value;
+  },
+});
+
+/** Whether headings follow the touch rule in this state; see `caretInput`. */
+export function quietHeadings(state: EditorState): boolean {
+  return state.field(caretInput, false) === "touch";
+}

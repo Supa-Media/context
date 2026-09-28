@@ -195,6 +195,66 @@ export const bindStorage = action({
 });
 
 /**
+ * Copy a managed context into a bucket its owner controls, then swap bindings.
+ *
+ * The plaintext destination secret follows the same path as `bindStorage`: it
+ * exists only in this action, is sealed to the workspace, and the internal
+ * migration receives only the envelope. Unlike a rebind, this leaves the
+ * managed source authoritative until every raw object has been reconciled and
+ * a quiet verification pass completes.
+ */
+export const startManagedStorageHandoff = action({
+  args: validators.startManagedStorageHandoffArgs,
+  returns: validators.startManagedStorageHandoffReturns,
+  handler: async (ctx, args): Promise<{ started: true }> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) {
+      throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
+    }
+    assertUsableEndpoint(args.endpoint);
+    const bucket = args.bucket.trim();
+    if (bucket.length === 0) {
+      throw new ConvexError({ code: "INVALID_BUCKET", message: "A bucket name is required." });
+    }
+    if (args.accessKeyId.trim().length === 0 || args.secretAccessKey.length === 0) {
+      throw new ConvexError({
+        code: "INVALID_CREDENTIAL",
+        message: "Both an access key id and a secret access key are required.",
+      });
+    }
+    if (
+      args.forcePathStyle === undefined &&
+      addressingIsAmbiguous(args.endpoint, bucket)
+    ) {
+      throw ambiguousAddressingError(bucket);
+    }
+    const rootPrefix = normalizeRootPrefix(args.rootPrefix);
+    const encryptedSecretAccessKey = await encryptSecret(
+      args.secretAccessKey,
+      requireKeyset(),
+      { workspaceId: args.workspaceId },
+    );
+    return await ctx.runMutation(
+      internal.functions.managedProvisioning.beginManagedStorageHandoff,
+      {
+        workspaceId: args.workspaceId,
+        actorUserId: userId as Id<"users">,
+        target: {
+          provider: args.provider,
+          endpoint: args.endpoint,
+          region: args.region,
+          bucket,
+          rootPrefix,
+          accessKeyId: args.accessKeyId.trim(),
+          encryptedSecretAccessKey,
+          forcePathStyle: args.forcePathStyle,
+        },
+      },
+    );
+  },
+});
+
+/**
  * Write the binding. Internal — the plaintext secret never reaches here.
  *
  * `actorUserId` is supplied by the calling action rather than read from auth,

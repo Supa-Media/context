@@ -7,6 +7,7 @@ import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { CallAudioWarning } from "../../meetings/components/CallAudioWarning";
 import { LiveWaveform } from "../../meetings/components/LiveWaveform";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
@@ -28,6 +29,7 @@ import {
 } from "../../meetings/resume";
 import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
 import { NO_MEETING } from "./tabs";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * The Meetings tab: a meeting you can work in, not a window onto one.
@@ -78,7 +80,7 @@ export function MeetingsTab({
    * `null` on the demo console and the fixtures, where there is no real note
    * behind it — and the row is then absent rather than pressable and inert.
    */
-  onOpenNote: ((href: string) => void) | null;
+  onOpenNote: ((href: string, path: string) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
@@ -167,6 +169,7 @@ const RECENT = 6;
 
 function LiveMeeting({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const snapshot = useMeetingsSnapshot();
   const id = record.session.id;
@@ -248,6 +251,8 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
           </Text>
         ) : null}
 
+        <CallAudioWarning testID="aside-call-audio-warning" />
+
         <View style={styles.transport}>
           <Pressable
             onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
@@ -304,7 +309,7 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
           onSubmitEditing={addNote}
           placeholder={`Add a note at ${elapsed}`}
           placeholderTextColor={colors.muted}
-          style={styles.field}
+          style={[styles.field, fieldFont]}
           submitBehavior="submit"
           testID="aside-meeting-note-field"
         />
@@ -362,7 +367,7 @@ function PastMeeting({
 }: {
   record: MeetingRecord;
   onBack: () => void;
-  onOpenNote: ((href: string) => void) | null;
+  onOpenNote: ((href: string, path: string) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const href = noteEditorHref(record);
@@ -458,7 +463,7 @@ function PastMeeting({
           <Button
             label="Open the note"
             variant="dialogPrimary"
-            onPress={() => onOpenNote(href)}
+            onPress={() => onOpenNote(href, record.session.notePath ?? "")}
             testID="aside-meeting-open-note"
           />
           {continues === null ? null : (

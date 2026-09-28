@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { View } from "react-native";
+import { Reveal } from "../../design/components/Reveal";
 import { useConsoleNav } from "../ConsoleNavContext";
 import { useSurfacePadding } from "../../app/Screen";
 import { useThemedStyles } from "../../design/theme";
@@ -22,6 +23,7 @@ import type { BrowsePaneProps } from "./browsePane/props";
 import { makeStyles } from "./browsePane/styles";
 import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
+import { useShownEntry } from "./browsePane/useShownEntry";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -88,10 +90,19 @@ export function BrowsePane({
     this pane used to answer that with its "choose a note" empty state — over a
     folder whose contents had already arrived. See `entryAt`.
   */
-  const selected =
+  const target =
     files.selectedPath === null
       ? null
       : entryAt(files.listings, files.selectedPath, files.editor);
+  // The page already on screen, until the one being opened is ready to swap
+  // in. See `useShownEntry`.
+  const selected = useShownEntry({
+    target,
+    contextId: files.contextId,
+    selectedPath: files.selectedPath,
+    opening: files.opening,
+    editorPath: files.editor.path,
+  });
 
   /**
    * Whether the file browser is talking about the context the console is on.
@@ -223,7 +234,9 @@ export function BrowsePane({
    * `notices` prop there and `NoteAccessory` for why). A pointer layout keeps
    * it where it was, above a region that scrolls itself.
    */
-  const notices = !hasNotice ? null : (
+  const notices = (
+    <Reveal open={hasNotice}>
+    {!hasNotice ? null : (
     <BrowseNotices
       data={data}
       files={files}
@@ -242,6 +255,8 @@ export function BrowsePane({
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}
     />
+    )}
+    </Reveal>
   );
 
   /**
@@ -259,6 +274,7 @@ export function BrowsePane({
       selected={selected}
       settled={settled}
       openCrumbMenu={openCrumbMenu}
+      presence={presence}
     />
   ) : null;
 
@@ -295,6 +311,7 @@ export function BrowsePane({
       handleOpenComms={handleOpenComms}
       folderMenuFor={folderMenuFor}
       folderDrag={folderDrag}
+      setFolderDialog={setFolderDialog}
       noteEncryption={noteEncryption}
       notices={notices}
       pathBar={pathBar}
@@ -346,8 +363,12 @@ export function BrowsePane({
           reading={reading}
           headWidth={headWidth}
           setHeadWidth={setHeadWidth}
-          setSharing={setSharing}
+          onShare={
+            // The homepage's visitor copies a link; see `VisitorActions`.
+            data.visitor !== undefined ? data.visitor.share : files.canShare ? setSharing : undefined
+          }
           openCrumbMenu={openCrumbMenu}
+          presence={presence}
         />
       ) : null}
 

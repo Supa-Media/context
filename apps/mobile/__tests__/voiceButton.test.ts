@@ -144,6 +144,8 @@ function fakeControls() {
     wrap: () => {},
     toggleLinePrefix: () => {},
     insertLink: () => {},
+    applyLink: () => {},
+    cancelLink: () => {},
     undo: () => {},
     redo: () => {},
     blur: () => {},

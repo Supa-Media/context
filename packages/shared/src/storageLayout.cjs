@@ -14,6 +14,8 @@ const GRANOLA_EVENTS_PREFIX = `${CONTEXT_ROOT}integrations/granola/events/`;
 const PROPOSAL_PREFIX = `${CONTEXT_ROOT}proposals/`;
 const PROBE_PREFIX = `${CONTEXT_ROOT}probes/`;
 const WEBSITE_RELEASE_PREFIX = `${CONTEXT_ROOT}website/releases/`;
+/** Auto-organize suggestions: new in v1 with no legacy location, so no mapping. */
+const ORGANIZER_PREFIX = `${CONTEXT_ROOT}organizer/`;
 
 const LEGACY_STORAGE_PREFIXES = Object.freeze([
   [".audit/", AUDIT_PREFIX],
@@ -56,6 +58,7 @@ module.exports = {
   PROPOSAL_PREFIX,
   PROBE_PREFIX,
   WEBSITE_RELEASE_PREFIX,
+  ORGANIZER_PREFIX,
   LEGACY_STORAGE_PREFIXES,
   currentStorageKey,
   legacyStorageKey,

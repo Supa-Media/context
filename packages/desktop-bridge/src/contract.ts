@@ -45,8 +45,10 @@
  */
 
 import type { TranscriptSegment } from "@context/meetings/protocol";
+import type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus } from "./localAgent.ts";
 
 export type { TranscriptSegment };
+export type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus };
 
 /**
  * The bridge's shape, and the only number a bundle compares against.
@@ -58,7 +60,7 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 7;
+export const BRIDGE_VERSION = 8;
 
 /**
  * The oldest bridge this bundle will still talk to.
@@ -657,55 +659,35 @@ export interface DesktopBridge {
     /** One question. Resolves with an answer or with a sentence, never a throw. */
     ask(request: LocalAgentAsk): Promise<LocalAgentReply>;
   };
-}
 
-/**
- * Whether this machine can answer a question locally.
- *
- * `available: false` is the ordinary case and is never an error: most machines
- * have no `claude` installed, and nobody is shown a failure for not having
- * installed a developer tool. `name` is what the console puts on the control
- * that offers the choice, so it is the shell's word rather than the page's
- * guess.
- */
-export interface LocalAgentStatus {
-  available: boolean;
-  name: string | null;
-}
-
-/**
- * One question, and where the person asking it is standing.
- *
- * `place` is the same shape the gateway's `/agent` route takes
- * (`apps/mobile/features/agent/gateway.ts`), deliberately: the two routes
- * answer the same question from the same input, so the panel builds one object
- * and picks a road afterwards rather than knowing two formats.
- *
- * It carries **references and never content** — a path, a visibility, whether
- * a draft diverged. If the agent wants the note it calls `read_note` and the
- * same privacy engine decides, rather than being handed text that the clamp
- * never saw. `apps/mobile/features/agent/page.ts` argues that at length.
- */
-export interface LocalAgentAsk {
-  question: string;
-  place: {
-    context: string | null;
-    note: { path: string; visibility: string; readable: boolean; unsaved: boolean } | null;
-    meetingLive: boolean;
+  /**
+   * The operating system's spell checker, for the note's own right-click
+   * menu. **Version 8.**
+   *
+   * The note editor replaces the browser's context menu with its own, and
+   * spelling suggestions live in the browser's menu and nowhere else a page
+   * can reach — the web has no API for "is this word underlined" or "what
+   * would you suggest". The shell does: Electron's `webFrame` asks the same
+   * checker that drew the red underline. So the menu asks here, and a browser
+   * falls back to Shift-right-click.
+   *
+   * Answered in the preload, over no channel: the word goes to the checker in
+   * the renderer that already holds the page, and nothing reaches the main
+   * process. Optional for `MIN_BRIDGE_VERSION`'s reason, like `agent` above.
+   */
+  spelling?: {
+    check(word: string): Promise<SpellingCheck>;
   };
 }
 
 /**
- * What one local turn produced.
- *
- * An envelope rather than a value or a throw, for `ConsoleBridge`'s own reason:
- * a refusal somebody is meant to read has to travel as data. Every failure here
- * is on the person's own machine and every one of them is fixable by them, so
- * `message` is a sentence that names the fix rather than a category.
+ * What the checker said about one word. `suggestions` is empty for a word it
+ * accepts, and may be empty for one it flags but cannot place.
  */
-export type LocalAgentReply =
-  | { ok: true; answer: string; provider: string; steps: { tool: string; ok: boolean }[] }
-  | { ok: false; message: string };
+export interface SpellingCheck {
+  misspelled: boolean;
+  suggestions: string[];
+}
 
 /**
  * What the console may know about iMessage import. Never a path, never a

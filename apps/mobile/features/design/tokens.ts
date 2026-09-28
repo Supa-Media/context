@@ -17,6 +17,8 @@ export {
   type GraphKind,
   type GraphColors,
   lightGraphColors,
+  presenceColors,
+  DEFAULT_FACE_GROUNDS,
 } from "./tokens/colors";
 
 export {
@@ -42,3 +44,5 @@ export {
 } from "./tokens/layout";
 
 export { darkShadows, type Shadows, lightShadows } from "./tokens/shadows";
+
+export { motion } from "./tokens/motion";

@@ -32,6 +32,11 @@ import {
   readFile,
   readFiles,
   readImage,
+  listCustomEmoji,
+  readCustomEmoji,
+  removeCustomEmoji,
+  renameCustomEmoji,
+  storeCustomEmoji,
   removeNoteEncryption as removeNoteEncryptionOp,
   resetPrivacyManifest,
   restoreTrashedPath,
@@ -43,6 +48,7 @@ import {
   writeFile,
   writeImage,
 } from "../fileOps";
+import { ensureFolderVisibility } from "../fileOps/visibility";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -60,6 +66,7 @@ import { resolveContextPlugins, setPluginEnabled } from "../../../../mcp/src/plu
 import { type FileOperation, IDLE_PROJECTION, type OperationResult } from "./operationTypes";
 import {
   deleteWebsiteRelease,
+  deleteWebsiteReleasePages,
   readWebsiteRelease,
   writeWebsiteRelease,
 } from "../fileOps/websiteReleases";
@@ -74,6 +81,7 @@ import {
   requireContextPlugin,
 } from "./plugins";
 import { toConvexError } from "./operationErrors";
+import { runOrganizerOperation } from "../organizer/sweepOps";
 
 const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
 
@@ -496,7 +504,14 @@ export async function executeOperation(
       case "deleteWebsiteRelease": {
         return {
           kind: "websiteReleaseDeleted",
-          objects: await deleteWebsiteRelease(store, operation.releaseId),
+          objects:
+            operation.pageIds === undefined
+              ? await deleteWebsiteRelease(store, operation.releaseId)
+              : await deleteWebsiteReleasePages(
+                  store,
+                  operation.releaseId,
+                  operation.pageIds,
+                ),
         };
       }
       case "clearVault": {
@@ -700,6 +715,8 @@ export async function executeOperation(
         const found = await listFolderPaths(store, { clearance });
         return { kind: "folderPaths", ...found };
       }
+      case "organizer":
+        return { kind: "organizerResult", output: await runOrganizerOperation(store, clearance, operation, now, actor) };
       case "readActivity": {
         // The filter is `readActivity`'s, and it takes the caller's clearance
         // rather than deciding anything here: one viewing layer, used by the
@@ -832,14 +849,25 @@ export async function executeOperation(
         return { kind: "visibility", ...result };
       }
       case "setFolderVisibility": {
-        const result = await setFolderVisibility(store, {
-          path: operation.path,
-          visibility: operation.visibility,
-          clearance,
-        });
-        await noteActivity("visibility.folder", [operation.path], {
-          to: operation.visibility,
-        });
+        const { result, changed } = operation.onlyIfUnset === true
+          ? await ensureFolderVisibility(store, {
+              path: operation.path,
+              visibility: operation.visibility,
+              clearance,
+            })
+          : {
+              result: await setFolderVisibility(store, {
+                path: operation.path,
+                visibility: operation.visibility,
+                clearance,
+              }),
+              changed: true,
+            };
+        if (changed) {
+          await noteActivity("visibility.folder", [operation.path], {
+            to: operation.visibility,
+          });
+        }
         return { kind: "visibility", ...result };
       }
       case "writeImage": {
@@ -873,6 +901,23 @@ export async function executeOperation(
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
       }
+      case "emojiList":
+        return { kind: "emojiList", emoji: await listCustomEmoji(store) };
+      case "emojiRead":
+        return { kind: "emojiImage", ...(await readCustomEmoji(store, operation.name)) };
+      case "emojiStore": {
+        const stored = await storeCustomEmoji(store, {
+          name: operation.name,
+          bytes: new Uint8Array(operation.bytes),
+          replace: operation.replace,
+        });
+        return { kind: "emojiStored", ...stored };
+      }
+      case "emojiRemove":
+        await removeCustomEmoji(store, operation.name);
+        return { kind: "emojiRemoved" };
+      case "emojiRename":
+        return { kind: "emojiStored", ...(await renameCustomEmoji(store, operation)) };
       case "resetPrivacy": {
         const result = await resetPrivacyManifest(store, { clearance, now });
         return { kind: "privacyReset", ...result };

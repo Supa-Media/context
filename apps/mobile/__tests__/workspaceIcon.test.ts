@@ -67,8 +67,8 @@ const { WorkspaceMark } =
   require("../features/console/WorkspaceMark") as typeof import("../features/console/WorkspaceMark");
 const { useWorkspaceIcons, prefetchWorkspacePhotos } =
   require("../features/console/useWorkspaceIcons") as typeof import("../features/console/useWorkspaceIcons");
-const { ContextFootRow } =
-  require("../features/console/ContextFootRow") as typeof import("../features/console/ContextFootRow");
+const { SwitcherMenu } =
+  require("../features/console/SwitcherMenu") as typeof import("../features/console/SwitcherMenu");
 const { OverviewPanel } =
   require("../features/console/settings/panels/OverviewPanel") as typeof import("../features/console/settings/panels/OverviewPanel");
 const { useDemoConsoleData } =
@@ -246,23 +246,33 @@ describe("drawing a mark needs no backend", () => {
     ).not.toThrow();
   });
 
-  test("the foot row draws four workspaces with no provider in the tree", () => {
+  test("the account card draws four workspaces with no provider in the tree", () => {
     const contexts = [
       context({ slug: "seyi", kind: "personal", icon: { kind: "emoji", emoji: "🧠" } }),
       context({ slug: "supa", role: "editor", icon: { kind: "emoji", emoji: "🏗" } }),
       context({ slug: "public-worship", role: "member" }),
-      // A photo nobody has fetched: the row must not reach for it itself.
+      // A photo nobody has fetched: the card must not reach for it itself.
       context({ slug: "context-lc", role: "member", icon: { kind: "photo", leaf: "icon-b.png" } }),
     ];
-    const container = mount(
-      createElement(ContextFootRow, {
-        contexts,
-        currentSlug: "seyi",
-        recent: [{ slug: "supa" }, { slug: "public-worship" }],
-        onOpen: () => {},
-      }),
-    );
-    expect(container.textContent).toContain("@seyi");
+    let base: ConsoleData | null = null;
+    function Probe() {
+      base = useDemoConsoleData();
+      return null;
+    }
+    mount(createElement(Probe));
+    if (base === null) throw new Error("the demo console did not resolve");
+    const data: ConsoleData = { ...(base as ConsoleData), contexts };
+    mount(createElement(SwitcherMenu, { data, label: "@seyi", onOpenContext: () => {} }));
+    const trigger = document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]');
+    if (trigger === null) throw new Error("no account button");
+    act(() => {
+      trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    for (const slug of ["seyi", "supa", "public-worship", "context-lc"]) {
+      expect(document.body.querySelector(`[data-testid="switcher-context-${slug}"]`)?.textContent).toContain(
+        `@${slug}`,
+      );
+    }
   });
 });
 

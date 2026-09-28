@@ -2,13 +2,17 @@ import type { Dispatch, SetStateAction } from "react";
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../../design/components/Button";
 import { Icon } from "../../../design/components/Icon";
+import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles } from "../../../design/theme";
-import { AgentStack } from "../../agents/AgentList";
+import { ActiveParts } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
+import { useOrganizerView } from "../../../organizer/OrganizerContext";
+import { SuggestionsLine } from "../../../organizer/Review";
+import { footCount } from "../../../organizer/rules";
 
 /**
  * The foot of the column: the agents line when there are any, and the one
@@ -38,6 +42,14 @@ export function ExplorerFoot({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  /*
+    Auto-organize's line: "11 suggestions", the activity line's twin, opening
+    the review list the way that one opens what changed. Only one of the
+    three popovers is open at a time.
+  */
+  const organizer = useOrganizerView();
+  const suggestions = footCount(organizer?.status ?? null);
+  const closeReview = organizer?.closeReview;
   return (
     <>
       {/*
@@ -78,19 +90,24 @@ export function ExplorerFoot({
         a word for it.
       */}
       {/*
-        AGENTS, WHEN THERE ARE ANY, AND NOT A LINE OTHERWISE.
+        WHO IS WORKING HERE NOW, PEOPLE AND AGENTS, AND NOT A LINE OTHERWISE.
 
-        One line however many agents are working, so a workspace with a
-        hundred of them has the same sidebar as one with two. Who they are is
-        one press away; the tree's squares say where. Above the counts line
-        because it is the more current of the two: minutes rather than since
-        you last looked.
+        One bar however many are working, so a workspace with two thousand
+        people and a hundred agents has the same sidebar as one with two. It
+        counts people who have the workspace open and agents that read or
+        wrote in the last few minutes, and never how many members there are:
+        Dev2 asked for the active number only, on this one bar (2026-09-28).
+        Who they are is one press away; the tree's squares say where agents
+        were. Above the counts line because it is the more current of the two.
       */}
+      {/* Eased in and out: people and agents come and go on their own, and the tree above shrinks by this line when they do. */}
+      <Reveal open={agents !== undefined && agentsLabel !== null}>
       {agents !== undefined && agentsLabel !== null ? (
         <PressRow
-          accessibilityLabel={`${agentsLabel}. Show which`}
+          accessibilityLabel={`${agentsLabel}. Show who`}
           onPress={() => {
             setActivityOpen(null);
+            closeReview?.();
             setAgentsOpen((open) => (open === null ? Date.now() : null));
           }}
           ariaExpanded={agentsOpen !== null}
@@ -100,10 +117,7 @@ export function ExplorerFoot({
           hoverStyle={styles.matchHover}
           testID="explorer-agents"
         >
-          <AgentStack agents={agents.agents} />
-          <Text variant="treeMeta" numberOfLines={1} style={styles.footGrow}>
-            {agentsLabel}
-          </Text>
+          <ActiveParts view={agents} />
           <Icon
             name={agentsOpen === null ? "chevronUp" : "chevronDown"}
             size={11}
@@ -111,6 +125,22 @@ export function ExplorerFoot({
           />
         </PressRow>
       ) : null}
+      </Reveal>
+
+      <Reveal open={organizer !== undefined && suggestions !== null}>
+      {organizer !== undefined && suggestions !== null ? (
+        <SuggestionsLine
+          count={suggestions}
+          open={organizer.reviewOpen}
+          onToggle={() => {
+            setActivityOpen(null);
+            setAgentsOpen(null);
+            if (organizer.reviewOpen) organizer.closeReview();
+            else organizer.openReview();
+          }}
+        />
+      ) : null}
+      </Reveal>
 
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow
@@ -118,6 +148,7 @@ export function ExplorerFoot({
           onPress={() => {
             const opening = activityOpen === null;
             setAgentsOpen(null);
+            closeReview?.();
             setActivityOpen(opening ? Date.now() : null);
             // Re-read on the way in. The entries arrived when this console
             // did, and everything that has happened since — including this

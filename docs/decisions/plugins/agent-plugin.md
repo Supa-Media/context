@@ -95,3 +95,31 @@ or above it is never read"), `cli.test.mjs` ("in a project bound to a shared
 workspace, a capture still goes to the personal inbox", "two parallel refreshes
 both succeed with one usable token") and `installer.test.mjs` ("installer.js is
 the only file that loads add-mcp").
+
+## A plugin installed from the repository signs itself in, and has no bin/
+
+Claude (web, desktop, Cowork) and ChatGPT desktop can add the plugin straight
+from `Supa-Media/context`, without the npx installer. Two things follow.
+
+**No top-level `bin/`.** claude.ai and Cowork refuse a plugin that has one
+("Plugin contains a top-level bin/ directory"), because Claude Code puts
+`bin/` on the shell's PATH. The CLI's entry is `cli/context.mjs`, and npm's
+`bin` field points there, so `npx @supa-media/context` is unchanged.
+
+**Session saving needs its own sign-in, and the install says so once.** The
+connection signs in through the app, but hooks cannot read the app's token, so
+the session-end hook saves only with the CLI's credential. A repository
+install makes none. The `login` skill (`/context:login`, user-invoked only)
+runs the plugin's own copy of the CLI, and session start shows the person a
+one-time `systemMessage` while capture is on and nothing is signed in. A
+marker beside the settings file keeps it to once.
+
+**What a "simplification" would cost.** Moving the entry back to `bin/` makes
+the plugin uninstallable in Claude on the web, desktop and Cowork. Showing the
+message every session makes it noise; never showing it leaves capture failing
+silently for every repository install.
+
+**The tests that fail if it is reversed:** `plugins/context/test/plugin.test.mjs`
+("the plugin has no top-level bin/ folder, which claude.ai rejects", "the login
+skill runs the plugin's own copy of the CLI") and `loginHint.test.mjs` ("it is
+said once, not every session").

@@ -46,6 +46,21 @@ export { listLoadsSubfolders } from "./lists/loading.js";
 export { setNoteProperty } from "./lists/setProperty.js";
 export { compareGroups } from "./lists/group.js";
 export {
+  STATUS_GROUPS,
+  STATUS_GROUP_LABELS,
+  STATUS_KEYS,
+  compareStatuses,
+  defaultStatusList,
+  isDeclaredStatus,
+  isDoneStatus,
+  resolveStatusList,
+  statusGroupOf,
+  statusKey,
+  statusListOf,
+  statusListProblem,
+  withStatus,
+} from "./lists/statuses.js";
+export {
   MAX_EVALUATED_LIST_BLOCKS,
   renderEvaluatedListBlocks,
 } from "./lists/evaluate.js";

@@ -34,6 +34,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { LiveEditor } from "../features/console/files/LiveEditor.web";
+import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -509,5 +510,99 @@ describe("the table picker", () => {
     expect(m.doc()).toBe(
       "|     |     |     |\n| --- | --- | --- |\n|     |     |     |\n|     |     |     |\n",
     );
+  });
+});
+
+/**
+ * Spelling. The browser's suggestions are behind Shift-right-click and the
+ * menu says so; the desktop app asks the operating system's checker and puts
+ * its suggestions at the top, where every browser puts them.
+ */
+describe("spelling", () => {
+  const scope = globalThis as { desktop?: unknown };
+  const flush = () => act(async () => {});
+  afterEach(() => {
+    delete scope.desktop;
+  });
+  const shell = (answer: (word: string) => { misspelled: boolean; suggestions: string[] }) => {
+    scope.desktop = fakeDesktopBridge({ spelling: answer }).bridge;
+  };
+  const flagged = (word: string) =>
+    word === "permissoning"
+      ? { misspelled: true, suggestions: ["permissioning", "positioning"] }
+      : { misspelled: false, suggestions: [] };
+
+  test("a browser is pointed at Shift-right-click", () => {
+    const m = mount({ value: "proper permissoning" });
+    m.rightClick({ at: 10 });
+    expect(m.find("menu-item-spellingHint")).not.toBeNull();
+    // Inert: it names a gesture, so pressing it leaves the note and the menu be.
+    m.press("menu-item-spellingHint");
+    expect(m.doc()).toBe("proper permissoning");
+    expect(m.find("menu-item-bold")).not.toBeNull();
+  });
+
+  test("the desktop app offers the checker's suggestions, first", async () => {
+    shell(flagged);
+    const m = mount({ value: "proper permissoning" });
+    const event = m.rightClick({ at: 10 });
+    expect(event.defaultPrevented).toBe(true);
+    await flush();
+
+    expect(m.labels().slice(0, 2)).toEqual(["permissioning", "positioning"]);
+    expect(m.find("menu-item-spellingHint")).toBeNull();
+
+    m.press("menu-item-spelling:1");
+    expect(m.doc()).toBe("proper positioning");
+    expect(m.find("menu-item-bold")).toBeNull();
+  });
+
+  test("a word the checker accepts gets the ordinary menu, with no hint", async () => {
+    shell(flagged);
+    const m = mount({ value: "proper permissoning" });
+    m.rightClick({ at: 2 });
+    await flush();
+
+    expect(m.find("menu-item-spelling:0")).toBeNull();
+    expect(m.find("menu-item-spellingHint")).toBeNull();
+    expect(m.find("menu-item-bold")).not.toBeNull();
+  });
+
+  test("a flagged word with nothing to offer says so", async () => {
+    shell(() => ({ misspelled: true, suggestions: [] }));
+    const m = mount({ value: "zzqx" });
+    m.rightClick({ at: 1 });
+    await flush();
+
+    expect(m.find("menu-item-noSuggestions")).not.toBeNull();
+    m.press("menu-item-noSuggestions");
+    expect(m.doc()).toBe("zzqx");
+    expect(m.find("menu-item-bold")).not.toBeNull();
+  });
+
+  test("a suggestion is not written over text that moved in meanwhile", async () => {
+    shell(flagged);
+    const m = mount({ value: "proper permissoning" });
+    m.rightClick({ at: 10 });
+    await flush();
+    m.update({ value: "an entirely different note" });
+    const before = m.doc();
+
+    expect(m.find("menu-item-spelling:0")).not.toBeNull();
+    m.press("menu-item-spelling:0");
+    expect(m.doc()).toBe(before);
+  });
+
+  test("a note nobody may write is never asked about", async () => {
+    const calls: string[] = [];
+    shell((word) => (calls.push(word), flagged(word)));
+    const m = mount({ value: "proper permissoning", editable: false });
+    m.select(7, 19);
+    m.rightClick({ at: 10 });
+    await flush();
+
+    expect(calls).toEqual([]);
+    expect(m.find("menu-item-spelling:0")).toBeNull();
+    expect(m.find("menu-item-copy")).not.toBeNull();
   });
 });

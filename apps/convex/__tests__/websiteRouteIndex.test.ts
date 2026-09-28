@@ -13,6 +13,7 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { WEBSITE_STARTER_MARKDOWN } from "@context/shared";
 import { scanWebsiteRoutes } from "../functions/lib/websites/routes";
 import { memoryS3, type MemoryS3Options } from "./storeStub.helpers";
+import { publishWebsiteFolder } from "./website.helpers";
 import {
   FAKE_STORAGE,
   addMember,
@@ -40,6 +41,7 @@ async function fixture(slug = "atlas", options: MemoryS3Options = {}) {
   backend.seed("index.md", `# ${slug}\n`);
   vi.stubGlobal("fetch", backend.fetchImpl);
   await seedStorageBinding(t, { workspaceId, boundBy: owner });
+  await publishWebsiteFolder(t, owner, workspaceId);
   return { t, owner, member, stranger, workspaceId, backend };
 }
 
@@ -291,7 +293,7 @@ describe("website route index", () => {
     ).toEqual([]);
   });
 
-  test("a clearance-filtered member scan cannot erase the owner index", async () => {
+  test("a member's scan never replaces the index", async () => {
     const f = await fixture("atlas-clearance");
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await asUser(f.t, f.owner).action(
@@ -301,8 +303,9 @@ describe("website route index", () => {
       },
     );
 
-    // `website/` inherits private in the PARA fixture, so the member sees the
-    // same empty snapshot as any ordinary file read at team clearance.
+    // The member's own view includes the new page, but only an owner's
+    // refresh commits, so the index still holds the one page it was built on.
+    f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nAbout\n");
     await expect(
       asUser(f.t, f.member).action(
         api.functions.websites.refreshRouteStatuses,
@@ -310,7 +313,7 @@ describe("website route index", () => {
           workspaceId: f.workspaceId,
         },
       ),
-    ).resolves.toEqual([]);
+    ).resolves.toHaveLength(2);
     expect(
       await f.t.run((ctx) =>
         ctx.db
@@ -370,7 +373,7 @@ describe("website route index", () => {
     f.backend.seed("website/index.md", "---\ntitle: New\n---\n\nNew page\n");
     refuseRelease = true;
     await expect(
-      asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, {
+      asUser(f.t, f.owner).action(api.functions.websites.publish, {
         workspaceId: f.workspaceId,
       }),
     ).rejects.toThrow();
@@ -516,6 +519,7 @@ describe("website route index", () => {
     await expect(
       f.t.action(internal.functions.websites.reconcileWorkspace, {
         workspaceId: f.workspaceId,
+        publish: true,
       }),
     ).resolves.toBe(true);
     expect(f.backend.snapshot()["website/index.md"]).toBeUndefined();

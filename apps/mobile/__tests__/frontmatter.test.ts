@@ -341,3 +341,40 @@ group("a drawing is named by its file, never by the plugin's scaffolding", () =>
     expect(noteHeadingSource(note)).toBe("heading");
   });
 });
+
+group("noteHeading — comment anchors and emoji", () => {
+  // A comment on words in the heading wraps them in anchors (`comments.cjs`).
+  // The file keeps them; the title never shows them.
+  test("a comment inside the heading leaves the title clean", () => {
+    const note = "# <!--c:tvty-->free, you cheapo<!--/c:tvty--> tada\n\nPremium is 5 bucks.\n";
+    expect(noteHeading(note, "website/pricing.md")).toBe("free, you cheapo tada");
+    expect(noteHeadingSource(note, "website/pricing.md")).toBe("heading");
+  });
+
+  test("overlapping anchors from two comments are both removed", () => {
+    const note = "# <!--c:aaaa-->one <!--c:bbbb-->two<!--/c:aaaa--> three<!--/c:bbbb-->\n";
+    expect(noteHeading(note, "n.md")).toBe("one two three");
+  });
+
+  test("a heading that is only anchors names nothing, so the next rung does", () => {
+    const note = "# <!--c:aaaa--><!--/c:aaaa-->\n\n# Real title\n";
+    expect(noteHeading(note, "n.md")).toBe("Real title");
+    expect(noteHeading("# <!--c:aaaa--><!--/c:aaaa-->\n", "notes/fallback.md")).toBe("fallback");
+  });
+
+  test("a frontmatter title carrying an anchor is cleaned the same way", () => {
+    const note = "---\ntitle: <!--c:aaaa-->Plan<!--/c:aaaa-->\n---\n\n# Other\n";
+    expect(noteHeading(note, "n.md")).toBe("Plan");
+    expect(noteHeadingSource(note, "n.md")).toBe("frontmatter");
+  });
+
+  test("text that only looks like an anchor is kept", () => {
+    expect(noteHeading("# <!--c:AB-->x\n", "n.md")).toBe("<!--c:AB-->x");
+  });
+
+  test("standard shortcodes draw as emoji; unknown names stay as typed", () => {
+    expect(noteHeading("# Launch :tada:\n", "n.md")).toBe("Launch 🎉");
+    expect(noteHeading("# free :annoyed:\n", "n.md")).toBe("free :annoyed:");
+    expect(noteHeading("# Standup 10:30:45\n", "n.md")).toBe("Standup 10:30:45");
+  });
+});

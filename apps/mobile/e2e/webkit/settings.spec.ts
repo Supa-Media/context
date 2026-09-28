@@ -293,7 +293,7 @@ test.describe("at a pointer width", () => {
       See the header for the two controls this replaces and why each was right
       when it was written.
     */
-    await page.getByTestId("frame-switcher").click();
+    await page.getByTestId("account-switcher").click();
     await page.getByTestId("switcher-settings").click();
 
     // Both at once, which is the whole difference from the phone: no Back,
@@ -328,7 +328,7 @@ test.describe("at a pointer width", () => {
     await openConsole(page);
     // The switcher's menu, which is where the rail's gear went — see the
     // header, and the case above that opens it the same way.
-    await page.getByTestId("frame-switcher").click();
+    await page.getByTestId("account-switcher").click();
     await page.getByTestId("switcher-settings").click();
     await expect(page.getByTestId("settings-sections")).toBeVisible();
 

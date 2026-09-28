@@ -41,6 +41,7 @@ import { useVisibility } from "./fileBrowser/useVisibility";
 import { useShares } from "./fileBrowser/useShares";
 import { useShareScope } from "./fileBrowser/useShareScope";
 import { usePendingOps } from "./fileBrowser/usePendingOps";
+import { useLinkedTitle } from "./fileBrowser/useLinkedTitle";
 import { useFileBrowserValue } from "./fileBrowser/useFileBrowserValue";
 
 export { draftIsKept } from "./fileBrowser/copy";
@@ -78,7 +79,8 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   const withShares = { ...withVisibility, ...useShares(withVisibility) };
   const withShareScope = { ...withShares, ...useShareScope(withShares) };
   const withPendingOps = { ...withShareScope, ...usePendingOps(withShareScope) };
-  return useFileBrowserValue(withPendingOps);
+  const withLinkedTitle = { ...withPendingOps, ...useLinkedTitle(withPendingOps) };
+  return useFileBrowserValue(withLinkedTitle);
 }
 
 /** Exported for the editor's unsaved-changes guard in the pane. */

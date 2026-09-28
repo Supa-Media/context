@@ -52,19 +52,17 @@ describe("a console that cannot edit cannot start the gestures that write", () =
     expect(reader.calls.entries).toEqual([]);
   });
 
-  test("the create buttons are absent without canEdit and present with it", () => {
-    const newNote = (container: HTMLElement) =>
-      container.querySelector('[data-testid="explorer-new-note"]');
-    const newFolder = (container: HTMLElement) =>
-      container.querySelector('[data-testid="explorer-new-folder"]');
+  test("the create button is absent without canEdit and present with it", () => {
+    // One `+` now, whose menu holds note, folder and drawing — so the button
+    // is the whole of what `canEdit` has to withhold.
+    const create = (container: HTMLElement) =>
+      container.querySelector('[data-testid="explorer-new"]');
 
     const editor = mount(true);
-    expect(newNote(editor.container)).not.toBeNull();
-    expect(newFolder(editor.container)).not.toBeNull();
+    expect(create(editor.container)).not.toBeNull();
 
     const reader = mount(false);
-    expect(newNote(reader.container)).toBeNull();
-    expect(newFolder(reader.container)).toBeNull();
+    expect(create(reader.container)).toBeNull();
   });
 
   test("Move to trash acts immediately without opening a confirmation dialog", () => {
@@ -251,9 +249,9 @@ describe("the storage migration control is not toolbar chrome", () => {
       explorer.container.querySelector('[data-testid="explorer-storage-migration"]'),
     ).toBeNull();
     // The positive control, in the same assertion: this *is* an owner's
-    // toolbar, drawn, with the four controls that belong in it. Without this
+    // toolbar, drawn, with the three controls that belong in it. Without this
     // the test above passes on an explorer that rendered nothing at all.
-    for (const control of ["new-note", "new-folder", "sort", "collapse"]) {
+    for (const control of ["filter-toggle", "new", "view"]) {
       expect(
         explorer.container.querySelector(`[data-testid="explorer-${control}"]`),
       ).not.toBeNull();

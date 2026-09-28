@@ -132,12 +132,12 @@ Four guards, and each is the reason the other three are safe to offer:
   address is live on the apex, so releasing it is account deletion's business
   and is deliberately not reachable from a settings panel (`PERSONAL_CONTEXT`).
 - **Not while we hold the only key.** On managed storage the notes live in a
-  bucket the customer has no credential for, and the free hand-off path is still
-  unbuilt (`billing.md`, "What is deliberately not built"). Deleting the row
-  would either strand their notes in our infrastructure with nothing pointing at
-  them or destroy the only copy; non-negotiable #1 permits neither, so it is
-  refused with `MANAGED_STORAGE` and the refusal is drawn in place of the field
-  rather than after the press. The export and hand-off work is what lifts it.
+  bucket the customer has no credential for. Deleting the row would either
+  strand their notes in our infrastructure with nothing pointing at them or
+  destroy the only copy; non-negotiable #1 permits neither, so it is refused
+  with `MANAGED_STORAGE`. The owner can now lift that guard explicitly through
+  Settings → Storage → Move to my bucket: only a verified whole-bucket cutover
+  turns the workspace into the ordinary customer-owned deletion case.
 
 What is deleted is `deleteAccount`'s cascade, unchanged — our metadata about the
 workspace, credential envelopes included. **A bucket the customer owns is never

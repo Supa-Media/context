@@ -40,8 +40,7 @@ describe("the note names itself, inside itself", () => {
     expect(app.find("breadcrumb-leaf")).not.toBeNull();
     // ...and it is not pressable: pressing it would re-select what is open.
     expect(app.container.querySelector(`[aria-label="Open ${NOTE}"]`)).toBeNull();
-    // …and the visibility chip stayed gone: a note carries it as a Properties
-    // row, which is fuller than the crumb's brief version.
+    // …and the visibility chip stayed gone.
     expect(app.container.textContent).not.toContain("follows its folder");
   });
 
@@ -66,59 +65,51 @@ describe("the note names itself, inside itself", () => {
     expect(app.find("note-inline-title")).toBeNull();
     expect(app.container.querySelector('[aria-label="Open 1-projects"]')).not.toBeNull();
   });
+
+  /*
+    The path line used to end "· team · inherited". Over every note that is the
+    ordinary state of a note, and the owner removed it as clutter (2026-09-27).
+    The Properties row that kept the words went the same way; see below.
+  */
+  test.each([390, 1440])("the line above the note says nothing about visibility (%i)", (width) => {
+    const app = mountConsole(dataWith(), width);
+    const properties = app.find("note-properties-open");
+    expect(properties).toBeNull();
+    expect(app.container.textContent).not.toContain("inherited");
+    expect(app.container.textContent).not.toContain("set here");
+  });
 });
 
-describe("visibility survives into Properties", () => {
+describe("Properties says nothing about visibility", () => {
   /**
-   * The chip the breadcrumb carried was a **claim about who can read this
-   * note**. Moving the row it lived in must not lose it.
+   * The panel used to open with a `visibility` row drawn from `privacy.md`
+   * ("team · inherited"). It controlled nothing and read like a setting, and
+   * the owner removed it (2026-09-27): who can read a note is the Share
+   * dialog's answer. A `visibility:` line inside a note decides nothing either
+   * — the fixture carries `visibility: private` while the access map says
+   * `team` — so the panel shows neither.
    */
-  test("the access map's answer is a property of the note", () => {
-    const app = mountConsole(dataWith());
-    app.press(app.find("note-properties"));
-
-    const open = app.find("note-properties-open");
-    expect(open).not.toBeNull();
-    expect(open!.textContent).toContain("visibility");
-    // The same three-case wording the breadcrumb printed, from the same
-    // function: a note that merely follows a `team` folder and one deliberately
-    // shared as an exception have to stay distinguishable.
-    expect(open!.textContent).toContain("team · inherited");
-  });
-
-  test("a note that sets its own says so, rather than saying it inherits", () => {
-    const app = mountConsole(
-      dataWith({}, { visibility: "team", inherited: "private", exception: true }),
-    );
-    app.press(app.find("note-properties"));
-    expect(app.find("note-properties-open")!.textContent).toContain("team · set here");
-  });
-
-  /**
-   * A `visibility:` line inside a note decides nothing — `privacy.md` decides
-   * access, which is what `ManifestNotice` says in so many words. The fixture
-   * carries `visibility: private` in its frontmatter while the access map says
-   * `team`, and the panel must state one answer, not two.
-   */
-  test("the file's own visibility line is replaced, not shown beside it", () => {
+  test("neither the access map's answer nor the file's own line is a row", () => {
     const app = mountConsole(dataWith());
     app.press(app.find("note-properties"));
 
     const text = app.find("note-properties-open")!.textContent ?? "";
-    expect(text).toContain("team · inherited");
+    expect(text).not.toContain("visibility");
+    expect(text).not.toContain("inherited");
     expect(text).not.toContain("private");
     // Every other frontmatter field is still there, untouched.
     expect(text).toContain("subject");
     expect(text).toContain("The storage binding");
   });
 
-  /*
-    This read "`+ Add property` is still drawn, and still inert" while the
-    panel was a reader. It edits now (`notePropertiesEdit.test.ts`), so the row
-    is a live control for somebody who can edit — and the stated visibility,
-    which comes from `privacy.md` rather than the file, is still not one.
-  */
-  test("`+ Add property` is a live control, and the stated visibility is not editable", () => {
+  test("a note with no frontmatter has no Properties row at all", () => {
+    const plain = "The first paragraph of the note itself.\n";
+    const editor = { ...dataWith().files.editor, baseline: plain, draft: plain };
+    const app = mountConsole(dataWith({ editor }));
+    expect(app.find("note-properties")).toBeNull();
+  });
+
+  test("`+ Add property` is a live control, and visibility is not a row", () => {
     const app = mountConsole(dataWith());
     app.press(app.find("note-properties"));
     const add = app.find("note-properties-add");

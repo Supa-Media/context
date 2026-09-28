@@ -13,7 +13,6 @@ import type {
   FormSubmission,
   FormVote,
 } from "../formBlock";
-import type { Visibility } from "../types";
 import type { FolderListSource } from "../listBlock/model";
 
 /** What a surface mounts `NoteEditor` with. */
@@ -74,30 +73,31 @@ export interface NoteEditorProps {
   }) => Promise<{ target: string } | { error: string }>;
   /** Say a refused paste out loud. */
   onImageProblem?: (message: string) => void;
+  /**
+   * The viewer's \`@handle\`, which a comment written in this note is signed
+   * with (files/comments/). Absent where nobody can comment.
+   */
+  commenter?: string | null;
+  /**
+   * A visitor's way to be able to reply: a thread's reply field then reads
+   * "Sign in to reply" and opens this. Absent for a signed-in reader.
+   */
+  onSignInToComment?: () => void;
+  /**
+   * The homepage's visitor, whose edits stay in this browser tab. The foot of
+   * the note then says so rather than "Saved in your bucket" — see `noteFoot`.
+   */
+  local?: boolean;
   /** Where a folder list block reads its notes. Absent: lists stay as source. */
   folderLists?: FolderListSource;
   /**
-   * Who can read this note, as the access map answers it — a Properties row.
-   *
-   * `visibility:` is filing metadata about a note, which is exactly what the
-   * Properties panel is for, and it is where the breadcrumb's chip went when
-   * the breadcrumb went. The value comes from the *manifest* rather than from
-   * the file's own frontmatter, because a `visibility:` line inside a note
-   * decides nothing — `privacy.md` does, which is what `ManifestNotice` says in
-   * so many words. So a note carrying its own `visibility:` has that row
-   * replaced by this one rather than showing two answers to one question.
-   *
-   * Optional, and absent everywhere but the console's Browse pane: a
-   * `NoteEditor` mounted without an entry beside it has no honest answer, and
-   * inventing "private" would be a claim about access made by a component that
-   * was not told.
+   * The title renaming the file — see `fileBrowser/useLinkedTitle.ts`. Where
+   * the caret is reported to, the line drawn under the title, and a request
+   * to put the caret in it (Rename on the open note's row).
    */
-  visibility?: {
-    visibility: Visibility;
-    inherited: Visibility;
-    exception: boolean;
-    readOnly: boolean;
-  };
+  onTitleCaret?: (inTitle: boolean) => void;
+  titleNote?: { tone: "problem" | "held"; message: string } | null;
+  titleFocus?: { path: string; id: number } | null;
   /**
    * What the pane has to say about this note, inside the note's own scroller.
    *

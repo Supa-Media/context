@@ -130,11 +130,17 @@ export function useTabs(
    * tab whenever a folder collapsed.
    */
   const listings = files.listings;
+  const editorPath = files.editor.path;
   useEffect(() => {
     for (const path of tabsToClose(state.tabs, listings)) {
+      // Not the note a rename is carrying while the editor is still on its
+      // old name: a listing that lands mid-move without it is behind, not
+      // proof the note is gone. The rename settles one way or the other, and
+      // the editor moves with it.
+      if (renamed !== null && path === renamed.to && editorPath === renamed.from) continue;
       dispatch({ type: "removed", path });
     }
-  }, [listings, state.tabs]);
+  }, [editorPath, listings, renamed, state.tabs]);
 
   /**
    * The switch itself, keyed on the context rather than on `files`.

@@ -12,6 +12,7 @@
 import type { Env } from "./index";
 import type { RouteDecision } from "./route";
 import { SITE_MISSING_HTML, siteRoute, type SiteBinding } from "./site";
+import { isSitePageRequest, sitePageResponse } from "./sitePages";
 
 const RESOLVE_TIMEOUT_MS = 1_500;
 const BINDING_CACHE_SECONDS = 60;
@@ -135,6 +136,9 @@ export async function siteResponse(
     return plain(503, "This site is temporarily unavailable. Try again in a moment.\n", "text/plain; charset=utf-8");
   }
 
+  if (binding !== null && isSitePageRequest(url)) {
+    return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx, binding);
+  }
   const decision = siteRoute(url, request.headers.get("User-Agent"), binding);
   if (decision.kind === "site-missing") {
     return plain(404, SITE_MISSING_HTML, "text/html; charset=utf-8");

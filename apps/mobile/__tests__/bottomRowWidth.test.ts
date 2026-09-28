@@ -84,17 +84,14 @@ const KEYS = 7;
 const RULES = 1;
 
 /**
- * And what the console actually draws now: back, forward, search, `+`, recent,
- * save. No rule, because the rule existed to separate the six note verbs from
- * the one key that left the note, and that key is gone — *"we no longer need a
- * dedicated mic button on the bottom row, just a plus button that opens
- * different options"*.
+ * And what the console draws now: back, browse, search, `+`, recent (owner,
+ * 2026-09-27). Recent replaced forward; autosave and the sync mark replaced ✓.
  *
  * Asserted separately from `KEYS` on purpose. Pointing the console's own tests
  * at the seven-key probe is how "how many keys does the product draw" stops
  * being a question this file answers.
  */
-const CONSOLE_KEYS = 6;
+const CONSOLE_KEYS = 5;
 
 /* -------------------------------------------------------------------------- */
 
@@ -708,21 +705,24 @@ describe("the console's own bottom row", () => {
    * Asserted against the real row rather than a fixture, because `BottomBar`
    * deliberately does not know what its keys open; the layout does.
    */
-  test("is six keys, ending at Save, with no separator and no microphone", () => {
+  test("is five keys — back, browse, search, new, recent — with no forward and no save", () => {
     const container = mountConsole(390);
     const row = [...need(container, "bottom-bar").children] as HTMLElement[];
 
     expect(row.map((node) => node.dataset.testid)).toEqual([
       "bottom-bar-back",
-      "bottom-bar-forward",
+      "bottom-bar-browse",
       "bottom-bar-search",
       "bottom-bar-new",
       "bottom-bar-recent",
-      "bottom-bar-save",
     ]);
 
     expect(row).toHaveLength(CONSOLE_KEYS);
-    expect(need(container, "bottom-bar-new").getAttribute("aria-label")).toBe("Create");
+    // Icon-only, so the label is the whole of each key's name.
+    expect(row.map((node) => node.getAttribute("aria-label"))).toEqual(
+      ["Go back", "Browse files", "Search notes", "Create", "Recently opened"],
+    );
+    for (const gone of ["forward", "save"]) expect(container.querySelector(`[data-testid="bottom-bar-${gone}"]`)).toBeNull();
 
     drop();
   });

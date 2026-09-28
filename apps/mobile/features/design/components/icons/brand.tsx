@@ -13,7 +13,8 @@ type BrandIconName =
   | "card"
   | "sliders"
   | "plugin"
-  | "sparkle";
+  | "sparkle"
+  | "robot";
 
 /** The settings list's own marks: apps, people, mail, calendar, devices, plugins and premium. */
 export const brandIcons: Record<BrandIconName, DrawFn> = {
@@ -146,4 +147,19 @@ export const brandIcons: Record<BrandIconName, DrawFn> = {
       bar("smallH", u, w, c, { cx: 0.78, cy: 0.76, length: 0.26 }),
     ];
   },
+
+  robot: (u, w, c) => [
+    /*
+      An AI helper's face on a project row: a head with an antenna, two eyes
+      and two ears. The owner asked for a robot rather than letters — "AI" in
+      a face reads as somebody's initials.
+    */
+    rect("head", u, w, c, { x0: 0.18, y0: 0.34, x1: 0.82, y1: 0.84, radius: 0.14 }),
+    bar("antenna", u, w, c, { cx: 0.5, cy: 0.24, length: 0.18, angle: 90 }),
+    dot("tip", u, c, { cx: 0.5, cy: 0.12, r: 0.06 }),
+    dot("eyeL", u, c, { cx: 0.38, cy: 0.58, r: 0.07 }),
+    dot("eyeR", u, c, { cx: 0.62, cy: 0.58, r: 0.07 }),
+    bar("earL", u, w, c, { cx: 0.1, cy: 0.59, length: 0.16, angle: 90 }),
+    bar("earR", u, w, c, { cx: 0.9, cy: 0.59, length: 0.16, angle: 90 }),
+  ],
 };

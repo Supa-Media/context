@@ -104,10 +104,17 @@ export function useConsoleAside({
    * behind the recording — `router.push(meetingHref(id))` is what this
    * replaced, and the owner's words for that page were "the big ugly page".
    */
+  /*
+    The homepage's visitor records too, into their tab: a fixed destination,
+    and on a phone a meeting shown by the homepage rather than pushed to a
+    route that needs an account. See `features/home/meeting`.
+  */
+  const visitorMeetings = data.visitor?.meetings;
   const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
     contexts: data.contexts,
+    destination: visitorMeetings?.destination,
     onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
-    onStarted: hasAside ? showMeetings : undefined,
+    onStarted: hasAside ? showMeetings : visitorMeetings?.showOnPhone,
   });
 
   /**
@@ -156,7 +163,7 @@ export function useConsoleAside({
     [data.demo, data.modelConnected, hasAside],
   );
   /** Recording, or `null` on a console with no controller behind one. */
-  const startMeeting = data.demo ? null : startMeetingFlow;
+  const startMeeting = data.demo && visitorMeetings === undefined ? null : startMeetingFlow;
   /*
     Whether the phone's `+` has anything to offer — asked through the same
     function that decides which rows its sheet draws, so the key and its contents

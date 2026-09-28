@@ -1,4 +1,5 @@
 import type { MirrorStatus } from "../offline/mirrorStatus";
+import type { MeetingDestination } from "../meetings/destination";
 import type { ActivityView } from "./activity/activity";
 import type { AgentActivityView } from "./agents/agentActivity";
 import type { AdvancedView } from "./advanced/advanced";
@@ -22,6 +23,7 @@ import type { GroupsView } from "./groups/groups";
 import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
+import type { OrganizerView } from "../organizer/useOrganizer";
 import type { ConnectFormValues } from "./storage/connect";
 
 /**
@@ -307,6 +309,12 @@ export interface ConsoleStorage {
   lastVerifiedAt?: number;
   /** Storage operated by Context, whose credential cannot be rotated or disconnected here. */
   managed?: boolean;
+  /** Owner-only progress for moving every raw object into customer storage. */
+  handoffStatus?: "copying" | "failed";
+  handoffPhase?: "count" | "copy" | "verify_source" | "verify_target";
+  handoffObjectsTotal?: number;
+  handoffObjectsProcessed?: number;
+  handoffErrorCode?: string;
 }
 
 /**
@@ -329,6 +337,8 @@ export interface StorageActions {
    */
   reverify: () => Promise<{ queued: boolean; status: string }>;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
+  /** Starts or retries a verified whole-bucket move out of managed storage. */
+  handoff: (values: ConnectFormValues) => Promise<{ started: true }>;
   disconnect: () => Promise<{ disconnected: boolean }>;
   /**
    * Asks the bucket where the storage-layout migration got to, running none of
@@ -344,9 +354,46 @@ export interface ConsoleStat {
   label: string;
 }
 
+/**
+ * What a visitor to the homepage can do instead of what an account can.
+ *
+ * The homepage is the console's own frame over the website's notes, with
+ * `demo` set because nothing reaches a server. A visitor still writes — in
+ * their tab only — so this is not the landing page's inert demo: the `+`
+ * stays, the account button offers these two instead of Sign out, and Share
+ * copies the page's public address rather than opening a dialog that needs a
+ * workspace. See `ConsoleFrame`.
+ */
+export interface VisitorActions {
+  /** For somebody not signed in. */
+  signIn?: () => void;
+  createAccount?: () => void;
+  /** For somebody signed in who came to the homepage: back to their console. */
+  openApp?: () => void;
+  /** Share, for somebody with no workspace: copy the page's public link. */
+  share: (path: string) => void;
+  /**
+   * Recording a demo meeting into this tab (`features/home/meeting`). Absent
+   * where the homepage has no recorder, and New meeting then refuses.
+   */
+  meetings?: VisitorMeetings;
+}
+
+/** What the console needs to run a visitor's demo meeting. */
+export interface VisitorMeetings {
+  /** Where every meeting lands: the tab's `inbox/meetings`. */
+  destination: MeetingDestination;
+  /** Open a finished meeting's note in the tree, by its path. */
+  openNote: (path: string) => void;
+  /** A phone has no panel, so it is told which meeting to show instead. */
+  showOnPhone: (meetingId: string) => void;
+}
+
 export interface ConsoleData {
   /** True for the read-only demo on the landing page. */
   demo: boolean;
+  /** Set on the homepage, whose reader is not signed in. See `VisitorActions`. */
+  visitor?: VisitorActions;
   /**
    * How much of each context is on this device, by workspace id — the offline
    * mirror's own account of itself (`features/offline/mirrorStatus.ts`). Absent
@@ -387,6 +434,11 @@ export interface ConsoleData {
    * the demo console and until the first answer lands.
    */
   agents?: AgentActivityView;
+  /**
+   * Auto-organize for the selected workspace (`features/organizer`). Absent on
+   * the demo console; every surface treats absence as drawing nothing.
+   */
+  organizer?: OrganizerView;
   /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.

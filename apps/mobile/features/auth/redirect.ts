@@ -176,19 +176,6 @@ export function resolveAuthRoute(state: AuthState, next?: string): RouteDecision
 }
 
 /**
- * The landing page is public, and stays public when you are signed in — the CTA
- * changes instead of the page disappearing. This exists so the CTA has one
- * place to ask where it points.
- */
-export function landingCtaHref(state: AuthState): string {
-  return state.isAuthenticated ? CONSOLE_ROUTE : LOGIN_ROUTE;
-}
-
-export function landingCtaLabel(state: AuthState): string {
-  return state.isAuthenticated ? "Open your console" : "Create your workspace";
-}
-
-/**
  * Narrows a caller-supplied redirect target to a same-origin path.
  *
  * Anything that could leave the app — an absolute URL, a protocol-relative
@@ -263,6 +250,29 @@ export function attemptedHrefFrom(
   // as one; `safeNextRoute` would then narrow it to the console, and the note
   // would be lost the quiet way rather than the loud one.
   if (typeof pathname !== "string" || !pathname.startsWith("/")) return routerHref;
+  // The document is only ahead of the router on a cold load. A click inside
+  // the app is the other way round: expo-router renders the new route before
+  // it writes the address bar, so this gate reads the page somebody is
+  // *leaving*. Following the homepage's `/workspace/new` link signed out sent
+  // `/login?next=/` and signed them in back onto the homepage (the owner's
+  // report of 2026-09-27). The router's path is right even where its query is
+  // not, so a document that names a different path is stale, not truer.
+  if (!samePath(pathname, routerHref)) return routerHref;
   const search = typeof browser?.search === "string" ? browser.search : "";
   return `${pathname}${search}`;
+}
+
+/** Whether two hrefs name the same path, ignoring query, hash, encoding and a trailing slash. */
+function samePath(a: string, b: string): boolean {
+  const path = (href: string) => {
+    const raw = href.split("#")[0]!.split("?")[0]!;
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      // A malformed escape compares as written.
+    }
+    return decoded.length > 1 ? decoded.replace(/\/+$/, "") : decoded;
+  };
+  return path(a) === path(b);
 }

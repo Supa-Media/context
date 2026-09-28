@@ -35,14 +35,35 @@
  * have: an unstyled line is readable, and a half-parsed one is not.
  */
 
+import { standardEmojiNamed } from "../console/files/emoji/standardEmoji";
+import { parseImageLine, type ImageAlign } from "../console/files/imageLine";
+import { stripComments } from "@context/shared/src/comments.cjs";
+
 export type Inline =
   | { kind: "text"; text: string }
   | { kind: "strong"; text: string }
   | { kind: "em"; text: string }
   | { kind: "code"; text: string }
   | { kind: "strike"; text: string }
+  /** `==words==`, Obsidian's highlighter; the editor draws it as `cm-lp-mark`. */
+  | { kind: "mark"; text: string }
   /** `href` is already vetted by `safeHref`; a rejected one arrives as `text`. */
-  | { kind: "link"; text: string; href: string };
+  | { kind: "link"; text: string; href: string }
+  /**
+   * A link whose whole label is one `<kbd>…</kbd>`: `[<kbd>Start</kbd>](/login)`.
+   * The GitHub-flavoured way to draw a button in Markdown, since `<kbd>` is the
+   * one tag GitHub and Obsidian both render with a box around it. Vetted
+   * exactly as a link is; only the look differs.
+   */
+  | { kind: "button"; text: string; href: string }
+  /** `<kbd>⌘K</kbd>` on its own: a key, drawn in a box. Never markup. */
+  | { kind: "kbd"; text: string }
+  /**
+   * `:name:` naming no standard emoji: perhaps a workspace's own, drawn as its
+   * picture where the page carries one, and as `text` (the shortcode) where
+   * not. A standard shortcode never arrives as this; it is its character.
+   */
+  | { kind: "emoji"; name: string; text: string };
 
 export type Block =
   | { kind: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; content: Inline[] }
@@ -52,7 +73,14 @@ export type Block =
   | { kind: "quote"; content: Inline[] }
   | { kind: "code"; text: string; language?: string }
   | { kind: "rule" }
-  | { kind: "table"; header: Inline[][]; rows: Inline[][][] };
+  | { kind: "table"; header: Inline[][]; rows: Inline[][][] }
+  /**
+   * A line that is nothing but image embeds, as the editor lays it out
+   * (`imageLine.ts`). Only a picture the page carried is drawn — a published
+   * page's pasted images arrive with it (`publishedImages.ts`) — and nothing is
+   * ever fetched from `target`; without one, the alt text or name is shown.
+   */
+  | { kind: "images"; images: { target: string; alt: string; width: number | null }[]; align: ImageAlign };
 
 /**
  * The most blocks one note contributes.
@@ -116,6 +144,8 @@ export function safeHref(raw: string): string | null {
  * that, and gets it wrong in exactly the case somebody documenting Markdown
  * will hit.
  */
+const SHORTCODE_AT = /^:([a-z0-9+-][a-z0-9_+-]{0,63}):(?![\w:])/;
+
 export function parseInline(source: string): Inline[] {
   const out: Inline[] = [];
   let plain = "";
@@ -156,12 +186,14 @@ export function parseInline(source: string): Inline[] {
       // Editors often store an autolinked domain without its scheme
       // (`[supa.media](supa.media)`); that is the site, not a relative path.
       const href = safeHref(link.target) ?? bareSiteHref(link.target) ?? sitePathHref(link.target);
+      const key = KBD_WHOLE.exec(link.label.trim());
+      const label = key === null ? link.label : key[1].trim();
       // A rejected scheme becomes the label as plain text — never a link, and
       // never silently dropped, because the words were part of the sentence.
       out.push(
         href === null
-          ? { kind: "text", text: link.label }
-          : { kind: "link", text: link.label, href },
+          ? { kind: "text", text: label }
+          : { kind: key === null ? "link" : "button", text: label, href },
       );
       i += link.length;
       continue;
@@ -178,6 +210,33 @@ export function parseInline(source: string): Inline[] {
       continue;
     }
 
+    // Only the tag's own name, and only around plain words: anything else
+    // between the angle brackets stays text, like every other tag here.
+    const kbd = KBD_AT.exec(rest);
+    if (kbd && kbd[1].trim() !== "") {
+      flush();
+      out.push({ kind: "kbd", text: kbd[1].trim() });
+      i += kbd[0].length;
+      continue;
+    }
+
+    // `:name:` where a word starts, as the editor draws it: a standard name is
+    // its character, and any other stays a run of its own for the renderer.
+    if (i === 0 || !/[\w:]/.test(source[i - 1])) {
+      const shortcode = SHORTCODE_AT.exec(rest);
+      if (shortcode) {
+        const standard = standardEmojiNamed(shortcode[1]);
+        if (standard !== undefined) {
+          plain += standard.char;
+        } else {
+          flush();
+          out.push({ kind: "emoji", name: shortcode[1], text: shortcode[0] });
+        }
+        i += shortcode[0].length;
+        continue;
+      }
+    }
+
     const strong = /^\*\*([^\n]+?)\*\*/.exec(rest);
     if (strong) {
       flush();
@@ -192,6 +251,18 @@ export function parseInline(source: string): Inline[] {
       out.push({ kind: "strike", text: strike[1] });
       i += strike[0].length;
       continue;
+    }
+
+    // Words hard against both pairs, as the editor's grammar requires, so an
+    // `a == b` in a sentence stays text, and never a run of three.
+    if (source[i - 1] !== "=") {
+      const mark = /^==(?!=)(\S(?:[^\n]*?\S)?)==(?!=)/.exec(rest);
+      if (mark) {
+        flush();
+        out.push({ kind: "mark", text: mark[1] });
+        i += mark[0].length;
+        continue;
+      }
     }
 
     // Single `*` only, and never `_`: `snake_case_names` are ordinary words in
@@ -224,6 +295,11 @@ export function parseInline(source: string): Inline[] {
   flush();
   return out;
 }
+
+/** `<kbd>words</kbd>`, case-insensitive, with nothing but text inside. */
+const KBD_AT = /^<kbd>([^<>\n]+)<\/kbd>/i;
+/** A link label that is one `<kbd>` and nothing else. */
+const KBD_WHOLE = /^<kbd>([^<>\n]+)<\/kbd>$/i;
 
 const URL_RUN = /^(?:https?:\/\/|www\.)[^\s<>()]+/i;
 const BARE_DOMAIN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.([a-z]{2,24})(?:\/[^\s<>()]*)?/;
@@ -336,7 +412,10 @@ function matchLink(
  * unrecognised construct degrades to a paragraph instead of disappearing.
  */
 export function parseNote(source: string): ParsedNote {
-  const lines = stripFrontmatter(source).split(/\r?\n/);
+  // Comments are for the note's own readers and never shown on a published
+  // surface; the control plane already strips them from a share read, and
+  // this is the same rule for any other text handed to the reader.
+  const lines = stripFrontmatter(stripComments(source)).split(/\r?\n/);
   const blocks: Block[] = [];
   let i = 0;
   let truncated = false;
@@ -372,6 +451,14 @@ export function parseNote(source: string): ParsedNote {
       }
       i += 1;
       if (!push({ kind: "code", text: body.join("\n"), ...(fence[2] ? { language: fence[2] } : {}) })) break;
+      continue;
+    }
+
+    const row = parseImageLine(line);
+    if (row !== null) {
+      const images = row.images.map(({ target, alt, width }) => ({ target, alt, width }));
+      if (!push({ kind: "images", images, align: row.align })) break;
+      i += 1;
       continue;
     }
 
@@ -471,6 +558,7 @@ function isBlockStart(line: string): boolean {
     /^\s*[-*+]\s/.test(line) ||
     /^\s*\d+[.)]\s/.test(line) ||
     /^\s*(`{3,}|~{3,})/.test(line) ||
+    parseImageLine(line) !== null ||
     /^\s*(?:-\s*){3,}$|^\s*(?:\*\s*){3,}$|^\s*(?:_\s*){3,}$/.test(line)
   );
 }

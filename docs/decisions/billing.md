@@ -126,11 +126,13 @@ deployment that sells nothing, a status this build has never heard of, loading,
 unreadable, and the landing page's demo — and asserts the same sentence is
 rendered in every one of them.
 
-**The promise is stated, not offered.** There is no export button, because the
-export and hand-off path is not built (`storage-and-credentials.md` says so in
-its own last paragraph). A button that did nothing would be worse than a
-sentence that is true. That path remains the single largest thing this decision
-owes and does not yet pay.
+**The promise is actionable for managed storage.** Settings → Storage offers
+`Move to my bucket` to every owner, regardless of plan state. It accepts the
+same S3-family binding as first run, copies every raw object while the managed
+binding remains authoritative, reconciles source and target until a quiet pass,
+and only then swaps the binding. A failed move leaves the managed bucket live
+and can be retried. Folder `.zip` downloads remain the lightweight export;
+whole-workspace archive download is still not claimed.
 
 ## Three values, three different places, and the split is load-bearing
 
@@ -344,19 +346,17 @@ the creator, and the first-run return sentence kept out of this flow.
 
 ## What is deliberately not built
 
-- **Deleting a workspace that is on managed storage.** `deleteWorkspace`
-  refuses it (`MANAGED_STORAGE`) rather than choosing between stranding the
-  customer's notes in a bucket they have no key to and destroying the only copy
-  of them. It is the same missing piece as the line below — the free export and
-  hand-off path — surfacing somewhere else, and it lifts when that lands. A
-  workspace on a bucket the customer owns deletes normally, because forgetting
-  our metadata about their storage is all that deletion does to it.
+- **Deleting a workspace while its only copy is on managed storage.**
+  `deleteWorkspace` still refuses it (`MANAGED_STORAGE`): deletion must not
+  silently destroy the only copy. The owner first uses Settings → Storage →
+  Move to my bucket; after the verified cutover the ordinary customer-owned
+  deletion path applies.
 - **Complete enforcement.** Fast Search consumes its paid entitlement and
   managed storage is provisioned for both new and existing contexts, but no
   write path is made read-only by a lapse yet. An existing binding is copied
   and verified before an id-pinned cutover; it is never silently replaced.
-  The free export and bucket hand-off path remains unbuilt and is still the
-  managed-storage launch blocker.
+  The managed-to-customer handoff is now the same plan-blind verified copy in
+  the reverse direction.
 - **Metering.** `MANAGED_STORAGE_CEILING_BYTES` is stated and not measured.
   The console shows a note count and says in words that stored bytes are not
   metered yet, because a bar drawn against a denominator nobody measured is a
@@ -384,8 +384,10 @@ the creator, and the first-run return sentence kept out of this flow.
 
 Staging testers can provision dedicated managed buckets without paying or supplying
 a card. The backend checks its environment, app origin and platform deployment URL;
-ordinary production owners cannot use this bypass. Existing workspace caps and
-owner authorization remain in force, and no production buckets are reused.
+ordinary production owners cannot use this test-only Premium bypass. Production's
+normal no-card path is the separate free managed tier described below, with its
+1,000-note cap. Existing workspace caps and owner authorization remain in force,
+and no production buckets are reused.
 The UI says storage is free on staging and proceeds directly to provisioning.
 Selected services use the normal entitlement machinery; fast search is still opt-in.
 Context pays the underlying Cloudflare usage. This replaces the proposal to hand
@@ -397,25 +399,21 @@ the console storage badge, and warn before storage activation that data may be
 deleted at any time and must not hold vital information. The full-width app
 banner was removed at the owner’s request.
 
-## The free managed tier (2026-09-24)
+## The free managed tier (2026-09-24, launch contract completed 2026-09-28)
 
-A context can start on a bucket we run with **no card**: 1,000 notes, one free
-context per account, owner-only (`billing.startFreeManaged`). It is the same
-provisioning run a payment starts, entitled by `managedStorageEntitled` instead
-of by a paying status.
+A context can start on a bucket we run with **no card**: 1,000 notes,
+owner-only (`billing.startFreeManaged`). It is the same provisioning run a
+payment starts, entitled by `managedStorageEntitled` instead of by a paying
+status. The note cap is the product restriction; creating another workspace
+does not silently turn the storage choice into a paid-only one.
 
-**It ships dark in production, and that is the decision, not a delay.** A free
-bucket is one the customer holds no key to, so non-negotiable #1's exit — a
-free download of everything, or handing the bucket to storage of their own — is
-the only thing that makes it theirs. Downloading a folder as a `.zip` works
-today; moving a managed bucket's notes into one of theirs is not built. Until
-it is, `FREE_MANAGED_STORAGE=enabled` is set by hand and never by a deploy
-(`deployEnv.test.ts` names why), and staging has it on because storage there is
-already free and disposable. Switching it off stops new free buckets and
-touches no existing one: it gates provisioning, never access. Removing the
-switch before the hand-off path lands is the reversal this section exists to
-stop, and `freeManaged.test.ts` ("a deployment that has not switched it on does
-not offer it") fails if the default flips.
+**It is the production default wherever managed storage is configured.** The
+launch gate was the free exit and it is now paid: Settings → Storage moves the
+entire raw bucket to storage the owner controls, free and after cancellation,
+without switching away from the source until the destination matches it.
+`FREE_MANAGED_STORAGE=disabled` is an emergency brake for new provisioning,
+not an entitlement on existing data. Staging remains on because its managed
+storage is already free and disposable.
 
 **The cap refuses creating a note, and nothing else.** Reading, editing,
 moving, deleting and every exit keep working on a full context — a limit on

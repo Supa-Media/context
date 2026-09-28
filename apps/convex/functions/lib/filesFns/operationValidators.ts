@@ -19,6 +19,10 @@ import {
   folderPathsValidator,
   imageValidator,
   imageWrittenValidator,
+  emojiImageValidator,
+  emojiListValidator,
+  emojiRemovedValidator,
+  emojiStoredValidator,
   listingValidator,
   manifestValidator,
   movedValidator,
@@ -71,6 +75,7 @@ export const operationResultValidator = v.union(
     ),
   }),
   v.object({ kind: v.literal("websiteReleaseDeleted"), objects: v.number() }),
+  v.object({ kind: v.literal("organizerResult"), output: v.string() }),
   listingValidator,
   fileValidator,
   manifestValidator,
@@ -90,6 +95,10 @@ export const operationResultValidator = v.union(
   storageLayoutReadValidator,
   imageWrittenValidator,
   imageValidator,
+  emojiListValidator,
+  emojiImageValidator,
+  emojiStoredValidator,
+  emojiRemovedValidator,
   pluginInventoryValidator,
   pluginManagedInstallsValidator,
   contextPluginsValidator,
@@ -159,7 +168,11 @@ export const operationValidator = v.union(
       v.object({ releaseId: v.string(), pageId: v.string(), path: v.string() }),
     ),
   }),
-  v.object({ kind: v.literal("deleteWebsiteRelease"), releaseId: v.string() }),
+  v.object({
+    kind: v.literal("deleteWebsiteRelease"),
+    releaseId: v.string(),
+    pageIds: v.optional(v.array(v.string())),
+  }),
   v.object({
     kind: v.literal("search"),
     query: v.string(),
@@ -251,6 +264,16 @@ export const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
+  v.object({ kind: v.literal("emojiList") }),
+  v.object({ kind: v.literal("emojiRead"), name: v.string() }),
+  v.object({
+    kind: v.literal("emojiStore"),
+    name: v.string(),
+    bytes: v.bytes(),
+    replace: v.boolean(),
+  }),
+  v.object({ kind: v.literal("emojiRemove"), name: v.string() }),
+  v.object({ kind: v.literal("emojiRename"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
   v.object({ kind: v.literal("pluginManagedList") }),
   v.object({ kind: v.literal("contextPlugins") }),
@@ -401,6 +424,7 @@ export const operationValidator = v.union(
     kind: v.literal("setFolderVisibility"),
     path: v.string(),
     visibility: visibilityValidator,
+    onlyIfUnset: v.optional(v.boolean()),
   }),
   v.object({
     /**
@@ -467,4 +491,23 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("readStorageLayout") }),
   /** `activity.md`, filtered to what this caller may see. See `activity.ts`. */
   v.object({ kind: v.literal("readActivity") }),
+  /**
+   * Auto-organize's trips through the barrier. See `lib/organizer/sweepOps.ts`.
+   * JSON in and out: the suggestions are the engine's shape, and the engine
+   * checks them when it reads them back.
+   */
+  v.object({
+    kind: v.literal("organizer"),
+    action: v.union(
+      v.literal("gather"),
+      v.literal("record"),
+      v.literal("read"),
+      v.literal("resolve"),
+      v.literal("clear"),
+      v.literal("autopilot"),
+      v.literal("undo"),
+    ),
+    input: v.string(),
+    autopilot: v.optional(v.boolean()),
+  }),
 );

@@ -89,6 +89,7 @@ jest.mock("convex/react", () => {
       return bound[name];
     },
     useQuery: () => undefined,
+    useConvex: () => ({ query: async () => undefined }),
     useMutation: () => async () => undefined,
   };
 });

@@ -19,7 +19,7 @@ export function websiteAddress(origin: string, handlePath: string): { url: strin
 export function websiteWarning(view: WebsiteStateView, short: string): string {
   return view.state === "enabled"
     ? `${short} stops showing pages. Your website folder, domain and share links are kept.`
-    : `Pages in the website folder go live at ${short}. Nothing outside it is published. If there's no homepage, website/index.md is created.`;
+    : `Pages in the website folder go live at ${short}, except notes you keep private. Nothing outside it is published. If there's no homepage, website/index.md is created.`;
 }
 
 /** A failed switch, in words, without the server's internals. */

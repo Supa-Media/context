@@ -66,7 +66,8 @@ jobs:
       # same reason it is the trigger checker's: a workflow that does not parse
       # is not a failing check, GitHub ignores the file entirely, so a checker
       # that lives only inside the file that broke goes down with it silently.
-      # `mcp.yml` held the only copy and was the file it could not check.
+      # `mcp.yml` once held the only copy and was the file it could not check.
+      # `fast-guards.yml` is now the other host.
       - name: Every workflow file is one GitHub will load
         run: |
           node scripts/check-workflow-yaml.mjs --self-test
@@ -74,16 +75,24 @@ jobs:
 
       # The second half of the same idea, and the second host for it: this
       # asserts what the `on:` blocks SAY rather than what their run blocks do.
-      # mcp.yml runs it too — see the note there for why one host is not
-      # enough.
+      # fast-guards.yml runs it too, so narrowing either host is caught by the
+      # other.
       - name: Workflow triggers reach pull requests, and deploys reach none
         run: |
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
 
+      # Second host for the browser-scope guard. The first is in router.yml, not
+      # in either workflow whose path gates the script validates.
+      - name: Expensive CI stays scoped to its dependency graph
+        run: |
+          node scripts/ci-change-scope.mjs --self-test
+          node scripts/check-ci-path-gates.mjs --self-test
+          node scripts/check-ci-path-gates.mjs
+
       # And the second host for the package-coverage half of the same idea:
       # every package with a test suite must be run by a pull-request
-      # workflow. See the note in mcp.yml for why one host is not enough.
+      # workflow. fast-guards.yml is the other host.
       - name: Every package with a test suite is run by a pull request
         run: |
           node scripts/check-package-tests-run.mjs --self-test
@@ -91,7 +100,7 @@ jobs:
 
       # A deploy preflight calling the bare GET /accounts/{id} endpoint is
       # what took down deploy-router.yml and this workflow's own deploy job on
-      # 2026-09-07 — see the script's header. mcp.yml runs it too, same
+      # 2026-09-07 — see the script's header. fast-guards.yml runs it too, same
       # two-host reasoning as the trigger checker above.
       - name: No deploy preflight calls the bare accounts/{id} endpoint
         run: |
@@ -101,8 +110,8 @@ jobs:
       # `wrangler secret put` before `wrangler deploy` collided with a stale
       # plaintext var on every run of deploy-router.yml (#302) because the
       # secret push acts on whatever version is currently live — see the
-      # script's header. mcp.yml runs it too, same two-host reasoning as the
-      # checkers above.
+      # script's header. fast-guards.yml runs it too, with the same two-host
+      # reasoning as the checkers above.
       - name: No deploy workflow pushes a secret before deploying
         run: |
           node scripts/check-workflow-secret-order.mjs --self-test
@@ -112,27 +121,38 @@ jobs:
       # `CONVEX_ORIGIN` as a plaintext var, which is what the ordering above
       # collided with. This proves no Wrangler config — this worker's
       # included — carries a secret it also pushes via `wrangler secret put`
-      # as a `vars` entry. mcp.yml runs it too, same two-host reasoning as the
-      # checkers above.
+      # as a `vars` entry. fast-guards.yml runs it too, with the same two-host
+      # reasoning as the checkers above.
       - name: No Wrangler config commits a pushed secret as a var
         run: |
           node scripts/check-wrangler-vars-not-secrets.mjs --self-test
           node scripts/check-wrangler-vars-not-secrets.mjs
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/email-worker"
+          paths: ".github/workflows/email-worker.yml"
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter @context/email-worker... --frozen-lockfile
 
       - name: Typecheck
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/email-worker
         run: npx tsc --noEmit
 
       - name: Ingestion tests
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/email-worker
         run: npx vitest run

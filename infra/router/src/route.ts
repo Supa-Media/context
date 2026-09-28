@@ -18,6 +18,7 @@
  *     /api/auth/[...]  -> Convex HTTP actions, path unchanged
  *     /_expo/[...]     -> the Expo web app, cacheable forever
  *     /og/card.png     -> the Worker's own OpenGraph card
+ *     /favicon.ico etc -> the Worker's own icons (icons.ts)
  *     everything else  -> a link-preview crawler gets server-rendered meta
  *                         tags; everyone else gets the Expo web app on EAS
  *                         Hosting, path unchanged
@@ -38,13 +39,14 @@ import {
   isCrawler,
   OG_CARD_PATH,
   consoleNoteFrom,
-  shortLinkFrom,
   previewFor,
   shareCardTokenFrom,
   shortLinkCardFrom,
   shareTokenFrom,
   type PreviewMeta,
 } from "./preview";
+import { handleSiteFrom, siteCardFrom } from "./preview/sites";
+import { iconFor, type IconName } from "./icons";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
 export type Upstream = "expo" | "convex";
@@ -69,6 +71,19 @@ export type RouteDecision =
   // here, so `slug` and `path` are well-formed and nothing an attacker types
   // reaches an upstream unchecked.
   | { kind: "note-preview"; slug: string; path: string }
+  // A crawler asking for an address a website may own: the page's own tags
+  // when it is a live public page, else the legacy short link at the same
+  // address when there is one, else the product card. See `preview/sites.ts`.
+  | {
+      kind: "site-preview";
+      handle: string;
+      routePath: string;
+      legacySlug?: string;
+      /** Where the page lives, for its canonical URL and its card's. */
+      origin: string;
+      prefix: string;
+    }
+  | { kind: "site-card"; handle: string; routePath: string; version: string | null }
   | {
       kind: "short-link-preview";
       handle: string;
@@ -78,6 +93,8 @@ export type RouteDecision =
     }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
+  // The site's favicons, served from the bundle. See `icons.ts`.
+  | { kind: "icon"; name: IconName }
   // `path` is the full path + query to request from the upstream. It is never
   // rewritten today, but naming it separately keeps the tests honest about
   // that and makes a future prefix rule a one-line change.
@@ -170,6 +187,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     return { kind: "og-card" };
   }
 
+  // The favicons, for the same reason: Google's favicon fetcher is a crawler,
+  // and a crawler asking for an icon wants the icon, not an HTML card.
+  const icon = iconFor(pathname);
+  if (icon !== null) return { kind: "icon", name: icon };
+
   // Before the crawler check, like `/og/card.png` above and for the same
   // reason: this is the image the preview tags point at, and it is requested
   // with the same User-Agent that triggered them.
@@ -192,6 +214,17 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     };
   }
 
+  // A website page's card, addressed by the handle and path the crawler used.
+  const siteCard = siteCardFrom(url, false);
+  if (siteCard !== null && siteCard.handle !== null) {
+    return {
+      kind: "site-card",
+      handle: siteCard.handle,
+      routePath: siteCard.routePath,
+      version: siteCard.version,
+    };
+  }
+
   if (pathname.startsWith(IMMUTABLE_PREFIX)) {
     return { kind: "proxy", upstream: "expo", path, cache: "immutable" };
   }
@@ -209,17 +242,22 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
       return { kind: "note-preview", slug: note.slug, path: note.path };
     }
 
-    // A short link. Guessable like the readable team link above, and bounded
-    // the same way: the probe space is names the owner typed, and the control
-    // plane refuses every name this product writes, so the guessable ones
-    // cannot be claimed. `/@seyi` alone is untouched and still frozen — a
-    // handle is guessable *and* unbounded, which is a different question.
-    const short = shortLinkFrom(url);
-    if (short !== null) {
+    // A website address, `/@seyi/writing`. It unfurls as the page
+    // only when that is a live public page of a site its owner turned on,
+    // which is what the address already shows anyone who opens it; a short
+    // link at the same address is asked about next, exactly as the app
+    // resolves it, and everything else is the product card. The short link's
+    // own bound is unchanged: the probe space is names the owner typed. `/@seyi`
+    // alone is not one of these and stays frozen; see `handleSiteFrom`.
+    const site = handleSiteFrom(url);
+    if (site !== null) {
       return {
-        kind: "short-link-preview",
-        handle: short.handle,
-        slug: short.slug,
+        kind: "site-preview",
+        handle: site.handle,
+        routePath: site.routePath,
+        ...(site.legacySlug === null ? {} : { legacySlug: site.legacySlug }),
+        origin: `https://${APEX}`,
+        prefix: `/@${site.handle}`,
       };
     }
 

@@ -66,6 +66,8 @@ const websiteStateValidator = v.union(
     handlePath: v.string(),
     canManage: v.boolean(),
     enabledAt: v.number(),
+    canPublish: v.optional(v.boolean()),
+    publishedAt: v.optional(v.number()),
   }),
 );
 
@@ -76,6 +78,8 @@ const websiteEnabledStateValidator = v.object({
   handlePath: v.string(),
   canManage: v.boolean(),
   enabledAt: v.number(),
+  canPublish: v.optional(v.boolean()),
+  publishedAt: v.optional(v.number()),
 });
 
 const websiteEnableValidator = v.object({
@@ -85,6 +89,8 @@ const websiteEnableValidator = v.object({
   handlePath: v.string(),
   canManage: v.boolean(),
   enabledAt: v.number(),
+  canPublish: v.optional(v.boolean()),
+  publishedAt: v.optional(v.number()),
   starter: v.union(v.literal("created"), v.literal("existing")),
 });
 

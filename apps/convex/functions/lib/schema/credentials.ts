@@ -49,19 +49,34 @@ export const credentialTables = {
     .index("by_workspace_provider", ["workspaceId", "provider"]),
 
   /**
-   * A paid copy from customer-owned storage into a managed bucket.
+   * A verified whole-bucket move in either direction.
    *
-   * The source binding remains live until copy and verification finish. Its
-   * id is pinned so a reconnect during the copy makes cutover fail closed.
-   * The destination credential is workspace-bound encrypted metadata and is
-   * never returned by a public function.
+   * The original rows predate `direction` and are moves into managed storage;
+   * absent therefore means `to_managed`. A move out records the customer's
+   * complete S3 binding. In both directions the source remains live until copy
+   * and verification finish, and the encrypted destination is never returned
+   * by a public function.
    */
   managedStorageMigrations: defineTable({
     workspaceId: v.id("workspaces"),
     sourceBindingId: v.id("storageBindings"),
+    direction: v.optional(
+      v.union(v.literal("to_managed"), v.literal("to_customer")),
+    ),
+    targetProvider: v.optional(
+      v.union(
+        v.literal("r2"),
+        v.literal("s3"),
+        v.literal("b2"),
+        v.literal("s3-compatible"),
+      ),
+    ),
     targetEndpoint: v.string(),
+    targetRegion: v.optional(v.string()),
     targetBucket: v.string(),
+    targetRootPrefix: v.optional(v.string()),
     targetAccessKeyId: v.string(),
+    targetForcePathStyle: v.optional(v.boolean()),
     encryptedTargetSecretAccessKey: v.string(),
     status: v.union(v.literal("copying"), v.literal("failed")),
     phase: v.union(

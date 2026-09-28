@@ -7,6 +7,10 @@ import { Text } from "../design/components/Text";
 import { layout, pointerType as t, radii, space } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { MenuItem } from "./files/menu";
+import { AnonymousAvatar } from "./AnonymousAvatar";
+import { FaceView } from "./faces/PersonFace";
+import { useMyFace } from "./faces/useFace";
+import { UNKNOWN_INITIAL } from "./identity";
 
 /**
  * Who you are signed in as, and the way out.
@@ -153,14 +157,35 @@ export function AccountBlock({
   );
 }
 
-export function Avatar({ initial }: { initial: string }) {
+/**
+ * The signed-in person's own face: their photo or workspace icon, else the
+ * Supa mark on their colour (`faces/`). Never an initial (Dev2,
+ * 2026-09-28). Somebody with no name at all — a homepage visitor — keeps the
+ * visitor silhouette the owner chose for exactly that.
+ */
+export function Avatar({ initial, size }: { initial: string; size?: number }) {
   const styles = useThemedStyles(makeStyles);
+  const mine = useMyFace();
+  const side = size ?? AVATAR;
   return (
-    <View style={styles.avatar} aria-hidden>
-      <Text style={styles.avatarInitial}>{initial}</Text>
+    <View
+      style={[
+        styles.avatar,
+        size === undefined ? null : { width: size, height: size, borderRadius: size / 2 },
+      ]}
+      aria-hidden
+    >
+      {initial === UNKNOWN_INITIAL ? (
+        <AnonymousAvatar />
+      ) : (
+        <FaceView face={mine.face} name={mine.handle} size={side} testID="avatar-face" />
+      )}
     </View>
   );
 }
+
+/** The avatar's side when no size is given; `styles.avatar` is the same. */
+const AVATAR = 26;
 
 /** The two things `compact`'s single control can do. */
 type AccountMenuActionId = "meetings" | "settings" | "signOut";
@@ -310,8 +335,8 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       /* See `ConsoleShell`'s avatar: one hue, flat, no retired defaults. */
       backgroundColor: colors.accent,
+      overflow: "hidden",
     },
-    avatarInitial: { fontSize: t.label, fontWeight: "700", color: colors.ink },
     signOut: {
       width: 28,
       height: 28,

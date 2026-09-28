@@ -102,23 +102,21 @@ test("another context that has moved carries a dot, and pays no width for it", a
 }) => {
   // `public-worship` is the fixture's shared context, and the one the meeting
   // was actually about: you work in your own all day and cannot see that the
-  // shared one moved.
-  const marked = page.getByTestId("context-foot-public-worship");
-  const quiet = page.getByTestId("context-foot-lk");
+  // shared one moved. The account button says so with its card closed.
+  await expect(page.getByTestId("account-switcher-activity")).toBeVisible();
+  await page.getByTestId("account-switcher").click();
+
+  const marked = page.getByTestId("switcher-context-public-worship");
+  const quiet = page.getByTestId("switcher-context-lk");
   await expect(marked).toBeVisible();
 
   // Said, not just drawn. A mark only sighted people get is the failure
   // `ContextStrip`'s own rule already names.
-  await expect(marked).toHaveAttribute(
-    "aria-label",
-    "Switch to @public-worship, which has changed",
-  );
-  await expect(quiet).toHaveAttribute("aria-label", "Switch to @lk");
+  await expect(marked).toHaveAttribute("aria-label", "@public-worship, which has changed");
+  await expect(quiet).toHaveAttribute("aria-label", "@lk");
 
-  // And the geometry claim, which is the whole reason this is here rather than
-  // in jsdom: the row is a fixed target and the dot is absolutely positioned
-  // over it, so a marked context must be exactly the size of an unmarked one.
-  // Get this wrong and the dot pushes the names the row exists to fit.
+  // The dot is absolutely positioned over the mark, so a marked row must be
+  // exactly the size of an unmarked one.
   const a = await marked.boundingBox();
   const b = await quiet.boundingBox();
   if (a === null || b === null) throw new Error("nothing drawn");

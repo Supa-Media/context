@@ -14,6 +14,20 @@ export interface Presence {
   phase: PresencePhase;
   /** "2 here", "Reconnecting", or "" when there is nothing worth saying. */
   summary: string;
+  /**
+   * These members are a demonstration, not people: the homepage's cast
+   * (`features/home/cast`). The chip says so, so a visitor never takes a
+   * scripted @maya for somebody watching them.
+   */
+  demo?: boolean;
+  /**
+   * A comment thread the room is acting on, for the editor to open: the
+   * homepage cast commenting, replying or resolving. `step` changes with every
+   * action, so each one opens the thread again even when it is the same
+   * thread. The editor only ever opens it; closing it is the reader's. Absent
+   * from a real room, whose members' comments arrive as text like any edit.
+   */
+  commentFocus?: { thread: string; step: number } | null;
   /** Tell the room where this editor's caret is. Safe to call on every change. */
   report: (anchor: number, head: number) => void;
   /**

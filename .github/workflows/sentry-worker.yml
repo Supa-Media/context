@@ -45,14 +45,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/sentry-worker"
+          paths: ".github/workflows/sentry-worker.yml"
+
       # No install step, and that is a property worth keeping rather than an
       # omission: the Worker has no runtime dependency and its suite imports
       # nothing but the module under test, so `node` alone is the whole
       # environment — the same shape `deploy-sentry-worker.yml`'s gate uses.
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
 
       - name: Sentry inbox tests
+        if: steps.scope.outputs.affected == 'true'
         run: node infra/sentry-worker/test/worker.test.mjs

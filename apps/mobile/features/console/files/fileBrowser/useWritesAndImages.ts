@@ -14,11 +14,13 @@
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
 import { useCallback, useMemo } from "react";
-import { dataUrlFor } from "../imageBytes";
+import { dataUrlFor, isRemoteImageTarget } from "../imageBytes";
 import { toFileError } from "../browser";
 import type { FormOutcome, FormSubmission } from "../formBlock";
 import type { WriteOutcome } from "../../../offline/sync";
 import { queuedWriteSender } from "../queuedWrite";
+import { EMOJI_IMAGE_TARGET } from "../emoji/host";
+import { loadCustomEmoji } from "../../emoji/emojiCache";
 import type { PendingWrite } from "../../../offline/outbox";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
@@ -28,6 +30,8 @@ type WritesAndImagesDeps =
     FileActionsValues,
     | "imageCache"
     | "readNoteImageAction"
+    | "readRemoteImageAction"
+    | "readEmojiAction"
     | "storeNoteImageAction"
     | "submitFormAction"
     | "workspaceId"
@@ -37,7 +41,7 @@ type WritesAndImagesDeps =
 
 export function useWritesAndImages(deps: WritesAndImagesDeps) {
   const {
-    editorRef, imageCache, readNoteImageAction, selectedPathRef, storeNoteImageAction,
+    editorRef, imageCache, readEmojiAction, readNoteImageAction, readRemoteImageAction, selectedPathRef, storeNoteImageAction,
     submitFormAction, workspaceId, writeNote,
   } = deps;
 
@@ -107,13 +111,29 @@ export function useWritesAndImages(deps: WritesAndImagesDeps) {
   const loadImage = useCallback(
     async (target: string): Promise<string | null> => {
       if (workspaceId === null) return null;
+      /*
+        A workspace emoji, asked for by name over the native editor's image
+        bridge. Not gated on the open note: every member may see every emoji.
+      */
+      if (target.startsWith(EMOJI_IMAGE_TARGET)) {
+        const name = target.slice(EMOJI_IMAGE_TARGET.length);
+        return loadCustomEmoji(workspaceId, name, (args) => readEmojiAction({ workspaceId, ...args }));
+      }
       const notePath = selectedPathRef.current;
       if (notePath === null) return null;
       const cacheKey = `${workspaceId}|${target}`;
       const cached = imageCache.current.get(cacheKey);
       if (cached !== undefined) return cached;
       try {
-        const read = await readNoteImageAction({ workspaceId, notePath, leaf: target });
+        /*
+          A remote image goes through our proxy, never straight into an <img>:
+          drawn directly, its host would see every read with the reader's
+          address. The server fetches it for a note this viewer can see that
+          names it, and hands back bytes like any stored image.
+        */
+        const read = isRemoteImageTarget(target)
+          ? await readRemoteImageAction({ workspaceId, notePath, url: target })
+          : await readNoteImageAction({ workspaceId, notePath, leaf: target });
         const src = dataUrlFor(read.bytes, read.contentType);
         imageCache.current.set(cacheKey, src);
         return src;
@@ -121,7 +141,7 @@ export function useWritesAndImages(deps: WritesAndImagesDeps) {
         return null;
       }
     },
-    [workspaceId, readNoteImageAction],
+    [workspaceId, readNoteImageAction, readRemoteImageAction, readEmojiAction],
   );
 
   /**

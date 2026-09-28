@@ -5,6 +5,7 @@ import { Text } from "../../design/components/Text";
 import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { MINIMUM_PASSPHRASE_LENGTH } from "./passphraseOps";
+import { useFieldFont } from "../../design/fieldFont";
 
 /**
  * The two things somebody does with a passphrase they already have, once a
@@ -39,6 +40,7 @@ export function PassphraseActionDialog({
   error?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -75,7 +77,7 @@ export function PassphraseActionDialog({
 
           <View style={styles.body}>
             <TextInput
-              style={styles.input}
+              style={[styles.input, fieldFont]}
               value={current}
               onChangeText={setCurrent}
               placeholder="Current passphrase"
@@ -90,7 +92,7 @@ export function PassphraseActionDialog({
             {mode === "change" ? (
               <>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, fieldFont]}
                   value={next}
                   onChangeText={setNext}
                   placeholder="New passphrase"
@@ -103,7 +105,7 @@ export function PassphraseActionDialog({
                   accessibilityLabel="New passphrase"
                 />
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, fieldFont]}
                   value={again}
                   onChangeText={setAgain}
                   placeholder="New passphrase again"

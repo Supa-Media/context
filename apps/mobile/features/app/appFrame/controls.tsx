@@ -10,16 +10,24 @@ import { makeStyles } from "./styles";
 /* -------------------------------------------------------------------------- */
 
 /**
- * ⌘K.
+ * ⌘K, drawn as a search field.
  *
  * It said "Search notes and commands" and there are no commands. A field that
  * names a thing it does not contain teaches somebody to type a verb into it,
  * get nothing back, and stop using it — and the same words were its accessible
- * name, so a screen reader announced the same promise.
+ * name, so a screen reader announced the same promise. It says what the
+ * palette's own placeholder says, and the two agreeing is the point: the
+ * trigger and the thing it opens should not describe two different tools.
  *
- * It says what the palette's own placeholder says, and the two agreeing is the
- * point: the trigger and the thing it opens should not describe two different
- * tools.
+ * **It looks like a field because it is the way into one.** It was a chip
+ * reading only "⌕ ⌘K" — shortcut furniture, which on a pointer reads as a
+ * keyboard hint rather than as somewhere to click, and sat beside two pills
+ * of the same size and weight. Now it has the word "Search", a hairline edge,
+ * and the shortcut as a keycap at the trailing end, the way every desktop
+ * search field draws it. It is still a button: pressing it opens the palette,
+ * which is the one search surface.
+ *
+ * Native keeps the word and drops the keycap, having no shortcut to show.
  */
 export function SearchTrigger({ onPress }: { onPress: () => void }) {
   const colors = useColors();
@@ -36,13 +44,14 @@ export function SearchTrigger({ onPress }: { onPress: () => void }) {
       style={[styles.search, hovered && styles.searchHover]}
     >
       <Icon name="search" size={13} color={colors.chromeMuted} />
+      <Text variant="rowSub" numberOfLines={1} style={styles.searchWord}>
+        Search
+      </Text>
       {Platform.OS === "web" ? (
         <Text variant="treeMeta" style={styles.kbd}>
           ⌘K
         </Text>
-      ) : (
-        <Text variant="rowSub">Search</Text>
-      )}
+      ) : null}
     </Pressable>
   );
 }

@@ -82,8 +82,9 @@ export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-day
 /**
  * The root folders every workspace **preset** writes.
  *
- * `apps/mobile/features/workspace/presets.ts` ships two fixed layouts and sends
- * them down the `custom` template path, and `DEFAULT_PRESET` is `company` — so
+ * `apps/mobile/features/workspace/presets.ts` ships fixed layouts (one per kind
+ * of workspace) and sends them down the `custom` template path, and
+ * `DEFAULT_PRESET` is `business` — so
  * these are what a shared context gets when nobody chooses. That makes them
  * ours, at addresses anybody who knows a handle can type, which is the whole
  * test `isProductMandatedPath` applies.
@@ -95,15 +96,25 @@ export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-day
  * contents.
  *
  * Kept in step with the preset file by `teamShare.test.ts`, which reads that
- * file rather than restating it here.
+ * file rather than restating it here. Names an earlier version of the presets
+ * wrote (`3-handbook`, `4-customers`) stay: workspaces made then still have
+ * them, and this list is about what can be guessed, not what is current.
  */
 const PRESET_FOLDERS = [
   "1-clients",
+  "1-plan",
   "2-pipeline",
   "2-teams",
+  "2-work",
+  "3-clients",
   "3-handbook",
+  "3-meetings",
   "3-practice",
+  "3-team",
   "4-customers",
+  "4-handbook",
+  "4-practice",
+  "4-reference",
   "5-archive",
 ] as const;
 

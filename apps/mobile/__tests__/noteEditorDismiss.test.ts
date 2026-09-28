@@ -45,6 +45,8 @@ jest.mock("../features/console/files/LiveEditor", () => ({
       wrap: () => {},
       toggleLinePrefix: () => {},
       insertLink: () => {},
+      applyLink: () => {},
+      cancelLink: () => {},
       undo: () => {},
       redo: () => {},
       blur: () => {},
@@ -159,7 +161,6 @@ function mount(): Mounted {
   act(() => {
     root.render(
       createElement(AppFrame, {
-        switcher: null,
         status: null,
         onSearch: () => {},
         children: createElement(Host),

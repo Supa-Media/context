@@ -39,7 +39,9 @@ import {
 import type { NoteLinkRef } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
 import type { ImageHostRef } from "../imageBlock";
+import { EMOJI_IMAGE_TARGET, type EmojiHostRef } from "../emoji/host";
 import { pluginSuggestSource, type PluginSuggestRef } from "../pluginSuggest";
+import { guestExtras } from "./guestExtras";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
@@ -397,6 +399,19 @@ export function mountGuest(
   };
 
   /**
+   * A workspace's own emoji, over the image bridge: `emoji:<name>` is a target
+   * the host's image loader answers from the workspace's emoji. No list comes
+   * across, so the native `:` menu offers standard emoji only, and a note
+   * still draws every workspace emoji it names.
+   */
+  const emoji: EmojiHostRef = {
+    current: {
+      custom: () => null,
+      load: (name) => images.current?.load(`${EMOJI_IMAGE_TARGET}${name}`) ?? Promise.resolve(null),
+    },
+  };
+
+  /**
    * Send one filled-in form to the host and wait for its answer.
    *
    * The promise is deliberately one that **can stay pending**: there is no
@@ -481,6 +496,9 @@ export function mountGuest(
   const pendingPicks = new Map<string, (text: string | null) => void>();
   let suggestToken = 0;
 
+  // Comments and folder lists, as on the web; see `guestExtras.ts`.
+  const extras = guestExtras(bridge.post, links);
+
   const view = new EditorView({
     state: editorStateFor({
       doc: "",
@@ -490,6 +508,7 @@ export function mountGuest(
       links,
       forms,
       images,
+      emoji,
       /*
         Always installed, never conditional. The source is the thing that reads
         `suggests` at call time; installing it only when a plugin happened to be
@@ -498,6 +517,7 @@ export function mountGuest(
       */
       pluginSuggest: pluginSuggestSource(suggests),
       insetBottom: () => inset,
+      extra: extras.extensions,
     }),
     parent: root,
   });
@@ -572,6 +592,7 @@ export function mountGuest(
     latest = text.toString();
     latestRevision = "";
     forms.generation = (forms.generation ?? 0) + 1;
+    extras.documentReplaced();
     // Seed CodeMirror before installing yCollab. Its initial synchronisation
     // reads the editor buffer; doing this in the opposite order would turn the
     // canonical seed into a fresh local insertion and emit an update.
@@ -650,6 +671,7 @@ export function mountGuest(
   };
 
   const apply = (message: ToGuest): void => {
+    if (extras.receive(message, view)) return;
     switch (message.type) {
       case "doc": {
         // A legacy doc is an explicit mode switch. Tear down the old Y.Doc even
@@ -661,6 +683,7 @@ export function mountGuest(
         latest = message.text;
         latestRevision = message.revision ?? "";
         forms.generation = (forms.generation ?? 0) + 1;
+        extras.documentReplaced();
         // Not an edit, the one write a read-only note still accepts, and not an
         // entry in the undo history. All three live in `replaceDocument`.
         replaceDocument(view, message.text);
@@ -840,7 +863,12 @@ export function mountGuest(
         const command = decodeCommand(message.command);
         if (command === null) return;
         if (!acceptsCommand(effectiveEditable(), command)) return;
-        runCommand(view, command);
+        // Asked for by the host only when it has a Link sheet to answer with.
+        const askLink =
+          command.name === "insertLink" && command.ask === true
+            ? (text: string) => bridge.post({ v: PROTOCOL_VERSION, type: "link-request", text })
+            : undefined;
+        runCommand(view, command, askLink);
         return;
       }
     }

@@ -98,7 +98,7 @@ interface AccessoryKey {
    */
   label: string;
   icon: IconName;
-  run: (controls: EditorControls) => void;
+  run: (controls: EditorControls, askLink: ((words: string) => void) | undefined) => void;
 }
 
 /**
@@ -131,7 +131,12 @@ const KEYS: readonly AccessoryKey[] = [
     for that pair, "the thing a person writing notes in a hurry actually
     reaches for", apply to a link to another note at least as much.
   */
-  { id: "link", label: "Insert link", icon: "link", run: (c) => c.insertLink() },
+  /*
+    With words selected, the editor saves them and calls `askLink`, and the
+    Link sheet takes it from there (`LinkSheet.tsx`); with nothing selected it
+    is still `[[]]` with completion. See "A link key on the accessory bar".
+  */
+  { id: "link", label: "Insert link", icon: "link", run: (c, askLink) => c.insertLink(askLink) },
   { id: "heading", label: "Heading", icon: "heading", run: (c) => c.toggleLinePrefix("# ") },
   { id: "bold", label: "Bold", icon: "bold", run: (c) => c.wrap("**", "**") },
   { id: "italic", label: "Italic", icon: "italic", run: (c) => c.wrap("*", "*") },
@@ -145,8 +150,11 @@ export function NoteAccessory({
    * in the first case and a destroyed editor in the second.
    */
   controls,
+  onAskLink,
 }: {
   controls: () => EditorControls | null;
+  /** Show the Link sheet over these selected words. Absent: no sheet here. */
+  onAskLink?: (words: string) => void;
 }): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
@@ -162,7 +170,7 @@ export function NoteAccessory({
               icon={key.icon}
               onPress={() => {
                 const api = controls();
-                if (api !== null) key.run(api);
+                if (api !== null) key.run(api, onAskLink);
               }}
             />
           ))}

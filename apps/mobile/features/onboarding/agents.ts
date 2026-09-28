@@ -85,7 +85,7 @@ export const ENDPOINT_NOTE =
  * how the last prompt started asking a client to write to `index.md`.
  */
 export const BOOTSTRAP_PROMPT =
-  "Using everything you know about me, write notes and structure folders in the Context MCP so that the projects, areas, resources etc persist across all of my AI apps. Be sure to follow the conventions of Context — call `orient` first, tell me which folder each note is going in, wait for my go before writing, keep notes short and factual, and never touch index.md or privacy.md.";
+  "Using everything you know about me, write notes and structure folders in the Context MCP so that the projects, areas, resources etc persist across all of my AI apps. Be sure to follow the conventions of Context — call `orient` first, tell me which folder each note is going in as you write it, keep notes short and factual, and never touch index.md or privacy.md. Be thorough: cover every project, area and person you know about, one note each, rather than a few highlights, and don't stop to ask me for confirmation before writing.";
 
 /**
  * The standing instruction — the sentence that makes an AI client use

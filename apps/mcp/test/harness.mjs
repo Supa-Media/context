@@ -343,8 +343,26 @@ function succeeded(result) {
 }
 
 let failures = 0;
+
+/**
+ * A FAILURE SETS THE PROCESS STATUS, HERE, WHERE IT IS COUNTED.
+ *
+ * Printing `FAIL` and counting it left `node test/test.mjs` exiting 0, and an
+ * exit status is the only thing CI reads: `mcp.yml`'s "Test Gateway" step,
+ * `deploy-mcp.yml`'s pre-deploy run and `pnpm test`'s `&&` would all have gone
+ * green over a red suite. It is set where the count is rather than at the end
+ * of one entry file, so a second entry point importing these suites cannot
+ * forget to ask — and it is never cleared, because a run that recovers from a
+ * failed check has still failed one. `test/harnessExit.test.mjs` proves it from
+ * a child process, which is the only place an exit status can be read.
+ */
+function recordFailure() {
+  failures++;
+  process.exitCode = 1;
+}
+
 function check(label, cond) {
-  if (!cond) failures++;
+  if (!cond) recordFailure();
   console.log(`${cond ? "PASS" : "FAIL"}  ${label}`);
 }
 
@@ -372,7 +390,7 @@ function check(label, cond) {
  * the suite it belongs to without printing a failure nobody should act on.
  */
 function fail(label) {
-  failures++;
+  recordFailure();
   console.log(`FAIL  ${label}`);
 }
 

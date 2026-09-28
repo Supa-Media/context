@@ -24,11 +24,9 @@
  *    is live on the apex. Releasing that is account deletion's business and
  *    is deliberately not reachable from a settings panel.
  *  - **Not while we hold the bucket.** On managed storage the only copy of
- *    the notes is in a bucket the customer has no key to, and the free
- *    hand-off path is not built yet (`docs/decisions/billing.md`). Deleting
- *    the row either strands their notes in our infrastructure or destroys
- *    them; refusing, and saying so, is the only answer that does not break
- *    the first non-negotiable.
+ *    the notes is in a bucket the customer has no key to. The owner can move
+ *    it through Settings → Storage first; deleting before that verified
+ *    cutover would still strand or destroy the only copy.
  *
  * The cascade itself is `deleteAccount`'s, unchanged and already proven by
  * `account.test.ts` — this file asserts the authorization, the refusals and
@@ -94,6 +92,12 @@ describe("deleteWorkspace", () => {
         problems: [],
         updatedAt: Date.now(),
       });
+      await ctx.db.insert("organizerSettings", {
+        workspaceId,
+        autopilot: { done: false, archive: false, file: false },
+        pending: 0,
+        updatedAt: Date.now(),
+      });
     });
 
     // The pre-state, asserted first: an "is gone afterwards" check over a row
@@ -137,6 +141,11 @@ describe("deleteWorkspace", () => {
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .collect();
       expect(websiteRoutes).toEqual([]);
+      const organizer = await ctx.db
+        .query("organizerSettings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      expect(organizer).toEqual([]);
     });
 
     // And it is claimable again, by anybody — the whole point of freeing it.

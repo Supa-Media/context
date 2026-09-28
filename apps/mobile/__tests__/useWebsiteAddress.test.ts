@@ -4,6 +4,8 @@
  * An open website page stays current: when its site's revision moves, or the
  * visitor comes back to the tab, it asks again — and keeps showing the page
  * it has until the new answer arrives, so an edit never blanks the screen.
+ * A visitor who is not signed in is answered from the router's copy when it
+ * has one; a signed-in one always asks Convex.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -11,9 +13,12 @@ import type { ResolvedWebsiteAddress } from "@context/shared";
 
 let mockRevision: string | null | undefined = "1:1";
 const mockResolve = jest.fn<(args: unknown) => Promise<ResolvedWebsiteAddress>>();
+const mockEdge = jest.fn<(args: unknown) => Promise<ResolvedWebsiteAddress | null>>(async () => null);
+let mockSignedIn = false;
+jest.mock("../features/site/edgeAddress", () => ({ fetchEdgeAddress: (args: unknown) => mockEdge(args) }));
 jest.mock("convex/react", () => ({
   useAction: () => mockResolve,
-  useConvexAuth: () => ({ isLoading: false, isAuthenticated: false }),
+  useConvexAuth: () => ({ isLoading: false, isAuthenticated: mockSignedIn }),
   useQuery: () => mockRevision,
 }));
 jest.mock("@context/convex/_generated/api", () => ({
@@ -59,7 +64,36 @@ afterEach(() => {
   root = null;
   seen.length = 0;
   mockResolve.mockReset();
+  mockEdge.mockReset();
+  mockEdge.mockImplementation(async () => null);
+  mockSignedIn = false;
   mockRevision = "1:1";
+});
+
+describe("where the answer comes from", () => {
+  test("a visitor who is not signed in gets the router's copy, and Convex is not asked", async () => {
+    mockEdge.mockResolvedValueOnce(page("Kept"));
+    await mount();
+    expect(mockEdge).toHaveBeenCalledWith({ handle: "atlas", routePath: "/" });
+    expect(mockResolve).not.toHaveBeenCalled();
+    expect(seen.at(-1)).toMatchObject({ markdown: "Kept" });
+  });
+
+  test("without a copy, Convex answers", async () => {
+    mockResolve.mockResolvedValueOnce(page("Asked"));
+    await mount();
+    expect(mockResolve).toHaveBeenCalledTimes(1);
+    expect(seen.at(-1)).toMatchObject({ markdown: "Asked" });
+  });
+
+  test("a signed-in visitor always asks Convex, never the copy", async () => {
+    mockSignedIn = true;
+    mockEdge.mockResolvedValue(page("Kept"));
+    mockResolve.mockResolvedValueOnce(page("Members see this"));
+    await mount();
+    expect(mockEdge).not.toHaveBeenCalled();
+    expect(seen.at(-1)).toMatchObject({ markdown: "Members see this" });
+  });
 });
 
 describe("an open website page", () => {

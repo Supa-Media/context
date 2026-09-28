@@ -15,15 +15,14 @@ import {
   type Role,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { rank, type Match, type PaletteItem } from "../../console/files/palette";
+import { rank, type PaletteItem } from "../../console/files/palette";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
-import { isApplePlatform } from "../applePlatform";
-import { resolve } from "../keymap";
 import { fonts, layout, pointerType as t, radii, space, touchType } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
+import { usePaletteKeys } from "./usePaletteKeys";
 
 /**
  * One filterable, keyboard-driven list, behind every surface that needs one.
@@ -106,15 +105,9 @@ import { Text } from "./Text";
 /*                                  measures                                  */
 /* -------------------------------------------------------------------------- */
 
-/** A pointer row: one line, detail right-aligned. */
-export const POINTER_ROW_HEIGHT = 38;
+import { POINTER_ROW_HEIGHT, PaletteRow, TOUCH_ROW_HEIGHT } from "./PaletteRow";
 
-/**
- * A touch row: label over detail, and never below the 44pt minimum target.
- * 56 rather than exactly 44 because this list is scrolled with the same thumb
- * that taps it, and 44 back-to-back rows are 44 chances to open the wrong note.
- */
-export const TOUCH_ROW_HEIGHT = 56;
+export { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns, secondLine } from "./PaletteRow";
 
 /** Roughly nine rows before the pointer panel starts scrolling. */
 const POINTER_LIST_MAX_HEIGHT = POINTER_ROW_HEIGHT * 9;
@@ -134,12 +127,6 @@ const PANEL_TOP_MAX = 180;
  */
 const LISTBOX_ROLE = "listbox" as unknown as Role;
 
-/** `kind` as one character. Cheaper than an icon set and legible at 10px. */
-const GLYPHS: Readonly<Record<PaletteItem["kind"], string>> = {
-  note: "▢",
-  folder: "▸",
-  command: "⌘",
-};
 
 /* -------------------------------------------------------------------------- */
 /*                                    props                                   */
@@ -207,6 +194,12 @@ export interface PaletteProps {
   placeholder: string;
   /** Rendered above the list when the query is empty (e.g. "Recent"). */
   emptyHeading?: string;
+  /**
+   * What an untyped palette lists instead of `items`: the notes somebody was
+   * just in (`recentItems`). Absent or empty, it lists `items` as it always
+   * did — a picker ("Move to…") has no recents, and a first visit has none yet.
+   */
+  recent?: PaletteItem[];
   /** Shown when the query matches nothing. Must say what to do next. */
   noMatchMessage?: string;
   /**
@@ -304,144 +297,6 @@ export function askItem(query: string, offered: boolean): PaletteItem | null {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  platform                                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Whether `mod` means ⌘.
- *
- * Only consulted for chords that carry a modifier, and the overlay scope has
- * none — but `resolve` takes the flag, and handing it a guess that is wrong on
- * half the machines is how a modifier rule stops being exact.
- *
- * **`isApplePlatform` decides it, here as everywhere else.** This was a private
- * regex over `navigator.platform || navigator.userAgent`, and `applePlatform`'s
- * own header names it as one of the three answers it was written to replace —
- * accurately, and it had never been replaced. The platform branch it opened
- * with is not lost: the native half of that module *is* the `Platform.OS`
- * check, so a bare import gets it on native and the browser answer on web,
- * which is the whole arrangement of that pair.
- */
-function onApplePlatform(): boolean {
-  return isApplePlatform();
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                    rows                                    */
-/* -------------------------------------------------------------------------- */
-
-interface Run {
-  text: string;
-  matched: boolean;
-}
-
-/**
- * `label` cut into matched and unmatched runs.
- *
- * `ranges` are half-open `[start, end)` slices of `label`, ascending and
- * non-overlapping — that is the contract `fuzzyMatch` documents — so this is a
- * single pass with a cursor. Anything left after the last range is the tail,
- * and an empty `ranges` (the untyped palette) yields the whole label unmatched.
- */
-export function highlightRuns(
-  label: string,
-  ranges: readonly (readonly [number, number])[],
-): Run[] {
-  const runs: Run[] = [];
-  let cursor = 0;
-  for (const [start, end] of ranges) {
-    if (start > cursor) runs.push({ text: label.slice(cursor, start), matched: false });
-    if (end > start) runs.push({ text: label.slice(start, end), matched: true });
-    cursor = Math.max(cursor, end);
-  }
-  if (cursor < label.length) runs.push({ text: label.slice(cursor), matched: false });
-  return runs;
-}
-
-/**
- * The one row both presentations draw.
- *
- * The matched runs are their own `Text` nodes because that is the only way to
- * give a slice of a string its own weight in React Native — there is no
- * `<mark>` and no rich-text primitive. Unmatched runs stay bare strings so
- * they inherit the parent's size and colour and cannot fall out of step with it.
- */
-function PaletteRow({
-  match,
-  selected,
-  touch,
-  onPress,
-  testID,
-}: {
-  match: Match;
-  selected: boolean;
-  touch: boolean;
-  onPress: () => void;
-  testID: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const [hovered, setHovered] = useState(false);
-  const runs = highlightRuns(match.item.label, match.ranges);
-
-  return (
-    <Pressable
-      role="option"
-      aria-selected={selected}
-      accessibilityLabel={
-        match.item.detail ? `${match.item.label}, ${match.item.detail}` : match.item.label
-      }
-      onPress={onPress}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      testID={testID}
-      style={[
-        styles.row,
-        touch ? styles.rowTouch : styles.rowPointer,
-        hovered && !selected && styles.rowHover,
-        selected && styles.rowSelected,
-      ]}
-    >
-      <Text variant="treeMeta" style={styles.glyph} aria-hidden>
-        {GLYPHS[match.item.kind]}
-      </Text>
-
-      <View style={styles.rowText}>
-        <Text variant="tree" numberOfLines={1} style={styles.label}>
-          {runs.map((run, index) =>
-            run.matched ? (
-              <Text
-                key={`${index}-${run.text}`}
-                variant="tree"
-                style={styles.mark}
-                testID="palette-mark"
-              >
-                {run.text}
-              </Text>
-            ) : (
-              run.text
-            ),
-          )}
-        </Text>
-
-        {/* Under the label where there is a whole screen, beside it where a
-            pointer means the row can afford to be one line tall. */}
-        {match.item.detail && touch ? (
-          <Text variant="treeMeta" numberOfLines={1} style={styles.detailUnder}>
-            {match.item.detail}
-          </Text>
-        ) : null}
-      </View>
-
-      {match.item.detail && !touch ? (
-        <Text variant="treeMeta" numberOfLines={1} style={styles.detailBeside}>
-          {match.item.detail}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /*                                  palette                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -449,6 +304,7 @@ export function Palette({
   items,
   placeholder,
   emptyHeading,
+  recent,
   noMatchMessage,
   search,
   onSeeAll,
@@ -472,7 +328,29 @@ export function Palette({
   const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
   const rowHeight = touch ? TOUCH_ROW_HEIGHT : POINTER_ROW_HEIGHT;
 
-  const local = useMemo(() => rank(query, items), [query, items]);
+  const untyped = query.trim() === "" && recent !== undefined && recent.length > 0;
+  const ranked = useMemo(
+    () => (untyped ? recent.map((item) => ({ item, score: 0, ranges: [] })) : rank(query, items)),
+    [untyped, recent, query, items],
+  );
+
+  /**
+   * A note that both halves found is one row, in the half that can bold its
+   * title — and it carries the body search's snippet, which is the reason it
+   * matched when the letters of its title were not.
+   */
+  const local = useMemo(() => {
+    const snippets = new Map(
+      (search?.items ?? []).flatMap((item) =>
+        item.snippet ? [[`${item.kind}:${item.id}`, item.snippet] as const] : [],
+      ),
+    );
+    if (snippets.size === 0) return ranked;
+    return ranked.map((match) => {
+      const snippet = snippets.get(`${match.item.kind}:${match.item.id}`);
+      return snippet === undefined ? match : { ...match, item: { ...match.item, snippet } };
+    });
+  }, [ranked, search]);
 
   /**
    * Search results the local list does not already carry. A note that is both
@@ -492,10 +370,8 @@ export function Palette({
 
   /**
    * One list for the arrows and for Enter, so a keyboard walks into the search
-   * results rather than stopping at the last loaded note.
-   */
-  /**
-   * One list for the arrows and for Enter, with the handoff as its last row.
+   * results rather than stopping at the last loaded note, with the handoff as
+   * its last row.
    *
    * The row is appended here rather than rendered after the list so that
    * `selected`, the wrap-around in `move`, and the scroll arithmetic all see
@@ -593,57 +469,7 @@ export function Palette({
 
   /* ------------------------------- keyboard ------------------------------ */
 
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof document === "undefined") return;
-    const apple = onApplePlatform();
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      const command = resolve(
-        {
-          key: event.key,
-          metaKey: event.metaKey,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-          altKey: event.altKey,
-          // True by construction: the palette's filter has focus. Said out
-          // loud rather than hard-coded `false`, because the whole reason the
-          // overlay scope exists is that it ignores this flag — and a `false`
-          // here would make that look like it was never tested.
-          inTextField: true,
-        },
-        "overlay",
-        apple,
-      );
-      if (command === null) return;
-
-      switch (command) {
-        case "treeUp":
-          move(-1);
-          break;
-        case "treeDown":
-          move(1);
-          break;
-        case "treeOpen":
-          choose();
-          break;
-        case "dismiss":
-          onDismiss();
-          break;
-        default:
-          // Unreachable: the overlay scope resolves to nothing else. Left in
-          // so that adding an overlay binding fails visibly here rather than
-          // silently swallowing the keystroke below.
-          return;
-      }
-
-      // The arrows would otherwise walk the caret through the query, and Enter
-      // would submit whatever form a host page happens to have wrapped us in.
-      event.preventDefault();
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [move, choose, onDismiss]);
+  usePaletteKeys({ move, choose, onDismiss });
 
   /* -------------------------------- pieces ------------------------------- */
 
@@ -974,24 +800,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.lineStrong,
     backgroundColor: colors.surface2,
   },
-
-  /* --------------------------------- row --------------------------------- */
-
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.x2,
-    paddingHorizontal: space.x4,
-  },
-  rowPointer: { height: POINTER_ROW_HEIGHT },
-  rowTouch: { height: TOUCH_ROW_HEIGHT },
-  rowHover: { backgroundColor: colors.surface2 },
-  rowSelected: { backgroundColor: colors.accentDim },
-  rowText: { flex: 1, minWidth: 0 },
-  glyph: { width: 14, textAlign: "center" },
-  label: { color: colors.text2 },
-  /** The whole reason `Match.ranges` is carried out of the ranker. */
-  mark: { color: colors.text, fontWeight: "600" },
-  detailUnder: { marginTop: 1 },
-  detailBeside: { maxWidth: "45%", marginLeft: "auto" },
 });

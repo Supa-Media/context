@@ -9,6 +9,7 @@ import {
   installMacShell,
   layout,
   mountFrame,
+  space,
   removeShell,
   setTopChromeHoldsLights,
   SHELL_TITLE_BAND_LEAD_PX,
@@ -95,7 +96,12 @@ describe("the top bar holds the traffic lights", () => {
 
     const bar = mounted.find("app-top-bar");
     expect(bar).not.toBeNull();
-    expect(styleOf(bar!, "padding-left")).toBe(`${SHELL_TITLE_BAND_LEAD_PX}px`);
+    // With the tree a column, the room is left by the column's own head —
+    // the stretch of the bar over the tree — which starts at the window edge.
+    expect(styleOf(bar!, "padding-left")).toBe("0px");
+    expect(styleOf(mounted.find("frame-column-head")!, "padding-left")).toBe(
+      `${SHELL_TITLE_BAND_LEAD_PX}px`,
+    );
     expect(appRegionOf(bar!)).toBe("drag");
     // ...and the band above the whole app is told to stand down.
     expect(topChromeHoldsLights()).toBe(true);
@@ -164,7 +170,7 @@ describe("the top bar holds the traffic lights", () => {
 
     mounted.resize(1400);
     expect(topChromeHoldsLights()).toBe(true);
-    expect(styleOf(mounted.find("app-top-bar")!, "padding-left")).toBe(
+    expect(styleOf(mounted.find("frame-column-head")!, "padding-left")).toBe(
       `${SHELL_TITLE_BAND_LEAD_PX}px`,
     );
 
@@ -179,6 +185,46 @@ describe("the top bar holds the traffic lights", () => {
     expect(topChromeHoldsLights()).toBe(false);
   });
 
+  test("with no tree to head, the bar itself leaves the room, as it always did", () => {
+    installMacShell();
+    const mounted = mountFrame(1400, "the note", { explorer: false });
+    expect(mounted.find("frame-column-head")).toBeNull();
+    expect(styleOf(mounted.find("app-top-bar")!, "padding-left")).toBe(
+      `${SHELL_TITLE_BAND_LEAD_PX}px`,
+    );
+    mounted.unmount();
+  });
+
+  test("FULL SCREEN: THE BUTTONS ARE GONE, AND SO IS THEIR ROOM", () => {
+    /*
+      The owner's words: "take into consideration the spacing needed for
+      desktop traffic lights and it reverting when the traffic lights are
+      gone". macOS hides the buttons in full screen, and a window in full
+      screen is exactly the screen's size — which no ordinary window can be.
+    */
+    installMacShell();
+    const restore = fillScreen(true);
+    try {
+      const mounted = mountFrame(1400);
+      const head = mounted.find("frame-column-head")!;
+      expect(styleOf(head, "padding-left")).not.toBe(`${SHELL_TITLE_BAND_LEAD_PX}px`);
+      expect(styleOf(head, "padding-left")).toBe(`${space.x3}px`);
+      // Still the frame's job: the band above the app must not come back and
+      // add a 45pt strip for buttons that are not there either.
+      expect(topChromeHoldsLights()).toBe(true);
+
+      // And leaving full screen brings the room back.
+      fillScreen(false);
+      mounted.resize(1400);
+      expect(styleOf(mounted.find("frame-column-head")!, "padding-left")).toBe(
+        `${SHELL_TITLE_BAND_LEAD_PX}px`,
+      );
+      mounted.unmount();
+    } finally {
+      restore();
+    }
+  });
+
   test("AN ORDINARY BROWSER TAB PAYS NOTHING — no lead, no drag region", () => {
     // There are no buttons to clear and no window to drag. 84pt of leading
     // inset here would be 84pt of nothing, on every desktop browser.
@@ -187,12 +233,38 @@ describe("the top bar holds the traffic lights", () => {
 
     const bar = mounted.find("app-top-bar");
     expect(styleOf(bar!, "padding-left")).not.toBe(`${SHELL_TITLE_BAND_LEAD_PX}px`);
+    expect(styleOf(mounted.find("frame-column-head")!, "padding-left")).toBe(`${space.x3}px`);
     expect(appRegionOf(bar!)).toBeNull();
     expect(topChromeHoldsLights()).toBe(false);
 
     mounted.unmount();
   });
 });
+
+/**
+ * Make the window exactly the screen's size (full screen) or smaller, and
+ * return how to put the real values back.
+ */
+function fillScreen(fills: boolean): () => void {
+  const screen = { width: 1512, height: 982 };
+  Object.defineProperty(window, "screen", {
+    value: { ...window.screen, width: screen.width, height: screen.height },
+    configurable: true,
+  });
+  Object.defineProperty(window, "outerWidth", {
+    value: fills ? screen.width : 1400,
+    configurable: true,
+  });
+  Object.defineProperty(window, "outerHeight", {
+    value: fills ? screen.height : 900,
+    configurable: true,
+  });
+  window.dispatchEvent(new Event("resize"));
+  return () => {
+    Object.defineProperty(window, "outerWidth", { value: 0, configurable: true });
+    Object.defineProperty(window, "outerHeight", { value: 0, configurable: true });
+  };
+}
 
 /**
  * THE RIGHT PANEL, ON THE GLASS.

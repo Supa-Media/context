@@ -59,9 +59,8 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 }));
 
 jest.mock("convex/react", () => ({
-  useAction: () => async () => {
-    throw new Error("not used in this test");
-  },
+  useConvex: () => ({ query: async () => undefined }), // for an owner picker, which nothing here opens
+  useAction: () => async () => Promise.reject(new Error("not used in this test")),
 }));
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -786,17 +785,14 @@ describe("who does not get it", () => {
       repeats both in a smaller face is a line a reader learns to skip — so this
       file has no folders and therefore no crumbs at all.
 
-      `access map` is the replacement and is a better witness than the name was:
-      `Breadcrumb` only draws the access clause for a selection, so the string
-      cannot appear unless a note is open, whereas a filename could have come
-      from anywhere in the pane. `Write in markdown…` is the editor's own
-      placeholder, which pins the second half — the note is open *in the
-      editor*, not merely selected somewhere.
-
-      The wording is the brief form at every density now; `the access map` with
-      its article was the long one.
+      `access map` replaced it, from the visibility clause at the end of the
+      path line, until that clause was removed too (2026-09-27). The witness
+      now is the eye: `BrowseNoteHead` draws `browse-read` for a selected
+      *file* only, so it cannot appear unless a note is open. `Write in
+      markdown…` is the editor's own placeholder, which pins the second half —
+      the note is open *in the editor*, not merely selected somewhere.
     */
-    expect(pane.textContent).toContain("access map");
+    expect(pane.querySelector('[data-testid="browse-read"]')).not.toBeNull();
     expect(pane.textContent).toContain("Write in markdown");
     expect(pane.querySelector('[data-testid="browse-share"]')).toBeNull();
   });

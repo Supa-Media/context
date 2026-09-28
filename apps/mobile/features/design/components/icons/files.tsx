@@ -1,4 +1,42 @@
-import { bar, dot, rect, ring, type DrawFn } from "./primitives";
+import { bar, dot, glyph, rect, ring, type DrawFn } from "./primitives";
+
+/** A chain link's half-width, in the box. */
+const LINK_RADIUS = 0.145;
+/** How far each link's centre sits from the box's centre, along the diagonal. */
+const LINK_OFFSET = 0.165;
+/** Half the straight run of each link, between its two round ends. */
+const LINK_HALF_RUN = 0.12;
+
+/**
+ * One closed link of the `link` mark, as path data: a capsule on the rising
+ * diagonal, centred `LINK_OFFSET` from the middle towards the top right
+ * (`side = 1`) or the bottom left (`side = -1`).
+ *
+ * Each round end is two quarter arcs through its tip rather than one half
+ * arc: a half circle is the one arc whose two candidate centres coincide, so
+ * the sweep flag alone decides which side it bulges on, and getting that
+ * wrong draws the link inside out. A quarter arc cannot be misread.
+ */
+function chainLink(side: 1 | -1): string {
+  // Along the diagonal (up and to the right), and across it.
+  const along = (t: number, p: number) => ({
+    x: 0.5 + (t + p) * Math.SQRT1_2,
+    y: 0.5 + (p - t) * Math.SQRT1_2,
+  });
+  const at = (t: number, p: number) => {
+    const { x, y } = along(t, p);
+    return `${+x.toFixed(4)} ${+y.toFixed(4)}`;
+  };
+  const r = LINK_RADIUS;
+  const near = side * LINK_OFFSET - LINK_HALF_RUN;
+  const far = side * LINK_OFFSET + LINK_HALF_RUN;
+  // Every quarter here turns the same way round the outline, so one flag.
+  const arc = `A ${r} ${r} 0 0 0`;
+  return (
+    `M ${at(near, r)} L ${at(far, r)} ${arc} ${at(far + r, 0)} ${arc} ${at(far, -r)}` +
+    ` L ${at(near, -r)} ${arc} ${at(near - r, 0)} ${arc} ${at(near, r)} Z`
+  );
+}
 
 type FilesIconName =
   | "folder"
@@ -112,13 +150,22 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
     ];
   },
 
-  link: (u, w, c) => [
-    // Two capsule rings, offset diagonally so they interlock — the
-    // ordinary chain-link mark, and distinct from `attach`'s nested pair
-    // (one ring *inside* the other) by overlapping instead.
-    rect("a", u, w, c, { x0: 0.08, y0: 0.08, x1: 0.62, y1: 0.46, radius: 0.19 }),
-    rect("b", u, w, c, { x0: 0.38, y0: 0.54, x1: 0.92, y1: 0.92, radius: 0.19 }),
-  ],
+  link: (u, w, c) =>
+    /*
+      Two closed links on one diagonal, each running through the other: the
+      mark every platform uses for "link", and the one the owner reached for
+      when the old drawing failed him ("what is this 5th icon???").
+
+      The old drawing was two upright capsules, one above and to the left of
+      the other, *not touching* — which is two stacked pills, not a chain.
+      A chain is read off the overlap, so the overlap is the drawing: the two
+      links share an axis at 45° and each passes through the other's middle.
+
+      Stroked paths rather than two `rect`s because a `rect` cannot be turned
+      and still pass "stays inside its box" (see `cradle`), and a chain drawn
+      upright is a pair of lozenges again.
+    */
+    glyph("link", u, w, c, { paths: [chainLink(1), chainLink(-1)] }),
 
   book: (u, w, c) => [
     rect("left", u, w, c, { x0: 0.08, y0: 0.2, x1: 0.48, y1: 0.82, radius: 0.1 }),

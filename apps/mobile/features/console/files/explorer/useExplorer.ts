@@ -441,8 +441,6 @@ export function useExplorer({
    * close, so the two cannot come to disagree about whether closing clears.
    */
   const closeFilter = useCallback(() => setQuery(""), []);
-  const [toolsShown, setToolsShown] = useState(false);
-  const [filterFocused, setFilterFocused] = useState(false);
 
   return {
     descending,
@@ -476,10 +474,6 @@ export function useExplorer({
     agentsLabel,
     sheetLift,
     closeFilter,
-    toolsShown,
-    setToolsShown,
-    filterFocused,
-    setFilterFocused,
   };
 }
 

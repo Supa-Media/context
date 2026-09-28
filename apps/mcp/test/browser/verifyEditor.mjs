@@ -470,14 +470,14 @@ async function main() {
       const [aRoster,bRoster]=await Promise.all([rosterReady(a,BO_NAME),rosterReady(b,ANA_NAME)]);
       check("two named peers reach the live room roster",aRoster&&bRoster,JSON.stringify({a:await state(a.page),b:await state(b.page)}).slice(0,1000));
       const chipReady=async(page)=>until(async()=>{
-        const chip=page.locator('[data-testid="presence-chip"]');
+        const chip=page.locator('[data-testid="presence-pile"]');
         if(await chip.count()===0)return false;
         return Boolean(await chip.getAttribute("aria-label"));
       },{timeout:5000,every:50});
       const [aChipReady,bChipReady]=await Promise.all([chipReady(a.page),chipReady(b.page)]);
       const [aChip,bChip]=await Promise.all([
-        aChipReady ? a.page.locator('[data-testid="presence-chip"]').getAttribute("aria-label") : null,
-        bChipReady ? b.page.locator('[data-testid="presence-chip"]').getAttribute("aria-label") : null,
+        aChipReady ? a.page.locator('[data-testid="presence-pile"]').getAttribute("aria-label") : null,
+        bChipReady ? b.page.locator('[data-testid="presence-pile"]').getAttribute("aria-label") : null,
       ]);
       check("presence indicators render exactly one named peer each",aChip===`${BO_NAME} · 1 other here`&&bChip===`${ANA_NAME} · 1 other here`,JSON.stringify({aChip,bChip}));
 
@@ -511,7 +511,18 @@ async function main() {
       await b.context.setOffline(false);
       const bReconnected=await connectionReady(b)&&await rosterReady(b,ANA_NAME);
       const caretAfterReconnect=await until(async()=>Boolean((await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME)),{timeout:10000,every:50});
-      const returnedCaret=caretAfterReconnect ? (await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME) ?? null : null;
+      // Read the caret once the page has stopped moving: the peer rejoining
+      // eases the presence row back in over the note (`Reveal`, 200ms), and
+      // a caret read mid-ease is the right place in a page still settling.
+      let returnedCaret=null;
+      if(caretAfterReconnect) await until(async()=>{
+        const before=(await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME);
+        await new Promise((resolve)=>setTimeout(resolve,300));
+        const after=(await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME);
+        if(!before||!after||before.left!==after.left||before.top!==after.top) return false;
+        returnedCaret=after;
+        return true;
+      },{timeout:10000,every:50});
       const samePosition=Boolean(returnedCaret&&movedCaret&&Math.abs(returnedCaret.left-movedCaret.left)<=1&&Math.abs(returnedCaret.top-movedCaret.top)<=1);
       check("reconnect keeps the named peer and restores its stationary caret",bReconnected&&samePosition,JSON.stringify({bReconnected,movedCaret,returnedCaret,bState:await state(b.page)}));
       await screenshot(a.page,"presence-named-caret");
@@ -736,6 +747,30 @@ async function main() {
       check("the replaced connection rejoins the live roster",await rosterReady(b,ANA_NAME));
       await append(b.page,"\nAFTER HALF OPEN");
       check("typing after a half-open socket reaches the peer and storage",await until(async()=>(await text(a.page)).includes("AFTER HALF OPEN")&&(await rawNote("1-projects/half-open.md")).text.includes("AFTER HALF OPEN"),{timeout:20000}));
+    });
+    // A note made at a name an earlier note used — every untitled-<date> of a
+    // day, once the first takes its title — must open as itself: the device's
+    // record for that path belongs to the earlier note and used to pin it.
+    await pair("1-projects/offline-create-seed.md",async(a,b)=>{
+      const path="1-projects/reused.md";
+      const createAndType=async(words)=>{
+        await a.page.evaluate(()=>window.fixture.files.createNote("1-projects","reused"));
+        await until(async()=> { const s=await state(a.page); return s.editorText?.includes("# reused") && s.collaboration?.status==="saved"; },{timeout:15000});
+        await append(a.page,"\n"+words);
+      };
+      await createAndType("FIRST life");
+      check("first note saves",await until(async()=> (await rawNote(path))?.text?.includes("FIRST life"),{timeout:20000}));
+      await a.page.evaluate(()=>window.fixture.files.select("1-projects/verify.md"));
+      await until(async()=> (await text(a.page)).includes("first line"));
+      const read=textOf(await callTool(ANA,"read_note",{path}));
+      const moved=await callTool(ANA,"move_note",{source:path,destination:"1-projects/moved-away.md",expected_source_etag:read.match(/^etag: (.+)$/m)?.[1]});
+      check("moved away",!moved.isError,textOf(moved).slice(0,200));
+      await a.page.reload();await a.page.locator(".cm-content").waitFor();
+      await until(async()=> (await text(a.page)).includes("first line"));
+      await new Promise(r=>setTimeout(r,1500));
+      await createAndType("SECOND life");
+      const ok=await until(async()=> (await rawNote(path))?.text?.includes("SECOND life"),{timeout:25000});
+      check("a note made at a name used before still saves",ok,JSON.stringify({bucket:(await rawNote(path))?.text,notice:await a.page.evaluate(()=>window.fixture.files.notice),state:await state(a.page),traffic:a.traffic.slice(-8)}).slice(0,5000));
     });
     await pair("1-projects/revoked.md",async(a,b)=>{
       const path="1-projects/revoked.md";

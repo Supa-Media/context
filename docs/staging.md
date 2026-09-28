@@ -7,11 +7,32 @@ It has a separate Convex deployment in the existing Context project.
 Every merge to `main` runs `Deploy Staging`; it can also be run manually
 against a selected branch. Merging never deploys production.
 
+A staging run deploys only what the commit can affect. Its first job,
+`scripts/deploy-plan.mjs`, compares the commit with what staging is running
+(the newest successful run, plus any later run that failed part way) and
+selects Convex, each Worker, and the app (web export and OTA update) from the
+files that changed. A component owns its workspace directories, the workspace
+packages it declares, and every file its sources import, including files
+Convex and the app import from `apps/mcp/src`. Tests and READMEs do not deploy
+anything. Dependency, workflow or planner changes, a base that cannot be found,
+and any file the planner does not recognise deploy everything. The run summary
+lists each component and why it was or was not deployed. Independent jobs run
+in parallel, and the live staging check runs on every run.
+
+A manual run deploys everything unless `full` is unchecked. Run it with `full`
+after rotating a staging secret, since a component's secrets are synced only
+when that component deploys.
+
 To release, open **Actions → Deploy to Production → Run workflow** and select
 `main`. The action requires a successful staging deployment for that exact
-commit, then deploys Convex, the Workers, web, router and production OTA. All
-jobs use the commit fixed when the action started, even if `main` moves while
-it runs. Production builds use production credentials; staging data is not
+commit, then deploys the components that changed since production's last
+successful run, chosen by the same planner with `--target production`: Convex,
+the Workers, web, router and production OTA. Tick `full` to redeploy
+everything, for recovery or after rotating a production secret. The OTA update
+publishes alongside web rather than after the router. The gateway suite is not
+rerun, because the staging run this action requires ran it whenever the
+gateway's inputs changed. All jobs use the commit fixed when the action
+started, even if `main` moves while it runs. Production builds use production credentials; staging data is not
 copied. A failed deployment can be retried with GitHub's **Re-run failed jobs**.
 
 The component production workflows are reusable jobs called by this manual
@@ -71,10 +92,12 @@ Context still pays Cloudflare for the storage and operations.
 
 The backend requires `APP_ENV=staging`, the staging app origin, and its own
 platform-provided `CONVEX_CLOUD_URL` to match `STAGING_CONVEX_DEPLOYMENT` before
-allowing the bypass. The staging sync sets these deployment selectors; a client
-flag or request origin cannot enable it. Ordinary production owners still need
-payment. Selected services activate through the existing test activation path,
-with a distinct staging audit event; fast search remains an explicit opt-in.
+allowing the test-only Premium bypass. The staging sync sets these deployment
+selectors; a client flag or request origin cannot enable it. Production owners
+instead use the normal free managed tier: no card, with a 1,000-note cap, or the
+paid plan when they want its additional entitlements. Selected services activate
+through the existing test activation path, with a distinct staging audit event;
+fast search remains an explicit opt-in.
 
 Every managed bucket created by staging is named `staging-ctx-<workspaceId>`;
 production retains `ctx-<workspaceId>`. Inspect and select only the `staging-`

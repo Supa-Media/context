@@ -1,14 +1,9 @@
 # Deploy context-router — the Cloudflare Worker fronting https://context.lc —
 # when called by the manual production workflow.
 #
-# The router is the front door: every request for the web app and every request
-# in the sign-in flow passes through it. A broken deploy takes the whole site
-# down, so its own test suite gates the deploy and a bad Cloudflare credential
-# is diagnosed before `wrangler deploy` can fail opaquely.
-#
-# This deliberately does NOT use the framework's reusable deploy-web workflow:
-# that targets Cloudflare *Pages* (`wrangler pages deploy`), which cannot
-# express a Worker doing custom fetch routing.
+# The router is the front door. Its code and the exact production web export
+# are one Cloudflare version, and a failed live check automatically rolls back
+# both to the version that was serving 100% of traffic before this job.
 name: Deploy Router (production)
 
 on:
@@ -27,12 +22,22 @@ permissions:
 
 jobs:
   deploy:
-    name: Test + deploy context-router
+    name: Deploy router + production web
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: Download the production web export
+        uses: actions/download-artifact@v4
+        with:
+          name: production-web
+          path: apps/mobile/dist
 
       # infra/router has to be a pnpm workspace member for the filtered install
       # below to resolve it from the root lockfile. Without the glob, pnpm's
@@ -75,13 +80,10 @@ jobs:
         run: pnpm test
 
       - name: Verify required secrets
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           missing=0
-          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CONTROL_PLANE_URL; do
             if [ -z "${!var:-}" ]; then
               echo "ERROR: missing required secret '$var' in the 'production' environment."
               missing=1
@@ -115,9 +117,6 @@ jobs:
       # is the fact this step exists to establish, without spending a
       # permission never claimed to be needed.
       - name: Verify Cloudflare credentials (preflight)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -140,71 +139,87 @@ jobs:
             }
           ' "$resp"
 
-      - name: Deploy context-router
+      - name: Deploy, verify, and roll back automatically on failure
         working-directory: infra/router
-        run: pnpm exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      # CONVEX_ORIGIN names which Convex deployment production talks to — an
-      # account identifier, so infra/router/wrangler.jsonc no longer commits
-      # it as a plaintext var (CLAUDE.md: "no internal hostnames, no account
-      # identifiers"). Set as a `wrangler secret` instead, from the same
-      # `CONTROL_PLANE_URL` secret the email worker and the MCP gateway read
-      # under that name — one Convex deployment origin, three Workers.
-      #
-      # Skipped, not failed, when the secret is unset: infra/router's own
-      # comment on CONVEX_ORIGIN documents that state as a real one — the
-      # Worker fails CLOSED on /api/auth/* rather than guessing — for a fresh
-      # self-hosted deploy that has not set up Convex yet.
-      #
-      # The "skip when unset" check moved from a step-level `if:` into the
-      # shell body. `secrets` is not a valid context for `jobs.<job_id>.
-      # steps.if` — only `env`, `with`, and a job's `container`/`services`/
-      # `environment` can read it — so `if: ${{ secrets.CONTROL_PLANE_URL !=
-      # '' }}` failed the ENTIRE workflow to parse ("Unrecognized named-value:
-      # 'secrets'") on every trigger, push included, from the moment this
-      # step was added: zero jobs ever ran, and every deploy of the router —
-      # the front door — silently stayed on whatever was last live while this
-      # showed red. Caught while chasing an unrelated Cloudflare permission
-      # failure on 2026-09-07, which is the first thing that made anyone look
-      # at this job's failures at all.
-      #
-      # AFTER deploy, not before: while `infra/router/wrangler.jsonc` still
-      # committed CONVEX_ORIGIN as a plaintext var, the account's LIVE script
-      # carried it that way. `wrangler secret put` acts on whatever version is
-      # currently live, so running it before `wrangler deploy` collided with
-      # that stale var — Cloudflare 10053, "Binding name 'CONVEX_ORIGIN'
-      # already in use" — on every run, forever, because the one step that
-      # would remove the stale var (`wrangler deploy`) never got to run.
-      # Deploying first retires the var immediately, and this step then sets
-      # the secret against a live script that no longer declares it.
-      - name: Set CONVEX_ORIGIN secret (Convex HTTP-actions origin)
-        working-directory: infra/router
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${CONTROL_PLANE_URL:-}" ]; then
-            echo "Skipping CONVEX_ORIGIN — CONTROL_PLANE_URL is unset. Expected for a"
-            echo "fresh self-hosted deploy that has not set up Convex yet; the Worker"
-            echo "fails closed on /api/auth/* rather than guessing."
-            exit 0
-          fi
-          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN
+
+          status=$(pnpm exec wrangler deployments status --json --env="")
+          previous=$(node -e '
+            const deployment = JSON.parse(process.argv[1]);
+            const stable = deployment.versions.filter(version => Number(version.percentage) === 100);
+            if (stable.length !== 1 || deployment.versions.length !== 1) {
+              console.error("Production must have exactly one version serving 100% before an automatic release.");
+              process.exit(1);
+            }
+            process.stdout.write(stable[0].version_id);
+          ' "$status")
+          echo "Rollback target: $previous"
+          deployed=false
+          rollback() {
+            result=$?
+            trap - EXIT
+            if [ "$result" -ne 0 ] && [ "$deployed" = true ]; then
+              echo "Release verification failed; rolling code and assets back to $previous."
+              pnpm exec wrangler rollback "$previous" --yes --env="" --message "Automatic rollback after failed release ${GITHUB_SHA}"
+            fi
+            exit "$result"
+          }
+          trap rollback EXIT
+
+          pnpm exec wrangler deploy --message "Production ${GITHUB_SHA}" --env=""
+          deployed=true
+          # The repository-wide secret-order guard requires deploy-then-secret:
+          # the old live script may still declare this name as a plaintext var,
+          # and pushing first would collide with it before the deploy can retire
+          # that binding (Cloudflare 10053). The EXIT trap covers this second
+          # version too, so a failed secret push or live check restores the
+          # stable code-and-assets version captured above.
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN --env=""
+
+          bundle=$(node -e '
+            const fs = require("fs");
+            const html = fs.readFileSync("../../apps/mobile/dist/index.html", "utf8");
+            const match = html.match(/\/_expo\/static\/js\/web\/[A-Za-z0-9._-]+\.js/);
+            if (!match) process.exit(1);
+            process.stdout.write(match[0]);
+          ')
+          for attempt in $(seq 1 12); do
+            root=$(curl -fsSL --max-time 20 https://context.lc/ || true)
+            deep=$(curl -fsSL --max-time 20 https://context.lc/console/storage || true)
+            if [[ "$root" == *"$bundle"* && "$deep" == *"$bundle"* ]]; then
+              auth=$(curl -sS --max-time 20 -X POST -H 'Content-Type: application/json' \
+                -d '{}' -w $'\n%{http_code}' https://context.lc/api/auth/signin/github || true)
+              auth_code=${auth##*$'\n'}
+              auth_body=${auth%$'\n'*}
+              if [[ "$auth_code" =~ ^[234][0-9][0-9]$ && "$auth_body" != *"$bundle"* ]]; then
+                echo "OK — root, deep link, and OAuth routing serve production version $GITHUB_SHA."
+                trap - EXIT
+                {
+                  echo "## Router + web deploy (production)"
+                  echo ""
+                  echo "- Previous version: \`$previous\`"
+                  echo "- New commit: \`${GITHUB_SHA::7}\`"
+                  echo "- Root, SPA deep link, and OAuth routing verified live."
+                } >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            echo "Attempt $attempt: production has not converged on $bundle yet."
+            sleep 5
+          done
+          echo "ERROR: production did not serve the exact artifact from this run."
+          exit 1
 
       - name: Summary
         if: always()
         run: |
           {
-            echo "## Router deploy (production)"
+            echo "## Router + web deploy (production)"
             echo ""
-            echo "- **Worker:** \`context-router\`"
+            echo "- **Worker:** \`context-router\` (code and Static Assets together)"
             echo "- **Serves:** https://context.lc and https://www.context.lc"
             echo "- **Custom domains are attached in the Cloudflare dashboard,** not by this"
             echo "  workflow — see the comment at the top of \`infra/router/wrangler.jsonc\`."
-            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+            echo "- A failed live check automatically restores the prior version."
           } >> "$GITHUB_STEP_SUMMARY"

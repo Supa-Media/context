@@ -44,6 +44,16 @@ export const ICON_NAMES = [
   "chevronDown",
   "arrowLeft",
   "arrowRight",
+  /**
+   * Expand: two heads on one diagonal, out to the corners — a side panel
+   * opened out into the whole page (`folderPage/panel/PanelHead.tsx`).
+   */
+  "expand",
+  /**
+   * Open in new tab: a page with an arrow leaving it by its top right corner,
+   * the mark every browser uses for "somewhere else, and this stays".
+   */
+  "openTab",
   "more",
   "folder",
   "file",
@@ -101,11 +111,13 @@ export const ICON_NAMES = [
    */
   "bulletList",
   /**
-   * The accessory bar's link key, A2 in the editor-polish sweep: `[[]]`,
-   * caret between the brackets, completion opened. Two offset capsule rings
-   * rather than `attach`'s nested pair — a chain link overlaps its neighbour,
-   * it does not sit inside it, and the two shapes need to read apart at 20pt
-   * on the same bar.
+   * The accessory bar's link key, A2 in the editor-polish sweep, and the
+   * Link sheet it opens over a selection. Two closed links on the rising
+   * diagonal, each running through the other — the chain every platform
+   * draws. It used to be two upright capsules that did not touch, which the
+   * owner could not name ("what is this 5th icon???"): a chain is read off
+   * the overlap. Distinct from `attach`'s nested pair, where one ring sits
+   * *inside* the other.
    */
   "link",
   /**
@@ -186,6 +198,14 @@ export const ICON_NAMES = [
    * needle, blunter as a crayon.
    */
   "pencil",
+  /**
+   * Preview demo: play a website page's cast the way the homepage will.
+   *
+   * An outlined triangle pointing forward, the mark every player draws. It
+   * sits beside the eye and must not read as another reading mode, which is
+   * why it is not an eye or a screen.
+   */
+  "play",
   /**
    * The file tree's sort order, as Obsidian draws it: an up arrow beside three
    * rules of decreasing length.
@@ -330,6 +350,17 @@ export const ICON_NAMES = [
    * for a model, so it needs no caption on a row that has none.
    */
   "sparkle",
+  /** An AI helper's face in a project's owner column. */
+  "robot",
+  /**
+   * Whether the open note is in its bucket — the top bar's save mark. A cloud
+   * because that is the mark every editor uses for "saved to storage", and the
+   * three variants are the three things the mark can say without a word:
+   * there, going up, and read off this device instead.
+   */
+  "cloudCheck",
+  "cloudUp",
+  "cloudOff",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];

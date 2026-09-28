@@ -10,6 +10,7 @@ import { useThemedStyles, type Colors } from "../design/theme";
 import { ShareScreen } from "../share/ShareScreen";
 import { PLATFORM_ORIGIN, siteRoutePathFrom } from "./host";
 import { WebsitePage } from "./website/WebsitePage";
+import { useSiteFavicon } from "./useSiteFavicon";
 import { useWebsiteAddress } from "./useWebsiteAddress";
 
 interface Location {
@@ -67,6 +68,13 @@ export function SiteRoot({ hostname }: { hostname: string }) {
             ? { legacySlug: binding.homeSlug }
             : {}),
         },
+  );
+  // The domain is the site's, so it wears the site's icon — the same rule as
+  // `HandleSite`, including the legacy share keeping the Context favicon.
+  useSiteFavicon(
+    binding === undefined || binding === null || view?.kind === "legacy_short_link"
+      ? null
+      : binding.handle,
   );
 
   if (binding === undefined) return <View style={styles.ground} />;

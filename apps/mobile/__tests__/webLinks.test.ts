@@ -30,7 +30,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { markdownLanguage } from "../features/console/files/livePreview";
+import { livePreview, markdownLanguage } from "../features/console/files/livePreview";
 import {
   noteLinks,
   noteLinksIn,
@@ -139,7 +139,7 @@ function mount(options: { canOpen?: boolean; caretAt?: number } = {}) {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   const view = new EditorView({
-    state: EditorState.create({ doc: DOC, extensions: [markdownLanguage(), noteLinks(ref)] }),
+    state: EditorState.create({ doc: DOC, extensions: [markdownLanguage(), livePreview(), noteLinks(ref)] }),
     parent,
   });
   if (options.caretAt !== undefined) {
@@ -150,6 +150,12 @@ function mount(options: { canOpen?: boolean; caretAt?: number } = {}) {
     view,
     urls,
     notes,
+    /** Live preview's drawn link, where a click that means it lands. */
+    get link() {
+      const link = view.contentDOM.querySelector<HTMLElement>(".cm-lp-link");
+      if (link === null) throw new Error("no link drawn");
+      return link;
+    },
     destroy: () => {
       view.destroy();
       parent.remove();
@@ -187,7 +193,7 @@ describe("a click opens it", () => {
   test("a plain click opens the address, and is claimed", () => {
     mounted = mount();
     const event = mouse();
-    mounted.view.contentDOM.dispatchEvent(event);
+    mounted.link.dispatchEvent(event);
     expect(mounted.urls).toEqual(["https://example.com/"]);
     expect(mounted.notes).toEqual([]);
     expect(event.defaultPrevented).toBe(true);
@@ -195,26 +201,26 @@ describe("a click opens it", () => {
 
   test("a tap opens it too", () => {
     mounted = mount();
-    mounted.view.contentDOM.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.view.contentDOM.dispatchEvent(touch("touchend", []));
+    mounted.link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.link.dispatchEvent(touch("touchend", []));
     expect(mounted.urls).toEqual(["https://example.com/"]);
   });
 
   test("⌥-click is the caret's, as it is on a note link", () => {
     mounted = mount();
-    mounted.view.contentDOM.dispatchEvent(mouse({ altKey: true }));
+    mounted.link.dispatchEvent(mouse({ altKey: true }));
     expect(mounted.urls).toEqual([]);
   });
 
   test("a link already showing its source takes the caret", () => {
     mounted = mount({ caretAt: 3 });
-    mounted.view.contentDOM.dispatchEvent(mouse());
+    mounted.link.dispatchEvent(mouse());
     expect(mounted.urls).toEqual([]);
   });
 
   test("a surface that cannot open one leaves it as text", () => {
     mounted = mount({ canOpen: false });
-    mounted.view.contentDOM.dispatchEvent(mouse());
+    mounted.link.dispatchEvent(mouse());
     expect(mounted.urls).toEqual([]);
     expect(mounted.notes).toEqual([]);
   });

@@ -5,6 +5,7 @@ import { useColors, useThemedStyles } from "../../../design/theme";
 import type { AccessMember } from "../access";
 import { canMakeGroup, memberLabel, previewGroupName } from "../../groups/groups";
 import { makeStyles } from "./styles";
+import { useFieldFont } from "../../../design/fieldFont";
 
 /**
  * Making a group without leaving the note.
@@ -39,6 +40,7 @@ export function GroupMaker({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const ready = canMakeGroup(state.label, state.picked);
 
   return (
@@ -49,7 +51,7 @@ export function GroupMaker({
           onChangeText={(label) => onChange({ ...state, label })}
           autoCapitalize="none"
           autoCorrect={false}
-          style={styles.makerInput}
+          style={[styles.makerInput, fieldFont]}
           placeholder="Group name"
           placeholderTextColor={colors.muted}
           accessibilityLabel="Group name"

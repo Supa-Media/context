@@ -29,10 +29,10 @@ import { untitledStem } from "../features/console/files/untitled";
  *  - not on the keystroke, and not while a write is in flight. A `moveEntry`
  *    racing a conditional `writeNote` leaves a write aimed at a name the bucket
  *    no longer has, which is the one class of bug this console must not produce;
- *  - **once.** A person who rewrites the heading afterwards keeps the filename
- *    they were given, because at that point the two are separate things they
- *    own — which is how every other note in the bucket already works;
- *  - never for a note this session did not create untitled. A file moving in
+ *  - not while the caret is still in the title (`linkedTitleRename.test.ts`),
+ *    and again each time the title changes, because after the first rename
+ *    the title *is* the name (`linkedTitle.ts`);
+ *  - never for a note whose title nobody changed here. A file moving in
  *    somebody's bucket because they opened it is worse than a badly named file.
  *
  * Every assertion is on whether `moveEntry` was **called**, and with what —
@@ -44,11 +44,12 @@ import { untitledStem } from "../features/console/files/untitled";
  * Applied as local edits, suite run, named tests observed failing, reverted.
  *
  *   the settled-status guard dropped                                    1
- *   the `awaitingTitle.delete` dropped, so a failed rename is retried    1
- *   the `awaitingTitle.has` check dropped                                2
+ *   `useLinkedTitle`'s one-attempt memory dropped, so a refusal retries  1
  *   `createUntitled` not recording the path at all                       3
  *   `createUntitled` generating its name against an empty listing        2
  *   `createUntitled` naming without loading the destination first        1
+ *   a note left unsettled not carrying its rename (`carry` never called)  1
+ *   the carried rename not waiting for the bucket to hold the draft       1
  */
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -176,13 +177,24 @@ async function makeAndOpen(): Promise<void> {
   await settle();
 }
 
-/** Type a whole document and let the save land. */
+/**
+ * Type a whole document and let the save land — with the caret in the title
+ * while typing and out of it after, which is when a title renames its file
+ * (`useLinkedTitle.ts`).
+ */
 async function writeAndSave(text: string): Promise<void> {
+  await act(async () => {
+    browser.setTitleCaret!(true);
+  });
   await act(async () => {
     browser.setDraft(text);
   });
   await act(async () => {
     browser.save();
+  });
+  await settle();
+  await act(async () => {
+    browser.setTitleCaret!(false);
   });
   await settle();
 }
@@ -335,13 +347,79 @@ describe("a note made without a name", () => {
   });
 
   /**
-   * ONCE, AND THEN IT IS THEIR FILENAME.
+   * AND WHEN SOMEBODY LEAVES THE NOTE BEFORE ITS SAVE HAS SETTLED.
    *
-   * A second rewrite of the heading does not move the file again. Renaming on
-   * every heading edit would mean a note whose path changes under every link to
-   * it, every share row and every offline copy, for the whole of its life.
+   * The owner's report (2026-09-26): a new note retitled `# usecases`, the row
+   * read "usecases" while they were on it, and after they went to another note
+   * the file was still `untitled-2026-09-26.md`. The rename waits for a settled
+   * save, and leaving is exactly the moment the save is still in flight — the
+   * editor moved to the next note, the note it was waiting on was forgotten,
+   * and the title never became the name. The rename is owed, not dropped: it
+   * runs once the bucket holds the new title.
    */
-  test("and never a second time, however the heading changes after that", async () => {
+  test("renames on the way out when the save had not settled yet", async () => {
+    unmount = mount();
+    await settle();
+    await makeAndOpen();
+
+    await act(async () => {
+      browser.setTitleCaret!(true);
+    });
+    await act(async () => {
+      browser.setDraft("# usecases\n\nKeep going.\n");
+    });
+    await settle();
+    expect(browser.editor.status).toBe("dirty");
+    expect(moves()).toEqual([]);
+
+    await act(async () => {
+      browser.select("index.md");
+    });
+    await settle();
+    await settle();
+
+    expect(moves()).toEqual([{ from: MADE, to: `${FOLDER}/usecases.md` }]);
+  });
+
+  /**
+   * BUT ONLY ONCE THE BUCKET HOLDS WHAT WAS TYPED.
+   *
+   * Renaming before the typing reached the bucket is the race the settled-save
+   * guard exists to stop. A note left while its write cannot land is left at
+   * its name rather than moved out from under the write.
+   */
+  test("and not while the bucket still holds the old title", async () => {
+    unmount = mount();
+    await settle();
+    await makeAndOpen();
+    actions[name("writeNote")] = () => new Promise(() => {});
+
+    await act(async () => {
+      browser.setTitleCaret!(true);
+    });
+    await act(async () => {
+      browser.setDraft("# usecases\n\nKeep going.\n");
+    });
+    await act(async () => {
+      browser.select("index.md");
+    });
+    await settle();
+    await settle();
+
+    expect(moves()).toEqual([]);
+  });
+
+  /**
+   * AND AGAIN, FOR AS LONG AS THE TITLE IS THE NAME.
+   *
+   * This used to be "once, and then it is their filename", and the owner asked
+   * for the opposite (2026-09-26: renaming from the page itself). After the
+   * first rename the note's title *is* its name, so a second edit of the title
+   * renames it again — `linkedTitle.ts` has the rule, and `linkedTitleRename`
+   * holds the half this suite cannot: a note whose title and name already
+   * differ is never moved by its heading.
+   */
+  test("and again when the title changes after that, since the two are one name now", async () => {
     unmount = mount();
     await settle();
     await makeAndOpen();
@@ -350,7 +428,10 @@ describe("a note made without a name", () => {
     expect(moves()).toHaveLength(1);
 
     await writeAndSave("# Weekly sync, revised\n\nMore.\n");
-    expect(moves()).toHaveLength(1);
+    expect(moves()).toEqual([
+      { from: MADE, to: `${FOLDER}/Weekly sync.md` },
+      { from: `${FOLDER}/Weekly sync.md`, to: `${FOLDER}/Weekly sync, revised.md` },
+    ]);
   });
 
   /**

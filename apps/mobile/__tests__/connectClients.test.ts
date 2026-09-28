@@ -46,7 +46,10 @@ interface Screen {
   unmount: () => void;
 }
 
-function mount(clients: readonly { name: string }[] = []): Screen {
+function mount(
+  clients: readonly { name: string }[] = [],
+  onConnectAgent?: (agent: string) => void,
+): Screen {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -66,7 +69,7 @@ function mount(clients: readonly { name: string }[] = []): Screen {
   });
 
   act(() => {
-    root.render(createElement(ConnectClients, { endpoint: ENDPOINT, clients }));
+    root.render(createElement(ConnectClients, { endpoint: ENDPOINT, clients, onConnectAgent }));
   });
 
   const q = (testID: string) =>
@@ -409,6 +412,44 @@ describe("pressing the link button", () => {
     for (const href of hrefs) {
       expect(href).not.toContain("context.lc");
     }
+    screen.unmount();
+  });
+});
+
+describe("Claude and ChatGPT, where the full screen guide can open", () => {
+  test("their button opens the guide, not the client, and nothing else does", () => {
+    const guided: string[] = [];
+    const screen = mount([], (agent) => guided.push(agent));
+    screen.click("provider-claude-open");
+    screen.click("provider-chatgpt-open");
+
+    expect(guided).toEqual(["claude", "chatgpt"]);
+    expect([...screen.opened, ...screen.assigned]).toEqual([]);
+
+    // Every other client still goes straight to its own screen.
+    screen.click("provider-codex-toggle");
+    expect(screen.q("provider-codex-details")).not.toBeNull();
+    screen.click("provider-cursor-open");
+    expect(guided).toEqual(["claude", "chatgpt"]);
+    expect(screen.assigned).toHaveLength(1);
+    screen.unmount();
+  });
+
+  test("they have no inline Details panel beside the guide", () => {
+    const screen = mount([], () => {});
+    expect(screen.q("provider-claude-toggle")).toBeNull();
+    expect(screen.q("provider-chatgpt-toggle")).toBeNull();
+    expect(screen.q("provider-codex-toggle")).not.toBeNull();
+    screen.unmount();
+  });
+
+  test("connect another is the guide too, once one is connected", () => {
+    const guided: string[] = [];
+    const screen = mount([{ name: "ChatGPT" }], (agent) => guided.push(agent));
+    expect(screen.q("provider-chatgpt-open")?.textContent).toContain("Connect another");
+    screen.click("provider-chatgpt-open");
+    expect(guided).toEqual(["chatgpt"]);
+    expect(screen.opened).toEqual([]);
     screen.unmount();
   });
 });

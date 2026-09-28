@@ -9,6 +9,7 @@ export function formToolDefinitions() {
   return [
     {
       name: "create_form",
+      title: "Create form",
       description:
         "Build a form on a new note: fields somebody fills in, answers appended to a second note " +
         "you name. Reach for it whenever they describe collecting the same thing from several " +
@@ -135,6 +136,7 @@ export function formToolDefinitions() {
     },
     {
       name: "submit_form",
+      title: "Submit form answer",
       description:
         "Send an answer to a markdown form. The gateway checks the values against the form's fields, stamps your username and the time, and writes the row itself — you never send markdown, and you never need write access to the response file.",
       inputSchema: {
@@ -169,6 +171,7 @@ export function formToolDefinitions() {
     },
     {
       name: "update_submission",
+      title: "Update form answer",
       description:
         "Replace the answers on a response you submitted. Allowed only where the form sets edit_own, and only on a response whose author is you.",
       inputSchema: {
@@ -204,6 +207,7 @@ export function formToolDefinitions() {
     },
     {
       name: "retract_submission",
+      title: "Delete form answer",
       description:
         "Delete a response you submitted. Allowed only where the form sets edit_own and the response is yours; an editor of the context may delete any response.",
       inputSchema: {
@@ -223,6 +227,7 @@ export function formToolDefinitions() {
     },
     {
       name: "vote_form",
+      title: "Vote on form answer",
       description:
         "Add or remove your upvote on one response. Voters are listed by name so a vote can be taken back; a second vote from you is not a second count.",
       inputSchema: {

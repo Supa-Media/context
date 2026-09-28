@@ -45,6 +45,7 @@ import {
  * beside the tab strip, which is the row a reader scans to choose.
  */
 export function AsidePanel({
+  chat = true,
   engine,
   place,
   asked,
@@ -52,6 +53,8 @@ export function AsidePanel({
   newChat,
   onOpenNote,
 }: {
+  /** False draws the Meetings tab alone: the homepage, with no agent behind it. */
+  chat?: boolean;
   engine: AgentEngine;
   /** Where the person is, rebuilt by the console on every render. */
   place: AgentPage;
@@ -89,12 +92,12 @@ export function AsidePanel({
    * has already replaced.
    */
   newChat: number | null;
-  /** Open a finished meeting's note in the console. `null` on the demo console. */
-  onOpenNote: ((href: string) => void) | null;
+  /** Open a finished meeting's note in the console, by href and path. `null` on the demo console. */
+  onOpenNote: ((href: string, path: string) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>("chat");
-  const showing = asideTabFor(chosen);
+  const showing: AsideTab = chat ? asideTabFor(chosen) : "meetings";
 
   /*
     A question arriving takes the tab, where a meeting does not — and the two
@@ -127,7 +130,7 @@ export function AsidePanel({
   return (
     <View style={styles.panel} testID="aside-panel">
       <View style={styles.tabs} accessibilityRole="tablist">
-        {ASIDE_TABS.map((tab) => {
+        {ASIDE_TABS.filter((tab) => chat || tab.key === "meetings").map((tab) => {
           const current = tab.key === showing;
           return (
             <Pressable

@@ -140,6 +140,7 @@
  */
 
 import { isAuthorized } from "./auth";
+import { handleDecide } from "./decide";
 import { CALLER_HEADER, checkRateLimit, readCaller } from "./rateLimit";
 import type { RateLimiter } from "./rateLimit";
 import type { BoundedBody } from "./transcribe";
@@ -167,7 +168,7 @@ export interface Env {
    * and no account.
    */
   AI?: {
-    run(model: string, input: { audio: string; vad_filter?: boolean }): Promise<unknown>;
+    run(model: string, input: { audio: string; vad_filter?: boolean } | { state: string; questions: object }): Promise<unknown>;
   };
   /** This Worker's own shared secret. Pushed by the deploy workflow. */
   TRANSCRIBE_WORKER_SECRET?: string;
@@ -304,6 +305,10 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       ai: Boolean(env.AI),
       rateLimit: typeof env.TRANSCRIBE_RATE_LIMIT?.limit === "function",
     });
+  }
+  // Jev, for the auto-organize sweep. Its own module; same secret, same rules.
+  if (request.method === "POST" && path === "/decide") {
+    return handleDecide(request, env);
   }
   if (request.method !== "POST" || path !== "/transcribe") {
     return json(404, { error: "not found" });

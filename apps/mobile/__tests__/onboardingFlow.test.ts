@@ -64,7 +64,7 @@ describe("the line in the corner", () => {
   test("the bucket track has its own title", () => {
     expect(stepTitle("fork")).toBe("Where should we start you?");
     expect(stepTitle("storage", { route: "byo" })).toBe("Show us what's already there");
-    expect(stepTitle("name")).toBe("Pick the name your notes live under");
+    expect(stepTitle("name")).toBe("Pick your handle");
   });
 });
 

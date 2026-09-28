@@ -16,19 +16,20 @@ import {
   setFolderRow,
 } from "../../onboarding/structure";
 import { WORKSPACE_LAYOUT_NOTE, WORKSPACE_PRIVACY_NOTE } from "../create";
-import { WORKSPACE_PRESETS, type WorkspacePresetKey } from "../presets";
+import { DEFAULT_PRESET, WORKSPACE_PRESETS, type WorkspacePresetKey } from "../presets";
 import type { CreateWorkspaceController } from "../useCreateWorkspace";
 
 /**
- * Step 3 — the starting layout.
+ * Step 3 — what kind of workspace this is, and the folders that follow.
  *
  * ## Why the presets are not PARA
  *
  * PARA sorts one person's work by how permanent it is, which is the right
- * question for a workspace and the wrong one for a company — see `../presets`. So
- * the default here is a company shape, PARA is offered third for teams that
- * already use it, and every preset is editable in place: choosing "Company" and
- * renaming `4-customers` is the common case, not an escape hatch.
+ * question for a person and the wrong one for a company — see `../presets`. So
+ * the step asks what the workspace is for, the default is a business shape
+ * (clients and teams), PARA is offered for teams that already use it, and every
+ * kind is editable in place: choosing "Business" and renaming `3-clients` is
+ * the common case, not an escape hatch.
  *
  * The rows are the same editor onboarding uses, with the same validator, for
  * the same reason: a folder name here becomes a key prefix in somebody's own
@@ -53,15 +54,16 @@ export function WorkspaceLayoutStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        The bucket is empty, so here is a starting shape. These are suggestions in the shape of
-        folders — pick the one closest to how the team already works and edit it in place.
+        The bucket is empty, so the workspace starts with folders for what it is for. Pick the
+        kind closest to how the team already works; the folders below are yours to rename, add
+        to, or remove before anything is written.
       </Text>
 
       <ChoiceGroup<WorkspacePresetKey>
-        label="Starting layout"
+        label="Kind of workspace"
         options={WORKSPACE_PRESETS.map((entry) => ({
           value: entry.key,
-          label: entry.key === "company" ? `${entry.label} (recommended)` : entry.label,
+          label: entry.key === DEFAULT_PRESET ? `${entry.label} (recommended)` : entry.label,
           detail: entry.summary,
         }))}
         value={preset}
@@ -146,7 +148,7 @@ function ParaPreview() {
  * The preset's folders, editable.
  *
  * Not a preview and not a locked list: a preset is a starting *value* for this
- * editor, so the same rows serve "Company", "Client work" and "Name your own".
+ * editor, so the same rows serve every kind that names folders and "Something else".
  * That is why the heading below says what it says — somebody who picked a
  * preset should see immediately that these are theirs to change, rather than
  * hunting for a "customise" button.

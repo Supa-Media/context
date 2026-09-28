@@ -79,7 +79,40 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/mcp"
+          # The five packages below are NOT in `@context/mcp`'s dependency
+          # closure and have to be named by hand, which is the one thing about
+          # this job that is not automatic.
+          #
+          # `ci-scope` derives a job's watched paths from the package's **pnpm
+          # dependencies**, and the gateway's are pinned to one entry —
+          # `@context/collaboration` — with a fast guard asserting that exact
+          # set, because dependency-freedom is a promise the gateway makes. It
+          # reaches everything else by **relative path**: `src/` imports
+          # `packages/shared/src/storageLayout.cjs`, the module that computes
+          # storage keys, and the suite imports `packages/communications`,
+          # `packages/drawings`, `packages/meetings` and
+          # `packages/obsidian-runtime`.
+          #
+          # Without them a pull request touching only one of those computed
+          # `affected: false` here, so all ~4,700 checks — tenant isolation,
+          # path resolution, the privacy engine's port parity — were skipped and
+          # the job still reported success. `browser.yml`'s full WebKit suite
+          # already enumerates the same packages for the same reason.
+          paths: |
+            scripts/check-worker-fetch-options.mjs
+            .github/workflows/mcp.yml
+            packages/shared/**
+            packages/communications/**
+            packages/drawings/**
+            packages/meetings/**
+            packages/obsidian-runtime/**
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           # pnpm is installed below; do not try to locate its cache before then.
@@ -87,22 +120,31 @@ jobs:
 
       # Yjs is confined to the explicit collaboration package boundary.
       - name: Worker fetch options workerd implements
+        if: steps.scope.outputs.affected == 'true'
         run: node scripts/check-worker-fetch-options.mjs
 
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - name: Install the collaboration engine
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
+      # The package's own script, not `node test/test.mjs`: that entry is the
+      # first half of it, and the `node --test` half behind the `&&` — the tool
+      # annotations, the scope-info workspace set, the app-origin metadata, the
+      # logical delete, the note cap, the store HEAD, the encrypted generation
+      # footer, the gateway source guards and the OpenAI challenge — ran in no
+      # lane at all. `check-package-tests-run.mjs` reported `apps/mcp` covered
+      # because this step names the directory, which was true of the package and
+      # false of nine of its files.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/mcp
-        run: node test/test.mjs
-
-      - name: Test live relay grant permissions
-        working-directory: apps/mcp
-        run: node --test test/liveGrantAccess.test.js
+        run: pnpm test
 
       - name: Test collaboration storage and recovery
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm --filter @context/collaboration test
 
   decryptor:
@@ -112,7 +154,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@supa-media/context-encryption-decryptor"
+          paths: |
+            apps/mcp/src/encryption.js
+            .github/workflows/mcp.yml
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -138,6 +189,7 @@ jobs:
       # the change most likely to break it. Bare node, no install: zero
       # dependencies is this package's promise too.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/encryption-decryptor
         run: node test/decrypt.test.mjs
 
@@ -148,7 +200,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/meetings"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -177,6 +236,7 @@ jobs:
       # shape that ran nothing before. Bare node with no install, because this
       # package has no dependencies either.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/meetings
         run: node test/test.mjs
 
@@ -187,7 +247,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/obsidian-runtime"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -210,6 +277,7 @@ jobs:
       # including one that changes only the console's plugin host. Bare node,
       # no install: this package's only dependency is a typechecker.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/obsidian-runtime
         run: node test/test.mjs
 
@@ -220,7 +288,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/communications"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -236,6 +311,7 @@ jobs:
       # owning package's suite is the contract. Bare node with no install,
       # because this package has no dependencies either.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/communications
         run: node test/test.mjs
 
@@ -246,7 +322,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/drawings"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -269,17 +352,20 @@ jobs:
       # Bare node with no install, because this package has no dependencies —
       # the same promise the gateway makes, and the reason the gateway can
       # import it by relative path.
-      # Two files, both run explicitly rather than through `npm test`, so a
-      # suite added to the package but not to this list fails visibly here
-      # instead of silently not running — which is the failure every other job
-      # in this workflow exists because of.
+      # The package's own script, so the list cannot drift. Two files used to be
+      # named here instead, "so a suite added to the package but not to this
+      # list fails visibly here instead of silently not running" — and then
+      # `test/collab.test.mjs` was added to the package and not to the list, and
+      # its 27 checks ran in no lane at all. Naming files here is the same bet
+      # this workflow exists because of, made one level down.
+      #
+      # `npm test` rather than `pnpm test`: npm arrives with the runner's node,
+      # so running the script costs neither a package-manager setup step nor an
+      # install, and the promise above holds.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/drawings
-        run: node test/test.mjs
-
-      - name: Run serializer suite
-        working-directory: packages/drawings
-        run: node test/serialize.test.mjs
+        run: npm test
 
   desktop:
     name: Test Desktop
@@ -288,9 +374,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/desktop"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -311,13 +405,16 @@ jobs:
       # dependency, and this uses the same filtered graph production's desktop
       # deploy installs instead of repairing the graph in CI.
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/desktop
         run: node --experimental-strip-types test/test.mjs
 
       - name: Typecheck
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/desktop
         run: pnpm exec tsc --noEmit
 
@@ -325,126 +422,9 @@ jobs:
       # cannot be bundled is an app that does not start — a failure no unit
       # test in this repository can see, because none of them import Electron.
       - name: The app still bundles
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/desktop
         run: node scripts/build.mjs
-
-  workflows-parse:
-    name: Workflows parse
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-
-      # Runs first, and before install: it needs only bash and node, and a
-      # workflow whose shell does not parse is worth failing fast on. This
-      # file is the second host for the same two-host reasoning as the
-      # trigger and preflight checkers below — `email-worker.yml` runs it too.
-      #
-      # `--self-test` first: the script used to read `process.argv` nowhere at
-      # all, so `--self-test` did nothing and every call to it fell through to
-      # the ordinary scan, silently verifying none of the cases the header
-      # claims it catches. See the script's `resolveMode`.
-      - name: Workflow run blocks parse as shell
-        run: |
-          node scripts/check-workflow-shell.mjs --self-test
-          node scripts/check-workflow-shell.mjs
-
-      # A workflow file that does not parse is not a failing check — GitHub
-      # ignores the file entirely, so it produces no run, no error, and no
-      # status at all. The pull request then goes green having never executed
-      # the jobs somebody just wrote, which is this repository's most-repeated
-      # failure shape (see 3-resources/engineering/false-green-patterns.md).
-      # It has already happened once: `hook.yml` shipped with an unquoted
-      # `node:` inside a step name and that package's whole suite was silently
-      # absent from CI.
-      #
-      # This was thirty lines of inline Python under a comment claiming it
-      # "deliberately lives in a DIFFERENT workflow from the ones it checks,
-      # because a checker inside the broken file cannot run either" — true of
-      # every workflow except this one, the file it was written in. A YAML
-      # break here took the only copy down along with the gateway suite, the
-      # meetings suite and three guard jobs, silently, which is the exact
-      # argument that comment was making.
-      #
-      # So it is a script with a self-test, and `email-worker.yml` runs it too
-      # — the same two-host arrangement, and for the same reason, as the
-      # trigger checker below. One implementation, because two copies of a
-      # guard are two things to drift.
-      - name: Every workflow file is one GitHub will load
-        run: |
-          node scripts/check-workflow-yaml.mjs --self-test
-          node scripts/check-workflow-yaml.mjs
-
-      # Runs after the parse above, deliberately: a file GitHub cannot parse is
-      # ignored entirely, so what its `on:` block says is moot and reporting it
-      # first would name the wrong fault.
-      #
-      # A pull request based on a branch other than `main` used to run NO
-      # checks at all — see the header, and #169, which merged with zero check
-      # runs. The same block decides that no deploy workflow may be reached by
-      # a pull request at all, which is the assertion that actually protects
-      # something: widening CI's triggers has an obvious-looking next step
-      # ("make the rest consistent") that would run unreviewed code with the
-      # account's Cloudflare credentials. The actor there is a branch pushed
-      # HERE, not a fork — a fork's run inherits no secrets, so it is the one
-      # shape that could not do it.
-      #
-      # It runs here AND in email-worker.yml on purpose. A checker hosted in
-      # one workflow cannot see that workflow's own trigger being narrowed —
-      # narrowing it stops the job running on the pull request that did it.
-      # Two hosts is the cheapest way to keep one narrowing visible; dropping
-      # either copy restores that blind spot.
-      #
-      # `--self-test` first, for the same reason the gateway-contracts job runs
-      # one: a checker that reports nothing because it stopped working is the
-      # exact failure it was written to catch.
-      - name: Workflow triggers reach pull requests, and deploys reach none
-        run: |
-          node scripts/check-workflow-triggers.mjs --self-test
-          node scripts/check-workflow-triggers.mjs
-
-      # The trigger checker above asserts that workflows reach pull requests.
-      # This asserts the other half nothing checked: that every package with a
-      # suite is actually RUN by one of them. Seven packages were found
-      # uncovered one at a time before it existed — the comments on the jobs
-      # in this file are the record — and `packages/obsidian-runtime` was the
-      # eighth, reported by this script rather than noticed.
-      #
-      # Two hosts, same reasoning as above.
-      - name: Every package with a test suite is run by a pull request
-        run: |
-          node scripts/check-package-tests-run.mjs --self-test
-          node scripts/check-package-tests-run.mjs
-
-      # A deploy preflight calling the bare GET /accounts/{id} endpoint is what
-      # took down deploy-router.yml and deploy-email-worker.yml on 2026-09-07
-      # — see the script's header. email-worker.yml runs it too, same
-      # two-host reasoning as the trigger checker above.
-      - name: No deploy preflight calls the bare accounts/{id} endpoint
-        run: |
-          node scripts/check-workflow-cloudflare-preflight.mjs --self-test
-          node scripts/check-workflow-cloudflare-preflight.mjs
-
-      # `wrangler secret put` before `wrangler deploy` collided with a stale
-      # plaintext var on every run of deploy-router.yml (#302) because the
-      # secret push acts on whatever version is currently live — see the
-      # script's header. email-worker.yml runs it too, same two-host
-      # reasoning as the checkers above.
-      - name: No deploy workflow pushes a secret before deploying
-        run: |
-          node scripts/check-workflow-secret-order.mjs --self-test
-          node scripts/check-workflow-secret-order.mjs
-
-      # The other half of #302: `infra/router/wrangler.jsonc` once committed
-      # `CONVEX_ORIGIN` as a plaintext var, which is what the ordering above
-      # collided with. This proves no Wrangler config — this gateway's
-      # included — carries a secret it also pushes via `wrangler secret put`
-      # as a `vars` entry. email-worker.yml runs it too, same two-host
-      # reasoning as the checkers above.
-      - name: No Wrangler config commits a pushed secret as a var
-        run: |
-          node scripts/check-wrangler-vars-not-secrets.mjs --self-test
-          node scripts/check-wrangler-vars-not-secrets.mjs
 
   no-nul-bytes:
     name: Source stays diffable
@@ -694,43 +674,3 @@ jobs:
           # sample noticing.
           sys.exit(exit_code(failed, unearned))
           PY
-
-  no-dependencies:
-    # Keep the required branch-protection status name stable. The check below
-    # now permits only the explicitly approved collaboration dependency.
-    name: Gateway stays dependency-free
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Assert the gateway's explicit dependency boundary
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'JS'
-          import { readFileSync } from 'node:fs';
-          import assert from 'node:assert/strict';
-          const manifest = JSON.parse(readFileSync('apps/mcp/package.json', 'utf8'));
-          assert.deepEqual(manifest.dependencies, { '@context/collaboration': 'workspace:*' });
-          JS
-          for field in optionalDependencies peerDependencies bundleDependencies; do
-            declared=$(node -p "JSON.stringify(require('./apps/mcp/package.json').$field || {})")
-            if [ "$declared" != "{}" ]; then
-              echo "apps/mcp declared $field: $declared"
-              echo ""
-              echo "Only the approved @context/collaboration workspace dependency is allowed."
-              exit 1
-            fi
-          done
-          echo "OK — only the approved collaboration dependency."
-
-      # Source imports are relative except for the approved collaboration package.
-      #
-      # This was a grep until it matched prose: a comment reading
-      # `… from "not yours"` is not an import. The check is now a script that
-      # strips comments and only looks at statement positions, and it
-      # self-tests — a guard nobody has checked is not a guard.
-      - name: Assert source imports obey the dependency boundary
-        run: |
-          node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs apps/mcp/src

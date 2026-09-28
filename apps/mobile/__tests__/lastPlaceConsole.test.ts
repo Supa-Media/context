@@ -275,8 +275,10 @@ async function seedLog(places: ReadonlyArray<{ slug: string; note: string | null
 interface Mounted {
   find: (testID: string) => HTMLElement | null;
   press: (testID: string) => void;
-  /** The context pills, in the order the strip drew them. */
+  /** The workspaces, in the order the account sheet lists them. */
   pills: () => string[];
+  /** Switch to a workspace the way a phone does: the account sheet's row. */
+  open: (slug: string) => void;
 }
 
 /**
@@ -319,25 +321,32 @@ async function mountConsole(): Promise<Mounted> {
     container.remove();
   });
 
+  // The whole document: the account sheet is a `Modal`, portalled to the body.
   const find = (testID: string) =>
-    container.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
+    document.body.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
+
+  const press = (testID: string) => {
+    const node = find(testID);
+    if (node === null) throw new Error(`no element with testID ${testID}`);
+    act(() => {
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
 
   return {
     find,
-    pills: () =>
-      [...container.querySelectorAll<HTMLElement>('[data-testid^="context-strip-"]')]
-        .map((node) => node.dataset.testid!.slice("context-strip-".length))
-        // The scroller, the claim and create verbs, and the fade share the
-        // prefix and are not contexts.
-        .filter((slug) => ["seyi", "supa", "acme"].includes(slug)),
-    press: (testID) => {
-      const node = find(testID);
-      if (node === null) throw new Error(`no element with testID ${testID}`);
-      act(() => {
-        node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
+    pills: () => {
+      if (find("menu-sheet") === null) press("account-menu");
+      return [...document.body.querySelectorAll<HTMLElement>('[data-testid^="switcher-context-"]')]
+        .map((node) => node.dataset.testid!.slice("switcher-context-".length));
+    },
+    press,
+    // A phone switches in the account sheet (owner, 2026-09-27): slot, then row.
+    open: (slug: string) => {
+      if (find("menu-sheet") === null) press("account-menu");
+      press(`switcher-context-${slug}`);
     },
   };
 }
@@ -353,14 +362,17 @@ async function settle(): Promise<void> {
 /*        the wiring: a press on the strip, and where the router is sent       */
 /* -------------------------------------------------------------------------- */
 
-describe("pressing a context in the strip goes back to where you were in it", () => {
+/*
+  **This was the strip's.** The strip went into the account sheet (owner,
+  2026-09-27, screen 9) and the resume went with it, through `contextHrefFrom`.
+*/
+describe("choosing a workspace on a phone goes back to where you were in it", () => {
   /**
    * The one the mutant deletes.
    *
-   * SABOTAGE: `router.replace(contextHrefFrom(slug))` →
-   * `router.replace(browseHref(slug))` in `_layout.tsx`. MEASURED: fails this
-   * test and `two contexts are two places, not one shared cursor`; before this
-   * file it failed nothing in the suite.
+   * SABOTAGE: `router.replace(phone ? contextHrefFrom(slug) : hrefFor(next))`
+   * → `router.replace(hrefFor(next))` in `ConsoleFrame`'s `onOpenContext`.
+   * Fails this test and `two contexts are two places, not one shared cursor`.
    */
   test("a remembered context opens at the note that was open in it", async () => {
     await seedLog([
@@ -369,7 +381,7 @@ describe("pressing a context in the strip goes back to where you were in it", ()
     ]);
 
     const app = await mountConsole();
-    app.press("context-strip-supa");
+    app.open("supa");
 
     expect(mockReplaced).toEqual(["/console/@supa?note=1-projects%2Fgateway.md"]);
   });
@@ -382,7 +394,7 @@ describe("pressing a context in the strip goes back to where you were in it", ()
     await seedLog([{ slug: "supa", note: "1-projects/gateway.md" }]);
 
     const app = await mountConsole();
-    app.press("context-strip-acme");
+    app.open("acme");
 
     expect(mockReplaced).toEqual(["/console/@acme"]);
   });
@@ -402,8 +414,8 @@ describe("pressing a context in the strip goes back to where you were in it", ()
     ]);
 
     const app = await mountConsole();
-    app.press("context-strip-supa");
-    app.press("context-strip-acme");
+    app.open("supa");
+    app.open("acme");
 
     expect(mockReplaced).toEqual([
       "/console/@supa?note=1-projects%2Fgateway.md",
@@ -422,22 +434,11 @@ describe("pressing a context in the strip goes back to where you were in it", ()
    * on the root — which is a working switch rather than a refusal.
    */
   /**
-   * **The log is what the strip is ordered by, and nothing was holding that.**
-   *
-   * SABOTAGE: `recent={places}` → `recent={[]}` in `_layout.tsx` — a one-word
-   * edit that reads as a tidy-up, since the strip is perfectly happy with an
-   * empty list and the pills all still work. MEASURED: this test fails; before
-   * it, all 3343 passed. `contextStrip.test.ts` proves `stripOrder` sorts by
-   * `recent`, about a pure function nothing had to be wired to, which is the
-   * same shape of hole this file was written for.
-   *
-   * The order is `stripOrder`'s: the context on screen is pinned first, then
-   * the visited ones most-recent-first, then the ones this device has never
-   * been in, keeping the control plane's order among themselves. So a log that
-   * puts `@acme` in front of `@supa` has to reverse the two, and only the log
-   * can do that — the control plane's list has them the other way round.
+   * **The order changed with the surface, deliberately.** The account sheet is
+   * the desktop card (screen 9): your own first, then the control plane's
+   * order, whatever the log says. SABOTAGE: sort `SwitcherMenu` by the log.
    */
-  test("the strip is ordered by the log, not by the order the contexts arrived", async () => {
+  test("the account sheet lists workspaces in the card's order, not the log's", async () => {
     await seedLog([
       { slug: "acme", note: "3-resources/onboarding.md" },
       { slug: "supa", note: "1-projects/gateway.md" },
@@ -445,26 +446,24 @@ describe("pressing a context in the strip goes back to where you were in it", ()
 
     const app = await mountConsole();
 
-    // `@seyi` is the current context and is drawn as the breadcrumb button,
-    // not as a pill — so the strip is the log's order over the rest.
-    expect(app.pills()).toEqual(["acme", "supa"]);
+    expect(app.pills()).toEqual(["seyi", "supa", "acme"]);
+    // The one you are in is ticked rather than lifted out.
+    expect(app.find("switcher-context-seyi")!.getAttribute("aria-checked")).toBe("true");
   });
 
-  test("a context this device has never been in sorts behind every one it has", async () => {
-    // The negative control for the test above: with only `@supa` remembered,
-    // `@acme` falls in behind it rather than staying where it was.
+  test("…and a log that remembers nothing does not change it either", async () => {
     await seedLog([{ slug: "supa", note: "1-projects/gateway.md" }]);
 
     const app = await mountConsole();
 
-    expect(app.pills()).toEqual(["supa", "acme"]);
+    expect(app.pills()).toEqual(["seyi", "supa", "acme"]);
   });
 
   test("a path the device should not have been holding does not reach the URL", async () => {
     await seedLog([{ slug: "supa", note: "../../etc/passwd" }]);
 
     const app = await mountConsole();
-    app.press("context-strip-supa");
+    app.open("supa");
 
     expect(mockReplaced).toEqual(["/console/@supa"]);
   });

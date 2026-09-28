@@ -153,22 +153,19 @@ describe("the whole-call switch, now that there is no sheet to put it on", () =>
    * desktop shell that costs nothing: the shell's loopback tap is silent and a
    * phone cannot do this at all. **In a browser it would have been a capability
    * deleted**, because taking the far side of a call there needs
-   * `getDisplayMedia`, which costs a source picker, so it cannot be the default
-   * and there would have been nowhere left to turn it on.
+   * `getDisplayMedia`, which costs a source picker, and somebody who never
+   * wants the picker needs somewhere to say so.
    *
    * So the answer is a per-device setting (`machineAudio.ts`), read at the
    * press, and these are its halves. What it does to a recording is
    * `meetingsFlow.test.ts`'s; what the settings pane says about it is prose
    * beside the switch.
    */
-  test("a machine that can tap silently defaults to on", () => {
-    expect(defaultMachineAudio(false)).toBe(true);
-  });
-
-  test("a browser that would show a picker defaults to off", () => {
-    // A picker in front of every meeting, including every in-person one, is how
-    // a feature gets switched off wholesale.
-    expect(defaultMachineAudio(true)).toBe(false);
+  test("nobody's answer means both sides of the call, picker or not", async () => {
+    // A picker in front of every meeting is the price; a transcript with one
+    // side of a call in it is the cost it avoids.
+    expect(defaultMachineAudio()).toBe(true);
+    await expect(recallSystemAudio(memoryStore())).resolves.toBe(true);
   });
 
   test("a device that has never been asked says so, rather than guessing", async () => {
@@ -183,12 +180,12 @@ describe("the whole-call switch, now that there is no sheet to put it on", () =>
     await expect(recallMachineAudio(store)).resolves.toBe(false);
   });
 
-  test("a stored answer beats the surface's default, in both directions", async () => {
+  test("a stored answer beats the default, in both directions", async () => {
     const store = memoryStore();
-    await rememberMachineAudio(store, true);
-    await expect(recallSystemAudio(store, true)).resolves.toBe(true);
     await rememberMachineAudio(store, false);
-    await expect(recallSystemAudio(store, false)).resolves.toBe(false);
+    await expect(recallSystemAudio(store)).resolves.toBe(false);
+    await rememberMachineAudio(store, true);
+    await expect(recallSystemAudio(store)).resolves.toBe(true);
   });
 
   test("and the sentence a mic-only build shows is still about the far side of a call", () => {

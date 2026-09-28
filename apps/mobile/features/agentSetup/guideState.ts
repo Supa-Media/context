@@ -19,7 +19,7 @@ import {
   type BringState,
   type WrittenNote,
 } from "./checks";
-import { GETTING_STARTED } from "./bring";
+import { GETTING_STARTED, SYNC_REPORT } from "./bring";
 import { GUIDE_STEPS, type SetupAgent, type StepKey } from "./guides";
 import type { SetupProgress } from "./progress";
 
@@ -85,7 +85,12 @@ export type BringView =
   | { kind: "done"; written: WrittenNote[] }
   | { kind: "little"; written: WrittenNote[] };
 
-const GETTING_STARTED_PATH = new RegExp(GETTING_STARTED.replace(/ /g, "[-_ ]"), "i");
+// The note a run ends with: the sync report, or the note runs started before
+// the rename end with.
+const GETTING_STARTED_PATH = new RegExp(
+  [SYNC_REPORT, GETTING_STARTED].map((name) => name.replace(/ /g, "[-_ ]")).join("|"),
+  "i",
+);
 
 /**
  * The last step. The prompt ends with a "Getting started" note, so that note

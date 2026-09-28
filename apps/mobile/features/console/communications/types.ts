@@ -1,6 +1,6 @@
 /**
- * Shared shapes for the communications console: the Inbox landing page, one
- * channel's days, one channel-day, and one contact.
+ * Shared shapes for the communications console: one channel-day and one
+ * contact. The Inbox and its channel folders are ordinary folders.
  *
  * Every type here is a *view* built from what `FileBrowser` already returns —
  * `FileEntry[]` from a listing, `{text, etag}` from `readRaw` — never a new
@@ -22,43 +22,6 @@
  * fails a test rather than widening this type's guarantee quietly.
  */
 export type CommsChannel = "email" | "google-chat" | "imessage";
-
-/**
- * Every direct child of the Inbox, per `docs/decisions/communications.md`:
- * meetings, each mailbox, the two flat channels, and contacts — the last one
- * has no "active day" of its own, so its row reads its recency off the
- * folder's own file metadata rather than off a channel-day shape. See
- * `inbox.ts`'s `activeDatesFor`.
- */
-export type InboxKind = "meetings" | "contacts" | CommsChannel;
-
-/** One row of the Inbox landing page: one channel, its label, its recency. */
-export interface InboxRow {
-  kind: InboxKind;
-  /** The mailbox slug, for `kind === "email"` only. `""` for every other kind. */
-  account: string;
-  /** The folder this row opens: `0-inbox/meetings`, `0-inbox/email/<slug>`, … */
-  path: string;
-  /** The address, for a mailbox; a fixed name otherwise (`"Google Chat"`, …). */
-  label: string;
-  /** `YYYY-MM-DD` of the most recent active day, or `null` for an empty channel. */
-  lastActive: string | null;
-  /** How many active days this channel has, capped by how many the caller asked for. */
-  activeDays: number;
-}
-
-/** One active day of one channel, as the Channel view lists it — a day, not a file. */
-export interface ChannelDayRow {
-  channel: InboxKind;
-  account: string;
-  date: string;
-  /** The path of part 1. Every part shares this day's row; see `stitchDayPaths`. */
-  path: string;
-  /** How many parts this day split into. `1` for the common case. */
-  parts: number;
-  messages: number | null;
-  threads: number | null;
-}
 
 /** One attachment, described — never the bytes. */
 export interface MessageAttachment {

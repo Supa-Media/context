@@ -219,12 +219,15 @@ const ROUTES: Record<string, Coverage> = {
   "_layout.tsx": { kind: "shell" },
 
   /*
-    The route module, not `Landing` — jest renders through react-native-web, so
-    `resolveRootRoute` answers "render" here exactly as a browser would, and the
-    landing page is what this mounts. On a phone the same route redirects and
-    paints nothing; that half is `authRedirect.test.ts`'s.
+    The homepage is the app's own frame on a workspace kept in the browser
+    (`features/home/HomeShell.tsx`), so it reaches the glass through `AppFrame`
+    like the console and is covered by the same region tests. On a phone the
+    route redirects and paints nothing; that half is `authRedirect.test.ts`'s.
+    It is drawn by the group's layout, which outlives the `?page=` pushes;
+    the index screen under it draws nothing (`app/(home)/index.tsx`).
   */
-  "index.tsx": { kind: "screen", mount: () => createElement(requireRoute("index.tsx")) },
+  "(home)/_layout.tsx": { kind: "framed" },
+  "(home)/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("(home)/index.tsx")) },
   "privacy.tsx": { kind: "screen", mount: () => createElement(requireRoute("privacy.tsx")) },
   "terms.tsx": { kind: "screen", mount: () => createElement(requireRoute("terms.tsx")) },
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
@@ -719,7 +722,6 @@ describe("the console's panes, through the frame that carries them", () => {
       createElement(
         AppFrame,
         {
-          switcher: null,
           children: createElement(
             EditorRegion,
             {
@@ -774,7 +776,6 @@ describe("the console's panes, through the frame that carries them", () => {
       );
     const mounted = mount(
       createElement(AppFrame, {
-        switcher: null,
         children: createElement(Probe),
       }),
     );
@@ -816,7 +817,6 @@ describe("the console's panes, through the frame that carries them", () => {
     });
     const mounted = mount(
       createElement(AppFrame, {
-        switcher: null,
         // A toolbar has to exist for the frame to reserve room for one.
         bottomBar: createElement(Text, null, "toolbar"),
         children: createElement(NoteEditor, {

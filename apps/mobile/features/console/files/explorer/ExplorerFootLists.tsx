@@ -8,10 +8,14 @@ import { useColors, useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
 import { ActivityList } from "../../activity/ActivityList";
 import { AgentList } from "../../agents/AgentList";
+import { PeopleList } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import { ACTIVITY_PATH, emptyLine, type ActivityView } from "../../activity/activity";
 import type { ExplorerProps } from "./props";
-import { makeStyles } from "./styles";
+import { AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
+import { useOrganizerUndoFor, useOrganizerView } from "../../../organizer/OrganizerContext";
+import { ReviewPopover } from "../../../organizer/Review";
+import { footCount } from "../../../organizer/rules";
 import type { ExplorerState } from "./useExplorer";
 
 /**
@@ -43,6 +47,14 @@ export function ExplorerFootLists({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const organizer = useOrganizerView();
+  const undoFor = useOrganizerUndoFor();
+  /*
+    The popovers sit above the foot's lines, and auto-organize's is one more
+    of them — so every popover rises by it, or the list covers the line.
+  */
+  const organizerLine = footCount(organizer?.status ?? null) !== null;
+  const lift = organizerLine ? { bottom: (sheetLift?.bottom ?? 76) + AGENTS_LINE_HEIGHT } : sheetLift;
   return (
     <>
       {/*
@@ -56,13 +68,14 @@ export function ExplorerFootLists({
         this column already drives, and closes.
       */}
       {activity !== undefined && activityOpen !== null ? (
-        <View style={[styles.activitySheet, sheetLift]} testID="explorer-activity-list">
+        <View style={[styles.activitySheet, lift]} testID="explorer-activity-list">
           <ScrollView style={styles.activityScroll}>
             <ActivityList
               entries={activity.entries}
               seenAt={activity.seenAt}
               now={activityOpen}
               empty={emptyLine(access !== undefined)}
+              undoFor={undoFor}
               onOpen={(path) => {
                 setActivityOpen(null);
                 activity.markSeen();
@@ -90,8 +103,9 @@ export function ExplorerFootLists({
       ) : null}
 
       {agents !== undefined && agentsOpen !== null && agentsLabel !== null ? (
-        <View style={[styles.activitySheet, sheetLift]} testID="explorer-agents-list">
+        <View style={[styles.activitySheet, lift]} testID="explorer-agents-list">
           <ScrollView style={styles.activityScroll}>
+            <PeopleList view={agents} />
             <AgentList
               agents={agents.agents}
               now={agentsOpen}
@@ -102,6 +116,9 @@ export function ExplorerFootLists({
             />
           </ScrollView>
         </View>
+      ) : null}
+      {organizer !== undefined && organizer.reviewOpen && organizerLine ? (
+        <ReviewPopover organizer={organizer} lift={lift} />
       ) : null}
     </>
   );

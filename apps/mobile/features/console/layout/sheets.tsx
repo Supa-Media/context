@@ -7,6 +7,7 @@ import { NO_PENDING } from "../files/pendingMarks";
 import { RecentSheet } from "../files/RecentSheet";
 import { saveChip } from "../files/status";
 import { SyncSheet } from "../files/SyncSheet";
+import { TreeSheet } from "../files/TreeSheet";
 import type { useTabs } from "../files/useTabs";
 import { noteHref, settingsHref, type settingsFromQuery } from "../nav";
 import { AgentSetupOverlay } from "../../agentSetup/AgentSetupOverlay";
@@ -66,6 +67,27 @@ export function consoleRecentSheet({
       />
     ) : null
   );
+}
+
+/** The folder key's sheet: the whole tree, on a phone. See `TreeSheet`. */
+export function consoleTreeSheet({
+  treeSheetOpen,
+  phone,
+  browsing,
+  data,
+  contextLabel,
+  setTreeSheetOpen,
+}: {
+  treeSheetOpen: boolean;
+  phone: boolean;
+  browsing: boolean;
+  data: ConsoleData;
+  contextLabel: string;
+  setTreeSheetOpen: Dispatch<SetStateAction<boolean>>;
+}) {
+  return treeSheetOpen && phone && browsing ? (
+    <TreeSheet files={data.files} title={contextLabel} onDismiss={() => setTreeSheetOpen(false)} />
+  ) : null;
 }
 
 export function consoleSyncSheet({
@@ -162,6 +184,14 @@ export function consoleSettings({
         onSwitchContext={(slug) => router.push(settingsHref(slug, openSettingsSection))}
         onSignOut={requestSignOut}
         onOpenInvitation={(token) => router.push(inviteHref(token))}
+        /*
+          Claude and ChatGPT open the full screen guide rather than their row's
+          panel. Settings stays underneath, so closing the guide lands back
+          on the page the button was on.
+        */
+        onConnectAgent={
+          agentSetupAvailable(data) ? (agent) => router.setParams({ connect: agent }) : undefined
+        }
         onDismiss={() => router.setParams({ settings: undefined })}
       />
     )
@@ -206,6 +236,13 @@ export function consoleCloseTabConfirm({
  * in. Everywhere the guide is offered — a personal workspace's owner, a
  * member of somebody else's — the grants listed are the viewer's own.
  */
+/** Whether `consoleAgentSetup` would draw anything for this console. */
+export function agentSetupAvailable(data: ConsoleData): boolean {
+  const current = selectedContext(data);
+  if (current === null || data.demo === true) return false;
+  return current.kind === "personal" || current.role !== "owner";
+}
+
 export function consoleAgentSetup({
   connectAgent,
   data,
@@ -216,8 +253,7 @@ export function consoleAgentSetup({
   router: ConsoleRouter;
 }) {
   const current = selectedContext(data);
-  if (connectAgent === null || current === null || data.demo === true) return null;
-  if (current.kind !== "personal" && current.role === "owner") return null;
+  if (connectAgent === null || current === null || !agentSetupAvailable(data)) return null;
   const slug = current.slug;
   return (
     <AgentSetupOverlay

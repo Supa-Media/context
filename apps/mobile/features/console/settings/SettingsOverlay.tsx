@@ -19,6 +19,7 @@ import {
   type SettingsSectionKey,
 } from "./sections";
 import { showPluginsSection } from "../plugins/experiment";
+import type { SetupAgent } from "../../agentSetup/guides";
 
 /**
  * Settings, drawn over the context somebody is already looking at.
@@ -44,6 +45,7 @@ export function SettingsOverlay({
   onSwitchContext,
   onSignOut,
   onOpenInvitation,
+  onConnectAgent,
   onDismiss,
   returned = null,
 }: {
@@ -67,6 +69,8 @@ export function SettingsOverlay({
   onSignOut?: () => void;
   /** Answering an invitation is a navigation to `inviteHref(token)`. */
   onOpenInvitation?: (token: string) => void;
+  /** Opens the full screen Claude/ChatGPT setup (`?connect=`) over settings. */
+  onConnectAgent?: (agent: SetupAgent) => void;
   onDismiss: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -177,6 +181,7 @@ export function SettingsOverlay({
       }}
       section={active}
       returned={returned}
+      onConnectAgent={onConnectAgent}
     />
   );
 

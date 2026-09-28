@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { connect, NOTE, splitNote } from "./fixtures";
+import { connect, NOTE, PROTOCOL_VERSION, splitNote } from "./fixtures";
 
 /* -------------------------------------------------------------------------- */
 /*                        the keyboard accessory bar                          */
@@ -110,6 +110,73 @@ describe("the accessory bar's commands", () => {
     // no simulator to catch that on, so what is asserted is the one thing
     // that would show it here: no further `onFocus` report crossed at all.
     expect(w.focus.slice(focusEventsBefore)).toEqual([]);
+    w.destroy();
+  });
+
+  /**
+   * The Link sheet, across the bridge. The sheet is native and the selection
+   * is in the guest, so the round trip is: `insertLink` with `ask`, a
+   * `link-request` back carrying the words, and an `applyLink` or
+   * `cancelLink` that the guest runs against the selection it saved. The test
+   * above is the same key on a host with no sheet, and it still drops the
+   * words — that host never asks.
+   */
+  test("link over selected words asks the host, then writes the pick over them", () => {
+    const w = connect({ doc: NOTE, editable: true });
+    const at = NOTE.indexOf("body.");
+    w.view.dispatch({ selection: { anchor: at, head: at + "body".length } });
+
+    w.host.run({ name: "insertLink", ask: true });
+    w.flush();
+    expect(w.linkRequests).toEqual(["body"]);
+    expect(w.view.state.doc.toString()).toBe(NOTE);
+
+    w.host.run({ name: "applyLink", link: { kind: "url", url: "https://example.com/a" } });
+    w.flush();
+    const linked = `${NOTE.slice(0, at)}[body](https://example.com/a)${NOTE.slice(at + "body".length)}`;
+    expect(w.view.state.doc.toString()).toBe(linked);
+    expect(w.changes).toEqual([linked]);
+    w.destroy();
+  });
+
+  test("a cancelled sheet puts the selection back and sends nothing", () => {
+    const w = connect({ doc: NOTE, editable: true });
+    const at = NOTE.indexOf("body.");
+    w.view.dispatch({ selection: { anchor: at, head: at + "body".length } });
+
+    w.host.run({ name: "insertLink", ask: true });
+    w.view.dispatch({ selection: { anchor: 0 } });
+    w.host.run({ name: "cancelLink" });
+    w.flush();
+    expect(w.view.state.doc.toString()).toBe(NOTE);
+    expect(w.view.state.selection.main).toMatchObject({ from: at, to: at + "body".length });
+    expect(w.changes).toEqual([]);
+    w.destroy();
+  });
+
+  test("the host opens no sheet for a note the viewer may only read", () => {
+    const w = connect({ doc: NOTE, editable: false });
+    w.fromWebView(JSON.stringify({ v: PROTOCOL_VERSION, type: "link-request", text: "body" }));
+    expect(w.linkRequests).toEqual([]);
+    w.destroy();
+  });
+
+  test("a link the sheet could not have offered is refused at the guest", () => {
+    const w = connect({ doc: NOTE, editable: true });
+    const at = NOTE.indexOf("body.");
+    w.view.dispatch({ selection: { anchor: at, head: at + "body".length } });
+    w.host.run({ name: "insertLink", ask: true });
+    // Straight onto the wire, past the host's types, as a compromised or
+    // mismatched host could send it.
+    w.guest.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "command",
+        command: { name: "applyLink", link: { kind: "url", url: "javascript:alert(1)" } },
+      }),
+    );
+    w.flush();
+    expect(w.view.state.doc.toString()).toBe(NOTE);
     w.destroy();
   });
 

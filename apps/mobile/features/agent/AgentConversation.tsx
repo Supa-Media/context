@@ -8,6 +8,7 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { EMPTY_CONVERSATION, answered, ask, canAsk, failed, type Conversation } from "./conversation";
 import type { AgentEngine } from "./engine";
 import type { AgentPage } from "./page";
+import { useFieldFont } from "../design/fieldFont";
 
 /**
  * The conversation itself: a transcript and a composer, and no chrome at all.
@@ -68,6 +69,7 @@ export function AgentConversation({
   onDismissed?: (dismiss: () => void) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const [conversation, setConversation] = useState<Conversation>(EMPTY_CONVERSATION);
   const [draft, setDraft] = useState("");
@@ -205,7 +207,7 @@ export function AgentConversation({
 
       <View style={styles.composer}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, fieldFont]}
           value={draft}
           onChangeText={setDraft}
           placeholder={PROMPT_PLACEHOLDER}

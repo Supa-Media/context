@@ -29,8 +29,7 @@ const NAME = /^[A-Za-z][\w-]*$/;
 
 /**
  * `visibility` is never a property you can set here. `privacy.md` decides who
- * can read a note, and the panel shows that answer in this row rather than the
- * file's line — see `withVisibility`.
+ * can read a note, and the Share dialog changes it — see `withoutVisibility`.
  */
 const NOT_HERE = new Set(["visibility"]);
 

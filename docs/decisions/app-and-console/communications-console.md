@@ -3,19 +3,17 @@
 ### The communications console reads through `FileBrowser`, not a new tool
 
 `docs/decisions/communications.md` decided the on-bucket shape and the
-gateway's `list_channel_days`/`read_channel_day`. The console's Inbox,
-Channel, Channel-day and Contact pages read the **same bucket** through the
+gateway's `list_channel_days`/`read_channel_day`. The console's
+Channel-day and Contact pages read the **same bucket** through the
 **same interface** every other console screen already uses —
 `apps/mobile/features/console/files/browser.ts`'s `FileBrowser`, backed by
 `listFiles`/`readNote` — rather than a fifth Convex action shaped around
-these four views. Two members were added to that interface, both read-only
+these views. Two members were added to that interface, both read-only
 and both already the shape a demo and a real browser can each answer:
 
 - **`ensureListing(path)`** — fetch a folder's listing into the cache without
-  selecting it. The Inbox needs several folders at once (`0-inbox`,
-  `0-inbox/email`, and every channel folder it finds) and none of them is "the
-  folder somebody navigated into", which is the only case `select` already
-  covered.
+  selecting it, for a view that needs a folder nobody navigated into, which
+  is the only case `select` already covered.
 - **`readRaw(path)`** — a note's text and etag, without opening it in the
   editor. A channel-day's split parts and a contact's linked days are reads
   that are not "the open note", and routing them through `select`/`editor`
@@ -42,49 +40,41 @@ client: it already has a general file browser that lists folders and reads
 notes with `canSee` applied identically, and building a second, console-only
 "list channel days" action would be two implementations of one visibility
 rule with two chances to disagree about which paths a team caller may
-enumerate. `discoverInboxChannels`, `collateChannelDays` and
-`shapeChannelDay` (`features/console/communications/{inbox,channel,day}.ts`)
-do the shaping this console needs entirely client-side, over listings and
-reads the gateway already filtered — no index, nothing that can drift from
-the bucket, the same property the Inbox landing page's own virtuality argues
-for one layer up.
+enumerate. `shapeChannelDay` and `parseContactView`
+(`features/console/communications/{day,contact}.ts`) do the shaping this
+console needs entirely client-side, over reads the gateway already filtered —
+no index, nothing that can drift from the bucket.
 
-The check is `commsPaths.test.ts` and `commsInbox.test.ts`: every shaping
+The check is `commsPaths.test.ts` and the channel-day and contact tests: every shaping
 function is pure, fed `FileEntry[]`/`{text, etag}` shapes a fixture builds by
 hand, with no `FileBrowser`, no Convex client and no bucket anywhere in the
 test.
 
-#### Meetings stays a generic folder; only the three messaging channels get a day view
+#### Every inbox folder is a regular folder; only two note shapes get a view
 
-`classifyCommsPath` routes `0-inbox/email/<slug>`, `0-inbox/google-chat` and
-`0-inbox/imessage` to `ChannelView`/`ChannelDayView`, and deliberately answers
-`null` for `0-inbox/meetings` — the ordinary `FolderView` keeps listing it.
-**A channel-day note is one file standing for a whole day; a meeting note is
-one file standing for one meeting**, and several can land on the same date
-with nothing in common beyond it. Building a "day" view for meetings would
-mean inventing a grouping nobody asked for — the scoping note's own tree
-lists `meetings` beside the messaging channels as an Inbox *child*, for
-recency, not as a second channel-day shape. `inbox.ts`'s `activeDatesFor`
-reads a meeting's date off its filename (every meeting note begins
-`YYYY-MM-DD-`, per `packages/meetings`'s own `MEETING_FILE`) for the same
-reason the Inbox is virtual at all: reading every meeting's frontmatter just
-to sort the landing page by date would spend a body-read this page exists to
-avoid paying.
+`classifyCommsPath` routes exactly two kinds of *note* to a view of their own:
+a channel-day (`ChannelDayView`) and a contact page (`ContactPageView`). It
+answers `null` for every *folder*, so `0-inbox`, `0-inbox/meetings`,
+`0-inbox/contacts`, each mailbox, `0-inbox/google-chat` and `0-inbox/imessage`
+are all drawn by the same `FolderView` as every other folder in the app.
 
-`0-inbox/contacts` is `null` from `classifyCommsPath` in the same way and for
-a related reason: it is a row on the Inbox (`inbox.ts` treats `contacts` as a
-fifth `InboxKind`, reading its recency off the listing's own `updatedAt`
-rather than any content — a contact page is edited, not dated by a channel),
-but the *folder* is a generic listing of contact pages. A nicer list —
-showing each contact's own name rather than its filename slug — is a real
-improvement and is deliberately not built here: it would need reading every
-contact's frontmatter for a folder listing, which is the same cost this
-whole page structure exists to avoid, and is a candidate for a small,
-separate index the day it is worth one.
+This reverses the first cut, which drew `0-inbox` as a virtual landing page
+(one big row per channel with "Last active · N active days" and a chevron)
+and each channel folder as a paged list of days. Dev2 (2026-09-28): "why do
+items in the inbox look so different from every other folder in the app? it
+looks broken please just give it the regular UI treatment". The product's
+model is that everything is a note or a folder
+(see *sidebar-only-notes* in project memory); a folder that draws itself
+differently reads as a bug, not a feature, and every improvement to
+`FolderView` (views, statuses, drag, menus) skipped the Inbox for as long as
+it did. Recency per channel is what the folder's own sort already shows.
 
-The check is `commsPaths.test.ts`'s `"meetings is never a comms route"` and
-`channel.ts`'s own header, which states the asymmetry rather than leaving it
-to be rediscovered as a gap.
+Meeting notes were never routed: one file per meeting, not one per day, so
+there is no channel-day shape for them.
+
+**What a revert of this would cost:** a second listing UI to keep in step with
+`FolderView`. The check is `commsPaths.test.ts`'s "is a regular folder, never a
+comms route" cases, one per inbox folder.
 
 #### A note's anchor is a query parameter, not a URL fragment
 
@@ -201,34 +191,23 @@ real bucket paths, and `isMarkdown`/`select`'s folder-or-file guess reads "no
 `.md`" as "this must be a folder." Calling `onOpenActivity` with the raw
 parsed path opened the *console's own root folder* instead of the linked
 day — caught by the WebKit case rather than shipped, because
-`commsInbox.test.ts`'s fixtures never exercise real navigation and nothing
+the unit fixtures never exercise real navigation and nothing
 about the shaping layer is wrong here. `ContactPageView` restores the suffix
 with `ensureMarkdown` at the point it calls `onOpenActivity` — the one seam
 between "how a link is written" and "how this console opens one" — rather
 than changing what `parseContactView` reports, which stays a faithful read
 of the page.
 
-#### Connecting a mailbox is a flag; reading one that is already connected is not
+#### Connecting a mailbox is not offered in the console yet
 
-`MAIL_CONNECT_ENABLED` (`features/console/communications/flags.ts`) gates the
-Inbox's empty-state "Connect a mailbox" offer, off by default, on only via
-`EXPO_PUBLIC_MAIL_CONNECT_ENABLED=1` at export time — the same
-build-time-only shape `EXPO_PUBLIC_E2E_FIXTURE` already uses. This is
-`docs/decisions/communications.md`'s *the Gmail restricted scope is Google's
-decision*, read onto the one screen that would otherwise have to guess at it:
-reading a mailbox needs `gmail.readonly`, and until Google's verification of
-this product's use of that scope lands, the honest answer to "can I connect
-one" is no — never a button that looks pressable and fails, and never a
-button quietly hidden with no explanation, which is its own kind of dishonest
-for a person who came looking for exactly this. The flag's docstring says so
-in the same words a person reads on screen when it is off.
-
-**The gate is on the connection, never on the rendering.** Every view this
-change ships — the Inbox row, the Channel and Channel-day views, a contact's
-activity links — reads whatever mailbox is already connected, by hand or on
-a fixture, whether or not this flag is on. Flipping it later changes nothing
-about any of those; it only changes whether the empty state's button does
-something.
+The Inbox's empty state used to explain, behind a build-time
+`MAIL_CONNECT_ENABLED` flag, that connecting a mailbox waits on Google's
+verification of the restricted `gmail.readonly` scope. That empty state went
+with the custom Inbox page (above); `0-inbox` is now an ordinary folder and
+shows whatever is in it. Whatever offers a mailbox connection when the scope
+is verified belongs with the other connections, not on one folder's page.
+**Reading** a mailbox that is already connected is unaffected: its days and
+contacts render the same with or without a connection offer anywhere.
 
 ### The compact corner was two controls, and one of them was a silent sign-out
 

@@ -67,7 +67,7 @@ const MAX_INLINE_IMAGE_BYTES = 5_000_000;
  * Returns null for anything else; the caller turns null into the same "not
  * found" as every other failure.
  */
-function imageRefFor(value) {
+export function imageRefFor(value) {
   if (typeof value !== "string") return null;
   const raw = value.trim();
   // A backstop, and honestly labelled as one: with the character class below in

@@ -24,6 +24,8 @@ import {
 } from "./types";
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
 import { setObservabilityUser } from "../observability/client";
+import { useOrganizer } from "../organizer/useOrganizer";
+import { useFacesSync } from "./faces/useFacesSync";
 import {
   memberOf,
   usable,
@@ -169,6 +171,9 @@ export function useLiveConsoleData(): ConsoleData {
   const results = useQueries(queries);
   const revoke = useMutation(api.functions.grants.revokeGrant);
   const bindStorage = useAction(api.functions.storage.bindStorage);
+  const startManagedStorageHandoff = useAction(
+    api.functions.storage.startManagedStorageHandoff,
+  );
   /*
     The same action `useFileBrowser` holds, taken here too rather than threaded
     up through `FileBrowser`'s interface: `useAction` returns a callable, not a
@@ -181,6 +186,8 @@ export function useLiveConsoleData(): ConsoleData {
   const readNotesAction = useAction(api.functions.files.readNotes);
   /** The bytes behind a workspace's icon. See the prefetch below for why here. */
   const workspaceIconPhotoAction = useAction(api.functions.files.workspaceIconPhoto);
+  // People's faces, for every surface that draws a person (`faces/faceStore.ts`).
+  useFacesSync();
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
   const observeStorageLayout = useMutation(
     api.functions.storage.observeStorageLayout,
@@ -348,6 +355,7 @@ export function useLiveConsoleData(): ConsoleData {
   const storageActions: StorageActions | undefined = storageActionsFor(selectedContextId, isOwner, {
     reverifyStorage,
     bindStorage,
+    startManagedStorageHandoff,
     disconnectStorage,
     observeStorageLayout,
   });
@@ -387,6 +395,9 @@ export function useLiveConsoleData(): ConsoleData {
     liveWorkspaces,
   });
 
+  // Auto-organize for this workspace — status, suggestions, and the presses on them.
+  const organizer = useOrganizer({ workspaceId: membershipContextId, slug: selected?.slug ?? "" });
+
   const viewerUserId = members.members.find((member) => member.isMe)?.userId;
   useEffect(() => {
     if (viewerUserId === undefined) return;
@@ -402,6 +413,7 @@ export function useLiveConsoleData(): ConsoleData {
     selectContext,
     activity,
     agents,
+    organizer,
     searchableContexts,
     graph,
     ...accountActionsFor({ leaveWorkspace, deleteAccountMutation, authActions }),

@@ -9,6 +9,7 @@
  *   /<path>          -> a website page, with one-segment legacy short links
  *                       resolved by the app only when no page owns the path
  *   /_expo/...       -> the web bundle, identical for every host
+ *   /_site/page      -> one page's answer for the app (`sitePages.ts`)
  *   /icon.png, ...   -> the handful of static files the page itself loads
  *   /robots.txt      -> "Disallow: /", because nothing here is indexed
  *   everything else  -> 404, without asking anybody
@@ -25,7 +26,7 @@
 
 import { isCrawler, OG_CARD_PATH, type PreviewMeta } from "./preview";
 import { SHORT_LINK_SLUG } from "./preview/shortLinks";
-import { GENERIC_PREVIEW } from "./preview/meta";
+import { siteCardFrom } from "./preview/sites";
 
 export interface SiteBinding {
   handle: string;
@@ -57,6 +58,7 @@ const STATIC_FILE =
 const RESERVED_FIRST_SEGMENTS = new Set([
   ".well-known",
   "_expo",
+  "_site",
   "api",
   "assets",
   "auth",
@@ -117,6 +119,15 @@ export type SiteDecision =
   | { kind: "og-card" }
   | { kind: "preview"; meta: PreviewMeta }
   | { kind: "short-link-preview"; handle: string; slug: string }
+  | {
+      kind: "site-preview";
+      handle: string;
+      routePath: string;
+      legacySlug?: string;
+      origin: string;
+      prefix: string;
+    }
+  | { kind: "site-card"; handle: string; routePath: string; version: string | null }
   | { kind: "proxy"; upstream: "expo"; path: string; cache?: "immutable" };
 
 /** Route a request that arrived at a customer's domain. */
@@ -131,6 +142,12 @@ export function siteRoute(
 
   if (pathname === "/robots.txt") return { kind: "site-robots" };
   if (pathname === OG_CARD_PATH) return { kind: "og-card" };
+  // A page's own card. Before the crawler check like the product card above:
+  // the image the tags point at is fetched with the same User-Agent.
+  const card = siteCardFrom(url, true);
+  if (card !== null) {
+    return { kind: "site-card", handle: binding.handle, routePath: card.routePath, version: card.version };
+  }
   if (pathname.startsWith("/_expo/")) {
     return { kind: "proxy", upstream: "expo", path, cache: "immutable" };
   }
@@ -138,25 +155,29 @@ export function siteRoute(
     return { kind: "proxy", upstream: "expo", path };
 
   let slug: string | null;
+  let routePath = "/";
   if (pathname === "/") {
     slug = binding.homeSlug;
   } else {
-    const routePath = websitePath(pathname);
-    if (routePath === null) return { kind: "site-missing" };
+    const checked = websitePath(pathname);
+    if (checked === null) return { kind: "site-missing" };
+    routePath = checked;
     const segment = routePath.slice(1);
     slug =
       !segment.includes("/") && SHORT_LINK_SLUG.test(segment) ? segment : null;
   }
 
+  // Every address is a website page first, as it is for a visitor; a legacy
+  // short link at the same address is asked about only when no page owns it.
   if (isCrawler(userAgent)) {
-    return slug !== null
-      ? {
-          kind: "short-link-preview",
-          handle: binding.handle,
-          slug,
-          ...(pathname === "/" ? { routePath: "/" } : {}),
-        }
-      : { kind: "preview", meta: GENERIC_PREVIEW };
+    return {
+      kind: "site-preview",
+      handle: binding.handle,
+      routePath,
+      ...(slug === null ? {} : { legacySlug: slug }),
+      origin: `https://${url.hostname.toLowerCase()}`,
+      prefix: "",
+    };
   }
   return { kind: "proxy", upstream: "expo", path };
 }

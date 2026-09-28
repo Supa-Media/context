@@ -48,6 +48,7 @@ export type {
   MeetingWriteKind,
   OutboxStatus,
   PendingMachineApproval,
+  SpellingCheck,
   StartCaptureRequest,
   TranscribesAt,
   TranscriptSegment,

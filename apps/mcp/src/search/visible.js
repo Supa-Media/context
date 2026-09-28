@@ -62,7 +62,8 @@ import {
   shedNotePathsOf,
   syncShardedIndex,
 } from "./shards.js";
-import { termsOf } from "./text.js";
+import { noteTitle, snippetLinesFor } from "./resultText.js";
+export { noteTitle, snippetLinesFor };
 
 /**
  * Hits returned to one caller. Small on purpose: every hit costs a fresh read
@@ -158,27 +159,6 @@ export const RENDERED_RECALL_NOTE_LIMIT = 10;
 export function splitReducedRecallNotes(paths, limit = RENDERED_RECALL_NOTE_LIMIT) {
   const list = Array.isArray(paths) ? paths : [];
   return { shown: list.slice(0, limit), rest: Math.max(0, list.length - limit) };
-}
-
-/** A note's own `#` heading, or its filename when it has none. */
-export function noteTitle(path, text) {
-  const heading = String(text).split("\n").find((line) => /^#{1,6}\s+\S/.test(line));
-  if (heading) return heading.replace(/^#{1,6}\s+/, "").trim().slice(0, 200);
-  return path.split("/").pop().replace(/\.md$/, "");
-}
-
-/** Lines of a freshly read note that actually carry one of the matched terms. */
-export function snippetLinesFor(text, matchedTerms) {
-  const wanted = new Set(matchedTerms || []);
-  if (wanted.size === 0) return [];
-  const lines = [];
-  for (const line of String(text).split("\n")) {
-    if (!line.trim()) continue;
-    if (!termsOf(line).some((term) => wanted.has(term))) continue;
-    lines.push(line.trim().slice(0, 200));
-    if (lines.length === 3) break;
-  }
-  return lines;
 }
 
 /**

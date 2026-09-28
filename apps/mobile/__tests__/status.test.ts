@@ -67,6 +67,8 @@ describe("counting a draft", () => {
   test("words split on whitespace runs and ignore the edges", () => {
     expect(countWords("hello world")).toBe(2);
     expect(countWords("  hello   world  ")).toBe(2);
+    // Comments are not words of the note.
+    expect(countWords('<!--c:k7f2-->hello<!--/c:k7f2--> world\n\n```comments\nk7f2 "hello"\n- 2026-09-27T07:30:12Z Codex: tone it down\n```\n')).toBe(2);
     expect(countWords("one\ntwo\tthree\r\nfour")).toBe(4);
   });
 

@@ -15,7 +15,13 @@ import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { imageSelection } from "../imageBlock";
 import { decorationsFor } from "./decorations";
-import { editorEngaged, setEditorEngaged } from "./engagement";
+import {
+  caretInput,
+  editorEngaged,
+  setCaretInput,
+  setEditorEngaged,
+  type CaretInput,
+} from "./engagement";
 import { frontmatterRange } from "./frontmatter";
 import { taskToggle } from "./listWidgets";
 import { tableGrids } from "./tableModel";
@@ -128,13 +134,21 @@ export function livePreview() {
       const pickChanged =
         transaction.startState.field(imageSelection, false) !==
         transaction.state.field(imageSelection, false);
+      /*
+        And whether the caret came from a finger, which decides whether a
+        heading's `#` reveals (`caretInput`). It arrives as an effect on
+        `pointerdown`, before the selection it describes.
+      */
+      const inputChanged =
+        transaction.startState.field(caretInput, false) !== transaction.state.field(caretInput, false);
       if (
         !transaction.docChanged &&
         !transaction.selection &&
         !readOnlyChanged &&
         !treeChanged &&
         !focusChanged &&
-        !pickChanged
+        !pickChanged &&
+        !inputChanged
       ) {
         return value;
       }
@@ -168,5 +182,23 @@ export function livePreview() {
     ),
     decorations,
     taskToggle,
+    /*
+      Which kind of pointer placed the caret — see `caretInput`. Read off
+      `pointerdown`, which fires before the selection it produces on every
+      engine this ships to (WKWebView included), and dispatched only when it
+      changes so an ordinary click costs nothing. A pen counts as a finger: a
+      tap is a tap.
+    */
+    caretInput,
+    EditorView.domEventHandlers({
+      pointerdown(event, view) {
+        const finger = event.pointerType === "touch" || event.pointerType === "pen";
+        const next: CaretInput = finger ? "touch" : "precise";
+        if (view.state.field(caretInput, false) !== next) {
+          view.dispatch({ effects: setCaretInput.of(next) });
+        }
+        return false;
+      },
+    }),
   ];
 }

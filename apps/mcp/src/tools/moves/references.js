@@ -1,12 +1,14 @@
 /** Rewriting the links that point at a moved note. */
 
 import { canSee } from "../../privacy/engine.js";
+import { recordChange } from "../../activity/record.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { indexByName, rewriteLinks } from "../../links.js";
 import { isEncryptedNote } from "../../encryption.js";
 import { LINK_SCAN_CAP } from "../../moves/objects.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
+import { mapInBatches } from "../../notes/storage.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
 
 /**
@@ -37,6 +39,17 @@ import { replaceText as replaceCollaborationText } from "@context/collaboration"
  * as it was; resolving it against the new shape would miss exactly the note
  * that just moved.
  */
+/** An audit row naming thousands of paths is a row nobody reads; it says so instead. */
+const RECORDED_PATH_CAP = 200;
+/**
+ * An object-store round trip per visible note cannot be serial here. A real
+ * 596-note workspace took long enough to cross the connector transport's HTTP
+ * timeout even though the move and archive both finished. Eight keeps the
+ * in-flight work under the gateway's subrequest headroom while collapsing the
+ * sweep to bounded waves, the same shape search uses for remote reads.
+ */
+const REFERENCE_READ_CONCURRENCY = 8;
+
 export async function rewriteReferences(store, scope, rules, overrides, renames, { write = true } = {}) {
   if (renames.size === 0) return { notes: 0, links: 0, capped: false };
 
@@ -58,12 +71,10 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   for (const [from, to] of renames) wasAt.set(to, from);
   const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
 
-  let notes = 0;
-  let links = 0;
-  for (const key of keys) {
+  const results = await mapInBatches(keys, REFERENCE_READ_CONCURRENCY, async (key) => {
     const fromPath = wasAt.get(key) ?? key;
     const object = await getWithLegacyFallback(store, key);
-    if (!object) continue;
+    if (!object) return { notes: 0, links: 0, written: null };
     const storedText = await object.text();
     const collaborationBase = await generatedCollaborationBase(store, key, storedText);
     const text = collaborationBase?.text ?? storedText;
@@ -84,12 +95,10 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
       the other direction for bulk moves. See `docs/decisions/encryption.md`,
       "Round-tripping without damaging ciphertext".
     */
-    if (isEncryptedNote(text)) continue;
+    if (isEncryptedNote(text)) return { notes: 0, links: 0, written: null };
     const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName });
-    if (rewritten === null) continue;
-    notes += 1;
-    links += rewritten.changed;
-    if (!write) continue;
+    if (rewritten === null) return { notes: 0, links: 0, written: null };
+    if (!write) return { notes: 1, links: rewritten.changed, written: null };
     /*
       No snapshot before the overwrite, and that is the *current* rule rather
       than an omission: version history is the customer's object versioning
@@ -107,6 +116,39 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     } else {
       await store.put(key, rewritten.text);
     }
+    return { notes: 1, links: rewritten.changed, written: key };
+  });
+  const notes = results.reduce((sum, result) => sum + result.notes, 0);
+  const links = results.reduce((sum, result) => sum + result.links, 0);
+  const written = results.flatMap((result) => result.written === null ? [] : [result.written]);
+
+  /*
+    THE NOTES THIS REWROTE ARE NOT THE NOTES THE MOVE NAMED.
+
+    Every caller records the move afterwards with the moved note's own two
+    paths. The bodies changed here belong to other notes, and until this row
+    existed nothing said so: the audit trail — the thing CLAUDE.md promises
+    accounts for what happened in somebody's own bucket — described a move and
+    was silent about the writes beside it.
+
+    The half with a fixed row behind it is `announceWebsiteChange`, which fires
+    only when one of the RECORDED paths is under `website/`. Move a note that
+    is not published, rewrite the link to it inside a page that is, and the
+    control plane was never told its route index had stopped describing the
+    bytes. That is the invariant #941 was written to hold, reached by a door it
+    did not know about.
+
+    A separate row rather than more paths on the caller's: this is a different
+    action by the same operation, and `rewrite_references` is deliberately not
+    in the activity file's `SUBSTANCE` map, so it lands in the audit trail and
+    announces the change without making the feed somebody reads any chattier.
+  */
+  if (written.length > 0) {
+    await recordChange(store, "rewrite_references", scope, written.slice(0, RECORDED_PATH_CAP), {
+      notes,
+      links,
+      truncated: written.length > RECORDED_PATH_CAP,
+    });
   }
   return { notes, links, capped: false };
 }

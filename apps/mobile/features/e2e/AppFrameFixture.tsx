@@ -37,7 +37,7 @@ export function AppFrameFixture() {
   const styles = useStyles();
   return (
     <AppFrame
-      switcher={<Text variant="wsSwitch">@seyi</Text>}
+      lead={<Text variant="wsSwitch">@seyi</Text>}
       topTrailing={<Text variant="treeMeta">actions</Text>}
       accountSlot={<Text variant="treeMeta">you</Text>}
       onSearch={() => {}}

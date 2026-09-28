@@ -15,9 +15,10 @@ import { LONG_PRESS_MS } from "./files/rowInteractionContract";
  * is what goes in that slot: the phone's answer to the right-click menu and the
  * keyboard chord. There is no keyboard here and no hover: if a *verb* is not on
  * this strip, on a phone it does not exist. That is why the shape is copied
- * from Obsidian mobile — back, forward, search, new, recent, menu — rather
- * than invented: it is the arrangement the people most likely to arrive at this
- * product already have muscle memory for.
+ * from Obsidian mobile rather than invented: it is the arrangement the people
+ * most likely to arrive at this product already have muscle memory for. The
+ * console's row is five keys — back, browse, search, new, recent — in a short
+ * centred capsule (`ConsoleBottomBar`, and the `bar` style below).
  *
  * ## "Navigation is not its job" is amended, and here is how far
  *
@@ -494,18 +495,22 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
       knows the safe-area inset. See the file comment.
     */
     /*
-      It fills the slot the frame insets for it, rather than sizing itself.
+      A short capsule, centred, sized by its keys.
 
-      `alignSelf: "center"` with a content width was the first answer, and it
-      was right about the *look* and wrong about where the number comes from:
-      the inset either side became a function of how many actions the route has
-      — six on your own context, five on one you were invited into, because
-      there is no New note — so the bar sat 52pt in on one screen and 78 on the
-      next. The reference's 52 is a property of the screen, not of the toolbar's
-      contents. `AppFrame` insets the slot by `layout.bottomBarInset` and this
-      stretches into it; the targets below share what is left.
+      It filled the slot the frame insets for it, on the argument that a
+      content-sized bar moved with the number of actions on the route — six on
+      your own context, five on one you were invited into. That argument was
+      about a row whose length varied; the phone's row is five keys now (Back,
+      Browse, Search, New, Recent) on every route that draws it, and the owner
+      chose the short centred capsule over the plank (2026-09-27, the phone
+      artboards, screen 1): five 52pt targets plus the padding is 284pt, with
+      53pt of note showing each side of a 390pt phone — Obsidian's own sliver.
+      The frame's `bottomBarInset` is still the most the capsule may use; the
+      targets shrink toward the touch floor only when a screen is too narrow
+      for their natural width.
     */
-    alignSelf: "stretch",
+    alignSelf: "center",
+    maxWidth: "100%",
     /*
       A full pill, not a rounded rectangle. Measured off the reference, the
       bar's horizontal extent narrows symmetrically at both ends — 87.7→352pt
@@ -559,8 +564,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * where no arrangement exists, and it comes with a warning rather than in
    * silence.
    */
+  /*
+    `flexGrow: 0` since the capsule sizes itself by its keys (see `bar`): each
+    target is its natural `bottomBarTarget` and the pill is exactly as wide as
+    the row, rather than the row stretching to fill a pill the frame sized.
+  */
   target: {
-    flexGrow: 1,
+    flexGrow: 0,
     flexShrink: 1,
     flexBasis: layout.bottomBarTarget,
     minWidth: MIN_TOUCH_TARGET,

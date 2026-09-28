@@ -6,9 +6,11 @@ import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
+import { useColumnTools } from "../../app/appFrame/columnTools";
 import { ExplorerDialogs } from "./explorer/ExplorerDialogs";
 import { ExplorerFoot } from "./explorer/ExplorerFoot";
 import { ExplorerFootLists } from "./explorer/ExplorerFootLists";
+import { useFootDismiss } from "./explorer/useFootDismiss";
 import { ExplorerToolbar } from "./explorer/ExplorerToolbar";
 import { ExplorerTree } from "./explorer/ExplorerTree";
 import type { ExplorerProps } from "./explorer/props";
@@ -117,10 +119,6 @@ export function Explorer({
     agentsLabel,
     sheetLift,
     closeFilter,
-    toolsShown,
-    setToolsShown,
-    filterFocused,
-    setFilterFocused,
   } = useExplorer({
     files,
     contextLabel,
@@ -132,41 +130,31 @@ export function Explorer({
     agents,
     frame,
   });
+  useFootDismiss({ activity, activityOpen, setActivityOpen, agentsOpen, setAgentsOpen });
+
+  /*
+    Filter, New and View. They go up into the title row over the column when
+    the frame has one (the owner's choice, 2026-09-28), and stay at the
+    column's head otherwise: a drawer, or a tree outside the console.
+  */
+  const toolbar = (
+    <ExplorerToolbar
+      files={files}
+      selectedFolder={selectedFolder}
+      setDialog={setDialog}
+      descending={descending}
+      query={query}
+      setQuery={setQuery}
+      closeFilter={closeFilter}
+      inBar={frame.columnTools !== null}
+    />
+  );
+  useColumnTools(frame.columnTools, frame.columnTools === null ? null : toolbar);
 
   return (
-    <View
-      style={styles.explorer}
-      /*
-        Chrome on approach.
-
-        Four icon buttons sat lit above the tree at all times. None of them is
-        pressed often enough to earn a resting pixel, and together they were
-        the loudest thing in a column whose job is to be a quiet list of
-        names. They fade in when the pointer enters the column and fade out
-        when it leaves.
-
-        Opacity rather than mounting: the buttons keep their box, so the
-        toolbar does not reflow under the pointer, keyboard focus still
-        reaches them, and the e2e cases that press them by testID still find
-        them where they were. `focusable` chrome that vanishes from the tree
-        is chrome you cannot tab to.
-      */
-      onPointerEnter={() => setToolsShown(true)}
-      onPointerLeave={() => setToolsShown(false)}
-      testID="explorer"
-    >
-      <ExplorerToolbar
-        files={files}
-        selectedFolder={selectedFolder}
-        setDialog={setDialog}
-        descending={descending}
-        query={query}
-        setQuery={setQuery}
-        closeFilter={closeFilter}
-        toolsShown={toolsShown}
-        filterFocused={filterFocused}
-        setFilterFocused={setFilterFocused}
-      />
+    <View style={styles.explorer} testID="explorer">
+      {/* In the column only when the title bar has no row over it. */}
+      {frame.columnTools === null ? toolbar : null}
 
       <ExplorerTree
         files={files}

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { findSession, recordElapsedMs } from "../../features/meetings/controller";
 import { fakeSegment } from "../../features/meetings/capture/fake";
 import { meetingKey, parseMeetingKey } from "../../features/meetings/keys";
+import { rememberMachineAudio } from "../../features/meetings/machineAudio";
 import { isSynced } from "../../features/meetings/record";
 import {
   DEVICE,
@@ -196,19 +197,14 @@ describe("starting a meeting", () => {
 });
 
 /**
- * A CAPABILITY WITH A CONSENT STEP IS OPTED INTO, NEVER DEFAULTED INTO.
+ * EVERY WAY OF STARTING A MEETING ASKS FOR THE CALL'S AUDIO.
  *
- * `start()`'s fallback for a caller that says nothing about system audio is
- * "whatever this build can do" — which was right while the only build that
- * could do it was the desktop shell, whose loopback tap is silent. A browser
- * can also do it, and doing it there means opening a screen-share picker.
- * Falling back to the capability alone would put that picker in front of any
- * caller that starts a meeting without going through the sheet, on behalf of
- * somebody who was never asked.
- *
- * So the fallback is "whatever this build can do **without asking again**", and
- * these two checks are the difference. The sheet still decides for itself; this
- * is about every other way a meeting can start.
+ * `start()`'s fallback for a caller that says nothing about system audio used
+ * to be "whatever this build can do without asking again", so a browser caller
+ * that passed nothing got no picker and recorded the microphone alone. That was
+ * the Meetings page's Record button and Resume, both of which pass nothing, and
+ * it recorded one side of people's calls while New meeting recorded both. The
+ * fallback is now the device's own setting, on unless somebody turned it off.
  */
 describe("what a caller who says nothing gets", () => {
   test("a silent tap is taken", async () => {
@@ -218,8 +214,24 @@ describe("what a caller who says nothing gets", () => {
     expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
-  test("a picker is not opened on somebody's behalf", async () => {
+  test("a browser asks for the call's audio too, picker and all", async () => {
     const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+
+  test("somebody who turned it off in settings is not asked", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const store = memoryStore();
+    await rememberMachineAudio(store, false);
+    const { controller } = await harness({ recorder, store });
+    await controller.start({ title: "Standup" });
+    expect(recorder.startedWith?.systemAudio).toBe(false);
+  });
+
+  test("a build that cannot take it is not sent a yes", async () => {
+    const recorder = fakeRecorder({ systemAudio: false });
     const { controller } = await harness({ recorder });
     await controller.start({ title: "Standup" });
     expect(recorder.startedWith?.systemAudio).toBe(false);
@@ -228,8 +240,55 @@ describe("what a caller who says nothing gets", () => {
   test("...and a caller who does say still decides", async () => {
     const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
     const { controller } = await harness({ recorder });
-    await controller.start({ title: "Standup", systemAudio: true });
-    expect(recorder.startedWith?.systemAudio).toBe(true);
+    await controller.start({ title: "Standup", systemAudio: false });
+    expect(recorder.startedWith?.systemAudio).toBe(false);
+  });
+});
+
+/**
+ * ONE SIDE OF A CALL IS A WARNING WITH A FIX, NOT A LINE IN A CHIP.
+ */
+describe("when the call's audio is missing", () => {
+  const MISSING = "Only your side of this call is being recorded.";
+
+  test("the recorder's report becomes a warning that holds", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    recorder.fail({ recoverable: true, message: MISSING, kind: "call-audio-missing" });
+    expect(controller.getSnapshot().callAudioWarning).toBe(MISSING);
+    // Not a capture error: the chip is not where this is said.
+    expect(controller.getSnapshot().captureError).toBeNull();
+  });
+
+  test("sharing from the warning clears it", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    recorder.fail({ recoverable: true, message: MISSING, kind: "call-audio-missing" });
+    await expect(controller.shareCallAudio()).resolves.toBe(true);
+    expect(recorder.calls).toContain("share");
+    expect(controller.getSnapshot().callAudioWarning).toBeNull();
+  });
+
+  test("declining again leaves it up", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    recorder.fail({ recoverable: true, message: MISSING, kind: "call-audio-missing" });
+    recorder.answerShare(false);
+    await expect(controller.shareCallAudio()).resolves.toBe(false);
+    expect(controller.getSnapshot().callAudioWarning).toBe(MISSING);
+  });
+
+  test("the next meeting starts without the last one's warning", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    recorder.fail({ recoverable: true, message: MISSING, kind: "call-audio-missing" });
+    await controller.end();
+    await controller.start({ title: "Retro" });
+    expect(controller.getSnapshot().callAudioWarning).toBeNull();
   });
 });
 

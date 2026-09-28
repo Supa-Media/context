@@ -4,11 +4,10 @@ import { AppFrame, FrameIconButton, useFrame } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
 import { ConsoleBottomBar } from "../console/ConsoleBottomBar";
-import { SaveChip } from "../console/ConsoleShell";
+import { SaveMark } from "../console/SaveMark";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { selectedContext } from "../console/types";
-import { ContextFootRow } from "../console/ContextFootRow";
 import { Explorer } from "../console/files/Explorer";
 import { TabStrip } from "../console/files/TabStrip";
 import type { TabsState } from "../console/files/tabs";
@@ -207,16 +206,13 @@ export function AppFrameVisualFixture({
       }}
     >
       <AppFrame
-        switcher={
+        // The account button's fallback, while the tree is folded away.
+        account={
           <SwitcherMenu
             data={data}
-            label={
-              route.kind === "context" ? atName(route.slug) : "Your context"
-            }
-            tone="ok"
-            onOpenContext={(slug) =>
-              setRoute({ kind: "context", slug, view: "browse" })
-            }
+            label={route.kind === "context" ? atName(route.slug) : "Your context"}
+            onOpenContext={(slug) => setRoute({ kind: "context", slug, view: "browse" })}
+            trigger="avatar"
           />
         }
         /*
@@ -251,12 +247,12 @@ export function AppFrameVisualFixture({
             /*
               And the pointer width's own chip, which is a *claim about the
               open note* in a corner this board is reviewed at. It is where the
-              editor's Save button went — see `SaveChip` — so a board that drew
+              editor's Save button went — see `SaveMark` — so a board that drew
               nothing here would show the note with the button removed and
               nothing put in its place, which is the half of the change a
               reviewer is most likely to object to and could not see.
             */
-            <SaveChip editor={data.files.editor} />
+            <SaveMark editor={data.files.editor} />
           )
         }
         accountSlot={
@@ -283,27 +279,20 @@ export function AppFrameVisualFixture({
             contextLabel="@seyi"
             activity={data.activity}
             /*
-              THE WORKSPACE ROW AT THE FOOT OF THE COLUMN.
-
-              Supplied by `console/_layout` in the product and by nothing here
-              until now, which is the failure this file's own header names: the
-              board could not show the row, so it could not show the dot on
-              another context's mark — the half of the activity feed the
-              meeting asked for by name ("especially in shared workspaces
-              too"). The fixture's `public-worship` carries it, and carries a
-              storage `warn` at the same time, so this is also where the two
-              marks are seen not to collide.
-
-              `recent` is empty and `onOpen` goes nowhere: this is a board, and
-              switching contexts is not one of the things it is for.
+              THE ACCOUNT BUTTON AT THE FOOT OF THE COLUMN, as
+              `console/_layout` supplies it. The fixture's `public-worship`
+              has new activity, so the dot on the avatar is on this board.
             */
             workspaces={
-              <ContextFootRow
-                contexts={data.contexts}
-                currentSlug={route.kind === "context" ? route.slug : null}
-                recent={[]}
-                onOpen={(slug) => setRoute({ kind: "context", slug, view: "browse" })}
-                menu={null}
+              <SwitcherMenu
+                data={data}
+                label={route.kind === "context" ? atName(route.slug) : "Your context"}
+                onOpenContext={(slug) => setRoute({ kind: "context", slug, view: "browse" })}
+                // No-ops, so the board shows every row the product's card has.
+                onNewWorkspace={() => {}}
+                onOpenMeetings={() => {}}
+                onOpenSettings={() => {}}
+                onSignOut={() => {}}
               />
             }
           />
@@ -356,6 +345,7 @@ export function AppFrameVisualFixture({
             onStep={() => {}}
             onSearch={() => {}}
             onOpenRecent={() => {}}
+            onBrowse={() => {}}
             onCreate={() => {}}
           />
         }

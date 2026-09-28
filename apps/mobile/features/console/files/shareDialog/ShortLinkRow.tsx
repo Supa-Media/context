@@ -5,6 +5,7 @@ import { Text } from "../../../design/components/Text";
 import { useColors, useThemedStyles } from "../../../design/theme";
 import type { NoteShare } from "../shares";
 import { makeStyles } from "./styles";
+import { useFieldFont } from "../../../design/fieldFont";
 
 /**
  * The short link: one memorable address for a link that already exists.
@@ -43,6 +44,7 @@ export function ShortLinkRow({
   onSetSlug: (shareId: string, slug: string | null) => Promise<boolean>;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -113,7 +115,7 @@ export function ShortLinkRow({
                   autoCapitalize="none"
                   autoCorrect={false}
                   autoFocus
-                  style={styles.shortLinkInput}
+                  style={[styles.shortLinkInput, fieldFont]}
                   placeholder="intake"
                   placeholderTextColor={colors.muted}
                   accessibilityLabel="Short link name"

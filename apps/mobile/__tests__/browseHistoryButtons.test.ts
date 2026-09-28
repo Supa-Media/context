@@ -21,6 +21,10 @@
  * pointer width and asserts the controls are **on the screen** and wired to
  * the console's own history.
  *
+ * For a day (PR #1006) the pair sat in the title row over the file tree; the
+ * owner moved it back here on 2026-09-28, pointing at Obsidian, where `‹ ›`
+ * lead the note's own path. They walk between notes, so they are the note's.
+ *
  * `noteChrome.test.ts` is the compact half — one row of chrome above a note —
  * and is why the pair is absent there rather than drawn twice: the bottom bar
  * has carried them under the thumb all along.
@@ -29,6 +33,8 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 jest.mock("convex/react", () => ({
+  // An owner picker searches through the client; nothing here opens one.
+  useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
     throw new Error("not used in this test");
   },

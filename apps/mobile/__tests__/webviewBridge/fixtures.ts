@@ -45,7 +45,7 @@ import {
   type MountedGuest,
 } from "../../features/console/files/webview/guest";
 import { guestStyles } from "../../features/console/files/webview/styles";
-import { createHostBridge, themeVars } from "../../features/console/files/webview/host";
+import { createHostBridge, themeVars, type HostSink } from "../../features/console/files/webview/host";
 import {
   PROTOCOL_VERSION,
   type EditorCommand,
@@ -124,6 +124,8 @@ export interface Wired {
   saves: number;
   /** Every `focused` the host's `onFocus` was called with, in order. */
   focus: boolean[];
+  /** Every set of words the guest asked the Link sheet about. */
+  linkRequests: string[];
   /** Run whatever the guest has queued for the next frame. */
   flush: () => void;
   /** Deliver a raw payload as if the web view had posted it. */
@@ -141,12 +143,13 @@ export interface Wired {
  * after mounting would never exercise that, and the first thing a person would
  * see on a phone is an empty editor.
  */
-export function connect(initial: { doc: string; editable: boolean }): Wired {
+export function connect(initial: { doc: string; editable: boolean }, sink: Partial<HostSink> = {}): Wired {
   const root = document.createElement("div");
   document.body.appendChild(root);
 
   const changes: string[] = [];
   const focus: boolean[] = [];
+  const linkRequests: string[] = [];
   const counters = { saves: 0 };
   const frames: (() => void)[] = [];
 
@@ -157,6 +160,8 @@ export function connect(initial: { doc: string; editable: boolean }): Wired {
       counters.saves += 1;
     },
     onFocus: (focused) => focus.push(focused),
+    onLinkRequest: (text) => linkRequests.push(text),
+    ...sink,
   });
 
   host.setDoc(initial.doc);
@@ -181,6 +186,7 @@ export function connect(initial: { doc: string; editable: boolean }): Wired {
     view: guest.view,
     changes,
     focus,
+    linkRequests,
     get saves() {
       return counters.saves;
     },

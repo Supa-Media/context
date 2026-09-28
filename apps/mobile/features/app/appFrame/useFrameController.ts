@@ -24,11 +24,13 @@ import {
   lightsInBarFor,
   panelsClearedFor,
   regionsFor,
+  topBarLeadFor,
   type FrameState,
 } from "../frame";
 import { setBottomChromeHeight } from "../bottomChrome";
-import { useShellBandAbovePx, useShellLightsLeadPx } from "../ShellTitleBandView";
+import { useShellBandAbovePx, useShellLightsLeadPx, useWindowFillsScreen } from "../ShellTitleBandView";
 import { setTopChromeHoldsLights } from "../topChrome";
+import { createColumnToolsSlot } from "./columnTools";
 import { NO_CONTENT_INSETS, type FrameApi } from "./context";
 
 /**
@@ -77,8 +79,17 @@ export function useFrameController({
     the honest answer to "is this frame holding them", and what the handshake
     publishes.
   */
-  const lightsLeadPx = useShellLightsLeadPx(lightsInBarFor(density));
-  const holdsLights = lightsLeadPx > 0;
+  const claimedLeadPx = useShellLightsLeadPx(lightsInBarFor(density));
+  const holdsLights = claimedLeadPx > 0;
+  /*
+    The room, as against the claim. macOS takes the buttons away in full
+    screen, and the 84pt they needed goes with them — the owner's words were
+    "reverting when the traffic lights are gone". The bar still *holds* them
+    (the root band must not come back and add a 45pt strip nothing sits in);
+    it only stops leaving room for three buttons that are not there.
+  */
+  const fullScreen = useWindowFillsScreen();
+  const lightsLeadPx = fullScreen ? 0 : claimedLeadPx;
 
   /*
     What the desktop shell's title band still takes out of the window above
@@ -154,6 +165,17 @@ export function useFrameController({
       return { ...current, [field]: !current[field], explorerPeeking: false };
     });
   }, [width, hasExplorer]);
+
+  // `toggleExplorer`'s field, set: idempotent, so folding for a while and back cannot land on the wrong side.
+  const setExplorerFolded = useCallback(
+    (folded: boolean) =>
+      setState((current) => {
+        const field = explorerToggleFor(densityFor(width), { hasExplorer });
+        if (current.focus || field === null || current[field] === folded) return current;
+        return { ...current, [field]: folded, explorerPeeking: false };
+      }),
+    [width, hasExplorer],
+  );
 
   /**
    * The right panel, opened and closed.
@@ -291,6 +313,17 @@ export function useFrameController({
   );
 
   const compact = density === "compact";
+
+  /*
+    Whether the title bar has a stretch over the file tree, the tree's own
+    title row, and so somewhere for the tree's tools to go. A pointer layout
+    with the tree as a column; not a phone, a drawer or a folded tree. The
+    top bar draws the row from this same answer — see `columnTools.ts`.
+  */
+  const [columnToolsSlot] = useState(createColumnToolsSlot);
+  const columnHead =
+    !compact && topBarLeadFor(density) !== "account" && hasExplorer && regions.explorer === "column";
+  const columnTools = columnHead ? columnToolsSlot : null;
 
   /**
    * Whether there is a right panel here for a toggle to act on.
@@ -435,6 +468,7 @@ export function useFrameController({
       regions,
       state,
       toggleExplorer,
+      setExplorerFolded,
       toggleAside,
       setAsideWidth,
       toggleFocus,
@@ -450,12 +484,14 @@ export function useFrameController({
       chromeGap,
       accessoryOpen,
       setAccessoryOpen,
+      columnTools,
     }),
     [
       density,
       regions,
       state,
       toggleExplorer,
+      setExplorerFolded,
       toggleAside,
       setAsideWidth,
       toggleFocus,
@@ -469,6 +505,7 @@ export function useFrameController({
       chromeGap,
       accessoryOpen,
       setAccessoryOpen,
+      columnTools,
     ],
   );
 
@@ -480,6 +517,7 @@ export function useFrameController({
     holdsLights,
     shellBandPx,
     hasExplorer,
+    columnTools,
     regions,
     toggleExplorer,
     toggleAside,

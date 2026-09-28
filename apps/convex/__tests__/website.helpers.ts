@@ -48,13 +48,31 @@ export async function fixture(slug = "atlas"): Promise<Fixture> {
   return { t, owner, member, stranger, workspaceId, backend };
 }
 
+/**
+ * What turning a website on writes to `privacy.md`: the `website/` folder at
+ * `team`, which is the only thing that lets the site serve a page.
+ */
+export async function publishWebsiteFolder(
+  t: TestConvex,
+  owner: Id<"users">,
+  workspaceId: Id<"workspaces">,
+): Promise<void> {
+  await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
+    workspaceId,
+    path: "website",
+    visibility: "team",
+  });
+}
+
 export async function publish(f: Fixture): Promise<void> {
+  await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
   await f.t.run(async (ctx) => {
     await ctx.db.insert("websiteStates", {
       workspaceId: f.workspaceId,
       state: "enabled",
       enabledAt: Date.now(),
       enabledBy: f.owner,
+      publicationRuleEnsuredAt: Date.now(),
       updatedAt: Date.now(),
     });
   });
@@ -62,4 +80,11 @@ export async function publish(f: Fixture): Promise<void> {
     api.functions.websites.refreshRouteStatuses,
     { workspaceId: f.workspaceId },
   );
+}
+
+/** Someone pressing Publish: what the folder holds now becomes the site. */
+export async function pressPublish(f: Fixture, as: Id<"users"> = f.owner) {
+  return await asUser(f.t, as).action(api.functions.websites.publish, {
+    workspaceId: f.workspaceId,
+  });
 }
