@@ -79,6 +79,13 @@ describe("Preview demo: the owner's draft, played by the homepage", () => {
     expect(takeCastPreview(store, search(href), NOW + 2_000)).toBeNull();
   });
 
+  test("a second press clears a draft whose tab never opened", () => {
+    const store = memory();
+    stashCastPreview(store, castPreviewSnapshot(DRAFT, "pricing", "Preview"), NOW, NONCE);
+    stashCastPreview(store, castPreviewSnapshot(DRAFT, "pricing", "Preview"), NOW, "fedcba9876543210");
+    expect([...store.items.keys()]).toEqual(["context-cast-preview:fedcba9876543210"]);
+  });
+
   test("an ordinary visit, an unknown key, a stale handoff or junk is the real site", () => {
     const store = memory();
     expect(takeCastPreview(store, "", NOW)).toBeNull();

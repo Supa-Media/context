@@ -24,6 +24,8 @@ const KEY_PREFIX = "context-cast-preview:";
 /** A handoff older than this is a tab that never opened; it is ignored. */
 const MAX_AGE_MS = 10 * 60 * 1000;
 
+let lastStashed: string | null = null;
+
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** Whether a note has a cast block worth previewing. */
@@ -52,7 +54,11 @@ export function stashCastPreview(
 ): string | null {
   if (store === undefined) return null;
   try {
+    // A tab that never opened (a blocked popup) leaves its draft behind; the
+    // next press clears it, so at most one draft sits in storage.
+    if (lastStashed !== null) store.removeItem(KEY_PREFIX + lastStashed);
     store.setItem(KEY_PREFIX + nonce, JSON.stringify({ at: now, snapshot }));
+    lastStashed = nonce;
     return nonce;
   } catch {
     // Storage full or blocked: there is no preview, and nothing else breaks.
