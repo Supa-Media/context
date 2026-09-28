@@ -515,7 +515,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   history: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 1,
+    // Room for a keyboard focus ring (3pt out, 2pt wide) around one arrow
+    // without it drawing over the other.
+    gap: 6,
     marginRight: 2,
   },
   step: {
