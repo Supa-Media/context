@@ -10,7 +10,6 @@ import type { MenuItem } from "../files/menuItem";
 import { Icon } from "../../design/components/Icon";
 import { FaceView } from "../faces/PersonFace";
 import { useFace } from "../faces/useFace";
-import { agentName } from "./agentName";
 import {
   memberWhere,
   pileFaces,
@@ -38,7 +37,7 @@ import type { PresenceMember } from "./protocol";
  * nothing when presence is unavailable. The faces are the colour the room gave
  * each person, the colour their caret is drawn in, under their face. People
  * are circles showing their face (`PersonFace`); agents are rounded squares
- * showing their owner's face, or a robot when no owner is in their name.
+ * showing a robot, whoever owns them.
  * Never initials (Dev2, 2026-09-28).
  */
 export function PresencePile({ presence, compact }: { presence: Presence; compact: boolean }) {
@@ -133,9 +132,9 @@ function Face({
   ring?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
-  // An agent is drawn with whose it is: `@jon's Claude` shows @jon's face.
-  const owner = member.isAgent ? agentName(member.name).owner : member.name;
-  const face = useFace(owner);
+  // An agent is a robot, never a person's face, its owner's included (Dev2,
+  // 2026-09-28): the robot is how you tell at a glance it is not a person.
+  const face = useFace(member.isAgent ? null : member.name);
   const size = sized?.face.width ?? FACE;
   return (
     <View
@@ -152,14 +151,13 @@ function Face({
         stacked ? (sized?.stacked ?? styles.stacked) : null,
       ]}
     >
-      {owner === null ? (
+      {member.isAgent ? (
         <Icon name="robot" size={Math.round(size * 0.6)} color={styles.robot.color} />
       ) : (
         <FaceView
           face={face}
-          name={owner}
+          name={member.name}
           size={size}
-          style={member.isAgent ? styles.square : null}
           testID="presence-face-inner"
         />
       )}
@@ -211,7 +209,5 @@ const makeStyles = (c: Colors) =>
     more: { backgroundColor: c.surface3 },
     moreText: { color: c.muted, fontWeight: "700" },
     robot: { color: c.ink },
-    // The outer square clips; the face inside fills it rather than sitting in it as a circle.
-    square: { borderRadius: 0 },
     note: { color: c.muted },
   });

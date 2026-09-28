@@ -55,7 +55,7 @@ import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import { clampToDocument, type PresenceMember } from "./protocol";
 import { cursorOffset } from "./sync";
-import { faceNode } from "../faces/faceDom";
+import { faceNode, robotNode } from "../faces/faceDom";
 import { agentName } from "./agentName";
 import type * as Y from "yjs";
 import { darkColors } from "../../design/tokens";
@@ -82,6 +82,7 @@ class CaretWidget extends WidgetType {
     readonly name: string,
     readonly color: string,
     readonly labelled: CaretLabels,
+    readonly agent: boolean,
   ) {
     super();
   }
@@ -89,7 +90,12 @@ class CaretWidget extends WidgetType {
   // Without this, every roster update replaces every widget in the document,
   // which makes the labels flicker on somebody else's keystroke.
   eq(other: CaretWidget): boolean {
-    return other.name === this.name && other.color === this.color && other.labelled === this.labelled;
+    return (
+      other.name === this.name &&
+      other.color === this.color &&
+      other.labelled === this.labelled &&
+      other.agent === this.agent
+    );
   }
 
   toDOM(): HTMLElement {
@@ -110,12 +116,16 @@ class CaretWidget extends WidgetType {
         this.labelled === "compact" ? "cm-presence-label cm-presence-label-compact" : "cm-presence-label";
       label.style.backgroundColor = this.color;
       // A face, then the name: "@jon" is @jon's face and "@jon"; "@jon's
-      // Claude" is @jon's face and "Claude", whose then what, compactly. The
-      // face is the one drawn everywhere else (`faces/`), never initials.
-      const { owner, agent } = agentName(this.name);
-      const whose = owner ?? (this.name.startsWith("@") ? this.name : null);
-      if (whose !== null) {
-        const face = faceNode(whose, "cm-presence-owner");
+      // Claude" is a robot and "Claude", because an agent is never drawn with
+      // a person's face, its owner's included (Dev2, 2026-09-28). The owner is
+      // still in the flag's title and in the pile's list. Never initials.
+      const { agent } = agentName(this.name);
+      const face = this.agent
+        ? robotNode("cm-presence-owner")
+        : this.name.startsWith("@")
+          ? faceNode(this.name, "cm-presence-owner")
+          : null;
+      if (face !== null) {
         face.style.cssText +=
           "display: inline-block; width: 1.15em; height: 1.15em; border-radius: 50%; margin-right: 4px; vertical-align: -0.2em; line-height: 1.15em; text-align: center;";
         label.appendChild(face);
@@ -199,7 +209,7 @@ export function buildCaretDecorations(
     ranges.push({
       from: head,
       to: head,
-      deco: Decoration.widget({ widget: new CaretWidget(member.name, inkFor(member), labelled), side: 1 }),
+      deco: Decoration.widget({ widget: new CaretWidget(member.name, inkFor(member), labelled, member.isAgent), side: 1 }),
     });
   }
 

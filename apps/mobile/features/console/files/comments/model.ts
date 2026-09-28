@@ -27,7 +27,6 @@ export function isPerson(author: string): boolean {
   return author.startsWith("@") && agentName(author).owner === null;
 }
 
-/** Two letters for an agent's square, one for a person's circle. */
 /**
  * Who a viewer's comments are signed as, or null when they cannot comment.
  *
@@ -42,15 +41,6 @@ export const VISITOR_AUTHOR = "@you";
 export function commenterFor(viewerName: string | null | undefined, visitor: boolean): string | null {
   if (viewerName?.startsWith("@")) return viewerName;
   return visitor ? VISITOR_AUTHOR : null;
-}
-
-export function initialsFor(author: string): string {
-  const name = (isPerson(author) ? author : agentName(author).agent).replace(/^@/, "").trim();
-  if (!name) return "?";
-  if (isPerson(author)) return name[0]!.toUpperCase();
-  const words = name.split(/\s+/).filter(Boolean);
-  if (words.length > 1) return (words[0]![0]! + words[1]![0]!).toUpperCase();
-  return name[0]!.toUpperCase() + (name[1] ?? "").toLowerCase();
 }
 
 /** "now", "4m", "3h", "Tue", or "Sep 26": short enough for a card's header. */

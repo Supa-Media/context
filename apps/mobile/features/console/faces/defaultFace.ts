@@ -20,8 +20,11 @@ export interface DefaultFace {
 
 /**
  * FNV-1a over the handle's lowercase characters, without its `@`, so `@Seyi`,
- * `@seyi` and `seyi` are one person. Deliberately a fixed algorithm rather
- * than anything seeded: the whole point is that it never changes.
+ * `@seyi` and `seyi` are one person, then Murmur3's finaliser. FNV's low bits
+ * barely move between short, similar handles, and a colour is picked from the
+ * low bits, so without the finaliser @jon, @shay and @layomi all landed on one
+ * colour. Deliberately a fixed algorithm rather than anything seeded: the
+ * whole point is that it never changes.
  */
 export function faceIndex(name: string | null | undefined): number {
   const key = (name ?? "").trim().replace(/^@/, "").toLowerCase();
@@ -30,7 +33,12 @@ export function faceIndex(name: string | null | undefined): number {
     hash ^= key.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  return hash % DEFAULT_FACE_GROUNDS.length;
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b) >>> 0;
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35) >>> 0;
+  hash ^= hash >>> 16;
+  return (hash >>> 0) % DEFAULT_FACE_GROUNDS.length;
 }
 
 export function defaultFace(name: string | null | undefined): DefaultFace {

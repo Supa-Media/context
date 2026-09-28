@@ -544,12 +544,19 @@ export const presenceColors = {
  * the mark is drawn in near-black on light grounds and in white on dark ones.
  */
 export const DEFAULT_FACE_GROUNDS: ReadonlyArray<readonly [string, "dark" | "light"]> = [
-  ["#F6A04D", "dark"],
-  ["#7BC67E", "dark"],
-  ["#6FA8F5", "dark"],
-  ["#B79CF2", "dark"],
-  ["#F28C8C", "dark"],
-  ["#5BC8C0", "dark"],
-  ["#F2C94C", "dark"],
-  ["#2F5D8A", "light"],
+  // Twelve hues a step apart round the wheel, at mixed depths, so two people
+  // side by side are told apart at a glance (Dev2, 2026-09-28: the first
+  // eight were too alike, mostly teal and orange).
+  ["#E5484D", "light"], // red
+  ["#F76B15", "dark"], // orange
+  ["#FFC53D", "dark"], // yellow
+  ["#99D52A", "dark"], // lime
+  ["#30A46C", "light"], // green
+  ["#12A594", "light"], // teal
+  ["#7CE2FE", "dark"], // sky
+  ["#0588F0", "light"], // blue
+  ["#3E63DD", "light"], // indigo
+  ["#8E4EC6", "light"], // purple
+  ["#D6409F", "light"], // pink
+  ["#8D6E63", "light"], // brown
 ];
