@@ -178,6 +178,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
 - A folder page shows its children by status
+- Tasks and notes
+- Priority, tags, due and several owners
+- Show: whose tasks, per viewer
 - A list write is what this device holds afterwards
 - Status groups
 - An owner is picked, never typed

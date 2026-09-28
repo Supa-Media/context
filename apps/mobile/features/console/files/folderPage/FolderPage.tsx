@@ -210,7 +210,7 @@ export function FolderPage({
   const tracks = isProjectsFolder(folder);
   // Until the notes can say which view fits, and which group each item is in, a List or Board waits.
   const view: FolderPageView = !tracks ? "files" : picked ?? (!loaded.settled ? "files" : defaultFolderView(items));
-  // A List or Board somebody picked holds its place, empty, rather than drawing everything as No status first.
+  // A List or Board somebody picked holds its place, empty, rather than drawing everything as a note first.
   const waiting = view !== "files" && !loaded.settled;
   const choose = (view: FolderPageView) => {
     setPicked(view);
@@ -224,7 +224,7 @@ export function FolderPage({
   const edit = loaded.canEdit ? loaded.choose : null;
   // Spec A7: subfolders that could be tracked, none tracked yet, and nobody has picked a view here.
   // Only to somebody who could then set a status: a member would be offered
-  // a list of "No status" rows with nothing on them to press.
+  // a list of notes with nothing on them to press.
   const nudge =
     tracks &&
     loaded.canEdit &&

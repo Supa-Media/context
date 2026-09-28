@@ -122,23 +122,26 @@ fails if a member is offered the edit; `listEdit.test.ts` fails if
 ## A folder page shows its children by status
 
 A folder's own page is where projects are seen and set, with no block to write.
-Every folder page offers **Files · List · Board** on its title's row: Files is
-the listing as it always was, List groups the folder's children by `status`,
-Board draws the same groups as columns. A folder opens in List once anything
-in it has a status, and in Files otherwise; what each viewer picks is
-remembered per folder in that browser's storage, never shared and never
-required. When two or more subfolders exist and nothing has a status yet, one
-quiet line offers an owner or editor the list, and closing it is per viewer
-too; a member, who could set nothing there, is not offered it.
+Every projects folder page offers **Notes · List · Board** on its title's row:
+Notes is the listing as it always was (called Files until 2026-09-28: "files"
+is a word for the storage, not for what is in it), List draws the folder's
+tasks by `status` and then its plain notes, Board draws the tasks as columns.
+A folder opens in List once anything in it has a status, and in Notes
+otherwise; what each viewer picks is remembered per folder in that browser's
+storage, never shared and never required. When two or more subfolders exist
+and nothing has a status yet, one quiet line offers an owner or editor the
+list, and closing it is per viewer too; a member, who could set nothing
+there, is not offered it.
 
 It differs from `rows: projects` on purpose. A list block shows what already
 *is* a project; a folder page is where something becomes one. So every folder
-and every note in the folder is an item, and everything unset sits in one
-"No status" group, first in Not started, with `Set status`, rather than being
-left out or held back in a bucket of its own. A note's status is written into the note; a folder's into
+and every note in the folder is an item: one with a status is a task, and one
+without is drawn as a note with **Make it a task** beside it (see "Tasks and
+notes"), rather than being left out. A note's status is written into the note; a folder's into
 its front note by the same `overview.md` > `index.md` > `README.md` order; and
 a folder with none gets a new `overview.md` holding only that frontmatter —
-the menu says "Saves to overview.md" before anything is pressed. The
+the status menu says "Saves to overview.md" before anything is pressed, and
+the button says it to a screen reader. The
 `README.md` a new folder is made with does not count while it still says only
 that it is a placeholder: a status written there would live in a file the
 console does not list and whose own text says to delete it. The create is the
@@ -149,9 +152,9 @@ so nothing is ever replaced.
 The Board has a column for every status in the folder's status list, drawn
 under its group, and a column for each other word in use where its group puts
 it — so a folder where everything is `in progress` can still move something to
-`finished` without typing a word. For somebody who can write, "No status" leads
-Not started even when empty, because dropping a card there is how a status is
-cleared by hand; a member sees it only with something in it. On web a card is dragged to
+`finished` without typing a word. It draws tasks only: there is no "No status"
+column, and clearing a status (which turns a task back into a note) is the
+status menu's "No status". On web a card is dragged to
 another column (HTML drag and drop, the gesture the list block's board uses),
 and the drop is the menu's choice made by hand: it goes through the same
 `choose`, shows at once, and comes back with the reason if refused. The drag
@@ -160,13 +163,13 @@ hidden until hover, so a keyboard or a phone moves it through the menu. A
 quiet value in the List shows when a keyboard focuses it, as it does under the
 pointer. While a choice is on its way the page says "Saving…".
 `folderPageView.test.ts` fails if a drop does not write through the menu's
-road, if No status does not clear, if a member's card moves, or if a drag that
+road, if a note becomes a card, if a member's card moves, or if a drag that
 is not a card is taken; `folderPageModel.test.ts` pins the columns and what a
 drop writes.
 
 A project folder's page is titled by its front note (the title opens it) and
 says `status · owner · updated` under the title, with the note's first
-paragraph beneath, and the Files listing below that. It never renders the
+paragraph beneath, and the listing below that. It never renders the
 whole note: that would be two places to edit one note.
 
 Everything is read from the same device copy a list block reads, at the role's
@@ -174,9 +177,108 @@ clearance, so the page can only describe notes the reader could already open;
 and the writes are the list's own (`writeNoteProperty`), gated the same way —
 owner and editor, never member. `apps/mobile/__tests__/folderPageView.test.ts`
 fails if a member is shown a control, if a folder's status goes anywhere but its
-front note or a new `overview.md`, or if the unset items are not one group;
+front note or a new `overview.md`, or if an unset item is drawn as a task;
 `folderPageModel.test.ts` pins the front-note order and the placeholder rule;
 `listEdit.test.ts` fails if a missing note is created without being asked.
+
+## Tasks and notes
+
+Decided by the owner on 2026-09-28 ("Projects for everyone"). Before this every
+child of a project without a status sat in a "No status" group at the top of
+Not started, so a project's reference notes — the budget, the market research
+— read as a pile of tasks nobody had started, and the list could not say what
+was actually to do.
+
+- **Anything with a `status` is a task; anything without is a note.** The List
+  draws the tasks by status and then a **Notes** section ("Notes 3 · no status,
+  so not tasks"), each note with a document icon (a folder icon for a folder),
+  who owns it and when it was saved. For an owner or editor, **Make it a task**
+  (shown on hover or focus, always on a phone) writes the folder's first Not
+  started status that is not backlog — `to do` by default — through the same
+  `writeNoteProperty` road as the menu. On the projects folder itself, whose
+  rows are projects, it reads **Make it a project**: a project folder with no
+  status is a note there too, which is what "A project is anything with a
+  status" already says.
+- **Backlog is a folded band first, the Done group a folded band last.**
+  `backlog` in any case is drawn as one line ("Backlog 12 · Ideas and later
+  work, out of the way") that opens in place; the Done group ("Finished" when
+  it is one status) folds the same way at the end of the tasks. Words nobody
+  placed are drawn before it, so a fold never hides the one question the page
+  asks. A section holding one status is named by it ("To do"), and by its
+  group when it holds several, each then under its own heading.
+- **A task that is a folder holds subtasks and notes**, one level down and no
+  deeper: its row carries "2 of 4 done" and a chevron (only when it holds
+  anything), and opened it shows its subtasks and then "NOTES IN THIS TASK".
+- **Subtasks count, notes do not.** Progress is closed subtasks of all
+  subtasks, as it always was; a plain note inside a task is never a subtask.
+
+A "simplification" back to one "No status" group costs the reason for the
+change: a project's notes drown its tasks, and "Make it a task" has nothing to
+distinguish. `folderPageTasks.test.ts` fails if a statusless child becomes a
+row of a status group, if Backlog stops leading or Done stops closing the
+tasks, if a subtask's notes are counted, or if Make it a task writes backlog;
+`folderPageList.test.ts` fails if the bands stop folding, if a member is
+offered Make it a task, or if the button writes anywhere but the note.
+
+## Priority, tags, due and several owners
+
+Decided by the owner on 2026-09-28, with the same rule as statuses: each is a
+frontmatter line anybody can write by hand, and the page draws what the line
+says rather than keeping a second copy.
+
+- **Priority is a fixed scale**, `priority: p0` to `p3`, said as Urgent, High,
+  Medium and Low (and "No priority"), like the three status groups: the product's
+  opinion, not a folder's list. The UI never says `p0`. It leads each row as a
+  glyph with no hue — an ink square with "!" for Urgent, three signal bars
+  with three, two or one lit, a faint dash for none — because red means
+  failure in this palette. Rows run by priority, then newest, inside each
+  group. Anything that is not `p0`–`p3` is no priority, never a guess.
+- **`owner:` may name several** (`owner: [@sayo, Claude]`). A row shows the
+  first owner's face and name and "+1": a person's round face with initials,
+  an AI helper's rounded square with a robot (never "AI" in letters, which
+  reads as initials), and a dashed "?" with "No owner" for nobody. A line
+  naming several is shown and never offered as one choice, since picking one
+  would drop the others — the rule a list block already keeps for list-valued
+  properties. A single line is one owner even with a comma in it.
+- **`tags: [a, b]`** are free words, drawn as small chips (two, then "+N");
+  kinds of work (bug, feature) are tags, not a type property.
+- **`due: 2026-10-03`** is a calendar day, read in the reader's own calendar:
+  "Today", a weekday for the six days after ("Fri"), else "Oct 3" (with the
+  year when it is not this one). A day already gone is never a weekday.
+
+What reverting costs: a priority read from free words sorts "high" below
+"low" and paints somebody's `urgent!!` as nothing; a typed owner field
+brings back three spellings of one person. `folderPageTasks.test.ts` fails if
+anything but `p0`–`p3` becomes a priority, if a list of owners loses one, or
+if a past due date reads as a weekday; `folderPageList.test.ts` fails if
+`p0` reaches the page, if the robot or the "?" face goes, or if a line of
+several owners is offered as one choice.
+
+## Show: whose tasks, per viewer
+
+The List has a **Show** bar above its sections: Everyone · Mine · No owner N ·
+Urgent N · Owner ▾, the last a searchable list of No owner, Me, the people and
+the AI helpers the tasks name ("Any AI helper" for `any agent`), each with a
+count. Counts are over every task, subtasks included. Under a filter a
+section says "1 of 12", a group with nothing left is dropped, notes (which
+are not tasks) are left out, and a task that does not match but has a
+subtask that does stays, dimmed and opened on that subtask.
+
+- **It is a way of looking, not a record.** It is remembered per viewer, per
+  workspace, per folder in the browser's storage, like the view choice, and
+  never written to a note: two people looking at one project see their own.
+  A member has it too, since looking writes nothing.
+- **Mine is the viewer's handle.** The host hands the page the viewer's own
+  name and address, which the page resolves to their handle the way it
+  resolves any owner word written before handles (`owners.resolveOwners`),
+  only on a projects folder; an owner line is the viewer's when it names
+  them or their own agent (`@seyi's Claude`). Where the page does not know
+  who is looking, Mine is not offered.
+
+`folderPageTasks.test.ts` fails if a count stops including subtasks, if a
+parent kept for its subtask is not dimmed or carries the others, or if a
+stored filter does not read back; `folderPageList.test.ts` fails if a filter
+writes, if Mine stops matching by handle, or if it is not remembered.
 
 ## A list write is what this device holds afterwards
 
@@ -230,7 +332,7 @@ belong to a folder.
   started's default was empty and "No status" was the only way to say "not
   yet", so every stray note in a project read as a task nobody had started.
   Ideas and later work now say so with a word, `backlog`, and a note with no
-  status is a plain note (see "Tasks and notes" below).
+  status is a plain note (see "Tasks and notes" above).
 - **"No status" is the empty value, never a word**: clearing a status stays a
   one-line delete, and turns a task back into a note. It still reads as Not
   started wherever a group is asked for.
@@ -246,9 +348,10 @@ belong to a folder.
 - **Words nobody declared are never guessed into a group silently.** Ordinary
   lifecycle words (`active`, `shipped`: `KNOWN_WORDS`) are drawn in their
   group like any status, with no prompt. Anything else is drawn in **No group
-  yet** after Done, and the one question it raises is a Choose group control
-  on its own heading (the List band, or its Board column), for an owner or
-  editor only.
+  yet** — after Done on the Board, and before the folded Done band in the
+  List, so a fold never hides it — and the one question it raises is a Choose
+  group control on its own heading (the List band, or its Board column), for
+  an owner or editor only.
 - **Nothing about a folder's words is ever said above its contents.** The
   first cut stacked a sentence per word between the header and the list
   ("is on 4 items here and reads as In progress. Merge into In progress ·
@@ -275,8 +378,8 @@ A "simplification" back to free words costs the board its order and its
 meaning: `apps/mcp/test/listStatuses.test.mjs` fails if a group loses its
 default (Not started's is backlog and to do), if inheritance stops at the folder, if `status is done` stops reading
 the group, or if an agent is told a list from a front note it cannot see;
-`folderPageStatuses.test.ts` pins the bands, No group yet, and which notes a
-rename rewrites; `folderPageView.test.ts` pins the grouped menu, the board's
+`folderPageStatuses.test.ts` pins the bands, No group yet, that a statusless
+note is not a band, and which notes a rename rewrites; `folderPageView.test.ts` pins the grouped menu, the board's
 bands, and that a word nobody placed asks only on its own heading, never to a
 member and never in a sentence on the page.
 
@@ -356,8 +459,10 @@ of words** the workspace keeps as text:
   first, then the members, written `owner: @shay's Claude`. Somebody's agent is
   a label, not a grant: it says whose session is expected to pick the work up
   and gives nobody access to anything.
-- **Agents are marked in the owner column** with the model mark, so a column
-  of people and agents reads without a word for it.
+- **Agents are marked in the owner column** — by the robot face in a
+  project's List (see "Priority, tags, due and several owners"), and by the
+  model mark on a project's own property line — so a column of people and
+  agents reads without a word for it.
 - The list-block menu inside a note writes an agent alone and offers no add;
   asking whose is the folder page's.
 
@@ -366,4 +471,4 @@ integrations, client-chosen names and the grant-disclosure rule. The server
 never looks at grants for owners; `owners.test.ts` fails if a connected client
 appears, `agentOwners.test.ts` pins the list's inheritance, home and name rules,
 and `ownerPicker.test.ts` fails if choosing an agent writes without asking
-whose, if adding forgets the front note, or if the mark goes.
+whose, if adding forgets the front note, or if the robot face goes.

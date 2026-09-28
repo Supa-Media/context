@@ -1,8 +1,8 @@
 /**
  * One quiet line above a folder's files, when its subfolders could be tracked
  * by status and nothing in it has one yet (spec A7): "Track these folders by
- * status?" and `Show as list`, which only switches the view — the grouped
- * list, with everything under No status and `Set status` on each row, is the
+ * status?" and `Show as list`, which only switches the view — the list,
+ * where each of them is a note with "Make it a project" beside it, is the
  * rest of the answer. No banner, no colour but the accent on the one action;
  * closed per viewer with the `×`.
  */

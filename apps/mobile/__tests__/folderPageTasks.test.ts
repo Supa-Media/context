@@ -30,7 +30,7 @@ import type { StatusList } from "../features/console/files/folderPage/statuses";
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry } from "../features/console/files/types";
 
-const strip = (text: string): string => text.replace(/[⁦-⁩]/g, "");
+const strip = (text: string): string => text.replace(/[\u2066-\u2069]/g, "");
 
 const entry = (kind: "file" | "folder", path: string): FileEntry => ({
   kind,
