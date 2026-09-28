@@ -18,6 +18,7 @@
  *     /api/auth/[...]  -> Convex HTTP actions, path unchanged
  *     /_expo/[...]     -> the Expo web app, cacheable forever
  *     /og/card.png     -> the Worker's own OpenGraph card
+ *     /favicon.ico etc -> the Worker's own icons (icons.ts)
  *     everything else  -> a link-preview crawler gets server-rendered meta
  *                         tags; everyone else gets the Expo web app on EAS
  *                         Hosting, path unchanged
@@ -45,6 +46,7 @@ import {
   type PreviewMeta,
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
+import { iconFor, type IconName } from "./icons";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
 export type Upstream = "expo" | "convex";
@@ -91,6 +93,8 @@ export type RouteDecision =
     }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
+  // The site's favicons, served from the bundle. See `icons.ts`.
+  | { kind: "icon"; name: IconName }
   // `path` is the full path + query to request from the upstream. It is never
   // rewritten today, but naming it separately keeps the tests honest about
   // that and makes a future prefix rule a one-line change.
@@ -182,6 +186,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   if (pathname === OG_CARD_PATH) {
     return { kind: "og-card" };
   }
+
+  // The favicons, for the same reason: Google's favicon fetcher is a crawler,
+  // and a crawler asking for an icon wants the icon, not an HTML card.
+  const icon = iconFor(pathname);
+  if (icon !== null) return { kind: "icon", name: icon };
 
   // Before the crawler check, like `/og/card.png` above and for the same
   // reason: this is the image the preview tags point at, and it is requested

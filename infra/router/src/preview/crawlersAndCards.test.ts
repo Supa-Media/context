@@ -217,10 +217,10 @@ describe("renderPreviewHtml: the tags crawlers actually read", () => {
 
   it("carries the OpenGraph set", () => {
     expect(meta(html, "property", "og:type")).toEqual(["website"]);
-    expect(meta(html, "property", "og:site_name")).toEqual(["Context"]);
+    expect(meta(html, "property", "og:site_name")).toEqual(["Context.LC"]);
     expect(meta(html, "property", "og:title")[0]).toContain("Free your context");
     expect(meta(html, "property", "og:description")[0]).toContain(
-      "One MCP endpoint",
+      "Shared memory",
     );
     expect(meta(html, "property", "og:url")).toEqual(["https://context.lc/"]);
   });
@@ -233,7 +233,7 @@ describe("renderPreviewHtml: the tags crawlers actually read", () => {
   });
 
   it("carries a plain description for crawlers that read no OG at all", () => {
-    expect(meta(html, "name", "description")[0]).toContain("One MCP endpoint");
+    expect(meta(html, "name", "description")[0]).toContain("Shared memory");
   });
 
   it("gives image URLs absolutely, with the dimensions crawlers want", () => {
@@ -280,7 +280,10 @@ describe("renderPreviewHtml: the tags crawlers actually read", () => {
   });
 
   it("ships no script of its own", () => {
-    expect(html).not.toContain("<script");
+    // The home page's JSON-LD is data a browser never runs; nothing else is.
+    const scripts = html.match(/<script[^>]*>/g) ?? [];
+    expect(scripts).toEqual(['<script type="application/ld+json">']);
+    expect(previewHtml("/login")).not.toContain("<script");
   });
 
   it("is deterministic", () => {

@@ -15,6 +15,7 @@ import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
 import { isHomeDocument, withHomeSite } from "./homeSite";
+import { iconResponse, staticAsset } from "./icons";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
 // a crawler is guaranteed to fetch should not depend on an upstream that might
@@ -214,16 +215,12 @@ async function respond(
         return await siteCardResponse(decision, readOrigin(env.CONVEX_ORIGIN), ctx);
 
       case "og-card":
-        return new Response(ogCard, {
-          status: 200,
-          headers: {
-            "Content-Type": "image/png",
-            // A day, not a year: the path is not content-hashed, so a longer
-            // TTL would need a purge to correct a bad card.
-            "Cache-Control": "public, max-age=86400",
-            "X-Content-Type-Options": "nosniff",
-          },
-        });
+        // A day, not a year: the path is not content-hashed, so a longer TTL
+        // would need a purge to correct a bad card.
+        return staticAsset(ogCard, "image/png");
+
+      case "icon":
+        return iconResponse(decision.name);
 
       case "redirect":
         // Deterministic (host-only) redirects are safe to cache. A plain
