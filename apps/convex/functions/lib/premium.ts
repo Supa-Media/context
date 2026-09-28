@@ -199,16 +199,6 @@ export function hasAnyEntitlement(selected: Entitlements): boolean {
  */
 export const FREE_MANAGED_NOTE_CAP = 1000;
 
-/**
- * How many free managed contexts one account may own.
- *
- * Each one is a bucket in the customer-data account that we create and pay
- * for, with no card behind it. One per account keeps the free tier a way to
- * start rather than a way to farm storage; a second context can bring its own
- * bucket or go on Premium.
- */
-export const FREE_MANAGED_PER_ACCOUNT = 1;
-
 /** The parts of a plan row these rules read. `null` is the ordinary no-row state. */
 export interface PlanFacts {
   managedStorage?: boolean;
@@ -220,10 +210,9 @@ export interface PlanFacts {
  * Whether this context may have a managed bucket minted for it right now.
  *
  * Paying for managed storage, as before; or being on the free managed tier
- * *while this deployment offers it*. The second half is what keeps the tier
- * off in production until the exit path lands (non-negotiable #1): with the
- * offer switched off, no new free bucket is created. Nothing here touches a
- * bucket that already exists — this gates provisioning, never access.
+ * *while this deployment offers it*. The second half is the emergency brake:
+ * with the offer switched off, no new free bucket is created. Nothing here
+ * touches a bucket that already exists — this gates provisioning, never access.
  */
 export function managedStorageEntitled(
   plan: PlanFacts | null,

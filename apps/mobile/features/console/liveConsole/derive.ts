@@ -212,6 +212,11 @@ export function consoleStorageFrom(
           updatedAt: binding.updatedAt,
           lastVerifiedAt: binding.lastVerifiedAt,
           managed: binding.managed,
+          handoffStatus: binding.handoffStatus,
+          handoffPhase: binding.handoffPhase,
+          handoffObjectsTotal: binding.handoffObjectsTotal,
+          handoffObjectsProcessed: binding.handoffObjectsProcessed,
+          handoffErrorCode: binding.handoffErrorCode,
         };
   return storage;
 }
@@ -250,6 +255,9 @@ export function googleConnectionsFrom(
 export interface StorageMutations {
   reverifyStorage: ReactMutation<typeof api.functions.storage.reverifyStorage>;
   bindStorage: ReactAction<typeof api.functions.storage.bindStorage>;
+  startManagedStorageHandoff: ReactAction<
+    typeof api.functions.storage.startManagedStorageHandoff
+  >;
   disconnectStorage: ReactMutation<typeof api.functions.storage.disconnectStorage>;
   observeStorageLayout: ReactMutation<typeof api.functions.storage.observeStorageLayout>;
 }
@@ -261,7 +269,13 @@ export interface StorageMutations {
 export function storageActionsFor(
   selectedContextId: Id<"workspaces"> | null,
   isOwner: boolean,
-  { reverifyStorage, bindStorage, disconnectStorage, observeStorageLayout }: StorageMutations,
+  {
+    reverifyStorage,
+    bindStorage,
+    startManagedStorageHandoff,
+    disconnectStorage,
+    observeStorageLayout,
+  }: StorageMutations,
 ): StorageActions | undefined {
   const storageActions: StorageActions | undefined =
     selectedContextId === null || !isOwner
@@ -272,6 +286,14 @@ export function storageActionsFor(
           connect: async (values) => {
             const args = toBindStorageArgs(values, selectedContextId);
             return await bindStorage({
+              ...args,
+              workspaceId: selectedContextId,
+              provider: args.provider as Provider,
+            });
+          },
+          handoff: async (values) => {
+            const args = toBindStorageArgs(values, selectedContextId);
+            return await startManagedStorageHandoff({
               ...args,
               workspaceId: selectedContextId,
               provider: args.provider as Provider,

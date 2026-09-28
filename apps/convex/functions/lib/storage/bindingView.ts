@@ -132,6 +132,19 @@ export const getStorageBindingReturns = v.union(
     updatedAt: v.number(),
     /** True only for the deterministic bucket this service operates. */
     managed: v.boolean(),
+    /** Owner-only progress for a managed-to-customer whole-bucket move. */
+    handoffStatus: v.optional(v.union(v.literal("copying"), v.literal("failed"))),
+    handoffPhase: v.optional(
+      v.union(
+        v.literal("count"),
+        v.literal("copy"),
+        v.literal("verify_source"),
+        v.literal("verify_target"),
+      ),
+    ),
+    handoffObjectsTotal: v.optional(v.number()),
+    handoffObjectsProcessed: v.optional(v.number()),
+    handoffErrorCode: v.optional(v.string()),
   }),
 );
 
@@ -161,6 +174,13 @@ export async function getStorageBindingHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
   if (binding === null) return null;
+  const handoff = isOwner
+    ? await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique()
+    : null;
+  const customerHandoff = handoff?.direction === "to_customer" ? handoff : null;
 
   return {
     provider: binding.provider,
@@ -196,5 +216,10 @@ export async function getStorageBindingHandler(
     storageLayoutCheckedVersion: binding.storageLayoutCheckedVersion,
     updatedAt: binding.updatedAt,
     managed: binding.bucket === managedBucketName(args.workspaceId),
+    handoffStatus: customerHandoff?.status,
+    handoffPhase: customerHandoff?.phase,
+    handoffObjectsTotal: customerHandoff?.objectsTotal,
+    handoffObjectsProcessed: customerHandoff?.objectsProcessedInPhase,
+    handoffErrorCode: customerHandoff?.errorCode,
   };
 }

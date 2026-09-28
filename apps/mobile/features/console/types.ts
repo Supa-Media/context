@@ -302,6 +302,12 @@ export interface ConsoleStorage {
   lastVerifiedAt?: number;
   /** Storage operated by Context, whose credential cannot be rotated or disconnected here. */
   managed?: boolean;
+  /** Owner-only progress for moving every raw object into customer storage. */
+  handoffStatus?: "copying" | "failed";
+  handoffPhase?: "count" | "copy" | "verify_source" | "verify_target";
+  handoffObjectsTotal?: number;
+  handoffObjectsProcessed?: number;
+  handoffErrorCode?: string;
 }
 
 /**
@@ -324,6 +330,8 @@ export interface StorageActions {
    */
   reverify: () => Promise<{ queued: boolean; status: string }>;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
+  /** Starts or retries a verified whole-bucket move out of managed storage. */
+  handoff: (values: ConnectFormValues) => Promise<{ started: true }>;
   disconnect: () => Promise<{ disconnected: boolean }>;
   /**
    * Asks the bucket where the storage-layout migration got to, running none of
