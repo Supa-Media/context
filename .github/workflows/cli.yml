@@ -42,7 +42,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@supa-media/context"
+          paths: ".github/workflows/cli.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           # setup-node's default cache detection shells out to pnpm before
@@ -50,15 +57,18 @@ jobs:
           package-manager-cache: false
 
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       # The package's two reviewed dependencies (add-mcp, @clack/prompts).
       # Most suites inject a stand-in for add-mcp, but cleanup.test.mjs runs
       # the real one; without this it cannot be imported and the install it
       # checks fails for that reason instead of the one being tested.
       - name: Install the CLI's dependencies
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@supa-media/context..." --frozen-lockfile
 
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: plugins/context
         run: npm test
 
@@ -69,6 +79,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@supa-media/context"
+          paths: ".github/workflows/cli.yml"
+
       # Two runtime dependencies are allowed, pinned exactly, and nothing else:
       # `add-mcp`, which writes MCP entries into other agents' config files
       # during `install`, and `@clack/prompts`, the setup wizard's menus. The
@@ -77,6 +93,7 @@ jobs:
       # added to the allowlist here, pinned, and argued for in its pull request
       # and in docs/decisions/plugins.md.
       - name: Assert plugins/context declares only its reviewed dependencies
+        if: steps.scope.outputs.affected == 'true'
         run: |
           set -euo pipefail
           node -e '
@@ -109,6 +126,7 @@ jobs:
       # failing check. The first version of this file shipped that way and the
       # PR went green without ever testing the package.
       - name: "Assert plugins/context imports only node: built-ins and relative paths"
+        if: steps.scope.outputs.affected == 'true'
         run: |
           node scripts/check-gateway-imports.mjs --self-test
           node scripts/check-gateway-imports.mjs --allow-node-builtins --allow-import=add-mcp:src/installer.js --allow-import=@clack/prompts:src/prompt.js plugins/context/src plugins/context/cli plugins/context/hooks

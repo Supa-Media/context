@@ -1,0 +1,319 @@
+name: Browser CI
+
+# Required checks must report on every pull request, so scope work inside jobs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # ── NO WEBKIT IN CI OR IN AN AGENT SANDBOX, UNTIL NOW ─────────────────────
+  #
+  # Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long
+  # press has two signals" — the WebKit long-press recogniser's own
+  # `touchcancel`, and the caret/touch trap it argues through — was reproduced
+  # by SIMULATING WebKit's event sequence in Chromium (`editorLinks.test.ts`,
+  # jsdom). That is enough to fix a bug once somebody has already found it on a
+  # phone; it is not enough to prove the fix holds, because nothing in this
+  # repository's CI, and nothing in the sandbox an agent here runs in, had ever
+  # executed the editor inside an actual WebKit engine.
+  #
+  # This job closes that gap, and only that gap — see
+  # `docs/decisions/testing/ci-pipelines.md` for what a green run here proves and does not
+  # (Linux WebKit is close to iOS Safari's DOM event handling, not identical).
+  #
+  # `ubuntu-latest` rather than `macos-latest`: this repository runs no job on
+  # macOS today, and Linux WebKit is the documented cheap path for exactly this
+  # trade — a real WebKit engine's touch event pipeline, at a fraction of a
+  # macOS runner's cost and queue time. If a bug ever surfaces here that Linux
+  # WebKit cannot see and only iOS Safari can, that is the point to spend a
+  # macOS runner, not before.
+  #
+  # `apps/mobile/e2e/webkit/playwright.config.ts` carries the rest of the
+  # reasoning — what the suite runs against (the built web export, not `expo
+  # start`), why the fixture route exists and how it is kept out of every real
+  # build, and why case (a) steps outside `page.touchscreen` to dispatch one
+  # `TouchEvent` by hand.
+  webkit_build:
+    name: Build the browser fixture once
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      affected: ${{ steps.changes.outputs.mobile }}
+      full: ${{ steps.changes.outputs.full }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # Change detection lives INSIDE the job, as a step, rather than as a
+      # `paths:` filter on the trigger above — see mcp.yml's header and
+      # `scripts/check-workflow-triggers.mjs`, which enforces the rule this
+      # repeats: a required check filtered out of the trigger never reports at
+      # all, and GitHub leaves the pull request pending on it forever. This way
+      # the job always runs and always reports; an unrelated pull request just
+      # finds every step after this one skipped, which is a pass.
+      - name: Does this touch the editor or what it runs on?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/browser.yml"]
+            full: ["apps/mobile/e2e/webkit/**", "apps/mobile/features/console/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/browser.yml"]
+
+      - uses: pnpm/action-setup@v4
+        if: steps.changes.outputs.mobile == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.changes.outputs.mobile == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.mobile == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: The browser suite uses the measured CI worker count
+        if: steps.changes.outputs.mobile == 'true'
+        run: node --test scripts/webkit-ci-workers.test.mjs
+
+      # `EXPO_PUBLIC_E2E_FIXTURE=1` is the only thing that makes `/e2e-fixture`
+      # render anything — see that route's own header. Every other export in
+      # this repository (`deploy-web.yml`, `deploy-mobile-*.yml`, a laptop's
+      # `expo start`) leaves it unset, so this build is never what ships.
+      # `EXPO_PUBLIC_CONVEX_URL` is a syntactically valid, deliberately
+      # unreachable host — the fixture console never opens a Convex
+      # subscription (`useDemoConsoleData` is literals), so nothing here ever
+      # dials out to it.
+      - name: Build the web export with the E2E fixture route enabled
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_E2E_FIXTURE: "1"
+          EXPO_PUBLIC_CONVEX_URL: "https://e2e-fixture.invalid"
+        # This also builds the standalone drawing editor into `public/` before
+        # Expo copies public assets into the export. Calling `expo export`
+        # directly leaves `/drawing-assets/editor/index.html` absent, and the
+        # static server serves the SPA fallback page at that URL instead.
+        run: pnpm build:e2e-web
+
+      # `pluginBundles.spec.ts` runs a real community-plugin release through the
+      # real shim, which is the only check that has ever caught a plugin failing
+      # to load at all — `SuggestModal`, then `Events`, then `Modal`, each a
+      # class nobody had listed and each taking a whole bundle down while every
+      # jsdom suite stayed green.
+      #
+      # The releases are not committed (megabytes of third-party minified code
+      # in a public repository) and the spec skips when they are absent, so a
+      # GitHub outage costs a skip rather than a red run. `continue-on-error`
+      # says that out loud rather than leaving it to a silent `|| true`.
+      - name: Fetch the community plugin releases the browser suite runs
+        if: steps.changes.outputs.mobile == 'true'
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: node e2e/webkit/fetch-bundles.mjs
+
+      - name: Share the built fixture with every browser group
+        if: steps.changes.outputs.mobile == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-fixture
+          path: |
+            apps/mobile/web-build/
+            apps/mobile/e2e/webkit/bundles/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  webkit_full:
+    name: WebKit full suite (${{ matrix.shard }})
+    needs: webkit_build
+    if: needs.webkit_build.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install the browser test package
+        run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: webkit-fixture
+          path: apps/mobile
+
+      - name: Run this half in the pinned WebKit image
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        run: pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --shard=${{ matrix.shard }} --reporter=blob
+
+      - name: Keep this shard's mergeable report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-blob-${{ strategy.job-index }}
+          path: apps/mobile/blob-report/*.zip
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Keep this shard's screenshots and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-results-${{ strategy.job-index }}
+          path: apps/mobile/e2e/webkit/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  webkit_smoke:
+    name: WebKit smoke suite
+    needs: webkit_build
+    if: needs.webkit_build.outputs.affected == 'true' && needs.webkit_build.outputs.full != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: webkit-fixture
+          path: apps/mobile
+      - name: Prove the built app boots, navigates and renders a note
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        run: pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit e2e/webkit/smoke.spec.ts
+      - name: Keep smoke failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-smoke-report
+          path: |
+            apps/mobile/e2e/webkit/playwright-report/
+            apps/mobile/e2e/webkit/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  webkit_offline:
+    name: Offline shell in Chromium
+    needs: webkit_build
+    if: needs.webkit_build.outputs.affected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: webkit-fixture
+          path: apps/mobile
+      - name: The app opens with the network off
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        run: pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=chromium e2e/webkit/offlineShell.spec.ts --reporter=list
+      - name: Keep offline failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-shell-results
+          path: apps/mobile/e2e/webkit/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  editor_webkit:
+    name: Editor in WebKit
+    needs: [webkit_build, webkit_full, webkit_smoke, webkit_offline]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+
+      - uses: actions/setup-node@v5
+        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Playwright's report merger
+        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+
+      - name: Download both shard reports
+        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: webkit-blob-*
+          path: all-blob-reports
+          merge-multiple: true
+
+      - name: Merge the full suite report
+        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: pnpm exec playwright merge-reports --reporter html "$GITHUB_WORKSPACE/all-blob-reports"
+
+      - name: Keep one report for the full suite
+        if: always() && needs.webkit_build.outputs.full == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-webkit-report
+          path: apps/mobile/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Require the browser group selected for this diff
+        env:
+          BUILD_RESULT: ${{ needs.webkit_build.result }}
+          AFFECTED: ${{ needs.webkit_build.outputs.affected }}
+          FULL: ${{ needs.webkit_build.outputs.full }}
+          FULL_RESULT: ${{ needs.webkit_full.result }}
+          SMOKE_RESULT: ${{ needs.webkit_smoke.result }}
+          OFFLINE_RESULT: ${{ needs.webkit_offline.result }}
+        run: |
+          set -euo pipefail
+          [ "$BUILD_RESULT" = success ] || { echo "Fixture build: $BUILD_RESULT"; exit 1; }
+          if [ "$AFFECTED" != true ]; then
+            echo "No browser-owned path changed."
+            exit 0
+          fi
+          [ "$OFFLINE_RESULT" = success ] || { echo "Offline shell: $OFFLINE_RESULT"; exit 1; }
+          if [ "$FULL" = true ]; then
+            [ "$FULL_RESULT" = success ] || { echo "Full WebKit suite: $FULL_RESULT"; exit 1; }
+          else
+            [ "$SMOKE_RESULT" = success ] || { echo "WebKit smoke suite: $SMOKE_RESULT"; exit 1; }
+          fi
+
+
