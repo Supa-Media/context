@@ -33,7 +33,11 @@ const REVISION_TIMEOUT_MS = 1_500;
 const PAGE_TIMEOUT_MS = 10_000;
 /** See above: the bound on a restriction nobody told Context about. */
 const PAGE_CACHE_SECONDS = 300;
-const MAX_ANSWER = 2_000_000;
+/**
+ * A page's words plus the pictures it carries: Convex caps those at 4 MB of
+ * bytes (`lib/websites/images.ts`), which is under 5.6 MB as base64.
+ */
+const MAX_ANSWER = 8_000_000;
 
 const HANDLE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
@@ -89,11 +93,17 @@ async function postJson(url: string, body: unknown, limitMs: number): Promise<un
   return await response.json();
 }
 
+/**
+ * The answer's shape, in the key: a copy kept before pages carried their
+ * pictures (`images`) is not served in place of one that does.
+ */
+const PAGE_FORMAT = "v2";
+
 /** Our own key, built from checked parts; the request's URL never reaches it. */
 export function pageKey(ask: SitePageAsk, revision: string): Request {
   const legacy = ask.legacySlug === null ? "" : `?legacy=${ask.legacySlug}`;
   return new Request(
-    `https://site-page.invalid/${ask.handle}/${encodeURIComponent(revision)}/${encodeURIComponent(ask.routePath)}${legacy}`,
+    `https://site-page.invalid/${PAGE_FORMAT}/${ask.handle}/${encodeURIComponent(revision)}/${encodeURIComponent(ask.routePath)}${legacy}`,
   );
 }
 

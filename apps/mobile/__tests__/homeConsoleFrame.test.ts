@@ -39,6 +39,7 @@ const mockSite = {
       { path: "pricing.md", routePath: "/pricing", title: "Pricing", markdown: "# Pricing" },
     ],
     emoji: {},
+    images: {},
   },
 };
 

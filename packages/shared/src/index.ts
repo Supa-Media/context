@@ -127,6 +127,9 @@ export {
   parseCustomEmojiLeaf,
 } from "./customEmoji";
 
+/** The pasted pictures a published page embeds, carried with it. */
+export { PUBLISHED_IMAGE_LEAF, publishedImageLeaves } from "./publishedImages";
+
 /**
  * The path-only contract for bucket-backed website routes. Page metadata and
  * source-reference parsing remain separate so an open product decision cannot

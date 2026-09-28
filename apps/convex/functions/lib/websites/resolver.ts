@@ -28,6 +28,7 @@ import { renderPublicWebsiteLists } from "./lists";
 import { probeWebsitePage } from "./probe";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { readPublishedEmoji } from "./emoji";
+import { readPublishedImages } from "./images";
 import { folderListFor, folderPagesUnder, routeStatusKey, type FolderPage } from "./folders";
 
 type SiteShell = {
@@ -618,10 +619,14 @@ async function renderWebsitePage(
   }
 
   const markdown = rewriteWebsiteLinks(withLists, linkOptions, readableShares);
-  const emoji = await readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({}));
+  const [emoji, images] = await Promise.all([
+    readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({})),
+    readPublishedImages(ctx, args.workspaceId, [markdown]).catch(() => ({})),
+  ]);
   return {
     ...args.page,
     markdown,
     ...(Object.keys(emoji).length > 0 ? { emoji } : {}),
+    ...(Object.keys(images).length > 0 ? { images } : {}),
   };
 }

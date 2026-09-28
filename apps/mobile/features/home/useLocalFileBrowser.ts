@@ -6,6 +6,7 @@ import { editorReducer, emptyEditor } from "../console/files/editor";
 import { drawingFileName, ensureMarkdown, knownNotePaths } from "../console/files/paths";
 import { untitledName } from "../console/files/untitled";
 import { demoNote, useStaticFileBrowser } from "../console/files/useDemoFileBrowser";
+import { NO_PUBLISHED_IMAGES, type PublishedImages } from "../share/publishedImages";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
 import type { HomeTree } from "./homeSite";
 import { searchLocalNotes } from "./localSearch";
@@ -77,8 +78,12 @@ export function useLocalFileBrowser(
   contextId: string,
   routePath: string,
   events: LocalHomeEvents = {},
+  images: PublishedImages = NO_PUBLISHED_IMAGES,
 ): LocalHome {
   const inert = useStaticFileBrowser(home.tree, contextId);
+  // The site's pasted pictures, which came with it; read at call time.
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
   const [tree, setTree] = useState<DemoContextTree>(home.tree);
   const [routes, setRoutes] = useState(() => routesOf(home));
   const [touched, setTouched] = useState(false);
@@ -279,6 +284,12 @@ export function useLocalFileBrowser(
   const files = useMemo<FileBrowser>(
     () => ({
       ...inert,
+      /*
+        A pasted picture is drawn from what the site carried, never fetched:
+        the site loads no images. A leaf it did not carry (over the caps, or
+        one the visitor typed) draws as missing.
+      */
+      loadImage: async (target: string) => imagesRef.current[target] ?? null,
       canEdit: true,
       readOnlyReason: undefined,
       listings: tree.listings,

@@ -3,7 +3,7 @@ import { View } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import { space } from "../../design/tokens";
 import { topBarLeadFor, type Density, type Regions } from "../frame";
-import type { FrameApi, FrameHistory } from "./context";
+import type { FrameApi } from "./context";
 import { FrameIconButton, SearchTrigger } from "./controls";
 import type { FrameStyles } from "./styles";
 
@@ -32,7 +32,6 @@ export function frameTopBar({
   asideToggle,
   regions,
   toggleAside,
-  history,
   hasExplorer,
   explorerWidth,
   toggleExplorer,
@@ -53,7 +52,6 @@ export function frameTopBar({
   asideToggle: boolean;
   regions: Regions;
   toggleAside: () => void;
-  history?: FrameHistory;
   hasExplorer: boolean;
   explorerWidth: number;
   toggleExplorer: () => void;
@@ -62,8 +60,8 @@ export function frameTopBar({
     THE FILE TREE'S OWN TITLE ROW.
 
     While the tree is a column, the stretch of this bar above it belongs to
-    it: exactly the column's width, holding the window's buttons, `‹ ›` and
-    the tree's own toggle, so the column reads as running from the top edge
+    it: exactly the column's width, holding the window's buttons and the
+    tree's own toggle, so the column reads as running from the top edge
     of the window to its foot rather than starting under a blank strip. The
     owner chose this (2026-09-26) over a column with separate rows for inbox,
     activity and meetings — everything in the column stays a folder or a
@@ -72,41 +70,23 @@ export function frameTopBar({
     The rest of the bar — the tabs, the trailing group — then starts where
     the editor starts, so a tab sits over the page it opens.
 
-    Folded, the same controls lead the bar instead, so neither `‹ ›` nor the
-    way back to the tree goes away with the column.
+    Folded, the toggle leads the bar instead, so the way back to the tree
+    does not go away with the column. `‹ ›` are not here: the owner moved
+    them into the note's own header (2026-09-28), as Obsidian has them —
+    see `BrowseNoteHead`.
   */
   const pointer = !compact && topBarLeadFor(density) !== "account";
   const columnHead = pointer && hasExplorer && regions.explorer === "column";
   const navigation =
-    !pointer || (history === undefined && !hasExplorer) ? null : (
+    !pointer || !hasExplorer ? null : (
       <>
-        {history === undefined ? null : (
-          <>
-            <FrameIconButton
-              label="Go back"
-              icon="chevronLeft"
-              onPress={history.onBack}
-              disabled={!history.canBack}
-              testID="frame-back"
-            />
-            <FrameIconButton
-              label="Go forward"
-              icon="chevronRight"
-              onPress={history.onForward}
-              disabled={!history.canForward}
-              testID="frame-forward"
-            />
-          </>
-        )}
         {columnHead ? <View style={styles.columnHeadFill} /> : null}
-        {hasExplorer ? (
-          <FrameIconButton
-            label={regions.explorer === "column" ? "Hide the file tree" : "Show the file tree"}
-            icon="panelLeft"
-            onPress={toggleExplorer}
-            testID="frame-toggle-explorer"
-          />
-        ) : null}
+        <FrameIconButton
+          label={regions.explorer === "column" ? "Hide the file tree" : "Show the file tree"}
+          icon="panelLeft"
+          onPress={toggleExplorer}
+          testID="frame-toggle-explorer"
+        />
       </>
     );
 
