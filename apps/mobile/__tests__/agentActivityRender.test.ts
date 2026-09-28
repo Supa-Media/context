@@ -167,6 +167,37 @@ describe("the agents line at the foot of the tree", () => {
   });
 });
 
+describe("people on the same bar", () => {
+  test("people and agents are one bar, never two", () => {
+    const container = mount({
+      agents: [agent(1, "write")],
+      marks: [],
+      people: [
+        { id: "p:me", name: "@me", color: "#10b981", self: true },
+        { id: "p:maya", name: "@maya", color: "#e0457b", self: false },
+      ],
+      peopleCount: 200,
+    });
+    const bars = container.querySelectorAll('[data-testid="explorer-agents"]');
+    expect(bars).toHaveLength(1);
+    expect(bars[0].textContent).toContain("200 people active");
+    expect(bars[0].textContent).toContain("1 agent active");
+    press(bars[0]);
+    expect(text(container)).toContain("@maya");
+    expect(text(container)).toContain("and 198 more");
+  });
+
+  test("people alone draw the bar", () => {
+    const container = mount({
+      agents: [],
+      marks: [],
+      people: [{ id: "p:maya", name: "@maya", color: null, self: false }],
+      peopleCount: 3,
+    });
+    expect(container.querySelector('[data-testid="explorer-agents"]')?.textContent).toContain("3 people active");
+  });
+});
+
 describe("the square in the tree", () => {
   test("a closed folder carries the mark for what is under it, in words", () => {
     const container = mount({

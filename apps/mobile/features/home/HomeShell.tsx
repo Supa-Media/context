@@ -28,6 +28,7 @@ import {
 import { HomePage } from "./HomePage";
 import { castSite } from "./cast/castSite";
 import { useHomeCast } from "./cast/useHomeCast";
+import { castPeople, withDemoPeople } from "./cast/demoPeople";
 import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
 import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
@@ -120,6 +121,11 @@ export function HomeShell() {
     the tree, the agents line at its foot. Web only, where the editor that
     binds a shared document is.
   */
+  // The people on the bar at the sidebar's foot: the cast's own, and a crowd.
+  const demoPeople = useMemo(
+    () => castPeople([...(cast?.scripts.values() ?? [])].flat(), cast?.colors ?? NO_COLORS),
+    [cast],
+  );
   const castRoom = useHomeCast({
     enabled: Platform.OS === "web" && cast !== null,
     scripts,
@@ -197,7 +203,7 @@ export function HomeShell() {
       copy: writeClipboard,
     },
     renamed,
-    castRoom.agents,
+    withDemoPeople(castRoom.agents, demoPeople),
   );
 
   /*
