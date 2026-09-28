@@ -244,3 +244,10 @@ Moved to [A build is what shipped, not what merged — two "the fix did not work
 ## A resumed meeting is a new part spliced into the note it already has (2026-09-23)
 
 Moved to [A resumed meeting is a new part spliced into the note it already has (2026-09-23)](./meetings/evidence-and-builds.md#a-resumed-meeting-is-a-new-part-spliced-into-the-note-it-already-has-2026-09-23).
+
+## A homepage visitor can record a two-minute demo meeting, into their tab (2026-09-28)
+
+The owner asked for context.lc's visitors to try a meeting rather than read about one. The homepage points the app's one meetings controller at the tab: an in-memory store, and the ordinary `createConvexGateway` writer over the visitor's local notes, so the note lands at `inbox/meetings/` in the homepage's tree (made by the first meeting) and is gone on reload, like every other visitor edit. The recorder, the panel, the phone screen and the note are the console's own; nothing is homepage-only UI.
+
+Words need transcription, and `transcribeChunk` refuses anybody without an account. So `transcribeDemoChunk` is a second, narrow door, and the first is untouched: two minutes per meeting (refused past it server-side, and the app stops there), a cap on each chunk's size, a per-tab allowance keyed by a random id, and a budget shared by every visitor, per minute and per day, which is the bound that holds against minted ids. It writes `rateLimits` and nothing else. Reversing this means visitors record silence; widening it means paying for anonymous inference without a ceiling. `apps/convex/__tests__/meetingTranscribe/demo.test.ts` fails if a bound goes.
+

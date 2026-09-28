@@ -79,7 +79,7 @@ export function MeetingsTab({
    * `null` on the demo console and the fixtures, where there is no real note
    * behind it — and the row is then absent rather than pressable and inert.
    */
-  onOpenNote: ((href: string) => void) | null;
+  onOpenNote: ((href: string, path: string) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
@@ -364,7 +364,7 @@ function PastMeeting({
 }: {
   record: MeetingRecord;
   onBack: () => void;
-  onOpenNote: ((href: string) => void) | null;
+  onOpenNote: ((href: string, path: string) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const href = noteEditorHref(record);
@@ -460,7 +460,7 @@ function PastMeeting({
           <Button
             label="Open the note"
             variant="dialogPrimary"
-            onPress={() => onOpenNote(href)}
+            onPress={() => onOpenNote(href, record.session.notePath ?? "")}
             testID="aside-meeting-open-note"
           />
           {continues === null ? null : (

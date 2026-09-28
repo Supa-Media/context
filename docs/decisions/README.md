@@ -365,6 +365,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A build is what shipped, not what merged — two "the fix did not work" reports
   were one build
 - A resumed meeting is a new part spliced into the note it already has
+- A homepage visitor can record a two-minute demo meeting, into their tab
 
 ## [Communications](./communications.md)
 

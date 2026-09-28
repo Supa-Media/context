@@ -6,6 +6,9 @@ import type { CastStep } from "@context/shared";
 import { densityFor } from "../app/frame";
 import { ConsoleFrame } from "../console/ConsoleFrame";
 import type { NoteRename } from "../console/files/browser/contract";
+import type { VisitorMeetings } from "../console/types";
+import type { ToastSpec } from "../design/components/Toast";
+import { meetings } from "../meetings/controller";
 import type { ConsoleRouter } from "../console/layout/types";
 import type { ConsoleRoute } from "../console/nav";
 import { BrowsePane } from "../console/panes/BrowsePane";
@@ -30,6 +33,9 @@ import { HomePage } from "./HomePage";
 import { castSite } from "./cast/castSite";
 import { useHomeCast } from "./cast/useHomeCast";
 import { castPeople, withDemoPeople } from "./cast/demoPeople";
+import { HOME_MEETING_STOPPED, homeMeetingDestination } from "./meeting/homeMeetings";
+import { HomeMeetingHost } from "./meeting/HomeMeetingHost";
+import { useHomeMeetings } from "./meeting/useHomeMeetings";
 import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
 import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
@@ -188,6 +194,37 @@ export function HomeShell() {
     [browser, notes, routeOf, openRoute, followLink],
   );
 
+  /*
+    Recording a meeting, into this tab (`features/home/meeting`). The console's
+    own + and panel start and show it; the first one writes `inbox/meetings`.
+    A phone has no panel, so the meeting's own screen is drawn over the page,
+    and the note opens in the tree once it has been written.
+  */
+  const [notice, setNotice] = useState<ToastSpec | null>(null);
+  useHomeMeetings(local.putNote);
+  const [phoneMeeting, setPhoneMeeting] = useState<string | null>(null);
+  const stoppedAtLimit = useCallback(
+    () => setNotice({ id: `home-meeting-${Date.now()}`, message: HOME_MEETING_STOPPED }),
+    [],
+  );
+  const openMeetingNote = useCallback((path: string) => browser.select(path), [browser]);
+  const visitorMeetings = useMemo<VisitorMeetings | undefined>(
+    () =>
+      Platform.OS !== "web"
+        ? undefined
+        : {
+            destination: homeMeetingDestination(HOME_CONTEXT.slug),
+            openNote: (path) => browser.select(path),
+            showOnPhone: (id) => {
+              const record = meetings.getSnapshot().records.find((candidate) => candidate.session.id === id);
+              const path = record?.session.notePath ?? null;
+              if (path !== null) browser.select(path);
+              else setPhoneMeeting(id);
+            },
+          },
+    [browser],
+  );
+
   const data = useVisitorConsoleData(
     files,
     {
@@ -203,9 +240,11 @@ export function HomeShell() {
         return `${origin}${pageHref(route)}`;
       },
       copy: writeClipboard,
+      meetings: visitorMeetings,
     },
     renamed,
     withDemoPeople(castRoom.agents, demoPeople),
+    notice === null ? null : { toast: notice, dismiss: () => setNotice(null) },
   );
 
   /*
@@ -254,6 +293,15 @@ export function HomeShell() {
           </CustomEmojiContext.Provider>
         )}
       </ConsoleFrame>
+      {visitorMeetings === undefined ? null : (
+        <HomeMeetingHost
+          phone={compact}
+          shown={phoneMeeting}
+          show={setPhoneMeeting}
+          openNote={openMeetingNote}
+          onStoppedAtLimit={stoppedAtLimit}
+        />
+      )}
     </View>
   );
 }

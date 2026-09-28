@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import type { AgentActivityView } from "../console/agents/agentActivity";
 import type { FileBrowser, NoteRename } from "../console/files/browser/contract";
-import type { ConsoleContext, ConsoleData } from "../console/types";
+import type { ConsoleContext, ConsoleData, VisitorMeetings } from "../console/types";
 import { UNKNOWN_INITIAL } from "../console/identity";
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import type { ToastSpec } from "../design/components/Toast";
@@ -55,14 +55,18 @@ export function useVisitorConsoleData(
     /** The page's public address, or `null` for a note that has none. */
     linkFor: (path: string) => string | null;
     copy: (text: string) => Promise<boolean>;
+    /** Recording a demo meeting into this tab. See `features/home/meeting`. */
+    meetings?: VisitorMeetings;
   },
   renamed: NoteRename | null,
   /** What the homepage's cast of agents has read and written this visit. */
   agents?: AgentActivityView,
+  /** A sentence the homepage itself has to say, such as a demo meeting stopping. */
+  notice: { toast: ToastSpec; dismiss: () => void } | null = null,
 ): ConsoleData {
   const demo = useDemoConsoleData();
   const [toast, setToast] = useState<ToastSpec | null>(null);
-  const { linkFor, copy, signIn, createAccount, openApp, signedIn } = actions;
+  const { linkFor, copy, signIn, createAccount, openApp, signedIn, meetings } = actions;
 
   const share = useCallback(
     (path: string) => {
@@ -78,16 +82,18 @@ export function useVisitorConsoleData(
   );
 
   const dismissToast = files.dismissToast;
+  const own = [toast, notice?.toast].filter((spec): spec is ToastSpec => spec != null);
   const withToast: FileBrowser = {
     ...files,
     renamed,
-    toasts: toast === null ? files.toasts : [...files.toasts, toast],
-    dismissToast: (id: string) => (id === toast?.id ? setToast(null) : dismissToast(id)),
+    toasts: own.length === 0 ? files.toasts : [...files.toasts, ...own],
+    dismissToast: (id: string) =>
+      id === toast?.id ? setToast(null) : id === notice?.toast.id ? notice.dismiss() : dismissToast(id),
   };
 
   return {
     ...demo,
-    visitor: signedIn ? { openApp, share } : { signIn, createAccount, share },
+    visitor: signedIn ? { openApp, share, meetings } : { signIn, createAccount, share, meetings },
     viewer: signedIn ? SIGNED_IN : VISITOR,
     contexts: [HOME_CONTEXT],
     selectedContextId: HOME_CONTEXT.id,
