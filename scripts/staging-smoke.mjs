@@ -21,10 +21,20 @@ let html = '';
 for (let attempt = 0; attempt < 48; attempt++) {
   try { html = await (await request(origin)).text(); } catch { /* alias or DNS is propagating */ }
   if (html.includes(bundle)) break;
-  console.log('Waiting for the staging web alias to serve this build.');
+  console.log('Waiting for staging to serve this build.');
   await new Promise(resolve => setTimeout(resolve, 15000));
 }
 assert.ok(html.includes(bundle), 'staging must serve the bundle from this deploy');
+const deepLink = await (await request(`${origin}/console/storage`)).text();
+assert.ok(deepLink.includes(bundle), 'a deep link must receive the SPA shell from Static Assets');
+const auth = await fetch(`${origin}/api/auth/signin/github`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: '{}',
+  redirect: 'manual',
+  signal: AbortSignal.timeout(30000),
+});
+assert.ok(!(await auth.text()).includes(bundle), 'an OAuth endpoint must reach Convex, not the SPA fallback');
 const js = await (await request(`${origin}/${bundle}`)).text();
 assert.ok(js.includes(process.env.EXPO_PUBLIC_CONVEX_URL), 'web bundle must use staging Convex');
 assert.ok(js.includes(`${gateway}/mcp`), 'web bundle must use staging MCP');
@@ -39,4 +49,4 @@ assert.equal(health.ai, true);
 assert.equal(health.rateLimit, true);
 const denied = await fetch(`${gateway}/mcp`, { method: 'POST', headers: { Origin: 'https://context.lc', 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(30000) });
 assert.equal(denied.status, 403, 'production browser origin must not access staging MCP');
-console.log('Staging web bundle, backend signing keys, MCP discovery, origin isolation and transcription bindings verified.');
+console.log('Staging assets, deep links, OAuth routing, backend signing keys, MCP discovery, origin isolation and transcription bindings verified.');

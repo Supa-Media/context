@@ -148,6 +148,38 @@ describe("a person gets the app, untouched", () => {
       "proxied:https://context.expo.app/login?next=%2Fconsole",
     );
   });
+
+  it("serves the app from the versioned assets binding when it is present", async () => {
+    const assets = vi.fn((request: Request) => new Response(`asset:${request.url}`));
+    const response = (await worker.fetch(
+      new Request("https://context.lc/console/storage?tab=connected", {
+        headers: { "User-Agent": BROWSER_UA },
+      }),
+      { ...ENV, ASSETS: { fetch: assets } as unknown as Fetcher },
+      CTX,
+    )) as Response;
+
+    await expect(response.text()).resolves.toBe(
+      "asset:https://context.lc/console/storage?tab=connected",
+    );
+    expect(assets).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps auth on Convex when the assets binding is present", async () => {
+    fetchSpy.mockImplementation((request: Request) => new Response(`proxied:${request.url}`));
+    const assets = vi.fn(() => new Response("wrong upstream"));
+    const response = (await worker.fetch(
+      new Request("https://context.lc/api/auth/callback/github?code=abc"),
+      { ...ENV, ASSETS: { fetch: assets } as unknown as Fetcher },
+      CTX,
+    )) as Response;
+
+    await expect(response.text()).resolves.toBe(
+      "proxied:https://example-deployment.convex.site/api/auth/callback/github?code=abc",
+    );
+    expect(assets).not.toHaveBeenCalled();
+  });
 });
 
 describe("byte-identical previews for context links", () => {

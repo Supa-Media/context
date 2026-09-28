@@ -86,7 +86,17 @@
     "staging": {
       "name": "context-router-staging",
       "workers_dev": true,
-      "vars": { "EXPO_ORIGIN": "https://context--staging.expo.app" }
+      "vars": { "EXPO_ORIGIN": "https://context--staging.expo.app" },
+      // Staging is the canary for moving the Expo export off EAS Hosting.
+      // `run_worker_first` preserves auth, previews, customer domains and the
+      // dynamic homepage before `index.ts` hands ordinary app requests to the
+      // binding. The SPA fallback keeps deep links working.
+      "assets": {
+        "directory": "../../apps/mobile/dist",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      }
     }
   }
 }

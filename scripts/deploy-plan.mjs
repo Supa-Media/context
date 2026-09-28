@@ -96,7 +96,9 @@ export const TARGETS = {
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
       mcp: { packages: ["@context/mcp"], worker: "apps/mcp" },
-      router: { packages: ["@context/router"], worker: "infra/router" },
+      // Staging publishes the app export inside this Worker's Static Assets
+      // version, so an app input is also a router input.
+      router: { packages: ["@context/router", "@context/mobile"], worker: "infra/router" },
       app: { packages: ["@context/mobile"], files: ["scripts/build-drawing-editor.mjs"] },
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-staging")],
@@ -366,7 +368,10 @@ async function main(target) {
   const plan = selectComponents(change.files, buildGraph(target), { full: Boolean(change.full), target });
   if (change.full) for (const name of Object.keys(plan.reasons)) plan.reasons[name] = [change.full];
   const workers = Object.entries(TARGETS[target].components)
-    .filter(([name, component]) => component.worker && plan.selected[name])
+    // The router carries the web export as a Static Assets binding and has a
+    // dedicated staging job that downloads that artifact. Keeping it out of
+    // this matrix lets the other Workers continue deploying while web builds.
+    .filter(([name, component]) => component.worker && name !== "router" && plan.selected[name])
     .map(([name, component]) => ({ name, package: component.packages[0], dir: component.worker }));
   const outputs = { ...plan.selected, workers: JSON.stringify(workers), any_worker: String(workers.length > 0) };
   const text = summary(plan, change, target);
