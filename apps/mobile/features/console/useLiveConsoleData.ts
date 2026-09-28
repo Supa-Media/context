@@ -25,6 +25,7 @@ import {
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
 import { setObservabilityUser } from "../observability/client";
 import { useOrganizer } from "../organizer/useOrganizer";
+import { useFacesSync } from "./faces/useFacesSync";
 import {
   memberOf,
   usable,
@@ -185,6 +186,8 @@ export function useLiveConsoleData(): ConsoleData {
   const readNotesAction = useAction(api.functions.files.readNotes);
   /** The bytes behind a workspace's icon. See the prefetch below for why here. */
   const workspaceIconPhotoAction = useAction(api.functions.files.workspaceIconPhoto);
+  // People's faces, for every surface that draws a person (`faces/faceStore.ts`).
+  useFacesSync();
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
   const observeStorageLayout = useMutation(
     api.functions.storage.observeStorageLayout,

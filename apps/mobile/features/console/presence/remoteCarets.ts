@@ -55,7 +55,8 @@ import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import { clampToDocument, type PresenceMember } from "./protocol";
 import { cursorOffset } from "./sync";
-import { agentName, handleInitials } from "./agentName";
+import { faceNode } from "../faces/faceDom";
+import { agentName } from "./agentName";
 import type * as Y from "yjs";
 import { darkColors } from "../../design/tokens";
 import { caretFlagFit, FLIP_CLASS, LIFT_PROPERTY, ROOM_PROPERTY } from "./caretFlagFit";
@@ -108,15 +109,16 @@ class CaretWidget extends WidgetType {
       label.className =
         this.labelled === "compact" ? "cm-presence-label cm-presence-label-compact" : "cm-presence-label";
       label.style.backgroundColor = this.color;
-      // "@jon's Claude" is drawn as `jo Claude`: whose, compactly, then what.
+      // A face, then the name: "@jon" is @jon's face and "@jon"; "@jon's
+      // Claude" is @jon's face and "Claude", whose then what, compactly. The
+      // face is the one drawn everywhere else (`faces/`), never initials.
       const { owner, agent } = agentName(this.name);
-      if (owner !== null) {
-        const whose = document.createElement("span");
-        whose.className = "cm-presence-owner";
-        whose.textContent = handleInitials(owner);
-        whose.style.cssText =
-          "background: rgba(16, 15, 14, 0.2); border-radius: 3px; padding: 0 3px; margin-right: 4px; font-weight: 700;";
-        label.appendChild(whose);
+      const whose = owner ?? (this.name.startsWith("@") ? this.name : null);
+      if (whose !== null) {
+        const face = faceNode(whose, "cm-presence-owner");
+        face.style.cssText +=
+          "display: inline-block; width: 1.15em; height: 1.15em; border-radius: 50%; margin-right: 4px; vertical-align: -0.2em; line-height: 1.15em; text-align: center;";
+        label.appendChild(face);
       }
       label.appendChild(document.createTextNode(agent));
       label.title = this.name;

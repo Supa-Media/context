@@ -7,7 +7,8 @@
  *   two and one lit; no priority is a faint dash. No hue at all: red means
  *   failure in this palette, and a list of red squares reads as a list of
  *   errors. Each carries its word for a screen reader.
- * - **A face** is a person's round face with their initials, or an AI
+ * - **A face** is a person's round face (`PersonFace`: their photo or
+ *   workspace icon, else a silhouette, never initials), or an AI
  *   helper's rounded square with a robot — never "AI" in letters, which
  *   reads as somebody's initials. Nobody is a dashed "?".
  * - **A subtask's dot** is its status group: an empty ring for Not started,
@@ -21,7 +22,8 @@ import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import type { StatusTone } from "./StatusPill";
 import { toneColor } from "./StatusPill";
-import { initialsOf, priorityWord, type Priority } from "./taskProps";
+import { priorityWord, type Priority } from "./taskProps";
+import { PersonFace } from "../../faces/PersonFace";
 
 const GLYPH = 16;
 
@@ -76,13 +78,7 @@ export function OwnerFace({ face, size = 24 }: { face: Face; size?: number }) {
       </View>
     );
   }
-  return (
-    <View style={[styles.face, styles.person, box]} testID="owner-face-person" aria-hidden>
-      <Text variant="badge" style={styles.initials}>
-        {initialsOf(face.name)}
-      </Text>
-    </View>
-  );
+  return <PersonFace name={face.name} size={size} style={styles.person} testID="owner-face-person" />;
 }
 
 export function StatusDot({ tone }: { tone: StatusTone }) {
@@ -117,7 +113,6 @@ const makeStyles = (colors: Colors) =>
     person: { borderRadius: radii.pill, backgroundColor: colors.surface3 },
     agent: { borderRadius: 7, backgroundColor: colors.chipFill, borderWidth: 1, borderColor: colors.line },
     nobody: { borderRadius: radii.pill, borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong },
-    initials: { color: colors.text, fontWeight: "600" },
     nobodyMark: { color: colors.chromeMuted },
     dot: { width: 15, height: 15, borderRadius: radii.pill, borderWidth: 1.5, overflow: "hidden", flexShrink: 0 },
     half: { position: "absolute", left: 0, top: 0, bottom: 0, width: "50%" },

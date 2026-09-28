@@ -534,3 +534,22 @@ export const presenceColors = {
   cyan: "#06b6d4",
   lime: "#84cc16",
 } as const;
+
+/**
+ * The ground behind the Supa mark, the face everybody has until they choose a
+ * picture (Dev2, 2026-09-28: "for the background color, use anything").
+ * Which one a person gets is a hash of their handle (`faces/defaultFace.ts`),
+ * so it never changes unless they upload a photo or choose a workspace icon.
+ * The same in both themes, like a photo would be. Each is `[ground, ink]`:
+ * the mark is drawn in near-black on light grounds and in white on dark ones.
+ */
+export const DEFAULT_FACE_GROUNDS: ReadonlyArray<readonly [string, "dark" | "light"]> = [
+  ["#F6A04D", "dark"],
+  ["#7BC67E", "dark"],
+  ["#6FA8F5", "dark"],
+  ["#B79CF2", "dark"],
+  ["#F28C8C", "dark"],
+  ["#5BC8C0", "dark"],
+  ["#F2C94C", "dark"],
+  ["#2F5D8A", "light"],
+];

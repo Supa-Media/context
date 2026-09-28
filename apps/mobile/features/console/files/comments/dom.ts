@@ -9,6 +9,7 @@
  * as markup.
  */
 
+import { faceNode } from "../../faces/faceDom";
 import { initialsFor, isPerson, whenLabel } from "./model";
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -33,7 +34,8 @@ export function button(label: string, className: string, onClick: () => void): H
 /** One comment: who, when, and what they said. */
 export function message(author: string, at: string, text: string): HTMLElement {
   const row = el("div", "cm-cmt-msg");
-  const avatar = el("span", isPerson(author) ? "cm-cmt-av" : "cm-cmt-av cm-cmt-av-agent", initialsFor(author));
+  // A person is their face (`faces/`), never initials; an agent keeps its mark.
+  const avatar = isPerson(author) ? faceNode(author, "cm-cmt-av") : el("span", "cm-cmt-av cm-cmt-av-agent", initialsFor(author));
   avatar.setAttribute("aria-hidden", "true");
   const main = el("div", "cm-cmt-main");
   const who = el("div", "cm-cmt-who");

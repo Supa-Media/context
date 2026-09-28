@@ -18,6 +18,7 @@ export {
   type GraphColors,
   lightGraphColors,
   presenceColors,
+  DEFAULT_FACE_GROUNDS,
 } from "./tokens/colors";
 
 export {

@@ -114,10 +114,3 @@ export function dueWord(due: Due, now: number): string {
   return date.getFullYear() === today.getFullYear() ? `${month} ${due.day}` : `${month} ${due.day}, ${due.year}`;
 }
 
-/** Two letters for a round face: a one-word name's first two, else two words' first letters. */
-export function initialsOf(name: string): string {
-  const parts = name.replace(/^@/, "").trim().split(/\s+/).filter((part) => part !== "");
-  if (parts.length === 0) return "?";
-  const letters = parts.length === 1 ? [...parts[0]].slice(0, 2) : [[...parts[0]][0], [...parts[1]][0]];
-  return letters.join("").toUpperCase();
-}

@@ -17,6 +17,7 @@ import { billingTables } from "./functions/lib/schema/billing";
 import { domainTables } from "./functions/lib/schema/domains";
 import { organizerTables } from "./functions/lib/schema/organizer";
 import { jevTables } from "./functions/lib/schema/jev";
+import { faceTables } from "./functions/lib/schema/faces";
 
 /**
  * Control-plane schema for Context.
@@ -65,6 +66,7 @@ const schema = defineSchema({
   ...domainTables,
   ...organizerTables,
   ...jevTables,
+  ...faceTables,
 });
 
 export default schema;
