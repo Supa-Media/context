@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 /**
  * The setup widget: where the first run carries on after the fork (A-05, W-07)
@@ -309,6 +309,44 @@ describe("mounted over a workspace", () => {
       ),
     };
   }
+
+  test("a full browser store cannot bring it back: the account still hears the press", async () => {
+    // What a console that has cached a few hundred notes looks like: every
+    // write to `localStorage` throws, and the device flag never lands.
+    const quota = jest.spyOn(Storage.prototype, "setItem").mockImplementation((key: string) => {
+      if (key === setupWidgetRetiredKey("seyi")) {
+        throw new DOMException("full", "QuotaExceededError");
+      }
+    });
+    try {
+      const first = await host(withAccount(demo("seyi"), false));
+      await first.press("setup-widget-hide");
+      expect(first.byId("setup-widget")).toBeNull();
+      expect(window.localStorage.getItem(setupWidgetRetiredKey("seyi"))).toBeNull();
+      expect(mutations).toEqual(["functions/workspaces:retireSetupWidget"]);
+      first.unmount();
+
+      // The refresh: the device remembers nothing, the account does.
+      const second = await host(withAccount(demo("seyi"), true));
+      expect(second.byId("setup-widget")).toBeNull();
+      second.unmount();
+    } finally {
+      quota.mockRestore();
+    }
+  });
+
+  test("a device that cannot read its flag never tells the account it was put away", async () => {
+    const broken = jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    try {
+      const view = await host(withAccount(demo("seyi"), false));
+      expect(mutations).toEqual([]);
+      view.unmount();
+    } finally {
+      broken.mockRestore();
+    }
+  });
 
   test("put away on the account stays away on a device that never closed it", async () => {
     const view = await host(withAccount(demo("seyi"), true));

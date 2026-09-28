@@ -56,7 +56,14 @@ export function useSetupWidget(
 
   const retireOnAccount = useMutation(api.functions.workspaces.retireSetupWidget);
   const key = workspaceId === null ? null : setupWidgetRetiredKey(workspaceId);
-  const [answer, setAnswer] = useState<{ key: string; retired: boolean } | null>(null);
+  /*
+    `found`: the flag was actually read off this device, as opposed to a read
+    that failed (counted as put away, see above) or a press in this session
+    (which tells the account itself). Only a found flag is carried up.
+  */
+  const [answer, setAnswer] = useState<{ key: string; retired: boolean; found: boolean } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (key === null || !enabled) return;
@@ -64,21 +71,29 @@ export function useSetupWidget(
     void openStore()
       .get(key)
       .then((stored) => {
-        if (live) setAnswer({ key, retired: stored !== null });
+        if (live) setAnswer({ key, retired: stored !== null, found: stored !== null });
       })
       .catch(() => {
-        if (live) setAnswer({ key, retired: true });
+        if (live) setAnswer({ key, retired: true, found: false });
       });
     return () => {
       live = false;
     };
   }, [enabled, key]);
 
-  const device = answer !== null && answer.key === key ? answer.retired : undefined;
+  const current = answer !== null && answer.key === key ? answer : null;
+  const device = current?.retired;
+  const found = current?.found === true;
 
   const retire = useCallback(() => {
     if (key === null || workspaceId === null) return;
-    setAnswer({ key, retired: true });
+    setAnswer({ key, retired: true, found: false });
+    /*
+      Both, and the account is the one that counts: the device write throws
+      when `localStorage` is full — the offline cache fills it on a busy
+      console — and a flag kept only here then brought the card back on every
+      refresh.
+    */
     void openStore()
       .set(key, "1")
       .catch(() => {});
@@ -92,9 +107,9 @@ export function useSetupWidget(
     nothing either way.
   */
   useEffect(() => {
-    if (!enabled || workspaceId === null || device !== true || account !== false) return;
+    if (!enabled || workspaceId === null || !found || account !== false) return;
     void retireOnAccount({ workspaceId: workspaceId as Id<"workspaces"> }).catch(() => {});
-  }, [enabled, workspaceId, device, account, retireOnAccount]);
+  }, [enabled, workspaceId, found, account, retireOnAccount]);
 
   return {
     grants: grants instanceof Error ? undefined : grants,
