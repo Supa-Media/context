@@ -37,10 +37,13 @@ const ROWS: ReadonlyArray<{ key: ClientRow["key"]; name: string; provider: strin
   { key: "notion-ai", name: "Notion AI", provider: "notion", hasGuide: false },
 ];
 
-/** Live grants held by a tool, never the console's own. */
+/** Live grants held by one of the viewer's tools, never the console's own. */
 export function toolGrants(grants: readonly GrantFacts[] | undefined): GrantFacts[] {
   return (grants ?? []).filter(
-    (grant) => grant.status === "active" && grant.clientId !== CONSOLE_CLIENT_ID,
+    (grant) =>
+      grant.status === "active" &&
+      grant.isMine === true &&
+      grant.clientId !== CONSOLE_CLIENT_ID,
   );
 }
 
@@ -67,9 +70,10 @@ export function connectionRows(grants: readonly GrantFacts[] | undefined): Clien
 /**
  * Whether any tool has reached this context yet.
  *
- * Any tool, named by us or not: somebody who connected a client this list
- * does not name has still connected one, and telling them we are waiting
- * would be wrong.
+ * Any of this viewer's tools, named by us or not: somebody who connected a
+ * client this list does not name has still connected one, and telling them we
+ * are waiting would be wrong. An owner can see teammates' grants, which do not
+ * complete the owner's first run.
  */
 export function toolsLive(grants: readonly GrantFacts[] | undefined): boolean {
   return toolGrants(grants).some(used);
