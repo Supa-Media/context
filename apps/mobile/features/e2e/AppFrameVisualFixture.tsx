@@ -348,6 +348,7 @@ export function AppFrameVisualFixture({
             onStep={() => {}}
             onSearch={() => {}}
             onOpenRecent={() => {}}
+            onBrowse={() => {}}
             onCreate={() => {}}
           />
         }

@@ -1,31 +1,7 @@
 import { BottomBar } from "./BottomBar";
-import { parentPath } from "./files/paths";
 import { targetFolder } from "./files/tree";
 import { canGoBack, type HistoryState } from "./files/history";
-import type { FolderListing } from "./files/types";
 import type { ConsoleData } from "./types";
-
-/**
- * Where the Browse key goes: the folder page of what is open.
- *
- * A note opens the folder it is in. A folder page is already a folder, so the
- * key goes one up — pressing it on `1-projects/trips` shows `1-projects`, which
- * is what "the folder this is in" means for a folder. `""` is the context's own
- * page, which the pane draws with nothing selected, so the caller deselects
- * rather than selecting `""` (`NavBand`'s root pill argues why a selection of
- * `""` is the wrong spelling of it).
- *
- * `null` when nothing is open: the phone is already on the context's own page
- * and the key has nowhere further out to take you.
- */
-export function browseDestination(
-  listings: Readonly<Record<string, FolderListing | undefined>>,
-  selectedPath: string | null,
-): string | null {
-  if (selectedPath === null) return null;
-  const folder = targetFolder(listings, selectedPath);
-  return folder === selectedPath ? parentPath(folder) : folder;
-}
 
 /**
  * THE PHONE'S FIVE KEYS: Back, Browse, Search, New, Recent.
@@ -43,9 +19,10 @@ export function browseDestination(
  *    its Save button at the foot of the note on a phone now (`noteFoot`'s
  *    `manualSave`), beside the sentence explaining what went wrong.
  *
- * Browse took a slot: it opens the folder page of the note you are on, the
- * page the breadcrumb's segments already open, so the listing a phone lost
- * with its file tree is one press from any note.
+ * Browse took a slot. It first opened the folder page of the note on screen,
+ * which was "up a level" wearing a folder glyph, dimmed on the context's own
+ * page and duplicating the breadcrumb (Dev2 found it unclear, 2026-09-28). It
+ * now opens the whole tree as a sheet (`TreeSheet`), and is never dimmed.
  *
  * It lives outside `app/(app)/console/_layout.tsx` so the design canvas
  * (`features/e2e/AppFrameVisualFixture.tsx`) can mount the real row rather
@@ -58,6 +35,7 @@ export function ConsoleBottomBar({
   onStep,
   onSearch,
   onOpenRecent,
+  onBrowse,
   onCreate,
 }: {
   data: ConsoleData;
@@ -74,6 +52,8 @@ export function ConsoleBottomBar({
   onStep: (delta: -1 | 1) => void;
   onSearch: () => void;
   onOpenRecent: () => void;
+  /** Raises the tree sheet — see `TreeSheet`. */
+  onBrowse: () => void;
   /**
    * Raises the create sheet for a destination — see the `new` action.
    *
@@ -87,7 +67,6 @@ export function ConsoleBottomBar({
   // The same rule the explorer's own `+` uses, from the same function: a
   // selected *folder* is the destination, anything else means its parent.
   const folder = targetFolder(files.listings, files.selectedPath);
-  const browse = browseDestination(files.listings, files.selectedPath);
 
   return (
     <BottomBar
@@ -116,20 +95,15 @@ export function ConsoleBottomBar({
           onLongPress: hasRecent ? onOpenRecent : undefined,
         },
         /*
-          Browse: the folder page of what is open. See `browseDestination`.
-          Dimmed in place on the context's own page, where there is nowhere
-          further out to go, for the reason `‹` dims rather than vanishing.
+          Browse: the whole tree, as a sheet (`TreeSheet`). Never dimmed:
+          there is always a tree, including on the first page a visitor
+          lands on, which is where the old "up a level" key had nowhere to go.
         */
         {
           id: "browse",
-          label: "Browse this folder",
+          label: "Browse files",
           icon: "folder" as const,
-          disabled: browse === null,
-          onPress: () => {
-            if (browse === null) return;
-            if (browse === "") files.deselect();
-            else files.select(browse);
-          },
+          onPress: onBrowse,
         },
         { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
         /*

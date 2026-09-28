@@ -25,9 +25,14 @@ test("back and Recent follow the pages a visitor opened", async ({ page }) => {
   const recent = page.getByRole("button", { name: "Recently opened" }).first();
   await expect(back).toHaveAttribute("aria-disabled", "true");
 
+  // The folder key opens the whole tree as a sheet; a note in it opens and
+  // puts the sheet away (Dev2's option B, 2026-09-28).
   for (const title of ["How it works", "Pricing"]) {
-    await page.getByRole("button", { name: "Browse this folder" }).first().click();
-    await page.getByText(title, { exact: true }).first().click();
+    await page.getByRole("button", { name: "Browse files" }).first().click();
+    const sheet = page.getByTestId("tree-sheet");
+    await expect(sheet).toBeVisible();
+    await sheet.getByText(title, { exact: true }).click();
+    await expect(sheet).toHaveCount(0);
     await expect(content(page)).toContainText(title);
   }
   await expect(page).toHaveURL(/\?page=pricing$/);
