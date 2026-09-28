@@ -7,6 +7,7 @@ import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { CallAudioWarning } from "../../meetings/components/CallAudioWarning";
 import { LiveWaveform } from "../../meetings/components/LiveWaveform";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
@@ -249,6 +250,8 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
             note.
           </Text>
         ) : null}
+
+        <CallAudioWarning testID="aside-call-audio-warning" />
 
         <View style={styles.transport}>
           <Pressable
