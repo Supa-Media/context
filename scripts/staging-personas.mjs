@@ -131,7 +131,10 @@ for (const [persona, roles] of Object.entries(expected)) {
   console.log(`${persona}: exact workspace roles and isolation verified.`);
 }
 await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws.lumio, path: '0-inbox/should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "INSUFFICIENT_ROLE" && error.data.actualRole === 'member' && error.data.requiredRole === 'editor');
-await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws['context-lc'], path: 'should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "INSUFFICIENT_ROLE" && error.data.actualRole === 'member' && error.data.requiredRole === 'editor');
+// Pinned reach is computed without a membership row. Reads work as a member,
+// while the write path deliberately hides the workspace instead of revealing
+// that an unlisted account has no writable role there.
+await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws['context-lc'], path: 'should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "WORKSPACE_NOT_FOUND");
 // Prove that a shared-only editor can save using ordinary permissions.
 const editorPath = '1-projects/pulse-launch/roadmap.md';
 const editorNote = await clients.beta.action(ref('functions/files:readNote'), { workspaceId: ws.lumio, path: editorPath });
