@@ -55,6 +55,36 @@ worst of the three possible behaviours; cancelling on somebody's behalf because
 they moved a switch is the second worst. Cancelling belongs to the portal,
 where the card and the invoices already are.
 
+## One plan: Upgrade is the whole choice (2026-09-28)
+
+Decided by the owner on 2026-09-28, once the free tier gave every new workspace
+a managed bucket. The upgrade screen used to ask for managed storage, fast
+search or both before its button did anything; free already had the first, and
+the boxes never named the other things a payment unlocks (a custom domain,
+auto-organize). Premium is now **one $5 plan**: the screen lists what it buys
+and has one Upgrade button.
+
+The two stored fields stay, because they still mean different things, but the
+owner no longer fills them in before paying. `selectionAtUpgrade`
+(`lib/premium.ts`) does, inside `startCheckout` and `activateTestPremium`:
+
+- **Managed storage follows where the notes already are.** On a bucket we run
+  it stays on, so paying lifts the cap on the same bucket. On the owner's own
+  storage an upgrade never switches it on, because that would start moving
+  their notes; that move belongs to Settings › Storage, started by the owner.
+- **Fast search comes with the plan** for a context that has never paid. A
+  context that paid before keeps what it chose, so switching the index off is
+  not undone by resubscribing, unless that would buy nothing.
+- An earlier explicit choice (onboarding's paid bucket) is only added to.
+
+After paying, the index is the one switch: "Search index", for people who do
+not want a copy of their notes' text on our servers. "Two entitlements, one
+price" above still holds for what is stored; the refusal of an empty selection
+while paying still holds too, which is why on the owner's own storage the
+switch is locked on and says to use Manage billing. Reversing this means
+bringing back boxes a person must tick before paying; `onePlan.test.ts` and
+`premiumOnePlan.test.ts` fail if the upgrade asks for anything again.
+
 ## The $5 is an early-tester price, and it is held for the people already on it
 
 The price is presented as **early tester pricing** rather than as what Premium

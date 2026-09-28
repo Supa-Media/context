@@ -346,10 +346,16 @@ describe("what each screen offers", () => {
     );
   });
 
-  test("an owner with nothing chosen is told what to tick", () => {
+  test("an owner with nothing chosen gets one Upgrade button and no boxes to tick", () => {
     const host = mount(view());
-    expect(host.querySelector('[data-testid="premium-upgrade"]')).toBeNull();
-    expect(host.textContent ?? "").toContain("Tick managed storage");
+    expect(host.querySelector('[data-testid="premium-upgrade"]')?.textContent).toContain(
+      "Upgrade to Premium",
+    );
+    expect(host.textContent ?? "").not.toContain("Tick managed storage");
+    expect(host.querySelector('[data-testid="premium-entitlement-fastSearch"]')).toBeNull();
+    // Everything the plan buys is named, the domain included.
+    expect(host.textContent ?? "").toContain("Fast search");
+    expect(host.textContent ?? "").toContain("Your own domain");
   });
 
   test("a paying context goes to the portal", () => {
@@ -373,11 +379,9 @@ describe("what each screen offers", () => {
     );
     expect(host.querySelector('[data-testid="premium-upgrade"]')).toBeNull();
     expect(host.querySelector('[data-testid="premium-manage"]')).toBeNull();
-    // No switches either — the two entitlements are read out instead.
-    expect(
-      host.querySelector('[data-testid="premium-entitlement-fastSearch"]'),
-    ).toBeNull();
-    expect(host.textContent ?? "").toContain("Managed storage");
+    // No switches either: what the plan includes is read out instead.
+    expect(host.querySelector('[data-testid="premium-search-index"]')).toBeNull();
+    expect(host.textContent ?? "").toContain("Unlimited notes");
   });
 
   test("the demo console draws the section and nothing pressable", () => {

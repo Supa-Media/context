@@ -78,6 +78,7 @@ import {
 } from "./lib/billing/sessions";
 import { billingStatusReturns, readBillingStatus } from "./lib/billing/status";
 import { noteCapForWorkspace, startFreeManagedHandler } from "./lib/billing/freeManaged";
+import { storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
 
 /**
  * What the Premium section draws.
@@ -118,20 +119,10 @@ export const activateTestPremium = mutation({
       throw new ConvexError({ code: "FORBIDDEN", message: "This test upgrade is not available." });
     }
 
-    const plan = await planFor(ctx, args.workspaceId);
-    const selected = selectionOf(plan);
-    if (!hasAnyEntitlement(selected)) {
-      throw new ConvexError({
-        code: "ENTITLEMENTS_EMPTY",
-        message: "Choose managed storage, fast search, or both before upgrading.",
-      });
-    }
-
+    if ((await planFor(ctx, args.workspaceId))?.status === "active") return { active: true };
+    // One plan: the upgrade fills in what it buys (`selectionAtUpgrade`).
+    const { plan, selected } = await storeSelectionAtUpgrade(ctx, args.workspaceId);
     const now = Date.now();
-    if (plan === null) {
-      throw new ConvexError({ code: "PLAN_MISSING", message: "Choose Premium features first." });
-    }
-    if (plan.status === "active") return { active: true };
     await ctx.db.patch(plan._id, { status: "active", updatedAt: now });
     await startOrganizerOnUpgrade(ctx, args.workspaceId, false, true);
 
@@ -337,20 +328,14 @@ export const startCheckout = mutation({
       throw new ConvexError({ code: "STAGING_NO_PAYMENT", message: "Storage is free on staging. Reload the app to create your bucket without payment." });
     }
 
-    const plan = await planFor(ctx, args.workspaceId);
-    if (!hasAnyEntitlement(selectionOf(plan))) {
-      throw new ConvexError({
-        code: "ENTITLEMENTS_EMPTY",
-        message:
-          "Choose managed storage, fast search, or both before upgrading.",
-      });
-    }
-    if (planIsPaying(statusOf(plan))) {
+    if (planIsPaying(statusOf(await planFor(ctx, args.workspaceId)))) {
       throw new ConvexError({
         code: "ALREADY_PREMIUM",
         message: "This context is already on Premium.",
       });
     }
+    // One plan: nothing to tick first. The upgrade fills in what it buys.
+    const { selected } = await storeSelectionAtUpgrade(ctx, args.workspaceId);
 
     /*
       A live attempt is reused rather than joined by a second one.
@@ -389,7 +374,7 @@ export const startCheckout = mutation({
       userId,
       kind: "checkout",
       // What this attempt is buying, frozen now. See `selectedAtCheckout`.
-      selected: selectionOf(plan),
+      selected,
       origin: args.origin,
     });
 

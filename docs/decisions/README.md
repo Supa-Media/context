@@ -53,6 +53,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - A plan belongs to a workspace, never to a person
 - Two entitlements, one price
+- One plan: Upgrade is the whole choice
 - What a plan may never decide
 - Three values, three different places, and the split is load-bearing
 - The checkout is two round trips, and it cannot be one

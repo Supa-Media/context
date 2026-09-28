@@ -8,11 +8,7 @@ import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
-import {
-  FormError,
-  Notice,
-  ToggleGroup,
-} from "../../../design/components/Input";
+import { FormError, Notice } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -35,14 +31,10 @@ import {
   renewalLine,
   unreadablePremiumView,
   usageLine,
-  type PremiumEntitlements,
   type PremiumView,
 } from "./premium";
-import {
-  entitlementRows,
-  entitlementsHint,
-  wouldEmptyRequiredSelection,
-} from "./premiumEntitlements";
+import { wouldEmptyRequiredSelection } from "./premiumEntitlements";
+import { PremiumIncludes } from "./PremiumIncludes";
 import { usePremium } from "./usePremium";
 import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
 import { useArming } from "../../useArming";
@@ -241,14 +233,12 @@ export function PremiumBody({
   const returning = checkoutReturnCopy(returned, state, { slow });
   const migration = status === null ? null : managedMigrationCopy(status);
 
-  const toggle = (value: string, next: boolean) => {
-    if (status === undefined || status === null || view.choose === undefined)
-      return;
-    if (wouldEmptyRequiredSelection(status, value, next)) return;
-    const chosen: PremiumEntitlements = { ...status.selected };
-    if (value === "managedStorage") chosen.managedStorage = next;
-    if (value === "fastSearch") chosen.fastSearch = next;
-    run(() => view.choose!(chosen));
+  // The one switch left after paying: the index, for people who would rather
+  // not have a copy of their notes' text on our servers.
+  const searchIndex = (next: boolean) => {
+    if (status === null || view.choose === undefined) return;
+    if (wouldEmptyRequiredSelection(status, "fastSearch", next)) return;
+    run(() => view.choose!({ ...status.selected, fastSearch: next }));
   };
 
   return (
@@ -423,49 +413,12 @@ export function PremiumBody({
       )}
 
       {status === null ? null : (
-        <Card style={styles.card}>
-          {view.choose === undefined ? (
-            /*
-              A member, or the demo. The two entitlements are still worth
-              naming — "what does this context get" is not privileged — but
-              they are read out rather than offered as switches.
-            */
-            <View>
-              <Text variant="eyebrow">What Premium includes</Text>
-              {entitlementRows(status).map((row) => (
-                <View key={row.value} style={styles.readOnlyRow}>
-                  <View style={styles.readOnlyHead}>
-                    <Text variant="rowTitle">{row.label}</Text>
-                    {/*
-                      A pill saying which it is, rather than a tick-or-warning
-                      pair. The first drawing of this used `Check`, whose "off"
-                      tone is an exclamation mark — so a free context, which is
-                      most of them, was shown two warning glyphs for two things
-                      that are simply not switched on. Nothing is wrong on that
-                      screen and nothing should look as though it is.
-                    */}
-                    <Pill tone={row.on ? "ok" : "neutral"}>
-                      {row.on ? "Included" : "Not included"}
-                    </Pill>
-                  </View>
-                  <Text variant="rowSub" style={styles.blurb}>
-                    {row.detail}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <ToggleGroup
-              label="What Premium includes"
-              hint={entitlementsHint(status)}
-              options={entitlementRows(status)}
-              onToggle={toggle}
-              disabled={working}
-              testID="premium-entitlement"
-            />
-          )}
-          {autoOrganize?.included ?? null}
-        </Card>
+        <PremiumIncludes
+          status={status}
+          onSearchIndex={view.choose === undefined ? undefined : searchIndex}
+          disabled={working}
+          extra={autoOrganize?.included}
+        />
       )}
 
       {autoOrganize?.afterIncludes ?? null}
@@ -486,12 +439,6 @@ export function PremiumBody({
 
       {control === "none" ? (
         <></>
-      ) : control === "choose" ? (
-        <Hint style={styles.hint}>
-          <Text variant="rowSub">
-            Tick managed storage, fast search, or both to continue.
-          </Text>
-        </Hint>
       ) : session?.status === "ready" && session.url !== undefined ? (
         <Row style={styles.actions}>
           {/*
@@ -526,7 +473,7 @@ export function PremiumBody({
                     ? "Create staging storage"
                     : status?.isTestAccount === true
                     ? "Activate test Premium"
-                    : "Upgrade this context"
+                    : "Upgrade to Premium"
             }
             accessibilityLabel={
               control === "manage"
@@ -596,7 +543,6 @@ const makeStyles = (colors: Colors) =>
     sectionHead: { marginBottom: 6 },
     sectionHeadLater: { marginTop: 28, marginBottom: 6 },
     sectionSub: { marginBottom: 12 },
-    card: { marginTop: 12 },
     head: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
     headText: { flex: 1 },
     blurb: { marginTop: 4 },
@@ -610,13 +556,6 @@ const makeStyles = (colors: Colors) =>
     migrationProgress: { marginTop: 8 },
     settlingPill: { flexDirection: "row", alignItems: "center", gap: 8 },
     returnText: { flex: 1, minWidth: 0 },
-    readOnlyRow: { marginTop: 14 },
-    readOnlyHead: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 12,
-    },
     actions: { marginTop: 12, gap: 8 },
     testCleanupCopy: { flex: 1, minWidth: 0, gap: 4 },
     loadingRow: {

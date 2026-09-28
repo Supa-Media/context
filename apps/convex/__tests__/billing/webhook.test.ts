@@ -501,7 +501,9 @@ describe("the webhook", () => {
         workspaceId,
       });
       expect(view.status).toBe("active");
-      expect(view.active).toEqual({ managedStorage: true, fastSearch: false });
+      // What checkout froze: managed storage as chosen, plus fast search,
+      // which comes with the plan for a context that never paid (one plan).
+      expect(view.active).toEqual({ managedStorage: true, fastSearch: true });
     } finally {
       vi.unstubAllEnvs();
     }
