@@ -39,7 +39,7 @@ const one = (testID: string): HTMLElement => {
   if (found === undefined) throw new Error(`no ${testID}`);
   return found;
 };
-const text = () => (document.body.textContent ?? "").replace(/[⁦-⁩]/g, "");
+const text = () => (document.body.textContent ?? "").replace(/[\u2066-\u2069]/g, "");
 
 async function mount(props: Partial<QuickAddComposerProps> & Pick<QuickAddComposerProps, "onAdd">) {
   const container = document.createElement("div");
@@ -208,7 +208,7 @@ describe("the task composer", () => {
     const added: QuickAddTask[] = [];
     await mount({ onAdd: (task) => (added.push(task), null), tagSuggestions: ["Kitchen", "Setup"] });
     await press(one("quick-add-tag"));
-    expect(all("quick-add-tag-suggestion").map((node) => node.textContent?.replace(/[⁦-⁩]/g, ""))).toEqual(["Kitchen", "Setup"]);
+    expect(all("quick-add-tag-suggestion").map((node) => node.textContent?.replace(/[\u2066-\u2069]/g, ""))).toEqual(["Kitchen", "Setup"]);
     await press(all("quick-add-tag-suggestion")[0]!);
     await type("quick-add-tag-field", "bug");
     await key("quick-add-tag-field", "Enter");

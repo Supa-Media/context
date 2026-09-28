@@ -14,7 +14,7 @@ import type { FileEntry, FolderListing } from "../../features/console/files/type
 
 export const CAFE = "1-projects/cafe";
 
-export const strip = (text: string | null | undefined): string => (text ?? "").replace(/[⁦-⁩]/g, "");
+export const strip = (text: string | null | undefined): string => (text ?? "").replace(/[\u2066-\u2069]/g, "");
 
 export const entry = (kind: "file" | "folder", path: string): FileEntry => ({
   kind,
