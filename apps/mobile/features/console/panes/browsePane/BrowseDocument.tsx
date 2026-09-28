@@ -5,6 +5,7 @@ import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
+import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
 import { useFolderLists } from "../../../offline/useFolderLists";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
@@ -295,9 +296,8 @@ export function BrowseDocument({
           which context it is in.
         */
         activity={data.activity}
-        // Comments are signed with the viewer's handle; an email or "Signed in" is not one.
-        commenter={data.viewer?.name?.startsWith("@") ? data.viewer.name : null}
-        // A visitor reads threads; replying is what signing in is for.
+        // A person signs with their handle; a visitor comments locally, like they edit.
+        commenter={commenterFor(data.viewer?.name, data.visitor !== undefined)}
         onSignInToComment={data.visitor?.signIn}
         // A visitor's edits stay in their tab; the foot must not say "bucket".
         local={data.visitor !== undefined}

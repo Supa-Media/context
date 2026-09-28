@@ -21,7 +21,7 @@ import {
   setDraft,
   setShowResolved,
 } from "../features/console/files/comments/extension";
-import { initialsFor, isPerson, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
+import { commenterFor, initialsFor, isPerson, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
 import { shiftFor } from "../features/console/files/comments/rail";
 
 const NOTE = [
@@ -47,6 +47,16 @@ group("the margin's rules", () => {
     expect(isPerson("dev2")).toBe(false);
     expect(isPerson("@jon's Claude")).toBe(false);
     expect(initialsFor("@jon's Claude")).toBe("Cl");
+  });
+
+  test("who a comment is signed as: a handle, a homepage visitor, or nobody", () => {
+    expect(commenterFor("@dev2", false)).toBe("@dev2");
+    expect(commenterFor("@dev2", true)).toBe("@dev2");
+    // A visitor comments like they edit: in their own tab.
+    expect(commenterFor("Signed in", true)).toBe("@you");
+    expect(commenterFor(undefined, true)).toBe("@you");
+    // A signed-in reader without a handle yet has nothing to sign with.
+    expect(commenterFor("someone@example.com", false)).toBeNull();
   });
 
   test("initials: one letter for a person, two for an agent", () => {
