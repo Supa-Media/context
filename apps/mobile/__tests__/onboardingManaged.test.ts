@@ -54,6 +54,7 @@ jest.mock("convex/react", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { StorageStepBody } from "../features/onboarding/steps/StorageStep";
+import { StorageChoiceBody } from "../features/console/storage/StorageChoice";
 import {
   EARLY_TESTER_PRICE_SHORT,
   EXPORT_PROMISE,
@@ -132,6 +133,40 @@ function mount(managed: ManagedOffer | null, storageReady = false): HTMLElement 
 }
 
 describe("offering storage we keep", () => {
+  test("an owner who skipped first run can still start the free tier from the shared chooser", () => {
+    let started = 0;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container, {
+      onUncaughtError: () => {},
+      onCaughtError: () => {},
+    });
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    act(() => {
+      root.render(
+        createElement(StorageChoiceBody, {
+          dropboxReady: true,
+          redirectUri: null,
+          dropboxState: { kind: "idle" },
+          startDropbox: () => {},
+          connect: async () => ({ status: "ok" }),
+          free: { cap: 1000, onChoose: () => (started += 1) },
+        }),
+      );
+    });
+
+    const card = container.querySelector('[data-testid="choose-free"]') as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.textContent ?? "").toContain("Free storage");
+    expect(card.textContent ?? "").toContain("1,000 notes");
+    expect(card.textContent ?? "").toContain("No card");
+    act(() => card.click());
+    expect(started).toBe(1);
+  });
+
   test("a deployment that cannot provide it does not offer it", () => {
     for (const managed of [null, offer({ available: false })]) {
       const container = mount(managed);

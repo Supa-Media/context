@@ -31,6 +31,7 @@ export function StorageChoice({
   allowDropbox = false,
   dropboxNote,
   dropboxResumeTo,
+  free,
   managed,
 }: {
   /** The context being connected. `null` disables the Dropbox card only. */
@@ -44,6 +45,8 @@ export function StorageChoice({
   dropboxNote?: string;
   /** Set from first-run, so the callback can hand the person back to it. */
   dropboxResumeTo?: "onboarding";
+  /** The no-card managed tier, when the control plane says this owner may start it. */
+  free?: { cap: number; onChoose: () => void };
   /** Absent unless billing says this deployment can provision the storage. */
   managed?: { price: string; stagingFreeStorage?: boolean; onChoose: () => void };
 }) {
@@ -58,6 +61,7 @@ export function StorageChoice({
       connect={connect}
       onCancel={onCancel}
       dropboxNote={dropboxNote}
+      free={free}
       managed={managed}
     />
   );
@@ -76,6 +80,7 @@ export function StorageChoiceBody({
   connect,
   onCancel,
   dropboxNote,
+  free,
   managed,
 }: {
   allowDropbox?: boolean;
@@ -86,6 +91,7 @@ export function StorageChoiceBody({
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   onCancel?: () => void;
   dropboxNote?: string;
+  free?: { cap: number; onChoose: () => void };
   managed?: { price: string; stagingFreeStorage?: boolean; onChoose: () => void };
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -112,6 +118,17 @@ export function StorageChoiceBody({
             setBucketOpen(false);
           }}
         />
+        {free === undefined ? null : (
+          <ChoiceCard
+            testID="choose-free"
+            title="Free storage"
+            sub={`${free.cap.toLocaleString("en-US")} notes, no time limit. Context sets up the bucket and keeps it running. No card required.`}
+            badge="Free"
+            badgeTone="ok"
+            selected={false}
+            onPress={free.onChoose}
+          />
+        )}
         {managed === undefined ? null : (
           /*
             The badge is the number and the sub says what kind of number it is.
