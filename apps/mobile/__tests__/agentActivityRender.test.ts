@@ -180,7 +180,7 @@ describe("people on the same bar", () => {
     });
     const bars = container.querySelectorAll('[data-testid="explorer-agents"]');
     expect(bars).toHaveLength(1);
-    expect(bars[0].textContent).toContain("200 people active");
+    expect(bars[0].textContent).toContain("200 ppl,");
     expect(bars[0].textContent).toContain("1 agent active");
     press(bars[0]);
     expect(text(container)).toContain("@maya");
@@ -194,7 +194,7 @@ describe("people on the same bar", () => {
       people: [{ id: "p:maya", name: "@maya", color: null, self: false }],
       peopleCount: 3,
     });
-    expect(container.querySelector('[data-testid="explorer-agents"]')?.textContent).toContain("3 people active");
+    expect(container.querySelector('[data-testid="explorer-agents"]')?.textContent).toContain("3 ppl active");
   });
 });
 

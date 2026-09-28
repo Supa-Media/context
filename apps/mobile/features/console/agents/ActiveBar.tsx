@@ -6,7 +6,7 @@ import { AgentStack } from "./AgentList";
 import { activeParts, compactCount, peopleActive, type ActivePerson, type AgentActivityView } from "./agentActivity";
 
 /**
- * What the activity bar says: "200 people active · 2 agents active".
+ * What the activity bar says: "13 ppl, 2 agents active".
  *
  * One component for both halves, because they are one fact about a workspace
  * (who is working in it now) and Dev2 asked for them on one bar rather than
