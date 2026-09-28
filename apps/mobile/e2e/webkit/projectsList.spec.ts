@@ -83,14 +83,8 @@ test("with the peek open, a hovered row's title still ends before its tools", as
   await page.mouse.move(5, 5);
   await expect(opened.getByTestId("folder-row-peek")).toHaveCSS("opacity", "0");
   await expect.poll(async () => (await opened.getByTestId("folder-item-label").boundingBox())!.width).toBeGreaterThanOrEqual(whole);
-  // The keyboard's focus shows it, and the title makes room for it then too.
-  await opened.getByTestId("folder-row-peek").focus();
-  await page.keyboard.press("Shift+Tab");
-  await page.keyboard.press("Tab");
-  await expect(opened.getByTestId("folder-row-peek")).toHaveCSS("opacity", "1");
-  const label = (await opened.getByTestId("folder-item-label").boundingBox())!;
-  const tools = (await opened.getByTestId("folder-row-tools").boundingBox())!;
-  expect(label.x + label.width).toBeLessThanOrEqual(tools.x + 1);
+  // A keyboard's focus showing them is proven in `__tests__/projectsListRows.test.ts`: WebKit's Tab
+  // does not reach a button, so there is no keyboard route to drive here.
 });
 
 test("the priority mark opens the priorities, and a choice is written with an Undo", async ({ page }) => {

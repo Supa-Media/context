@@ -80,6 +80,16 @@ describe("the row gives its name the room", () => {
     expect(getComputedStyle(tools).position).toBe("absolute");
     expect(one("folder-item-name", row("Sign the lease")).contains(tools)).toBe(true);
   });
+
+  test("a keyboard's focus on a tool shows it (the room it then takes needs a browser's layout)", async () => {
+    await mount(host([], { files: [] }));
+    const peek = one("folder-row-peek", row("Sign the lease"));
+    expect(getComputedStyle(peek).opacity).toBe("0");
+    // jsdom has no `:focus-visible`, so every focus here counts as the keyboard's (`keyboardFocus`).
+    await act(async () => peek.focus());
+    await settle();
+    expect(getComputedStyle(one("folder-row-peek", row("Sign the lease"))).opacity).not.toBe("0");
+  });
 });
 
 describe("priority, status and owner are changed on the row", () => {
