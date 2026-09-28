@@ -10,7 +10,10 @@
  * The rail says how many are parked and takes a dropped card, which parks it
  * (its status becomes the list's Backlog word, the write any column drop
  * makes). Pressed, it opens into a column of its cards and folds back again.
- * A list with no Backlog word has no rail. A long Done column shows its
+ * A list with no Backlog word has no rail. Where Backlog is a folder
+ * (`backlog/` in the page's folder), the rail holds what is in it: a card
+ * dropped on the rail moves there, and a parked card dropped on a column
+ * moves back out with that column's status (`parked`, `boardLayout.ts`). A long Done column shows its
  * newest few and "Show N more".
  *
  * Moving a card is its status value (`BoardCard.tsx`): a drag with a
@@ -26,7 +29,7 @@ import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { BoardCard } from "./BoardCard";
-import { boardLayout } from "./boardLayout";
+import { boardLayout, type BoardParked } from "./boardLayout";
 import { useColumnDrop } from "./boardDrag";
 import { ChooseGroup } from "./ChooseGroup";
 import type { ItemActions } from "./items";
@@ -46,22 +49,38 @@ export function FolderBoard({
   compact,
   now,
   actions,
+  parked = null,
 }: {
   bands: readonly StatusBand[];
   compact: boolean;
   now: number;
   actions: ItemActions;
+  /** Where Backlog is a folder: its cards, and the moves in and out of it. */
+  parked?: BoardParked | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [dragging, setDragging] = useState<string | null>(null);
   const [backlogOpen, setBacklogOpen] = useState(false);
   const edit = actions.onChoose;
-  const { backlog, columns } = boardLayout(bands);
-  const all = bands.flatMap((band) => band.columns.flatMap((column) => column.items));
+  const board = boardLayout(bands);
+  const { columns } = board;
+  const backlog: FolderGroup | null =
+    parked === null
+      ? board.backlog
+      : { value: board.backlog?.value ?? "backlog", label: "Backlog", items: [...(board.backlog?.items ?? []), ...parked.items] };
+  const all = [...bands.flatMap((band) => band.columns.flatMap((column) => column.items)), ...(parked?.items ?? [])];
+  const isParked = (path: string) => parked?.items.some((each) => each.path === path) === true;
   const drop = (path: string, column: string) => {
     setDragging(null);
     const item = all.find((each) => each.path === path);
-    if (item === undefined || edit === null) return;
+    if (item === undefined) return;
+    // Where Backlog is a folder, the rail moves a card in, and a column moves a parked one out.
+    if (parked !== null && backlog !== null && column === backlog.value) {
+      if (!isParked(path)) parked.park?.(path);
+      return;
+    }
+    if (parked !== null && isParked(path)) return parked.unpark?.(path, column);
+    if (edit === null) return;
     const value = dropValue(item, column);
     if (value !== undefined) edit(item, "status", value);
   };
@@ -82,7 +101,7 @@ export function FolderBoard({
           }
         />
       ) : (
-        <Rail group={backlog} canMove={edit !== null} onDrop={(path) => drop(path, backlog.value)} onOpen={() => setBacklogOpen(true)} />
+        <Rail group={backlog} canMove={parked === null ? edit !== null : parked.park !== null} onDrop={(path) => drop(path, backlog.value)} onOpen={() => setBacklogOpen(true)} />
       )}
       {columns.map(({ group, tone }) => (
         <Column

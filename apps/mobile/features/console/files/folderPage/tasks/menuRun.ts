@@ -10,7 +10,7 @@ import { priorityOf, tagsOf, ownersOf } from "../taskProps";
 import { ownerLabel, type OwnerChoice } from "../items";
 import { planMoveToProject, planSet, statusPlan, taskRefOf, wordsValue, type ProjectRef } from "./taskEdits";
 import type { TaskMenuAction } from "./taskMenu";
-import { planNest, planPark, planUnnest, type Planned } from "./taskWrites";
+import { planNest, planUnnest, type Planned } from "./taskWrites";
 import { dueLabel, duePreset, priorityLabel, toggleWord, type Priority } from "./taskWords";
 import type { IndexedItem, TaskControls } from "./useTaskActions";
 
@@ -105,7 +105,7 @@ export function runMenuAction(action: TaskMenuAction, context: MenuRunContext): 
     case "unnest":
       return perform(planUnnest(taskRefOf(item), controls.snapshot()));
     case "park":
-      return perform(planPark(taskRefOf(item), controls.list));
+      return perform(controls.parkPlan(item));
     case "project": {
       const project = context.projects.find((each) => each.path === action.path);
       if (project === undefined) return;

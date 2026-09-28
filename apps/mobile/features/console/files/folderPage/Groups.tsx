@@ -4,7 +4,9 @@
  *
  * - **Backlog** leads as one folded line ("Backlog 12 · Ideas and later
  *   work, out of the way"), and the Done group ends the tasks the same way;
- *   either opens in place when pressed.
+ *   either opens in place when pressed. Where Backlog is a folder its rows
+ *   are what the folder holds, and a drop on the band moves a row into it;
+ *   empty, it still says "Backlog 0 · Drop here to park" to a writer.
  * - Every other section is a heading with its count — "1 of 12" under a
  *   filter — and its rows; a section holding several statuses names each
  *   above its own rows. A word nobody placed asks which group it is in on its
@@ -33,7 +35,7 @@ import { groupLabel } from "../listBlock/words";
 import { AddLine, DropArea, TaskComposer } from "./tasks/RowParts";
 import type { TaskControls } from "./tasks/useTaskActions";
 import type { ItemActions } from "./items";
-import { BACKLOG_HINT, type LayoutColumn, type LayoutSection, type ListLayout } from "./listLayout";
+import { BACKLOG_EMPTY_HINT, BACKLOG_HINT, type LayoutColumn, type LayoutSection, type ListLayout } from "./listLayout";
 import { StatusPill, toneColor } from "./StatusPill";
 import { NoteRow, RowList, TaskRow } from "./TaskRow";
 
@@ -71,7 +73,8 @@ export function FolderGroups({
       <TaskComposer controls={tasks} status={writing.status} groupLabel={groupLabel("status", writing.status)} />
     ) : null;
   const addLine = (section: LayoutSection) =>
-    tasks === null || (writing !== null && writing.section === section.key) ? null : (
+    // A Backlog folder is dropped into rather than written in: its rows are added where they are made.
+    tasks === null || section.folder != null || (writing !== null && writing.section === section.key) ? null : (
       <AddLine
         label={tasks.addLabel}
         onPress={() => tasks.openComposer({ kind: "task", section: section.key, status: sectionStatus(section, tasks), at: "end" })}
@@ -86,7 +89,7 @@ export function FolderGroups({
       {layout.sections.map((section) =>
         section.folded ? (
           <View key={section.key} testID="folder-group">
-            <DropArea controls={tasks} status={tasks === null ? "" : sectionStatus(section, tasks)}>
+            <DropArea controls={tasks} status={tasks === null ? "" : sectionStatus(section, tasks)} park={section.key === "backlog"}>
               {(hint) => (
                 <FoldedBand
                   section={section}
@@ -94,6 +97,7 @@ export function FolderGroups({
                   open={unfolded.has(section.key)}
                   onToggle={() => toggle(setUnfolded, section.key)}
                   hint={hint}
+                  writer={tasks !== null}
                 />
               )}
             </DropArea>
@@ -145,9 +149,10 @@ export function FolderGroups({
 }
 
 /** The status a group's "+ Add task" writes and a drop on it sets: its first, and for To do the first that is not Backlog. */
-export function sectionStatus(section: LayoutSection, tasks: Pick<TaskControls, "list" | "firstToDo">): string {
+export function sectionStatus(section: LayoutSection, tasks: Pick<TaskControls, "list" | "firstToDo" | "backlog">): string {
   if (section.key === "not-started") return tasks.firstToDo;
-  if (section.key !== "backlog" && section.group !== null) return tasks.list[section.group][0] ?? section.columns[0]?.value ?? "";
+  if (section.key === "backlog") return tasks.backlog ?? section.columns[0]?.value ?? "";
+  if (section.group !== null) return tasks.list[section.group][0] ?? section.columns[0]?.value ?? "";
   return section.columns[0]?.value ?? "";
 }
 
@@ -188,12 +193,15 @@ function FoldedBand({
   open,
   onToggle,
   hint,
+  writer,
 }: {
   section: LayoutSection;
   count: string;
   open: boolean;
   onToggle: () => void;
   hint: string | null;
+  /** Somebody who may drop here: an empty Backlog says so. */
+  writer: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -216,8 +224,8 @@ function FoldedBand({
       {hint !== null ? (
         <DropHint hint={hint} />
       ) : section.key === "backlog" ? (
-        <Text variant="meta" numberOfLines={1} style={[styles.count, styles.headEnd]}>
-          {BACKLOG_HINT}
+        <Text variant="meta" numberOfLines={1} style={[styles.count, styles.headEnd]} testID="folder-band-hint">
+          {section.total === 0 && writer ? BACKLOG_EMPTY_HINT : BACKLOG_HINT}
         </Text>
       ) : null}
     </Pressable>
