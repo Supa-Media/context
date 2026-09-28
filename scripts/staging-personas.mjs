@@ -47,6 +47,15 @@ for (const { slug, workspaceId, owner } of workspaces) {
     await pause(2000);
   }
   assert.ok(ready, `${slug}: storage did not become ready`);
+  if (slug === 'context-lc') {
+    let privacy;
+    try { privacy = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'privacy.md' }); }
+    catch (error) { if (error?.data?.code !== "FILE_NOT_FOUND") throw error; }
+    if (!privacy) {
+      const repaired = await client.action(ref('functions/files:resetPrivacy'), { workspaceId });
+      assert.equal(repaired.path, 'privacy.md', `${slug}: privacy manifest was not created`);
+    }
+  }
   // Only new buckets need the ordinary onboarding scaffold.
   let index;
   try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); }
@@ -68,12 +77,7 @@ for (const { slug, workspaceId, owner } of workspaces) {
     if (!existing || reset || (exactProductionMirror && existing.text !== text) || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
       await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
     }
-    // privacy.md is the manifest setNoteVisibility edits, not an ordinary note
-    // that can be assigned its own visibility. Keep it first in the official
-    // fixture so a brand-new bucket has somewhere to record the other rules.
-    if (path !== 'privacy.md') {
-      await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: ['alpha','delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team' });
-    }
+    await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: ['alpha','delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team' });
     const read = await client.action(ref('functions/files:readNote'), { workspaceId, path });
     if (reset) assert.equal(read.text, text, `${slug}/${path}: readback differs`);
     noteCount++;

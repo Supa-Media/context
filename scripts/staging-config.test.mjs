@@ -74,10 +74,8 @@ test('staging deployment syncs its own custom domain identifiers', () => {
   }
 });
 
-test('the pinned homepage fixture creates its privacy manifest before shared notes', async () => {
+test('the pinned homepage seed repairs privacy through the dedicated operation', async () => {
   const { stagingContextLcNotes } = await import('./fixtures/staging-context-lc.mjs');
-  assert.equal(Object.keys(stagingContextLcNotes)[0], 'privacy.md');
-  assert.match(stagingContextLcNotes['privacy.md'], /role: privacy-manifest/);
-  assert.match(stagingContextLcNotes['privacy.md'], /default_visibility: private/);
-  assert.match(stagingContextLcNotes['privacy.md'], /BEGIN BRAIN PRIVACY RULES/);
+  assert.equal(stagingContextLcNotes['privacy.md'], undefined);
+  assert.match(read('scripts/staging-personas.mjs'), /functions\/files:resetPrivacy/);
 });
