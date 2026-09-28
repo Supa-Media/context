@@ -482,7 +482,11 @@ export function PressRow({
       style={[style, hovered && !selected && hoverStyle, selected && selectedStyle]}
     >
       {children}
-      <FocusRing visible={focused} radius={radius} />
+      {/*
+        Not on a disabled row: a control disabled while it holds focus (`‹` at
+        the start of history) never fires blur, and the ring would stay.
+      */}
+      <FocusRing visible={focused && !disabled} radius={radius} />
     </Pressable>
   );
 }
