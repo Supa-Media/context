@@ -1,7 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import { join } from "node:path";
+import workerPolicy from "./ci-workers.cjs";
 
-const { workersFor } = require("./ci-workers.cjs");
+const { workersFor } = workerPolicy;
 
 /*
   `__dirname`, not `import.meta.url` — this repo does not set `"type":
