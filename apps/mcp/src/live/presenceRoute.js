@@ -314,6 +314,7 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
       wellFormed,
       now,
       (path) => !isPlumbing(path) && canSee(path, session.scope, privacy.rules, privacy.overrides),
+      await presenceClientKey(`person:${session.actorUserId}`),
     ),
     ...people,
   });

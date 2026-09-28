@@ -7,10 +7,11 @@ import {
   toolsLive,
 } from "../features/onboarding/tools";
 
-const grant = (over: Partial<{ clientId: string; clientName: string; status: string; lastUsedAt: number }>) => ({
+const grant = (over: Partial<{ clientId: string; clientName: string; status: string; isMine: boolean; lastUsedAt: number }>) => ({
   clientId: "client-x",
   clientName: "Claude",
   status: "active",
+  isMine: true,
   ...over,
 });
 
@@ -61,6 +62,11 @@ describe("the live moment", () => {
 
   test("the console using its own grant is not a tool going live", () => {
     expect(toolsLive([grant({ clientId: CONSOLE_CLIENT_ID, lastUsedAt: 5 })])).toBe(false);
+  });
+
+  test("a teammate's used grant is not this viewer's tool going live", () => {
+    expect(toolsLive([grant({ isMine: false, lastUsedAt: 5 })])).toBe(false);
+    expect(toolsLive([grant({ isMine: undefined, lastUsedAt: 5 })])).toBe(false);
   });
 
   test("the tail is the newest events first, named by agent, and short", () => {

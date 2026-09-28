@@ -75,12 +75,13 @@ describe("the gateway's answer is parsed, never trusted", () => {
     const view = decodeAgentActivity({
       marks: [{ path: "a.md", kind: "write", at: 5, agent: "a:1" }],
       agents: [
-        { id: "a:1", name: "Old", color: "#3b82f6", at: 1, kind: "read", path: "a.md", reads: 1, writes: 0 },
-        { id: "a:2", name: "New", color: "#10b981", at: 9, kind: "write", path: "b.md", reads: 0, writes: 2 },
+        { id: "a:1", name: "Old", color: "#3b82f6", at: 1, kind: "read", path: "a.md", reads: 1, writes: 0, self: false },
+        { id: "a:2", name: "New", color: "#10b981", at: 9, kind: "write", path: "b.md", reads: 0, writes: 2, self: true },
       ],
     });
     expect(view.marks).toHaveLength(1);
     expect(view.agents.map((one) => one.name)).toEqual(["New", "Old"]);
+    expect(view.agents.map((one) => one.self)).toEqual([true, false]);
   });
 
   test("malformed entries are dropped and the rest kept", () => {
