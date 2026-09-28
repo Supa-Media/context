@@ -2,7 +2,8 @@
  * Who can own a project: the search behind a folder page's owner picker.
  *
  * An owner line (`owner:` in a note's frontmatter) names a person in the
- * workspace, an agent connected to it, or "any agent". The picker offers only
+ * workspace, an agent the workspace lists (optionally somebody's), or "any
+ * agent". The picker offers only
  * those, and asks here for them as the person types, so a workspace with a
  * hundred members sends back the eight that match rather than the roster.
  * Ranking is `lib/owners/rank.ts`.
@@ -21,14 +22,14 @@
  * (`owner: seyi@example.com`, `owner: Seyi Olujide`) still names that member,
  * and the page shows it as `@seyi` without rewriting anybody's note.
  *
- * Agents: the names of connected AI clients, drawn **only from the grants the
- * caller could already list** with `grants.listGrants` — every grant for the
- * workspace's owner, their own for anybody else. A colleague's tooling is
- * theirs to disclose (see `listGrants`), and an owner picker is not a way
- * round that. Only the client's name leaves: never who connected it, when,
- * or with what scopes. The console's own grant is not an agent anybody means,
- * and neither is an integration such as the Sentry incident inbox, which files
- * notes and never picks work up (`lib/owners/integrations.ts`).
+ * Agents are not looked up here. They are a short list of names a workspace
+ * writes down itself (`agents: Claude, Codex, Cursor` in its projects folder's
+ * front note), each optionally somebody's (`@shay's Claude`), and the app
+ * reads that list from the folder it is showing. Connected clients are not
+ * that list: their names are whatever their software registered, and an
+ * integration such as the Sentry incident inbox is connected without being
+ * anybody's agent (Dev2, 2026-09-28). `agents` here is only the starting list
+ * matched against what is typed, for an app older than the folder's own.
  *
  * ## The suggested owner
  *
@@ -44,11 +45,10 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { action, internalQuery, query, type QueryCtx } from "../_generated/server";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import { requireWorkspaceAccess } from "./lib/workspaceAuth";
-import { CONSOLE_CLIENT_ID } from "./agentGrant";
 import { handleForUser } from "./lib/identities";
-import { isIntegrationClient } from "./lib/owners/integrations";
+import { DEFAULT_AGENTS } from "@context/shared/src/agentOwners";
 import { fold, matchAgents, ownerValue, rankMembers, resolveOwnerWords, type OwnerMember } from "./lib/owners/rank";
 import { type OwnerCandidates, type SuggestedOwner, mayRead, ownerRequest, readOwnerAnswer } from "./lib/owners/suggest";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
@@ -62,11 +62,9 @@ import { planIsPaying } from "./lib/premium";
  * has, and a bound on a read whose size is otherwise set by whoever can invite.
  */
 export const MAX_OWNER_SCAN = 1000;
-/** The most grants one search reads for agent names. */
-const MAX_GRANT_SCAN = 200;
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 20;
-const MAX_AGENTS = 6;
+const MAX_AGENTS = 12;
 const MAX_TEXT = 80;
 const MAX_PREFER = 12;
 /** The most owner words one `resolveOwners` call reads: a folder's worth. */
@@ -80,7 +78,7 @@ const MAX_HANDLE_SCAN = 300;
 
 /**
  * A name as one line an owner field can hold. Names are what their holders
- * typed, and an agent's is whatever its client registered as, so control
+ * typed, and an agent's is whatever a folder's front note says, so control
  * characters and line breaks go before either is offered to be written.
  */
 function oneLine(text: string | undefined): string | undefined {
@@ -99,6 +97,7 @@ export const searchOwners = query({
   returns: v.object({
     /** `value` is what the owner line will say; `name` is shown beside a handle. */
     people: v.array(v.object({ value: v.string(), name: v.optional(v.string()), isMe: v.boolean() })),
+    /** The starting agents matching the query, for apps that predate the folder's own list. */
     agents: v.array(v.string()),
     /** The workspace has more members than one search reads. */
     truncated: v.boolean(),
@@ -118,7 +117,7 @@ async function findOwners(
   userId: Id<"users">,
   args: { query: string; prefer?: string[]; limit?: number },
 ) {
-  const { membership } = await requireWorkspaceAccess(ctx, workspaceId, userId);
+  await requireWorkspaceAccess(ctx, workspaceId, userId);
 
   const text = args.query.slice(0, MAX_TEXT);
   const prefer = (args.prefer ?? []).slice(0, MAX_PREFER).map((word) => word.slice(0, MAX_TEXT));
@@ -135,36 +134,7 @@ async function findOwners(
     isMe: member.isMe,
   }));
 
-  const grants: Doc<"oauthGrants">[] =
-    membership.role === "owner"
-      ? await ctx.db
-          .query("oauthGrants")
-          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-          .order("desc")
-          .take(MAX_GRANT_SCAN)
-      : await ctx.db
-          .query("oauthGrants")
-          .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", userId))
-          .order("desc")
-          .take(MAX_GRANT_SCAN);
-  const live = grants
-    .filter((grant) => grant.status === "active" && grant.clientId !== CONSOLE_CLIENT_ID)
-    .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt));
-  const names: string[] = [];
-  const looked = new Set<string>();
-  for (const grant of live) {
-    if (looked.has(grant.clientId)) continue;
-    looked.add(grant.clientId);
-    const client = await ctx.db
-      .query("oauthClients")
-      .withIndex("by_clientId", (q) => q.eq("clientId", grant.clientId))
-      .unique();
-    if (isIntegrationClient(client)) continue;
-    const name = oneLine(client?.clientName);
-    if (name) names.push(name);
-  }
-
-  return { people, agents: matchAgents(names, text, MAX_AGENTS), truncated };
+  return { people, agents: matchAgents(DEFAULT_AGENTS, text, MAX_AGENTS), truncated };
 }
 
 /** A workspace's members as owners, read once for a search or a resolve. */
@@ -225,9 +195,24 @@ async function suggestsOwners(ctx: QueryCtx, workspaceId: Id<"workspaces">): Pro
   return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
 }
 
+/**
+ * The agents a suggestion may name: the folder's own list as the app sent it,
+ * each made one line, or the starting list when it sent none.
+ */
+function agentList(agents: readonly string[] | undefined): string[] {
+  if (agents === undefined) return [...DEFAULT_AGENTS];
+  const lines = agents.slice(0, MAX_AGENTS).map((agent) => oneLine(agent)).filter((agent): agent is string => agent !== undefined);
+  return matchAgents(lines, "", MAX_AGENTS);
+}
+
 /** The candidates a suggestion chooses among: what the caller's own search offers first. */
 export const ownerCandidates = internalQuery({
-  args: { workspaceId: v.id("workspaces"), userId: v.id("users"), prefer: v.array(v.string()) },
+  args: {
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    prefer: v.array(v.string()),
+    agents: v.optional(v.array(v.string())),
+  },
   returns: v.object({
     people: v.array(v.string()),
     agents: v.array(v.string()),
@@ -237,16 +222,16 @@ export const ownerCandidates = internalQuery({
     const found = await findOwners(ctx, args.workspaceId, args.userId, { query: "", prefer: args.prefer });
     return {
       people: found.people.map((person) => person.value),
-      agents: found.agents,
+      agents: agentList(args.agents),
       names: found.people.map((person) => person.name ?? null),
     };
   },
 });
 
 /**
- * The owner the note at `path` names, among the people and agents the
- * caller's own search would offer — or null: not Premium, switched off, a
- * locked note, a note that names nobody, or Jev not answering. Null is "no
+ * The owner the note at `path` names, among the people the caller's own
+ * search would offer and the folder's agents — or null: not Premium, switched
+ * off, a locked note, a note that names nobody, or Jev not answering. Null is "no
  * suggestion", never an error the picker has to show.
  */
 export const suggestOwner = action({
@@ -255,6 +240,8 @@ export const suggestOwner = action({
     path: v.string(),
     /** As `searchOwners`: the current owner first, then the folder's. */
     prefer: v.optional(v.array(v.string())),
+    /** The folder's agents (`agents:` in its front note); the starting list when absent. */
+    agents: v.optional(v.array(v.string())),
   },
   returns: v.union(
     v.null(),
@@ -290,6 +277,7 @@ export const suggestOwner = action({
         workspaceId: args.workspaceId,
         userId,
         prefer,
+        ...(args.agents === undefined ? {} : { agents: args.agents }),
       });
       return readOwnerAnswer(await jev.decide(ownerRequest(note.text, candidates)), candidates);
     });

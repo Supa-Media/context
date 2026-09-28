@@ -1,19 +1,19 @@
 /**
  * OWNERS — the search behind a folder page's owner picker.
  *
- * An owner is a member of the workspace, an agent connected to it, or "any
- * agent". The picker asks the server as somebody types, so the properties
+ * An owner is a member of the workspace, an agent the workspace lists, or
+ * "any agent". The picker asks the server as somebody types, so the properties
  * proved here are the ones a roster sent to the client would not have needed:
  *
  *  - it answers only a member, with the same refusal a missing workspace gets;
  *  - it only ever names people in *this* workspace;
  *  - it returns the few best matches, not the membership, however large;
- *  - an agent name is drawn only from grants the caller could already list,
- *    so an editor never learns a colleague's tooling from it.
+ *  - agents are the workspace's own written list, never its connected
+ *    clients, so nobody learns a colleague's tooling from it.
  */
 
 import { describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { MAX_OWNER_SCAN } from "../functions/owners";
 import { matchTier, preferWeight, rankMembers, resolveOwnerWords } from "../functions/lib/owners/rank";
@@ -174,46 +174,34 @@ describe("handles, never addresses", () => {
 });
 
 describe("which agents are offered", () => {
-  test("an owner sees every connected agent; an editor only their own", async () => {
-    const { t, owner, editor, workspaceId } = await team();
-    await client(t, "c-claude", "Claude");
-    await client(t, "c-codex", "Codex");
-    await client(t, "context_console", "Context (this app)");
-    await seedGrant(t, workspaceId, owner, "c-claude", "a".repeat(64));
-    await seedGrant(t, workspaceId, editor, "c-codex", "b".repeat(64));
-    await seedGrant(t, workspaceId, owner, "context_console", "c".repeat(64));
-
-    expect((await search(t, owner, workspaceId, "")).agents.sort()).toEqual(["Claude", "Codex"]);
-    expect((await search(t, editor, workspaceId, "")).agents).toEqual(["Codex"]);
-    expect((await search(t, owner, workspaceId, "cla")).agents).toEqual(["Claude"]);
-  });
-
-  test("an integration that only files notes is not an agent anybody can own work", async () => {
-    const { t, owner, editor, workspaceId } = await team();
-    await client(t, "c-claude", "Claude");
+  test("the starting list, never the clients connected to the workspace", async () => {
+    const { t, owner, workspaceId } = await team();
+    // A connected client — Claude or the Sentry incident inbox alike — is not an owner anybody picks.
     await client(t, "c-sentry", "Context Sentry incident inbox");
-    await client(t, "c-hook", "Deploy notes", "context-integration:deploys");
-    await seedGrant(t, workspaceId, owner, "c-claude", "a".repeat(64));
-    // Held by another member, as the Sentry Worker's journey-test account holds its grant.
-    await seedGrant(t, workspaceId, editor, "c-sentry", "b".repeat(64));
-    await seedGrant(t, workspaceId, owner, "c-hook", "c".repeat(64));
-    expect((await search(t, owner, workspaceId, "")).agents).toEqual(["Claude"]);
+    await client(t, "c-cursor", "Cursor");
+    await seedGrant(t, workspaceId, owner, "c-sentry", "a".repeat(64));
+    await seedGrant(t, workspaceId, owner, "c-cursor", "b".repeat(64));
+    expect((await search(t, owner, workspaceId, "")).agents).toEqual(["Claude", "Codex"]);
+    expect((await search(t, owner, workspaceId, "cla")).agents).toEqual(["Claude"]);
     expect((await search(t, owner, workspaceId, "sentry")).agents).toEqual([]);
+    expect((await search(t, owner, workspaceId, "cursor")).agents).toEqual([]);
   });
 
-  test("a name is offered as one line, whatever its holder registered", async () => {
+  test("a suggestion chooses among the folder's agents, each as one line", async () => {
     const { t, owner, workspaceId } = await team();
-    await client(t, "c-odd", "Evil\nstatus: done\u0000 Agent");
-    await seedGrant(t, workspaceId, owner, "c-odd", "d".repeat(64));
-    expect((await search(t, owner, workspaceId, "")).agents).toEqual(["Evil status: done Agent"]);
-  });
-
-  test("a revoked grant is not a connected agent", async () => {
-    const { t, owner, workspaceId } = await team();
-    await client(t, "c-claude", "Claude");
-    const grant = await seedGrant(t, workspaceId, owner, "c-claude", "a".repeat(64));
-    await t.run((ctx) => ctx.db.patch(grant, { status: "revoked", revokedAt: Date.now() }));
-    expect((await search(t, owner, workspaceId, "")).agents).toEqual([]);
+    const candidates = (agents?: string[]) =>
+      t.query(internal.functions.owners.ownerCandidates, {
+        workspaceId,
+        userId: owner,
+        prefer: [],
+        ...(agents === undefined ? {} : { agents }),
+      });
+    expect((await candidates()).agents).toEqual(["Claude", "Codex"]);
+    expect((await candidates(["Claude", "Cursor", "cursor", " ", "Evil\nstatus: done\u0000 Agent"])).agents).toEqual([
+      "Claude",
+      "Cursor",
+      "Evil status: done Agent",
+    ]);
   });
 });
 

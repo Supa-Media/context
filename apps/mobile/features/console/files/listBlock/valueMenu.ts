@@ -149,6 +149,8 @@ export class ValueMenu {
           list.append(el("div", "cm-lp-list-menu-head", row.label));
           continue;
         }
+        // Adding an agent, and asking whose, is the folder page's picker; here an agent is written alone.
+        if (row.kind !== "choice") continue;
         const label = row.detail === undefined ? row.label : `${row.label} · ${row.detail}`;
         const text = row.value === null ? label : isolateForDisplay(label);
         const extra = row.value === null ? "cm-lp-list-menu-clear" : "cm-lp-list-menu-owner";
