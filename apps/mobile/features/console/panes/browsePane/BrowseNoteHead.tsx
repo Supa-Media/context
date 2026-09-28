@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { FrameIconButton } from "../../../app/AppFrame";
 import { noteGutterFor } from "../../../app/frame";
 import { useThemedStyles } from "../../../design/theme";
@@ -12,6 +12,7 @@ import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
+import { castPreviewButton } from "./castPreviewButton";
 import type { FolderListingState } from "./useFolderListing";
 
 /**
@@ -186,6 +187,13 @@ export function BrowseNoteHead({
       {presence !== undefined && selected.kind === "file" && files.editor.path === selected.path ? (
         <PresencePile presence={presence} compact={false} />
       ) : null}
+      {/*
+        Preview demo: only on a note with a cast block in it, and only on the
+        web, where the homepage it opens is. See `castPreview.ts`.
+      */}
+      {Platform.OS === "web" && selected.kind === "file" && files.editor.path === selected.path
+        ? castPreviewButton(files.editor.draft, selected.path)
+        : null}
       {selected.kind === "file" ? (
         <FrameIconButton
           icon={reading ? "pencil" : "eye"}
