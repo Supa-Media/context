@@ -114,7 +114,7 @@ describe("the homepage's HTML", () => {
     expect(response.headers.get("ETag")).toBe('"abc"');
   });
 
-  it.each(["/login", "/@context-lc", "/console", "/s/abc", "/favicon.ico", "/Legal/logo.png"])("%s does not ask", async (path) => {
+  it.each(["/login", "/@context-lc", "/console", "/s/abc", "/Legal/logo.png"])("%s does not ask", async (path) => {
     await get(path);
     expect(fetchSpy.mock.calls.map(([input]) => String(typeof input === "string" ? input : input.url))).toEqual([
       `https://context.expo.app${path}`,

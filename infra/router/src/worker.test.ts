@@ -86,7 +86,7 @@ describe("every crawler gets server-rendered tags", () => {
 
     const html = await response.text();
     expect(html).toContain('<meta property="og:type" content="website">');
-    expect(html).toContain('<meta property="og:site_name" content="Context">');
+    expect(html).toContain('<meta property="og:site_name" content="Context.LC">');
     expect(html).toContain(
       '<meta property="og:image" content="https://context.lc/og/card.png">',
     );

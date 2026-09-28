@@ -9,8 +9,52 @@
 /** Canonical origin. Every absolute URL a preview emits is built from this. */
 export const ORIGIN = "https://context.lc";
 
-/** The product name, as it appears in `og:site_name`. */
+/** The product name, as generic previews title themselves. */
 export const SITE_NAME = "Context";
+
+/**
+ * The name search results show above the title, in `og:site_name` and the
+ * home page's WebSite structured data. "Context" alone is too common a word
+ * for Google to accept as a site name, and when it rejects one it prints the
+ * bare domain instead, so this is the name the product already signs with.
+ */
+export const BRAND_NAME = "Context.LC";
+
+/**
+ * The home page's structured data: Google reads `WebSite` for the site name
+ * over the result and `Organization.logo` as a brand image. Constant JSON,
+ * never interpolated, so there is nothing to escape but `<` (a `</script>` in
+ * a future edit would otherwise close the block).
+ */
+const HOME_STRUCTURED_DATA = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": `${ORIGIN}/#website`,
+      name: BRAND_NAME,
+      alternateName: [SITE_NAME, "context.lc"],
+      url: `${ORIGIN}/`,
+      publisher: { "@id": `${ORIGIN}/#organization` },
+    },
+    {
+      "@type": "Organization",
+      "@id": `${ORIGIN}/#organization`,
+      name: BRAND_NAME,
+      url: `${ORIGIN}/`,
+      logo: `${ORIGIN}/favicon-192.png`,
+    },
+  ],
+}).replace(/</g, "\\u003c");
+
+/**
+ * The favicon set, absolute so the tags mean the same on every host that
+ * renders this page. Served by the Worker itself; see `../icons.ts`.
+ */
+const ICON_LINKS = `
+  <link rel="icon" href="${ORIGIN}/favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" sizes="192x192" href="${ORIGIN}/favicon-192.png">
+  <link rel="apple-touch-icon" href="${ORIGIN}/apple-touch-icon.png">`;
 
 /**
  * Path the Worker serves the 1200x630 card from. Not a bundle asset: the card
@@ -55,6 +99,8 @@ export interface PreviewMeta {
    */
   readonly siteName?: string;
   readonly homeLabel?: string;
+  /** Emit the home page's WebSite/Organization JSON-LD. Home only. */
+  readonly structuredData?: boolean;
 }
 
 /**
@@ -95,13 +141,16 @@ const PREVIEW_ROUTES: ReadonlyMap<string, PreviewMeta> = new Map<
   [
     "",
     Object.freeze({
-      title: "Context — Free your context. Share your context.",
+      title: "Context.LC — Free your context. Share your context.",
+      // What a search result shows under the title. Plain words first: a
+      // stranger deciding whether to click has not met "MCP" or "bucket".
       description:
-        "One MCP endpoint for ChatGPT, Claude, Codex, Notion AI and whatever " +
-        "comes next — backed by plain markdown in a bucket you own. Revoke " +
-        "the key and we're gone.",
+        "Shared memory for you, your team and every AI you use. ChatGPT, " +
+        "Claude, Codex and Notion AI read the same plain Markdown notes, " +
+        "kept in storage you own.",
       canonical: `${ORIGIN}/`,
       imageAlt: "Context — free your context, share your context.",
+      structuredData: true,
     }),
   ],
   [
@@ -188,13 +237,18 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   // `null` is a page with no picture of its own: no image tags at all, rather
   // than the product's card standing in for somebody else's page.
   const imageUrl = meta.imageUrl === null ? null : escapeHtml(meta.imageUrl ?? OG_CARD_URL);
-  const siteName = escapeHtml(meta.siteName ?? SITE_NAME);
+  const siteName = escapeHtml(meta.siteName ?? BRAND_NAME);
   const home = meta.siteName === undefined ? `${ORIGIN}/` : meta.canonical;
   const homeLabel = escapeHtml(meta.homeLabel ?? "Open Context.LC");
   const title = escapeHtml(meta.title);
   const description = escapeHtml(meta.description);
   const canonical = escapeHtml(meta.canonical);
   const imageAlt = escapeHtml(meta.imageAlt);
+  // Somebody's website keeps its own icon; only Context's pages link ours.
+  const icons = meta.siteName === undefined ? ICON_LINKS : "";
+  const jsonLd = meta.structuredData
+    ? `\n  <script type="application/ld+json">${HOME_STRUCTURED_DATA}</script>`
+    : "";
   const robots = meta.robots
     ? `\n  <meta name="robots" content="${escapeHtml(meta.robots)}">`
     : "";
@@ -206,7 +260,7 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <meta name="description" content="${description}">${robots}
-  <link rel="canonical" href="${canonical}">
+  <link rel="canonical" href="${canonical}">${icons}${jsonLd}
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="${siteName}">
