@@ -58,7 +58,7 @@ import { cursorOffset } from "./sync";
 import { agentName, handleInitials } from "./agentName";
 import type * as Y from "yjs";
 import { darkColors } from "../../design/tokens";
-import { caretFlagFit, FLIP_CLASS, ROOM_PROPERTY } from "./caretFlagFit";
+import { caretFlagFit, FLIP_CLASS, LIFT_PROPERTY, ROOM_PROPERTY } from "./caretFlagFit";
 
 /** Replace the whole roster. Nothing here merges: the reducer already did. */
 /** How carets carry their name flags: full size, the phone's compact size, or not at all. */
@@ -351,7 +351,8 @@ const caretTheme = EditorView.baseTheme({
   ".cm-presence-bar": {
     position: "absolute",
     left: "-1px",
-    top: "0",
+    // Grows upward with a lifted flag (`caretFlagFit`), so the two stay joined.
+    top: `calc(-1 * var(${LIFT_PROPERTY}, 0px))`,
     bottom: "0",
     width: "2px",
     borderRadius: "1px",
@@ -359,8 +360,23 @@ const caretTheme = EditorView.baseTheme({
   ".cm-presence-label": {
     position: "absolute",
     left: "-1px",
-    bottom: "100%",
+    bottom: `calc(100% + var(${LIFT_PROPERTY}, 0px))`,
+    // Above every bar, so a lifted flag's longer bar never crosses a name.
+    zIndex: "1",
     boxSizing: "border-box",
+    /*
+      The flag sits inside a line and would inherit its text layout. A bullet
+      line's hanging indent (a negative text-indent) shifted the name left
+      inside the flag's own overflow: "@priya" drew as "riya" (the owner, on
+      the pricing page, after #1053). Reset everything that moves text in a box.
+    */
+    textIndent: "0",
+    textAlign: "left",
+    textTransform: "none",
+    letterSpacing: "normal",
+    wordSpacing: "normal",
+    fontStyle: "normal",
+    direction: "ltr",
     width: "max-content",
     // `caretFlagFit` narrows this only when neither side has room for the name.
     maxWidth: `var(${ROOM_PROPERTY}, none)`,
