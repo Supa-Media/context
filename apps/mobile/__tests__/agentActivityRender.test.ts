@@ -218,3 +218,39 @@ describe("the square in the tree", () => {
     expect(container.querySelector('[data-testid^="agent-mark-"]')).toBeNull();
   });
 });
+
+describe("the foot's lists close like any popover", () => {
+  const down = (target: EventTarget) =>
+    act(() => {
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+  const list = (container: HTMLElement) => container.querySelector('[data-testid="explorer-agents-list"]');
+
+  test("a press anywhere else closes it", () => {
+    const container = mount({ agents: [agent(1, "write")], marks: [] });
+    press(container.querySelector('[data-testid="explorer-agents"]')!);
+    expect(list(container)).not.toBeNull();
+    down(list(container)!);
+    expect(list(container)).not.toBeNull();
+    down(document.body);
+    expect(list(container)).toBeNull();
+  });
+
+  test("Escape closes it", () => {
+    const container = mount({ agents: [agent(1, "write")], marks: [] });
+    press(container.querySelector('[data-testid="explorer-agents"]')!);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(list(container)).toBeNull();
+  });
+
+  test("its own line still toggles it rather than closing and reopening", () => {
+    const container = mount({ agents: [agent(1, "write")], marks: [] });
+    const line = container.querySelector('[data-testid="explorer-agents"]')!;
+    press(line);
+    down(line);
+    press(line);
+    expect(list(container)).toBeNull();
+  });
+});
