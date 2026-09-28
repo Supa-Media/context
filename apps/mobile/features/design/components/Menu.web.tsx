@@ -127,6 +127,14 @@ export interface MenuProps<Id extends string = MenuActionId> {
    * signed-in name. Sheet only, same as `title`: the popover shows neither.
    */
   titleDetail?: string;
+  /**
+   * What the sheet draws instead of `items`, and above them — sheet only, the
+   * popover keeps `items`. A task's menu on a phone lifts its Priority page
+   * into a row of chips here (`folderPage/tasks/phoneSheet.ts`); the ids are
+   * the same, so both presentations dispatch through the one `onSelect`.
+   * Written out identically in `Menu.tsx`.
+   */
+  sheet?: { items: MenuItem<Id>[]; header?: ReactNode };
   onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
@@ -185,6 +193,7 @@ function Row({
   id,
   label,
   detail,
+  value,
   accessibilityLabel,
   leading,
   touch,
@@ -203,6 +212,8 @@ function Row({
   label: string;
   /** A second line, for an outcome the verb cannot carry alone. */
   detail?: string;
+  /** What the row is set to now, at its right. See `MenuItem.value`. */
+  value?: string;
   /** The accessible name, where the visible label is not a whole one. */
   accessibilityLabel?: string;
   /** A mark before the label. Decorative — the accessible name is `label`. */
@@ -296,6 +307,11 @@ function Row({
           </Text>
         )}
       </View>
+      {value === undefined ? null : (
+        <Text variant="treeMeta" numberOfLines={1} style={styles.value} testID={`menu-value-${id}`}>
+          {value}
+        </Text>
+      )}
       {touch || shortcut === undefined ? null : (
         <Text variant="treeMeta" style={styles.shortcut}>
           {shortcut}
@@ -332,6 +348,7 @@ function ItemRow({
       id={item.id}
       label={item.label}
       detail={item.detail}
+      value={item.value}
       leading={item.leading}
       touch={touch}
       danger={item.danger === true}
@@ -352,12 +369,14 @@ function ItemRow({
 /* -------------------------------------------------------------------------- */
 
 function Sheet<Id extends string = MenuActionId>({
-  items,
+  items: pointerItems,
   title,
   titleDetail,
+  sheet,
   onSelect,
   onDismiss,
 }: MenuProps<Id>) {
+  const items = sheet?.items ?? pointerItems;
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /**
@@ -438,6 +457,8 @@ function Sheet<Id extends string = MenuActionId>({
               <Separator touch />
             </>
           )}
+
+          {parent === null && sheet?.header !== undefined ? sheet.header : null}
 
           <ScrollView
             style={styles.list}
@@ -871,6 +892,8 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   /** Present but unavailable. See `MenuItem.disabled`. */
   rowOff: { opacity: 0.4 },
   shortcut: { marginLeft: "auto" },
+  /** `MenuItem.value`: pushed right, and the first thing to give way to a long label. */
+  value: { marginLeft: "auto", flexShrink: 1, maxWidth: "50%", color: colors.muted, textAlign: "right" },
   chevron: { marginLeft: "auto" },
   separator: {
     height: 1,

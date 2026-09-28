@@ -32,6 +32,13 @@ export interface MenuItem<Id extends string = MenuActionId> {
    * not*: a note with its own setting keeps it.
    */
   detail?: string;
+  /**
+   * What the row is set to now, drawn muted at its right before the chevron:
+   * "Status  In progress ›". For a sheet that covers the thing it is about —
+   * a task's menu on a phone (`folderPage/tasks/phoneSheet.ts`) — where the
+   * row is no longer in sight to read it from.
+   */
+  value?: string;
   /** Printed on the right on web. Absent on touch. */
   shortcut?: string;
   /**
