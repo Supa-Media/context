@@ -175,6 +175,13 @@ export const darkColors = {
    */
   commentWash: "rgba(223,172,82,0.20)",
   commentWashActive: "rgba(223,172,82,0.40)",
+  /**
+   * `==highlighted==` words in a note: a lemon marker pen. Deliberately not
+   * the amber of \`commentWash\` — a highlight is the author's own emphasis
+   * and a comment is somebody's thread, and one has to be told from the other
+   * at a glance (the comment also carries an underline, this does not).
+   */
+  markWash: "rgba(255,226,64,0.26)",
 
   crit: "#F08C7C",
   critText: "#F5B0A4",
@@ -417,6 +424,7 @@ export const lightColors: Colors = {
   /** See the dark palette's note. */
   commentWash: "rgba(222,168,62,0.26)",
   commentWashActive: "rgba(222,168,62,0.50)",
+  markWash: "rgba(255,229,0,0.42)",
 
   crit: "#B23A2B",
   critText: "#962E21",

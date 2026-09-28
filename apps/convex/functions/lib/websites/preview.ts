@@ -58,6 +58,7 @@ function plainInline(line: string): string {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (_m, target: string, label?: string) => label ?? target)
     .replace(/<[^>]+>/g, "")
+    .replace(/==(\S(?:[^\n]*?\S)?)==/g, "$1")
     .replace(/(\*\*|__|\*|_|~~|`)/g, "")
     .replace(/\s+/g, " ")
     .trim();

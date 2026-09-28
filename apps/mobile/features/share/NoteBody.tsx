@@ -255,6 +255,12 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
                 {run.text}
               </RNText>
             );
+          case "mark":
+            return (
+              <RNText key={index} style={styles.mark}>
+                {run.text}
+              </RNText>
+            );
           case "code":
             return (
               <RNText key={index} style={styles.inlineCode}>
@@ -439,6 +445,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   strong: { color: colors.text, fontWeight: "600" },
   em: { fontStyle: "italic" },
   strike: { textDecorationLine: "line-through", color: colors.muted },
+  mark: { backgroundColor: colors.markWash, color: colors.text },
   inlineCode: {
     fontFamily: fonts.mono,
     fontSize: t.meta,
