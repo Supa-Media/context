@@ -28,6 +28,12 @@ export interface FolderPageHost {
   readonly workspaceId: string;
   /** The workspace's people: the owners offered where there is no server to search (`FolderListSource.searchOwners`). */
   readonly people: readonly string[];
+  /**
+   * The viewer's own name and address, which the List's "Mine" matches
+   * owner lines against (resolved to their handle like any owner word).
+   * Absent where the page does not know who is looking; Mine is then not offered.
+   */
+  readonly me?: readonly string[];
 }
 
 export interface FolderNotes {

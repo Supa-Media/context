@@ -2,6 +2,7 @@
 
 import type { PropertyValue } from "../listBlock/model";
 import type { OwnerSearch, OwnerSuggest } from "../owners";
+import type { Face } from "./Glyphs";
 import type { FolderItem } from "./model";
 import type { StatusGroup, StatusMenuSection } from "./statuses";
 import type { StatusTone } from "./StatusPill";
@@ -26,6 +27,12 @@ export interface ItemActions {
   onPlaceStatus: ((word: string, group: StatusGroup) => void) | null;
   /** Where an owner is picked from: people and agents, never a typed word. */
   owners?: OwnerChoice;
+  /** The face an owner line is drawn with: a person's initials, or an AI helper's robot. */
+  faceOf?: (owner: string) => Face;
+  /** Gives a plain note the folder's first To do status; null for somebody who may not. */
+  onMakeTask?: ((item: FolderItem) => void) | null;
+  /** What that button says: "Make it a task", or "Make it a project" where the rows are projects. */
+  makeTaskLabel?: string;
 }
 
 /** An owner picker's search, and the owners the folder already uses, most used first. */

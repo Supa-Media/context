@@ -18,7 +18,9 @@ export function useOwnerLabels(resolve: OwnerResolve | undefined, words: readonl
   useEffect(() => {
     if (resolve === undefined || key === "") return;
     let live = true;
-    resolve(key.split("\n"))
+    // Asked inside a promise, so a resolver that throws at once is a page that cannot ask, not a crash.
+    Promise.resolve()
+      .then(() => resolve(key.split("\n")))
       .then((found) => {
         if (live) setLabels(new Map(found.map((row) => [row.word.trim().toLowerCase(), row.value])));
       })

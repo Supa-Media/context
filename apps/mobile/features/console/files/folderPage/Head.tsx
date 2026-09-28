@@ -1,5 +1,5 @@
 /**
- * The top of a folder page: its title with the Files · List · Board switch
+ * The top of a folder page: its title with the Notes · List · Board switch
  * beside it, and — for a folder that is a project, or can become one — the
  * quiet property line and the first paragraph of its front note (spec A5).
  *
@@ -33,7 +33,7 @@ import { PropertyValue } from "./PropertyValue";
 import type { OwnerChoice } from "./items";
 
 const VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
-  { view: "files", label: "Files" },
+  { view: "files", label: "Notes" },
   { view: "list", label: "List" },
   { view: "board", label: "Board" },
 ];

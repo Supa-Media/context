@@ -90,6 +90,11 @@ export function BrowseDocument({
             source: folderLists,
             workspaceId: current.id,
             people: (people ?? []).map((member) => member.name ?? "").filter((name) => name !== ""),
+            // Who "Mine" is on a project's List: this viewer's name and address, never written anywhere.
+            me: (people ?? [])
+              .filter((member) => member.isMe)
+              .flatMap((member) => [member.name ?? "", member.email ?? ""])
+              .filter((word) => word !== ""),
           },
     [folderLists, current?.id, people],
   );

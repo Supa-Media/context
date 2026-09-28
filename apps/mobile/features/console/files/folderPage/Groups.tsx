@@ -1,227 +1,229 @@
 /**
- * A folder's children grouped by status — the List view of a folder page,
- * drawn the way a grouped list block draws (spec A1): a heading per status
- * group (Not started, In progress, Done, then No group yet) with its count,
- * and under it a status's own heading only where the group holds more than
- * one; rows on hairlines, the status and owner at the right, the last save
- * at the far right. Everything with no status leads Not started, each row
- * with `Set status` for somebody who may write, so the layout is the nudge.
+ * A project's tasks by status, then its notes — the List view of a folder
+ * page (`listLayout.ts` decides what is drawn; this draws it).
  *
- * A folder row opens the folder's page; a note row opens the note. On a
- * phone the owner column goes and moves under the name, as the list block
- * does at that width, and each group is one card like the Files view's.
+ * - **Backlog** leads as one folded line ("Backlog 12 · Ideas and later
+ *   work, out of the way"), and the Done group ends the tasks the same way;
+ *   either opens in place when pressed.
+ * - Every other section is a heading with its count — "1 of 12" under a
+ *   filter — and its rows; a section holding several statuses names each
+ *   above its own rows. A word nobody placed asks which group it is in on its
+ *   own heading, for an owner or editor only, never in a sentence above.
+ * - **Notes** close the list: the children with no status, which are not
+ *   tasks, each with "Make it a task" for somebody who may write.
+ *
+ * A row opens its note or folder; a task's chevron opens its subtasks in
+ * place (`TaskRow.tsx`). On a phone the columns move under the name, and
+ * each column is one card like the Notes view's.
  */
 
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
-import { shortWhen } from "../listBlock/words";
-import { NEW_FRONT_NOTE, type FolderGroup, type FolderItem } from "./model";
 import { ChooseGroup } from "./ChooseGroup";
-import { PropertyValue } from "./PropertyValue";
-import type { StatusBand } from "./statuses";
+import type { ItemActions } from "./items";
+import { BACKLOG_HINT, type LayoutColumn, type LayoutSection, type ListLayout } from "./listLayout";
 import { StatusPill, toneColor } from "./StatusPill";
-import { isStale, ownerChoiceFor, textOf, type ItemActions } from "./items";
+import { NoteRow, RowList, TaskRow } from "./TaskRow";
 
 export function FolderGroups({
-  bands,
+  layout,
   compact,
   now,
   actions,
 }: {
-  bands: readonly StatusBand[];
+  layout: ListLayout;
   compact: boolean;
   now: number;
   actions: ItemActions;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set());
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (set: (next: (current: ReadonlySet<string>) => ReadonlySet<string>) => void, key: string) =>
+    set((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const count = (section: { shown: number; total: number }) =>
+    layout.filtered ? `${section.shown} of ${section.total}` : String(section.total);
   return (
-    <View testID="folder-groups">
-      {bands.map((band, index) => {
-        const tone = band.group ?? "unplaced";
-        const count = band.columns.reduce((sum, column) => sum + column.items.length, 0);
-        // A word nobody placed is asked about on its own heading, never above the page.
-        const place = band.group === null ? actions.onPlaceStatus : null;
-        const choose = (word: string) =>
-          place === null ? null : <ChooseGroup word={word} onPlace={place} onEditList={actions.onEditStatuses} />;
-        return (
-          <View key={band.group ?? "unplaced"} style={index > 0 && styles.groupGap} testID="folder-group">
-            <View style={styles.groupHead}>
-              <Text variant="rowTitle" style={{ color: toneColor(colors, tone) }}>
-                {band.label}
-              </Text>
-              <Text variant="tree" style={styles.count}>
-                {String(count)}
-              </Text>
-              {band.columns.length === 1 ? <View style={styles.headEnd}>{choose(band.columns[0].value)}</View> : null}
-            </View>
-            {band.columns.map((column) => (
-              <View key={column.value.toLowerCase()} style={band.columns.length > 1 && styles.status} testID="folder-status">
-                {band.columns.length > 1 ? (
-                  <View style={styles.statusHead}>
-                    <StatusPill value={column.value} tone={tone} />
-                    <Text variant="meta" style={styles.count}>
-                      {String(column.items.length)}
-                    </Text>
-                    <View style={styles.headEnd}>{choose(column.value)}</View>
-                  </View>
-                ) : null}
-                <Rows group={column} compact={compact} now={now} actions={actions} />
-              </View>
-            ))}
+    <View testID="folder-groups" style={styles.stack}>
+      {layout.sections.map((section) =>
+        section.folded ? (
+          <View key={section.key} testID="folder-group">
+            <FoldedBand
+              section={section}
+              count={count(section)}
+              open={unfolded.has(section.key)}
+              onToggle={() => toggle(setUnfolded, section.key)}
+            />
+            {unfolded.has(section.key) ? (
+              <Columns section={section} compact={compact} now={now} actions={actions} opened={opened} onToggle={(path) => toggle(setOpened, path)} />
+            ) : null}
           </View>
-        );
-      })}
+        ) : (
+          <View key={section.key} testID="folder-group">
+            <SectionHead section={section} count={count(section)} actions={actions} />
+            <Columns section={section} compact={compact} now={now} actions={actions} opened={opened} onToggle={(path) => toggle(setOpened, path)} />
+          </View>
+        ),
+      )}
+      {layout.notes.length === 0 ? null : (
+        <View testID="folder-notes">
+          <View style={styles.head}>
+            <Text variant="rowTitle" style={styles.notesTitle}>
+              Notes
+            </Text>
+            <Text variant="tree" style={styles.count}>
+              {String(layout.notes.length)}
+            </Text>
+            <Text variant="meta" style={styles.count}>
+              · no status, so not tasks
+            </Text>
+          </View>
+          <RowList compact={compact}>
+            {layout.notes.map((item) => (
+              <NoteRow key={item.path} item={item} compact={compact} now={now} actions={actions} />
+            ))}
+          </RowList>
+        </View>
+      )}
     </View>
   );
 }
 
-function Rows({ group, compact, now, actions }: { group: FolderGroup; compact: boolean; now: number; actions: ItemActions }) {
+function SectionHead({ section, count, actions }: { section: LayoutSection; count: string; actions: ItemActions }) {
   const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={compact ? styles.card : styles.rows}>
-      {group.items.map((item, at) => (
-        <Fragment key={item.path}>
-          {compact && at > 0 ? <View style={styles.cardRule} /> : null}
-          <GroupRow item={item} compact={compact} now={now} actions={actions} />
-        </Fragment>
-      ))}
-    </View>
-  );
-}
-
-function GroupRow({ item, compact, now, actions }: { item: FolderItem; compact: boolean; now: number; actions: ItemActions }) {
   const colors = useColors();
+  const place = section.group === null ? actions.onPlaceStatus : null;
+  return (
+    <View style={styles.head}>
+      <Text variant="rowTitle" style={{ color: toneColor(colors, section.group ?? "unplaced") }}>
+        {section.label}
+      </Text>
+      <Text variant="tree" style={styles.count}>
+        {count}
+      </Text>
+      {place !== null && section.columns.length === 1 ? (
+        <View style={styles.headEnd}>
+          <ChooseGroup word={section.columns[0].value} onPlace={place} onEditList={actions.onEditStatuses} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function FoldedBand({ section, count, open, onToggle }: { section: LayoutSection; count: string; open: boolean; onToggle: () => void }) {
   const styles = useThemedStyles(makeStyles);
-  const [hovered, setHovered] = useState(false);
-  const owner = textOf(item.properties, "owner");
-  const updated = item.updatedAt === null ? "" : shortWhen(item.updatedAt, now);
-  const stale = isStale(item.updatedAt, now);
-  const edit = actions.onChoose;
-  const status = (
-    <PropertyValue
-      property="status"
-      value={item.status}
-      choices={actions.choices("status")}
-      sections={actions.statusMenu}
-      onEditList={actions.onEditStatuses}
-      savesTo={item.creates ? NEW_FRONT_NOTE : null}
-      onChoose={edit === null ? null : (value) => edit(item, "status", value)}
-      variant="tree"
-      // The group already says it: a set status is the row's handle, shown when the row is.
-      quiet={!compact && item.status !== "" && !hovered}
-      style={compact ? styles.cellMuted : styles.cellText}
-      testID="folder-item-status"
-    />
-  );
-  const ownerValue = (
-    <PropertyValue
-      property="owner"
-      value={owner}
-      choices={actions.choices("owner")}
-      {...(actions.owners === undefined ? {} : { owners: ownerChoiceFor(actions.owners, item.creates ? null : item.target) })}
-      savesTo={item.creates ? NEW_FRONT_NOTE : null}
-      onChoose={edit === null ? null : (value) => edit(item, "owner", value)}
-      quiet={owner === "" && !hovered}
-      style={styles.cellText}
-      testID="folder-item-owner"
-    />
-  );
+  const colors = useColors();
   return (
     <Pressable
-      onPress={() => actions.onOpen(item)}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      role="link"
-      accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
-      style={[compact ? styles.rowTouch : styles.row, hovered && styles.rowHover]}
-      testID="folder-item"
+      onPress={onToggle}
+      role="button"
+      aria-expanded={open}
+      accessibilityLabel={`${section.label}, ${count}`}
+      style={styles.band}
+      testID="folder-band"
     >
-      {compact ? null : (
-        <View style={styles.gutter}>
-          {item.kind === "folder" ? <Icon name="chevronRight" size={15} color={colors.muted} /> : null}
-        </View>
-      )}
-      <View style={styles.name}>
-        <View style={styles.nameLine}>
-          {compact ? (
-            <Icon name={item.kind === "folder" ? "folder" : "file"} size={16} color={colors.muted} />
-          ) : null}
-          <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={styles.label}>
-            {item.label}
-          </Text>
-          {item.progress === null ? null : (
-            <Text variant="meta" style={styles.progress} accessibilityLabel={`${item.progress.done} of ${item.progress.total} done`}>
-              {`${item.progress.done}/${item.progress.total}`}
-            </Text>
-          )}
-        </View>
-        {compact && (owner !== "" || updated !== "") ? (
-          <Text variant="meta" numberOfLines={1} style={styles.sub}>
-            {[owner === "" ? null : owner, updated === "" ? null : updated].filter(Boolean).join(" · ")}
-          </Text>
-        ) : null}
-      </View>
-      {edit === null ? null : <View style={compact ? styles.statusTouch : styles.cell}>{status}</View>}
-      {compact ? null : <View style={styles.cell}>{ownerValue}</View>}
-      {compact ? null : (
-        <Text variant="meta" numberOfLines={1} style={[styles.when, stale && styles.stale]}>
-          {updated}
+      <Icon name={open ? "chevronDown" : "chevronRight"} size={13} color={colors.chromeMuted} />
+      <Text variant="rowTitle" style={styles.bandTitle}>
+        {section.label}
+      </Text>
+      <Text variant="tree" style={styles.count}>
+        {count}
+      </Text>
+      {section.key === "backlog" ? (
+        <Text variant="meta" numberOfLines={1} style={[styles.count, styles.headEnd]}>
+          {BACKLOG_HINT}
         </Text>
-      )}
+      ) : null}
     </Pressable>
+  );
+}
+
+function Columns({
+  section,
+  compact,
+  now,
+  actions,
+  opened,
+  onToggle,
+}: {
+  section: LayoutSection;
+  compact: boolean;
+  now: number;
+  actions: ItemActions;
+  opened: ReadonlySet<string>;
+  onToggle: (path: string) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const several = section.columns.length > 1;
+  const place = section.group === null ? actions.onPlaceStatus : null;
+  return (
+    <>
+      {section.columns.map((column: LayoutColumn) => (
+        <View key={column.value.toLowerCase()} style={several && styles.status} testID="folder-status">
+          {several ? (
+            <View style={styles.statusHead}>
+              <StatusPill value={column.value} tone={section.group ?? "unplaced"} />
+              <Text variant="meta" style={styles.count}>
+                {String(column.rows.length)}
+              </Text>
+              {place === null ? null : (
+                <View style={styles.headEnd}>
+                  <ChooseGroup word={column.value} onPlace={place} onEditList={actions.onEditStatuses} />
+                </View>
+              )}
+            </View>
+          ) : null}
+          <RowList compact={compact}>
+            {column.rows.map((entry) => (
+              <TaskRow
+                key={entry.item.path}
+                entry={entry}
+                // Kept only for a subtask that matches: shown open, so the reason it is here is in sight.
+                open={opened.has(entry.item.path) || entry.dim}
+                onToggle={() => onToggle(entry.item.path)}
+                compact={compact}
+                now={now}
+                actions={actions}
+              />
+            ))}
+          </RowList>
+        </View>
+      ))}
+    </>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    groupGap: { marginTop: space.x6 },
-    groupHead: {
+    stack: { gap: space.x5 },
+    head: {
       flexDirection: "row",
       alignItems: "baseline",
       gap: space.x2,
-      height: 32,
+      minHeight: 32,
       paddingTop: space.x2,
     },
     count: { color: colors.chromeMuted },
-    headEnd: { marginLeft: "auto", alignSelf: "center" },
+    headEnd: { marginLeft: "auto", alignSelf: "center", flexShrink: 1 },
+    notesTitle: { color: colors.muted },
+    band: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      paddingVertical: space.x2,
+      paddingHorizontal: space.x3,
+      borderRadius: radii.md,
+      backgroundColor: colors.chipFill,
+    },
+    bandTitle: { color: colors.muted },
     status: { marginTop: space.x3 },
     statusHead: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingBottom: space.x2 },
-    rows: { borderTopWidth: 1, borderTopColor: colors.line },
-    row: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      height: 44,
-      paddingRight: space.x1,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.line,
-    },
-    rowTouch: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      minHeight: 56,
-      paddingHorizontal: space.x4,
-      paddingVertical: space.x2,
-    },
-    rowHover: { backgroundColor: colors.surface3 },
-    gutter: { width: 18, alignItems: "center", justifyContent: "center", marginRight: -space.x2 },
-    name: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
-    nameLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    label: { flexShrink: 1, color: colors.text },
-    progress: { color: colors.chromeMuted },
-    sub: { color: colors.muted },
-    cell: { width: 96, flexShrink: 0 },
-    statusTouch: { flexShrink: 0, maxWidth: 120 },
-    cellText: { color: colors.text2 },
-    cellMuted: { color: colors.muted },
-    when: { width: 72, flexShrink: 0, textAlign: "right", color: colors.muted },
-    stale: { color: colors.chromeMuted },
-    card: { backgroundColor: colors.pageSurface, borderRadius: radii.sheet, overflow: "hidden" },
-    cardRule: { height: 1, marginLeft: space.x4, backgroundColor: colors.line },
   });

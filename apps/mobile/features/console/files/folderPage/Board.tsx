@@ -3,15 +3,15 @@
  * (spec A2), the columns under their status group — Not started, In
  * progress, Done, and No group yet for words nobody placed — so the order
  * is the same whatever the folder's words are. Every status in the folder's
- * list is a column even while nothing is in it, and "No status" leads Not
- * started (`statusBands` in `statuses.ts`).
+ * list is a column even while nothing is in it (`statusBands` in
+ * `statuses.ts`). It draws tasks only: a note with no status is not a card.
  *
  * A card is `chipFill` on a `line` hairline, not `surface2` — in the dark
  * palette `surface2` is the page, and the card would vanish. Moving a card
  * is its status value, two ways that land in the same `choose`: drag it to
- * another column with a pointer (`boardDrag.web.ts`; dropping on "No status"
- * clears it), or press the status on the card and pick — the only way on a
- * phone or from a keyboard, so it is always drawn, never hidden until hover.
+ * another column with a pointer (`boardDrag.web.ts`), or press the status
+ * on the card and pick — the only way on a phone or from a keyboard, so it
+ * is always drawn, never hidden until hover.
  * Either way the card moves at once and comes back, with the reason, if the
  * write is refused. The columns scroll sideways when they outgrow the page,
  * on a phone as on a desktop, and a long column scrolls with the page.
