@@ -186,6 +186,7 @@ export function consoleBottomBar({
   step,
   setPaletteOpen,
   setRecentOpen,
+  setTreeSheetOpen,
   canCreate,
   setBarDialog,
 }: {
@@ -196,6 +197,7 @@ export function consoleBottomBar({
   step: (delta: -1 | 1) => void;
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   setRecentOpen: Dispatch<SetStateAction<boolean>>;
+  setTreeSheetOpen: Dispatch<SetStateAction<boolean>>;
   canCreate: boolean;
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
 }) {
@@ -208,6 +210,7 @@ export function consoleBottomBar({
         onStep={step}
         onSearch={() => setPaletteOpen(true)}
         onOpenRecent={() => setRecentOpen(true)}
+        onBrowse={() => setTreeSheetOpen(true)}
         onCreate={
           canCreate ? (folder) => setBarDialog({ kind: "create", folder }) : null
         }

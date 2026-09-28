@@ -63,6 +63,7 @@ import { consoleNavBandNodes } from "./layout/navBand";
 import {
   consoleCloseTabConfirm,
   consoleRecentSheet,
+  consoleTreeSheet,
   consoleAgentSetup,
   consoleSettings,
   consoleSyncSheet,
@@ -143,6 +144,8 @@ export function ConsoleFrame({
     opens is a ref waiting to be written.
   */
   const [recentOpen, setRecentOpen] = useState(false);
+  // The folder key's tree sheet (`TreeSheet`), beside Recent for the same reason.
+  const [treeSheetOpen, setTreeSheetOpen] = useState(false);
   /*
     The phone's sync sheet, behind the pill in its header. A phone has no
     status strip, so this is where "which notes?" is answered there — see
@@ -234,7 +237,10 @@ export function ConsoleFrame({
     makes it come back: the flag would still be true.
   */
   useEffect(() => {
-    if (!phone || !browsing) setRecentOpen(false);
+    if (!phone || !browsing) {
+      setRecentOpen(false);
+      setTreeSheetOpen(false);
+    }
   }, [phone, browsing]);
 
   /**
@@ -465,7 +471,7 @@ export function ConsoleFrame({
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
-          browsing, data, history, somewhereToGo, step, setPaletteOpen, setRecentOpen, canCreate,
+          browsing, data, history, somewhereToGo, step, setPaletteOpen, setRecentOpen, setTreeSheetOpen, canCreate,
           setBarDialog,
         })}
       >
@@ -482,6 +488,7 @@ export function ConsoleFrame({
             paletteOpen ||
             treeOverlay ||
             recentOpen ||
+            treeSheetOpen ||
             syncOpen ||
             actionsOpen ||
             openSettingsSection !== null ||
@@ -513,6 +520,10 @@ export function ConsoleFrame({
 
         {consoleRecentSheet({
           recentOpen, phone, somewhereToGo, history, data, setRecentOpen,
+        })}
+
+        {consoleTreeSheet({
+          treeSheetOpen, phone, browsing, data, contextLabel, setTreeSheetOpen,
         })}
 
         {consoleSyncSheet({

@@ -720,7 +720,7 @@ describe("the console's own bottom row", () => {
     expect(row).toHaveLength(CONSOLE_KEYS);
     // Icon-only, so the label is the whole of each key's name.
     expect(row.map((node) => node.getAttribute("aria-label"))).toEqual(
-      ["Go back", "Browse this folder", "Search notes", "Create", "Recently opened"],
+      ["Go back", "Browse files", "Search notes", "Create", "Recently opened"],
     );
     for (const gone of ["forward", "save"]) expect(container.querySelector(`[data-testid="bottom-bar-${gone}"]`)).toBeNull();
 
