@@ -36,7 +36,12 @@ export async function runStatusChecks(check) {
   /* ------------------------------- the list ------------------------------- */
   {
     const list = defaultStatusList();
-    check("the defaults are no status, in progress and finished", JSON.stringify(list) === JSON.stringify({ "not-started": [], "in-progress": ["in progress"], done: ["finished"] }));
+    // Backlog is a status (owner, 2026-09-28): a child with no status is a plain note, not a task.
+    check(
+      "the defaults are backlog and to do, in progress, and finished",
+      JSON.stringify(list) === JSON.stringify({ "not-started": ["backlog", "to do"], "in-progress": ["in progress"], done: ["finished"] }),
+    );
+    check("an empty Not started reads as its default, like every group", statusListOf({ "statuses-not-started": [] })["not-started"].join() === "backlog,to do");
   }
   {
     const list = statusListOf({ "statuses-not-started": ["exploration"], "statuses-done": [] });
@@ -85,6 +90,7 @@ export async function runStatusChecks(check) {
     const moved = withStatus(withStatus(list, "In review", "in-progress"), "in review", "done", 0);
     check("adding a word moves it out of any other group", moved["in-progress"].join() === "in progress" && moved.done.join() === "in review,finished");
     check("a list that empties Done is refused", /Done needs/.test(statusListProblem({ ...list, done: [] }) ?? ""));
+    check("a list that empties Not started is refused too", /Not started needs/.test(statusListProblem({ ...list, "not-started": [] }) ?? ""));
     check("a word with a comma is refused", /comma/.test(statusListProblem({ ...list, done: ["a, b"] }) ?? ""));
     check("a word twice is refused", /already/.test(statusListProblem({ ...list, done: ["In progress"] }) ?? ""));
     check("the defaults are a valid list", statusListProblem(list) === null);

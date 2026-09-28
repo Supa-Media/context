@@ -224,11 +224,22 @@ belong to a folder.
   meaning.
 - **Inherited** from the nearest folder above that declares one, up to but not
   including the workspace root, whose front note is the workspace's front page.
-  With none anywhere, the defaults are No status, In progress, Finished.
-- **"No status" is the empty value**, always first in Not started, never a
-  word: clearing stays a one-line delete.
-- **Every group keeps a status.** An empty In progress or Done reads as its
-  default, and the editor refuses to save one.
+  With none anywhere, the defaults are Not started: `backlog`, `to do` · In
+  progress: `in progress` · Done: `finished`.
+- **Backlog is a status** (decided by the owner, 2026-09-28). Until then Not
+  started's default was empty and "No status" was the only way to say "not
+  yet", so every stray note in a project read as a task nobody had started.
+  Ideas and later work now say so with a word, `backlog`, and a note with no
+  status is a plain note (see "Tasks and notes" below).
+- **"No status" is the empty value, never a word**: clearing a status stays a
+  one-line delete, and turns a task back into a note. It still reads as Not
+  started wherever a group is asked for.
+- **Every group keeps a status**, Not started included. A missing or empty
+  group reads as its default — a folder whose editor once wrote
+  `statuses-not-started: []` now reads backlog and to do there — and the
+  editor refuses to save an empty one, which would only read back as the
+  default. A folder that declares its own words keeps them; one whose list
+  holds no backlog word simply has no Backlog band.
 - **A status is added to a group, never typed loose onto a note.** The status
   menu offers the folder's statuses under their group names and "Edit
   statuses…", not "New value…".
@@ -262,7 +273,7 @@ belong to a folder.
 
 A "simplification" back to free words costs the board its order and its
 meaning: `apps/mcp/test/listStatuses.test.mjs` fails if a group loses its
-default, if inheritance stops at the folder, if `status is done` stops reading
+default (Not started's is backlog and to do), if inheritance stops at the folder, if `status is done` stops reading
 the group, or if an agent is told a list from a front note it cannot see;
 `folderPageStatuses.test.ts` pins the bands, No group yet, and which notes a
 rename rewrites; `folderPageView.test.ts` pins the grouped menu, the board's

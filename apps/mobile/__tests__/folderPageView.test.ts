@@ -179,8 +179,8 @@ describe("a folder whose children have statuses", () => {
     const labels = all("menu-root").length > 0 ? strip(one("menu-root").textContent) : "";
     expect(labels).toContain("Saves to overview.md");
     // The menu offers the folder's statuses in their groups, not loose words.
-    expect(labels).toMatch(/Not started.*No status.*In progress.*in progress.*Done.*finished/);
-    await press(one("menu-item-choice:1"));
+    expect(labels).toMatch(/Not started.*No status.*backlog.*to do.*In progress.*in progress.*Done.*finished/);
+    await press(one("menu-item-choice:3"));
     // `do this` has only its untouched placeholder, so its first status creates overview.md.
     expect(writes).toEqual([["1-projects/do this/overview.md", "status", "in progress", { create: true }]]);
   });
@@ -190,7 +190,7 @@ describe("a folder whose children have statuses", () => {
     await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
     const loose = all("folder-item").find((row) => strip(row.textContent).includes("loose"))!;
     await press(loose.querySelector<HTMLElement>('[data-testid="folder-item-status"]')!);
-    await press(one("menu-item-choice:2"));
+    await press(one("menu-item-choice:4"));
     expect(writes).toEqual([["1-projects/loose.md", "status", "finished", undefined]]);
   });
 
@@ -206,7 +206,7 @@ describe("a folder whose children have statuses", () => {
     await mount(entry("folder", "1-projects"), PROJECTS, refusing);
     const loose = () => all("folder-item").find((row) => strip(row.textContent).includes("loose"))!;
     await press(loose().querySelector<HTMLElement>('[data-testid="folder-item-status"]')!);
-    await press(one("menu-item-choice:2"));
+    await press(one("menu-item-choice:4"));
     // Moved to Done before the write answers.
     expect(all("folder-group").map((group) => strip(group.firstElementChild?.textContent))).toEqual(["Not started1", "In progress2", "Done1"]);
     await act(async () => settle("That note is changing right now. Try again in a moment."));
@@ -233,6 +233,8 @@ describe("the switch", () => {
     expect(all("folder-board-band").map((band) => band.getAttribute("aria-label"))).toEqual(["Not started", "In progress", "Done"]);
     expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
       "No status, 2",
+      "Backlog, 0",
+      "To do, 0",
       "In progress, 0",
       "Active, 1",
       "Paused, 1",
@@ -274,7 +276,7 @@ describe("a project folder's own page", () => {
     await mount(entry("folder", "1-projects/web"), WEB, host(writes));
     await press(one("folder-property-status"));
     expect(strip(one("menu-root").textContent)).not.toContain("Saves to");
-    await press(one("menu-item-choice:2"));
+    await press(one("menu-item-choice:4"));
     expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
   });
 });
@@ -288,7 +290,7 @@ describe("a plain folder", () => {
     expect(strip(one("folder-property-line").textContent)).toBe("Set status");
     await press(one("folder-property-status"));
     expect(strip(one("menu-root").textContent)).toContain("Saves to overview.md");
-    await press(one("menu-item-choice:1"));
+    await press(one("menu-item-choice:3"));
     expect(writes).toEqual([["1-projects/do this/overview.md", "status", "in progress", { create: true }]]);
   });
 
@@ -310,7 +312,7 @@ describe("on a phone", () => {
     const unset = all("folder-item-status").find((node) => strip(node.textContent) === "Set status")!;
     await press(unset);
     expect(all("menu-sheet")).toHaveLength(1);
-    await press(one("menu-item-choice:2"));
+    await press(one("menu-item-choice:4"));
     expect(writes).toEqual([["1-projects/do this/overview.md", "status", "finished", { create: true }]]);
     expect(view.container.textContent).toBeTruthy();
   });
@@ -489,7 +491,7 @@ describe("the board", () => {
     expect(buttons).toHaveLength(4);
     expect(buttons.map((node) => node.getAttribute("aria-label"))).toContain("Change status, active");
     await press(buttons.find((node) => node.getAttribute("aria-label") === "Change status, active")!);
-    await press(one("menu-item-choice:2"));
+    await press(one("menu-item-choice:4"));
     expect(cardIn("Finished")).toContain("Website folder");
   });
 
@@ -498,7 +500,7 @@ describe("the board", () => {
     await press(one("folder-view-board"));
     expect(all("folder-card-drag").every((node) => node.getAttribute("draggable") === "false")).toBe(true);
     expect(all("folder-card-status")).toHaveLength(0);
-    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["No status, 2", "In progress, 0", "Active, 1", "Paused, 1", "Finished, 0"]);
+    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["No status, 2", "Backlog, 0", "To do, 0", "In progress, 0", "Active, 1", "Paused, 1", "Finished, 0"]);
     const data = new Map<string, string>([["application/x-context-folder-card", "1-projects/loose.md"]]);
     const over = drag("dragover", data);
     await act(async () => void column("Active").dispatchEvent(over));
@@ -566,7 +568,8 @@ describe("a word nobody placed", () => {
     await press(one("folder-choose-group"));
     await press(one("menu-item-to:not-started"));
     expect(lists).toHaveLength(1);
-    expect(lists[0][1]).toContainEqual(["statuses-not-started", ["exploration"]]);
+    // Nothing declared yet, so the defaults are written with it: backlog and to do stay.
+    expect(lists[0][1]).toContainEqual(["statuses-not-started", ["backlog", "to do", "exploration"]]);
     expect(writes).toEqual([]);
   });
 
@@ -647,6 +650,8 @@ describe("opening a board before the device has the folder's notes", () => {
     expect(all("folder-waiting")).toHaveLength(0);
     expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
       "No status, 2",
+      "Backlog, 0",
+      "To do, 0",
       "In progress, 0",
       "Active, 1",
       "Paused, 1",

@@ -61,15 +61,15 @@ describe("a folder with nothing declared", () => {
   const items = folderItems("1-projects", ENTRIES, PROJECTS).items;
   const groups = groupFolderItems(items, "status", list);
 
-  test("has the defaults: no status, in progress, finished", () => {
-    expect(list).toEqual({ "not-started": [], "in-progress": ["in progress"], done: ["finished"] });
+  test("has the defaults: backlog and to do, in progress, finished", () => {
+    expect(list).toEqual({ "not-started": ["backlog", "to do"], "in-progress": ["in progress"], done: ["finished"] });
     expect(from).toBeNull();
     expect(declaredIn).toBeNull();
   });
 
   test("draws Active under In progress, In Progress as the default, and Exploration apart", () => {
     expect(shape(statusBands(groups, list, true))).toEqual([
-      ["Not started", [["", 1]]],
+      ["Not started", [["", 1], ["backlog", 0], ["to do", 0]]],
       ["In progress", [["In Progress", 1], ["active", 2]]],
       ["Done", [["finished", 0]]],
       ["No group yet", [["exploration", 1]]],
@@ -89,7 +89,7 @@ describe("a folder with nothing declared", () => {
 
   test("the menu offers No status first, then each group's statuses", () => {
     expect(statusMenu(list).map((section) => [section.label, section.words])).toEqual([
-      ["Not started", [""]],
+      ["Not started", ["", "backlog", "to do"]],
       ["In progress", ["in progress"]],
       ["Done", ["finished"]],
     ]);
@@ -136,9 +136,10 @@ describe("changing a list", () => {
     expect(replacementFor(list, "idea")).toBeNull();
   });
 
-  test("every group but Not started keeps a status", () => {
+  test("every group keeps a status, Not started included", () => {
     expect(statusListIssue(removeStatus(removeStatus(list, "won"), "lost"))).toBe("Done needs at least one status.");
-    expect(statusListIssue(removeStatus(list, "idea"))).toBeNull();
+    // An empty Not started would read back as backlog and to do, so it is refused like the others.
+    expect(statusListIssue(removeStatus(list, "idea"))).toBe("Not started needs at least one status.");
   });
 
   test("is written as three keys, one per group", () => {

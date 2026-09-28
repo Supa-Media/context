@@ -181,7 +181,7 @@ describe("what a value menu offers", () => {
   test("a status is chosen from the folder's status list, not from whatever words are in use", () => {
     const items = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { status: "paused" })]).items;
     // Everything "paused" still offers "finished": moving a card on is one press, never typing.
-    expect(propertyChoices(items, "status", defaultStatusList() as StatusList)).toEqual(["in progress", "finished"]);
+    expect(propertyChoices(items, "status", defaultStatusList() as StatusList)).toEqual(["backlog", "to do", "in progress", "finished"]);
     const list = { "not-started": ["exploration"], "in-progress": ["doing"], done: ["won", "lost"] };
     expect(propertyChoices([], "status", list)).toEqual(["exploration", "doing", "won", "lost"]);
   });
@@ -216,7 +216,7 @@ describe("a board's columns and what a drop writes", () => {
 
   test("a column for every status in the list, empty or not, under its group", () => {
     expect(shape(statusBands(groups, list, false))).toEqual([
-      ["Not started", [["", 1]]],
+      ["Not started", [["", 1], ["backlog", 0], ["to do", 0]]],
       ["In progress", [["in progress", 0], ["Active", 1]]],
       ["Done", [["finished", 0], ["done", 1]]],
     ]);
@@ -224,8 +224,8 @@ describe("a board's columns and what a drop writes", () => {
 
   test("No status is a column to drop on for a writer even when nothing is in it, and not for a reader", () => {
     const tracked = groupFolderItems(items.filter((item) => item.status !== ""), "status", list);
-    expect(shape(statusBands(tracked, list, true))[0]).toEqual(["Not started", [["", 0]]]);
-    expect(shape(statusBands(tracked, list, false)).map(([label]) => label)).toEqual(["In progress", "Done"]);
+    expect(shape(statusBands(tracked, list, true))[0]).toEqual(["Not started", [["", 0], ["backlog", 0], ["to do", 0]]]);
+    expect(shape(statusBands(tracked, list, false))[0]).toEqual(["Not started", [["backlog", 0], ["to do", 0]]]);
   });
 
   test("a drop writes the column's value, clears on No status, and does nothing where the card already is", () => {
