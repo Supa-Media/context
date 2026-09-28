@@ -210,21 +210,33 @@ export function peopleActive(view: AgentActivityView | undefined): number | null
  * One bar, not two: people and agents are the same fact about a workspace
  * (who is working in it now) and are drawn by one component, circles for
  * people and squares for agents, as everywhere else in the console.
+ *
+ * Short, because the sidebar is narrow: "13 ppl, 2 agents active", with one
+ * "active" for the whole line (Dev2, 2026-09-28). The spoken form is
+ * `agentsLine`, in whole words.
  */
 export function activeParts(view: AgentActivityView | undefined): { people: string | null; agents: string | null } {
   const people = peopleActive(view);
   const agents = view?.agents.length ?? 0;
+  const peopleWords = people === null ? null : `${compactCount(people)} ${people === 1 ? "person" : "ppl"}`;
   return {
-    people: people === null ? null : `${compactCount(people)} ${people === 1 ? "person" : "people"} active`,
+    people: peopleWords === null ? null : agents === 0 ? `${peopleWords} active` : `${peopleWords},`,
     agents: agents === 0 ? null : `${compactCount(agents)} ${agents === 1 ? "agent" : "agents"} active`,
   };
 }
 
-/** The bar's whole line. `null` when nobody and no agent is active, and then nothing is drawn. */
+/**
+ * The bar's whole line in words, for its label: "13 people and 2 agents
+ * active". `null` when nobody and no agent is active, and then nothing is drawn.
+ */
 export function agentsLine(view: AgentActivityView | undefined): string | null {
-  const { people, agents } = activeParts(view);
-  if (people === null && agents === null) return null;
-  return [people, agents].filter((part) => part !== null).join(" · ");
+  const people = peopleActive(view);
+  const agents = view?.agents.length ?? 0;
+  const parts = [
+    people === null ? null : `${compactCount(people)} ${people === 1 ? "person" : "people"}`,
+    agents === 0 ? null : `${compactCount(agents)} ${agents === 1 ? "agent" : "agents"}`,
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? null : `${parts.join(" and ")} active`;
 }
 
 /** How long ago, in the short form a list row can afford. */

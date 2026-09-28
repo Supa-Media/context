@@ -274,13 +274,12 @@ member and never in a sentence on the page.
 Asked for by the owner on 2026-09-26, from a folder's List view whose owner
 menu offered `Sayo`, `Seyi`, `Seyi Olujide` and "New value…": one person with
 three spellings, and a field for a fourth. An owner is now **somebody in the
-workspace, an agent connected to it, or `any agent`**, on every surface that
+workspace, one of the workspace's agents, or `any agent`**, on every surface that
 sets one — a folder page's List, a project's own line, and a list block in a
 note. There is no field for a new owner anywhere.
 
 - **The search runs on the server.** `owners.searchOwners` (control plane)
-  takes what was typed and returns the best eight members and a few agent
-  names, never the roster, so a workspace of a hundred people is searched
+  takes what was typed and returns the best eight members, never the roster, so a workspace of a hundred people is searched
   where the people are. It reads at most a thousand memberships; past that it
   says so and a narrower query finds the rest. The app asks a moment after
   typing pauses.
@@ -301,15 +300,10 @@ note. There is no field for a new owner anywhere.
   a locked note or one with `organize: off` is never sent, and nothing is
   written until the suggestion is picked. The search says whether to ask
   (`suggests`), so a workspace without it makes no call at all.
-- **Agent names come only from grants the reader could already list.**
-  `grants.listGrants` shows an owner every grant and anybody else only their
-  own, because a colleague's tooling is theirs to disclose; the picker keeps
-  that line and returns names only, never who connected an agent, when, or
-  with what scopes. The console's own grant is not offered.
-- **What is written is the plain name** (`owner: Sayo`, `owner: Claude`,
-  `owner: any agent`), so the Markdown still reads in any editor and a filter
-  like `owner is Sayo` keeps working. A member with no name is written as
-  their address.
+- **What is written is the member's `@handle`** (`owner: @sayo`,
+  `owner: Claude`, `owner: @shay's Claude`, `owner: any agent`), so the
+  Markdown still reads in any editor and a filter like `owner is @sayo` keeps
+  working; never an address. A member with no handle is written by name.
 - **An owner already written by hand is left alone.** Nothing is rewritten
   behind anybody's back: the value is still drawn, and its picker leads with
   it, checked and marked "Not a member", beside the member it most likely
@@ -317,10 +311,48 @@ note. There is no field for a new owner anywhere.
 
 `apps/convex/__tests__/owners.test.ts` fails if a non-member gets anything
 but the missing-workspace refusal, if a member of another workspace is
-offered, if more than the limit comes back, or if an editor is shown a
-colleague's agent; `apps/mobile/__tests__/ownerPicker.test.ts` fails if the
+offered, if more than the limit comes back, if an address leaves, or if a
+connected client is offered as an agent; `apps/mobile/__tests__/ownerPicker.test.ts` fails if the
 picker offers a way to type an owner, stops asking the server, or drops a
 hand-typed owner; `listEdit.test.ts` pins the same in a list block.
 `apps/convex/__tests__/ownerSuggest.test.ts` fails if a locked, opted-out or
 unseen note reaches Jev, if an answer that is not a candidate is suggested, if
 a member who cannot write asks, or if the suggestion runs without Premium.
+
+## Agents are a list the workspace writes, each optionally somebody's
+
+Decided by the owner on 2026-09-28, after the picker offered "Context Sentry
+incident inbox" beside Claude. Agents had been the names of the OAuth clients
+connected to the workspace; that list is whatever each client's software
+registered as, it includes integrations that file notes and never pick work up,
+and a colleague's tooling is theirs to disclose. Agents are now **a short list
+of words** the workspace keeps as text:
+
+    agents: Claude, Codex, Cursor
+
+- **It lives in a front note**, the way a folder's statuses do: the nearest
+  folder at or above the page that declares `agents:` decides, and with none,
+  Claude and Codex (`DEFAULT_AGENTS`, `packages/shared/src/agentOwners.ts`, so
+  the app and the owner suggestion agree about "no list yet").
+- **Anybody who can edit adds one by typing it** in the owner picker ("Add
+  “Cursor” as an agent"). The line is written where it already is, or, while
+  nothing declares it, into the projects folder's own front note (the outermost
+  folder whose name says "project"), so every project under it offers the new
+  name. A name the list holds in any case picks that one; a comma, colon, `#`,
+  brackets, a leading `@` or `'s ` are refused, since they would break the one
+  line or an owner line.
+- **Whose is optional.** Choosing an agent asks "Whose Claude?": "Just Claude"
+  first, then the members, written `owner: @shay's Claude`. Somebody's agent is
+  a label, not a grant: it says whose session is expected to pick the work up
+  and gives nobody access to anything.
+- **Agents are marked in the owner column** with the model mark, so a column
+  of people and agents reads without a word for it.
+- The list-block menu inside a note writes an agent alone and offers no add;
+  asking whose is the folder page's.
+
+What a "simplification" costs: reading agents from grants again brings back
+integrations, client-chosen names and the grant-disclosure rule. The server
+never looks at grants for owners; `owners.test.ts` fails if a connected client
+appears, `agentOwners.test.ts` pins the list's inheritance, home and name rules,
+and `ownerPicker.test.ts` fails if choosing an agent writes without asking
+whose, if adding forgets the front note, or if the mark goes.

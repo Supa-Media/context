@@ -63,6 +63,7 @@ import { consoleNavBandNodes } from "./layout/navBand";
 import {
   consoleCloseTabConfirm,
   consoleRecentSheet,
+  consoleTreeSheet,
   consoleAgentSetup,
   consoleSettings,
   consoleSyncSheet,
@@ -143,6 +144,8 @@ export function ConsoleFrame({
     opens is a ref waiting to be written.
   */
   const [recentOpen, setRecentOpen] = useState(false);
+  // The folder key's tree sheet (`TreeSheet`), beside Recent for the same reason.
+  const [treeSheetOpen, setTreeSheetOpen] = useState(false);
   /*
     The phone's sync sheet, behind the pill in its header. A phone has no
     status strip, so this is where "which notes?" is answered there — see
@@ -234,7 +237,10 @@ export function ConsoleFrame({
     makes it come back: the flag would still be true.
   */
   useEffect(() => {
-    if (!phone || !browsing) setRecentOpen(false);
+    if (!phone || !browsing) {
+      setRecentOpen(false);
+      setTreeSheetOpen(false);
+    }
   }, [phone, browsing]);
 
   /**
@@ -420,22 +426,6 @@ export function ConsoleFrame({
           onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
-        /*
-          `‹ ›` in the title row over the file tree. They were at the head of
-          the note's breadcrumb, which only a note or folder page drew; up
-          here they are on every console page, Settings included, which is
-          what `history.ts` has always walked.
-        */
-        history={
-          phone
-            ? undefined
-            : {
-                canBack: nav.canBack,
-                canForward: nav.canForward,
-                onBack: nav.back,
-                onForward: nav.forward,
-              }
-        }
         syncSlot={consoleSyncSlot({ phone, browsing, data, setSyncOpen })}
         /*
           The phone's top-left account slot: one component for a member and a
@@ -465,7 +455,7 @@ export function ConsoleFrame({
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
-          browsing, data, history, somewhereToGo, step, setPaletteOpen, setRecentOpen, canCreate,
+          browsing, data, history, somewhereToGo, step, setPaletteOpen, setRecentOpen, setTreeSheetOpen, canCreate,
           setBarDialog,
         })}
       >
@@ -482,6 +472,7 @@ export function ConsoleFrame({
             paletteOpen ||
             treeOverlay ||
             recentOpen ||
+            treeSheetOpen ||
             syncOpen ||
             actionsOpen ||
             openSettingsSection !== null ||
@@ -513,6 +504,10 @@ export function ConsoleFrame({
 
         {consoleRecentSheet({
           recentOpen, phone, somewhereToGo, history, data, setRecentOpen,
+        })}
+
+        {consoleTreeSheet({
+          treeSheetOpen, phone, browsing, data, contextLabel, setTreeSheetOpen,
         })}
 
         {consoleSyncSheet({

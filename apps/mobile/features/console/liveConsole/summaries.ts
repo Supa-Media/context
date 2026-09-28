@@ -58,6 +58,11 @@ export function memberOf(
 export interface StorageBinding {
   provider: string;
   managed: boolean;
+  handoffStatus?: "copying" | "failed";
+  handoffPhase?: "count" | "copy" | "verify_source" | "verify_target";
+  handoffObjectsTotal?: number;
+  handoffObjectsProcessed?: number;
+  handoffErrorCode?: string;
   /**
    * Optional, because a Dropbox binding has none of them — see the validator
    * on `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`

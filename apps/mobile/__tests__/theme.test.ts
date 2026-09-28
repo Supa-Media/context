@@ -134,6 +134,10 @@ describe("palette key parity", () => {
     "appLightRed",
     "appLightAmber",
     "appLightGreen",
+    // The anonymous avatar is a picture the owner chose, not chrome: the same
+    // silhouette in both worlds, like a person's photo would be.
+    "anonymousGround",
+    "anonymousFigure",
   ];
 
   test("no token was left as its dark value", () => {

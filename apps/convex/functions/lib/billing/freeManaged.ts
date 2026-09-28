@@ -4,7 +4,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { requireWorkspaceRole } from "../workspaceAuth";
-import { FREE_MANAGED_PER_ACCOUNT, noteCapFor, planIsPaying } from "../premium";
+import { noteCapFor, planIsPaying } from "../premium";
 import { bindingIsManaged, deploymentOffersFreeManaged, planFor, statusOf } from "./plan";
 
 /**
@@ -18,44 +18,14 @@ import { bindingIsManaged, deploymentOffersFreeManaged, planFor, statusOf } from
 export type FreeManagedRefusal =
   | "FREE_TIER_UNAVAILABLE"
   | "STORAGE_ALREADY_CONNECTED"
-  | "ALREADY_PREMIUM"
-  | "FREE_TIER_LIMIT";
+  | "ALREADY_PREMIUM";
 
 const REFUSAL_MESSAGES: Record<FreeManagedRefusal, string> = {
   FREE_TIER_UNAVAILABLE: "Free storage is not offered here. Connect a bucket of your own instead.",
   STORAGE_ALREADY_CONNECTED:
     "This workspace already has storage. Free storage is only for a workspace that has none yet.",
   ALREADY_PREMIUM: "This workspace is already on Premium.",
-  FREE_TIER_LIMIT:
-    "You already have a workspace on free storage. Connect a bucket of your own for this one, or choose Premium.",
 };
-
-/**
- * How many workspaces this person owns that started on the free tier, not
- * counting `except`.
- *
- * Counted through ownership rather than through who pressed the button: the
- * allowance is "one free bucket per account", and an account is what owns a
- * workspace. Deleting the workspace deletes its plan row, which returns the
- * allowance — the bucket it paid for is gone with it.
- */
-async function freeWorkspacesOwnedBy(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-  except: Id<"workspaces">,
-): Promise<number> {
-  const memberships = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
-  let count = 0;
-  for (const membership of memberships) {
-    if (membership.role !== "owner" || membership.workspaceId === except) continue;
-    const plan = await planFor(ctx, membership.workspaceId);
-    if (plan?.freeManaged === true) count += 1;
-  }
-  return count;
-}
 
 /** Already on the free tier, with its bucket made or on the way. */
 function alreadyStarted(plan: Doc<"workspacePlans"> | null): boolean {
@@ -70,7 +40,6 @@ function alreadyStarted(plan: Doc<"workspacePlans"> | null): boolean {
  */
 export async function freeManagedRefusal(
   ctx: QueryCtx,
-  userId: Id<"users">,
   workspaceId: Id<"workspaces">,
   plan: Doc<"workspacePlans"> | null,
 ): Promise<FreeManagedRefusal | null> {
@@ -83,9 +52,6 @@ export async function freeManagedRefusal(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
   if (binding !== null) return "STORAGE_ALREADY_CONNECTED";
-  if ((await freeWorkspacesOwnedBy(ctx, userId, workspaceId)) >= FREE_MANAGED_PER_ACCOUNT) {
-    return "FREE_TIER_LIMIT";
-  }
   return null;
 }
 
@@ -100,7 +66,7 @@ export async function startFreeManagedHandler(
   // A second press — a double tap, a reload — is an answer, not a second bucket.
   if (alreadyStarted(plan)) return { started: true };
 
-  const refusal = await freeManagedRefusal(ctx, userId, workspaceId, plan);
+  const refusal = await freeManagedRefusal(ctx, workspaceId, plan);
   if (refusal !== null) {
     throw new ConvexError({ code: refusal, message: REFUSAL_MESSAGES[refusal] });
   }

@@ -23,6 +23,7 @@ import type { BrowsePaneProps } from "./browsePane/props";
 import { makeStyles } from "./browsePane/styles";
 import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
+import { useShownEntry } from "./browsePane/useShownEntry";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -89,10 +90,19 @@ export function BrowsePane({
     this pane used to answer that with its "choose a note" empty state — over a
     folder whose contents had already arrived. See `entryAt`.
   */
-  const selected =
+  const target =
     files.selectedPath === null
       ? null
       : entryAt(files.listings, files.selectedPath, files.editor);
+  // The page already on screen, until the one being opened is ready to swap
+  // in. See `useShownEntry`.
+  const selected = useShownEntry({
+    target,
+    contextId: files.contextId,
+    selectedPath: files.selectedPath,
+    opening: files.opening,
+    editorPath: files.editor.path,
+  });
 
   /**
    * Whether the file browser is talking about the context the console is on.
@@ -348,6 +358,7 @@ export function BrowsePane({
         <BrowseNoteHead
           files={files}
           selected={selected}
+          nav={nav}
           reading={reading}
           headWidth={headWidth}
           setHeadWidth={setHeadWidth}

@@ -369,6 +369,7 @@ describe("a visit decides once between the site and the copy", () => {
     revision: "1:1",
     pages: [{ routePath: "/", title: "Welcome", markdown: "# Welcome" }],
     emoji: {},
+    images: {},
   };
   const element = (text: string | null) => ({
     getElementById: (id: string) => (id === HOME_SITE_ELEMENT_ID && text !== null ? ({ textContent: text } as HTMLElement) : null),

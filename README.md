@@ -3,7 +3,7 @@
 **Free your context. Share your context.**
 
 A simple notes app you, your team and your agents all work in — plain
-Markdown, in storage you own.
+Markdown, in a dedicated bucket you can move to storage you own at any time.
 
 Your context is the durable layer. AI clients are replaceable interfaces.
 
@@ -18,10 +18,12 @@ scratch.
 
 ## The deal
 
-**You keep your data.** Connect Dropbox in one click, or bring a bucket you own
-outright — Cloudflare R2, AWS S3, Backblaze B2, or any S3-compatible storage.
-Either way, your notes stay plain Markdown in a storage account you control.
-Disconnect Context and every file is still there, still readable, still yours.
+**You keep your data.** Start free with a Context-managed bucket — no card,
+up to 1,000 notes — or bring a bucket you own outright: Cloudflare R2, AWS S3,
+Backblaze B2, or any S3-compatible storage. A managed context can move every
+raw object into your bucket from Settings; Context copies and verifies first,
+then switches, for free and even after cancellation. Your notes remain plain
+Markdown either way.
 
 That's not a feature we might remove later. It's the architecture:
 
@@ -40,7 +42,7 @@ That's not a feature we might remove later. It's the architecture:
 ## How it works
 
 ```
-   Your AI clients                  Context.LC                    Your storage
+   Your AI clients                  Context.LC                 Dedicated storage
 ┌────────────────────┐      ┌──────────────────────┐      ┌────────────────────┐
 │ ChatGPT            │      │  Control plane       │      │  R2 / S3 / B2      │
 │ Claude             │─────▶│  (Convex)            │      │                    │
@@ -57,9 +59,10 @@ That's not a feature we might remove later. It's the architecture:
 ```
 
 Two planes, and the split is the whole point. The **control plane** knows who
-you are, which storage is yours, and which AI clients you've authorized. The
-**data plane** is your Dropbox folder or bucket. Delete your Context account and
-the control plane forgets you; the data plane is untouched.
+you are, which storage serves the workspace, and which AI clients you've
+authorized. The **data plane** is one bucket per workspace, either operated by
+Context or controlled by you. On customer-owned storage, deleting your Context
+account removes the control plane metadata and leaves the bucket untouched.
 
 ## Structure your context however you like
 

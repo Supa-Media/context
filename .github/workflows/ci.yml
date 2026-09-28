@@ -461,10 +461,7 @@ jobs:
         id: changes
         with:
           filters: |
-            mobile:
-              - "apps/mobile/**"
-              - "packages/**"
-              - ".github/workflows/ci.yml"
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
       - uses: pnpm/action-setup@v4
         if: steps.changes.outputs.mobile == 'true'
@@ -631,11 +628,7 @@ jobs:
         id: changes
         with:
           filters: |
-            mobile:
-              - "apps/mobile/**"
-              - "packages/**"
-              - "pnpm-lock.yaml"
-              - ".github/workflows/ci.yml"
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
       - uses: pnpm/action-setup@v4
         if: steps.changes.outputs.mobile == 'true'

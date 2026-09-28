@@ -8,10 +8,11 @@ import { castMemberId } from "./castRun";
  * A demo number, and the only invented thing on the bar: the homepage draws
  * the console's own activity bar (`ActiveParts`) in visitor mode, and a
  * workspace of one visitor would show no people at all. Dev2 asked for the
- * demo to show a crowd (2026-09-28). The faces are the cast's own people, so
- * the circles on the bar are the carets the visitor watches type.
+ * demo to show a crowd, then for a smaller, less round one (2026-09-28). The
+ * faces are the cast's own people, so the circles on the bar are the carets
+ * the visitor watches type.
  */
-export const HOMEPAGE_PEOPLE_ACTIVE = 200;
+export const HOMEPAGE_PEOPLE_ACTIVE = 13;
 
 /** The people the owner scripted into the site's pages, each once, in their cast colour. */
 export function castPeople(steps: readonly CastStep[], colors: ReadonlyMap<string, string>): ActivePerson[] {

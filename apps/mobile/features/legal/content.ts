@@ -3,9 +3,9 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "September 13, 2026",
+  updated: "September 28, 2026",
   intro:
-    "Context.lc is a personal context workspace. This policy explains what we collect, why we collect it, and how Google-connected data is used when you choose to connect Gmail, Google Calendar, or Google Chat.",
+    "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
     {
       title: "Information we collect",
@@ -29,6 +29,15 @@ export const privacyContent: LegalPageContent = {
         "Context.lc stores context as files and folders in the storage connected to your account or in Context-managed storage when you choose that option.",
         "Synced communication and calendar notes are private to your personal workspace by default. Email, chat, and iMessage-style communication sync is not intended for shared workspaces.",
         "OAuth tokens are encrypted server-side and are used only to maintain the connection you authorized.",
+      ],
+    },
+    {
+      title: "AI assistants you connect",
+      body: [
+        "You can connect AI assistants, such as Claude, ChatGPT, or Codex, to Context.lc. Each one signs in with your permission and gets its own access, which you can revoke at any time from your Context.lc settings.",
+        "A connected assistant can read and search only the notes you can already see, in the workspaces you belong to, filtered by each workspace's privacy settings. It can write, move, or comment only where your role allows, and every change it makes is recorded in that workspace's activity under the assistant's name.",
+        "Notes reach an assistant only when it asks for them on your behalf. What the assistant's provider does with that content is governed by its own terms and privacy policy, not this one.",
+        "We do not use your notes to train AI models, and we do not sell them.",
       ],
     },
     {

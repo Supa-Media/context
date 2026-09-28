@@ -75,7 +75,6 @@ export function FrameIconButton({
   onPress,
   round = false,
   grouped = false,
-  disabled = false,
   testID,
 }: {
   label: string;
@@ -106,13 +105,6 @@ export function FrameIconButton({
    * the capsule around it is only what a reader sees.
    */
   grouped?: boolean;
-  /**
-   * Drawn and unavailable, for a control whose meaning holds even when it has
-   * nothing to do — `‹` with no history behind it. Dimmed in place rather than
-   * removed, so the controls beside it do not move each time somebody
-   * navigates, and announced as unavailable rather than offered.
-   */
-  disabled?: boolean;
   testID?: string;
 }) {
   const colors = useColors();
@@ -120,8 +112,7 @@ export function FrameIconButton({
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
-      onPress={disabled ? undefined : onPress}
-      disabled={disabled}
+      onPress={onPress}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       role="button"
@@ -136,15 +127,11 @@ export function FrameIconButton({
         // resting state and reads as the control switching off. The circle
         // lights the way it does under a thumb instead — this is reachable on
         // a narrowed desktop browser, which is a real surface here.
-        hovered && !disabled && (round ? styles.iconButtonPressed : styles.iconButtonHover),
+        hovered && (round ? styles.iconButtonPressed : styles.iconButtonHover),
         (round || grouped) && pressed && styles.iconButtonPressed,
       ]}
     >
-      <Icon
-        name={icon}
-        size={round || grouped ? 20 : 17}
-        color={disabled ? colors.line : colors.text2}
-      />
+      <Icon name={icon} size={round || grouped ? 20 : 17} color={colors.text2} />
     </Pressable>
   );
 }

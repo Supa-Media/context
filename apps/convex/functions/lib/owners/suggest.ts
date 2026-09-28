@@ -5,7 +5,7 @@
  *
  * Jev picks one of the options it is given and never writes text, so the
  * options are exactly what the picker could offer anyway — the people the
- * search ranked first, the connected agents the caller may already see, and
+ * search ranked first, the agents the folder lists, and
  * "any agent" — plus a way out. It always picks something, so the way out is
  * an option of its own ("none of these"), and an answer that is not one of
  * the keys offered is no answer. Confidence is not thresholded: the way out
@@ -28,6 +28,8 @@ const MIN_BODY_CHARS = 12;
 export interface OwnerCandidates {
   readonly people: readonly string[];
   readonly agents: readonly string[];
+  /** Each person's name, beside `people`: a note says "Seyi", the owner line `@seyi`. */
+  readonly names?: readonly (string | null)[];
 }
 
 export interface NoteToRead {
@@ -71,10 +73,11 @@ export function ownerOptions(candidates: OwnerCandidates): Map<string, Suggested
 export function ownerRequest(text: string, candidates: OwnerCandidates): { state: string; questions: Record<string, unknown> } {
   const criteria: Record<string, string> = {};
   for (const [key, option] of ownerOptions(candidates)) {
+    const name = option?.kind === "person" ? candidates.names?.[candidates.people.indexOf(option.value)] : null;
     criteria[key] =
       option === null ? "None of these: the note does not make clear who should do this work"
-      : option.kind === "person" ? `${option.value}, a person in this workspace`
-      : option.kind === "agent" ? `${option.value}, an AI agent connected to this workspace`
+      : option.kind === "person" ? `${option.value}${name ? ` (${name})` : ""}, a person in this workspace`
+      : option.kind === "agent" ? `${option.value}, an AI agent this workspace works with`
       : "Any AI agent: the note hands this work to an agent, whichever picks it up";
   }
   const state = text.length > SUGGEST_BODY_CHARS ? `${text.slice(0, SUGGEST_BODY_CHARS)}\n[…]` : text;

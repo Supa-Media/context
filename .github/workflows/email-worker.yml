@@ -81,6 +81,13 @@ jobs:
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
 
+      # Second host for the browser-scope guard. The first is in router.yml, not
+      # in either workflow whose path gates the script validates.
+      - name: Expensive CI stays scoped to its dependency graph
+        run: |
+          node scripts/check-ci-path-gates.mjs --self-test
+          node scripts/check-ci-path-gates.mjs
+
       # And the second host for the package-coverage half of the same idea:
       # every package with a test suite must be run by a pull-request
       # workflow. See the note in mcp.yml for why one host is not enough.

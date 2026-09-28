@@ -181,6 +181,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A list write is what this device holds afterwards
 - Status groups
 - An owner is picked, never typed
+- Agents are a list the workspace writes, each optionally somebody's
 
 ## [Comments on notes](./comments.md)
 
@@ -206,6 +207,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The homepage is `@context-lc`'s website, in its HTML
 - The homepage is the console's frame, never a copy of it
 - A page's emoji travel with the page
+- A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
 

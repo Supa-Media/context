@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
+  type ActionCtx,
   internalAction,
   internalMutation,
   internalQuery,
@@ -37,6 +38,7 @@ import {
 } from "./lib/managedProvisioningFns/standing";
 import {
   beginManagedStorageMigrationHandler,
+  beginManagedStorageHandoffHandler,
   resumeManagedStorageMigrationHandler,
 } from "./lib/managedProvisioningFns/migrationBegin";
 import { failManagedStorageMigrationHandler } from "./lib/managedProvisioningFns/migrationFail";
@@ -45,6 +47,7 @@ import { recordMigrationPageHandler } from "./lib/managedProvisioningFns/migrati
 import { finishManagedStorageMigrationHandler } from "./lib/managedProvisioningFns/migrationFinish";
 import {
   finishAwaitManagedTargetReady,
+  migrationTargetCredential,
   probeManagedTarget,
 } from "./lib/managedProvisioningFns/targetReady";
 import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns/complete";
@@ -72,32 +75,47 @@ export const deleteManagedTestResources = internalAction({
     tokenId: v.string(),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    if (args.bucket !== managedBucketName(args.workspaceId)) {
-      throw new Error("Refusing to delete a bucket outside the managed test workspace boundary.");
-    }
-    const accountId = managedAccountId();
-    const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
-      name: MANAGED_R2_API_TOKEN_SECRET,
-    });
-    if (accountId === null || typeof apiToken !== "string" || apiToken.length === 0) {
-      throw new Error("Managed R2 cleanup is not configured.");
-    }
-    let bucketFailure: unknown;
-    try {
-      await emptyAndDeleteR2Bucket({ apiToken, accountId, bucket: args.bucket });
-    } catch (error) {
-      bucketFailure = error;
-    }
-    // Revoke even when emptying fails: once the account metadata is gone,
-    // leaving a standing bucket credential is strictly worse than leaving an
-    // unreachable bucket for an operator cleanup.
-    const revoked = await revokeApiToken({ apiToken, accountId, tokenId: args.tokenId });
-    if (bucketFailure !== undefined) throw bucketFailure;
-    if (!revoked) throw new Error("Managed bucket was deleted but its scoped token could not be revoked.");
-    return null;
-  },
+  handler: deleteManagedResources,
 });
+
+/** The production cleanup scheduled only after a verified customer cutover. */
+export const deleteManagedStorageAfterHandoff = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    bucket: v.string(),
+    tokenId: v.string(),
+  },
+  returns: v.null(),
+  handler: deleteManagedResources,
+});
+
+async function deleteManagedResources(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; bucket: string; tokenId: string },
+): Promise<null> {
+  if (args.bucket !== managedBucketName(args.workspaceId)) {
+    throw new Error("Refusing to delete a bucket outside the managed workspace boundary.");
+  }
+  const accountId = managedAccountId();
+  const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+    name: MANAGED_R2_API_TOKEN_SECRET,
+  });
+  if (accountId === null || typeof apiToken !== "string" || apiToken.length === 0) {
+    throw new Error("Managed R2 cleanup is not configured.");
+  }
+  let bucketFailure: unknown;
+  try {
+    await emptyAndDeleteR2Bucket({ apiToken, accountId, bucket: args.bucket });
+  } catch (error) {
+    bucketFailure = error;
+  }
+  // Revoke even when emptying fails: leaving a standing bucket credential is
+  // strictly worse than leaving an unreachable bucket for operator cleanup.
+  const revoked = await revokeApiToken({ apiToken, accountId, tokenId: args.tokenId });
+  if (bucketFailure !== undefined) throw bucketFailure;
+  if (!revoked) throw new Error("Managed bucket was deleted but its scoped token could not be revoked.");
+  return null;
+}
 
 /**
  * Creating the bucket a Premium customer paid for.
@@ -410,6 +428,31 @@ export const beginManagedStorageMigration = internalMutation({
   handler: async (ctx, args) => beginManagedStorageMigrationHandler(ctx, args),
 });
 
+/** Park a customer-owned target while the managed source remains live. */
+export const beginManagedStorageHandoff = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    target: v.object({
+      provider: v.union(
+        v.literal("r2"),
+        v.literal("s3"),
+        v.literal("b2"),
+        v.literal("s3-compatible"),
+      ),
+      endpoint: v.string(),
+      region: v.string(),
+      bucket: v.string(),
+      rootPrefix: v.optional(v.string()),
+      accessKeyId: v.string(),
+      encryptedSecretAccessKey: v.string(),
+      forcePathStyle: v.optional(v.boolean()),
+    }),
+  },
+  returns: v.object({ started: v.literal(true) }),
+  handler: async (ctx, args) => beginManagedStorageHandoffHandler(ctx, args),
+});
+
 /**
  * Prove the managed bucket answers, then start the copy.
  *
@@ -552,16 +595,11 @@ export const runManagedStorageMigration = internalAction({
         { workspaceId: args.workspaceId },
       );
       const source = storeForBinding(sourceCredential, undefined, { rawObjects: true });
-      const target = storeForBinding({
-        provider: "r2",
-        endpoint: migration.targetEndpoint,
-        region: "auto",
-        bucket: migration.targetBucket,
-        accessKeyId: migration.targetAccessKeyId,
-        secretAccessKey,
-        capabilities: { conditionalWrite: true },
-        status: "connected",
-      }, undefined, { rawObjects: true });
+      const target = storeForBinding(
+        migrationTargetCredential(migration, secretAccessKey),
+        undefined,
+        { rawObjects: true },
+      );
       const listingStore =
         migration.phase === "verify_target" ? target : source;
       const page = await listingStore.list({

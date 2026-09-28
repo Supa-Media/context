@@ -14,10 +14,10 @@ import { useThemedStyles, type Colors } from "../../design/theme";
  * summary that could say "set up" over a bucket that never verified was the
  * old closing screen's worst sentence, and `rules.ts` makes it unreachable.
  *
- * The canvas's Download button is a sentence instead: there is no
- * whole-workspace download to wire it to — any folder downloads as a .zip
- * from Files — so the promise is stated with where to act on it rather than as
- * a button that would do less than it says.
+ * The canvas's Download button is a sentence instead: any folder downloads as
+ * a .zip from Files, and a managed context moves every raw object to a bucket
+ * its owner controls from Settings → Storage. The sentence names both real
+ * exits instead of drawing a button that would do less than it says.
  */
 export function SetupDone({
   onClose,
@@ -48,7 +48,8 @@ export function SetupDone({
         <Text style={styles.exitTitle}>Take everything with you</Text>
         <Text style={styles.exitBody}>
           Every note is a plain Markdown file. Any folder downloads as a .zip from Files — free,
-          today and after you cancel.
+          today and after you cancel. Managed storage can move every file to your own bucket from
+          Settings → Storage.
         </Text>
       </View>
 

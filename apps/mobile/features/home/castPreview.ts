@@ -42,6 +42,8 @@ export function castPreviewSnapshot(source: string, title: string, siteName: str
     revision: null,
     pages: [{ path: "index.md", routePath: "/", title, markdown: stripFrontmatter(source) }],
     emoji: {},
+    // A draft's own images are the workspace's, which the homepage cannot read.
+    images: {},
   };
 }
 

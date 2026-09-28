@@ -50,11 +50,13 @@ import {
  */
 export function ConnectForm({
   connect,
+  lede,
   /** Prefilled when re-binding an existing binding rather than starting fresh. */
   initial,
   onCancel,
 }: {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
+  lede?: string;
   initial?: Partial<ConnectFormValues>;
   onCancel?: () => void;
 }) {
@@ -112,8 +114,8 @@ export function ConnectForm({
     <Card>
       <Text variant="rowTitle">Connect your bucket</Text>
       <Text variant="rowSub" style={styles.lede}>
-        Context stores nothing of its own. Point it at an S3-compatible bucket you own and
-        every note stays in it, as plain Markdown you can read without us.
+        {lede ??
+          "Context stores nothing of its own. Point it at an S3-compatible bucket you own and every note stays in it, as plain Markdown you can read without us."}
       </Text>
 
       <View style={styles.section}>

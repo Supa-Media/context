@@ -31,16 +31,7 @@ export async function probeManagedTarget(
   secretAccessKey: string,
 ): Promise<boolean> {
   const target = storeForBinding(
-    {
-      provider: "r2",
-      endpoint: migration.targetEndpoint,
-      region: "auto",
-      bucket: migration.targetBucket,
-      accessKeyId: migration.targetAccessKeyId,
-      secretAccessKey,
-      capabilities: { conditionalWrite: true },
-      status: "connected",
-    },
+    migrationTargetCredential(migration, secretAccessKey),
     undefined,
     { probeCapabilities: true },
   );
@@ -50,6 +41,25 @@ export async function probeManagedTarget(
   // verification `applyBinding` schedules. What the copy needs to start is
   // narrower and is exactly these two.
   return probe.reachable === true && probe.writable === true;
+}
+
+/** The parked target in the ordinary gateway shape, in either direction. */
+export function migrationTargetCredential(
+  migration: Doc<"managedStorageMigrations">,
+  secretAccessKey: string,
+) {
+  return {
+    provider: migration.targetProvider ?? ("r2" as const),
+    endpoint: migration.targetEndpoint,
+    region: migration.targetRegion ?? "auto",
+    bucket: migration.targetBucket,
+    rootPrefix: migration.targetRootPrefix,
+    accessKeyId: migration.targetAccessKeyId,
+    secretAccessKey,
+    forcePathStyle: migration.targetForcePathStyle,
+    capabilities: { conditionalWrite: true },
+    status: "connected" as const,
+  };
 }
 
 /**

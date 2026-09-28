@@ -34,6 +34,8 @@ import { FolderGroups } from "./Groups";
 import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
 import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./items";
 import { localOwnerSearch, ownersInUse } from "../owners";
+import { useOwnerLabels } from "./useOwnerLabels";
+import { useAgents } from "./useAgents";
 import {
   defaultFolderView,
   folderItems,
@@ -140,14 +142,29 @@ export function FolderPage({
   const serverOwners = host?.source.searchOwners;
   const searchOwners = useMemo(() => serverOwners ?? localOwnerSearch(people ?? []), [serverOwners, people]);
   const suggestFor = host?.source.suggestOwner;
-  const owners = useMemo<OwnerChoice>(
-    () => ({ search: searchOwners, prefer: ownersInUse(items), ...(suggestFor === undefined ? {} : { suggestFor }) }),
-    [searchOwners, items, suggestFor],
+  const inUse = useMemo(() => ownersInUse(items), [items]);
+  const siblingsInUse = useMemo(() => ownersInUse(siblings), [siblings]);
+  const ownerWords = useMemo(() => [...inUse, ...siblingsInUse], [inUse, siblingsInUse]);
+  const label = useOwnerLabels(host?.source.resolveOwners, ownerWords);
+  // Agents are the workspace's own short list, and somebody may add to it here (`agents.ts`).
+  const agents = useAgents(loaded, folder, notes, searchOwners);
+  const agentList = agents.list;
+  const suggestAgents = useMemo(
+    () => (suggestFor === undefined ? undefined : (path: string, prefer: readonly string[]) => suggestFor(path, prefer, agentList)),
+    [suggestFor, agentList],
   );
-  const siblingOwners = useMemo<OwnerChoice>(
-    () => ({ search: searchOwners, prefer: ownersInUse(siblings), ...(suggestFor === undefined ? {} : { suggestFor }) }),
-    [searchOwners, siblings, suggestFor],
+  const shared = useMemo(
+    () => ({
+      search: agents.search,
+      label,
+      isAgent: agents.isAgent,
+      ...(suggestAgents === undefined ? {} : { suggestFor: suggestAgents }),
+      ...(agents.addAgent === null ? {} : { addAgent: agents.addAgent }),
+    }),
+    [agents.search, agents.addAgent, agents.isAgent, label, suggestAgents],
   );
+  const owners = useMemo<OwnerChoice>(() => ({ ...shared, prefer: inUse }), [shared, inUse]);
+  const siblingOwners = useMemo<OwnerChoice>(() => ({ ...shared, prefer: siblingsInUse }), [shared, siblingsInUse]);
   const menuSections = useMemo(() => statusMenu(list), [list]);
   const parentMenu = useMemo(() => statusMenu(parentStatuses.list), [parentStatuses]);
   const undeclared = useMemo(() => undeclaredStatuses(items, list), [items, list]);

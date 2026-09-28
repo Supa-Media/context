@@ -52,6 +52,8 @@ export interface HomeSnapshot {
   pages: HomeSnapshotPage[];
   /** The workspace emoji the pages use, `name → data: URL`; the site loads no images. */
   emoji: Record<string, string>;
+  /** The pasted pictures the pages embed, `leaf → data: URL`, for the same reason. */
+  images: Record<string, string>;
 }
 
 const MAX_EMOJI = 48;
@@ -68,6 +70,26 @@ function parseEmoji(value: unknown): Record<string, string> {
     if (EMOJI_NAME.test(name) && isText(url, MAX_EMOJI_URL) && EMOJI_PICTURE.test(url)) emoji[name] = url;
   }
   return emoji;
+}
+
+/** Mirrors `lib/websites/images.ts` in Convex: 24 pictures, 2 MB each, 4 MB in all, as base64. */
+const MAX_IMAGES = 24;
+const IMAGE_LEAF = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.(?:png|jpe?g|gif|webp)$/i;
+const MAX_IMAGE_URL = 2_900_000;
+const MAX_IMAGES_TEXT = 5_700_000;
+
+/** Each entry re-checked, as emoji are; one that fails is dropped and shows as missing. */
+function parseImages(value: unknown): Record<string, string> {
+  const images: Record<string, string> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return images;
+  let total = 0;
+  for (const [leaf, url] of Object.entries(value).slice(0, MAX_IMAGES)) {
+    if (!IMAGE_LEAF.test(leaf) || !isText(url, MAX_IMAGE_URL) || !EMOJI_PICTURE.test(url)) continue;
+    if (total + url.length > MAX_IMAGES_TEXT) continue;
+    total += url.length;
+    images[leaf] = url;
+  }
+  return images;
 }
 
 /**
@@ -130,7 +152,13 @@ export function parseHomeSnapshot(value: unknown): HomeSnapshot | null {
     if (!isText(page.title, 200) || !isText(page.markdown)) return null;
     pages.push({ path: page.path, routePath: page.routePath, title: page.title, markdown: page.markdown });
   }
-  return { siteName: body.siteName, revision: body.revision, pages, emoji: parseEmoji(body.emoji) };
+  return {
+    siteName: body.siteName,
+    revision: body.revision,
+    pages,
+    emoji: parseEmoji(body.emoji),
+    images: parseImages(body.images),
+  };
 }
 
 /**
@@ -173,9 +201,15 @@ async function postJson(url: string, body: unknown, limitMs: number): Promise<un
   return await response.json();
 }
 
+/**
+ * The answer's shape, in the key: a copy kept before the snapshot carried its
+ * pictures (`images`) would otherwise be served until the next Publish.
+ */
+const SNAPSHOT_FORMAT = "v2";
+
 function keyFor(handle: string, revision: string): Request {
   return new Request(
-    `https://home-site.invalid/${encodeURIComponent(handle)}/${encodeURIComponent(revision)}`,
+    `https://home-site.invalid/${SNAPSHOT_FORMAT}/${encodeURIComponent(handle)}/${encodeURIComponent(revision)}`,
   );
 }
 

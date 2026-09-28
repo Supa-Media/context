@@ -1,0 +1,297 @@
+/**
+ * Leaving managed storage with the whole bucket intact.
+ *
+ * This is the launch gate for the free tier: an owner can paste a bucket they
+ * control, Context copies and verifies every raw object while the managed
+ * bucket stays live, and only then swaps the binding. The path is plan-blind —
+ * free, paid and cancelled owners get the same exit.
+ *
+ * ## Sabotage record
+ *
+ * Temporarily reversing both source-identity comparisons in the cutover
+ * mutation made the changed-source case cut over and schedule deletion. The
+ * final test failed on `{ cutover: true }`, proving it guards the destructive
+ * boundary rather than merely documenting it.
+ */
+
+import { describe, expect, test } from "vitest";
+import { api, internal } from "../_generated/api";
+import {
+  FAKE_STORAGE,
+  addMember,
+  asUser,
+  captureError,
+  createUser,
+  createWorkspace,
+  errorCode,
+  setupTest,
+} from "./fixtures.helpers";
+import { decryptSecret, encryptSecret, requireKeyset } from "../functions/lib/crypto";
+import { managedBucketName } from "../functions/lib/managedStorage";
+
+async function managedContext() {
+  const t = setupTest();
+  const owner = await createUser(t, "handoff-owner@example.invalid");
+  const workspaceId = await createWorkspace(t, owner, "handoff");
+  const encryptedSecretAccessKey = await encryptSecret(
+    "managed-secret-not-real",
+    requireKeyset(),
+    { workspaceId },
+  );
+  const sourceBindingId = await t.run((ctx) =>
+    ctx.db.insert("storageBindings", {
+      workspaceId,
+      provider: "r2",
+      endpoint: "https://managed-account.r2.cloudflarestorage.example",
+      region: "auto",
+      bucket: managedBucketName(workspaceId),
+      accessKeyId: "managed-token-id",
+      encryptedSecretAccessKey,
+      status: "connected",
+      capabilities: { conditionalWrite: true },
+      boundBy: owner,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+  );
+  await t.run((ctx) =>
+    ctx.db.insert("workspacePlans", {
+      workspaceId,
+      managedStorage: true,
+      fastSearch: false,
+      freeManaged: true,
+      status: "none",
+      managedProvisioning: "ready",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+  );
+  return { t, owner, workspaceId, sourceBindingId };
+}
+
+describe("managed-storage handoff", () => {
+  test("parks an encrypted customer destination without replacing the live source", async () => {
+    const { t, owner, workspaceId, sourceBindingId } = await managedContext();
+
+    await expect(
+      asUser(t, owner).action(api.functions.storage.startManagedStorageHandoff, {
+        workspaceId,
+        ...FAKE_STORAGE,
+        bucket: "customer-owned-context",
+        rootPrefix: "notes",
+      }),
+    ).resolves.toEqual({ started: true });
+
+    const current = await t.run((ctx) => ctx.db.query("storageBindings").unique());
+    expect(current?._id).toBe(sourceBindingId);
+    expect(current?.bucket).toBe(managedBucketName(workspaceId));
+
+    const migration = await t.run((ctx) =>
+      ctx.db.query("managedStorageMigrations").unique(),
+    );
+    expect(migration).toMatchObject({
+      workspaceId,
+      sourceBindingId,
+      direction: "to_customer",
+      targetProvider: "r2",
+      targetBucket: "customer-owned-context",
+      targetRootPrefix: "notes/",
+      status: "copying",
+      phase: "count",
+    });
+    expect(JSON.stringify(migration)).not.toContain(FAKE_STORAGE.secretAccessKey);
+    expect(
+      await decryptSecret(
+        migration!.encryptedTargetSecretAccessKey,
+        requireKeyset(),
+        { workspaceId },
+      ),
+    ).toBe(FAKE_STORAGE.secretAccessKey);
+
+    const jobs = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(jobs.some((job) => job.name.includes("awaitManagedTargetReady"))).toBe(true);
+  });
+
+  test("is owner-only and is not gated by a paid or active plan", async () => {
+    const { t, owner, workspaceId } = await managedContext();
+    const member = await createUser(t, "handoff-member@example.invalid");
+    await addMember(t, workspaceId, member, "member", owner);
+
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, member).action(api.functions.storage.startManagedStorageHandoff, {
+            workspaceId,
+            ...FAKE_STORAGE,
+          }),
+        ),
+      ),
+    ).toBe("INSUFFICIENT_ROLE");
+
+    await t.run(async (ctx) => {
+      const plan = await ctx.db.query("workspacePlans").unique();
+      await ctx.db.patch(plan!._id, { status: "canceled" });
+    });
+    await expect(
+      asUser(t, owner).action(api.functions.storage.startManagedStorageHandoff, {
+        workspaceId,
+        ...FAKE_STORAGE,
+      }),
+    ).resolves.toEqual({ started: true });
+
+    const ownerView = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(ownerView?.handoffStatus).toBe("copying");
+    const memberView = await asUser(t, member).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(memberView?.handoffStatus).toBeUndefined();
+    expect(memberView?.handoffErrorCode).toBeUndefined();
+  });
+
+  test("a bucket-name collision without a managed plan cannot enter the destructive path", async () => {
+    const { t, owner, workspaceId } = await managedContext();
+    await t.run(async (ctx) => {
+      const plan = await ctx.db.query("workspacePlans").unique();
+      await ctx.db.patch(plan!._id, {
+        managedStorage: false,
+        freeManaged: false,
+      });
+    });
+
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, owner).action(api.functions.storage.startManagedStorageHandoff, {
+            workspaceId,
+            ...FAKE_STORAGE,
+          }),
+        ),
+      ),
+    ).toBe("NOT_MANAGED_STORAGE");
+    expect(
+      await t.run((ctx) => ctx.db.query("managedStorageMigrations").unique()),
+    ).toBeNull();
+  });
+
+  test("cuts over only after verification and retires the managed source", async () => {
+    const { t, owner, workspaceId, sourceBindingId } = await managedContext();
+    const encryptedTargetSecretAccessKey = await encryptSecret(
+      FAKE_STORAGE.secretAccessKey,
+      requireKeyset(),
+      { workspaceId },
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("managedStorageMigrations", {
+        workspaceId,
+        sourceBindingId,
+        direction: "to_customer",
+        targetProvider: "r2",
+        targetEndpoint: FAKE_STORAGE.endpoint,
+        targetRegion: FAKE_STORAGE.region,
+        targetBucket: FAKE_STORAGE.bucket,
+        targetRootPrefix: "archive/",
+        targetAccessKeyId: FAKE_STORAGE.accessKeyId,
+        encryptedTargetSecretAccessKey,
+        status: "copying",
+        phase: "verify_target",
+        objectsCopied: 14,
+        objectsProcessedInPhase: 14,
+        changesInPass: 0,
+        readyToCutover: true,
+        startedBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    await expect(
+      t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, {
+        workspaceId,
+      }),
+    ).resolves.toEqual({ cutover: true });
+
+    const current = await t.run((ctx) => ctx.db.query("storageBindings").unique());
+    expect(current).toMatchObject({
+      provider: "r2",
+      endpoint: FAKE_STORAGE.endpoint,
+      region: FAKE_STORAGE.region,
+      bucket: FAKE_STORAGE.bucket,
+      rootPrefix: "archive/",
+      accessKeyId: FAKE_STORAGE.accessKeyId,
+    });
+    expect(await t.run((ctx) => ctx.db.query("managedStorageMigrations").unique())).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("workspacePlans").unique())).toMatchObject({
+      managedStorage: false,
+      freeManaged: false,
+    });
+
+    const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(audit.map((event) => event.action)).toContain("storage.managed_handed_off");
+    const jobs = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(jobs.some((job) => job.name.includes("deleteManagedStorageAfterHandoff"))).toBe(true);
+  });
+
+  test("a changed source fails closed and schedules no managed-bucket deletion", async () => {
+    const { t, owner, workspaceId, sourceBindingId } = await managedContext();
+    const encryptedTargetSecretAccessKey = await encryptSecret(
+      FAKE_STORAGE.secretAccessKey,
+      requireKeyset(),
+      { workspaceId },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("managedStorageMigrations", {
+        workspaceId,
+        sourceBindingId,
+        direction: "to_customer",
+        targetProvider: "r2",
+        targetEndpoint: FAKE_STORAGE.endpoint,
+        targetRegion: FAKE_STORAGE.region,
+        targetBucket: FAKE_STORAGE.bucket,
+        targetAccessKeyId: FAKE_STORAGE.accessKeyId,
+        encryptedTargetSecretAccessKey,
+        status: "copying",
+        phase: "verify_target",
+        objectsCopied: 1,
+        changesInPass: 0,
+        readyToCutover: true,
+        startedBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      const source = await ctx.db.get(sourceBindingId);
+      await ctx.db.delete(source!._id);
+      await ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "r2",
+        endpoint: "https://other.r2.cloudflarestorage.example",
+        region: "auto",
+        bucket: "changed-under-copy",
+        accessKeyId: "other-key",
+        encryptedSecretAccessKey: source!.encryptedSecretAccessKey,
+        status: "connected",
+        capabilities: { conditionalWrite: true },
+        boundBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, {
+        workspaceId,
+      }),
+    ).resolves.toEqual({ cutover: false });
+    const jobs = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(jobs.some((job) => job.name.includes("deleteManagedStorageAfterHandoff"))).toBe(false);
+  });
+});

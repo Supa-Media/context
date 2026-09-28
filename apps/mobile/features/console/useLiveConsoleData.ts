@@ -170,6 +170,9 @@ export function useLiveConsoleData(): ConsoleData {
   const results = useQueries(queries);
   const revoke = useMutation(api.functions.grants.revokeGrant);
   const bindStorage = useAction(api.functions.storage.bindStorage);
+  const startManagedStorageHandoff = useAction(
+    api.functions.storage.startManagedStorageHandoff,
+  );
   /*
     The same action `useFileBrowser` holds, taken here too rather than threaded
     up through `FileBrowser`'s interface: `useAction` returns a callable, not a
@@ -349,6 +352,7 @@ export function useLiveConsoleData(): ConsoleData {
   const storageActions: StorageActions | undefined = storageActionsFor(selectedContextId, isOwner, {
     reverifyStorage,
     bindStorage,
+    startManagedStorageHandoff,
     disconnectStorage,
     observeStorageLayout,
   });

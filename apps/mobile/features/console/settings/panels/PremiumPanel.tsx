@@ -60,10 +60,9 @@ import type { SettingsSectionKey } from "../sections";
  * it.** That is the one change to this file that would look like a feature and
  * be a different product.
  *
- * It is stated as a promise rather than offered as a button because the export
- * and hand-off path is not built yet (`docs/decisions/storage-and-credentials.md`
- * says so in its own last paragraph). A button that did nothing would be worse
- * than a sentence that is true.
+ * This panel states the promise; Settings → Storage owns the actionable
+ * managed-to-customer handoff. Keeping the operation with the live binding
+ * avoids turning an exit into a Premium entitlement.
  *
  * ## Per context, not per person
  *
