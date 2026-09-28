@@ -5,6 +5,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 import worker from "../src/index.js";
@@ -37,4 +38,9 @@ test("a workspace-prefixed path is a context, not the domain", async () => {
 test("refuses anything but GET and HEAD", async () => {
   const response = await get("/.well-known/openai-apps-challenge", { OPENAI_APPS_CHALLENGE: TOKEN }, "POST");
   assert.equal(response.status, 405);
+});
+
+test("the product deployment publishes OpenAI's issued challenge token", async () => {
+  const config = await readFile(new URL("../wrangler.toml", import.meta.url), "utf8");
+  assert.match(config, /^OPENAI_APPS_CHALLENGE\s*=\s*"[A-Za-z0-9._~-]{8,512}"\s*$/m);
 });
