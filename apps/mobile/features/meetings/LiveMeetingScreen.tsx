@@ -98,18 +98,7 @@ import { useMeetingsSnapshot, useTick } from "./useMeetings";
  * having to find it. `app/(app)/meetings/[id].tsx` is the one place that
  * chooses which of the two screens to draw.
  */
-export function LiveMeetingScreen({
-  meetingId,
-  onClose,
-}: {
-  meetingId: string;
-  /**
-   * What the chevron does. Absent is `router.back()`, the meetings route's
-   * own; the homepage shows this screen over itself on a phone and passes
-   * its own close, since going back there would leave the site.
-   */
-  onClose?: () => void;
-}) {
+export function LiveMeetingScreen({ meetingId, onClose }: { meetingId: string; onClose?: () => void }) {
   const snapshot = useMeetingsSnapshot();
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
