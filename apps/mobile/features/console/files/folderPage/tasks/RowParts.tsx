@@ -23,6 +23,7 @@ import { QuickAddComposer } from "./QuickAddComposer";
 import type { TaskMenuModel } from "./useTaskMenu";
 import type { DropVerdict } from "./taskDrop";
 import type { TaskControls } from "./useTaskActions";
+import { keyboardFocus } from "../rowCells";
 
 /** Whether a press asked to pick the row rather than open it: Shift, ⌘ or Ctrl held. */
 export function isPickPress(event: GestureResponderEvent | undefined): boolean {
@@ -120,11 +121,14 @@ export function RowFrame({
 export function DropArea({
   controls,
   status,
+  park = false,
   children,
   testID,
 }: {
   controls: TaskControls | null;
   status: string;
+  /** The Backlog band: a drop parks the row (`TaskControls.parkVerdict`) — into the Backlog folder where there is one. */
+  park?: boolean;
   children: (hint: string | null) => ReactNode;
   testID?: string;
 }) {
@@ -136,10 +140,10 @@ export function DropArea({
     onOver: setOver,
     onDrop: () => {
       setOver(false);
-      if (controls !== null) controls.drop(controls.statusVerdict(status));
+      if (controls !== null) controls.drop(park ? controls.parkVerdict() : controls.statusVerdict(status));
     },
   });
-  const verdict = over && enabled && controls !== null ? controls.statusVerdict(status) : null;
+  const verdict = over && enabled && controls !== null ? (park ? controls.parkVerdict() : controls.statusVerdict(status)) : null;
   const hint = verdict === null || verdict.kind === "none" ? null : verdict.hint;
   return (
     <View ref={ref as never} collapsable={false} style={hint === null ? undefined : styles.areaOver} testID={testID}>
@@ -167,14 +171,24 @@ export function PickBox({ picked, shown, label, onPick }: { picked: boolean; sho
   );
 }
 
-/** "+ Subtask", on a task row's hover. */
+/** "+" for a subtask, on a task row's hover: a mark, so it covers as little of the name as it can. */
 export function SubtaskButton({ shown, onPress }: { shown: boolean; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [focused, setFocused] = useState(false);
   return (
-    <Pressable onPress={onPress} role="button" accessibilityLabel="Add a subtask" style={[styles.mini, !shown && styles.quiet]} testID="task-add-subtask">
-      <Text variant="meta" style={styles.miniText}>
-        + Subtask
-      </Text>
+    <Pressable
+      onPress={onPress}
+      onFocus={(event) => setFocused(keyboardFocus(event))}
+      onBlur={() => setFocused(false)}
+      role="button"
+      accessibilityLabel="Add a subtask"
+      // The words the mark stands for, under the pointer.
+      {...({ title: "Add a subtask" } as object)}
+      style={[styles.mini, styles.miniMark, !shown && !focused && styles.quiet]}
+      testID="task-add-subtask"
+    >
+      <Icon name="plus" size={12} color={colors.text2} />
     </Pressable>
   );
 }
@@ -272,6 +286,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       paddingVertical: 2,
     },
     miniText: { color: colors.text2 },
+    miniMark: { paddingVertical: 4 },
     addLine: { paddingVertical: space.x2, paddingLeft: space.x6 + 2 },
     nested: { paddingLeft: 42 },
     addText: { color: colors.chromeMuted },

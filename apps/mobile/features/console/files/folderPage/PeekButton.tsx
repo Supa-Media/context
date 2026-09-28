@@ -14,6 +14,7 @@ import { radii, space, type Shadows } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import type { ItemActions } from "./items";
 import type { FolderItem } from "./model";
+import { keyboardFocus } from "./rowCells";
 
 const HINT = "Open in side panel";
 
@@ -30,7 +31,7 @@ export function PeekButton({ item, actions, shown }: { item: FolderItem; actions
         onPress={() => peek(item)}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
-        onFocus={() => setFocused(true)}
+        onFocus={(event) => setFocused(keyboardFocus(event))}
         onBlur={() => setFocused(false)}
         role="button"
         accessibilityLabel={HINT}
@@ -42,8 +43,10 @@ export function PeekButton({ item, actions, shown }: { item: FolderItem; actions
           Open
         </Text>
       </Pressable>
-      {hovered || focused ? (
-        // The words the mark stands for, as Notion's tooltip says them.
+      {hovered ? (
+        // The words the mark stands for, as Notion's tooltip says them — under the pointer only: a
+        // button keeps the focus a click gave it, and a hint left standing over the row above it
+        // covered that row's name until something else was clicked. The keyboard hears the label.
         <View style={styles.hint} aria-hidden pointerEvents="none">
           <Text variant="treeMeta" numberOfLines={1} style={styles.hintText}>
             {HINT}

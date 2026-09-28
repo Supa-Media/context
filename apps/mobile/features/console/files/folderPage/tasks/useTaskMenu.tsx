@@ -23,6 +23,7 @@ import type { TaskHost } from "./taskHost";
 import { taskMenuAction, taskMenuItems } from "./taskMenu";
 import { dueLabel } from "./taskWords";
 import type { TaskControls } from "./useTaskActions";
+import { isParked } from "./backlogFolder";
 
 export type Anchor = { readonly x: number; readonly y: number };
 
@@ -72,7 +73,8 @@ export function useTaskMenu(options: TaskMenuOptions): TaskMenuModel {
         isSubtask: parent !== null,
         hasSubtasks: item.progress !== null,
         statusSections,
-        backlog: controls.backlog,
+        // Parked already (in the Backlog folder) is offered no Move to Backlog; the folder never matches a status.
+        backlog: controls.backlogFolder !== null && parent === null ? (isParked(item.path, controls.backlogFolder) ? null : controls.backlogFolder) : controls.backlog,
         nestTargets: items
           .filter((each) => each.status !== "" && each.path !== item.path && each.path !== parent?.path)
           .map((each) => ({ path: each.path, label: each.label })),

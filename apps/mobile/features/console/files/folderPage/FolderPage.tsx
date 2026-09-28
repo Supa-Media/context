@@ -79,6 +79,8 @@ import { PanelBeside } from "./panel/PanelBeside";
 import { TaskPanel } from "./panel/TaskPanel";
 import { useTaskPanel } from "./panel/useTaskPanel";
 import { usePendingNotes } from "./tasks/usePendingNotes";
+import { backlogFolderOf } from "./tasks/backlogFolder";
+import { parkedOnBoard } from "./boardLayout";
 import { useFolderTasks } from "./tasks/useFolderTasks";
 
 export type { FolderPageHost } from "./useFolderPage";
@@ -144,8 +146,13 @@ export function FolderPage({
   const parentFolder = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
   const parentStatuses = useMemo(() => folderStatuses(parentFolder, notes ?? []), [parentFolder, notes]);
   const list = statuses.list;
-  // The Board draws tasks only: a child with no status is a note, not a card.
-  const groups = useMemo(() => groupFolderItems(items.filter((item) => item.status !== ""), "status", list), [items, list]);
+  // `backlog/` in this folder is its Backlog: drawn as the band, never as a row (`tasks/backlogFolder.ts`).
+  const parkedIn = useMemo(() => backlogFolderOf(items, folder), [items, folder]);
+  // The Board draws tasks only: a child with no status is a note, not a card; the Backlog folder is its rail.
+  const groups = useMemo(
+    () => groupFolderItems(items.filter((item) => item.status !== "" && item.path !== parkedIn?.path), "status", list),
+    [items, list, parkedIn],
+  );
   const people = host?.people;
   const choices = useMemo(() => {
     const memo = new Map<string, readonly string[]>();
@@ -191,9 +198,11 @@ export function FolderPage({
   const counts = useMemo(() => chipCounts(allTasks, taskOwners.who), [allTasks, taskOwners.who]);
   // A filter remembered from when there were tasks narrows nothing once there are none: its bar is gone.
   const shown = allTasks.length === 0 ? EVERYONE : filter;
+  // A writer is always shown somewhere to park; a reader only what is parked.
+  const writer = loaded.canEdit && host?.tasks !== undefined;
   const layout = useMemo(
-    () => listLayout(items, list, notes ?? [], filterMatch(shown, taskOwners.who)),
-    [items, list, notes, shown, taskOwners.who],
+    () => listLayout(items, list, notes ?? [], filterMatch(shown, taskOwners.who), { folder: parkedIn, always: writer }),
+    [items, list, notes, shown, taskOwners.who, parkedIn, writer],
   );
   const suggestAgents = useMemo(
     () => (suggestFor === undefined ? undefined : (path: string, prefer: readonly string[]) => suggestFor(path, prefer, agentList)),
@@ -237,6 +246,7 @@ export function FolderPage({
     onOpen: openItem,
     makeTaskLabel,
     compact,
+    backlogFolder: parkedIn?.path ?? null,
   });
 
   if (host === undefined) {
@@ -314,6 +324,8 @@ export function FolderPage({
     tasks: tasks.controls,
     taskMenu: tasks.menu,
   };
+  // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
+  const parked = parkedOnBoard(parkedIn, notes ?? [], tasks.controls, writer);
   const problem = loaded.problem ?? tidyProblem ?? tasks.controls?.problem ?? null;
   const peeking = panel.path;
   // Drawn at the width the peek gives it (`PanelBeside`).
@@ -336,6 +348,7 @@ export function FolderPage({
             onShow={panel.show}
             onNavigate={onSelect}
             onClose={panel.close}
+            {...(host.editing === undefined ? {} : { editing: host.editing })}
           />
         );
 
@@ -408,7 +421,7 @@ export function FolderPage({
             </Text>
           ) : (
             <View style={compact || pageWidth <= 0 || beside !== null ? undefined : [styles.wide, { width: boardWidth(columnCount, bands.length, pageWidth) }]}>
-              <FolderBoard bands={bands} compact={compact} now={now} actions={actions} />
+              <FolderBoard bands={bands} compact={compact} now={now} actions={actions} parked={parked} />
             </View>
           )
         ) : (

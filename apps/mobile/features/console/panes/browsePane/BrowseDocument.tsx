@@ -21,6 +21,7 @@ import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
 import type { FolderListingState } from "./useFolderListing";
 import { useTaskHost } from "./useTaskHost";
+import { usePeekEditing } from "./usePeekEditing";
 
 /**
  * Whatever is in front of somebody: the empty state or the phone's landing
@@ -86,6 +87,8 @@ export function BrowseDocument({
   const people = data.members?.members;
   // Adding, nesting and moving a project's tasks, through the console's own writes (undefined for who may not write).
   const tasks = useTaskHost(files, current?.id, folderLists, setFolderDialog);
+  // The one editor, lent to a folder page's side peek: the note typed in there is the editor's note, in its room.
+  const editing = usePeekEditing(files, presence);
   const folderPage = useMemo(
     () =>
       folderLists === undefined || current?.id == null
@@ -100,8 +103,9 @@ export function BrowseDocument({
               .flatMap((member) => [member.name ?? "", member.email ?? ""])
               .filter((word) => word !== ""),
             ...(tasks === undefined ? {} : { tasks }),
+            ...(editing === undefined ? {} : { editing }),
           },
-    [folderLists, current?.id, people, tasks],
+    [folderLists, current?.id, people, tasks, editing],
   );
   /**
    * Where a phone starts, when nothing has been opened yet.

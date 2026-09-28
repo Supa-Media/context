@@ -23,7 +23,7 @@ import type { LinkedTitleValues } from "./useLinkedTitle";
 import type { ListingsValues } from "./useListings";
 import type { NoteReadsValues } from "./useNoteReads";
 import type { OfflineQueueValues } from "./useOfflineQueue";
-import type { OpenNoteValues } from "./useOpenNote";
+import type { BesideNoteValues } from "./useBesideNote";
 import type { PendingOpsValues } from "./usePendingOps";
 import type { RowCommandsValues } from "./useRowCommands";
 import type { SavingValues } from "./useSaving";
@@ -70,7 +70,7 @@ type FileBrowserValueDeps =
     | "voteForm"
   >
   & Pick<ListingsValues, "collapseAll" | "contextId" | "ensureListing" | "search" | "toggleFolder">
-  & Pick<OpenNoteValues, "deselect" | "select">
+  & Pick<BesideNoteValues, "beside" | "closeBeside" | "deselect" | "openBeside" | "select">
   & Pick<LinkedTitleValues, "focusTitle" | "setTitleCaret" | "titleEdit" | "titleFocus">
   & Pick<SavingValues, "flushAutosave" | "save">
   & Pick<
@@ -134,13 +134,13 @@ type FileBrowserValueDeps =
 
 export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
   const {
-    options, answerOp, applyPluginNoteWrite, archive, archiveMany, busy, clipboard, collapseAll,
+    options, answerOp, applyPluginNoteWrite, archive, archiveMany, beside, busy, clipboard, closeBeside, collapseAll,
     conflict, contextId, contextMoves, copyManyTo, copyShareLink, copyTo, createDrawing,
     createFolder, createNote, createUntitled, deselect, destinationFolders, destroy, destroyMany,
     discard, discardLocalCopies, dismissContextMove, dismissNotice, dismissToast, download,
     duplicate, editor, encryptedElsewhere, ensureListing, expanded, flushAutosave, keepMine,
     linkPaths, listings, loadImage, loading, mayShare, mirrorStatus, move, moveDestinations,
-    moveMany, moveToContext, navigations, notice, offline, onExternalWrite, onSaved, openLinkPaths,
+    moveMany, moveToContext, navigations, notice, offline, onExternalWrite, onSaved, openBeside, openLinkPaths,
     opening, paste, pending, readFormResponses, readRaw, rename, renamed, resetPrivacy, resolveWith,
     restoreMany, resumeContextMove, retractFormResponse, revokeShare, save, say, search, select,
     selectedPath, setClipboard, setCollaborationDraft, setCollaborationOwned,
@@ -174,6 +174,9 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       navigations,
       renamed,
       deselect,
+      openBeside,
+      closeBeside,
+      beside,
       search,
       editor,
       setDraft,
@@ -355,6 +358,9 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       navigations,
       renamed,
       deselect,
+      openBeside,
+      closeBeside,
+      beside,
       selectedPath,
       opening,
       setDraft,

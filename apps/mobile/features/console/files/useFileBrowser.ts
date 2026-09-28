@@ -29,6 +29,7 @@ import { useOfflineQueue } from "./fileBrowser/useOfflineQueue";
 import { useNoteReads } from "./fileBrowser/useNoteReads";
 import { useListings } from "./fileBrowser/useListings";
 import { useOpenNote } from "./fileBrowser/useOpenNote";
+import { useBesideNote } from "./fileBrowser/useBesideNote";
 import { useRunOperation } from "./fileBrowser/useRunOperation";
 import { useSaving } from "./fileBrowser/useSaving";
 import { useConflictsAndDrafts } from "./fileBrowser/useConflictsAndDrafts";
@@ -67,7 +68,9 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   const withNoteReads = { ...withOfflineQueue, ...useNoteReads(withOfflineQueue) };
   const withListings = { ...withNoteReads, ...useListings(withNoteReads) };
   const withOpenNote = { ...withListings, ...useOpenNote(withListings) };
-  const withRunOperation = { ...withOpenNote, ...useRunOperation(withOpenNote) };
+  // The peek's loan of the editor; its `select` and `deselect` replace the ones above for every part after.
+  const withBeside = { ...withOpenNote, ...useBesideNote(withOpenNote) };
+  const withRunOperation = { ...withBeside, ...useRunOperation(withBeside) };
   const withSaving = { ...withRunOperation, ...useSaving(withRunOperation) };
   const withConflictsAndDrafts = { ...withSaving, ...useConflictsAndDrafts(withSaving) };
   const withQueuedOps = { ...withConflictsAndDrafts, ...useQueuedOps(withConflictsAndDrafts) };

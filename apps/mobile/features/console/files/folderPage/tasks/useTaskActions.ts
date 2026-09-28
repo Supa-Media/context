@@ -30,8 +30,10 @@ import type { PendingRecord } from "./usePendingNotes";
 import { noteFromText } from "./pendingNotes";
 import { backlogWord, planAddSubtask, planNewTask, planPark, runTaskPlan, type Planned, type TaskSnapshot, type TaskWriteIO } from "./taskWrites";
 import { runManyPlanned, statusPlan, taskRefOf } from "./taskEdits";
+import { groupLabel } from "../../listBlock/words";
 import { rowDrop, statusDrop, type DropVerdict, type DropZone } from "./taskDrop";
 import { tagsInUse } from "./taskWords";
+import { isParked, planParkInFolder, planUnpark } from "./backlogFolder";
 import type { ListNote } from "../../listBlock/model";
 
 /** Where the composer is open. */
@@ -68,6 +70,10 @@ export interface TaskControls {
   readonly lookup: (path: string) => IndexedItem | undefined;
   readonly list: StatusList;
   readonly backlog: string | null;
+  /** The page's Backlog folder (`backlog/` in it), where parking moves a row; null for none. */
+  readonly backlogFolder: string | null;
+  /** What "Move to Backlog" does to `item`: into the Backlog folder, else the Backlog word. */
+  parkPlan(item: FolderItem): Planned;
   readonly problem: string | null;
   /* the selection */
   readonly selected: ReadonlySet<string>;
@@ -83,6 +89,8 @@ export interface TaskControls {
   endDrag(): void;
   rowVerdict(target: FolderItem, zone: DropZone): DropVerdict;
   statusVerdict(status: string): DropVerdict;
+  /** A drop on the Backlog band or rail: parks the dragged row. */
+  parkVerdict(): DropVerdict;
   /** Carry out a verdict on the dragged task. */
   drop(verdict: DropVerdict): void;
 }
@@ -98,6 +106,7 @@ export function useTaskActions({
   record,
   owners,
   projectsHere,
+  backlogFolder = null,
   onRemember,
 }: {
   host: TaskHost | undefined;
@@ -111,6 +120,8 @@ export function useTaskActions({
   owners: OwnerChoice | undefined;
   /** The page's rows are projects (`rowsAreProjects`). */
   projectsHere: boolean;
+  /** The page's Backlog folder, when it has one (`backlogFolder.ts`). */
+  backlogFolder?: string | null;
   /** Puts what a write touched into this device's copy (`FolderListSource.remember`). */
   onRemember: ((written: readonly string[], gone: readonly string[]) => Promise<void>) | undefined;
 }): TaskControls | null {
@@ -290,24 +301,53 @@ export function useTaskActions({
   );
 
   const backlog = backlogWord(list);
+  // Into the Backlog folder when the page has one and the row is the page's own; else the Backlog word.
+  const parkPlan = useCallback(
+    (item: FolderItem): Planned => {
+      if (backlogFolder !== null && (parentPath(item.path) === folder || isParked(item.path, backlogFolder))) {
+        return planParkInFolder(taskRefOf(item), backlogFolder, snapshot());
+      }
+      return planPark(taskRefOf(item), list);
+    },
+    [backlogFolder, folder, list, snapshot],
+  );
+  const draggedItem = useCallback(() => (dragging === null ? undefined : latest.current.index.get(dragging)?.item), [dragging]);
+  const parkVerdict = useCallback((): DropVerdict => {
+    const dragged = draggedItem();
+    if (dragged === undefined) return { kind: "none" };
+    const planned = parkPlan(dragged);
+    return planned.ok ? { kind: "plan", hint: "Drop here to move to Backlog", planned } : { kind: "none" };
+  }, [draggedItem, parkPlan]);
+  /** A parked row let go on a status: out of the Backlog folder, with that status. */
+  const unparkVerdict = useCallback(
+    (dragged: FolderItem, status: string): DropVerdict => {
+      const planned = planUnpark(taskRefOf(dragged), backlogFolder!, status, snapshot());
+      return planned.ok ? { kind: "plan", hint: `Move out of Backlog to ${groupLabel("status", status)}`, planned } : { kind: "refused", hint: planned.problem };
+    },
+    [backlogFolder, snapshot],
+  );
   const rowVerdict = useCallback(
     (target: FolderItem, zone: DropZone): DropVerdict => {
-      const dragged = dragging === null ? undefined : latest.current.index.get(dragging)?.item;
-      return dragged === undefined ? { kind: "none" } : rowDrop(dragged, target, zone, snapshot());
+      const dragged = draggedItem();
+      if (dragged === undefined) return { kind: "none" };
+      // A row of the Backlog band is Backlog: letting go on it parks, wherever on it.
+      if (isParked(target.path, backlogFolder)) return isParked(dragged.path, backlogFolder) ? { kind: "none" } : parkVerdict();
+      if (isParked(dragged.path, backlogFolder) && zone !== "middle" && parentPath(target.path) === folder) {
+        return unparkVerdict(dragged, target.status);
+      }
+      return rowDrop(dragged, target, zone, snapshot());
     },
-    [dragging, snapshot],
+    [draggedItem, backlogFolder, folder, parkVerdict, unparkVerdict, snapshot],
   );
   const statusVerdict = useCallback(
     (status: string): DropVerdict => {
-      const dragged = dragging === null ? undefined : latest.current.index.get(dragging)?.item;
+      const dragged = draggedItem();
       if (dragged === undefined) return { kind: "none" };
-      if (backlog !== null && status.toLowerCase() === backlog.toLowerCase()) {
-        const planned = planPark(taskRefOf(dragged), list);
-        return planned.ok ? { kind: "plan", hint: "Drop here to move to Backlog", planned } : { kind: "none" };
-      }
+      if (backlog !== null && status.toLowerCase() === backlog.toLowerCase()) return parkVerdict();
+      if (isParked(dragged.path, backlogFolder)) return status === "" ? { kind: "none" } : unparkVerdict(dragged, status);
       return statusDrop(dragged, status);
     },
-    [dragging, backlog, list],
+    [draggedItem, backlog, backlogFolder, parkVerdict, unparkVerdict],
   );
   const drop = useCallback(
     (verdict: DropVerdict) => {
@@ -342,6 +382,8 @@ export function useTaskActions({
       lookup: (path) => latest.current.index.get(path),
       list,
       backlog,
+      backlogFolder,
+      parkPlan,
       problem,
       selected,
       togglePick: (path) =>
@@ -362,10 +404,11 @@ export function useTaskActions({
       endDrag: () => setDragging(null),
       rowVerdict,
       statusVerdict,
+      parkVerdict,
       drop,
     };
   }, [
     canWrite, composer, addTask, addSubtask, projectsHere, firstToDo, owners, tagSuggestions, perform, performMany, snapshot, list,
-    backlog, problem, selected, menu, dragging, rowVerdict, statusVerdict, drop,
+    backlog, backlogFolder, parkPlan, problem, selected, menu, dragging, rowVerdict, statusVerdict, parkVerdict, drop,
   ]);
 }

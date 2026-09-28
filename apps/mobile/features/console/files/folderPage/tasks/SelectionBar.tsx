@@ -20,9 +20,8 @@ import { OwnerPicker } from "../OwnerPicker";
 import type { StatusMenuSection } from "../statuses";
 import { ComposerMenu, type Anchor } from "./QuickAddParts";
 import { ownersPlan, priorityPlan } from "./menuRun";
-import { countTasks, statusPlan, taskRefOf } from "./taskEdits";
+import { countTasks, statusPlan } from "./taskEdits";
 import type { TaskHost } from "./taskHost";
-import { planPark } from "./taskWrites";
 import { PRIORITIES, PRIORITY_LABELS, priorityLabel, type Priority } from "./taskWords";
 import type { TaskControls } from "./useTaskActions";
 
@@ -70,7 +69,7 @@ export function SelectionBar({
     );
   const park = () =>
     void controls.performMany(
-      picked.map((item) => planPark(taskRefOf(item), controls.list)),
+      picked.map((item) => controls.parkPlan(item)),
       (done) => `Moved ${countTasks(done)} to Backlog.`,
     );
 
@@ -82,7 +81,7 @@ export function SelectionBar({
       <Opener label="Status" onOpen={(anchor) => setOpen({ kind: "status", anchor })} testID="task-selection-status" />
       <Opener label="Priority" onOpen={(anchor) => setOpen({ kind: "priority", anchor })} testID="task-selection-priority" />
       {owners === undefined ? null : <Opener label="Owner" onOpen={(anchor) => setOpen({ kind: "owner", anchor })} testID="task-selection-owner" />}
-      {controls.backlog === null ? null : <Button label="Move to Backlog" variant="mini" onPress={park} testID="task-selection-park" />}
+      {controls.backlog === null && controls.backlogFolder === null ? null : <Button label="Move to Backlog" variant="mini" onPress={park} testID="task-selection-park" />}
       {host.archive === undefined ? null : (
         <Button
           label="Archive"

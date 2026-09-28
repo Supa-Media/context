@@ -157,8 +157,10 @@ slim rail at the left** (decided by the owner, 2026-09-28): its count and name
 down its length, somewhere to drop a card to park it (the drop writes the
 list's Backlog word, as any column drop writes its word), and pressed, it
 opens into a column that folds back. A list with no Backlog word has no rail,
-unless a task still says `backlog` — the same rule that draws the List's
-Backlog band. A card leads with its priority glyph and first tag, then its
+unless a task still says `backlog` or the page has a Backlog folder — the
+same rule that draws the List's Backlog band (see "Backlog as a folder"): the
+folder's children are the rail's cards, a drop on the rail moves a card in,
+and a parked card dropped on a column moves out and takes its word. A card leads with its priority glyph and first tag, then its
 name, a progress bar and "2 of 4 done" for a task holding subtasks, its due
 day and its first owner's face; a long Done column shows five and "Show N
 more". The group headings above the columns went with the rail: a column's
@@ -231,6 +233,72 @@ row of a status group, if Backlog stops leading or Done stops closing the
 tasks, if a subtask's notes are counted, or if Make it a task writes backlog;
 `folderPageList.test.ts` fails if the bands stop folding, if a member is
 offered Make it a task, or if the button writes anywhere but the note.
+
+## A row's name takes the room
+
+Reported by the owner on 2026-09-28 with a screenshot: "the spacing here got
+all the way messed up, I cant even read the tasks". Every project's name on
+the projects folder was squeezed to "Po…" or to nothing, while "0 of 4 done"
+wrapped onto three lines, because the hover controls ("+ Subtask", Open) and
+a status column kept their width on every row whether shown or not, and the
+name was the one thing that gave way.
+
+- **The name grows and never goes below `NAME_MIN` (140).** Its progress sits
+  right after it on one line and never shrinks or wraps; after them come only
+  compact cells — the first tag, which gives way first, the due day, and the
+  owner, whose name gives way to its face.
+- **What only matters under the pointer sits at the end of the name**
+  (`RowTools`): Open, "+" (Add a subtask, named in its tooltip) and the status
+  value, shown only while the row is hovered or one of them has the
+  keyboard's focus (`:focus-visible` — a click's focus, which a button keeps,
+  does not leave them standing). While they show, the name makes room for
+  them, its title ending in an ellipsis where they begin, so it is never
+  drawn under them; at rest it keeps all its width. Hover is the row element's own
+  pointer enter and leave on the web, because react-native-web hands hover to
+  the innermost pressable and the tools vanished from under the pointer.
+- **The checkbox sits in the row's left margin** rather than taking a
+  column; Open's tooltip shows on hover only, so a click does not leave it
+  lying over the row above.
+
+What reverting costs: the owner's report, again. `projectsList.spec.ts` (a
+real engine: jsdom has no layout) fails if a name is under 140 wide, if a
+progress wraps or is cut, if a hovered row's tools vanish when the pointer
+reaches them, or if a title is drawn under them, the peek open or not; `projectsListRows.test.ts` pins the styles that hold it.
+
+## Backlog as a folder
+
+Asked by the owner on 2026-09-28: "where is the backlog where I can drag
+things in there". A projects folder parks projects the way a person files
+them — in `1-projects/backlog/` — and the List drew that folder as one more
+project called Backlog, with nowhere to drop.
+
+- **A folder named `backlog` (any case) directly in the page's folder is the
+  page's Backlog.** It is the folded Backlog band, first, counting what is in
+  it — task or note — in task order, and it is never also drawn as a row or a
+  note. A row with the `backlog` word joins the same band.
+- **A drop on the band moves the row into the folder** (`planParkInFolder`,
+  `moveEntry` like every move, so links follow it), with the move back as its
+  Undo; its status is left alone, since where it lives is what says it is
+  parked. The menu's and the phone's Move to Backlog do the same. **A parked
+  row dropped on a status group, or between two of its rows, moves back to
+  the page's folder and takes that status** (`planUnpark`), one Undo taking
+  both steps back last first. A name taken on either side is not overwritten.
+- **Without a folder, Backlog stays a status**: a page whose list has the
+  `backlog` word parks by writing it, as before.
+- **A writer always has the band to drop on** — "Backlog 0 · Drop here to
+  park" — when the page has the word or the folder; a reader sees it only when
+  something is in it, as a band with nothing to do is noise to somebody who
+  may not drop.
+- **The Board's rail is the same place**: the folder's children are its
+  cards, and its drops are the List's.
+
+Only owners and editors drag, and a move is the host's own (`TaskHost.io`),
+so the folder adds no way to write. What reverting costs: a Backlog nobody can
+drop into on the one page that has one. `backlogFolder.test.ts` fails if the
+folder is drawn as a row, if a reader gets an empty band or a writer none, or
+if a park or unpark plans anything but the move (and the status) with an Undo
+that takes it back in order; `projectsListRows.test.ts` fails if a drop on the
+band does not move the row or its Undo does not move it back.
 
 ## Adding and nesting tasks, every write undoable
 
@@ -312,6 +380,11 @@ says rather than keeping a second copy.
   with three, two or one lit, a faint dash for none — because red means
   failure in this palette. Rows run by priority, then newest, inside each
   group. Anything that is not `p0`–`p3` is no priority, never a guess.
+  **For a writer the glyph is a button** (the owner, 2026-09-28: "I also cant
+  inline edit the priority anymore?"): it opens the five choices, each with
+  its glyph, and the choice is the row's own write (`choose`), said with an
+  Undo. A member sees the glyph alone. Status and owner stay one-press values
+  on the row too.
 - **`owner:` may name several** (`owner: [@sayo, Claude]`). A row shows the
   first owner's face and name and "+1": a person's round face with initials,
   an AI helper's rounded square with a robot (never "AI" in letters, which
@@ -329,7 +402,9 @@ What reverting costs: a priority read from free words sorts "high" below
 "low" and paints somebody's `urgent!!` as nothing; a typed owner field
 brings back three spellings of one person. `folderPageTasks.test.ts` fails if
 anything but `p0`–`p3` becomes a priority, if a list of owners loses one, or
-if a past due date reads as a weekday; `folderPageList.test.ts` fails if
+if a past due date reads as a weekday; `projectsListRows.test.ts` fails if a
+writer's priority glyph stops opening the choices or its write has no Undo,
+or if a member can press it; `folderPageList.test.ts` fails if
 `p0` reaches the page, if the robot or the "?" face goes, or if a line of
 several owners is offered as one choice.
 
@@ -361,101 +436,9 @@ writes, if Mine stops matching by handle, or if it is not remembered.
 
 ## The side panel: any row opens beside the list
 
-Decided by the owner on 2026-09-28 ("Projects for everyone"), for tasks, and
-widened the same day to every row: "when in list view or board view, clicking
-on a project or note should open in a side panel, with an option to expand
-fully / open in a new page" — and, to be clear, like Notion's side peek. On a
-desktop page, pressing any row — a task, a subtask, a plain note, a note in a
-task, a Board card, a project on the projects folder's page — opens it on the
-right instead of leaving the page. Each List row also shows "Open" (the side
-panel's mark) while it is hovered or focused, which does the same; its name
-is "Open in side panel".
-
-What the panel shows: where it is ("Café opening › Get the kitchen ready"),
-then **Expand**, **Open in new tab** and ✕; its name; and for a **task** —
-anything with a status, a project included — **Status, Priority, Owners,
-Tags and Due** as one-press values, its **Subtasks** ("2 of 4 done") with a
-dot that ticks each off, and the **Notes** in it, with "+ Add subtask" and "+
-Add a note"; for a plain folder, what is in it. Last, for every row, the
-note's **words**: a note's own, a folder's front note's (`overview.md`, else
-`index.md`, else `README.md`), without the frontmatter the values already
-say and without a first heading that is only the title again. A name in the
-panel — a subtask, a note — opens it here, and the crumb goes back up.
-
-- **Expand** opens the row as its whole page here, where pressing used to go.
-  **Open in new tab** opens it in a tab of its own and leaves the list and
-  the panel where they are — `ConsoleNav.follow` in the background, the same
-  road as ⌘-clicking a link. A tab holds a note, so a folder opens its front
-  note; a folder with none, or a surface with no tabs (the landing page's
-  demo), is not offered it. ✕ or Escape closes the panel (a menu or a field
-  with the key answers Escape first).
-- **The words are read-only here, for everybody, a writer too.** They are
-  drawn by the console's own editor, so a note looks as it does on its page,
-  but that editor is the second one on screen and edits nothing. The console
-  holds one open note — one draft, one autosave, one unsaved-changes guard,
-  one conflict, and one collaboration room the people typing in it share —
-  and a second editable editor would be a second writer of the file outside
-  all of it: the lost keystroke the room exists to prevent. Expand is where a
-  note is edited. The words are read through the page's own source
-  (`FolderListSource.readBody`): this device's copy at exactly the reader's
-  clearance, else the bucket through the server, which applies the same one;
-  an encrypted note says it is locked and its ciphertext is never handed over.
-- **About half the page, and it may lie over the list.** Where the list (at
-  least 480pt) and the panel both fit, the panel is beside it, into the room
-  at the right first; where they do not, the list keeps its width and the
-  panel lies over its right side with a shadow, rather than squeezing both or
-  not opening (`peekLayout`). On the web it stays in view while the list
-  scrolls, and scrolls itself. On a phone pressing a row opens its page as it
-  always did: a panel over a phone's list is the page with less room.
-- **Opening it folds the file tree away; closing it brings the tree back
-  only if it was showing when it opened.** Leaving the page closes it the
-  same way. The tree is the frame's own fold (`setExplorerFolded`: the field
-  the tree's toggle flips, set rather than flipped so a second run cannot
-  land it on the wrong side) — never a second layout — and what the panel
-  remembers is held only while it is on screen, so switching to Notes brings
-  the tree back too.
-- **It is a way of looking, not a record.** Which row is open is held by the
-  page while it is open, per viewer, and forgotten on leaving the folder;
-  nothing is written, as with Show. The open row is marked where it is drawn
-  (`aria-current`), whichever kind it is.
-- **Every value is the row's own write.** A value is one frontmatter line of
-  the task's note through `writeNoteProperty`; several owners are written as a
-  list and each can be taken off by name (the List's row still offers a
-  several-owner line as no single choice, because there picking one would drop
-  the rest). Tags are always written as a list; none clears the line.
-- **A dot flips between Done and To do**: a done subtask goes back to the
-  list's first Not started word that is not Backlog — ticked off by mistake, it
-  is work for now, not an idea for later — and anything else to the first
-  Done word. The words come from the list that describes the subtask.
-- **Adding is planned, then run** (`taskWrites.ts`): a subtask starts at that
-  first To do; a note is a heading and no status, so it is never a subtask. A
-  one-note task becomes a folder on its first subtask *or* note, by the same
-  move (links follow it), and the panel follows it there. A subtask may hold
-  notes; nothing goes deeper. It is the List's own write road (see "Adding
-  and nesting tasks"): drawn at once in the panel and the List, and said
-  with an Undo — one host for both, never a second way to write.
-- **A member reads the same panel with nothing to press** that would write:
-  the dots are drawn, not buttons, and there is nothing to add.
-
-What reverting costs: back to navigating, a project is read one row at a
-time with the list gone each time; a note pressed in a List leaves the list
-behind again; an editable second editor loses keystrokes to the room it
-bypasses; a panel that opens only where it fits beside the list never opens
-on a laptop with the tree showing; a tree folded and never given back is a
-tree somebody has to find the chord for. `taskPanel.test.ts` fails if a wide
-page navigates instead of opening the panel, if a phone opens it, if a dot
-writes anything but Done or the first To do, if a first subtask or note skips
-the conversion, if a subtask added there is not drawn at once or has no Undo,
-or if a member is given a control; `sidePeek.test.ts` fails if a note, a note
-in a task, a subtask or a project does not open beside the list or is not
-marked, if the words are editable or show the frontmatter or a locked note's
-text, if Open in new tab leaves the list or Expand does not, if the tree is
-not folded while the panel is open or is brought back when it was folded
-before, or if a page too narrow for both does not open it over the list;
-`folderListBody.test.ts` fails if a team reader is read a private copy;
-`taskPanelModel.test.ts` pins what the panel reads, its words and where it
-goes; `explorerToggle.test.ts` pins that folding twice is folded;
-`taskWrites.test.ts` pins the plan for a note.
+Its own file: [the side panel](./side-panel.md), including the owner's
+2026-09-28 decision that a writer edits a note there through the console's
+one editing session.
 
 ## A list write is what this device holds afterwards
 
