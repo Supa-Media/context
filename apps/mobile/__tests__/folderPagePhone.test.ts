@@ -325,8 +325,22 @@ async function appearsIn(testID: string, within: ParentNode): Promise<HTMLElemen
   return one(testID, within);
 }
 
+/**
+ * Swipes `name` open until `testID` is among its buttons. A swipe reads which
+ * buttons to offer once, when the gesture starts, so a swipe that began a
+ * moment before the page applied the viewer's handle offers Backlog alone and
+ * no wait afterwards brings Assign back: CI's runner hit exactly that. Closing
+ * and swiping again asks afresh, as a person's second swipe would.
+ */
 async function swipeUntil(name: string, testID: string, distance = 180): Promise<HTMLElement> {
-  await swipe(row(name), distance);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await swipe(row(name), distance);
+    for (let tries = 0; tries < 25 && all(testID, frameOf(row(name))).length === 0; tries++) {
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    }
+    if (all(testID, frameOf(row(name))).length > 0) break;
+    await swipe(row(name), -distance);
+  }
   return appearsIn(testID, frameOf(row(name)));
 }
 

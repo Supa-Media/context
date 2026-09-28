@@ -8,7 +8,10 @@ initials ("SE", "SH") are gone.
 - **The order is fixed**: a photo the person uploaded, then their personal
   workspace's icon (an emoji, or its photo), then the Supa "regular guy" mark.
 - **The default face's ground is coloured from the handle**, a fixed FNV-1a
-  hash of the lowercase handle into `DEFAULT_FACE_GROUNDS`. The same person is
+  hash of the lowercase handle, mixed by Murmur3's finaliser, into twelve
+  distinct hues in `DEFAULT_FACE_GROUNDS`. The owner found the first eight
+  colours too alike (2026-09-28), and FNV alone put short handles like @jon,
+  @shay and @layomi on one colour, because a colour is picked from its low bits. The same person is
   the same colour on every device, forever, and cannot change it except by
   choosing a picture. The mark is inlined as PNG data URLs (`faceLogo.ts`) so
   the phone editor's bundle can draw it with no asset loader. The owner chose
@@ -27,12 +30,14 @@ initials ("SE", "SH") are gone.
 - **Reading another person's workspace icon photo takes a person, never a
   leaf**, and reads the leaf off that person's own row, like
   `workspaceIconPhoto`.
-- **Agents keep their mark.** An agent named for its owner ("@jon's Claude")
-  shows the owner's face on its flag and in the pile; one with no owner shows
-  a robot.
+- **An agent is always a robot**, in the pile, on its typing flag and on its
+  comments, never a person's face, its owner's included (the owner,
+  2026-09-28): the robot is how you tell at a glance it is not a person. Whose
+  agent it is stays in the flag's hover title and the pile's list.
 - **A homepage visitor keeps the visitor silhouette**: no name, no face.
 
 Reversing it re-adds the initials the owner asked to remove. The checks that
 fail are `apps/convex/__tests__/faces.test.ts` (who sees whose, the order,
 upload checks, deletion with the account) and `apps/mobile/__tests__/faces.test.ts`
-(the pinned hash, no letters in the editor's DOM).
+(the pinned hash, no letters in the editor's DOM, an agent is a robot), and
+`apps/mobile/__tests__/presence/caret*.test.ts` (an agent's flag is a robot).

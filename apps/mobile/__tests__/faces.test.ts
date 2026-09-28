@@ -21,7 +21,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { DEFAULT_FACE_GROUNDS } from "../features/design/tokens/colors";
 import { defaultFace, faceIndex } from "../features/console/faces/defaultFace";
-import { faceNode } from "../features/console/faces/faceDom";
+import { faceNode, robotNode } from "../features/console/faces/faceDom";
 import { clearFaces, faceFor, myFace, myHandle, setFaces } from "../features/console/faces/faceStore";
 
 const never = () => Promise.reject(new Error("not asked"));
@@ -72,7 +72,13 @@ describe("the default face", () => {
 
   test("is a fixed function: these handles keep these palettes", () => {
     // Pinned, so a change to the hash is a visible change to everybody's face.
-    expect(["@seyi", "@shay", "@jon", "@layomi"].map(faceIndex)).toEqual([7, 4, 0, 0]);
+    expect(["@seyi", "@shay", "@jon", "@layomi", "@maya"].map(faceIndex)).toEqual([10, 2, 6, 11, 1]);
+  });
+
+  test("gives short, similar handles different colours", () => {
+    // FNV alone put @jon, @shay and @layomi on one colour (Dev2, 2026-09-28).
+    const handles = ["@seyi", "@shay", "@jon", "@layomi", "@maya", "@sam", "@alex"];
+    expect(new Set(handles.map(faceIndex)).size).toBeGreaterThanOrEqual(6);
   });
 
   test("spreads people across the palettes", () => {
@@ -84,6 +90,13 @@ describe("the default face", () => {
     const node = faceNode("@jon", "cm-cmt-av");
     expect(node.querySelector("img")?.getAttribute("src")).toBe(defaultFace("@jon").logo);
     expect(node.style.background).not.toBe("");
+    expect(node.textContent).toBe("");
+  });
+
+  test("in the editor's DOM, an agent is a robot: drawn, not lettered, not a face", () => {
+    const node = robotNode("cm-cmt-av");
+    expect(node.querySelector("svg")).not.toBeNull();
+    expect(node.querySelector("img")).toBeNull();
     expect(node.textContent).toBe("");
   });
 
