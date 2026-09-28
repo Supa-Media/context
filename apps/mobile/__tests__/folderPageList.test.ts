@@ -158,6 +158,15 @@ const one = (testID: string, within: ParentNode = document): HTMLElement => {
 const heads = () => all("folder-group").map((group) => strip(group.firstElementChild?.textContent));
 const row = (name: string) => all("folder-item").find((node) => strip(node.textContent).includes(name))!;
 
+async function appears(testID: string): Promise<HTMLElement> {
+  for (let tries = 0; tries < 50 && all(testID).length === 0; tries++) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  }
+  return one(testID);
+}
+
 async function press(node: HTMLElement) {
   await act(async () => {
     node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -314,7 +323,8 @@ describe("Show", () => {
   test("Owner opens a searchable list of no owner, me, the people and the AI helpers, with counts", async () => {
     await mount(host([]));
     await press(one("folder-show-owner"));
-    const menu = one("folder-owner-filter");
+    // react-native-web measures the button on a later frame before the list opens.
+    const menu = await appears("folder-owner-filter");
     const text = strip(menu.textContent);
     expect(text).toMatch(/No owner4.*Me \(Seyi\)2.*PEOPLE.*@sayo2.*AI HELPERS.*Claude1.*@shay's Claude1/);
     await act(async () => {
