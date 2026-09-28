@@ -167,13 +167,17 @@ const LISTING: FolderListing = {
 };
 
 interface Recorded {
+  /** The page has been told the viewer's handle: "Assign to me" depends on it. */
+  knowsMe: boolean;
+  /** Owner lookups still on their way: the page asks again as its notes arrive, and keeps only the last answer. */
+  asking: number;
   calls: string[];
   toasts: { message: string; undo?: () => void }[];
   archived: string[][];
 }
 
 function host({ member = false }: { member?: boolean } = {}): { page: FolderPageHost; seen: Recorded } {
-  const seen: Recorded = { calls: [], toasts: [], archived: [] };
+  const seen: Recorded = { knowsMe: false, asking: 0, calls: [], toasts: [], archived: [] };
   const setProperty = async (path: string, key: string, value: string | null) => {
     seen.calls.push(`set ${path} ${key}=${JSON.stringify(value)}`);
     return null;
@@ -203,8 +207,16 @@ function host({ member = false }: { member?: boolean } = {}): { page: FolderPage
       me: ["Seyi", "seyi@example.com"],
       source: {
         load: async () => ({ notes: NOTES, complete: true }),
-        resolveOwners: async (words: readonly string[]) =>
-          words.includes("seyi@example.com") ? [{ word: "seyi@example.com", value: "@seyi" }] : [],
+        resolveOwners: async (words: readonly string[]) => {
+          seen.asking++;
+          try {
+            if (!words.includes("seyi@example.com")) return [];
+            seen.knowsMe = true;
+            return [{ word: "seyi@example.com", value: "@seyi" }];
+          } finally {
+            seen.asking--;
+          }
+        },
         ...(member
           ? {}
           : {
@@ -218,7 +230,13 @@ function host({ member = false }: { member?: boolean } = {}): { page: FolderPage
   };
 }
 
-async function mount(page: FolderPageHost) {
+/**
+ * Mounts the page and waits until it has resolved the viewer's handle, which
+ * it asks for asynchronously: until then the menu has no "Assign to me" and a
+ * swipe no Assign, so a test that raced it would pass or fail by the runner's
+ * speed.
+ */
+async function mount(page: FolderPageHost, seen?: Recorded) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -242,6 +260,11 @@ async function mount(page: FolderPageHost) {
       }),
     );
   });
+  await settle();
+  for (let tries = 0; seen !== undefined && (!seen.knowsMe || seen.asking > 0) && tries < 150; tries++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  }
+  if (seen !== undefined && !seen.knowsMe) throw new Error("the page never asked who the viewer is");
   await settle();
   return container;
 }
@@ -294,6 +317,19 @@ async function swipe(node: HTMLElement, distance: number) {
   await settle();
 }
 
+/** Waits for `testID` under `within`, the way `appears` in `folderPageList.test.ts` waits for a menu. */
+async function appearsIn(testID: string, within: ParentNode): Promise<HTMLElement> {
+  for (let tries = 0; tries < 50 && all(testID, within).length === 0; tries++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  }
+  return one(testID, within);
+}
+
+async function swipeUntil(name: string, testID: string, distance = 180): Promise<HTMLElement> {
+  await swipe(row(name), distance);
+  return appearsIn(testID, frameOf(row(name)));
+}
+
 async function type(testID: string, value: string) {
   const input = one(testID) as HTMLInputElement;
   await act(async () => {
@@ -311,8 +347,8 @@ async function enter(testID: string) {
 
 describe("⋯ on a row", () => {
   test("every task and note row has one, a 44pt target", async () => {
-    const { page } = host();
-    await mount(page);
+    const { page, seen } = host();
+    await mount(page, seen);
     const buttons = all("task-more");
     // Three tasks in To do and In progress, and the plain note.
     expect(buttons.length).toBe(all("folder-item").length + all("folder-note").length);
@@ -324,8 +360,8 @@ describe("⋯ on a row", () => {
   });
 
   test("opens a sheet of the menu's actions: priority chips first, then Status to Archive, each with its value", async () => {
-    const { page } = host();
-    await mount(page);
+    const { page, seen } = host();
+    await mount(page, seen);
     await press(one("task-more", frameOf(row("Get the kitchen ready"))));
     const sheet = one("menu-sheet");
     expect(opened).toEqual([]);
@@ -345,7 +381,7 @@ describe("⋯ on a row", () => {
 
   test("a priority chip writes the one line, said with an Undo that takes it back", async () => {
     const { page, seen } = host();
-    await mount(page);
+    await mount(page, seen);
     await press(one("task-more", frameOf(row("Sign the lease"))));
     const urgent = all("task-sheet-priority").find((chip) => strip(chip.textContent).includes("Urgent"))!;
     expect(urgent.getAttribute("aria-checked")).toBe("true");
@@ -360,7 +396,7 @@ describe("⋯ on a row", () => {
 
   test("a row goes where the menu's does: Status › In progress, Move to Backlog", async () => {
     const { page, seen } = host();
-    await mount(page);
+    await mount(page, seen);
     await press(one("task-more", frameOf(row("Take photos"))));
     await press(one("menu-item-status"));
     await press(one("menu-item-status:in progress"));
@@ -373,7 +409,7 @@ describe("⋯ on a row", () => {
 
   test("a note's ⋯ offers its note actions", async () => {
     const { page, seen } = host();
-    await mount(page);
+    await mount(page, seen);
     await press(one("task-more", frameOf(one("folder-note"))));
     expect(all("task-sheet-priority")).toHaveLength(0);
     expect(strip(one("menu-list").textContent)).toBe("Make it a taskOpenCopy linkArchive");
@@ -382,8 +418,8 @@ describe("⋯ on a row", () => {
   });
 
   test("press-and-hold on a row opens the same sheet", async () => {
-    const { page } = host();
-    await mount(page);
+    const { page, seen } = host();
+    await mount(page, seen);
     const target = row("Take photos");
     await act(async () => void target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, buttons: 1 })));
     await act(() => new Promise((resolve) => setTimeout(resolve, 700)));
@@ -398,9 +434,9 @@ describe("⋯ on a row", () => {
 describe("swiping a task left", () => {
   test("reveals Assign and Backlog; Assign writes the viewer's handle, with an Undo", async () => {
     const { page, seen } = host();
-    await mount(page);
+    await mount(page, seen);
     expect(all("task-swipe-me")).toHaveLength(0);
-    await swipe(row("Take photos"), 180);
+    await swipeUntil("Take photos", "task-swipe-me");
     const frame = frameOf(row("Take photos"));
     expect(strip(one("task-swipe-me", frame).textContent)).toBe("Assign");
     expect(one("task-swipe-me", frame).getAttribute("aria-label")).toBe("Assign to me");
@@ -419,8 +455,8 @@ describe("swiping a task left", () => {
 
   test("offers only what applies: a task already yours is offered Backlog alone", async () => {
     const { page, seen } = host();
-    await mount(page);
-    await swipe(row("Sign the lease"), 180);
+    await mount(page, seen);
+    await swipeUntil("Sign the lease", "task-swipe-park");
     const frame = frameOf(row("Sign the lease"));
     expect(all("task-swipe-me", frame)).toHaveLength(0);
     await press(one("task-swipe-park", frame));
@@ -430,8 +466,8 @@ describe("swiping a task left", () => {
 
   test("a full swipe, all the way across, writes nothing", async () => {
     const { page, seen } = host();
-    await mount(page);
-    await swipe(row("Take photos"), PHONE);
+    await mount(page, seen);
+    await swipeUntil("Take photos", "task-swipe-park", PHONE);
     expect(seen.calls).toEqual([]);
     expect(all("task-swipe-park", frameOf(row("Take photos")))).toHaveLength(1);
   });
@@ -440,7 +476,7 @@ describe("swiping a task left", () => {
 describe("the page on a phone", () => {
   test("an Add a task bar at the bottom opens the composer for the first To do", async () => {
     const { page, seen } = host();
-    await mount(page);
+    await mount(page, seen);
     // The Show bar's own button makes way for the bar.
     expect(all("folder-add-task-primary")).toHaveLength(0);
     const bar = one("task-phone-add");
@@ -456,8 +492,8 @@ describe("the page on a phone", () => {
   });
 
   test("the Show chips scroll sideways instead of wrapping", async () => {
-    const { page } = host();
-    await mount(page);
+    const { page, seen } = host();
+    await mount(page, seen);
     const chips = one("folder-show-chips");
     expect(window.getComputedStyle(chips).overflowX).toBe("auto");
     expect(one("folder-show-bar").contains(chips)).toBe(true);
