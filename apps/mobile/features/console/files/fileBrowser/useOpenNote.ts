@@ -341,7 +341,13 @@ export function useOpenNote(deps: OpenNoteDeps) {
       const known = findEntry(listings, path);
       const isFolder = known === null ? !isMarkdown(path) : known.kind === "folder";
       if (isFolder) {
-        dispatch({ type: "closed" });
+        /*
+          A note still being read is a note nobody is going to now, and its
+          answer must not open it over this folder — the same generation
+          `deselect` bumps, for the same reason.
+        */
+        openRun.current += 1;
+        const mine = openRun.current;
         // Its own listing, so the folder view has contents to draw rather than
         // an empty screen. `refresh` is a no-op for a folder already loaded.
         if (listings[path] === undefined) {
@@ -350,11 +356,22 @@ export function useOpenNote(deps: OpenNoteDeps) {
             before one arrives is the same blank the note path has — so it is
             reported the same way. A folder already loaded is not opening: the
             view has everything it needs this frame.
+
+            The editor is closed when the listing lands rather than now: until
+            then the region keeps drawing the note that is open
+            (`useShownEntry`), and closing it first would draw that note empty.
           */
           setOpening(path);
           void refresh([path])
             .catch(reportRefreshFailure)
-            .finally(() => settleOpening(path));
+            .finally(() => {
+              if (openRun.current === mine) dispatch({ type: "closed" });
+              settleOpening(path);
+            });
+        } else {
+          // Nothing is on its way, including whatever was before this.
+          setOpening(null);
+          dispatch({ type: "closed" });
         }
         return true;
       }
