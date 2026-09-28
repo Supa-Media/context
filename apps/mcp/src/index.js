@@ -29,6 +29,7 @@
  *   POST /inbox                drop a capture into 0-inbox/ (needs context:capture)
  *   GET  /.well-known/oauth-protected-resource[/…]    RFC 9728
  *   GET  /.well-known/oauth-authorization-server[/…]  RFC 8414
+ *   GET  /.well-known/openai-apps-challenge           ChatGPT plugin domain check (OPENAI_APPS_CHALLENGE)
  *   POST /oauth/register       RFC 7591 dynamic client registration
  *   GET  /oauth/authorize      authorization code + PKCE (S256 only)
  *   POST /oauth/token          code exchange and refresh
