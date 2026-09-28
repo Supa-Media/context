@@ -290,10 +290,16 @@ jobs:
         with:
           name: staging-web
           path: apps/mobile/dist
-      - name: Sync the staging Convex origin
-        run: printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
+      # Deploy first, then the secret — the order every other Worker here uses,
+      # and the one #302 cost us: `wrangler secret put` acts on the version that
+      # is currently live, so pushing a name the live script still declares as a
+      # plaintext `vars` entry collides (Cloudflare 10053) and the deploy that
+      # would have retired the var never runs. `check-workflow-secret-order.mjs`
+      # is the guard for it, and it could not see either of these lines.
       - name: Deploy staging router and the exact export together
         run: pnpm --dir infra/router exec wrangler deploy --env staging --message "Staging ${GITHUB_SHA}"
+      - name: Sync the staging Convex origin
+        run: printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
 
   web:
     name: Publish web
