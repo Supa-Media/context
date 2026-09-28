@@ -33,6 +33,9 @@ export const bindStorageArgs = {
 
 export const bindStorageReturns = v.object({ bindingId: v.id("storageBindings"), status: v.string() });
 
+export const startManagedStorageHandoffArgs = bindStorageArgs;
+export const startManagedStorageHandoffReturns = v.object({ started: v.literal(true) });
+
 export const applyBindingArgs = {
   actorUserId: v.id("users"),
   workspaceId: v.id("workspaces"),

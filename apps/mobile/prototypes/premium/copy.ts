@@ -334,12 +334,9 @@ export const readOnly = {
 /**
  * Leaving with everything.
  *
- * The surface non-negotiable #1 has been promising in a sentence and not
- * offering as a control, because the export and hand-off path is not built.
- * Drawing it is the point — but it is drawn *marked*, and the implementation
- * contract lists it as required for launch rather than as a nicety, because a
- * managed bucket that cannot be handed over is the different product
- * `CLAUDE.md` describes.
+ * The prototype that established non-negotiable #1. The managed-to-customer
+ * handoff now ships from Settings → Storage; whole-workspace archive download
+ * is still not claimed as a finished control.
  *
  * Two exits, not one, because they are genuinely different acts: a download is
  * a copy in your hand; a hand-off moves the storage itself to an account you

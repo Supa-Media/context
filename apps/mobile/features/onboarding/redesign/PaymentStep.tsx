@@ -80,8 +80,8 @@ export function PaymentStep({
           <Text style={styles.cardTitle}>Point at your bucket</Text>
           <Text variant="rowSub" style={styles.cardBody}>
             Cloudflare R2, Amazon S3, or anything S3-compatible, from Settings ›
-            Storage. Any folder you have here downloads as a .zip, free, today
-            and after you leave.
+            Storage. Context copies and verifies every file before switching;
+            the move is free, today and after you cancel.
           </Text>
           {onBringOwn ? (
             <View style={styles.cardAction}>

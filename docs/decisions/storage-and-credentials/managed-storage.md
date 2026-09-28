@@ -361,9 +361,10 @@ error of the earliest *listed* object and lets its wave settle first, so which
 error a caller sees does not depend on network timing.
 
 The settings panel reports files checked, says which storage remains
-authoritative, and offers an owner-only retry. This is still not the free exit
-path: exporting everything or handing the managed bucket to customer-owned
-storage remains a separate launch requirement.
+authoritative, and offers an owner-only retry. The same reconciler now runs in
+the reverse direction for the free exit: a managed binding remains live while
+every raw object is copied to a customer-owned S3-family binding; cutover waits
+for a quiet source-and-target pass, and a stopped move changes nothing.
 
 `bindStorage` also refuses an endpoint addressing the managed account, and the
 BYO provisioning path refuses its account id. A customer cannot reach that
@@ -429,7 +430,9 @@ that no row was written, and `__tests__/cloudflare.test.ts` drives
 `provisionCloudflareR2` and asserts Cloudflare was never called. Deleting
 either guard call fails one of those two, which was checked by deleting them.
 
-**Still unproven, and named here rather than implied:** nothing yet tests the
-export or hand-off path, because it is not built. Non-negotiable #1's promise
-that the exit is free, identical on both plans and works after cancellation is
-a commitment this decision makes and a later change has to keep.
+**The handoff is plan-blind.** `storage.startManagedStorageHandoff` authorizes
+the workspace owner and the managed source, never a subscription. The target
+credential is sealed before it enters the migration row, members cannot see
+progress or errors, and the source bucket is retired only after the verified
+binding cutover. `managedHandoff.test.ts` pins free/cancelled access, exact
+source cutover, credential containment and the no-delete-before-cutover rule.

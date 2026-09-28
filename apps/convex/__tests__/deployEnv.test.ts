@@ -61,9 +61,8 @@ const SET_ELSEWHERE: Record<string, string> = {
     "flipped by hand once, when Email Routing is actually pointed at the Worker — " +
     "a deploy must not be able to turn ingestion live",
   FREE_MANAGED_STORAGE:
-    "flipped by hand, deliberately — production stays off until the export and hand-off " +
-    "path lands (non-negotiable #1), staging is on through stagingStorageIsFree(), and a " +
-    "deploy must not be able to turn a no-card managed bucket live",
+    "an emergency brake set by hand to exactly `disabled`; normal production is on when " +
+    "the managed account is configured, and a deploy must not silently disable existing signup",
   HOME_SITE_HANDLE:
     "a self-host's own homepage handle; our deployments leave it unset and get the " +
     "default, `context-lc`, which is also the router's default",
