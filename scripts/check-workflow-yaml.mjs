@@ -76,7 +76,8 @@
  *
  * Two hosts is the fix the trigger checker already uses, and two hosts want one
  * implementation rather than two copies of thirty lines of Python that can
- * drift apart. So: a script, run from `mcp.yml` AND `email-worker.yml`. Losing
+ * drift apart. So: a script, run from `fast-guards.yml` AND
+ * `email-worker.yml`. Losing
  * either file still leaves a copy that runs; losing both is a diff nobody could
  * miss.
  *

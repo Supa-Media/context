@@ -215,6 +215,25 @@ bodies are outside `git ls-files`), plus ordinary non-ASCII prose, which is
 deliberately legal — an em dash and an accented word are visible characters and
 this rule is about invisible ones.
 
+### Fast repository guards share one cold start
+
+Workflow parsing, trigger checks, package-suite coverage, deploy ordering,
+secret and identifier scans, the ungated-export rule, the gateway import
+boundary, and the gateway health self-test run in `fast-guards.yml`. They need
+only Node built-ins, so the job uses the hosted runtime and skips package setup
+and installation. Each guard family keeps its own named step and every checker
+still runs its self-test before scanning the repository.
+
+The first additive run also included the desktop-bridge suite and pinned Node
+22. It passed in 17 seconds, with five seconds spent in `setup-node`. The bridge
+suite needs Node's TypeScript stripping, so it stays in its existing Node 22
+job. Removing that setup brought the aggregate check to 12 seconds. The
+workflow prints the hosted Node version so a runner-image change is visible.
+`email-worker.yml` remains the second host for checks that must survive a syntax
+or trigger error in this workflow. Branch protection requires `Fast repository
+guards`. The previous required gateway-boundary context was removed only after
+the aggregate check passed; the other replaced job names were never required.
+
 ### WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
 
 The browser jobs are required checks, not universal work. Their workflows
