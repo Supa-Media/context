@@ -403,15 +403,6 @@ jobs:
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
 
-      # Browser checks still report on every pull request, but their expensive
-      # steps belong only to changes in the apps and workspace packages they
-      # execute. email-worker.yml is the second host so this guard does not go
-      # down with either workflow it checks.
-      - name: Expensive CI stays scoped to its dependency graph
-        run: |
-          node scripts/check-ci-path-gates.mjs --self-test
-          node scripts/check-ci-path-gates.mjs
-
       # The trigger checker above asserts that workflows reach pull requests.
       # This asserts the other half nothing checked: that every package with a
       # suite is actually RUN by one of them. Seven packages were found

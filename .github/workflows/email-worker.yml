@@ -81,7 +81,7 @@ jobs:
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
 
-      # Second host for the browser-scope guard. The first is in mcp.yml, not
+      # Second host for the browser-scope guard. The first is in router.yml, not
       # in either workflow whose path gates the script validates.
       - name: Expensive CI stays scoped to its dependency graph
         run: |

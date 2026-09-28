@@ -40,6 +40,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Browser checks still report on every pull request, but their expensive
+      # steps belong only to changes in the dependency graph they execute.
+      # email-worker.yml is the second independent host for this guard.
+      - name: Expensive CI stays scoped to its dependency graph
+        run: |
+          node scripts/check-ci-path-gates.mjs --self-test
+          node scripts/check-ci-path-gates.mjs
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v5

@@ -74,14 +74,18 @@ export function filterPaths(yaml, job, filter) {
   const filtersAt = block.indexOf("filters: |");
   if (filtersAt === -1) throw new Error(`${job} has no in-job path filter`);
   const afterFilters = block.slice(filtersAt);
-  const match = afterFilters.match(new RegExp(`^            ${filter}:\\n((?:              - [^\\n]+\\n?)+)`, "m"));
-  if (!match) throw new Error(`${job} has no ${filter} path set`);
-  return new Set(
-    match[1]
+  const list = afterFilters.match(new RegExp(`^            ${filter}:\\n((?:              - [^\\n]+\\n?)+)`, "m"));
+  if (list) {
+    return new Set(
+      list[1]
       .trim()
       .split("\n")
       .map((line) => line.replace(/^\s*-\s*/, "").replace(/^['\"]|['\"]$/g, "")),
-  );
+    );
+  }
+  const inline = afterFilters.match(new RegExp(`^            ${filter}: (\\[[^\\n]+\\])$`, "m"));
+  if (inline) return new Set(JSON.parse(inline[1]));
+  throw new Error(`${job} has no ${filter} path set`);
 }
 
 export function assertPaths(actual, required, label) {
