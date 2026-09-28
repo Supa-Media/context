@@ -8,6 +8,7 @@ import { NoteEditor } from "../../files/NoteEditor";
 import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
 import { useFolderLists } from "../../../offline/useFolderLists";
+import { useFolderTaskWrites } from "../../../offline/useFolderTaskWrites";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
@@ -76,6 +77,8 @@ export function BrowseDocument({
 }) {
   // Where a folder list in the open note reads its notes: this device's copy.
   const folderLists = useFolderLists(current?.id, current?.role);
+  // A project's new subtasks and notes: the console's own file writes (`taskWrites.ts`).
+  const taskWrites = useFolderTaskWrites(current?.id, current?.role, folderLists);
   /*
     The same source, handed to a folder page: its List and Board views and a
     project's property line read and change properties exactly as a list block
@@ -95,8 +98,9 @@ export function BrowseDocument({
               .filter((member) => member.isMe)
               .flatMap((member) => [member.name ?? "", member.email ?? ""])
               .filter((word) => word !== ""),
+            ...(taskWrites === undefined ? {} : { tasks: taskWrites }),
           },
-    [folderLists, current?.id, people],
+    [folderLists, current?.id, people, taskWrites],
   );
   /**
    * Where a phone starts, when nothing has been opened yet.

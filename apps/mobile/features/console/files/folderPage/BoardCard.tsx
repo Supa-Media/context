@@ -5,10 +5,9 @@
  *
  * Moving it is its status, two ways that land in the same write: drag it to
  * another column with a pointer (`boardDrag.web.ts`), or press its status
- * and pick — the only way on a phone or from a keyboard, so the status is
- * always there for somebody who may write: quiet until the card is under the
- * pointer or focused, and always shown on a phone. A member sees the card
- * with nothing to press but the card itself.
+ * and pick — the only way on a phone or from a keyboard, so for somebody who
+ * may write it is always drawn, never hidden until hover. A member sees the
+ * card with nothing to press but the card itself.
  *
  * A card is `chipFill` on a `line` hairline, not `surface2` — in the dark
  * palette `surface2` is the page, and the card would vanish.
@@ -48,7 +47,6 @@ export function BoardCard({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
   const edit = actions.onChoose;
   const ref = useCardDrag({ path: item.path, enabled: edit !== null, onStart: () => onLift(true), onEnd: () => onLift(false) });
   const tag = tagsOf(item.properties)[0];
@@ -62,8 +60,6 @@ export function BoardCard({
         onPress={() => actions.onOpen(item)}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
         role="link"
         aria-current={selected ? "true" : undefined}
         accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
@@ -119,7 +115,6 @@ export function BoardCard({
               savesTo={item.creates ? NEW_FRONT_NOTE : null}
               onChoose={(value) => edit(item, "status", value)}
               variant="meta"
-              quiet={!compact && !hovered && !focused}
               style={styles.meta}
               testID="folder-card-status"
             />

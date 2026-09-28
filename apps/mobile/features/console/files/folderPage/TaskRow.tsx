@@ -67,8 +67,9 @@ export function TaskRow({
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         role="link"
+        aria-current={actions.selected === item.path ? "true" : undefined}
         accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
-        style={[compact ? styles.rowTouch : styles.row, hovered && styles.rowHover, entry.dim && styles.dim]}
+        style={[compact ? styles.rowTouch : styles.row, (hovered || actions.selected === item.path) && styles.rowHover, entry.dim && styles.dim]}
         testID="folder-item"
       >
         <View style={styles.gutter}>

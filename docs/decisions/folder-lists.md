@@ -149,10 +149,20 @@ ordinary one — `files.writeNote` with no version, which the server refuses if 
 note appeared meanwhile, and that refusal is read and retried like any conflict,
 so nothing is ever replaced.
 
-The Board has a column for every status in the folder's status list, drawn
-under its group, and a column for each other word in use where its group puts
-it — so a folder where everything is `in progress` can still move something to
-`finished` without typing a word. It draws tasks only: there is no "No status"
+The Board has a column for every status in the folder's status list, headed
+in its group's tint, and a column for each other word in use where its group
+puts it — so a folder where everything is `in progress` can still move
+something to `finished` without typing a word. **Backlog is not a column but a
+slim rail at the left** (decided by the owner, 2026-09-28): its count and name
+down its length, somewhere to drop a card to park it (the drop writes the
+list's Backlog word, as any column drop writes its word), and pressed, it
+opens into a column that folds back. A list with no Backlog word has no rail,
+unless a task still says `backlog` — the same rule that draws the List's
+Backlog band. A card leads with its priority glyph and first tag, then its
+name, a progress bar and "2 of 4 done" for a task holding subtasks, its due
+day and its first owner's face; a long Done column shows five and "Show N
+more". The group headings above the columns went with the rail: a column's
+tint already says its group. It draws tasks only: there is no "No status"
 column, and clearing a status (which turns a task back into a note) is the
 status menu's "No status". On web a card is dragged to
 another column (HTML drag and drop, the gesture the list block's board uses),
@@ -165,7 +175,9 @@ pointer. While a choice is on its way the page says "Saving…".
 `folderPageView.test.ts` fails if a drop does not write through the menu's
 road, if a note becomes a card, if a member's card moves, or if a drag that
 is not a card is taken; `folderPageModel.test.ts` pins the columns and what a
-drop writes.
+drop writes; `folderBoard.test.ts` fails if Backlog becomes a column again,
+if a drop on the rail writes anything but the Backlog word, if a list with no
+Backlog word grows a rail, or if a card says `p0`.
 
 A project folder's page is titled by its front note (the title opens it) and
 says `status · owner · updated` under the title, with the note's first
@@ -279,6 +291,50 @@ subtask that does stays, dimmed and opened on that subtask.
 parent kept for its subtask is not dimmed or carries the others, or if a
 stored filter does not read back; `folderPageList.test.ts` fails if a filter
 writes, if Mine stops matching by handle, or if it is not remembered.
+
+## The side panel: a task opens beside the list
+
+Decided by the owner on 2026-09-28 ("Projects for everyone"). On a page wide
+enough for both — a List or Board of at least 480pt beside a 430pt panel —
+pressing a task (a List row, a subtask row, a Board card) opens it on the
+right instead of leaving the page: where it is ("Café opening › Get the
+kitchen ready" for a subtask), its name, **Status, Priority, Owners, Tags and
+Due** as one-press values, its **Subtasks** ("2 of 4 done") with a dot that
+ticks each off, and the **Notes** in it, with "+ Add subtask" and "+ Add a
+note". "Open full page" goes where pressing used to, and ✕ or Escape closes
+it (a menu or a field with the key answers Escape first). A plain note still
+opens as a note. On a phone, or a narrower page, pressing a task opens its
+page as it always did: a panel squeezed beside a phone's list is two things
+too small to use.
+
+- **It is a way of looking, not a record.** Which task is open is held by the
+  page while it is open, per viewer, and forgotten on leaving the folder;
+  nothing is written, as with Show.
+- **Every value is the row's own write.** A value is one frontmatter line of
+  the task's note through `writeNoteProperty`; several owners are written as a
+  list and each can be taken off by name (the List's row still offers a
+  several-owner line as no single choice, because there picking one would drop
+  the rest). Tags are always written as a list; none clears the line.
+- **A dot flips between Done and To do**: a done subtask goes back to the
+  list's first Not started word that is not Backlog — ticked off by mistake, it
+  is work for now, not an idea for later — and anything else to the first
+  Done word. The words come from the list that describes the subtask.
+- **Adding is planned, then run** (`taskWrites.ts`): a subtask starts at that
+  first To do; a note is a heading and no status, so it is never a subtask. A
+  one-note task becomes a folder on its first subtask *or* note, by the same
+  move (links follow it), and the panel follows it there. A subtask may hold
+  notes; nothing goes deeper.
+- **A member reads the same panel with nothing to press** that would write:
+  the dots are drawn, not buttons, and there is nothing to add.
+
+What reverting costs: back to navigating, a project is read one task at a
+time with the list gone each time; a dot that unticks to Backlog hides the
+work somebody just reopened. `taskPanel.test.ts` fails if a wide page
+navigates instead of opening the panel, if a phone opens it, if a dot writes
+anything but Done or the first To do, if a first subtask or note skips the
+conversion, or if a member is given a control; `taskPanelModel.test.ts` pins
+what the panel reads and when it fits; `taskWrites.test.ts` pins the plan for
+a note.
 
 ## A list write is what this device holds afterwards
 

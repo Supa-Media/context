@@ -67,6 +67,9 @@ import { useStatusEdits } from "./useStatusEdits";
 import { TrackNudge } from "./Nudge";
 import { dismissNudge, nudgeDismissed, rememberFilter, rememberView, rememberedFilter, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
+import { PanelBeside } from "./panel/PanelBeside";
+import { TaskPanel } from "./panel/TaskPanel";
+import { useTaskPanel } from "./panel/useTaskPanel";
 
 export type { FolderPageHost } from "./useFolderPage";
 
@@ -197,6 +200,8 @@ export function FolderPage({
   const [editing, setEditing] = useState(false);
   const [tidyProblem, setTidyProblem] = useState<string | null>(null);
   const toneOf = useCallback((status: string) => groupOfStatus(status, list) ?? ("unplaced" as const), [list]);
+  // A task pressed on a wide page opens beside the list (`panel/`); anywhere narrower, on its own page.
+  const panel = useTaskPanel(folder, compact, pageWidth);
 
   if (host === undefined) {
     return (
@@ -246,7 +251,8 @@ export function FolderPage({
   const columnCount = bands.reduce((sum, band) => sum + band.columns.length, 0);
   const onEditStatuses = edits.savesTo === null ? null : () => setEditing(true);
   const actions: ItemActions = {
-    onOpen: (item) => onSelect(item.path),
+    onOpen: (item) => (panel.fits && item.status !== "" ? panel.show(item.path) : onSelect(item.path)),
+    selected: panel.path,
     choices,
     onChoose: edit === null ? null : (item, key, value) => void edit(item.target, key, value, item.creates),
     statusMenu: menuSections,
@@ -269,6 +275,23 @@ export function FolderPage({
     makeTaskLabel: rowsAreProjects(folder) ? "Make it a project" : "Make it a task",
   };
   const problem = loaded.problem ?? tidyProblem;
+  const beside =
+    view === "files" || waiting || panel.path === null ? null : (
+      <TaskPanel
+        path={panel.path}
+        folder={folder}
+        notes={notes ?? []}
+        projectTitle={summary?.title ?? fallbackTitle}
+        actions={actions}
+        chooseMany={loaded.canEdit ? loaded.chooseMany : null}
+        io={loaded.canEdit ? (host.tasks ?? null) : null}
+        paths={rows.map((row) => row.path)}
+        now={now}
+        onShow={panel.show}
+        onNavigate={onSelect}
+        onClose={panel.close}
+      />
+    );
 
   return (
     <>
@@ -323,7 +346,7 @@ export function FolderPage({
           onClose={() => setEditing(false)}
         />
       ) : null}
-      <View style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} style={styles.contents}>
         {view === "files" ? (
           files
         ) : waiting ? (
@@ -338,7 +361,7 @@ export function FolderPage({
               Nothing here is a task yet. Give something a status and it shows here.
             </Text>
           ) : (
-            <View style={compact || pageWidth <= 0 ? undefined : [styles.wide, { width: boardWidth(columnCount, bands.length, pageWidth) }]}>
+            <View style={compact || pageWidth <= 0 || beside !== null ? undefined : [styles.wide, { width: boardWidth(columnCount, bands.length, pageWidth) }]}>
               <FolderBoard bands={bands} compact={compact} now={now} actions={actions} />
             </View>
           )
@@ -374,7 +397,7 @@ export function FolderPage({
             {skipped === 1 ? "1 other file is in Notes" : `${skipped} other files are in Notes`}
           </Text>
         ) : null}
-      </View>
+      </PanelBeside>
     </>
   );
 }

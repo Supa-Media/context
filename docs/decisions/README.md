@@ -181,6 +181,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Tasks and notes
 - Priority, tags, due and several owners
 - Show: whose tasks, per viewer
+- The side panel: a task opens beside the list
 - A list write is what this device holds afterwards
 - Status groups
 - An owner is picked, never typed

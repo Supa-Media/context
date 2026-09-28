@@ -122,7 +122,7 @@ function Rail({ group, canMove, onDrop, onOpen }: { group: FolderGroup; canMove:
       <Text variant="rowTitle" style={{ color: colors.accentText }}>
         {String(group.items.length)}
       </Text>
-      <Text variant="meta" numberOfLines={1} style={[Platform.OS === "web" ? styles.railWord : styles.railWordNative, { color: colors.accentText }]}>
+      <Text variant="meta" numberOfLines={1} style={[Platform.OS === "web" && styles.railWord, { color: colors.accentText }]}>
         {Platform.OS === "web" ? `${group.label}: ideas and later work` : group.label}
       </Text>
     </Pressable>
@@ -222,9 +222,8 @@ const makeStyles = (colors: Colors) =>
       overflow: "hidden",
     },
     railOver: { backgroundColor: colors.surface3 },
-    // Down the rail, read bottom to top, as a spine is: a browser sets text on its side; a phone says the word small.
+    // Down the rail, read bottom to top, as a spine is: a browser sets the words on their side; a phone says the one word.
     railWord: { writingMode: "vertical-rl", transform: [{ rotate: "180deg" }], letterSpacing: 0.4 } as unknown as TextStyle,
-    railWordNative: { fontSize: 11 },
     column: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: BOARD_COLUMN_MIN, maxWidth: BOARD_COLUMN + 40 },
     columnTouch: { flexGrow: 0, flexBasis: "auto", width: 264, minWidth: 264, maxWidth: 264 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 32, paddingBottom: space.x2, borderBottomWidth: 2 },

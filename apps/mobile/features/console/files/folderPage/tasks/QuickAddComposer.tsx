@@ -67,6 +67,10 @@ export interface QuickAddComposerProps {
   tagSuggestions?: readonly string[];
   /** Today, for the due presets; tests pin it. */
   now?: Date;
+  /** The one-line form's field, when it names something other than a subtask ("Name the note…"). */
+  placeholder?: string;
+  /** What a screen reader calls that field. */
+  fieldLabel?: string;
 }
 
 type MenuState = { readonly kind: "priority" | "due" | "owner"; readonly anchor: Anchor } | null;
@@ -81,6 +85,8 @@ export function QuickAddComposer({
   owners,
   tagSuggestions = [],
   now,
+  placeholder,
+  fieldLabel,
 }: QuickAddComposerProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -186,9 +192,9 @@ export function QuickAddComposer({
       onKeyPress={onKey}
       onSubmitEditing={() => void submit()}
       blurOnSubmit={false}
-      placeholder={compact ? "Add a subtask…" : "Task name"}
+      placeholder={placeholder ?? (compact ? "Add a subtask…" : "Task name")}
       placeholderTextColor={colors.chromeMuted}
-      accessibilityLabel={compact ? "New subtask" : "New task"}
+      accessibilityLabel={fieldLabel ?? (compact ? "New subtask" : "New task")}
       style={[styles.field, compact && styles.fieldCompact, fieldFont]}
       testID="quick-add-title"
     />
