@@ -33,6 +33,7 @@ import {
   setMemberRoleHandler,
 } from "./lib/workspaces/members";
 import { setMeetingsFolderHandler } from "./lib/workspaces/settings";
+import { retireSetupWidgetHandler } from "./lib/workspaces/setupRetired";
 import {
   recordWorkspaceIconPhotoHandler,
   setWorkspaceIconHandler,
@@ -361,6 +362,16 @@ export const setMeetingsFolder = mutation({
   },
   returns: v.object({ folder: v.string() }),
   handler: (ctx, args) => setMeetingsFolderHandler(ctx, args),
+});
+
+/**
+ * Put the setup checklist away for the caller in this workspace, on every
+ * device they use. One-way and idempotent. See `lib/workspaces/setupRetired.ts`.
+ */
+export const retireSetupWidget = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: (ctx, args) => retireSetupWidgetHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */

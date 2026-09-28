@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 /**
  * The setup widget: where the first run carries on after the fork (A-05, W-07)
@@ -21,7 +21,7 @@ import { setupView, showSetupWidget } from "../features/console/setupWidget/rule
 import { SetupWidget, type SetupActions } from "../features/console/setupWidget/SetupWidget";
 import { SetupDone } from "../features/console/setupWidget/SetupDone";
 import { SetupWidgetHost } from "../features/console/setupWidget/SetupWidgetHost";
-import { setupWidgetRetiredKey } from "../features/console/setupWidget/useSetupWidget";
+import { setupRetired, setupWidgetRetiredKey } from "../features/console/setupWidget/useSetupWidget";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import type { ConsoleData, ConsoleStorage } from "../features/console/types";
 
@@ -217,7 +217,18 @@ describe("“You're set up.”", () => {
   });
 });
 
+describe("put away on the account, not only this device", () => {
+  test("either one saying yes is put away; only the device can leave it unknown", () => {
+    expect(setupRetired(true, undefined)).toBe(true);
+    expect(setupRetired(undefined, true)).toBe(true);
+    expect(setupRetired(false, false)).toBe(false);
+    expect(setupRetired(false, undefined)).toBeUndefined();
+    expect(setupRetired(undefined, false)).toBe(false);
+  });
+});
+
 describe("mounted over a workspace", () => {
+  let mutations: string[] = [];
   function clientAnswering(grants: unknown) {
     return {
       watchQuery: (ref: never) => ({
@@ -225,7 +236,10 @@ describe("mounted over a workspace", () => {
         onUpdate: () => () => {},
         journal: () => undefined,
       }),
-      mutation: async () => ({}),
+      mutation: async (ref: never) => {
+        mutations.push(getFunctionName(ref));
+        return null;
+      },
       action: async () => ({}),
       connectionState: () => ({ isWebSocketConnected: true }),
     } as never;
@@ -254,6 +268,7 @@ describe("mounted over a workspace", () => {
   }
 
   beforeEach(() => {
+    mutations = [];
     window.localStorage.clear();
     setWidth(1400);
   });
@@ -276,12 +291,76 @@ describe("mounted over a workspace", () => {
     await first.press("setup-widget-hide");
     expect(first.byId("setup-widget")).toBeNull();
     expect(window.localStorage.getItem(setupWidgetRetiredKey("seyi"))).not.toBeNull();
+    expect(mutations).toContain("functions/workspaces:retireSetupWidget");
     first.unmount();
 
     // The reload: still put away.
     const second = await host(data);
     expect(second.byId("setup-widget")).toBeNull();
     second.unmount();
+  });
+
+  /** The same data, with the account's answer on the selected row. */
+  function withAccount(data: ConsoleData, retired: boolean): ConsoleData {
+    return {
+      ...data,
+      contexts: data.contexts.map((context) =>
+        context.id === data.selectedContextId ? { ...context, setupRetired: retired } : context,
+      ),
+    };
+  }
+
+  test("a full browser store cannot bring it back: the account still hears the press", async () => {
+    // What a console that has cached a few hundred notes looks like: every
+    // write to `localStorage` throws, and the device flag never lands.
+    const quota = jest.spyOn(Storage.prototype, "setItem").mockImplementation((key: string) => {
+      if (key === setupWidgetRetiredKey("seyi")) {
+        throw new DOMException("full", "QuotaExceededError");
+      }
+    });
+    try {
+      const first = await host(withAccount(demo("seyi"), false));
+      await first.press("setup-widget-hide");
+      expect(first.byId("setup-widget")).toBeNull();
+      expect(window.localStorage.getItem(setupWidgetRetiredKey("seyi"))).toBeNull();
+      expect(mutations).toEqual(["functions/workspaces:retireSetupWidget"]);
+      first.unmount();
+
+      // The refresh: the device remembers nothing, the account does.
+      const second = await host(withAccount(demo("seyi"), true));
+      expect(second.byId("setup-widget")).toBeNull();
+      second.unmount();
+    } finally {
+      quota.mockRestore();
+    }
+  });
+
+  test("a device that cannot read its flag never tells the account it was put away", async () => {
+    const broken = jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    try {
+      const view = await host(withAccount(demo("seyi"), false));
+      expect(mutations).toEqual([]);
+      view.unmount();
+    } finally {
+      broken.mockRestore();
+    }
+  });
+
+  test("put away on the account stays away on a device that never closed it", async () => {
+    const view = await host(withAccount(demo("seyi"), true));
+    expect(view.byId("setup-widget")).toBeNull();
+    expect(mutations).toEqual([]);
+    view.unmount();
+  });
+
+  test("a device that put it away before the account knew carries that up", async () => {
+    window.localStorage.setItem(setupWidgetRetiredKey("seyi"), "1");
+    const view = await host(withAccount(demo("seyi"), false));
+    expect(view.byId("setup-widget")).toBeNull();
+    expect(mutations).toEqual(["functions/workspaces:retireSetupWidget"]);
+    view.unmount();
   });
 
   test("never over somebody else's workspace", async () => {

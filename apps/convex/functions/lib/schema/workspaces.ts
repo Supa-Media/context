@@ -279,6 +279,18 @@ export const workspaceTables = {
      * the correct answer for a member who just joined.
      */
     activitySeenAt: v.optional(v.number()),
+    /**
+     * When this person put the setup checklist, or its "You're set up." card,
+     * away for this workspace.
+     *
+     * On the membership for `activitySeenAt`'s reason — it is about the person,
+     * not the context — and on the control plane rather than only in the
+     * browser because a device flag did not hold: every origin (staging, the
+     * desktop app, a second browser) and every cleared site-data asked again,
+     * under a card that promised it would not come back. Absent means never
+     * put away. Set once; later presses do not move it.
+     */
+    setupRetiredAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])

@@ -22,6 +22,8 @@ export interface WorkspaceSummary {
    */
   activityAt?: number;
   activitySeenAt?: number;
+  /** Whether this person put the setup checklist away here, on any device. */
+  setupRetired?: boolean;
   /**
    * The layout a setup flow last recorded — `para` or `custom`, absent where
    * neither flow got that far. `listMyWorkspaces` has always returned it.

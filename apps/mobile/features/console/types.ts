@@ -65,6 +65,12 @@ export interface ConsoleContext {
    * context, which has no membership row to remember a visit in.
    */
   hasNewActivity?: boolean;
+  /**
+   * Whether this person put the setup checklist away here, on any device —
+   * `workspaceMembers.setupRetiredAt`. Absent on rows from before the field
+   * and on the pinned context. See `useSetupWidget`.
+   */
+  setupRetired?: boolean;
   status: StatusTone;
   /**
    * What this workspace draws in its mark, when its owner chose something

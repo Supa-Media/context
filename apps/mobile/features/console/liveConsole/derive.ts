@@ -104,6 +104,7 @@ export function consoleContextsFrom(
     meetingsFolder: workspace.meetingsFolder,
     // One rule, one place. See `hasNewActivity`.
     hasNewActivity: hasNewActivity(workspace.activityAt, workspace.activitySeenAt),
+    setupRetired: workspace.setupRetired,
     // The leaf, not the picture: the bytes are fetched once per leaf per
     // session, just below. Putting them on this row would make every poll of
     // the console carry a megabyte per workspace.
