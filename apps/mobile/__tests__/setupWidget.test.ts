@@ -30,7 +30,9 @@ import type { ConsoleData, ConsoleStorage } from "../features/console/types";
 const storage = (over: Partial<ConsoleStorage>): ConsoleStorage =>
   ({ connected: true, status: "connected", provider: "r2", conditionalWrite: true, updatedAt: 1, ...over }) as ConsoleStorage;
 
-const claudeUsed = [{ clientId: "c1", clientName: "Claude", status: "active", lastUsedAt: 1_700_000_000_000 }];
+const claudeUsed = [
+  { clientId: "c1", clientName: "Claude", status: "active", isMine: true, lastUsedAt: 1_700_000_000_000 },
+];
 
 describe("each row is done because of a fact", () => {
   test("a name and nothing else is one of four, and storage is what to do now", () => {
@@ -70,7 +72,7 @@ describe("each row is done because of a fact", () => {
     const view = setupView({
       slug: "seyi",
       storage: storage({ noteCount: 3 }),
-      grants: [{ clientId: "c1", clientName: "Claude", status: "active", lastUsedAt: null }],
+      grants: [{ clientId: "c1", clientName: "Claude", status: "active", isMine: true, lastUsedAt: null }],
     });
     expect(view.complete).toBe(false);
     expect(view.rows[3]!.sub).toBe("So it remembers what you tell it");

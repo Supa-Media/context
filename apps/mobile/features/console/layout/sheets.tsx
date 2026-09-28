@@ -231,16 +231,16 @@ export function consoleCloseTabConfirm({
  * demo, which has no control plane to hold a grant; anywhere else the
  * parameter draws nothing, as an unknown `?settings=` does.
  *
- * Not for the owner of a shared workspace: `listGrants` shows an owner every
- * member's grants, so a teammate's Claude would read as this person signing
- * in. Everywhere the guide is offered — a personal workspace's owner, a
- * member of somebody else's — the grants listed are the viewer's own.
+ * A shared workspace's owner gets the guide too. `listGrants` shows them every
+ * member's grants, so the guide filters on `isMine`; `/agent-activity` marks
+ * the viewer's own agents separately for the same reason. The pinned context
+ * stays out because it has no membership or grant to connect against.
  */
 /** Whether `consoleAgentSetup` would draw anything for this console. */
 export function agentSetupAvailable(data: ConsoleData): boolean {
   const current = selectedContext(data);
   if (current === null || data.demo === true) return false;
-  return current.kind === "personal" || current.role !== "owner";
+  return current.pinned !== true;
 }
 
 export function consoleAgentSetup({

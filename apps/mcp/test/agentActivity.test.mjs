@@ -232,7 +232,7 @@ export async function runAgentActivityChecks(check) {
   /* ========================= the pure module ============================ */
 
   const now = 1_000_000_000;
-  const actor = { id: HEX, name: "Somebody's Claude" };
+  const actor = { id: HEX, owner: HEX, name: "Somebody's Claude" };
 
   check(
     "an event with an unknown kind is refused",
@@ -243,6 +243,10 @@ export async function runAgentActivityChecks(check) {
     // The id becomes a member id in somebody else's sidebar. A free-form
     // string there is a name a client chose for itself.
     recordActivity([], { path: "a.md", kind: "read", actor: { id: "a:pick-me", name: "x" } }, now) === false,
+  );
+  check(
+    "an event whose owner is not an opaque digest is refused",
+    recordActivity([], { path: "a.md", kind: "read", actor: { ...actor, owner: "user_123" } }, now) === false,
   );
   check(
     "an event with no path is refused",
@@ -278,13 +282,13 @@ export async function runAgentActivityChecks(check) {
   }
   {
     const log = [];
-    const other = { id: "fedcba9876543210", name: "Private worker" };
+    const other = { id: "fedcba9876543210", owner: "fedcba9876543210", name: "Private worker" };
     recordActivity(log, { path: "1-projects/plan.md", kind: "read", actor }, now - 3);
     recordActivity(log, { path: "1-projects/plan.md", kind: "write", actor }, now - 2);
     recordActivity(log, { path: "1-projects/plan.md", kind: "read", actor }, now - 1);
     recordActivity(log, { path: "secret.md", kind: "write", actor }, now);
     recordActivity(log, { path: "secret.md", kind: "read", actor: other }, now);
-    const answer = activityForCaller(log, now, (path) => path !== "secret.md");
+    const answer = activityForCaller(log, now, (path) => path !== "secret.md", HEX);
     check(
       "a write outranks a later read on the same row",
       answer.marks.length === 1 && answer.marks[0].kind === "write",
@@ -303,6 +307,10 @@ export async function runAgentActivityChecks(check) {
     check(
       "counts are of visible notes only",
       answer.agents[0].writes === 1 && answer.agents[0].reads === 1,
+    );
+    check(
+      "the caller can tell their own agent from a teammate's without seeing an account id",
+      answer.agents[0].self === true && !JSON.stringify(answer).includes("user_"),
     );
   }
 
@@ -533,7 +541,7 @@ export async function runAgentActivityChecks(check) {
       "the owner sees the private read, and whose it was",
       owner.body.marks.some((mark) => mark.path === "1-projects/rates.md" && mark.kind === "read") &&
         // Whose it was is in the name: several people's agents share a workspace.
-        owner.body.agents.some((agent) => agent.name === "@agentacttest's Claude"),
+        owner.body.agents.some((agent) => agent.name === "@agentacttest's Claude" && agent.self === true),
     );
     check(
       "the console opening a note is not an agent reading it",
@@ -541,7 +549,11 @@ export async function runAgentActivityChecks(check) {
     );
     check(
       "an agent is named by its client, as the note room names it",
-      team.body.agents.some((agent) => agent.name === "Team Codex" && agent.id.startsWith("a:")),
+      team.body.agents.some((agent) => agent.name === "Team Codex" && agent.id.startsWith("a:") && agent.self === true),
+    );
+    check(
+      "a teammate's agent is present but never marked as this viewer's",
+      owner.body.agents.some((agent) => agent.name === "Team Codex" && agent.self === false),
     );
 
     check(

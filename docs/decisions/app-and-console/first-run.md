@@ -111,8 +111,21 @@ by a check:
 - **An agent writing to the wrong workspace.** This would need a second
   workspace's activity, and it is not detected yet.
 
-The guide is not offered to a shared workspace's owner, because `listGrants`
-shows an owner every member's grants.
+The guide used to be withheld from a shared workspace's owner because
+`listGrants` shows an owner every member's grants. That made the invited-member
+path better than the path of the person who created the workspace, and it left
+the owner with the unverified Settings form.
+
+Resolved 2026-09-28: the guide is offered to every ordinary workspace member,
+including a shared owner. Grant checks accept only rows whose `isMine` is true;
+an older backend with no field stalls rather than accepting a teammate. Agent
+activity now gives each grant an opaque activity id and carries a
+separate opaque owner digest; the route compares that digest with the console
+viewer and returns `self`, never an account id. The guide advances only on a
+matching provider whose `self` is true. A teammate's Claude or ChatGPT remains
+visible in the workspace activity UI but cannot sign the viewer in, complete
+their tile, or satisfy their bring-over check. The pinned read-only context and
+the demo still have no guide.
 
 What a "simplification" would cost:
 
@@ -120,6 +133,12 @@ What a "simplification" would cost:
   connected.
 - Dropping the bring-over step leaves a workspace that is still empty after
   setup.
+- Matching an owner against every grant or every agent in the workspace lets a
+  teammate complete somebody else's setup without touching their client.
 
-`agentSetup.test.ts` fails if a step turns done on anything but a grant or a
-mark, or if the prompt loses a guardrail.
+`agentSetup.test.ts` fails if a step turns done on anything but the viewer's own
+grant or mark, or if the prompt loses a guardrail.
+`agentSetupAvailability.test.ts` fails if shared owners lose the guide or the
+pinned context gains it. The gateway's agent-activity suite proves two members'
+agents stay distinct, only the caller's is marked `self`, and no account id
+leaves the route.

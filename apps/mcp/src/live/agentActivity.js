@@ -1,7 +1,7 @@
 /** Which tool calls show as agent activity on a note, and recording one. Moved verbatim out of `src/index.js`. */
 
 import { agentActivityKey } from "../agentActivity.js";
-import { isConsoleActor, presenceActor } from "./presence.js";
+import { isConsoleActor, presenceActor, presenceClientKey } from "./presence.js";
 
 /** Which tool calls count as an agent reading or writing a note. */
 export const AGENT_ACTIVITY_TOOLS = new Map([
@@ -26,7 +26,25 @@ export function recordAgentActivity(store, kind, path) {
   if (isConsoleActor(store.actor) || typeof store.defer !== "function") return;
   const run = async () => {
     try {
-      const actor = await presenceActor(store.actor);
+      const grantId = store.actor?.grantId;
+      const clientId = store.actor?.clientId;
+      const userId = store.actor?.userId;
+      if (
+        typeof grantId !== "string" || !grantId ||
+        typeof clientId !== "string" || !clientId ||
+        typeof userId !== "string" || !userId
+      ) return;
+      const shown = await presenceActor(store.actor);
+      const actor = {
+        ...shown,
+        // A registered client can serve several accounts. Activity is one
+        // grant, not one client, or two people's Claude calls collapse into a
+        // single row whose name changes with the newest event.
+        id: await presenceClientKey(`activity:${grantId}:${clientId}`),
+        // Opaque and compared only by the route. This lets the console say
+        // which activity belongs to its viewer without publishing a user id.
+        owner: await presenceClientKey(`person:${userId}`),
+      };
       if (!actor.id) return;
       const room = rooms.get(rooms.idFromName(agentActivityKey(workspaceId)));
       await room.fetch("https://presence.invalid/activity", {

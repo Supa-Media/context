@@ -34,6 +34,8 @@ export interface AgentMark {
 export interface ActiveAgent {
   id: string;
   name: string;
+  /** This agent grant belongs to the person viewing the workspace. */
+  self?: boolean;
   /** `null` when the gateway sent no usable colour; the view supplies one. */
   color: string | null;
   /** When it last read or wrote anything this person can see. */
@@ -124,6 +126,7 @@ export function decodeAgentActivity(value: unknown): AgentActivityView {
     agents.push({
       id: one.id,
       name: label(one.name),
+      self: one.self === true,
       color: colour(one.color),
       at: one.at,
       kind: k,
