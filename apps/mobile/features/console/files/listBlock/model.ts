@@ -157,6 +157,14 @@ export interface FolderListSource {
    * so a page can show `@seyi` for `seyi@example.com`. Any member may ask.
    */
   resolveOwners?: OwnerResolve;
+  /**
+   * One note's whole text, for a folder page's side panel to show: this
+   * device's copy at exactly the role's clearance, else the bucket through
+   * the server, which applies the same clearance. `encrypted` when the text is
+   * an envelope rather than words. Null when neither has it. Absent where the
+   * surface has nothing to read, and the panel then shows no body.
+   */
+  readBody?(path: string): Promise<{ text: string; encrypted: boolean } | null>;
 }
 
 /** What the notes for one list came back as. */
