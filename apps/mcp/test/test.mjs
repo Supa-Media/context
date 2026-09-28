@@ -52,6 +52,7 @@ import { runDayPlacementChecks } from "./dayPlacement.test.mjs";
 import { runGoogleChatChecks } from "./googleChat.test.mjs";
 import { runChatContributionStoreChecks } from "./chatContributionStore.test.mjs";
 import { runCalendarContributionStoreChecks } from "./calendarContributionStore.test.mjs";
+import { runHarnessExitChecks } from "./harnessExit.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runAuditPartialMoveChecks } from "./auditPartialMove.test.mjs";
@@ -351,5 +352,10 @@ await suite("runCollaborationChecks", () => runCollaborationChecks(check));
 await suite("runAgentActivityChecks", () => runAgentActivityChecks(check));
 await suite("runNoteCapGatewayChecks", () => runNoteCapGatewayChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
+
+// Last, and about this file rather than the gateway: that a failure here
+// reaches the shell at all. Every check above is read by CI through an exit
+// status, so this one is the reason to believe the rest of them.
+await suite("runHarnessExitChecks", () => runHarnessExitChecks(check));
 
 console.log(getFailures() ? `\n${getFailures()} FAILURES` : "\nALL PASS");
