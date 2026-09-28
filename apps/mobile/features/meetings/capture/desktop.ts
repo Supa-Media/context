@@ -55,7 +55,7 @@ export const DESKTOP_MESSAGES = Object.freeze({
     "This machine's Context app isn't set up to record audio yet, so this is a typed session. Your notes still land in your bucket.",
   /** Asked for the whole call, got the microphone. */
   micOnly:
-    "This machine can't capture the call's own audio, so only your side of it is being recorded. Your notes still land in your bucket.",
+    "Only your side of this call is being recorded: this computer didn't give Context the call's audio. On a Mac, turn Context on in System Settings > Privacy & Security > Screen & System Audio Recording, then start the meeting again.",
   /** The shell refused, or stopped, mid-meeting. */
   lost:
     "The Context app on this machine stopped recording, so the rest of this meeting is typed. Your notes still land in your bucket.",
@@ -251,7 +251,7 @@ export function desktopRecorder(
         not the recording.
       */
       if (wanted && capabilities.systemAudio && !started.systemAudio) {
-        report({ recoverable: true, message: DESKTOP_MESSAGES.micOnly });
+        report({ recoverable: true, message: DESKTOP_MESSAGES.micOnly, kind: "call-audio-missing" });
       }
       if (started.notice !== null) {
         // Recorded as shown, so the first `onCaptureState` — which carries the

@@ -9,6 +9,7 @@ import { fonts, layout, leading, pointerType as t, radii, tracking } from "../de
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
+import { CallAudioWarning } from "./components/CallAudioWarning";
 import { LiveWaveform } from "./components/LiveWaveform";
 import { TransportMark } from "./components/TransportMark";
 import { NotesPad } from "./components/NotesPad";
@@ -283,6 +284,8 @@ export function LiveMeetingScreen({ meetingId, onClose }: { meetingId: string; o
           </Text>
         </View>
       )}
+
+      <CallAudioWarning style={styles.callAudio} />
 
       {/*
         The transport's place in the flow, so the chips above it are never
@@ -684,6 +687,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderColor: colors.warnBorder,
   },
   backgroundWarningText: { color: colors.warnText },
+  callAudio: { marginHorizontal: layout.readingMargin, marginBottom: 12 },
   /*
     The background warning's band, in the quiet tone rather than the warning
     one. Ending a meeting is the ordinary path through this screen and nothing

@@ -19,6 +19,7 @@ import { onSpooledAudioChange, spooledAudioCounts, type MeetingRecorder } from "
 import { newMeetingId } from "../ids";
 import { NOT_DURABLE_REASON, loadMeetings } from "../local";
 import { emptyAck, type MeetingRecord } from "../record";
+import { recallSystemAudio } from "../machineAudio";
 import { mayResume } from "../resume";
 import { PROTOCOL_VERSION } from "../protocol";
 import { can, hasNothingCaptured, isLive, seedProjection, transcriptionFor } from "../session";
@@ -246,6 +247,7 @@ export class LifecycleMixin {
       ...this.snapshot,
       captureError: null,
       backgroundCaptureWarning: null,
+      callAudioWarning: null,
     });
 
     // Install failure reporting before opening the recorder: an audio backend
@@ -271,16 +273,17 @@ export class LifecycleMixin {
       await config.recorder.start({
         sessionId: id,
         /*
-          Absent means "whatever this build can do" — except where doing it
-          costs the person a picker. A browser can mix a shared tab's audio in,
-          and assuming that on a caller's behalf would put a screen-share
-          prompt in front of a meeting nobody asked to share anything for. A
-          capability with a consent step is opted into, never defaulted into.
+          Absent means "what this device's setting says", which is on unless
+          somebody turned it off in the meetings pane (`machineAudio.ts`). It
+          used to mean "off wherever it costs a picker", which is how the
+          Meetings page's Record button and Resume recorded one side of every
+          call in a browser while New meeting recorded both: they never passed
+          an answer, and the fallback was the one-sided one. The setting is read
+          here so every way of starting a meeting gets the same answer.
         */
         systemAudio:
           input.systemAudio ??
-          (config.recorder.capability.systemAudio &&
-            !config.recorder.capability.systemAudioNeedsPicker),
+          (config.recorder.capability.systemAudio && (await recallSystemAudio(config.store))),
       });
       // Show native recording chrome only after an audio recorder really opens.
       if (
@@ -341,6 +344,27 @@ export class LifecycleMixin {
       destination: input.destination ?? undefined,
       continues: input.continues,
     });
+  }
+
+  /**
+   * Ask for the call's audio again, from the warning's button.
+   *
+   * Must run inside the press: the recorder opens the browser's picker, which
+   * needs the press's activation, so nothing is awaited before it is asked.
+   * The warning clears only once the call's audio is actually in the
+   * recording; a refusal leaves it up, reworded by the recorder's own report.
+   */
+  async shareCallAudio(this: MeetingsControllerShape): Promise<boolean> {
+    const recorder = this.config?.recorder;
+    if (recorder?.shareSystemAudio === undefined || this.snapshot.live === null) return false;
+    let shared = false;
+    try {
+      shared = await recorder.shareSystemAudio();
+    } catch {
+      shared = false;
+    }
+    if (shared) this.set({ ...this.snapshot, callAudioWarning: null });
+    return shared;
   }
 
   async pause(this: MeetingsControllerShape): Promise<void> {
@@ -600,6 +624,10 @@ export class LifecycleMixin {
         this.activityControlTokens.delete(meetingId);
         this.activity.end(meetingId);
         this.set({ ...this.snapshot, backgroundCaptureWarning: error.message });
+        return;
+      }
+      if (error.kind === "call-audio-missing") {
+        this.set({ ...this.snapshot, callAudioWarning: error.message });
         return;
       }
       if (!error.recoverable) {

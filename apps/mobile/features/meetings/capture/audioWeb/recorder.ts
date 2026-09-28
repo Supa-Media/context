@@ -3,7 +3,13 @@ import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } fr
 import { meterLevel, publishRecorderLevel } from "../level";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "../segments";
 import { resolveTranscriber } from "../transcriber";
-import { type AudioGraph, browserCanShareSystemAudio, buildGraph, rmsDbfs, shareSystemAudio } from "./capabilities";
+import {
+  type AudioGraph,
+  browserCanShareSystemAudio,
+  buildGraph,
+  rmsDbfs,
+  shareSystemAudio as askForSystemAudio,
+} from "./capabilities";
 import { pickMimeType, stopAndCollect, toBase64 } from "./blob";
 import { FALLBACK_MIME } from "./messages";
 import {
@@ -386,7 +392,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
       // The video track is still live — see `DISPLAY_CONSTRAINTS` — and nothing
       // will release it now that `releaseStream` has lost its handle on it.
       for (const other of shared.getTracks()) other.stop();
-      report({ recoverable: true, message: SYSTEM_AUDIO_ENDED });
+      report({ recoverable: true, message: SYSTEM_AUDIO_ENDED, kind: "call-audio-missing" });
     });
   }
 
@@ -457,7 +463,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         every meeting is the price of not recording one side of a call.
       */
       const wanted = options?.systemAudio === true && canShareSystemAudio;
-      displayStream = wanted ? await shareSystemAudio() : null;
+      displayStream = wanted ? await askForSystemAudio() : null;
 
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -510,8 +516,57 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         reason.
       */
       if (wanted && displayStream === null) {
-        report({ recoverable: true, message: SYSTEM_AUDIO_UNSHARED });
+        report({ recoverable: true, message: SYSTEM_AUDIO_UNSHARED, kind: "call-audio-missing" });
       }
+    },
+
+    /*
+      ASKED AGAIN, MID-MEETING, FROM A BUTTON.
+
+      A declined or silent share used to leave the rest of the meeting as the
+      microphone alone, and the only way back was to end it and start another.
+      The button beside the warning is a fresh press, so it carries the
+      transient activation `getDisplayMedia` needs, and a share that comes back
+      with audio is mixed in from the next chunk on: the chunk in progress is
+      closed at its real length and the rotation restarts, so offsets stay
+      arithmetic. Nothing recorded so far is touched.
+    */
+    async shareSystemAudio() {
+      const mic = micStream;
+      if (!canShareSystemAudio || mic === null) return false;
+      if (state !== "recording" && state !== "paused") return false;
+      if (displayStream !== null) return true;
+
+      const shared = await askForSystemAudio();
+      const next = shared === null ? null : await buildGraph(mic, shared);
+      const usable = shared !== null && next?.mixed != null;
+      const stillRunning = (state === "recording" || state === "paused") && micStream === mic;
+      if (!usable || !stillRunning) {
+        for (const track of shared?.getTracks() ?? []) track.stop();
+        if (next !== null) void next.context.close().catch(() => {});
+        if (stillRunning) {
+          report({ recoverable: true, message: SYSTEM_AUDIO_UNSHARED, kind: "call-audio-missing" });
+        }
+        return false;
+      }
+
+      const recording = state === "recording";
+      if (recording) stopRotation();
+      await queue(async () => {
+        try {
+          if (active !== null) await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
+        } finally {
+          const previous = graph;
+          graph = next;
+          displayStream = shared;
+          stream = next.mixed;
+          for (const track of shared.getAudioTracks()) watchShared(track);
+          if (previous !== null) void previous.context.close().catch(() => {});
+          if (state === "recording") openChunk();
+        }
+      });
+      if (recording && state === "recording") startRotation();
+      return true;
     },
 
     async pause() {

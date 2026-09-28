@@ -99,6 +99,15 @@ export interface MeetingsSnapshot {
   /** A sticky warning that this session records only while the app stays open. */
   backgroundCaptureWarning: string | null;
   /**
+   * Why the other side of the call is not in this recording, or `null`.
+   *
+   * Sticky until a share succeeds, and kept apart from `captureError` because
+   * it is drawn differently: as a warning with a button that asks again, never
+   * as a one-line chip somebody can miss. A meeting recording one side of a
+   * conversation is the failure this exists to make impossible to overlook.
+   */
+  callAudioWarning: string | null;
+  /**
    * Audio kept on this device that has not been turned into words yet, per
    * meeting id. Absent means none.
    *
@@ -275,6 +284,7 @@ export const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   capture: NO_CAPTURE,
   captureError: null,
   backgroundCaptureWarning: null,
+  callAudioWarning: null,
   audio: Object.freeze({}),
   offline: false,
   canContinue: false,

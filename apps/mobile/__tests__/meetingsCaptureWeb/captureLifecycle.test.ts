@@ -130,6 +130,7 @@ describe("the audio is transient, structurally", () => {
       "onSegment",
       "pause",
       "resume",
+      "shareSystemAudio",
       "start",
       "state",
       "stop",
