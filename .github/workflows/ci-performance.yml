@@ -1,0 +1,31 @@
+name: CI Performance
+
+# The weekly speed report for pull-request checks, staging and production:
+# median, 90th percentile, lock waits, failures and reruns, and the slowest job
+# and step, written to this run's summary. It goes red when a pipeline's median
+# is at least 25% slower than the week before; see
+# scripts/ci-performance-report.mjs. It reads run metadata only, never logs.
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  report:
+    name: Report CI and deployment speed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Measure the last two weeks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-performance-report.mjs

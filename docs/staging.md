@@ -25,9 +25,14 @@ when that component deploys.
 
 To release, open **Actions → Deploy to Production → Run workflow** and select
 `main`. The action requires a successful staging deployment for that exact
-commit, then deploys Convex, the Workers, web, router and production OTA. All
-jobs use the commit fixed when the action started, even if `main` moves while
-it runs. Production builds use production credentials; staging data is not
+commit, then deploys the components that changed since production's last
+successful run, chosen by the same planner with `--target production`: Convex,
+the Workers, web, router and production OTA. Tick `full` to redeploy
+everything, for recovery or after rotating a production secret. The OTA update
+publishes alongside web rather than after the router. The gateway suite is not
+rerun, because the staging run this action requires ran it whenever the
+gateway's inputs changed. All jobs use the commit fixed when the action
+started, even if `main` moves while it runs. Production builds use production credentials; staging data is not
 copied. A failed deployment can be retried with GitHub's **Re-run failed jobs**.
 
 The component production workflows are reusable jobs called by this manual

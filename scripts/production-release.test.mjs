@@ -50,5 +50,19 @@ test('only staging can deploy automatically; production services share one manua
     }
   }
   assert.match(production, /convex:\s+needs: validate/);
-  assert.match(production, /web:\s+needs: \[gateway, email, transcribe, egress\]/);
+  assert.match(production, /web:\s+needs: \[validate, convex, gateway, email, transcribe, egress\]/);
+  assert.match(production, /mobile-update:\s+needs: \[validate, convex, gateway, email, transcribe, egress\]/);
+  // Every deploy job waits on the staging check, directly or through Convex.
+  const jobs = production.split(/^  (?=[a-z-]+:$)/m).slice(2);
+  assert.ok(jobs.length >= 9, 'expected every component job after validate');
+  for (const job of jobs) {
+    assert.match(job, /needs: (validate|\[validate,)/, `${job.split(':')[0]} must need validate`);
+  }
+});
+
+test('production decides what to deploy only after proving staging passed', () => {
+  const production = readFileSync(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
+  const proof = production.indexOf('run: node scripts/production-release.mjs');
+  const plan = production.indexOf('run: node scripts/deploy-plan.mjs --target production');
+  assert.ok(proof !== -1 && plan > proof, 'the staging proof must run before the plan, in the same job');
 });

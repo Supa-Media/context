@@ -5,6 +5,13 @@
 # the same reasoning as mcp.yml (this repo's gateway CI), which exists because
 # the most security-sensitive code here was once the least covered.
 #
+# The gate may be met by staging instead of by a second run here. The
+# production workflow passes `tested_in_staging` only after requiring this exact
+# commit to have passed `Deploy Staging`, and staging runs `pnpm --filter
+# @context/mcp test` (this suite and more) whenever the gateway's inputs change
+# (scripts/deploy-plan.mjs). A caller that cannot make that promise leaves it
+# false and gets the suite.
+#
 # ── The Wrangler config question ───────────────────────────────────────────
 #
 # `apps/mcp/wrangler.toml` is NOT the product config. It is the founder's live
@@ -26,6 +33,11 @@ name: Deploy MCP Gateway (production)
 
 on:
   workflow_call:
+    inputs:
+      tested_in_staging:
+        description: This exact commit passed Deploy Staging, which ran the gateway suite
+        type: boolean
+        default: false
 
 # Never on `pull_request`: a deploy triggered by a pull request from a branch
 # pushed HERE would run unreviewed code with the account's Cloudflare
@@ -57,6 +69,7 @@ env:
 jobs:
   test:
     name: Test gateway
+    if: ${{ !inputs.tested_in_staging }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -85,6 +98,9 @@ jobs:
   deploy:
     name: Deploy gateway
     needs: test
+    # Skipped tests count only when staging vouched for them; a failed or
+    # cancelled suite never deploys.
+    if: ${{ !cancelled() && (needs.test.result == 'success' || (needs.test.result == 'skipped' && inputs.tested_in_staging)) }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15
