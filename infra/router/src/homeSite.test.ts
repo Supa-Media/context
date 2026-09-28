@@ -35,6 +35,7 @@ const SITE: HomeSnapshot = {
     { path: "Legal/privacy.md", routePath: "/Legal/privacy", title: "Privacy", markdown: "We keep little.\n" },
   ],
   emoji: { partyparrot: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" },
+  images: { "paste-be3b688afc175efb.png": "data:image/png;base64,iVBORw0KGgo=" },
 };
 
 let convexAnswer: () => Response;
@@ -226,6 +227,30 @@ describe("the block", () => {
     expect(parsed?.emoji).toEqual(SITE.emoji);
     expect(parseHomeSnapshot({ ...SITE, emoji: ["data:image/png;base64,AAAA"] })?.emoji).toEqual({});
     expect(parseHomeSnapshot({ ...SITE, emoji: undefined })?.emoji).toEqual({});
+  });
+
+  it("carries a page's pasted pictures inline under stored leaves, and nothing a browser would fetch", () => {
+    const parsed = parseHomeSnapshot({
+      ...SITE,
+      images: {
+        ...SITE.images,
+        "tracker.png": "https://attacker.example/pixel.gif",
+        "script.png": "data:text/html;base64,PHNjcmlwdD4=",
+        "vector.svg": "data:image/svg+xml;base64,PHN2Zz4=",
+        "../privacy.png": "data:image/png;base64,iVBORw0KGgo=",
+        "quoted.png": 'data:image/png;base64,iVBOR"onerror=',
+        "huge.png": `data:image/png;base64,${"A".repeat(3_000_000)}`,
+      },
+    });
+    expect(parsed?.images).toEqual(SITE.images);
+    expect(parseHomeSnapshot({ ...SITE, images: ["data:image/png;base64,AAAA"] })?.images).toEqual({});
+    expect(parseHomeSnapshot({ ...SITE, images: undefined })?.images).toEqual({});
+  });
+
+  it("stops carrying pictures once the pages' pictures together pass the cap", () => {
+    const big = `data:image/png;base64,${"A".repeat(2_800_000)}`;
+    const parsed = parseHomeSnapshot({ ...SITE, images: { "a.png": big, "b.png": big, "c.png": big } });
+    expect(Object.keys(parsed?.images ?? {})).toEqual(["a.png", "b.png"]);
   });
 
   it("an HTML document with no head is left as it is", () => {

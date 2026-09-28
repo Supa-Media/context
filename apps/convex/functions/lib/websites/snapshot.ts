@@ -42,6 +42,7 @@ import { readBatches } from "./lists";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { normalizedHandle } from "./resolver";
 import { readPublishedEmoji } from "./emoji";
+import { readPublishedImages } from "./images";
 import { withFolderList, type FolderPage } from "./folders";
 
 /** Whose `website/` folder is the homepage. A self-host names its own. */
@@ -68,6 +69,8 @@ export interface WebsiteSnapshot {
   pages: WebsiteSnapshotPage[];
   /** The workspace emoji those pages use, `name → data: URL` (see `./emoji`). */
   emoji: Record<string, string>;
+  /** The pasted pictures those pages embed, `leaf → data: URL` (see `./images`). */
+  images: Record<string, string>;
 }
 
 /** A page the site published, as the route index holds it. */
@@ -254,10 +257,10 @@ export async function websiteSnapshot(
     title,
     markdown: folder ? withFolderList(markdown, folderPagesIn(listed, routePath)) : markdown,
   }));
-  const emoji = await readPublishedEmoji(
-    ctx,
-    home.workspaceId,
-    pages.map((page) => page.markdown),
-  ).catch(() => ({}));
-  return { siteName: home.siteName, revision, pages, emoji };
+  const markdowns = pages.map((page) => page.markdown);
+  const [emoji, images] = await Promise.all([
+    readPublishedEmoji(ctx, home.workspaceId, markdowns).catch(() => ({})),
+    readPublishedImages(ctx, home.workspaceId, markdowns).catch(() => ({})),
+  ]);
+  return { siteName: home.siteName, revision, pages, emoji, images };
 }

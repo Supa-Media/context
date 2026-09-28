@@ -151,6 +151,12 @@ export type ResolvedWebsitePage =
        * as their text.
        */
       emoji?: Record<string, string>;
+      /**
+       * The stored pictures the page embeds, `leaf → data: URL`, for the same
+       * reason: `![[paste-….png]]` comes with the page. An absent leaf shows
+       * as missing.
+       */
+      images?: Record<string, string>;
     }
   | {
       kind: "authentication_required";
