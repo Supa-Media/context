@@ -414,13 +414,12 @@ export function LiveEditor({
   }, [presence?.members]);
 
   /*
-    No name flags on a phone (owner, 2026-09-27, the phone artboards, screen
-    1): at 390pt a flag covers the words being read and clips at the edge.
-    The caret and the selection wash stay; the presence pile says who is
-    here. Follows a resize, so a window narrowed past the breakpoint drops
-    them. See `remoteCarets.ts`.
+    Compact name flags on a phone (owner, 2026-09-28: "why dont we show the
+    name of whos typing on the cursor on mobile"): a full flag covers the words
+    being read at 390pt, so a phone gets the small one. Follows a resize. See
+    `remoteCarets.ts`.
   */
-  const caretFlags = densityFor(useWindowDimensions().width) !== "compact";
+  const caretFlags = densityFor(useWindowDimensions().width) === "compact" ? "compact" : "full";
   useEffect(() => {
     const current = view.current;
     if (!current) return;

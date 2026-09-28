@@ -3,24 +3,23 @@
  */
 
 /**
- * ON A PHONE A PEER'S CARET HAS NO NAME FLAG.
+ * ON A PHONE A PEER'S CARET CARRIES A COMPACT NAME FLAG.
  *
- * The owner's phone artboards (2026-09-27, screen 1): "Cursor name tags are
- * hidden on phones." At 390pt the flags ("@maya", "jo Claude") lay over the
- * words being read and clipped at the right edge of the glass. The coloured
- * caret and the selection wash stay — they say *where* somebody is — and the
- * presence pile in the path row says *who*.
+ * The phone artboards (2026-09-27, screen 1) first hid the flags, because at
+ * 390pt a full flag ("@maya", "jo Claude") lay over the words being read and
+ * clipped at the right edge. The owner then asked (2026-09-28) "why dont we
+ * show the name of whos typing on the cursor on mobile", so a phone draws a
+ * smaller flag instead of none: the same name, 10px type, capped in width.
  *
  * Three layers, each held:
- *  - `buildCaretDecorations` with labels off draws the caret and no flag, for
- *    a person and for a tool (whose flag otherwise never fades);
+ *  - `buildCaretDecorations` draws a compact flag in "compact" and none in
+ *    "none", for a person and for a tool;
  *  - the `setCaretLabels` effect reaches the drawn DOM of a real editor;
- *  - the mounted `LiveEditor` turns labels off at a compact width and leaves
- *    them on at a pointer width.
+ *  - the mounted `LiveEditor` picks compact at a phone width and full at a
+ *    pointer width, and follows a resize.
  *
- * SABOTAGE: `LiveEditor.web.tsx` dispatching `setCaretLabels.of(true)`
- * regardless of density fails the last test; `labelled` ignoring `labels` in
- * `buildCaretDecorations` fails the first two.
+ * SABOTAGE: `LiveEditor.web.tsx` dispatching "none" on a phone fails the last
+ * test; the widget ignoring "compact" fails the first.
  */
 
 import { afterEach, describe, expect, test } from "@jest/globals";
@@ -61,8 +60,22 @@ function marksOf(set: ReturnType<typeof buildCaretDecorations>): number {
   return count;
 }
 
-describe("the flag is optional, the caret is not", () => {
-  test("labels off: a caret, a selection wash, and no flag", () => {
+describe("the flag has a phone size, and the caret is never optional", () => {
+  test("compact: the same name, drawn small, over a caret and a selection wash", () => {
+    const moved = new Map([["m1", 1_000]]);
+    const one = [member({ anchor: at(1), head: at(4) })];
+    const compact = widgetsOf(buildCaretDecorations(one, 10, 1_000, moved, resolve, "compact"))[0]!;
+    const label = compact.querySelector(".cm-presence-label");
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("cm-presence-label-compact")).toBe(true);
+
+    // The full flag is the pointer layout's, and carries no compact class.
+    const full = widgetsOf(buildCaretDecorations(one, 10, 1_000, moved, resolve, "full"))[0]!;
+    expect(full.querySelector(".cm-presence-label-compact")).toBeNull();
+    expect(full.querySelector(".cm-presence-label")!.textContent).toBe(label!.textContent);
+  });
+
+  test("none: a caret, a selection wash, and no flag", () => {
     const moved = new Map([["m1", 1_000]]);
     const set = buildCaretDecorations(
       [member({ anchor: at(1), head: at(4) })],
@@ -70,22 +83,27 @@ describe("the flag is optional, the caret is not", () => {
       1_000,
       moved,
       resolve,
-      false,
+      "none",
     );
     const [caret] = widgetsOf(set);
     expect(caret!.className).toBe("cm-presence-caret");
     expect(caret!.querySelector(".cm-presence-label")).toBeNull();
     expect(marksOf(set)).toBe(1);
 
-    // The positive control: the same, labels on, is flagged.
-    const on = buildCaretDecorations([member({ anchor: at(1), head: at(4) })], 10, 1_000, moved, resolve, true);
-    expect(widgetsOf(on)[0]!.querySelector(".cm-presence-label")).not.toBeNull();
   });
 
-  test("…including a tool's, whose flag otherwise never fades", () => {
+  test("a tool's compact flag still never fades, and still says whose", () => {
     const tool = member({ head: at(3), name: "@jon's Claude", isAgent: true });
-    const set = buildCaretDecorations([tool], 10, 0, new Map(), resolve, false);
-    expect(widgetsOf(set)[0]!.querySelector(".cm-presence-label")).toBeNull();
+    const label = widgetsOf(buildCaretDecorations([tool], 10, 60_000, new Map(), resolve, "compact"))[0]!
+      .querySelector(".cm-presence-label-compact");
+    expect(label!.textContent).toBe("joClaude");
+    expect(widgetsOf(buildCaretDecorations([tool], 10, 0, new Map(), resolve, "none"))[0]!.querySelector(".cm-presence-label")).toBeNull();
+  });
+
+  test("a person's compact flag fades like the full one", () => {
+    const moved = new Map([["m1", 0]]);
+    const later = buildCaretDecorations([member({ head: at(2) })], 10, 10_000, moved, resolve, "compact");
+    expect(widgetsOf(later)[0]!.querySelector(".cm-presence-label")).toBeNull();
   });
 });
 
@@ -96,7 +114,7 @@ describe("in a real editor", () => {
     view = null;
   });
 
-  test("setCaretLabels takes the flag off the drawn caret, and puts it back", () => {
+  test("setCaretLabels changes the drawn flag's size, takes it off, and puts it back", () => {
     const doc = new Y.Doc();
     const text = doc.getText("t");
     text.insert(0, "hello world");
@@ -112,13 +130,18 @@ describe("in a real editor", () => {
     });
     expect(view.dom.querySelector(".cm-presence-label")).not.toBeNull();
 
-    view.dispatch({ effects: setCaretLabels.of(false) });
-    expect(caretLabelsShown(view.state)).toBe(false);
+    view.dispatch({ effects: setCaretLabels.of("compact") });
+    expect(caretLabelsShown(view.state)).toBe("compact");
+    expect(view.dom.querySelector(".cm-presence-label-compact")).not.toBeNull();
+
+    view.dispatch({ effects: setCaretLabels.of("none") });
+    expect(caretLabelsShown(view.state)).toBe("none");
     expect(view.dom.querySelector(".cm-presence-caret")).not.toBeNull();
     expect(view.dom.querySelector(".cm-presence-label")).toBeNull();
 
-    view.dispatch({ effects: setCaretLabels.of(true) });
+    view.dispatch({ effects: setCaretLabels.of("full") });
     expect(view.dom.querySelector(".cm-presence-label")).not.toBeNull();
+    expect(view.dom.querySelector(".cm-presence-label-compact")).toBeNull();
   });
 });
 
@@ -131,17 +154,17 @@ describe("the live editor decides by density", () => {
     });
   };
 
-  test("a phone hides the flags; a pointer layout shows them; a resize follows", () => {
+  test("a phone draws compact flags; a pointer layout full ones; a resize follows", () => {
     setWidth(390);
     const editor = mount({ value: "hello", editable: true });
-    expect(caretLabelsShown(viewIn(editor.container).state)).toBe(false);
+    expect(caretLabelsShown(viewIn(editor.container).state)).toBe("compact");
 
     setWidth(1440);
-    expect(caretLabelsShown(viewIn(editor.container).state)).toBe(true);
+    expect(caretLabelsShown(viewIn(editor.container).state)).toBe("full");
     editor.unmount();
 
     const wide = mount({ value: "hello", editable: true });
-    expect(caretLabelsShown(viewIn(wide.container).state)).toBe(true);
+    expect(caretLabelsShown(viewIn(wide.container).state)).toBe("full");
     wide.unmount();
   });
 });
