@@ -13,10 +13,15 @@ test("percentiles use the nearest rank", () => {
 });
 
 test("a deploy's wait for the lock is separated from its running time", () => {
-  const [t] = deployTimings([{ id: 1, status: "completed", conclusion: "success", created_at: at(0), run_started_at: at(3), updated_at: at(11) }]);
+  // run_started_at equals created_at even while the lock holds the run.
+  const run = { id: 1, status: "completed", conclusion: "success", created_at: at(0), run_started_at: at(0), updated_at: at(11) };
+  const [t] = deployTimings([run], new Map([[1, at(3)]]));
   assert.equal(t.wait, 3 * 60_000);
   assert.equal(t.running, 8 * 60_000);
   assert.equal(t.total, 11 * 60_000);
+  const [unknown] = deployTimings([run]);
+  assert.equal(unknown.wait, undefined, "no jobs fetched means no claim about the wait");
+  assert.equal(summarize([unknown]).waitMedian, null);
   assert.deepEqual(deployTimings([{ id: 2, status: "in_progress", created_at: at(0), run_started_at: at(0), updated_at: at(1) }]), []);
 });
 

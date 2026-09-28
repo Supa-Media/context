@@ -11,9 +11,9 @@
  *
  * For every pipeline it separates three things a single duration hides:
  *
- * - waiting: from the run being created to it starting, which for a deploy is
- *   mostly the concurrency lock held by the previous deploy;
- * - running: from start to the last update;
+ * - waiting: from the run being created to its first job starting, which for
+ *   a deploy is mostly the concurrency lock held by the previous deploy;
+ * - running: from the first job starting to the last update;
  * - reruns: runs whose latest attempt is not the first, the cost of a flake.
  *
  * A pull request's time is the span from its first workflow run being created
@@ -48,20 +48,28 @@ export function duration(msValue) {
   return minutes ? `${minutes}m ${String(total % 60).padStart(2, "0")}s` : `${total}s`;
 }
 
-/** Wait, run and total times for completed deploy runs. */
-export function deployTimings(runs) {
+/**
+ * Wait, run and total times for completed deploy runs. GitHub sets
+ * `run_started_at` when the run is created, even while it is held by the
+ * concurrency lock, so the wait comes from the first job's start, which is
+ * only known for runs whose jobs were fetched (`firstJobAt`).
+ */
+export function deployTimings(runs, firstJobAt = new Map()) {
   return runs
-    .filter((run) => run.status === "completed" && run.run_started_at)
-    .map((run) => ({
-      id: run.id,
-      at: run.created_at,
-      sha: run.head_sha,
-      conclusion: run.conclusion,
-      rerun: (run.run_attempt ?? 1) > 1,
-      wait: Math.max(0, ms(run.created_at, run.run_started_at)),
-      running: Math.max(0, ms(run.run_started_at, run.updated_at)),
-      total: Math.max(0, ms(run.created_at, run.updated_at)),
-    }));
+    .filter((run) => run.status === "completed")
+    .map((run) => {
+      const started = firstJobAt.get(run.id);
+      return {
+        id: run.id,
+        at: run.created_at,
+        sha: run.head_sha,
+        conclusion: run.conclusion,
+        rerun: (run.run_attempt ?? 1) > 1,
+        wait: started ? Math.max(0, ms(run.created_at, started)) : undefined,
+        running: started ? Math.max(0, ms(started, run.updated_at)) : undefined,
+        total: Math.max(0, ms(run.created_at, run.updated_at)),
+      };
+    });
 }
 
 /** One entry per pull-request head commit: first run created to last run done. */
@@ -186,7 +194,7 @@ function section(title, timings, jobs) {
   lines.push("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
   lines.push(`| ${s.runs} | ${duration(s.fastest)} | ${duration(s.median)} | ${duration(s.p90)} | ${duration(s.waitMedian)} | ${duration(s.runningMedian)} | ${s.failures} | ${s.reruns} |`);
   if (jobs) {
-    lines.push("", "Slowest at the median (last ten successful runs):", "");
+    lines.push("", "Wait and running times, and the slowest job and step at the median, are from the last ten successful runs.", "");
     for (const job of jobs.jobs) lines.push(`- Job: ${job.name}, ${duration(job.median)}`);
     for (const step of jobs.steps) lines.push(`- Step: ${step.name}, ${duration(step.median)}`);
   }
@@ -209,9 +217,14 @@ async function main(env) {
   ]);
   const deploys = [];
   for (const [title, list] of [["Staging", staging], ["Production", production]]) {
-    const timings = deployTimings(list);
-    const recent = timings.filter((t) => t.conclusion === "success").slice(0, 10).map((t) => t.id);
-    deploys.push(section(title, timings, slowest(await jobsFor(env, recent))));
+    const recent = list.filter((run) => run.status === "completed" && run.conclusion === "success").slice(0, 10);
+    const jobs = await jobsFor(env, recent.map((run) => run.id));
+    const firstJobAt = new Map();
+    recent.forEach((run, i) => {
+      const starts = jobs[i].map((job) => job.started_at).filter(Boolean).sort();
+      if (starts.length) firstJobAt.set(run.id, starts[0]);
+    });
+    deploys.push(section(title, deployTimings(list, firstJobAt), slowest(jobs)));
   }
   const parts = [section("Pull requests, all checks", pullRequestTimings(pr)), ...deploys];
   const text = `## CI and deployment performance\n\nGenerated ${new Date().toISOString().slice(0, 16)}Z from the GitHub Actions API.\n\n${parts.map((p) => p.text).join("\n")}`;
