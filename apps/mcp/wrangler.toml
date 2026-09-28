@@ -35,6 +35,11 @@ compatibility_date = "2026-08-01"
 # production traffic, and set it to your own origin, never someone else's.
 PUBLIC_ORIGIN = "https://mcp.context.lc"
 
+# OpenAI verifies ownership of the MCP hostname by reading this public token
+# from `/.well-known/openai-apps-challenge`. It is issued for the current
+# Context Plugin draft and is public by design once the endpoint is deployed.
+OPENAI_APPS_CHALLENGE = "mvCPz_ecepW9QtwBVmDzCk3cxzqSXHmRE0TE52cJbcc"
+
 # Browser origins permitted to reach `/mcp` and `/inbox`, comma- or
 # space-separated. MCP requires a server to validate `Origin` on the Streamable
 # HTTP transport, because a page in a victim's browser that rebinds a hostname
