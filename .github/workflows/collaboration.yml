@@ -39,6 +39,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The Playwright container runs as a different user from the checkout's
+      # owner, and `actions/checkout` marks it safe only in a temporary HOME.
+      # On push events paths-filter runs git locally, which then refuses the
+      # repository ("dubious ownership") before any test starts.
+      - name: Trust the checkout inside the container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       # Required checks still have to report on unrelated pull requests. Keep
       # the trigger broad, detect changes inside the job, and skip only the
       # expensive setup and browser work.
