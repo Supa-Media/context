@@ -7,20 +7,19 @@ name: Deploy to Production
 # everything whenever it is unsure. Tick `full` to redeploy everything anyway,
 # for recovery or after rotating a production secret.
 #
-#   validate ─┬─ convex ─┬─ gateway ──┬─ web ── router
-#             │          ├─ email ────┤
-#             │          ├─ transcribe┼─ mobile-update
-#             │          └─ egress ───┘
+#   validate ─┬─ web export ─────────────────────┐
+#             ├─ convex ─┬─ gateway ─────────────┼─ router + assets
+#             │          ├─ email ───────────────┤
+#             │          ├─ transcribe ──────────┼─ mobile-update
+#             │          └─ egress ──────────────┘
 #             └─ sentry
 #
 # Why each edge exists:
 # - The Workers deploy after Convex, because new Worker code may call control
 #   plane functions the old backend does not have.
-# - Web and the OTA update go live after every backend they call. The OTA
-#   update does not wait for web or the router: native builds call Convex and
-#   the gateway directly, and waiting only added web's alias check (about five
-#   minutes) to every release.
-# - The router fronts the web app and deploys after it, as before.
+# - The web export builds alongside the backends. The router waits for both,
+#   then publishes Worker code and that exact export as one version.
+# - The OTA update waits for the backends, not the web artifact.
 #
 # The gateway's suite is not rerun here. `validate` requires this exact commit
 # to have passed staging, and staging runs that suite (a superset of this
@@ -113,13 +112,13 @@ jobs:
     secrets: inherit
 
   web:
-    needs: [validate, convex, gateway, email, transcribe, egress]
+    needs: validate
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.web == 'true' }}
-    uses: ./.github/workflows/deploy-web.yml
+    uses: ./.github/workflows/build-web.yml
     secrets: inherit
 
   router:
-    needs: [validate, web]
+    needs: [validate, convex, gateway, email, transcribe, egress, web]
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.router == 'true' }}
     uses: ./.github/workflows/deploy-router.yml
     secrets: inherit

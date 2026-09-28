@@ -93,15 +93,17 @@ const promote = (...files) => on(selectComponents(files, production, { target: "
 
 test("production selects the same way, per reusable workflow", () => {
   assert.deepEqual(promote("docs/staging.md", ".github/workflows/ci.yml"), []);
-  assert.deepEqual(promote("infra/router/src/route.ts"), ["router"]);
-  assert.deepEqual(promote("apps/mobile/features/console/NoteEditor.tsx"), ["ota", "web"]);
+  assert.deepEqual(promote("infra/router/src/route.ts"), ["router", "web"]);
+  assert.deepEqual(promote("apps/mobile/features/console/NoteEditor.tsx"), ["ota", "router", "web"]);
   assert.deepEqual(promote("infra/sentry-worker/src/index.js"), ["sentry"]);
-  assert.deepEqual(promote("apps/mcp/src/lists.js"), ["convex", "gateway", "ota", "web"]);
+  assert.deepEqual(promote("apps/mcp/src/lists.js"), ["convex", "gateway", "ota", "router", "web"]);
 });
 
 test("a production component's own workflow redeploys it", () => {
   assert.deepEqual(promote(".github/workflows/deploy-mcp.yml"), ["gateway"]);
   assert.deepEqual(promote(".github/workflows/deploy-mobile-update.yml"), ["ota"]);
+  assert.deepEqual(promote(".github/workflows/build-web.yml"), ["router", "web"]);
+  assert.deepEqual(promote(".github/workflows/deploy-router.yml"), ["router", "web"]);
   const all = Object.keys(TARGETS.production.components).sort();
   assert.deepEqual(promote(".github/workflows/deploy-production.yml"), all);
   assert.deepEqual(promote("pnpm-lock.yaml"), all);

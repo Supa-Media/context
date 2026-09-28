@@ -24,7 +24,7 @@ import { originFor, readOrigin, VAR_NAME } from "./upstream";
 import ogCard from "./og-card.png";
 
 export interface Env {
-  /** EAS Hosting origin for the exported Expo web bundle. */
+  /** Optional legacy upstream for self-hosted configurations without Static Assets. */
   EXPO_ORIGIN?: string;
   /** Cloudflare Static Assets binding. Staging uses it before production cuts over. */
   ASSETS?: Fetcher;
@@ -205,8 +205,9 @@ async function respond(
           // Static Assets and Worker code are one version. Passing the original
           // request preserves the path, query and navigation headers so
           // Cloudflare's SPA fallback can distinguish documents from missing
-          // files. Production keeps the EAS fallback until staging canaries
-          // this exact route.
+          // files. The repository's staging and production configurations
+          // always provide this binding; EXPO_ORIGIN remains only as a
+          // compatibility fallback for external self-hosted configurations.
           return env.ASSETS.fetch(request);
         }
         const origin = originFor(decision.upstream, env);

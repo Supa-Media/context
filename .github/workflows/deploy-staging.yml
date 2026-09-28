@@ -10,14 +10,13 @@ name: Deploy Staging
 #   plan ─┬─ convex ──────────────┬─ workers ──────────┬─ verify
 #         ├─ worker-tests ────────┘                    │
 #         └─ web-build ─┬─ router-with-assets ─────────┤
-#                       ├─ EAS canary fallback ────────┤
 #                       └─ OTA ────────────────────────┘
 #
 # Why each edge exists:
 # - Workers deploy after Convex, because a new gateway may call functions the
 #   old backend does not have. Their tests do not need Convex and run alongside.
 # - The web app is built once. Staging's router publishes that exact export as
-#   Static Assets; EAS stays beside it only during the canary.
+#   Static Assets in the same version as its routing code.
 # - The OTA update needs the same backends, not the web alias, so it publishes
 #   alongside the web deploy.
 # - `verify` always runs, as the one end-to-end check, even when nothing else
@@ -301,37 +300,6 @@ jobs:
       - name: Sync the staging Convex origin
         run: printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
 
-  web:
-    name: Publish web
-    needs: [plan, convex, workers, web-build]
-    if: ${{ !cancelled() && !failure() && needs.plan.outputs.app == 'true' }}
-    runs-on: ubuntu-latest
-    environment: staging
-    timeout-minutes: 15
-    env:
-      APP_ENV: staging
-      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: staging-web
-          path: apps/mobile/dist
-      - name: Deploy staging web alias
-        working-directory: apps/mobile
-        run: eas deploy --alias staging --environment=preview --non-interactive
-
   ota:
     name: Publish OTA
     needs: [plan, convex, workers]
@@ -366,7 +334,7 @@ jobs:
 
   verify:
     name: Verify live staging
-    needs: [plan, convex, workers, router, web, ota]
+    needs: [plan, convex, workers, router, ota]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     environment: staging

@@ -115,8 +115,16 @@ export const TARGETS = {
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
       sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },
-      web: { packages: ["@context/mobile"], files: ["scripts/build-drawing-editor.mjs", workflow("deploy-web")] },
-      router: { packages: ["@context/router"], files: [workflow("deploy-router")] },
+      // The router publishes the web export as one Worker version. Either
+      // half changing must rebuild and deploy both halves of that version.
+      web: {
+        packages: ["@context/mobile", "@context/router"],
+        files: ["scripts/build-drawing-editor.mjs", workflow("build-web"), workflow("deploy-router")],
+      },
+      router: {
+        packages: ["@context/mobile", "@context/router"],
+        files: ["scripts/build-drawing-editor.mjs", workflow("build-web"), workflow("deploy-router")],
+      },
       ota: { packages: ["@context/mobile"], files: [workflow("deploy-mobile-update")] },
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-production")],
