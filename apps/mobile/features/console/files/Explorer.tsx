@@ -9,6 +9,7 @@ import { useFrame } from "../../app/AppFrame";
 import { ExplorerDialogs } from "./explorer/ExplorerDialogs";
 import { ExplorerFoot } from "./explorer/ExplorerFoot";
 import { ExplorerFootLists } from "./explorer/ExplorerFootLists";
+import { useFootDismiss } from "./explorer/useFootDismiss";
 import { ExplorerToolbar } from "./explorer/ExplorerToolbar";
 import { ExplorerTree } from "./explorer/ExplorerTree";
 import type { ExplorerProps } from "./explorer/props";
@@ -128,6 +129,7 @@ export function Explorer({
     agents,
     frame,
   });
+  useFootDismiss({ activity, activityOpen, setActivityOpen, agentsOpen, setAgentsOpen });
 
   return (
     <View style={styles.explorer} testID="explorer">
