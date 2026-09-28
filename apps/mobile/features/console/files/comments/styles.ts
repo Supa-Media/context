@@ -78,7 +78,7 @@ function marginStyles(colors: CommentPalette, font: string | undefined): string 
 /* A new card fades in and slides a little from the right, where it stands. */
 .cm-cmt-enter { opacity: 0; transform: translateX(8px); }
 .cm-cmt-placed {
-  transition: top 220ms cubic-bezier(.2,.8,.2,1), opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition: top 220ms cubic-bezier(.2,.8,.2,1), left 220ms cubic-bezier(.2,.8,.2,1), opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 .cm-lp-root .cm-cmt-hl { transition: background-color 120ms ease; }
 .cm-cmt-card {
