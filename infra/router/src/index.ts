@@ -10,12 +10,13 @@
  */
 import { previewForNote, previewForShortLink, previewForShare, renderPreviewHtml, SHORT_CARD_PREFIX } from "./preview";
 import { isSitePageRequest, sitePageResponse } from "./sitePages"; // any site's page, kept per Publish
-import { route, type RouteDecision, type Upstream } from "./route";
+import { route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
 import { isHomeDocument, withHomeSite } from "./homeSite";
 import { iconResponse, staticAsset } from "./icons";
+import { originFor, readOrigin, VAR_NAME } from "./upstream";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
 // a crawler is guaranteed to fetch should not depend on an upstream that might
@@ -31,43 +32,6 @@ export interface Env {
   CONVEX_ORIGIN?: string;
   HOME_SITE_HANDLE?: string; // whose website/ is the homepage (`homeSite.ts`)
 }
-
-/**
- * Accept a var only if it is a bare https origin — no path, query, or fragment.
- *
- * Validated on every request rather than assumed, because both origins arrive
- * as Worker vars and a half-finished config would otherwise become a proxy to
- * somewhere unintended. Failing closed with a 503 that names the variable is
- * the honest outcome: the reason is in the response, instead of the site being
- * up and quietly serving someone else's origin.
- */
-function readOrigin(value: string | undefined): string | null {
-  if (!value) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:") return null;
-  if (parsed.pathname !== "/" || parsed.search || parsed.hash) return null;
-  return parsed.origin;
-}
-
-/**
- * Resolved per upstream, not up front, so a missing CONVEX_ORIGIN takes down
- * only the auth routes rather than the whole site.
- */
-function originFor(upstream: Upstream, env: Env): string | null {
-  return upstream === "convex"
-    ? readOrigin(env.CONVEX_ORIGIN)
-    : readOrigin(env.EXPO_ORIGIN);
-}
-
-const VAR_NAME: Record<Upstream, string> = {
-  expo: "EXPO_ORIGIN",
-  convex: "CONVEX_ORIGIN",
-};
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
