@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 async function request(url, options) {
   const response = await fetch(url, { ...options, signal: AbortSignal.timeout(30000) });
@@ -8,9 +8,15 @@ async function request(url, options) {
 }
 const origin = 'https://staging.context.lc';
 const gateway = 'https://mcp-staging.context.lc';
-const localHtml = readFileSync('apps/mobile/dist/index.html', 'utf8');
-const bundle = localHtml.match(/_expo\/static\/js\/web\/entry-[^"\s]+\.js/)?.[0];
-assert.ok(bundle, 'exported app must name its entry bundle');
+const ENTRY = /_expo\/static\/js\/web\/entry-[^"\s]+\.js/;
+// A run that deployed the web app hands its export here and must see it live.
+// A run that left the app alone checks whatever staging already serves.
+const exported = 'apps/mobile/dist/index.html';
+const fresh = existsSync(exported);
+const bundle = fresh
+  ? readFileSync(exported, 'utf8').match(ENTRY)?.[0]
+  : (await (await request(origin)).text()).match(ENTRY)?.[0];
+assert.ok(bundle, fresh ? 'exported app must name its entry bundle' : 'staging must serve an entry bundle');
 let html = '';
 for (let attempt = 0; attempt < 48; attempt++) {
   try { html = await (await request(origin)).text(); } catch { /* alias or DNS is propagating */ }
