@@ -332,6 +332,8 @@ export const ICON_NAMES = [
    * for a model, so it needs no caption on a row that has none.
    */
   "sparkle",
+  /** An AI helper's face in a project's owner column. */
+  "robot",
   /**
    * Whether the open note is in its bucket — the top bar's save mark. A cloud
    * because that is the mark every editor uses for "saved to storage", and the
