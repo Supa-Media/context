@@ -831,10 +831,8 @@ export interface FileBrowser {
    *
    * `select` already loads a folder's listing as a side effect of opening it —
    * this is that fetch on its own, for a view that needs several folders at
-   * once and none of them is "the selected one". The Inbox landing page reads
-   * every connected channel's folder this way: `0-inbox`, `0-inbox/email` (to
-   * find which mailboxes exist), and each channel folder in turn, none of
-   * which the person has navigated *into*.
+   * once and none of them is "the selected one" — the privacy panel and a
+   * task host both read folders the person has not navigated *into*.
    *
    * A no-op once `listings[path]` is populated unless `fresh` — a cache, not
    * a subscription, so a caller that wants a fresh read after a write already
