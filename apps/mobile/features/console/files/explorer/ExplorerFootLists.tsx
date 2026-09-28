@@ -8,6 +8,7 @@ import { useColors, useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
 import { ActivityList } from "../../activity/ActivityList";
 import { AgentList } from "../../agents/AgentList";
+import { PeopleList } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import { ACTIVITY_PATH, emptyLine, type ActivityView } from "../../activity/activity";
 import type { ExplorerProps } from "./props";
@@ -104,6 +105,7 @@ export function ExplorerFootLists({
       {agents !== undefined && agentsOpen !== null && agentsLabel !== null ? (
         <View style={[styles.activitySheet, lift]} testID="explorer-agents-list">
           <ScrollView style={styles.activityScroll}>
+            <PeopleList view={agents} />
             <AgentList
               agents={agents.agents}
               now={agentsOpen}

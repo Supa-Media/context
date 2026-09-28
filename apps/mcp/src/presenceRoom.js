@@ -74,6 +74,9 @@ export class PresenceRoom {
     // Only on the one instance per workspace keyed by `agentActivityKey`, and
     // only in memory. See `agentActivity.js` for why it is never stored.
     this.activity = [];
+    // Who has this workspace's console open, on the same instance and under
+    // the same rule. See `peopleActive.js`.
+    this.people = new Map();
   }
 
   async fetch(request) {
