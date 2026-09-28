@@ -14,6 +14,7 @@ import { StorageChoice } from "./StorageChoice";
 import { VaultImport } from "./VaultImport";
 import { useManagedOffer } from "../../onboarding/useManagedOffer";
 import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
+import { ManagedSettling } from "../../onboarding/steps/ManagedSettling";
 
 /** Billing is optional in render fixtures and self-hosted builds. */
 export function SettingsStorageChoice({
@@ -72,6 +73,24 @@ function SettingsStorageChoiceLive({
 }) {
   const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
 
+  if (managed.mode === "settling") {
+    return (
+      <ManagedSettling
+        state={{
+          paid: managed.paid,
+          stagingFreeStorage: managed.status?.stagingFreeStorage,
+          free: managed.startedFree,
+          storageReady: managed.status?.managedProvisioning === "ready",
+          slow: managed.slow,
+          failure: managed.provisionFailure,
+        }}
+        contextName={contextName}
+        onUseOwnStorage={managed.back}
+        onRetry={managed.retry}
+      />
+    );
+  }
+
   if (managed.mode === "confirm" && managed.status !== null) {
     return (
       <ManagedConfirm
@@ -92,6 +111,10 @@ function SettingsStorageChoiceLive({
       connect={connect}
       onCancel={onCancel}
       allowDropbox={allowDropbox}
+      free={managed.free === null ? undefined : {
+        cap: managed.free.cap,
+        onChoose: managed.startFree,
+      }}
       managed={!managed.available ? undefined : {
         price: managed.price,
         onChoose: () => {
