@@ -275,6 +275,15 @@ export const darkColors = {
    * and out of a dozen times an hour. Obsidian barely tints it.
    */
   scrim: "rgba(10,9,8,0.60)",
+
+  /**
+   * The avatar for somebody with no name yet — a homepage visitor. A flat,
+   * dark head and shoulders on light grey-blue, picked by the owner
+   * (2026-09-28) as a picture rather than a theme colour, so both palettes
+   * carry the same two values.
+   */
+  anonymousGround: "#CCD5D7",
+  anonymousFigure: "#1F2B37",
 } as const;
 
 /**
@@ -471,6 +480,10 @@ export const lightColors: Colors = {
 
   /** See the dark palette's note: a tint here, not a blackout. */
   scrim: "rgba(26,23,20,0.22)",
+
+  /** The same picture in both worlds; see the dark palette. */
+  anonymousGround: "#CCD5D7",
+  anonymousFigure: "#1F2B37",
 };
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
