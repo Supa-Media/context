@@ -28,19 +28,41 @@ export function agentOwner(agent: string, whose: string | null): string {
 }
 
 /**
- * Which agent an owner line names, and whose it is: `Claude` → Claude and
- * nobody's, `@shay's Claude` → Claude and `@shay`. Null for an owner that is
- * not an agent in `list`.
+ * An owner line split from the note an agent may leave after it in brackets:
+ * `Claude (faster CI/CD project thread)` → `Claude` and the note, which says
+ * which thread claimed the work. Anything without a closing bracket at the end
+ * has no note.
  */
-export function parseAgentOwner(value: string, list: readonly string[]): { agent: string; whose: string | null } | null {
+export function ownerNote(value: string): { name: string; note: string | null } {
   const text = value.trim();
+  const match = /^(.*?\S)\s*\(([^()]*\S[^()]*)\)$/.exec(text);
+  return match === null ? { name: text, note: null } : { name: match[1], note: match[2].trim() };
+}
+
+/**
+ * Which agent an owner line names, whose it is, and the note after it:
+ * `Claude` → Claude and nobody's, `@shay's Claude` → Claude and `@shay`,
+ * `Claude (faster CI/CD thread)` → Claude with that note. Null for an owner
+ * that is not an agent in `list`.
+ */
+export function parseAgentOwner(
+  value: string,
+  list: readonly string[],
+): { agent: string; whose: string | null; note: string | null } | null {
+  const { name: text, note } = ownerNote(value);
   for (const agent of list) {
-    if (fold(text) === fold(agent)) return { agent, whose: null };
+    if (fold(text) === fold(agent)) return { agent, whose: null, note };
     const tail = `'s ${fold(agent)}`;
     if (fold(text).endsWith(tail) && text.length > tail.length) {
       const whose = text.slice(0, text.length - tail.length).trim();
-      if (whose !== "") return { agent, whose };
+      if (whose !== "") return { agent, whose, note };
     }
   }
   return null;
+}
+
+/** How an agent owner is shown: without its note, which is for hovering. */
+export function agentShown(value: string, list: readonly string[]): string | null {
+  const parsed = parseAgentOwner(value, list);
+  return parsed === null || parsed.note === null ? null : ownerNote(value).name;
 }

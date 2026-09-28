@@ -310,6 +310,23 @@ describe("an agent owner", () => {
     expect(ownerOf("App").querySelectorAll('[data-testid="owner-face-agent"]')).toHaveLength(0);
     expect(ownerOf("App").querySelectorAll('[data-testid="owner-face-person"]')).toHaveLength(1);
   });
+
+  test("that noted its thread is still the robot, shown by name with the note on hover", async () => {
+    const notes: ListNote[] = [
+      { path: "1-projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Claude (faster CI/CD project thread)" }, heading: "Website" },
+      { path: "1-projects/app/overview.md", updatedAt: 40, properties: { status: "active", owner: "Seyi's Codex (release thread)" }, heading: "App" },
+    ];
+    const page = host([], []);
+    page.source.load = async () => ({ notes, complete: true });
+    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    const web = ownerOf("Website");
+    expect(web.querySelectorAll('[data-testid="owner-face-agent"]')).toHaveLength(1);
+    expect(web.querySelectorAll('[data-testid="owner-face-person"]')).toHaveLength(0);
+    expect(strip(web.textContent)).toBe("Claude");
+    expect(web.closest("[title]")?.getAttribute("title")).toBe("Claude (faster CI/CD project thread)");
+    expect(strip(ownerOf("App").textContent)).toBe("Seyi's Codex");
+    expect(ownerOf("App").querySelectorAll('[data-testid="owner-face-agent"]')).toHaveLength(1);
+  });
 });
 
 describe("an owner written before handles", () => {
