@@ -7,6 +7,7 @@ import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
+import { ProjectsFixture } from "./projects/ProjectsFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -27,6 +28,8 @@ export interface FixtureParams {
    */
   note?: string | string[];
   user?: string | string[];
+  /** `screen=projects`: `member` draws the page for somebody who may only read. */
+  role?: string | string[];
   checkout?: string | string[];
   screen?: string | string[];
   /**
@@ -58,6 +61,8 @@ function first(value: string | string[] | undefined): string | undefined {
 export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
+  // A projects folder's List, Board and side peek on an in-memory folder. See its own header.
+  if (first(params.screen) === "projects") return <ProjectsFixture member={first(params.role) === "member"} />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
 
   /*

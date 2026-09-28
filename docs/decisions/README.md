@@ -179,15 +179,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A list changes one line of a note, the same way any save does
 - A folder page shows its children by status
 - Tasks and notes
+- A row's name takes the room
+- Backlog as a folder
 - Adding and nesting tasks, every write undoable
 - On a phone, the sheet is the right-click menu
 - Priority, tags, due and several owners
 - Show: whose tasks, per viewer
-- The side panel: any row opens beside the list
+- The side panel: any row opens beside the list — see below
 - A list write is what this device holds afterwards
 - Status groups
 - An owner is picked, never typed
 - Agents are a list the workspace writes, each optionally somebody's
+
+## [The side panel](./side-panel.md)
+
+- Any row opens beside the list (amended: editable, through the same editing session)
 
 ## [Comments on notes](./comments.md)
 

@@ -16,7 +16,8 @@ import { makeItTaskStatus } from "../listLayout";
 import { entriesIn, rowsAreProjects, summarizeFolder, type FolderItem } from "../model";
 import { folderStatuses, governingFolder, statusMenu, type StatusList } from "../statuses";
 import type { FolderNotes } from "../useFolderPage";
-import { ownersPlan } from "./menuRun";
+import { ownersPlan, priorityPlan } from "./menuRun";
+import { PRIORITIES, type Priority } from "./taskWords";
 import { planSet, statusPlan, type ProjectRef } from "./taskEdits";
 import type { TaskHost } from "./taskHost";
 import { groupLabel } from "../../listBlock/words";
@@ -58,6 +59,7 @@ export function useFolderTasks({
   onOpen,
   makeTaskLabel,
   compact = false,
+  backlogFolder = null,
 }: {
   host: TaskHost | undefined;
   loaded: FolderNotes;
@@ -75,6 +77,8 @@ export function useFolderTasks({
   makeTaskLabel: string;
   /** A phone's layout: the add button moves to the bottom of the page. */
   compact?: boolean;
+  /** The page's Backlog folder, where parking moves a row (`backlogFolder.ts`). */
+  backlogFolder?: string | null;
 }): FolderTasks {
   const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
   const projectsHere = rowsAreProjects(folder);
@@ -89,6 +93,7 @@ export function useFolderTasks({
     record,
     owners,
     projectsHere,
+    backlogFolder,
     onRemember: host?.remember,
   });
   // The projects beside this one, when this page is a project in the projects folder.
@@ -115,6 +120,10 @@ export function useFolderTasks({
       if (controls === null) return;
       if (key === "status" && value !== null) return void controls.perform(statusPlan(item, value));
       if (key === "owner") return void controls.perform(ownersPlan(item, value === null ? [] : [value], owners));
+      // The row's priority mark: said in the owner's words ("… is Urgent now"), with an Undo.
+      if (key === "priority" && (value === null || (PRIORITIES as readonly string[]).includes(value))) {
+        return void controls.perform(priorityPlan(item, value as Priority | null));
+      }
       void controls.perform(planSet(item, [[key, value]], `Changed “${item.label}”.`, `Nothing changed on “${item.label}”.`));
     },
     [controls, owners],
