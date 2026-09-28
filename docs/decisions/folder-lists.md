@@ -268,6 +268,37 @@ has no Undo, can be undone twice, or is offered to a member; and
 `folderListWriteBack.test.ts` fails if a reload draws an added or moved task
 where it was.
 
+## On a phone, the sheet is the right-click menu
+
+Decided by the owner on 2026-09-28 ("Projects for everyone", PhoneList and
+PhoneMenu). A phone has no right button and no hover, so the List's actions
+reach a thumb three ways, all for an owner or editor only:
+
+- **⋯ on every row, and press-and-hold on it, open one sheet**: a row of
+  priority chips (Urgent, High, Medium, Low, None), then Status, Owners,
+  Assign to me, Tags, Due date, Add a subtask, Move to Backlog and the rest
+  of what the right-click menu offers that row, each showing what it is set
+  to. A note's sheet is its note menu. **It is the right-click menu's own
+  list** (`taskMenu.ts`), redrawn by `phoneSheet.ts` — Priority lifted into
+  chips, values added — and handed to the shared `Menu` as what its sheet
+  draws; the ids, and the one road they run through (`useTaskMenu`,
+  `menuRun.ts`), are the menu's. A device build holds to open at any width.
+- **Swipe left on a task for Assign and Backlog**, each only where the menu
+  offers it (`swipeActions` reads the same list). A swipe only reveals;
+  nothing is written until a button is pressed, so a full swipe does nothing.
+- **"Add a task" pinned at the bottom** opens the quick add composer in a
+  sheet for the first To do; the Show bar's button makes way for it, and the
+  Show chips scroll sideways rather than wrapping.
+
+Every write is the menu's, so it keeps its toast and Undo. What reverting
+costs: a phone sheet with a list of its own drifts from the desktop menu the
+first time an action is added to one and not the other — an action a phone
+cannot reach, or one it can that the owner never approved. A swipe that acts
+at full travel archives or parks a task on a mis-flick with nothing to show
+it happened but the toast. `folderPagePhone.test.ts` fails if the sheet's
+items stop being the menu's, if a chip, row or swipe write has no Undo, if a
+full swipe writes, if a target is under 44pt, or if a member gets any of it.
+
 ## Priority, tags, due and several owners
 
 Decided by the owner on 2026-09-28, with the same rule as statuses: each is a
