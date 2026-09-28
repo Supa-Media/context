@@ -194,3 +194,33 @@ export async function callerId(ctx: ActionCtx | QueryCtx): Promise<Id<"users">> 
   }
   return userId as Id<"users">;
 }
+
+/**
+ * The notes an operation left in need of re-indexing, or `null`.
+ *
+ * `written` holds new text at that path; `gone` is a path that no longer holds
+ * a note. Single-note operations only: a folder's worth of paths is a
+ * listing's job, and the next full pass does it. Archive and trash name only
+ * their source because their destination is chosen inside the operation;
+ * the full pass finds it there.
+ */
+export function indexChangeOf(
+  operation: FileOperation,
+): { written: string[]; gone: string[] } | null {
+  switch (operation.kind) {
+    case "write":
+    case "removeEncryption":
+      return { written: [operation.path], gone: [] };
+    case "move":
+    case "restoreTrash":
+      return { written: [operation.to], gone: [operation.from] };
+    case "copy":
+      return { written: [operation.to], gone: [] };
+    case "archive":
+    case "trash":
+    case "delete":
+      return { written: [], gone: [operation.path] };
+    default:
+      return null;
+  }
+}

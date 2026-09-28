@@ -181,6 +181,7 @@ import { runSearchIntegrationBigBucketChecks } from "./searchIntegration/bigBuck
 import { runSearchIntegrationPerNoteCapChecks } from "./searchIntegration/perNoteCap.test.mjs";
 import { runSearchIntegrationBudgetFallbackChecks } from "./searchIntegration/budgetFallback.test.mjs";
 import { runSearchIntegrationBrokenAndRecallChecks } from "./searchIntegration/brokenAndRecall.test.mjs";
+import { runSearchIntegrationWriteThenSearchChecks } from "./searchIntegration/writeThenSearch.test.mjs";
 
 /**
  * This file used to hold every one of these checks directly, in one large
@@ -200,6 +201,7 @@ export async function runSearchIntegrationChecks(check) {
     await runSearchIntegrationPerNoteCapChecks(check, harness);
     await runSearchIntegrationBudgetFallbackChecks(check, harness);
     await runSearchIntegrationBrokenAndRecallChecks(check, harness);
+    await runSearchIntegrationWriteThenSearchChecks(check, harness);
   } finally {
     harness.restore?.();
   }

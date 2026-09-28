@@ -99,7 +99,7 @@ describe("the caret decorations", () => {
     expect(label(long)).toBe("Some Client");
   });
 
-  test("somebody's agent is flagged compactly: their face, then the agent", () => {
+  test("somebody's agent is flagged compactly: a robot, then the agent", () => {
     const set = buildCaretDecorations(
       [member({ head: at(3), name: "@jon's Claude", isAgent: true })],
       10,
@@ -114,8 +114,9 @@ describe("the caret decorations", () => {
       if (spec.widget) flag = spec.widget.toDOM().querySelector(".cm-presence-label");
       cursor.next();
     }
-    // No face chosen: the Supa mark, never initials.
-    expect(flag?.querySelector(".cm-presence-owner img")).not.toBeNull();
+    // A robot, never its owner's face and never initials (Dev2, 2026-09-28).
+    expect(flag?.querySelector(".cm-presence-owner svg")).not.toBeNull();
+    expect(flag?.querySelector(".cm-presence-owner img")).toBeNull();
     expect(flag?.textContent).toBe("Claude");
     // The whole name is still there, for whoever hovers it.
     expect(flag?.title).toBe("@jon's Claude");

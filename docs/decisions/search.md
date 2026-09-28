@@ -10,6 +10,10 @@ Moved to [Search answers from a derived index, and the index is budgeted, filter
 
 Moved to [A search reads a ready index, and never builds one](./search/shard-routing.md#a-search-reads-a-ready-index-and-never-builds-one).
 
+### A write indexes its own note, and only a listing decides what is gone
+
+Moved to [A write indexes its own note, and only a listing decides what is gone](./search/shard-routing.md#a-write-indexes-its-own-note-and-only-a-listing-decides-what-is-gone).
+
 ### …and it opens the shards that can answer it, not all of them
 
 Moved to […and it opens the shards that can answer it, not all of them](./search/shard-routing.md#and-it-opens-the-shards-that-can-answer-it-not-all-of-them).

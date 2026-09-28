@@ -12,13 +12,12 @@ import { useThemedStyles, type Colors } from "../../features/design/theme";
 import { PremiumBody } from "../../features/console/settings/panels/PremiumPanel";
 import {
   EXPORT_PROMISE,
-  entitlementRows,
-  entitlementsHint,
   formatBytes,
   formatPrice,
   type PremiumStatus,
   type PremiumView,
 } from "../../features/console/settings/panels/premium";
+import { entitlementRows, entitlementsHint } from "../../features/console/settings/panels/premiumEntitlements";
 import {
   Block,
   ChoiceCard,

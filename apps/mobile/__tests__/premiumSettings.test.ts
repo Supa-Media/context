@@ -35,8 +35,6 @@ import {
   describePremium,
   describeSessionFailure,
   earlyTesterPriceNote,
-  entitlementRows,
-  entitlementsHint,
   formatBytes,
   formatPrice,
   managedMigrationCopy,
@@ -49,6 +47,7 @@ import {
   type PremiumStatus,
   type PremiumView,
 } from "../features/console/settings/panels/premium";
+import { entitlementRows, entitlementsHint } from "../features/console/settings/panels/premiumEntitlements";
 
 const status = (over: Partial<PremiumStatus> = {}): PremiumStatus => ({
   status: "none",

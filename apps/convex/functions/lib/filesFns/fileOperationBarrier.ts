@@ -41,7 +41,7 @@ import {
   type TreeChange,
   trimTrailingSlashes,
 } from "../treeAnnounce";
-import { treeChangeOf } from "./access";
+import { indexChangeOf, treeChangeOf } from "./access";
 import {
   operationMayRestrictWebsite,
   operationTouchesWebsite,
@@ -501,6 +501,23 @@ export async function runFileOperationHandler(
 
   if (treeChange !== null) {
     await announceTreeChange(ctx, store, args.workspaceId, treeChange, result, privacyBefore);
+  }
+
+  /*
+    The notes this operation changed, re-indexed now rather than whenever a
+    search next finds the index's listing a minute old. Scheduled, so the save
+    returns without waiting on it, and caught, because the index is a
+    derivative and a failure here must never read as a failed save.
+  */
+  const indexChange = indexChangeOf(args.operation as FileOperation);
+  if (indexChange !== null) {
+    await ctx.scheduler
+      .runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope: args.scope,
+        operation: { kind: "indexNotes", ...indexChange },
+      })
+      .catch(() => {});
   }
 
   /*
