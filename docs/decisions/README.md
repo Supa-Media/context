@@ -179,6 +179,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A list changes one line of a note, the same way any save does
 - A folder page shows its children by status
 - Tasks and notes
+- Adding and nesting tasks, every write undoable
 - Priority, tags, due and several owners
 - Show: whose tasks, per viewer
 - The side panel: a task opens beside the list

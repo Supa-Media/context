@@ -232,6 +232,42 @@ tasks, if a subtask's notes are counted, or if Make it a task writes backlog;
 `folderPageList.test.ts` fails if the bands stop folding, if a member is
 offered Make it a task, or if the button writes anywhere but the note.
 
+## Adding and nesting tasks, every write undoable
+
+Decided by the owner on 2026-09-28 ("Projects for everyone"), for the List on
+the web and desktop. An owner or editor adds a task from "+ Add task" (the
+Show bar's, which lands in the first To do group, or a group's own), a
+subtask from "+ Subtask", and changes, nests, parks or moves tasks from the
+right-click menu, a selection of several, or by dragging a row. A member is
+offered none of it.
+
+- **A note becomes a folder on its first subtask.** A one-note task that is
+  given a subtask is moved to `<name>/<name>.md` by the same `moveEntry` that
+  renames anything, links rewritten, and the subtask is written beside it.
+  There is no other shape for "a task that holds things", so there is no
+  second format to read.
+- **Two levels, refused where it happens.** A subtask cannot be given
+  subtasks, and a task that has subtasks cannot become one. The refusal is
+  said before anything is sent — in the drag's own hint while the row is
+  held over the target, or on the page — and never by writing half of it.
+- **Every write is undoable from its toast.** Each is planned first
+  (`taskWrites.ts`, `taskEdits.ts`) with its inverse, drawn at once, read
+  again from the folder, put into this device's copy, and said with an Undo
+  that runs once. A selection is one change: written one after another, said
+  once, taken back by one Undo in reverse; a failure part way keeps what was
+  done and says how many.
+
+What reverting costs: without the conversion, a subtask needs a second shape
+for a task and every reader of the bucket learns it; without the two-level
+refusal, a drop can write a third level the List cannot draw, so the task
+disappears; without the Undo, a mis-drop in a list of forty rows has no way
+back but finding what moved and where. `taskWrites.test.ts` and
+`taskEdits.test.ts` fail if the conversion, the two-level rule or an inverse
+changes; `folderPageTaskWrites.test.ts` fails if a write is not drawn at once,
+has no Undo, can be undone twice, or is offered to a member; and
+`folderListWriteBack.test.ts` fails if a reload draws an added or moved task
+where it was.
+
 ## Priority, tags, due and several owners
 
 Decided by the owner on 2026-09-28, with the same rule as statuses: each is a
@@ -323,7 +359,9 @@ too small to use.
   first To do; a note is a heading and no status, so it is never a subtask. A
   one-note task becomes a folder on its first subtask *or* note, by the same
   move (links follow it), and the panel follows it there. A subtask may hold
-  notes; nothing goes deeper.
+  notes; nothing goes deeper. It is the List's own write road (see "Adding
+  and nesting tasks"): drawn at once in the panel and the List, and said
+  with an Undo — one host for both, never a second way to write.
 - **A member reads the same panel with nothing to press** that would write:
   the dots are drawn, not buttons, and there is nothing to add.
 
@@ -332,7 +370,8 @@ time with the list gone each time; a dot that unticks to Backlog hides the
 work somebody just reopened. `taskPanel.test.ts` fails if a wide page
 navigates instead of opening the panel, if a phone opens it, if a dot writes
 anything but Done or the first To do, if a first subtask or note skips the
-conversion, or if a member is given a control; `taskPanelModel.test.ts` pins
+conversion, if a subtask added there is not drawn at once or has no Undo,
+or if a member is given a control; `taskPanelModel.test.ts` pins
 what the panel reads and when it fits; `taskWrites.test.ts` pins the plan for
 a note.
 
