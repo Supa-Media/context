@@ -13,6 +13,7 @@ import {
   backlogWord,
   hasSubtasks,
   newTaskText,
+  planAddNote,
   planAddSubtask,
   planNest,
   planNewTask,
@@ -218,6 +219,57 @@ describe("adding a subtask", () => {
     const crowded = { ...SNAPSHOT, paths: [`${P}/sign the lease/photo.png`] };
     const planned = planAddSubtask(LEASE, { title: "x", status: "to do" }, crowded);
     expect(planned.ok).toBe(false);
+  });
+});
+
+describe("adding a note to a task", () => {
+  const steps = (planned: ReturnType<typeof planAddNote>) =>
+    planned.ok ? planned.plan.steps.map((step) => (step.kind === "move" ? `move ${step.from} -> ${step.to}` : step.kind === "create" ? `create ${step.path}\n${step.text}` : "set")) : planned.problem;
+
+  test("goes in a folder task as a plain note: a heading and no status, so it is not a subtask", () => {
+    const planned = planAddNote(KITCHEN, "Oven comparison", SNAPSHOT);
+    expect(steps(planned)).toEqual([`create ${P}/Kitchen/Oven comparison.md\n# Oven comparison\n`]);
+    expect(planned.ok && planned.plan.message).toBe("Added the note “Oven comparison” to “Get the kitchen ready”.");
+    expect(planned.ok && planned.plan.touched).toEqual([P, `${P}/Kitchen`]);
+  });
+
+  test("turns a one-note task into a folder first, the same way a first subtask does", () => {
+    expect(steps(planAddNote(LEASE, "Questions for the landlord", SNAPSHOT))).toEqual([
+      `move ${P}/Sign the lease.md -> ${P}/Sign the lease/overview.md`,
+      `create ${P}/Sign the lease/Questions for the landlord.md\n# Questions for the landlord\n`,
+    ]);
+  });
+
+  test("a subtask may hold notes too, one level down and no deeper", () => {
+    expect(steps(planAddNote(OVEN, "Temperatures", SNAPSHOT))).toEqual([
+      `move ${P}/Kitchen/Test the oven.md -> ${P}/Kitchen/Test the oven/overview.md`,
+      `create ${P}/Kitchen/Test the oven/Temperatures.md\n# Temperatures\n`,
+    ]);
+    const deeper = task(`${P}/Kitchen/Checklist/Wipe.md`, "note", "Wipe");
+    expect(planAddNote(deeper, "x", SNAPSHOT)).toEqual({ ok: false, problem: "“Wipe” isn’t a task of this project." });
+    expect(planAddNote(task("2-areas/x.md", "note", "Elsewhere"), "x", SNAPSHOT).ok).toBe(false);
+  });
+
+  test("never takes a name already there, nor the converted task's own", () => {
+    const planned = planAddNote(KITCHEN, "recipes", SNAPSHOT);
+    expect(planned.ok && planned.plan.path).toBe(`${P}/Kitchen/recipes 2.md`);
+    expect(planAddNote(LEASE, "Overview", SNAPSHOT).ok && (planAddNote(LEASE, "Overview", SNAPSHOT) as { plan: { path: string } }).plan.path).toBe(
+      `${P}/Sign the lease/Overview 2.md`,
+    );
+  });
+
+  test("a title that tries to write frontmatter stays one heading, and no title is refused", () => {
+    const planned = planAddNote(KITCHEN, "Plan\n---\nstatus: done", SNAPSHOT);
+    const text = planned.ok && planned.plan.steps[0]!.kind === "create" ? planned.plan.steps[0]!.text : "";
+    expect(noteProperties(text)).toEqual({});
+    expect(planAddNote(KITCHEN, " \n ", SNAPSHOT)).toEqual({ ok: false, problem: "Give the note a name." });
+  });
+
+  test("undone, the note goes to the trash and a converted task moves back", async () => {
+    const { io, calls } = recorder();
+    const run = await runPlanned(io, planAddNote(LEASE, "Keys", SNAPSHOT));
+    expect(run.ok && (await run.undo!())).toBeNull();
+    expect(calls.slice(2)).toEqual([`remove ${P}/Sign the lease/Keys.md`, `move ${P}/Sign the lease/overview.md -> ${P}/Sign the lease.md`]);
   });
 });
 

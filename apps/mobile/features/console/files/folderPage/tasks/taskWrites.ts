@@ -237,6 +237,38 @@ export function planAddSubtask(parent: TaskRef, task: NewTask, snapshot: TaskSna
   };
 }
 
+/**
+ * A plain note — a heading and no status, so it is not a subtask — inside
+ * `task`, after turning it into a folder when it is one note (the same move
+ * a first subtask makes). A task or a subtask may hold notes; nothing deeper.
+ */
+export function planAddNote(task: TaskRef, title: string, snapshot: TaskSnapshot): Planned {
+  const { folder } = snapshot;
+  const parent = parentPath(task.path);
+  if (!isUnder(task.path, folder) || (parent !== folder && parentPath(parent) !== folder)) {
+    return refuse(`${quote(task.label)} isn’t a task of this project.`);
+  }
+  const name = cleanTitle(title);
+  if (name === "") return refuse("Give the note a name.");
+  const paths = allPaths(snapshot);
+  const converted = conversion(task, paths);
+  if ("problem" in converted) return refuse(converted.problem);
+  const into = subtaskFolder(task);
+  const taken = namesUnder(into, paths);
+  if (converted.step !== null) taken.add(NEW_FRONT_NOTE);
+  const path = `${into}/${uniqueStem(taskStem(name), taken)}.md`;
+  const create: TaskStep = { kind: "create", path, text: `# ${name}\n` };
+  return {
+    ok: true,
+    plan: {
+      steps: converted.step === null ? [create] : [converted.step, create],
+      path,
+      message: `Added the note ${quote(name)} to ${quote(task.label)}.`,
+      touched: [folder, into],
+    },
+  };
+}
+
 /* ------------------------------ moving tasks ----------------------------- */
 
 function isUnder(path: string, folder: string): boolean {
