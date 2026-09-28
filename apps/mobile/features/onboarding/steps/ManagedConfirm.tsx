@@ -11,13 +11,15 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import {
   EARLY_TESTER_PRICE_NOTE,
   EXPORT_PROMISE,
-  entitlementRows,
-  entitlementsHint,
   formatBytes,
   formatPrice,
   type PremiumEntitlements,
   type PremiumStatus,
 } from "../../console/settings/panels/premium";
+import {
+  entitlementRows,
+  entitlementsHint,
+} from "../../console/settings/panels/premiumEntitlements";
 
 /**
  * The last screen before Stripe, in a first run.

@@ -10,8 +10,10 @@ import {
   type PremiumEntitlements,
   type PremiumSession,
   type PremiumStatus,
-  wouldEmptyRequiredSelection,
 } from "../console/settings/panels/premium";
+import {
+  wouldEmptyRequiredSelection,
+} from "../console/settings/panels/premiumEntitlements";
 import type { ManagedConfirmState } from "./steps/ManagedConfirm";
 
 /**

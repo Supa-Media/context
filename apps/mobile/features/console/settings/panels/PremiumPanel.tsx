@@ -27,8 +27,6 @@ import {
   describePremium,
   describeSessionFailure,
   earlyTesterPriceNote,
-  entitlementRows,
-  entitlementsHint,
   formatPrice,
   managedMigrationCopy,
   premiumControl,
@@ -37,10 +35,14 @@ import {
   renewalLine,
   unreadablePremiumView,
   usageLine,
-  wouldEmptyRequiredSelection,
   type PremiumEntitlements,
   type PremiumView,
 } from "./premium";
+import {
+  entitlementRows,
+  entitlementsHint,
+  wouldEmptyRequiredSelection,
+} from "./premiumEntitlements";
 import { usePremium } from "./usePremium";
 import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
 import { useArming } from "../../useArming";
