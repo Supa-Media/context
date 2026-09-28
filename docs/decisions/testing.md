@@ -217,6 +217,24 @@ this rule is about invisible ones.
 
 ### WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
 
+The browser jobs are required checks, not universal work. Their workflows
+still accept every pull request so GitHub always receives a result, but the
+expensive steps run only when the diff reaches the code each browser build
+executes. `Editor in WebKit` and the native bundle check follow the mobile
+app's recursive workspace dependencies. The collaboration browser follows
+those same dependencies plus the MCP gateway. A documentation-only change, or
+a change to an unrelated package, pays only for checkout and change detection.
+
+The path sets include the root package and pnpm files, patches, and the workflow
+itself. A dependency or build-tool change must not be mistaken for an unrelated
+change. On the other side, `packages/**` is forbidden because it turns every
+package into a mobile dependency and restores the cost this gate removes.
+`scripts/check-ci-path-gates.mjs` derives the required package paths from the
+workspace manifests, checks all three gates, verifies that every expensive
+collaboration step uses the gate, and self-tests the failure cases. Add a
+workspace dependency to either app and the guard fails until CI's path set is
+updated.
+
 Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long
 press has two signals" was found on a phone and reproduced by *simulating*
 WebKit's event sequence in Chromium — `editorLinks.test.ts` drives

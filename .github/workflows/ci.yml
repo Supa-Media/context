@@ -463,7 +463,19 @@ jobs:
           filters: |
             mobile:
               - "apps/mobile/**"
-              - "packages/**"
+              - "apps/convex/**"
+              - "packages/collaboration/**"
+              - "packages/communications/**"
+              - "packages/desktop-bridge/**"
+              - "packages/drawings/**"
+              - "packages/meetings/**"
+              - "packages/obsidian-runtime/**"
+              - "packages/shared/**"
+              - ".npmrc"
+              - "package.json"
+              - "pnpm-lock.yaml"
+              - "pnpm-workspace.yaml"
+              - "patches/**"
               - ".github/workflows/ci.yml"
 
       - uses: pnpm/action-setup@v4
@@ -633,8 +645,19 @@ jobs:
           filters: |
             mobile:
               - "apps/mobile/**"
-              - "packages/**"
+              - "apps/convex/**"
+              - "packages/collaboration/**"
+              - "packages/communications/**"
+              - "packages/desktop-bridge/**"
+              - "packages/drawings/**"
+              - "packages/meetings/**"
+              - "packages/obsidian-runtime/**"
+              - "packages/shared/**"
+              - ".npmrc"
+              - "package.json"
               - "pnpm-lock.yaml"
+              - "pnpm-workspace.yaml"
+              - "patches/**"
               - ".github/workflows/ci.yml"
 
       - uses: pnpm/action-setup@v4
