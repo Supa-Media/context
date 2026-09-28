@@ -18,7 +18,9 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../../../
 import { useRightClick } from "../../rightClick";
 import { useCardDrag, useColumnDrop, useRowDrop, type RowZone } from "../boardDrag";
 import type { FolderItem } from "../model";
+import { SwipeRow } from "./PhoneParts";
 import { QuickAddComposer } from "./QuickAddComposer";
+import type { TaskMenuModel } from "./useTaskMenu";
 import type { DropVerdict } from "./taskDrop";
 import type { TaskControls } from "./useTaskActions";
 
@@ -47,12 +49,15 @@ export function RowFrame({
   item,
   controls,
   note = false,
+  swipe = null,
   children,
 }: {
   item: FolderItem;
   controls: TaskControls | null;
   /** A plain note: it has a menu, and is neither picked up nor dropped on. */
   note?: boolean;
+  /** On a phone, the row's menu: a swipe left offers its Assign and Backlog (`PhoneParts.tsx`). */
+  swipe?: TaskMenuModel | null;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -90,7 +95,13 @@ export function RowFrame({
       ]}
       testID="task-row-frame"
     >
-      {children}
+      {swipe == null || note ? (
+        children
+      ) : (
+        <SwipeRow item={item} controls={controls} menu={swipe}>
+          {children}
+        </SwipeRow>
+      )}
       {verdict.kind === "none" ? null : (
         <View style={[styles.hint, verdict.kind === "refused" && styles.hintRefused]} role="status" testID="task-drop-hint">
           <Text variant="treeMeta" style={verdict.kind === "refused" ? styles.hintRefusedText : styles.hintText}>

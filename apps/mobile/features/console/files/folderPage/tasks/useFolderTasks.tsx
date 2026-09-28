@@ -1,7 +1,8 @@
 /**
  * A folder page's task controls, and what it draws for them: the primary
- * "+ Add task" at the right of the Show bar, the right-click menu, and the
- * selection bar. Kept out of `FolderPage.tsx` so the page stays a reading of
+ * "+ Add task" at the right of the Show bar — on a phone, the "Add a task"
+ * bar at the bottom of the page instead — the right-click menu (a sheet on a
+ * phone, `tasks/PhoneParts.tsx`), and the selection bar. Kept out of `FolderPage.tsx` so the page stays a reading of
  * its notes with this laid over it for somebody who may write.
  */
 
@@ -18,8 +19,11 @@ import type { FolderNotes } from "../useFolderPage";
 import { ownersPlan } from "./menuRun";
 import { planSet, statusPlan, type ProjectRef } from "./taskEdits";
 import type { TaskHost } from "./taskHost";
+import { groupLabel } from "../../listBlock/words";
+import { PhoneAddBar } from "./PhoneParts";
 import { SelectionBar } from "./SelectionBar";
 import { TaskMenu } from "./TaskMenu";
+import { useTaskMenu, type TaskMenuModel } from "./useTaskMenu";
 import type { PendingRecord } from "./usePendingNotes";
 import { useTaskActions, type TaskControls } from "./useTaskActions";
 
@@ -27,6 +31,10 @@ export interface FolderTasks {
   readonly controls: TaskControls | null;
   /** The primary "+ Add task", for the Show bar's right; null for who may not write. */
   readonly addButton: ReactNode;
+  /** On a phone, "Add a task" pinned at the bottom of the page; null elsewhere and for who may not write. */
+  readonly phoneBar: ReactNode;
+  /** A row's menu — offered, and run — for the ⋯, the hold and the swipe; null for who may not write. */
+  readonly menu: TaskMenuModel | null;
   /** The menu and the selection bar. */
   readonly overlays: ReactNode;
   /** A value chosen on a row, with an Undo; null for who may not write. */
@@ -49,6 +57,7 @@ export function useFolderTasks({
   me,
   onOpen,
   makeTaskLabel,
+  compact = false,
 }: {
   host: TaskHost | undefined;
   loaded: FolderNotes;
@@ -64,6 +73,8 @@ export function useFolderTasks({
   me: readonly string[] | undefined;
   onOpen: (item: FolderItem) => void;
   makeTaskLabel: string;
+  /** A phone's layout: the add button moves to the bottom of the page. */
+  compact?: boolean;
 }): FolderTasks {
   const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
   const projectsHere = rowsAreProjects(folder);
@@ -109,10 +120,16 @@ export function useFolderTasks({
     [controls, owners],
   );
 
-  if (controls === null || host === undefined) return { controls: null, addButton: null, overlays: null, choose: null, makeTask: null };
+  const menu = useTaskMenu({ controls, host, items, statusSections, projects, me: myOwner, owners, makeTaskLabel, onOpen, onMakeTask: makeTask });
+
+  if (controls === null || host === undefined) return { controls: null, addButton: null, phoneBar: null, menu: null, overlays: null, choose: null, makeTask: null };
   return {
     controls,
-    addButton: (
+    menu,
+    phoneBar: compact ? (
+      <PhoneAddBar controls={controls} label={projectsHere ? "Add a project" : "Add a task"} groupLabel={groupLabel("status", controls.firstToDo)} />
+    ) : null,
+    addButton: compact ? null : (
       <Button
         label={controls.addLabel}
         variant="dialogPrimary"
@@ -122,18 +139,7 @@ export function useFolderTasks({
     ),
     overlays: (
       <>
-        <TaskMenu
-          controls={controls}
-          host={host}
-          items={items}
-          statusSections={statusSections}
-          projects={projects}
-          me={myOwner}
-          owners={owners}
-          makeTaskLabel={makeTaskLabel}
-          onOpen={onOpen}
-          onMakeTask={makeTask}
-        />
+        <TaskMenu controls={controls} model={menu} owners={owners} />
         <SelectionBar controls={controls} host={host} statusSections={statusSections} owners={owners} />
       </>
     ),

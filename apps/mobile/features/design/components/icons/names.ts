@@ -44,6 +44,16 @@ export const ICON_NAMES = [
   "chevronDown",
   "arrowLeft",
   "arrowRight",
+  /**
+   * Expand: two heads on one diagonal, out to the corners — a side panel
+   * opened out into the whole page (`folderPage/panel/PanelHead.tsx`).
+   */
+  "expand",
+  /**
+   * Open in new tab: a page with an arrow leaving it by its top right corner,
+   * the mark every browser uses for "somewhere else, and this stays".
+   */
+  "openTab",
   "more",
   "folder",
   "file",

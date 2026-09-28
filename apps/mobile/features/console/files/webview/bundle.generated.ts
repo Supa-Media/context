@@ -65,7 +65,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/linkSelection.ts": "57531db4d3013d51b04c70edb355cf82f052bb6e06a7c96dca11bbd192689b21",
   "apps/mobile/features/console/files/listBlock/board.ts": "de85318ee977da803d77df9e74619a69a49bb02cd8c423e52ce75276426fd89c",
   "apps/mobile/features/console/files/listBlock/edit.ts": "c7c37896b0c94b0f921e9dd216dc6d0f075c86ded8fbf4b4b4b8edbc2a94069c",
-  "apps/mobile/features/console/files/listBlock/model.ts": "1f3f3c12a80d8bda82a255a5eb8231898fb47b26e911ad3cc04fcbd6869c8757",
+  "apps/mobile/features/console/files/listBlock/model.ts": "f8ed5a7178ce14bfa3588e2b697aae3ca86ea74d62c2d15b194d84b7acb7492a",
   "apps/mobile/features/console/files/listBlock/panel.ts": "ecf7b9d07e3d71d72d1cc0df9b42ca9c57864900dace2d253a19dae0d07a1993",
   "apps/mobile/features/console/files/listBlock/valueMenu.ts": "09d88d2155c0120520f2083d5fc62664725fc5fc2c97b7238765698fa88b2f9c",
   "apps/mobile/features/console/files/listBlock/widget.ts": "113ceab0296328ec38b06c7d211ad7fc6a3853bd9842448ce5d589d3e0e40966",

@@ -3,7 +3,7 @@ import type { FolderListSource } from "../console/files/listBlock/model";
 import type { OpenNote } from "../console/files/types";
 import { currentEpoch } from "./epoch";
 import type { CacheScope } from "./keys";
-import { forgetMirroredNote, putMirroredNotes, type Needed } from "./mirror";
+import { forgetMirroredNote, mirroredBodyAt, parseIndex, putMirroredNotes, type Needed } from "./mirror";
 import { onMirrorListed, onMirrorNotesChanged, publishMirrorNotesChanged } from "./mirrorEvents";
 import { mirroredListNotes } from "./mirrorLists";
 import type { MirrorStore } from "./mirrorStoreCore";
@@ -68,6 +68,27 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
       const store = await openMirror();
       if (store === null) return null;
       return mirroredListNotes(store, scope, workspaceId, folder, subfolders);
+    },
+    readBody: async (path) => {
+      /*
+        This device's copy first, read at exactly the clearance the lists are
+        (`mirroredListNotes`' rule), so a team reader is never handed a body
+        filed under private. Otherwise the bucket, through the server, which
+        applies the same clearance to the same reader.
+      */
+      const store = await openMirror().catch(() => null);
+      if (store !== null) {
+        const entry = parseIndex(await store.readIndex(scope, workspaceId))?.entries.get(path);
+        if (entry?.encrypted === true) return { text: "", encrypted: true };
+        const text = entry === undefined ? null : await mirroredBodyAt(store, scope, workspaceId, entry);
+        if (text !== null) return { text, encrypted: false };
+      }
+      try {
+        const note = await io.readNote(path);
+        return { text: note.encrypted === true ? "" : note.text, encrypted: note.encrypted === true };
+      } catch {
+        return null;
+      }
     },
     subscribe: (listener) => {
       const mine = (changed: string) => {

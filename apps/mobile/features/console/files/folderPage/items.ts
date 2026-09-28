@@ -7,13 +7,19 @@ import type { FolderItem } from "./model";
 import type { StatusGroup, StatusMenuSection } from "./statuses";
 import type { StatusTone } from "./StatusPill";
 import type { TaskControls } from "./tasks/useTaskActions";
+import type { TaskMenuModel } from "./tasks/useTaskMenu";
 
 /** A save older than this is drawn a step quieter (spec: staleness is only a date). */
 const STALE_AFTER = 14 * 24 * 60 * 60 * 1000;
 
 export interface ItemActions {
-  /** Open a folder's page, or a note. */
+  /** Open a row: beside the list in the side panel on a desktop page, or its own page on a phone. */
   onOpen(item: FolderItem): void;
+  /**
+   * Open a row in the side panel, from its hover "Open" button; null or
+   * absent where there is no panel (a phone), and no button is drawn.
+   */
+  onPeek?: ((item: FolderItem) => void) | null;
   /** The values a menu offers for `key`. */
   choices(key: string): readonly string[];
   /** Null for somebody who may not write. */
@@ -34,10 +40,12 @@ export interface ItemActions {
   onMakeTask?: ((item: FolderItem) => void) | null;
   /** What that button says: "Make it a task", or "Make it a project" where the rows are projects. */
   makeTaskLabel?: string;
-  /** The task open in the side panel, marked where it is drawn; null or absent for none. */
+  /** The row open in the side panel, marked where it is drawn; null or absent for none. */
   selected?: string | null;
   /** Adding, picking, dragging and the right-click menu, for somebody who may write (`tasks/useTaskActions.ts`). */
   tasks?: TaskControls | null;
+  /** A row's menu, for a phone's ⋯, hold and swipe (`tasks/useTaskMenu.tsx`); absent for who may not write. */
+  taskMenu?: TaskMenuModel | null;
 }
 
 /** An owner picker's search, and the owners the folder already uses, most used first. */
