@@ -68,7 +68,12 @@ for (const { slug, workspaceId, owner } of workspaces) {
     if (!existing || reset || (exactProductionMirror && existing.text !== text) || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
       await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
     }
-    await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: ['alpha','delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team' });
+    // privacy.md is the manifest setNoteVisibility edits, not an ordinary note
+    // that can be assigned its own visibility. Keep it first in the official
+    // fixture so a brand-new bucket has somewhere to record the other rules.
+    if (path !== 'privacy.md') {
+      await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: ['alpha','delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team' });
+    }
     const read = await client.action(ref('functions/files:readNote'), { workspaceId, path });
     if (reset) assert.equal(read.text, text, `${slug}/${path}: readback differs`);
     noteCount++;

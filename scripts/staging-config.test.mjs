@@ -73,3 +73,11 @@ test('staging deployment syncs its own custom domain identifiers', () => {
     assert.ok(workflow.includes(`${name}: \u0024{{ secrets.${name} }}`));
   }
 });
+
+test('the pinned homepage fixture creates its privacy manifest before shared notes', async () => {
+  const { stagingContextLcNotes } = await import('./fixtures/staging-context-lc.mjs');
+  assert.equal(Object.keys(stagingContextLcNotes)[0], 'privacy.md');
+  assert.match(stagingContextLcNotes['privacy.md'], /role: privacy-manifest/);
+  assert.match(stagingContextLcNotes['privacy.md'], /default_visibility: private/);
+  assert.match(stagingContextLcNotes['privacy.md'], /BEGIN BRAIN PRIVACY RULES/);
+});
