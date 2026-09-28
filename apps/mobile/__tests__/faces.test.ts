@@ -7,8 +7,8 @@
  *
  * The server decides photo-over-workspace-icon (`apps/convex/__tests__/faces.test.ts`);
  * what has to hold here is that a surface's name finds that answer however it
- * is written, that nobody's face is ever letters, and that the drawn figure's
- * colours are a fixed function of the handle, so a person looks the same on
+ * is written, that nobody's face is ever letters, and that the default face's
+ * ground colour is a fixed function of the handle, so a person looks the same on
  * every device, forever, until they choose a picture (Dev2, 2026-09-28).
  *
  * ## Sabotage record
@@ -19,7 +19,7 @@
  */
 
 import { afterEach, describe, expect, test } from "@jest/globals";
-import { DEFAULT_FACE_PALETTES } from "../features/design/tokens/colors";
+import { DEFAULT_FACE_GROUNDS } from "../features/design/tokens/colors";
 import { defaultFace, faceIndex } from "../features/console/faces/defaultFace";
 import { faceNode } from "../features/console/faces/faceDom";
 import { clearFaces, faceFor, myFace, myHandle, setFaces } from "../features/console/faces/faceStore";
@@ -64,8 +64,8 @@ describe("the store", () => {
   });
 });
 
-describe("the drawn face", () => {
-  test("is the same colours for the same handle, however written", () => {
+describe("the default face", () => {
+  test("is the same colour for the same handle, however written", () => {
     expect(faceIndex("@seyi")).toBe(faceIndex("Seyi"));
     expect(defaultFace("@seyi")).toEqual(defaultFace("@seyi"));
   });
@@ -77,12 +77,13 @@ describe("the drawn face", () => {
 
   test("spreads people across the palettes", () => {
     const used = new Set(Array.from({ length: 200 }, (_, i) => faceIndex(`@person${i}`)));
-    expect(used.size).toBe(DEFAULT_FACE_PALETTES.length);
+    expect(used.size).toBe(DEFAULT_FACE_GROUNDS.length);
   });
 
-  test("in the editor's DOM, a person with no picture is drawn, never lettered", () => {
+  test("in the editor's DOM, a person with no picture is the Supa mark on their colour, never lettered", () => {
     const node = faceNode("@jon", "cm-cmt-av");
-    expect(node.querySelector("svg")).not.toBeNull();
+    expect(node.querySelector("img")?.getAttribute("src")).toBe(defaultFace("@jon").logo);
+    expect(node.style.background).not.toBe("");
     expect(node.textContent).toBe("");
   });
 

@@ -96,8 +96,8 @@ describe("the flag has a phone size, and the caret is never optional", () => {
     const tool = member({ head: at(3), name: "@jon's Claude", isAgent: true });
     const label = widgetsOf(buildCaretDecorations([tool], 10, 60_000, new Map(), resolve, "compact"))[0]!
       .querySelector(".cm-presence-label-compact");
-    // Whose is @jon's face (drawn, since @jon chose none), then the agent.
-    expect(label!.querySelector(".cm-presence-owner svg")).not.toBeNull();
+    // Whose is @jon's face (the Supa mark, since @jon chose none), then the agent.
+    expect(label!.querySelector(".cm-presence-owner img")).not.toBeNull();
     expect(label!.textContent).toBe("Claude");
     expect(widgetsOf(buildCaretDecorations([tool], 10, 0, new Map(), resolve, "none"))[0]!.querySelector(".cm-presence-label")).toBeNull();
   });

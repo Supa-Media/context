@@ -1,14 +1,13 @@
 import { Image, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { Circle, Defs, Ellipse, LinearGradient, Rect, Stop, Svg } from "react-native-svg";
 
 import { Text } from "../../design/components/Text";
-import { defaultFace, FACE_SHAPES } from "./defaultFace";
+import { defaultFace } from "./defaultFace";
 import type { ShownFace } from "./faceStore";
 import { useFace } from "./useFace";
 
 /**
  * A person, drawn as their face: a photo, their workspace's emoji, or the
- * drawn figure in colours from their handle. Never initials (Dev2,
+ * Supa mark on a ground colour from their handle. Never initials (Dev2,
  * 2026-09-28: "I really hate the SE SH").
  *
  * Circular and `size` square. The name is not drawn or announced here: every
@@ -39,7 +38,7 @@ export function FaceView({
   testID = "person-face",
 }: {
   face: ShownFace | undefined;
-  /** Chooses the drawn figure's colours when there is no face. */
+  /** Chooses the default face's ground colour when there is no face. */
   name: string | null | undefined;
   size: number;
   style?: StyleProp<ViewStyle>;
@@ -58,31 +57,18 @@ export function FaceView({
           {face.emoji}
         </Text>
       ) : (
-        <DefaultFigure name={name} testID={`${testID}-drawn`} />
+        <DefaultFigure name={name} size={size} testID={`${testID}-drawn`} />
       )}
     </View>
   );
 }
 
-/** The drawn head and shoulders; `defaultFace.ts` has the rule and the shapes. */
-function DefaultFigure({ name, testID }: { name: string | null | undefined; testID: string }) {
+/** The Supa mark on the handle's ground; `defaultFace.ts` has the rule. */
+function DefaultFigure({ name, size, testID }: { name: string | null | undefined; size: number; testID: string }) {
   const face = defaultFace(name);
-  const id = `cx-face-${face.index}`;
-  const { shirt, skin, hair } = FACE_SHAPES;
   return (
-    <View style={styles.fill} testID={testID}>
-      <Svg width="100%" height="100%" viewBox="0 0 100 100">
-        <Defs>
-          <LinearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={face.groundTop} />
-            <Stop offset="1" stopColor={face.groundBottom} />
-          </LinearGradient>
-        </Defs>
-        <Rect width={100} height={100} fill={`url(#${id})`} />
-        <Ellipse cx={shirt.cx} cy={shirt.cy} rx={shirt.rx} ry={shirt.ry} fill={face.shirt} />
-        <Circle cx={skin.cx} cy={skin.cy} r={skin.r} fill={face.skin} />
-        <Circle cx={hair.cx} cy={hair.cy} r={hair.r} fill={face.hair} />
-      </Svg>
+    <View style={[styles.fill, { backgroundColor: face.ground }]} testID={testID}>
+      <Image source={{ uri: face.logo }} style={{ width: size, height: size }} />
     </View>
   );
 }

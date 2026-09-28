@@ -159,7 +159,7 @@ export function AccountBlock({
 
 /**
  * The signed-in person's own face: their photo or workspace icon, else the
- * drawn figure in their colours (`faces/`). Never an initial (Dev2,
+ * Supa mark on their colour (`faces/`). Never an initial (Dev2,
  * 2026-09-28). Somebody with no name at all — a homepage visitor — keeps the
  * visitor silhouette the owner chose for exactly that.
  */

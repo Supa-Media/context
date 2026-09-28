@@ -6,11 +6,13 @@ bar, your own account button) they are drawn as a face, and two-letter
 initials ("SE", "SH") are gone.
 
 - **The order is fixed**: a photo the person uploaded, then their personal
-  workspace's icon (an emoji, or its photo), then a drawn head and shoulders.
-- **The drawn face is coloured from the handle**, a fixed FNV-1a hash of the
-  lowercase handle into `DEFAULT_FACE_PALETTES`. The same person is the same
-  colours on every device, forever, and cannot change them except by choosing
-  a picture. The figure is the one the owner picked from the faces mockup.
+  workspace's icon (an emoji, or its photo), then the Supa "regular guy" mark.
+- **The default face's ground is coloured from the handle**, a fixed FNV-1a
+  hash of the lowercase handle into `DEFAULT_FACE_GROUNDS`. The same person is
+  the same colour on every device, forever, and cannot change it except by
+  choosing a picture. The mark is inlined as PNG data URLs (`faceLogo.ts`) so
+  the phone editor's bundle can draw it with no asset loader. The owner chose
+  the Supa mark over a drawn figure (2026-09-28).
 - **An uploaded photo is kept by the control plane**, in Convex file storage
   (`accountPhotos`), not in a bucket. It is a fact about the account, like its
   name, made to be shown to others, and not part of any context, so the exit

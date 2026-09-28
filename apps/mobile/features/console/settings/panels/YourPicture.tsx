@@ -17,7 +17,7 @@ import { pickSquarePhoto } from "./pickSquarePhoto";
  * It is your personal workspace's icon unless you upload a photo, which then
  * wins and is saved with your account rather than in any bucket, so it shows
  * wherever your notes are stored (Dev2, 2026-09-28). With neither, you are the
- * drawn figure in your handle's colours. Shown on the personal workspace's
+ * Supa mark on your handle's colour. Shown on the personal workspace's
  * overview, beside the icon it defaults to.
  */
 export function YourPicture() {
@@ -62,7 +62,7 @@ export function YourPicture() {
   const [title, detail] = mine.uploaded
     ? ["People see your photo", "Saved with your account, so it always shows, wherever your notes are stored."]
     : mine.face === undefined
-      ? ["People see a drawn picture", "Choose an icon for this workspace above, or upload a photo."]
+      ? ["People see the Supa face in your colour", "Choose an icon for this workspace above, or upload a photo."]
       : ["People see your workspace icon", "Change it above, or upload a photo instead."];
 
   return (

@@ -114,8 +114,8 @@ describe("the caret decorations", () => {
       if (spec.widget) flag = spec.widget.toDOM().querySelector(".cm-presence-label");
       cursor.next();
     }
-    // No face chosen: the drawn figure, never initials.
-    expect(flag?.querySelector(".cm-presence-owner svg")).not.toBeNull();
+    // No face chosen: the Supa mark, never initials.
+    expect(flag?.querySelector(".cm-presence-owner img")).not.toBeNull();
     expect(flag?.textContent).toBe("Claude");
     // The whole name is still there, for whoever hovers it.
     expect(flag?.title).toBe("@jon's Claude");

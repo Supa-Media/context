@@ -536,20 +536,20 @@ export const presenceColors = {
 } as const;
 
 /**
- * The drawn face everybody has until they choose a picture: a head and
- * shoulders on a gradient, as in the faces mockup Dev2 picked (2026-09-28,
- * "this actually looks pretty cool"). Which set a person gets is a hash of
- * their handle (`faces/defaultFace.ts`), so it never changes unless they
- * upload a photo or choose a workspace icon. The same in both themes, like a
- * photo would be. Each is `[groundTop, groundBottom, shirt, skin, hair]`.
+ * The ground behind the Supa mark, the face everybody has until they choose a
+ * picture (Dev2, 2026-09-28: "for the background color, use anything").
+ * Which one a person gets is a hash of their handle (`faces/defaultFace.ts`),
+ * so it never changes unless they upload a photo or choose a workspace icon.
+ * The same in both themes, like a photo would be. Each is `[ground, ink]`:
+ * the mark is drawn in near-black on light grounds and in white on dark ones.
  */
-export const DEFAULT_FACE_PALETTES: ReadonlyArray<readonly [string, string, string, string, string]> = [
-  ["#F6D365", "#FDA085", "#E4572E", "#E3B48C", "#2A1A12"],
-  ["#A8E063", "#56AB2F", "#2F6F4F", "#8A5A3C", "#1B1B1B"],
-  ["#89F7FE", "#66A6FF", "#2D4FA3", "#F1C9A5", "#3B2A20"],
-  ["#FBC2EB", "#A18CD1", "#6A4C9C", "#C68B63", "#231815"],
-  ["#FFE29F", "#FFA99F", "#C0392B", "#6B4430", "#141010"],
-  ["#84FAB0", "#8FD3F4", "#1F7A8C", "#E8B894", "#5A3825"],
-  ["#FAD0C4", "#F6A6B2", "#B83B5E", "#A86B4C", "#2B1D16"],
-  ["#D4FC79", "#96E6A1", "#3C8D5A", "#F3D1B4", "#6B3E26"],
+export const DEFAULT_FACE_GROUNDS: ReadonlyArray<readonly [string, "dark" | "light"]> = [
+  ["#F6A04D", "dark"],
+  ["#7BC67E", "dark"],
+  ["#6FA8F5", "dark"],
+  ["#B79CF2", "dark"],
+  ["#F28C8C", "dark"],
+  ["#5BC8C0", "dark"],
+  ["#F2C94C", "dark"],
+  ["#2F5D8A", "light"],
 ];
