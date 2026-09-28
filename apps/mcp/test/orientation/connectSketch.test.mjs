@@ -232,23 +232,23 @@ export async function runOrientationConnectSketchChecks(check, harness) {
   // client a fresh conversation got the pitch and never the front page.
   // Moving the sketch back to the end fails every check below but the first.
   check(
-    "the call to action still opens the connect text",
-    ownerConnect.instructions.indexOf("CALL `orient` FIRST") > -1 &&
-      ownerConnect.instructions.indexOf("CALL `orient` FIRST") < 500
+    "the routing boundary still opens the connect text",
+    ownerConnect.instructions.indexOf("Use Context only") > -1 &&
+      ownerConnect.instructions.indexOf("Use Context only") < 500
   );
   check(
-    "the front page is delivered ahead of the argument and the rules",
+    "the front page is delivered ahead of the operating guidance and rules",
     ownerConnect.instructions.indexOf("Shipping the gateway.") > -1 &&
       ownerConnect.instructions.indexOf("Shipping the gateway.") <
-        ownerConnect.instructions.indexOf("Skipping it is not a neutral choice") &&
+        ownerConnect.instructions.indexOf("When a request is in scope") &&
       ownerConnect.instructions.indexOf("Shipping the gateway.") <
         ownerConnect.instructions.indexOf("FIVE RULES")
   );
   check(
     "and nothing of the static text is lost by the move",
     ownerConnect.instructions.includes("FIVE RULES") &&
-      ownerConnect.instructions.includes("Skipping it is not a neutral choice") &&
-      ownerConnect.instructions.includes("WRITE BACK")
+      ownerConnect.instructions.includes("When a request is in scope") &&
+      ownerConnect.instructions.includes("WRITE BACK DURABLE RESULTS")
   );
 
   // Worst case: every piece of the sketch at or past its cap at once.
@@ -282,7 +282,7 @@ export async function runOrientationConnectSketchChecks(check, harness) {
     "the whole sketch ends inside the budget, under the cut a client was seen making",
     sketchEnd <= SKETCH_BUDGET &&
       SKETCH_BUDGET < OBSERVED_CLIENT_CUT &&
-      wideText.indexOf("Skipping it is not a neutral choice") > sketchEnd
+      wideText.indexOf("When a request is in scope") > sketchEnd
   );
   check(
     "a name past its cap is shortened, not dropped and not spelled out",
