@@ -126,7 +126,7 @@ export function saveAndLinkToolDefinitions() {
         "Every live link in this context: what it opens, who it is for, whether it is taking " +
         "answers, and its URL. Answers \"what have I published\" without opening the console.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "revoke_link",
