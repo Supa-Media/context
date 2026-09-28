@@ -476,6 +476,10 @@ jobs:
         if: steps.changes.outputs.mobile == 'true'
         run: pnpm install --frozen-lockfile
 
+      - name: The browser suite uses the measured CI worker count
+        if: steps.changes.outputs.mobile == 'true'
+        run: node --test scripts/webkit-ci-workers.test.mjs
+
       # Pinned by `apps/mobile/package.json`'s `@playwright/test` version, not
       # by a version here — `playwright install` always installs the browser
       # matching the npm package `pnpm install` just resolved, so the two

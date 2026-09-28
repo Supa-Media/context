@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import { join } from "node:path";
 
+const { workersFor } = require("./ci-workers.cjs");
+
 /*
   `__dirname`, not `import.meta.url` — this repo does not set `"type":
   "module"`, so Playwright's own loader compiles a `.ts` config as CommonJS,
@@ -50,6 +52,10 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,
+  // The measured GitHub run used Playwright's 50% default: two workers took
+  // 2m46s for 118 mostly wait-bound browser cases. Use all four runner cores
+  // in CI, while local runs keep Playwright's machine-dependent default.
+  workers: workersFor(),
   forbidOnly: !!process.env.CI,
   // A flaky run gets one retry so a genuine one-off (a slow CI runner) does
   // not read as a failure this suite exists to report; three retries would
