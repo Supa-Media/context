@@ -166,6 +166,17 @@ export function useFrameController({
     });
   }, [width, hasExplorer]);
 
+  // `toggleExplorer`'s field, set: idempotent, so folding for a while and back cannot land on the wrong side.
+  const setExplorerFolded = useCallback(
+    (folded: boolean) =>
+      setState((current) => {
+        const field = explorerToggleFor(densityFor(width), { hasExplorer });
+        if (current.focus || field === null || current[field] === folded) return current;
+        return { ...current, [field]: folded, explorerPeeking: false };
+      }),
+    [width, hasExplorer],
+  );
+
   /**
    * The right panel, opened and closed.
    *
@@ -457,6 +468,7 @@ export function useFrameController({
       regions,
       state,
       toggleExplorer,
+      setExplorerFolded,
       toggleAside,
       setAsideWidth,
       toggleFocus,
@@ -479,6 +491,7 @@ export function useFrameController({
       regions,
       state,
       toggleExplorer,
+      setExplorerFolded,
       toggleAside,
       setAsideWidth,
       toggleFocus,

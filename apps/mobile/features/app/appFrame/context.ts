@@ -32,6 +32,14 @@ export interface FrameApi {
    */
   toggleExplorer: () => void;
   /**
+   * Fold the file tree away, or bring it back — the same field `toggleExplorer`
+   * flips, set rather than flipped, so a surface that folds it for as long as
+   * it is open (a folder page's side panel) can put it back exactly once. A
+   * no-op where the tree does not fold, and in focus mode, which already has
+   * it away and owns bringing it back.
+   */
+  setExplorerFolded: (folded: boolean) => void;
+  /**
    * The right panel — chat and meetings — and ⌘J on web.
    *
    * `asideToggleFor` owns what it means, exactly as `explorerToggleFor` owns
@@ -214,6 +222,7 @@ export function useFrame(): FrameApi {
       regions: fallbackRegions,
       state: initialFrame,
       toggleExplorer: noop,
+      setExplorerFolded: noop,
       toggleAside: noop,
       setAsideWidth: noop,
       toggleFocus: noop,
