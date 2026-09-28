@@ -127,7 +127,7 @@ export function BringStep({
       <>
         <Heading>{little ? `${name} is connected` : `${name} is set up`}</Heading>
         {little ? (
-          <P>It wrote its Getting started note, but it didn't have much else to bring over yet.</P>
+          <P>It wrote its sync report, but it didn't have much else to bring over yet.</P>
         ) : (
           <P>
             It wrote {count === 1 ? "1 note" : `${count} notes`}, and every new {name} chat will now check @{slug}{" "}

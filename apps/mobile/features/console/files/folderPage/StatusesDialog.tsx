@@ -7,9 +7,10 @@
  * - Each status has a `⋯` menu: rename, move up or down within its group,
  *   move to another group, delete. Moves are keyboard- and thumb-reachable,
  *   which a drag handle alone would not be.
- * - "No status" leads Not started and is not editable: it is the empty value.
- * - In progress and Done always keep one status; the last one offers no
- *   Delete, and the list refuses to save without one anyway.
+ * - Every group keeps one status, Not started included (its defaults are
+ *   backlog and to do); the last one offers no Delete, and the list refuses
+ *   to save without one anyway. No status is not drawn here: a note without
+ *   one is a plain note, not a task.
  * - A rename or a delete that changes notes says how many before it runs
  *   (a delete moves them to the group's next status, or to No status), and
  *   runs only on the second press.
@@ -39,6 +40,7 @@ import { ChooseGroup } from "./ChooseGroup";
 import { GROUPS, GROUP_LABELS, moveStatus, placeStatus, type StatusGroup, type StatusList, type UndeclaredStatus } from "./statuses";
 import { StatusPill, toneColor } from "./StatusPill";
 import type { StatusEdits, StatusPlan } from "./useStatusEdits";
+import { useFieldFont } from "../../../design/fieldFont";
 
 type Typing = { kind: "add"; group: StatusGroup } | { kind: "rename"; word: string };
 type Pending = { verb: "Rename" | "Delete" | "Merge"; word: string; plan: StatusPlan };
@@ -59,6 +61,7 @@ export function StatusesDialog({
   onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const colors = useColors();
   const [typing, setTyping] = useState<Typing | null>(null);
   const [draft, setDraft] = useState("");
@@ -134,7 +137,7 @@ export function StatusesDialog({
       autoCapitalize="none"
       autoCorrect={false}
       maxLength={40}
-      style={styles.field}
+      style={[styles.field, fieldFont]}
       testID="statuses-field"
     />
   );
@@ -169,14 +172,6 @@ export function StatusesDialog({
                     <Icon name="plus" size={16} color={colors.muted} />
                   </Pressable>
                 </View>
-                {group === "not-started" ? (
-                  <View style={styles.row}>
-                    <StatusPill value="" tone="not-started" />
-                    <Text variant="badge" style={styles.tag}>
-                      DEFAULT
-                    </Text>
-                  </View>
-                ) : null}
                 {list[group].map((word, at) =>
                   typing?.kind === "rename" && typing.word === word ? (
                     <View key={word.toLowerCase()} style={styles.row}>
@@ -189,7 +184,7 @@ export function StatusesDialog({
                       group={group}
                       first={at === 0}
                       last={at === list[group].length - 1}
-                      only={group !== "not-started" && list[group].length === 1}
+                      only={list[group].length === 1}
                       disabled={busy}
                       onRename={() => startTyping({ kind: "rename", word }, word)}
                       onMove={(by) => void run(() => edits.save(moveStatus(list, word, by)))}
@@ -327,7 +322,7 @@ function Row({
   group: StatusGroup;
   first: boolean;
   last: boolean;
-  /** The group's last status, which a group other than Not started must keep. */
+  /** The group's last status, which every group must keep. */
   only: boolean;
   disabled: boolean;
   onRename: () => void;
@@ -415,7 +410,6 @@ const makeStyles = (colors: Colors) =>
     groupHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 28 },
     row: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 32 },
     more: { marginLeft: "auto" },
-    tag: { marginLeft: "auto", color: colors.chromeMuted, letterSpacing: 0.6 },
     field: {
       flexGrow: 1,
       fontFamily: fonts.body,

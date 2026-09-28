@@ -1,0 +1,93 @@
+name: Fast repository guards
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    name: Fast repository guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      # These guards use only Node built-ins. The hosted runner already carries
+      # Node, so this lane needs no runtime or package-manager setup and no
+      # install. Print the version so a runner change is visible in the log.
+      - name: Record the runner Node version
+        run: node --version
+
+      - name: Workflow files and triggers are valid
+        run: |
+          node scripts/ci-change-scope.mjs --self-test
+          node scripts/check-workflow-shell.mjs --self-test
+          node scripts/check-workflow-shell.mjs
+          node scripts/check-workflow-yaml.mjs --self-test
+          node scripts/check-workflow-yaml.mjs
+          node scripts/check-workflow-triggers.mjs --self-test
+          node scripts/check-workflow-triggers.mjs
+          node scripts/check-package-tests-run.mjs --self-test
+          node scripts/check-package-tests-run.mjs
+          node scripts/check-workflow-cloudflare-preflight.mjs --self-test
+          node scripts/check-workflow-cloudflare-preflight.mjs
+          node scripts/check-workflow-secret-order.mjs --self-test
+          node scripts/check-workflow-secret-order.mjs
+          node scripts/check-wrangler-vars-not-secrets.mjs --self-test
+          node scripts/check-wrangler-vars-not-secrets.mjs
+
+      # ── THE PATH-GATE CHECKER HAS TO RUN UNGATED, AND DID NOT ─────────────
+      #
+      # `check-ci-path-gates.mjs` asserts what every scoped job watches: the
+      # WebKit path sets, that each scoped job names its packages and gates
+      # every step, and that the editor-bundle job watches every source the
+      # bundle records. It was hosted only in `router.yml` and
+      # `email-worker.yml`, and since #1074 both of those are themselves
+      # `ci-scope`d — to `@context/router` plus `router.yml`, and
+      # `@context/email-worker` plus `email-worker.yml`.
+      #
+      # So on a pull request that changes only `.github/workflows/ci.yml`, both
+      # hosts answered `affected: false` and skipped, and every assertion this
+      # checker makes about `ci.yml` went unmade on the one diff that could
+      # break them. Measured with the scope module's own `decide()`, not
+      # assumed. The two gated hosts stay — they are the two-host reasoning
+      # every other checker here uses — and this lane is the ungated one,
+      # because a guard about a path filter must not sit behind one.
+      #
+      # Plain Node over files in this repository, like its neighbours, so it
+      # needs no install.
+      - name: CI path gates are what the jobs they describe actually watch
+        run: |
+          node scripts/check-ci-path-gates.mjs --self-test
+          node scripts/check-ci-path-gates.mjs
+
+      - name: Secrets, identifiers, and export remain safe
+        run: |
+          node scripts/check-secrets-allowlist.mjs --self-test
+          node --test scripts/staging-config.test.mjs
+          node scripts/check-secrets-allowlist.mjs
+          node scripts/check-no-identifiers.mjs --self-test
+          node scripts/check-no-identifiers.mjs
+          node scripts/check-exit-is-ungated.mjs --self-test
+          node scripts/check-exit-is-ungated.mjs
+
+      - name: Gateway dependency boundary remains explicit
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const manifest = JSON.parse(readFileSync('apps/mcp/package.json', 'utf8'));
+          assert.deepEqual(manifest.dependencies, { '@context/collaboration': 'workspace:*' });
+          for (const field of ['optionalDependencies', 'peerDependencies', 'bundleDependencies']) {
+            assert.deepEqual(manifest[field] ?? {}, {}, `apps/mcp declared ${field}`);
+          }
+          JS
+          node scripts/check-gateway-imports.mjs --self-test
+          node scripts/check-gateway-imports.mjs apps/mcp/src
+
+      - name: Gateway health probe can still fail
+        run: node scripts/health-check-gateway.mjs --self-test

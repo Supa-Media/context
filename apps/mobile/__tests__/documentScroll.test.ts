@@ -9,7 +9,7 @@
  *
  * `BrowsePane` has two layouts. On a phone the whole document region is one
  * scroller (`browse-scroll`) and everything drawn into it — a folder listing,
- * the Inbox, a channel, a contact — scrolls as a page. On a pointer layout
+ * a contact page — scrolls as a page. On a pointer layout
  * that branch is not taken, and the region was a plain `View`:
  *
  *     {notices}
@@ -55,6 +55,7 @@ import type { FileBrowser } from "../features/console/files/browser";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 import { layout } from "../features/design/tokens";
 import { noteColumnWidth } from "../features/app/frame";
+import { DocumentPage } from "../features/console/panes/browsePane/DocumentPage";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -180,7 +181,7 @@ describe("the document region on a pointer layout", () => {
     expect(container.textContent).toContain("note-49");
   });
 
-  test("puts the Inbox in a scroller", () => {
+  test("puts the Inbox, an ordinary folder listing, in a scroller", () => {
     const container = mount(
       createElement(BrowsePane, {
         data: consoleWith({
@@ -207,8 +208,11 @@ describe("the document region on a pointer layout", () => {
         } as Partial<FileBrowser>),
       }),
     );
-    expect(scroller(container)).not.toBeNull();
-    expect(container.textContent).toContain("Inbox");
+    // The Inbox is drawn by the same folder view as every other folder.
+    const scroll = scroller(container);
+    expect(scroll).not.toBeNull();
+    expect(scroll!.querySelector('[data-testid="folder-column"]')).not.toBeNull();
+    expect(container.textContent).toContain("meetings");
   });
 
   test("leaves a note alone, because the editor brings its own", () => {
@@ -236,11 +240,10 @@ describe("the document region on a pointer layout", () => {
 });
 
 /*
-  The communications pages (Inbox, a channel, a channel's day, a contact) are
-  documents in this region like a folder listing, so they take the same page:
-  on a phone, where the scroller runs full-bleed, the reading margin; on a
-  pointer layout, the note's measure, centred. They were mounted bare, and the
-  Inbox's title and rows sat on the edge of the glass.
+  The Inbox sat on the edge of the glass on a phone. It is an ordinary folder
+  listing now (#1091), so it takes FolderView's page; a contact page is still
+  its own view and takes the same page from DocumentPage, whose two styles
+  FolderView also uses, so the two cannot drift apart.
 */
 const INBOX_LISTING: FolderListing = {
   path: "0-inbox",
@@ -260,38 +263,32 @@ const INBOX_LISTING: FolderListing = {
   manifestUsable: true,
 };
 
-function inboxAt(width: number): HTMLElement {
-  return mount(
-    createElement(BrowsePane, {
-      data: consoleWith({ selectedPath: "0-inbox", listings: { "0-inbox": INBOX_LISTING } } as Partial<FileBrowser>),
-    }),
-    width,
-  );
-}
-
 const px = (node: Element, property: string) => Number.parseFloat(window.getComputedStyle(node).getPropertyValue(property));
 
-describe("a communications page is laid out like any other document", () => {
-  test("on a phone it has the reading margin a folder listing has", () => {
-    const page = inboxAt(375).querySelector('[data-testid="document-page"]');
-    expect(page).not.toBeNull();
-    expect(px(page!, "padding-left")).toBe(layout.readingMargin);
-    expect(px(page!, "padding-right")).toBe(layout.readingMargin);
-    expect(page!.textContent).toContain("Inbox");
+describe("every document page has the same margins", () => {
+  test("on a phone the Inbox has the reading margin, off the edge of the glass", () => {
+    const inbox = mount(
+      createElement(BrowsePane, {
+        data: consoleWith({ selectedPath: "0-inbox", listings: { "0-inbox": INBOX_LISTING } } as Partial<FileBrowser>),
+      }),
+      375,
+    );
+    const page = inbox.querySelector('[data-testid="folder-column"]')!.parentElement!;
+    expect(page.textContent).toContain("meetings");
+    expect(px(page, "padding-left")).toBe(layout.readingMargin);
+    expect(px(page, "padding-right")).toBe(layout.readingMargin);
   });
 
-  test("...and exactly the margin the folder listing uses, from the same place", () => {
-    const folder = mount(createElement(BrowsePane, { data: consoleWith({}) }), 375);
-    const folderPage = folder.querySelector('[data-testid="folder-column"]')!.parentElement!;
-    const inboxPage = inboxAt(375).querySelector('[data-testid="document-page"]')!;
-    expect(px(inboxPage, "padding-left")).toBe(px(folderPage, "padding-left"));
+  test("a page wrapped in DocumentPage gets the same margin on a phone", () => {
+    const page = mount(createElement(DocumentPage, null, createElement("p", null, "a contact page")), 375)
+      .querySelector('[data-testid="document-page"]')!;
+    expect(px(page, "padding-left")).toBe(layout.readingMargin);
+    expect(px(page, "padding-right")).toBe(layout.readingMargin);
   });
 
-  test("on a pointer layout it sits in the note's measure, centred", () => {
-    const column = inboxAt(1440).querySelector('[data-testid="document-column"]');
-    expect(column).not.toBeNull();
-    expect(px(column!, "max-width")).toBe(noteColumnWidth);
-    expect(column!.textContent).toContain("Inbox");
+  test("...and the note's measure, centred, on a pointer layout", () => {
+    const column = mount(createElement(DocumentPage, null, createElement("p", null, "a contact page")), 1440)
+      .querySelector('[data-testid="document-column"]')!;
+    expect(px(column, "max-width")).toBe(noteColumnWidth);
   });
 });
-

@@ -215,7 +215,53 @@ bodies are outside `git ls-files`), plus ordinary non-ASCII prose, which is
 deliberately legal — an em dash and an accented word are visible characters and
 this rule is about invisible ones.
 
+### Fast repository guards share one cold start
+
+Workflow parsing, trigger checks, package-suite coverage, deploy ordering,
+secret and identifier scans, the ungated-export rule, the gateway import
+boundary, and the gateway health self-test run in `fast-guards.yml`. They need
+only Node built-ins, so the job uses the hosted runtime and skips package setup
+and installation. Each guard family keeps its own named step and every checker
+still runs its self-test before scanning the repository.
+
+The first additive run also included the desktop-bridge suite and pinned Node
+22. It passed in 17 seconds, with five seconds spent in `setup-node`. The bridge
+suite needs Node's TypeScript stripping, so it stays in its existing Node 22
+job. Removing that setup brought the aggregate check to 12 seconds. The
+workflow prints the hosted Node version so a runner-image change is visible.
+`email-worker.yml` remains the second host for checks that must survive a syntax
+or trigger error in this workflow. Branch protection requires `Fast repository
+guards`. The previous required gateway-boundary context was removed only after
+the aggregate check passed; the other replaced job names were never required.
+
 ### WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
+
+The browser jobs are required checks, not universal work. Their workflows
+still accept every pull request so GitHub always receives a result, but the
+expensive steps run only when the diff reaches the code each browser build
+executes. `Editor in WebKit` and the native bundle check follow the mobile
+app's recursive workspace dependencies. The collaboration browser follows
+those same dependencies plus the MCP gateway. A documentation-only change, or
+a change to an unrelated package, pays only for checkout and change detection.
+
+The path sets include the root package and pnpm files, patches, and the workflow
+itself. A dependency or build-tool change must not be mistaken for an unrelated
+change. On the other side, `packages/**` is forbidden because it turns every
+package into a mobile dependency and restores the cost this gate removes.
+`scripts/check-ci-path-gates.mjs` derives the required package paths from the
+workspace manifests, checks all three gates, verifies that every expensive
+collaboration step uses the gate, and self-tests the failure cases. Add a
+workspace dependency to either app and the guard fails until CI's path set is
+updated.
+
+The WebKit suite uses four workers in CI. The run before this decision executed
+118 cases with Playwright's two-worker default and spent 2m 46s in the suite,
+inside a 5m 31s job. These cases spend most of their time waiting on the built
+page, so the speed test uses all four runner cores instead of creating more jobs
+that repeat browser and dependency setup. Local runs keep Playwright's
+machine-dependent default. `scripts/webkit-ci-workers.test.mjs` pins the CI
+value. A live pull-request run must stay green and beat the 5m 31s job baseline
+before this setting is kept.
 
 Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long
 press has two signals" was found on a phone and reproduced by *simulating*

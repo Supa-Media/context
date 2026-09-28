@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { CardDragOptions, ColumnDropOptions, DomRef } from "./boardDragContract";
+import type { CardDragOptions, ColumnDropOptions, DomRef, RowDropOptions, RowZone } from "./boardDragContract";
 
-export type { CardDragOptions, ColumnDropOptions, DomRef } from "./boardDragContract";
+export type { CardDragOptions, ColumnDropOptions, DomRef, RowDropOptions, RowZone } from "./boardDragContract";
 
 /**
- * Dragging a folder page's Board card to another column — the pointer half.
+ * Dragging a folder page's Board card to another column, and a List's task
+ * row onto another row or a section — the pointer half.
  *
  * HTML5 drag and drop, bound to the DOM node under a react-native-web `View`,
  * for the reason `rowInteractions.web.ts` gives: `Pressable` forwards none of
@@ -111,6 +112,68 @@ export function useColumnDrop(options: ColumnDropOptions): DomRef {
       if (!path) return;
       event.preventDefault();
       latest.current.onDrop(path);
+    };
+    element.addEventListener("dragenter", enter);
+    element.addEventListener("dragover", over);
+    element.addEventListener("dragleave", leave);
+    element.addEventListener("drop", drop);
+    return () => {
+      element.removeEventListener("dragenter", enter);
+      element.removeEventListener("dragover", over);
+      element.removeEventListener("dragleave", leave);
+      element.removeEventListener("drop", drop);
+    };
+  });
+  return ref;
+}
+
+/** Which band of `element` the pointer is over: a quarter above, the middle half, a quarter below. */
+function zoneOf(element: HTMLElement, event: DragEvent): RowZone {
+  const box = element.getBoundingClientRect();
+  if (!(box.height > 0)) return "middle";
+  const at = (event.clientY - box.top) / box.height;
+  return at < 0.25 ? "above" : at > 0.75 ? "below" : "middle";
+}
+
+/**
+ * A List row a task can be dropped on, by band (`tasks/taskDrop.ts` says
+ * what each band does). The same drag type as a card, so only a task row or
+ * a card is ever taken; a drop here is the row's and does not also reach the
+ * section around it.
+ */
+export function useRowDrop(options: RowDropOptions): DomRef {
+  const latest = useRef(options);
+  latest.current = options;
+  const { ref } = useDomBinding((element) => {
+    let depth = 0;
+    const accepts = (event: DragEvent) => latest.current.enabled && carries(event);
+    // Stopped here, so the section around a row lights only over its own gaps between rows.
+    const enter = (event: DragEvent) => {
+      if (!accepts(event)) return;
+      event.stopPropagation();
+      depth += 1;
+      latest.current.onOver(zoneOf(element, event));
+    };
+    const over = (event: DragEvent) => {
+      if (!accepts(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      latest.current.onOver(zoneOf(element, event));
+    };
+    const leave = (event: DragEvent) => {
+      if (!accepts(event)) return;
+      event.stopPropagation();
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) latest.current.onOver(null);
+    };
+    const drop = (event: DragEvent) => {
+      depth = 0;
+      if (!accepts(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      latest.current.onOver(null);
+      latest.current.onDrop(zoneOf(element, event));
     };
     element.addEventListener("dragenter", enter);
     element.addEventListener("dragover", over);

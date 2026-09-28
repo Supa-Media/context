@@ -127,6 +127,9 @@ export {
   parseCustomEmojiLeaf,
 } from "./customEmoji";
 
+/** The pasted pictures a published page embeds, carried with it. */
+export { PUBLISHED_IMAGE_LEAF, publishedImageLeaves } from "./publishedImages";
+
 /**
  * The path-only contract for bucket-backed website routes. Page metadata and
  * source-reference parsing remain separate so an open product decision cannot
@@ -152,6 +155,13 @@ export {
   type WebsitePageSource,
 } from "./websiteMetadata";
 export {
+  MAX_REFERENCED_WEBSITE_NOTES,
+  isWebsiteRootKey,
+  referencedWebsiteKey,
+  websiteFolderPath,
+  websiteFolderReference,
+} from "./websiteFolders";
+export {
   WEBSITE_CONTRACT_VERSION,
   WEBSITE_STARTER_MARKDOWN,
   summarizeWebsiteRoutes,
@@ -170,3 +180,12 @@ export type {
   WebsiteRouteSummary,
   WebsiteStateView,
 } from "./websiteContract";
+export {
+  MAX_CAST_STEPS,
+  splitWebsiteCast,
+  stripWebsiteCast,
+  type CastActor,
+  type CastActorKind,
+  type CastStep,
+  type WebsiteCast,
+} from "./websiteCast";

@@ -25,9 +25,10 @@
  * would only ever fail.
  */
 
-import { useRef, useState } from "react";
-import { Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Platform, Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { Icon } from "../../../design/components/Icon";
 import { Menu } from "../../../design/components/Menu";
 import { Text, type TextVariant } from "../../../design/components/Text";
 import { fonts, pointerType, radii } from "../../../design/tokens";
@@ -35,6 +36,7 @@ import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import type { MenuItem } from "../menu";
 import type { OwnerSearch } from "../owners";
 import { OwnerPicker } from "./OwnerPicker";
+import { useFieldFont } from "../../../design/fieldFont";
 
 export interface PropertyValueProps {
   /** The frontmatter key, which names the menu and the field. */
@@ -56,8 +58,18 @@ export interface PropertyValueProps {
     readonly prefer: readonly string[];
     /** Who this note names as its owner; asked only when the search says `suggests`. */
     readonly suggest?: (prefer: readonly string[]) => Promise<string | null>;
+    /** How an owner line is shown: `@seyi` for one written as an address. */
+    readonly label?: (value: string) => string;
+    /** Add a name to the workspace's agents; absent where the list can't change. */
+    readonly addAgent?: (name: string) => Promise<string | null>;
+    /** Whether an owner line names an agent, which is marked beside it. */
+    readonly isAgent?: (value: string) => boolean;
   };
   variant?: TextVariant;
+  /** What an unset value reads; `Set owner` by default. Shown to a reader too when given. */
+  unsetLabel?: string;
+  /** Drawn before the value, inside its button: an owner's face, which then marks an agent itself. */
+  lead?: ReactNode;
   /**
    * Drawn invisible until something asks for it — a row under the pointer —
    * but still there, so its menu does not close when the pointer moves into
@@ -81,12 +93,15 @@ export function PropertyValue({
   onEditList = null,
   owners,
   variant = "tree",
+  unsetLabel,
+  lead,
   quiet = false,
   style,
   testID,
 }: PropertyValueProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const trigger = useRef<View>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [picking, setPicking] = useState(false);
@@ -95,12 +110,36 @@ export function PropertyValue({
   // A keyboard reaches a quiet value by Tab; it shows while focused, as it does under the pointer.
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState("");
+  // An owner written before handles is shown as the member it names, never rewritten here.
+  const shown = value === "" || owners?.label === undefined ? value : owners.label(value);
+  // An agent's thread note (`Claude (faster CI/CD thread)`) is left out of the column and kept for hovering.
+  const noted = value !== "" && shown !== value && owners?.isAgent?.(value) === true;
+  const spoken = noted ? value : shown;
+  useHoverTitle(trigger, noted ? value : null);
+  // The model mark, so an agent reads as one in a column of people without a word for it.
+  const agent =
+    lead !== undefined ? (
+      lead
+    ) : value !== "" && owners?.isAgent?.(value) === true ? (
+      <View accessibilityLabel="agent" testID="owner-agent-mark">
+        <Icon name="sparkle" size={12} color={colors.chromeMuted} />
+      </View>
+    ) : null;
 
   if (onChoose === null) {
-    return value === "" ? null : (
-      <Text variant={variant} style={style} numberOfLines={1} testID={testID}>
-        {isolateForDisplay(value)}
-      </Text>
+    if (value === "" && unsetLabel === undefined) return null;
+    return (
+      <View ref={trigger} style={styles.owner} testID={testID}>
+        {agent}
+        <Text
+          variant={variant}
+          style={[style, styles.shrink, value === "" && styles.unset]}
+          numberOfLines={1}
+          accessibilityLabel={value === "" ? undefined : spoken}
+        >
+          {value === "" ? unsetLabel : isolateForDisplay(shown)}
+        </Text>
+      </View>
     );
   }
 
@@ -125,7 +164,7 @@ export function PropertyValue({
         accessibilityLabel={`New ${property}`}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.field}
+        style={[styles.field, fieldFont]}
         testID={testID === undefined ? undefined : `${testID}-field`}
       />
     );
@@ -198,24 +237,33 @@ export function PropertyValue({
         role="button"
         aria-haspopup="menu"
         aria-expanded={menu !== null || picking}
-        accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${current}`}
+        accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${spoken}`}
         hitSlop={6}
         testID={testID}
+        style={agent === null || (current === null && lead === undefined) ? undefined : styles.owner}
       >
+        {current === null && lead === undefined ? null : agent}
         <Text
           variant={variant}
           numberOfLines={1}
-          style={[style, current === null && styles.unset, hovered && styles.hover, quiet && !hovered && !focused && menu === null && styles.quiet]}
+          style={[
+            style,
+            agent !== null && styles.shrink,
+            current === null && styles.unset,
+            hovered && styles.hover,
+            quiet && !hovered && !focused && menu === null && styles.quiet,
+          ]}
         >
-          {current === null ? `Set ${property}` : isolateForDisplay(current)}
+          {current === null ? (unsetLabel ?? `Set ${property}`) : isolateForDisplay(shown)}
         </Text>
       </Pressable>
       {owners === undefined || !picking ? null : (
         <OwnerPicker
-          current={value}
+          current={shown}
           search={owners.search}
           prefer={owners.prefer}
           {...(owners.suggest === undefined ? {} : { suggest: owners.suggest })}
+          {...(owners.addAgent === undefined ? {} : { onAddAgent: owners.addAgent })}
           anchor={menu}
           savesTo={savesTo}
           onChoose={onChoose}
@@ -250,11 +298,28 @@ export function PropertyValue({
   );
 }
 
+/**
+ * A native tooltip on web: `title` on the cell's DOM node. React Native Web
+ * does not forward a `title` prop, so it is set on the node itself. Native
+ * has no hover; the same words are the accessible name there.
+ */
+function useHoverTitle(ref: RefObject<View | null>, title: string | null): void {
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = ref.current as unknown as HTMLElement | null;
+    if (node === null || typeof node.setAttribute !== "function") return;
+    if (title === null) node.removeAttribute("title");
+    else node.setAttribute("title", title);
+  });
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     unset: { color: colors.chromeMuted },
     hover: { color: colors.accentText },
     quiet: { opacity: 0 },
+    owner: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
+    shrink: { flexShrink: 1 },
     field: {
       fontFamily: fonts.body,
       fontSize: pointerType.ui,

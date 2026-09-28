@@ -15,10 +15,12 @@ import { layout } from "../../../design/tokens";
  * styles below from here, so the margin a folder listing gets and the margin a
  * page wrapped in this gets are one value rather than two that can drift.
  *
- * The Inbox, a channel and a contact page were mounted bare, with neither, and
- * sat on the edge of the glass. A channel's day is not wrapped: it owns its
- * scroller (to scroll to an anchored message) and pads its own page, as a note
- * does, and a wrapper would take the height that scroller needs.
+ * A contact page is wrapped in this where BrowseDocument mounts it; it was
+ * mounted bare and sat on the edge of the glass. (The Inbox and a channel had
+ * the same fault until #1091 made them ordinary folder listings.) A channel's
+ * day is not wrapped: it owns its scroller (to scroll to an anchored message)
+ * and pads its own page, as a note does, and a wrapper would take the height
+ * that scroller needs.
  */
 export const documentMargin = StyleSheet.create({
   /** The reading margin, on the density where nothing else supplies one. */

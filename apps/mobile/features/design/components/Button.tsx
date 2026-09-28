@@ -354,9 +354,21 @@ export function PressRow({
   ariaHasPopup,
   ariaChecked,
   disabled,
+  onLongPress,
+  delayLongPress,
 }: {
   children: ReactNode;
   onPress?: (event: GestureResponderEvent) => void;
+  /**
+   * A press held. Passed straight to `Pressable`.
+   *
+   * It used to be absent, and that was a silent bug rather than a missing
+   * feature: `FolderRow` and the tree spread `useRowInteractions`' native
+   * `onLongPress` into this component, which dropped it — so a long press on
+   * a folder row did nothing on the native build.
+   */
+  onLongPress?: () => void;
+  delayLongPress?: number;
   selected?: boolean;
   accessibilityLabel: string;
   role?: "button" | "tab" | "link";
@@ -460,6 +472,8 @@ export function PressRow({
         : ({ "aria-haspopup": ariaHasPopup } as unknown as { "aria-haspopup": string }))}
       hitSlop={hitSlop}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={delayLongPress}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       onFocus={() => setFocused(true)}
@@ -468,7 +482,11 @@ export function PressRow({
       style={[style, hovered && !selected && hoverStyle, selected && selectedStyle]}
     >
       {children}
-      <FocusRing visible={focused} radius={radius} />
+      {/*
+        Not on a disabled row: a control disabled while it holds focus (`‹` at
+        the start of history) never fires blur, and the ring would stay.
+      */}
+      <FocusRing visible={focused && !disabled} radius={radius} />
     </Pressable>
   );
 }

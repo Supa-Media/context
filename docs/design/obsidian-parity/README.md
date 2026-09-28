@@ -165,7 +165,7 @@ not by eye, at 440×956 against the committed `.html` files.
 | Rows of chrome above the note | 1 | 1 — account left, context strip in the middle, one grouped capsule right |
 | The note's name | inline title inside the document | inline title, 28/34 bold at `readingMargin`, inside the scroller |
 | Properties, expanded | tinted rounded card, mark + muted key + ink value, `+ Add property` | same, at 15/22 |
-| `visibility` | a Properties row | a Properties row, from the access map rather than the file's own line |
+| `visibility` | a Properties row | **not shown** — `privacy.md` decides access and the Share dialog shows it; a file's own `visibility:` line is left out of the panel (2026-09-27) |
 | Sidebar footer | icon row · vault name + chevron / gear · muted counts line | **retired** — there is no sidebar; `storage · index · counts` is the foot of the context root page (`shots/files.png`) |
 
 ## What is deliberately not matched

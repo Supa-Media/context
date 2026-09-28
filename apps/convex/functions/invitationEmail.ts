@@ -102,6 +102,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
+import { handleForUser } from "./lib/identities";
 import { APP_ORIGIN_ENV_VAR, randomOpaqueToken } from "./lib/gatewayAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
 import {
@@ -367,38 +368,6 @@ async function shouldMintSignInCode(
 }
 
 /**
- * The inviter's handle, or `null`.
- *
- * The same two-step resolution `resolveInviteeUser` performs in the other
- * direction: a `user` claim if one exists, otherwise the slug of a `personal`
- * workspace they own. An account with neither has no handle, which is a real
- * state and renders as just their name.
- */
-async function handleFor(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-): Promise<string | null> {
-  const claims = await ctx.db
-    .query("names")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(MAX_MEMBERSHIPS_SCANNED);
-  for (const claim of claims) {
-    if (claim.kind === "user") return claim.name;
-  }
-
-  const memberships = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(MAX_MEMBERSHIPS_SCANNED);
-  for (const membership of memberships) {
-    if (membership.role !== "owner") continue;
-    const workspace = await ctx.db.get(membership.workspaceId);
-    if (workspace !== null && workspace.kind === "personal") return workspace.slug;
-  }
-  return null;
-}
-
-/**
  * Retire the sign-in code an invitation put in somebody's mailbox.
  *
  * Called when an invitation stops being open — accepted, declined, or withdrawn
@@ -518,7 +487,7 @@ export const claimInvitationEmail = internalMutation({
     const workspace = await ctx.db.get(invitation.workspaceId);
     if (workspace === null) return null;
 
-    const inviterHandle = await handleFor(ctx, inviter._id);
+    const inviterHandle = await handleForUser(ctx, inviter._id);
     const mintSignInCode = await shouldMintSignInCode(ctx, invitation.invitee);
 
     /**

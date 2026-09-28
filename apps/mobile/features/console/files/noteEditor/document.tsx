@@ -1,7 +1,7 @@
 import { Platform, View } from "react-native";
-import { PresenceChip } from "../../ConsoleShell";
 import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
+import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
 import { ActivityPage } from "../../activity/ActivityPage";
 import { LockedNoteView } from "../../encryption/LockedNoteView";
@@ -37,7 +37,6 @@ export function noteDocument(view: NoteView) {
     setDocWidth,
     passphraseLocked,
     frontmatter,
-    visibility,
     docWidth,
     activityList,
     activity,
@@ -78,6 +77,8 @@ export function noteDocument(view: NoteView) {
     onRetractFormResponse,
     onLoadImage,
     onStoreImage,
+    commenter,
+    onSignInToComment,
     onImageProblem,
     folderLists,
     onTitleCaret,
@@ -127,18 +128,16 @@ export function noteDocument(view: NoteView) {
           so the panel edits too — one line at a time, through the editor's
           own `onChange` (see `Properties` and `propertyEdit.ts`).
 
-          **What it draws differs by density, because what is beside it
-          does.** A phone's breadcrumb carries no visibility chip, so the
-          access-map answer is a row in here and the panel is drawn for it
-          alone. A pointer layout's breadcrumb says who can see the note one
-          line above, so this is drawn only where there is a block to fold —
-          otherwise it would be an empty disclosure under a line that already
-          answered it.
+          It is drawn only where there is a block to fold. It used to add a
+          `visibility` row of its own on a phone, drawn from `privacy.md`, and
+          that row is gone: it controlled nothing, it read like a setting, and
+          it was the first thing a new person saw on a note that had no
+          frontmatter at all. Who can read a note is the Share dialog's answer.
         */}
-        {!passphraseLocked && (frontmatter !== "" || (compact && visibility !== undefined)) ? (
+        <Reveal open={!passphraseLocked && frontmatter !== ""}>
+        {!passphraseLocked && frontmatter !== "" ? (
           <Properties
             frontmatter={frontmatter}
-            visibility={compact ? visibility : undefined}
             /*
               A phone pays the note's reading margin; a pointer layout pays
               whatever puts this at the same character as the first line of
@@ -171,6 +170,7 @@ export function noteDocument(view: NoteView) {
             }
           />
         ) : null}
+        </Reveal>
         {activityList ? (
           /*
             The activity file opens as a list, and the pencil opens its
@@ -253,20 +253,6 @@ export function noteDocument(view: NoteView) {
           />
         ) : (
         <>
-        {/*
-          Who else is in this note, over the note rather than in the console's
-          top bar.
-
-          The bar belongs to the console and stays put while notes come and
-          go; this is a fact about the note in front of you and leaves with
-          it. It draws nothing when nobody else is here, which is almost
-          always, so the ordinary editor is unchanged — see `PresenceChip`.
-        */}
-        {presence === undefined ? null : (
-          <View style={styles.presenceRow}>
-            <PresenceChip presence={presence} />
-          </View>
-        )}
         <LiveEditor
           /*
             The body alone on a phone, and the whole file everywhere else.
@@ -398,6 +384,8 @@ export function noteDocument(view: NoteView) {
           onStoreImage={onStoreImage}
           onImageProblem={onImageProblem}
           folderLists={folderLists}
+          commenter={commenter}
+          onSignInToComment={onSignInToComment}
         />
         </>
         )}

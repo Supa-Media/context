@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import {
   buildWebsiteRouteStatuses,
   parseWebsitePage,
+  stripWebsiteCast,
   websiteRouteLookupKey,
   type ResolvedWebsiteAddress,
   type ResolvedWebsitePage,
@@ -27,6 +28,8 @@ import { renderPublicWebsiteLists } from "./lists";
 import { probeWebsitePage } from "./probe";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { readPublishedEmoji } from "./emoji";
+import { readPublishedImages } from "./images";
+import { folderListFor, folderPagesUnder, routeStatusKey, type FolderPage } from "./folders";
 
 type SiteShell = {
   siteName: string;
@@ -64,6 +67,8 @@ export type WebsiteResolutionPlan =
       releaseFallback: boolean;
       releaseId?: string;
       releasePageId?: string;
+      /** The notes a `folder:` line on this page published, listed under it. */
+      folderPages?: FolderPage[];
     } & SiteShell);
 
 const NO_SITE: Extract<WebsiteResolutionPlan, { kind: "unavailable" }> = {
@@ -236,7 +241,18 @@ export async function websiteResolutionPlanHandler(
     ...(route.releasePageId === undefined
       ? {}
       : { releasePageId: route.releasePageId }),
+    /*
+      Withheld while a restriction may be pending, for the reason the menu is:
+      a title in the list is a claim that the note is still on the site.
+    */
+    ...(restrictionPending
+      ? {}
+      : folderPageField(folderPagesUnder(indexed, route.routePath, member))),
   };
+}
+
+function folderPageField(pages: FolderPage[]): { folderPages?: FolderPage[] } {
+  return pages.length === 0 ? {} : { folderPages: pages };
 }
 
 function errorCode(error: unknown): string | null {
@@ -349,8 +365,10 @@ export async function resolveWebsitePageAs(
   // Edited since it was published: that is ordinary, and waits for Publish.
   // The live bytes are read only to learn whether they now restrict the page.
 
+  // A note a `folder:` line published is checked under the key its address
+  // implies, so the compiler that placed it re-derives the same route.
   const statuses = buildWebsiteRouteStatuses([
-    { objectKey: plan.objectKey, markdown: result.text },
+    { objectKey: routeStatusKey(plan.objectKey, plan.routePath), markdown: result.text },
   ]);
   const status = statuses[0];
   const parsed = parseWebsitePage(result.text);
@@ -419,7 +437,7 @@ export async function resolveWebsitePageAs(
     workspaceId: plan.workspaceId,
     handle: args.handle,
     objectKey: plan.objectKey,
-    body: parsed.body,
+    body: folderListFor(plan.objectKey, result.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
     page: {
       kind: "page",
@@ -477,7 +495,7 @@ async function resolveReleasedPage(
   if (page?.outcome !== "read") return null;
   const parsed = parseWebsitePage(page.text);
   const status = buildWebsiteRouteStatuses([
-    { objectKey: plan.objectKey, markdown: page.text },
+    { objectKey: routeStatusKey(plan.objectKey, plan.routePath), markdown: page.text },
   ])[0];
   if (
     isEncryptedNote(page.text) ||
@@ -494,7 +512,7 @@ async function resolveReleasedPage(
     workspaceId: plan.workspaceId,
     handle,
     objectKey: plan.objectKey,
-    body: parsed.body,
+    body: folderListFor(plan.objectKey, page.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
     page: {
       kind: "page",
@@ -574,7 +592,9 @@ async function renderWebsitePage(
   };
   const withLists = await renderPublicWebsiteLists(ctx, {
     workspaceId: args.workspaceId,
-    markdown: args.body,
+    // A cast block scripts the homepage's demo cast, which only the homepage
+    // plays (`websiteCast.ts`); every served page is drawn without them.
+    markdown: stripWebsiteCast(args.body),
     selfPath: args.objectKey,
     viewerAudience: args.viewerAudience,
     catalog: catalog.entries,
@@ -599,10 +619,14 @@ async function renderWebsitePage(
   }
 
   const markdown = rewriteWebsiteLinks(withLists, linkOptions, readableShares);
-  const emoji = await readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({}));
+  const [emoji, images] = await Promise.all([
+    readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({})),
+    readPublishedImages(ctx, args.workspaceId, [markdown]).catch(() => ({})),
+  ]);
   return {
     ...args.page,
     markdown,
     ...(Object.keys(emoji).length > 0 ? { emoji } : {}),
+    ...(Object.keys(images).length > 0 ? { images } : {}),
   };
 }

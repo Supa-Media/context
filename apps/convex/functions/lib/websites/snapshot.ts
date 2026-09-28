@@ -25,7 +25,13 @@
  * turned on.
  */
 
-import { DEFAULT_WEBSITE_ROOT, parseWebsitePage, websitePageTitle } from "@context/shared";
+import {
+  DEFAULT_WEBSITE_ROOT,
+  isWebsiteRootKey,
+  parseWebsitePage,
+  websiteFolderReference,
+  websitePageTitle,
+} from "@context/shared";
 import { api, internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
@@ -36,6 +42,8 @@ import { readBatches } from "./lists";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { normalizedHandle } from "./resolver";
 import { readPublishedEmoji } from "./emoji";
+import { readPublishedImages } from "./images";
+import { withFolderList, type FolderPage } from "./folders";
 
 /** Whose `website/` folder is the homepage. A self-host names its own. */
 export function homeSiteHandle(): string {
@@ -61,11 +69,16 @@ export interface WebsiteSnapshot {
   pages: WebsiteSnapshotPage[];
   /** The workspace emoji those pages use, `name → data: URL` (see `./emoji`). */
   emoji: Record<string, string>;
+  /** The pasted pictures those pages embed, `leaf → data: URL` (see `./images`). */
+  images: Record<string, string>;
 }
 
 /** A page the site published, as the route index holds it. */
 export interface PublishedPage {
   objectKey: string;
+  /** Where the site serves it; for a note a `folder:` line published, not its key. */
+  routePath: string;
+  description: string | null;
   sourceEtag: string;
   releaseId?: string;
   releasePageId?: string;
@@ -91,22 +104,41 @@ export async function homeSiteWorkspaceHandler(
     .query("websiteRouteIndex")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
     .take(MAX_SNAPSHOT_PAGES * 2);
-  const prefix = `${DEFAULT_WEBSITE_ROOT}/`;
   const seen = new Set<string>();
   const pages: PublishedPage[] = [];
   for (const row of rows) {
-    if (row.status !== "live" || row.audience !== "public") continue;
-    if (!row.objectKey.startsWith(prefix) || !/\.md$/i.test(row.objectKey)) continue;
+    if (row.status !== "live" || row.audience !== "public" || row.routePath === null) continue;
+    // The site's own files, and the notes the folders its pages name published.
+    if (!/\.md$/i.test(row.objectKey)) continue;
     if (seen.has(row.objectKey)) continue;
     seen.add(row.objectKey);
     pages.push({
       objectKey: row.objectKey,
+      routePath: row.routePath,
+      description: row.description,
       sourceEtag: row.sourceEtag,
       ...(row.releaseId === undefined ? {} : { releaseId: row.releaseId }),
       ...(row.releasePageId === undefined ? {} : { releasePageId: row.releasePageId }),
     });
   }
   return { workspaceId: workspace._id, siteName: workspace.displayName, pages };
+}
+
+/** A folder's `index.md` sorts ahead of the notes beside it, so it leads its folder. */
+function folderFirst(path: string): string {
+  return path.replace(/(^|\/)index\.md$/i, "$1");
+}
+
+/** The notes a folder page published, as the site lists them under it. */
+function folderPagesIn(
+  pages: ReadonlyArray<{ routePath: string; title: string; description: string | null; referenced: boolean }>,
+  routePath: string,
+): FolderPage[] {
+  const prefix = routePath === "/" ? "/" : `${routePath}/`;
+  return pages
+    .filter((page) => page.referenced && page.routePath.startsWith(prefix))
+    .map(({ routePath: route, title, description }) => ({ routePath: route, title, description }))
+    .sort((left, right) => left.routePath.localeCompare(right.routePath));
 }
 
 /** `index.md` is its folder's address, as it is on the site. */
@@ -185,7 +217,9 @@ export async function websiteSnapshot(
   const changed = still.filter((page) => live.get(page.objectKey)!.etag !== page.sourceEtag);
   const copies = await releasedTexts(ctx, home.workspaceId, changed);
 
-  const listed: Array<WebsiteSnapshotPage & { nav: number | null }> = [];
+  const listed: Array<
+    WebsiteSnapshotPage & { nav: number | null; description: string | null; folder: boolean; referenced: boolean }
+  > = [];
   for (const page of still) {
     const note = live.get(page.objectKey)!;
     const text = note.etag === page.sourceEtag ? note.text : copies.get(page.objectKey);
@@ -195,25 +229,38 @@ export async function websiteSnapshot(
     // refused; it is held back rather than guessed at.
     if (parsed.draft || parsed.audience !== "public") continue;
     if (parsed.problems.some((problem) => problem.code === "invalid_metadata")) continue;
-    const path = page.objectKey.slice(prefix.length);
+    const own = isWebsiteRootKey(page.objectKey);
+    const file = own ? page.objectKey.slice(prefix.length) : `${page.routePath.slice(1)}.md`;
+    const routePath = own ? routePathFor(file) : page.routePath;
+    const folder = own && websiteFolderReference(text) !== null;
     listed.push({
-      path,
-      routePath: routePathFor(path),
-      title: pageTitle(path, parsed.title, parsed.body),
+      // A page that names a folder opens that folder in the sidebar, so the
+      // notes it published sit under it: `features.md` is `features/index.md`.
+      path: folder && routePath !== "/" ? `${routePath.slice(1)}/index.md` : file,
+      routePath,
+      title: pageTitle(file, parsed.title, parsed.body),
       markdown: parsed.body,
       nav: parsed.nav,
+      description: page.description,
+      folder,
+      referenced: !own,
     });
   }
   listed.sort(
     (left, right) =>
       (left.nav ?? Number.MAX_SAFE_INTEGER) - (right.nav ?? Number.MAX_SAFE_INTEGER) ||
-      left.path.localeCompare(right.path),
+      folderFirst(left.path).localeCompare(folderFirst(right.path)),
   );
-  const pages = listed.map(({ path, routePath, title, markdown }) => ({ path, routePath, title, markdown }));
-  const emoji = await readPublishedEmoji(
-    ctx,
-    home.workspaceId,
-    pages.map((page) => page.markdown),
-  ).catch(() => ({}));
-  return { siteName: home.siteName, revision, pages, emoji };
+  const pages = listed.map(({ path, routePath, title, markdown, folder }) => ({
+    path,
+    routePath,
+    title,
+    markdown: folder ? withFolderList(markdown, folderPagesIn(listed, routePath)) : markdown,
+  }));
+  const markdowns = pages.map((page) => page.markdown);
+  const [emoji, images] = await Promise.all([
+    readPublishedEmoji(ctx, home.workspaceId, markdowns).catch(() => ({})),
+    readPublishedImages(ctx, home.workspaceId, markdowns).catch(() => ({})),
+  ]);
+  return { siteName: home.siteName, revision, pages, emoji, images };
 }

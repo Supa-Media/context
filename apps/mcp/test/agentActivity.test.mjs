@@ -31,6 +31,13 @@
  *   seated-client check dropped from `committedAgent`                      1
  *   `/agent-activity` dropped from `isTransportPath` (no origin check)     1
  *   `agent-activity` dropped from RESERVED_FIRST_SEGMENTS (read as a slug) 10
+ *   console check dropped from `personHeaders` (tools counted as people)   1+
+ *   person key made per request rather than per account (no dedupe)       1+
+ *
+ * The people half (`src/peopleActive.js`) rides the same route: an open
+ * console's poll is its person's heartbeat. Its checks prove a tool is never
+ * a person, two tabs are one person, the id is not the account id, and the
+ * roster never reaches storage either.
  */
 
 import worker, { PresenceRoom as GatewayPresenceRoom } from "../src/index.js";
@@ -43,6 +50,12 @@ import {
   pruneActivity,
   recordActivity,
 } from "../src/agentActivity.js";
+import {
+  PEOPLE_ACTIVE_MAX_LISTED,
+  PEOPLE_ACTIVE_WINDOW_MS,
+  peopleForCaller,
+  recordPerson,
+} from "../src/peopleActive.js";
 import { roomKey } from "../src/presence.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -51,6 +64,7 @@ const OWNER_TOKEN = `cat_agentact_owner_${"0".repeat(14)}`;
 const TEAM_TOKEN = `cat_agentact_team_${"0".repeat(15)}`;
 const CONSOLE_TOKEN = `cat_agentact_cnsl_${"0".repeat(15)}`;
 const OTHER_TOKEN = `cat_agentact_other_${"0".repeat(14)}`;
+const CONSOLE_TEAM_TOKEN = `cat_agentact_cnst_${"0".repeat(15)}`;
 
 const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
@@ -301,6 +315,40 @@ export async function runAgentActivityChecks(check) {
       agentActivityKey("ws/a") !== agentActivityKey("ws") ,
   );
 
+  /* ======================= who has the workspace open ==================== */
+
+  {
+    const roster = new Map();
+    check(
+      "a person whose key is not a digest is refused",
+      // The id is drawn in every member's sidebar; a chosen string is a name.
+      recordPerson(roster, { key: "p:pick-me", name: "x" }, now) === false && roster.size === 0,
+    );
+    recordPerson(roster, { key: HEX, name: "@me\u202E" }, now);
+    recordPerson(roster, { key: HEX, name: "@me" }, now + 1);
+    check("asking twice is one person, not two", roster.size === 1);
+    recordPerson(roster, { key: "fedcba9876543210", name: "@you" }, now - PEOPLE_ACTIVE_WINDOW_MS - 1);
+    const answer = peopleForCaller(roster, now, HEX);
+    check(
+      "a person who stopped asking stops being active",
+      answer.peopleCount === 1 && answer.people.length === 1,
+    );
+    check(
+      "the caller's own entry is marked, and names are cleaned",
+      answer.people[0].self === true && answer.people[0].name === "@me" && answer.people[0].id === `p:${HEX}`,
+    );
+    const crowd = new Map();
+    for (let i = 0; i < PEOPLE_ACTIVE_MAX_LISTED + 10; i += 1) {
+      recordPerson(crowd, { key: i.toString(16).padStart(16, "0"), name: `@p${i}` }, now);
+    }
+    const big = peopleForCaller(crowd, now, null);
+    check(
+      "the count is exact while the faces are capped",
+      big.peopleCount === PEOPLE_ACTIVE_MAX_LISTED + 10 && big.people.length === PEOPLE_ACTIVE_MAX_LISTED &&
+        big.people.every((person) => person.self === false),
+    );
+  }
+
   /* ======================= the room, in memory only ====================== */
 
   {
@@ -395,7 +443,7 @@ export async function runAgentActivityChecks(check) {
       role: "owner",
       scopes: ["context:read", "context:write", "context:private"],
       clientId: "mcp_client_agentact_owner",
-      clientName: "Owner's Claude",
+      clientName: "Claude",
       userId: "user_agentact_owner",
     });
     await controlPlane.addGrant({
@@ -414,6 +462,14 @@ export async function runAgentActivityChecks(check) {
       scopes: ["context:read", "context:write", "context:private"],
       clientId: "context_console",
       userId: "user_agentact_owner",
+    });
+    await controlPlane.addGrant({
+      accessToken: CONSOLE_TEAM_TOKEN,
+      workspaceId: "ws_agentact",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "context_console",
+      userId: "user_agentact_team",
     });
     await controlPlane.addGrant({
       accessToken: OTHER_TOKEN,
@@ -471,12 +527,13 @@ export async function runAgentActivityChecks(check) {
     );
     check(
       "...nor the agent whose only work was on it",
-      team.body.agents.every((agent) => agent.name !== "Owner's Claude"),
+      team.body.agents.every((agent) => !agent.name.endsWith("Claude")),
     );
     check(
       "the owner sees the private read, and whose it was",
       owner.body.marks.some((mark) => mark.path === "1-projects/rates.md" && mark.kind === "read") &&
-        owner.body.agents.some((agent) => agent.name === "Owner's Claude"),
+        // Whose it was is in the name: several people's agents share a workspace.
+        owner.body.agents.some((agent) => agent.name === "@agentacttest's Claude"),
     );
     check(
       "the console opening a note is not an agent reading it",
@@ -485,6 +542,35 @@ export async function runAgentActivityChecks(check) {
     check(
       "an agent is named by its client, as the note room names it",
       team.body.agents.some((agent) => agent.name === "Team Codex" && agent.id.startsWith("a:")),
+    );
+
+    check(
+      "a tool asking is not a person with the workspace open",
+      (await activityRequest(env, TEAM_TOKEN)).body?.peopleCount === 0,
+    );
+    const firstLook = await activityRequest(env, CONSOLE_TOKEN);
+    check(
+      "a console asking counts its person as active, and says which one is them",
+      firstLook.body?.peopleCount === 1 && firstLook.body.people[0]?.self === true &&
+        firstLook.body.people[0].id.startsWith("p:") && firstLook.body.people[0].name.length > 0,
+    );
+    await activityRequest(env, CONSOLE_TOKEN);
+    const teamLook = await activityRequest(env, CONSOLE_TEAM_TOKEN);
+    check(
+      "two people with the console open are two, however often each asks",
+      teamLook.body?.peopleCount === 2 && teamLook.body.people.filter((person) => person.self).length === 1,
+    );
+    check(
+      "a person's id is not their account id",
+      !JSON.stringify(teamLook.body).includes("user_agentact"),
+    );
+    check(
+      "another workspace is never told who has this one open",
+      (await activityRequest(env, OTHER_TOKEN)).body?.peopleCount === 0,
+    );
+    check(
+      "who is active never reaches Durable Object storage",
+      rooms.runtimes.get(agentActivityKey("ws_agentact"))?.stored.size === 0,
     );
 
     const other = await activityRequest(env, OTHER_TOKEN);

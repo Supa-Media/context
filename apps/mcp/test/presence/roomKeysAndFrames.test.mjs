@@ -30,9 +30,26 @@ import {
   roster,
   touch,
 } from "./fixtures.mjs";
+import { presenceActor } from "../../src/live/presence.js";
 
 export async function runPresenceRoomKeysAndFramesChecks(check) {
   /* ======================= the pure state module ======================== */
+
+  /* -- an agent is named by whose it is ---------------------------------- */
+
+  check(
+    "an agent's name says whose it is: @jon's Claude",
+    (await presenceActor({ clientId: "client_a", name: "@jon", client: "Claude" })).name === "@jon's Claude",
+  );
+  check(
+    "a client with no name is still somebody's agent",
+    (await presenceActor({ clientId: "client_a", name: "@jon", client: null })).name === "@jon's agent",
+  );
+  check(
+    "a client with no personal handle behind it keeps its own name",
+    (await presenceActor({ clientId: "client_a", name: null, client: "Claude" })).name === "Claude",
+  );
+  check("with neither, it is an agent", (await presenceActor({ clientId: "client_a" })).name === "An agent");
 
   /* -- room keys separate tenants, and cannot be forged ------------------- */
 

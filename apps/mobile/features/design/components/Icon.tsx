@@ -24,7 +24,7 @@ import { ICON_NAMES, type IconName } from "./icons/names";
  * ## Why not an icon font or an SVG library
  *
  * `react-native-svg` was refused here on two grounds, and **both have now
- * expired** — so two drawings in this file are paths. See "The escape hatch"
+ * expired** — so a few drawings in this file are paths. See "The escape hatch"
  * below for which, and for the rule that keeps it at two.
  *
  * The first reason went a while ago. It said the dependency was native, so it
@@ -55,8 +55,9 @@ import { ICON_NAMES, type IconName } from "./icons/names";
  * ## The escape hatch
  *
  * **Reach for a path only when the drawing needs a curve at constant weight.
- * Everything a rectangle can fake stays a rectangle.** Two icons qualify —
- * `eye` and `pencil` — and they are drawn by `glyph` (in
+ * Everything a rectangle can fake stays a rectangle.** Five icons qualify —
+ * `eye`, `pencil`, and the three clouds of the save mark (`icons/sync.tsx`,
+ * three lobes at one weight) — and they are drawn by `glyph` (in
  * `icons/primitives.tsx`), in the same unit space as everything else. That is
  * a stated trigger rather than an open door: without it this file becomes a
  * slow, unargued rewrite in which the forty working drawings are churned one

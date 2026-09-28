@@ -1,3 +1,5 @@
+import { stagingContextLcNotes } from './staging-context-lc.mjs';
+
 // Entirely fictional organizations, people, projects and figures.
 const note = (title, body) => `---\nupdated: 2026-09-23\nfixture: staging-personas-v1\n---\n\n# ${title}\n\n${body}\n`;
 const common = (name, description, links) => ({
@@ -8,6 +10,7 @@ const common = (name, description, links) => ({
   '4-archive/previous-launch.md': note('Previous launch retrospective', 'Status: archived\n\nWhat worked: a short checklist and one accountable owner.\n\nWhat to change: leave two days for review before launch.\n\nDecision: publish the next timeline before work begins.'),
 });
 export const stagingNotes = {
+  'context-lc': stagingContextLcNotes,
   lumio: {
     ...common('Lumio', 'Lumio is a fictional software company building a shared planning app for small teams.', [['1-projects/pulse-launch/brief','Pulse launch'], ['1-projects/pulse-launch/roadmap','Product roadmap'], ['2-areas/engineering/architecture','Engineering overview']]),
     '1-projects/pulse-launch/brief.md': note('Pulse launch brief', 'Owner: Alpha Morgan\nTarget: October 15, 2026\nStatus: in progress\n\n## Problem\nSmall teams lose decisions between chat, meetings and task lists. Pulse gives each project a decision log beside its next steps.\n\n## First release\n- Shared project pages\n- Decisions with dates and owners\n- Weekly digest preview\n\n## Success measures\nFive fictional pilot teams complete a weekly review without a separate spreadsheet.\n\nSee [[roadmap]] and [[research]].'),

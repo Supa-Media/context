@@ -43,6 +43,13 @@ export const BRING_TOPICS: readonly BringTopicRow[] = [
 export const DEFAULT_TOPICS: readonly BringTopic[] = BRING_TOPICS.filter((row) => row.initial).map((row) => row.key);
 
 /** The name of the note every run ends with. */
+/**
+ * The note a sync run ends with, which the widget watches for to call the run
+ * done. The plugin's `/context:sync` skill ends with the same note
+ * (syncSkillAlignment.test.ts). Runs started before the rename end with
+ * `GETTING_STARTED`, which the check still accepts.
+ */
+export const SYNC_REPORT = "Sync report";
 export const GETTING_STARTED = "Getting started";
 
 function list(phrases: readonly string[]): string {
@@ -69,9 +76,11 @@ export function bringPrompt(slug: string, topics: readonly BringTopic[]): string
       : " Be thorough: go through everything you know, not a few highlights. Write one short note per project, " +
         "area, person or topic, and keep going until you have covered all of them.";
   return (
-    `Use Context to set up my @${slug} workspace. Call orient first and follow the folders it reports.${about}${depth} ` +
+    `Use Context to sync what you know about me into my @${slug} workspace. Call orient first and follow the folders it reports.${about}${depth} ` +
+    "Before writing each topic, search for a note that already covers it: add what that note lacks and remove nothing, " +
+    'and where you disagree with it, add your version as "According to <your name>:" instead of replacing it. ' +
     "Don't stop to ask me before writing; say which folder each note goes in as you write it. " +
-    "Only write what you actually know. Don't change notes that already exist, and don't touch index.md or privacy.md. " +
-    `Finish with a note called "${GETTING_STARTED}" in the inbox that lists what you saved.`
+    "Only write what you actually know, and don't touch index.md or privacy.md. " +
+    `Finish with a note called "${SYNC_REPORT}" in the inbox that lists what you added, what you updated and any disagreements.`
   );
 }

@@ -22,14 +22,16 @@ import { FRONT_NOTES } from "./grammar.js";
  *
  * ## "No status" is the empty value, not a word
  *
- * It is always the first status of Not started, so clearing a status stays a
- * one-line delete and a folder with nothing declared still has a start.
+ * A note with no status is a plain note rather than a task (decided by the
+ * owner, 2026-09-28), so clearing a status stays a one-line delete. It is
+ * still read as Not started wherever a group is asked for.
  *
  * ## Every group keeps a status
  *
- * A missing or empty In progress or Done list reads as its default, so there
- * is always a place to drop a card at each stage. Not started always has "No
- * status", so its list may be empty.
+ * A missing or empty list reads as its group's default, so there is always a
+ * status to give at each stage — Not started included, whose defaults are
+ * `backlog` and `to do`: backlog is a status, the place for ideas and later
+ * work, not the absence of one.
  *
  * ## Inherited from the nearest folder that declares one
  *
@@ -67,7 +69,7 @@ export const STATUS_KEYS = STATUS_GROUPS.map(statusKey);
 
 /** A folder's list when it declares nothing. */
 export const DEFAULT_STATUSES = Object.freeze({
-  "not-started": Object.freeze([]),
+  "not-started": Object.freeze(["backlog", "to do"]),
   "in-progress": Object.freeze(["in progress"]),
   done: Object.freeze(["finished"]),
 });
@@ -107,8 +109,8 @@ export function declaresStatuses(properties) {
 
 /**
  * A status list from a front note's properties: each group's words, trimmed,
- * a word in two groups kept in the first, and a missing or empty In progress
- * or Done read as its default. Words keep the spelling written.
+ * a word in two groups kept in the first, and a missing or empty group read
+ * as its default. Words keep the spelling written.
  */
 export function statusListOf(properties) {
   const seen = new Set();
@@ -121,7 +123,7 @@ export function statusListOf(properties) {
       seen.add(folded);
       words.push(word);
     }
-    if (words.length === 0 && group !== "not-started") {
+    if (words.length === 0) {
       for (const word of DEFAULT_STATUSES[group]) {
         if (!seen.has(word)) {
           seen.add(word);
@@ -249,15 +251,15 @@ export function withStatus(list, word, group, index = Infinity) {
 }
 
 /**
- * Why a list cannot be written, or null: a group other than Not started left
- * empty, a word the frontmatter reader could not read back from an inline
+ * Why a list cannot be written, or null: a group left empty (it would read
+ * back as its default), a word the frontmatter reader could not read back from an inline
  * list (a comma, a bracket, a quote, a line break, " #"), or one word twice.
  */
 export function statusListProblem(list) {
   const seen = new Set();
   for (const group of STATUS_GROUPS) {
     const words = list?.[group] ?? [];
-    if (group !== "not-started" && words.length === 0) {
+    if (words.length === 0) {
       return `${STATUS_GROUP_LABELS[group]} needs at least one status`;
     }
     for (const word of words) {

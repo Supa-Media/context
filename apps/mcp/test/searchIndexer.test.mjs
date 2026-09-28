@@ -20,10 +20,34 @@ import {
   parseIndex,
 } from "../src/search/indexer.js";
 import { exceedsUtf8Bytes } from "../src/search/maintain.js";
+import { noteTitle, snippetLinesFor } from "../src/search/visible.js";
 import { termsOf, tokenize } from "../src/search/text.js";
 
 export async function runSearchIndexerChecks(check) {
   // -- field extraction --------------------------------------------------
+
+  {
+    // A comment anchored on words in the heading, and its thread at the end.
+    // Neither is the note's words: no markers in the title, no anchor ids or
+    // reply text among the terms.
+    const content =
+      "# <!--c:tvty-->free, you cheapo<!--/c:tvty-->\n\n" +
+      "Premium is five bucks.\n\n" +
+      "```comments\n" +
+      'tvty "free, you cheapo"\n' +
+      "- 2026-09-27T07:30:12Z Codex: seems unprofessional\n" +
+      "```\n";
+    const fields = extractFields("website/pricing.md", content);
+    check("a comment anchored in the heading does not reach the indexed title", fields.title === "free, you cheapo");
+    check("comment anchors are not indexed as body text", !/c:tvty|<!--/.test(fields.body));
+    check("a comment thread's text is not indexed as the note's", !termsOf(fields.body).includes("unprofessional"));
+    check("the note's own words are still indexed", termsOf(fields.body).includes("premium"));
+    // What a search result shows is cut from a fresh read, not the index.
+    check("a search hit on a commented heading is titled without markers", noteTitle("website/pricing.md", content) === "free, you cheapo");
+    const quoted = snippetLinesFor(content, [...termsOf("cheapo unprofessional")]);
+    check("a snippet quotes the heading without markers", quoted.includes("# free, you cheapo"));
+    check("a snippet never quotes a comment thread", !quoted.some((line) => /unprofessional/.test(line)));
+  }
 
   {
     const content =

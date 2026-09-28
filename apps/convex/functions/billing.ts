@@ -169,10 +169,9 @@ export const activateTestPremium = mutation({
  * note cap (`lib/premium.ts`).
  *
  * Owner-only, like every other decision about where a context's notes live.
- * Refused where the deployment does not offer the tier — it ships dark in
- * production until the export and hand-off path lands (non-negotiable #1) —
- * where the context already has storage, and past one free context per
- * account. A second press answers `started` without scheduling a second run.
+ * Refused where the deployment's emergency switch has disabled new free
+ * buckets, or where the context already has storage. A second press answers
+ * `started` without scheduling a second run.
  * `docs/decisions/billing.md`, "The free managed tier".
  */
 export const startFreeManaged = mutation({

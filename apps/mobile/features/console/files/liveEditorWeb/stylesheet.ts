@@ -1,4 +1,5 @@
 import { livePreviewStyles } from "../livePreview";
+import { commentStyles } from "../comments/styles";
 import { fonts, layout } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
@@ -41,6 +42,7 @@ export function ensureStyles(colors: Colors): void {
   --lp-muted: ${colors.text2};
   --lp-link: ${colors.codeKey};
   --lp-code-bg: ${colors.well};
+  --lp-mark: ${colors.markWash};
   --lp-mono: ${fonts.mono};
   /*
     THIS BLOCK IS THE CONTRACT, AND IT HAS BEEN BROKEN TWICE THE SAME WAY.
@@ -231,6 +233,7 @@ export function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-lp-title-note-problem { color: ${colors.critText}; }
 .cm-lp-root .cm-lp-title-note-held { color: ${colors.warnText}; }
 ${livePreviewStyles}
+${commentStyles(colors, fonts.body)}
 `;
   if (fresh) document.head.appendChild(style);
 }

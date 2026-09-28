@@ -286,6 +286,10 @@ Moved to [The read toggle's glyph is the act, so the accent fill is gone](./app-
 
 Moved to [Properties are edited in the panel, one line at a time](./app-and-console/note-editing-surface.md#properties-are-edited-in-the-panel-one-line-at-a-time).
 
+### On a touch screen, a tap on a heading does not reveal its `#` (2026-09-27)
+
+In [note-editing-surface](./app-and-console/note-editing-surface.md#on-a-touch-screen-a-tap-on-a-heading-does-not-reveal-its--2026-09-27).
+
 ### The staff console is shaped for ten customers, and its figures count rows
 
 Moved to [The staff console is shaped for ten customers, and its figures count rows](./app-and-console/staff-console-and-panels.md#the-staff-console-is-shaped-for-ten-customers-and-its-figures-count-rows).
@@ -489,3 +493,7 @@ Moved to [The first run is two screens, and the rest is a checklist in the conso
 ### An action row is primary first, and the way out sits beside it (2026-09-25)
 
 Moved to [An action row is primary first, and the way out sits beside it](./app-and-console/design-tokens-and-interaction.md#an-action-row-is-primary-first-and-the-way-out-sits-beside-it-2026-09-25).
+
+### The phone shell is the artboards' five pieces, and a visitor gets the same ones (2026-09-27)
+
+Moved to [The phone shell is the artboards' five pieces, and a visitor gets the same ones](./app-and-console/mobile-navigation-shell.md#the-phone-shell-is-the-artboards-five-pieces-and-a-visitor-gets-the-same-ones-2026-09-27).

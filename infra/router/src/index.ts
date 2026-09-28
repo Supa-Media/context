@@ -10,11 +10,13 @@
  */
 import { previewForNote, previewForShortLink, previewForShare, renderPreviewHtml, SHORT_CARD_PREFIX } from "./preview";
 import { isSitePageRequest, sitePageResponse } from "./sitePages"; // any site's page, kept per Publish
-import { route, type RouteDecision, type Upstream } from "./route";
+import { route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
 import { isHomeDocument, withHomeSite } from "./homeSite";
+import { iconResponse, staticAsset } from "./icons";
+import { originFor, readOrigin, VAR_NAME } from "./upstream";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
 // a crawler is guaranteed to fetch should not depend on an upstream that might
@@ -22,49 +24,14 @@ import { isHomeDocument, withHomeSite } from "./homeSite";
 import ogCard from "./og-card.png";
 
 export interface Env {
-  /** EAS Hosting origin for the exported Expo web bundle. */
+  /** Optional legacy upstream for self-hosted configurations without Static Assets. */
   EXPO_ORIGIN?: string;
+  /** Cloudflare Static Assets binding. Staging uses it before production cuts over. */
+  ASSETS?: Fetcher;
   /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
   CONVEX_ORIGIN?: string;
   HOME_SITE_HANDLE?: string; // whose website/ is the homepage (`homeSite.ts`)
 }
-
-/**
- * Accept a var only if it is a bare https origin — no path, query, or fragment.
- *
- * Validated on every request rather than assumed, because both origins arrive
- * as Worker vars and a half-finished config would otherwise become a proxy to
- * somewhere unintended. Failing closed with a 503 that names the variable is
- * the honest outcome: the reason is in the response, instead of the site being
- * up and quietly serving someone else's origin.
- */
-function readOrigin(value: string | undefined): string | null {
-  if (!value) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:") return null;
-  if (parsed.pathname !== "/" || parsed.search || parsed.hash) return null;
-  return parsed.origin;
-}
-
-/**
- * Resolved per upstream, not up front, so a missing CONVEX_ORIGIN takes down
- * only the auth routes rather than the whole site.
- */
-function originFor(upstream: Upstream, env: Env): string | null {
-  return upstream === "convex"
-    ? readOrigin(env.CONVEX_ORIGIN)
-    : readOrigin(env.EXPO_ORIGIN);
-}
-
-const VAR_NAME: Record<Upstream, string> = {
-  expo: "EXPO_ORIGIN",
-  convex: "CONVEX_ORIGIN",
-};
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -78,7 +45,7 @@ export default {
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
     const decision = route(url, request.headers.get("User-Agent"));
     if (decision.kind === "proxy" && decision.upstream === "expo" && isHomeDocument(request, url)) {
-      return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx);
+      return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx, url);
     }
     return await respond(decision, request, env, ctx);
   },
@@ -214,16 +181,12 @@ async function respond(
         return await siteCardResponse(decision, readOrigin(env.CONVEX_ORIGIN), ctx);
 
       case "og-card":
-        return new Response(ogCard, {
-          status: 200,
-          headers: {
-            "Content-Type": "image/png",
-            // A day, not a year: the path is not content-hashed, so a longer
-            // TTL would need a purge to correct a bad card.
-            "Cache-Control": "public, max-age=86400",
-            "X-Content-Type-Options": "nosniff",
-          },
-        });
+        // A day, not a year: the path is not content-hashed, so a longer TTL
+        // would need a purge to correct a bad card.
+        return staticAsset(ogCard, "image/png");
+
+      case "icon":
+        return iconResponse(decision.name);
 
       case "redirect":
         // Deterministic (host-only) redirects are safe to cache. A plain
@@ -238,6 +201,15 @@ async function respond(
         });
 
       case "proxy": {
+        if (decision.upstream === "expo" && env.ASSETS) {
+          // Static Assets and Worker code are one version. Passing the original
+          // request preserves the path, query and navigation headers so
+          // Cloudflare's SPA fallback can distinguish documents from missing
+          // files. The repository's staging and production configurations
+          // always provide this binding; EXPO_ORIGIN remains only as a
+          // compatibility fallback for external self-hosted configurations.
+          return env.ASSETS.fetch(request);
+        }
         const origin = originFor(decision.upstream, env);
         if (!origin) {
           return new Response(

@@ -470,14 +470,14 @@ async function main() {
       const [aRoster,bRoster]=await Promise.all([rosterReady(a,BO_NAME),rosterReady(b,ANA_NAME)]);
       check("two named peers reach the live room roster",aRoster&&bRoster,JSON.stringify({a:await state(a.page),b:await state(b.page)}).slice(0,1000));
       const chipReady=async(page)=>until(async()=>{
-        const chip=page.locator('[data-testid="presence-chip"]');
+        const chip=page.locator('[data-testid="presence-pile"]');
         if(await chip.count()===0)return false;
         return Boolean(await chip.getAttribute("aria-label"));
       },{timeout:5000,every:50});
       const [aChipReady,bChipReady]=await Promise.all([chipReady(a.page),chipReady(b.page)]);
       const [aChip,bChip]=await Promise.all([
-        aChipReady ? a.page.locator('[data-testid="presence-chip"]').getAttribute("aria-label") : null,
-        bChipReady ? b.page.locator('[data-testid="presence-chip"]').getAttribute("aria-label") : null,
+        aChipReady ? a.page.locator('[data-testid="presence-pile"]').getAttribute("aria-label") : null,
+        bChipReady ? b.page.locator('[data-testid="presence-pile"]').getAttribute("aria-label") : null,
       ]);
       check("presence indicators render exactly one named peer each",aChip===`${BO_NAME} · 1 other here`&&bChip===`${ANA_NAME} · 1 other here`,JSON.stringify({aChip,bChip}));
 
@@ -511,7 +511,18 @@ async function main() {
       await b.context.setOffline(false);
       const bReconnected=await connectionReady(b)&&await rosterReady(b,ANA_NAME);
       const caretAfterReconnect=await until(async()=>Boolean((await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME)),{timeout:10000,every:50});
-      const returnedCaret=caretAfterReconnect ? (await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME) ?? null : null;
+      // Read the caret once the page has stopped moving: the peer rejoining
+      // eases the presence row back in over the note (`Reveal`, 200ms), and
+      // a caret read mid-ease is the right place in a page still settling.
+      let returnedCaret=null;
+      if(caretAfterReconnect) await until(async()=>{
+        const before=(await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME);
+        await new Promise((resolve)=>setTimeout(resolve,300));
+        const after=(await caretSnapshot(a.page)).find((one)=>one.name===BO_NAME);
+        if(!before||!after||before.left!==after.left||before.top!==after.top) return false;
+        returnedCaret=after;
+        return true;
+      },{timeout:10000,every:50});
       const samePosition=Boolean(returnedCaret&&movedCaret&&Math.abs(returnedCaret.left-movedCaret.left)<=1&&Math.abs(returnedCaret.top-movedCaret.top)<=1);
       check("reconnect keeps the named peer and restores its stationary caret",bReconnected&&samePosition,JSON.stringify({bReconnected,movedCaret,returnedCaret,bState:await state(b.page)}));
       await screenshot(a.page,"presence-named-caret");

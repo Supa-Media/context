@@ -51,4 +51,6 @@ export type NoteView = Omit<NoteEditorProps, "activityShared" | "activityEditabl
   canDiscard: boolean;
   explains: boolean;
   manualSave: boolean;
+  /** The viewer's \`@handle\` for signing comments, or null. */
+  commenter: string | null;
 };

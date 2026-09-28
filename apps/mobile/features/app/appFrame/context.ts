@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { ColumnToolsSlot } from "./columnTools";
 import { useWindowDimensions } from "react-native";
 import {
   closesOnSelect,
@@ -15,14 +16,6 @@ import {
 /*                                   context                                  */
 /* -------------------------------------------------------------------------- */
 
-/** `‹ ›` over the console's own history, for the title row. See `topBar`. */
-export interface FrameHistory {
-  canBack: boolean;
-  canForward: boolean;
-  onBack: () => void;
-  onForward: () => void;
-}
-
 export interface FrameApi {
   density: Density;
   regions: Regions;
@@ -38,6 +31,14 @@ export interface FrameApi {
    * this command's own, the rail having folded into the switcher.
    */
   toggleExplorer: () => void;
+  /**
+   * Fold the file tree away, or bring it back — the same field `toggleExplorer`
+   * flips, set rather than flipped, so a surface that folds it for as long as
+   * it is open (a folder page's side panel) can put it back exactly once. A
+   * no-op where the tree does not fold, and in focus mode, which already has
+   * it away and owns bringing it back.
+   */
+  setExplorerFolded: (folded: boolean) => void;
   /**
    * The right panel — chat and meetings — and ⌘J on web.
    *
@@ -193,6 +194,12 @@ export interface FrameApi {
    */
   accessoryOpen: boolean;
   setAccessoryOpen: (open: boolean) => void;
+  /**
+   * Where the file tree puts its tools while the title bar has a row over it,
+   * or `null` when it has none and the tree keeps its header in the column.
+   * See `columnTools.ts`.
+   */
+  columnTools: ColumnToolsSlot | null;
 }
 
 export const FrameContext = createContext<FrameApi | null>(null);
@@ -215,6 +222,7 @@ export function useFrame(): FrameApi {
       regions: fallbackRegions,
       state: initialFrame,
       toggleExplorer: noop,
+      setExplorerFolded: noop,
       toggleAside: noop,
       setAsideWidth: noop,
       toggleFocus: noop,
@@ -232,6 +240,7 @@ export function useFrame(): FrameApi {
       chromeGap: floatingGapFor(0),
       accessoryOpen: false,
       setAccessoryOpen: noop,
+      columnTools: null,
     }
   );
 }

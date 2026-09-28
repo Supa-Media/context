@@ -156,3 +156,35 @@ export async function identifiersForUser(
 
   return identifiers;
 }
+
+/**
+ * A person's handle, without the `@`, or `null` for an account with none.
+ *
+ * The same two steps `identifiersForUser` gathers, in the order a person would
+ * name themselves: a `user` claim, else the slug of a personal workspace they
+ * own. Shared by the invitation email (who invited you) and the owner picker
+ * (who a project belongs to), so the two can never name one person twice.
+ */
+export async function handleForUser(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<string | null> {
+  const claims = await ctx.db
+    .query("names")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(MAX_IDENTIFIERS_SCANNED);
+  for (const claim of claims) {
+    if (claim.kind === "user") return claim.name;
+  }
+
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(MAX_IDENTIFIERS_SCANNED);
+  for (const membership of memberships) {
+    if (membership.role !== "owner") continue;
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (workspace !== null && workspace.kind === "personal") return workspace.slug;
+  }
+  return null;
+}

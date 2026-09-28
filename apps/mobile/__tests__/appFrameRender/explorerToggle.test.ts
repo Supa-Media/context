@@ -368,3 +368,32 @@ describe("the peek", () => {
     jest.useRealTimers();
   });
 });
+
+describe("folding the tree for a while", () => {
+  /**
+   * A folder page's side panel folds the tree while it is open and brings it
+   * back when it closes (`folderPage/panel/useFoldTree.ts`). It sets the
+   * field rather than flipping it, so asking twice — React's development
+   * double effects, or two panels — can never land it on the wrong side.
+   */
+  function FoldProbe() {
+    const frame = useFrame();
+    return createElement(
+      "div",
+      null,
+      createElement("button", { "data-testid": "probe-fold", onClick: () => frame.setExplorerFolded(true) }, "fold"),
+      createElement("button", { "data-testid": "probe-unfold", onClick: () => frame.setExplorerFolded(false) }, "unfold"),
+    );
+  }
+
+  test("folding twice is folded, and unfolding twice is open", () => {
+    const app = mountFrame(1440, createElement(FoldProbe));
+    app.press("probe-fold");
+    app.press("probe-fold");
+    expect(app.find("explorer")).toBeNull();
+    app.press("probe-unfold");
+    app.press("probe-unfold");
+    expect(app.find("explorer")).not.toBeNull();
+    app.unmount();
+  });
+});

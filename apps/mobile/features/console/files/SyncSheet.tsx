@@ -24,7 +24,7 @@ import { mirrorSheetSection } from "../../offline/mirrorCopy";
  * along the bottom of a pointer layout — and **a phone has no status strip**:
  * `frame.ts` answers `statusBar: false` at compact, because the bottom edge is
  * the thumb's toolbar and a screen with both is 28pt of chrome saying nothing.
- * The per-note `SaveChip` was pointer-only too. So somebody on a train, which
+ * The per-note `SaveMark` was pointer-only too. So somebody on a train, which
  * is the case the whole offline layer was built for, was told nothing about
  * the connection, nothing about the three notes waiting to go, and nothing
  * about the one that had been parked for them — until they scrolled to the foot

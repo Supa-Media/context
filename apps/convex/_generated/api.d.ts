@@ -31,6 +31,7 @@ import type * as functions_customDomains from "../functions/customDomains.js";
 import type * as functions_customDomainsProvision from "../functions/customDomainsProvision.js";
 import type * as functions_dropboxConnect from "../functions/dropboxConnect.js";
 import type * as functions_emoji from "../functions/emoji.js";
+import type * as functions_faces from "../functions/faces.js";
 import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
 import type * as functions_fastSearch from "../functions/fastSearch.js";
 import type * as functions_fastSearchProvision from "../functions/fastSearchProvision.js";
@@ -81,6 +82,7 @@ import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAut
 import type * as functions_calendarConnect from "../functions/calendarConnect.js";
 import type * as functions_googleConnect from "../functions/googleConnect.js";
 import type * as functions_googleSync from "../functions/googleSync.js";
+import type * as functions_meetings_demoTranscribe from "../functions/meetings/demoTranscribe.js";
 import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_owners from "../functions/owners.js";
@@ -128,6 +130,7 @@ declare const fullApi: ApiFromModules<{
   "functions/customDomainsProvision": typeof functions_customDomainsProvision;
   "functions/dropboxConnect": typeof functions_dropboxConnect;
   "functions/emoji": typeof functions_emoji;
+  "functions/faces": typeof functions_faces;
   "functions/encryptionKeys": typeof functions_encryptionKeys;
   "functions/fastSearch": typeof functions_fastSearch;
   "functions/fastSearchProvision": typeof functions_fastSearchProvision;
@@ -177,6 +180,7 @@ declare const fullApi: ApiFromModules<{
   "functions/calendarConnect": typeof functions_calendarConnect;
   "functions/googleConnect": typeof functions_googleConnect;
   "functions/googleSync": typeof functions_googleSync;
+  "functions/meetings/demoTranscribe": typeof functions_meetings_demoTranscribe;
   "functions/meetings/transcribe": typeof functions_meetings_transcribe;
   "functions/names": typeof functions_names;
   "functions/owners": typeof functions_owners;

@@ -9,16 +9,18 @@
  *   (`overview.md`, `index.md`, `README.md`), the same constant
  *   `apps/mcp/src/lists/projects.js` reads. Its frontmatter is the folder's
  *   properties. With none, a write creates `overview.md`.
- * - Status groups are the folder's status list (`statuses.ts`): Not started
- *   (No status first), In progress, Done. Any other property groups in
- *   `compareGroups` order, the unset group last.
+ * - Status groups are the folder's status list (`statuses.ts`): Not started,
+ *   In progress, Done. Any other property groups in `compareGroups` order,
+ *   the unset group last. Inside a group, rows run by priority (`p0` first,
+ *   none last), then newest.
  *
- * It differs from `rows: projects` in one deliberate way. A list block shows
- * what already *is* a project; a folder page is where something becomes one.
- * So every folder and every note in the folder is an item, and everything
- * unset sits together in one "No status" group with a way to set it, rather
- * than being left out. See "A folder page shows its children by status" in
- * `docs/decisions/folder-lists.md`.
+ * Every folder and every note in the folder is an item. One with a status is
+ * a **task**; one without is a plain **note**, which the List draws in its own
+ * section below the tasks and the Board leaves out (`listLayout.ts`). A task
+ * that is a folder holds **subtasks** — the items directly in it with a
+ * status — and may hold plain notes too (`taskChildren`), one level down and
+ * no deeper. See "A folder page shows its children by status" and "Tasks and
+ * notes" in `docs/decisions/folder-lists.md`.
  */
 
 import { isDrawingPath } from "@context/drawings";
@@ -31,6 +33,7 @@ import { valueChoices } from "../listBlock/valueMenu";
 import { baseName, displayName, folderLabel, isMarkdown } from "../paths";
 import type { FileEntry } from "../types";
 import { compareStatus, folderStatuses, GROUPS, type StatusList } from "./statuses";
+import { comparePriority, priorityOf, type Priority } from "./taskProps";
 
 export type FolderPageView = "files" | "list" | "board";
 
@@ -58,8 +61,10 @@ export interface FolderItem extends FolderSummary {
   readonly kind: "folder" | "note";
   /** What the row is called: the summary's title, else the name as the tree draws it. */
   readonly label: string;
-  /** The status as written and trimmed; `""` when there is none. */
+  /** The status as written and trimmed; `""` when there is none, which makes it a note rather than a task. */
   readonly status: string;
+  /** `p0`…`p3` as 0…3; null for none. */
+  readonly priority: Priority | null;
   /** Sub-items closed out of all of them, for a folder that has any. */
   readonly progress: { readonly done: number; readonly total: number } | null;
 }
@@ -165,6 +170,9 @@ function progressOf(folder: string, notes: readonly ListNote[]): FolderItem["pro
   return { done: set.filter((status) => isDoneStatus(status, list)).length, total: set.length };
 }
 
+/** What `folderItems` reads of a listing entry. */
+export type ItemEntry = Pick<FileEntry, "kind" | "path" | "name"> & { readonly updatedAt?: number };
+
 /**
  * The folder's children that can carry a status: every subfolder, and every
  * markdown note except the folder's own front note (which speaks for the
@@ -173,7 +181,7 @@ function progressOf(folder: string, notes: readonly ListNote[]): FolderItem["pro
  */
 export function folderItems(
   folder: string,
-  entries: readonly FileEntry[],
+  entries: readonly ItemEntry[],
   notes: readonly ListNote[],
 ): { items: FolderItem[]; skipped: number } {
   const byPath = new Map(notes.map((note) => [note.path, note]));
@@ -188,6 +196,7 @@ export function folderItems(
         kind: "folder",
         label: summary.title ?? folderLabel(baseName(entry.path)),
         status: statusOf(summary.properties),
+        priority: priorityOf(summary.properties),
         progress: progressOf(entry.path, notes),
         updatedAt: summary.updatedAt ?? entry.updatedAt ?? null,
       });
@@ -212,6 +221,7 @@ export function folderItems(
       kind: "note",
       label: title ?? displayName(entry.name),
       status: statusOf(properties),
+      priority: priorityOf(properties),
       progress: null,
     });
   }
@@ -219,8 +229,8 @@ export function folderItems(
 }
 
 /**
- * Items grouped by one property, newest first within a group: for `status`
- * in the order of `list` (No status first), for anything else in
+ * Items grouped by one property, by priority then newest within a group
+ * (`compareTasks`): for `status` in the order of `list`, for anything else in
  * `compareGroups` order with the unset group last. Values differing only by
  * case share a group, named as the first item spelled it.
  */
@@ -239,8 +249,72 @@ export function groupFolderItems(items: readonly FolderItem[], key = "status", l
     .map((group) => ({
       value: group.value,
       label: groupLabel(key, group.value),
-      items: [...group.items].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
+      items: [...group.items].sort(compareTasks),
     }));
+}
+
+/** Urgent first and no priority last, then the newest save first. */
+export function compareTasks(a: Pick<FolderItem, "priority" | "updatedAt">, b: Pick<FolderItem, "priority" | "updatedAt">): number {
+  return comparePriority(a.priority, b.priority) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+}
+
+/**
+ * A folder's entries as the device's notes describe it, for a folder whose
+ * listing is not on screen — a task folder inside the page: every markdown
+ * note directly in it, and every folder directly in it that holds a note.
+ * A folder holding nothing the device can read is not an entry: it has
+ * nothing to say for itself.
+ */
+export function entriesIn(folder: string, notes: readonly ListNote[]): ItemEntry[] {
+  const prefix = inside(folder);
+  const entries: ItemEntry[] = [];
+  const folders = new Set<string>();
+  for (const note of notes) {
+    if (!note.path.startsWith(prefix)) continue;
+    const rest = note.path.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) {
+      entries.push({ kind: "file", path: note.path, name: rest, ...(note.updatedAt === undefined ? {} : { updatedAt: note.updatedAt }) });
+    } else if (!folders.has(rest.slice(0, slash))) {
+      folders.add(rest.slice(0, slash));
+      entries.push({ kind: "folder", path: `${prefix}${rest.slice(0, slash)}`, name: rest.slice(0, slash) });
+    }
+  }
+  return entries;
+}
+
+/**
+ * What a task folder holds, one level down: its subtasks (the items in it
+ * with a status), then the plain notes beside them, each in task order. A
+ * subtask's own contents are never opened here: a list is two levels at most.
+ */
+export function taskChildren(folder: string, notes: readonly ListNote[]): { subtasks: FolderItem[]; notes: FolderItem[] } {
+  const { items } = folderItems(folder, entriesIn(folder, notes), notes);
+  return {
+    subtasks: items.filter((item) => item.status !== "").sort(compareTasks),
+    notes: items.filter((item) => item.status === "").sort(compareTasks),
+  };
+}
+
+/**
+ * Whether a folder is a projects folder, or inside one: some segment of its
+ * path has "project" in its name, whatever its prefix or case (`1-projects`,
+ * `Projects`, `side-projects/launch`). Only these pages offer List and Board,
+ * and a status of their own; areas, resources and the rest are file listings,
+ * where tracking progress means nothing and the switch was clutter.
+ */
+export function isProjectsFolder(folder: string): boolean {
+  return folder.split("/").some((segment) => segment.toLowerCase().includes("project"));
+}
+
+/**
+ * Whether a folder's rows are projects rather than tasks: the projects folder
+ * itself (`1-projects`), not a project inside it. Its plain notes are offered
+ * "Make it a project" instead of "Make it a task".
+ */
+export function rowsAreProjects(folder: string): boolean {
+  const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
+  return isProjectsFolder(folder) && !isProjectsFolder(parent);
 }
 
 /** The grouped list once anything has a status; the files otherwise. */

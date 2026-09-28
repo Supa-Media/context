@@ -1,6 +1,9 @@
 import type { Presence } from "../../presence/usePresence";
 import type { EditorState } from "../editor";
 
+/** What a visitor's note foot says: where their edits actually are. */
+export const LOCAL_ONLY = "Your edits stay in this tab";
+
 /**
  * What the foot of the note says and offers, derived once per render of
  * `NoteEditor` from values it already holds.
@@ -11,12 +14,15 @@ export function noteFoot({
   editable,
   compact,
   button,
+  local = false,
 }: {
   state: EditorState;
   presence: Presence | undefined;
   editable: boolean;
   compact: boolean;
   button: { label: string; disabled: boolean };
+  /** A visitor in local-only mode: nothing here reaches a bucket. */
+  local?: boolean;
 }): { durability: string; canDiscard: boolean; explains: boolean; manualSave: boolean } {
   /*
     The line at the foot of the document, resolved once — and the question of
@@ -40,13 +46,24 @@ export function noteFoot({
     words are the error message itself ("we don't know whether that save
     landed"), and a crit chip in the top bar cannot carry a paragraph.
 
-    Every other state says it in the top bar's `SaveChip` — "Saving soon",
+    Every other state says it in the top bar's `SaveMark` — "Saving soon",
     "Saving…", "Saved" — which is a claim you can read without anything
     standing over the note. See `status.ts`'s `saveChip`.
   */
   const collaborationStatus = presence?.collaboration?.status;
   const durability =
-    presence?.collaboration?.message ??
+    /*
+      The homepage's visitor, whose edits live in this browser tab and never
+      reach a bucket — they have none. Every arm below is a claim about a
+      bucket ("Saved in your bucket" is the default), so the visitor gets the
+      true sentence instead, the one `SaveMark`'s `local` already says in the
+      top bar. `empty`, `error` and `conflict` keep their own words: the first
+      says nothing and the other two are about what went wrong, not where the
+      text is.
+    */
+    local && state.status !== "empty" && state.status !== "error" && state.status !== "conflict"
+      ? LOCAL_ONLY
+      : presence?.collaboration?.message ??
     (collaborationStatus === "local"
       ? "Saved on this device; syncing soon."
       : collaborationStatus === "syncing"
@@ -79,9 +96,12 @@ export function noteFoot({
   const explains =
     durability !== "" &&
     (compact || state.status === "error" || state.status === "queued");
-  /* The manual write, where autosave will not make it. Never on a phone: Save
-     is on the bottom toolbar there (`check`), and this row is not a toolbar. */
-  const manualSave = !compact && !button.disabled && decision;
+  /* The manual write, where autosave will not make it — on a phone too, now.
+     It was pointer-only because the phone's bottom row carried a `✓` Save;
+     that key went with the five-key capsule (owner, 2026-09-27), and this row,
+     beside the sentence saying why the save failed, is the one place left a
+     thumb can retry it from. */
+  const manualSave = !button.disabled && decision;
   return { durability, canDiscard, explains, manualSave };
 }
 

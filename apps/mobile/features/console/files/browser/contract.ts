@@ -401,8 +401,12 @@ export interface FileBrowser {
    *
    * Separate from `notice`, which is about the console's own state (no storage
    * connected, a stale listing) and stays until it stops being true.
+   *
+   * `undo`, when given, is offered beside it for the toast's few seconds —
+   * for a write made outside `run` that has an exact inverse, such as a
+   * project List's task writes (`folderPage/tasks/useTaskActions.ts`).
    */
-  say(message: string): void;
+  say(message: string, undo?: () => void): void;
   dismissToast: (id: string) => void;
 
   clipboard: Clipboard | null;
@@ -596,6 +600,16 @@ export interface FileBrowser {
    * between renders that learned nothing new.
    */
   linkPaths: readonly string[];
+  /**
+   * Every note body this browser holds in memory, by path — so search can
+   * name a row by its title rather than its file without a round trip.
+   *
+   * Optional, and only a browser that already has them says so: the homepage's
+   * notes live in the tab (`useLocalFileBrowser`). The console fetches a body
+   * when it is opened and names the rest by file, which is `noteHeading`'s
+   * last rung and the honest answer for a note nobody has read yet.
+   */
+  heldNotes?: Readonly<Record<string, string>>;
   /**
    * Write a working `privacy.md` over one that is missing or unreadable.
    *
@@ -817,10 +831,8 @@ export interface FileBrowser {
    *
    * `select` already loads a folder's listing as a side effect of opening it —
    * this is that fetch on its own, for a view that needs several folders at
-   * once and none of them is "the selected one". The Inbox landing page reads
-   * every connected channel's folder this way: `0-inbox`, `0-inbox/email` (to
-   * find which mailboxes exist), and each channel folder in turn, none of
-   * which the person has navigated *into*.
+   * once and none of them is "the selected one" — the privacy panel and a
+   * task host both read folders the person has not navigated *into*.
    *
    * A no-op once `listings[path]` is populated unless `fresh` — a cache, not
    * a subscription, so a caller that wants a fresh read after a write already

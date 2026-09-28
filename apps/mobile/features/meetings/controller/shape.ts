@@ -44,6 +44,7 @@ export interface MeetingsControllerShape {
   reset(): void;
   start(input: StartInput): Promise<string>;
   continueMeeting(input: ContinueInput): Promise<string | null>;
+  shareCallAudio(): Promise<boolean>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   end(): Promise<void>;

@@ -74,19 +74,19 @@ function mousedown(): MouseEvent {
 describe("R2 — a read-only note keeps its links followable", () => {
   test("a read-only note still opens a clicked link", () => {
     const { view, opened } = mount(false);
-    view.contentDOM.dispatchEvent(mousedown());
+    view.contentDOM.querySelector(".cm-note-link")!.dispatchEvent(mousedown());
     expect(opened).toEqual([TARGET]);
   });
 
   test("an editable note opens the same link the same way — the read-only case is not special-cased into brokenness", () => {
     const { view, opened } = mount(true);
-    view.contentDOM.dispatchEvent(mousedown());
+    view.contentDOM.querySelector(".cm-note-link")!.dispatchEvent(mousedown());
     expect(opened).toEqual([TARGET]);
   });
 
   test("following the link on a read-only note does not write to the buffer", () => {
     const { view, opened } = mount(false);
-    view.contentDOM.dispatchEvent(mousedown());
+    view.contentDOM.querySelector(".cm-note-link")!.dispatchEvent(mousedown());
     expect(opened).toEqual([TARGET]);
     expect(view.state.doc.toString()).toBe(DOC);
   });

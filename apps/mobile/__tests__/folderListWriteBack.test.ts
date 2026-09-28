@@ -12,7 +12,8 @@
  * bucket at the version it now holds, and says so; and a sync that fetched
  * bodies says so too. Sabotage-checked: skipping the write-back fails "a
  * chosen status survives a refresh" and "a folder's first status ...";
- * dropping `onFetched` fails "a sync that fetched bodies says so".
+ * dropping `onFetched` fails "a sync that fetched bodies says so"; and
+ * `remember` is the same road for a List's creates and moves.
  */
 
 import { beforeEach, describe, expect, test } from "@jest/globals";
@@ -123,6 +124,20 @@ describe("a list write is what the device holds afterwards", () => {
   test("a reader who may not write is offered no write", () => {
     const reading = folderListSource({ workspaceId: W, scope: "team", canEdit: false, io, openMirror: async () => store, needed: async () => () => new Set() });
     expect(reading.setProperty).toBeUndefined();
+    expect(reading.remember).toBeUndefined();
+  });
+
+  test("a task added or moved from a List is what a reload draws, and not where it was", async () => {
+    // Moved by the bucket (a List nesting a task), then remembered by the page.
+    bucket.set("1-projects/web/launch/overview.md", bucket.get("1-projects/web/overview.md")!);
+    bucket.delete("1-projects/web/overview.md");
+    bucket.set("1-projects/web/launch/copy.md", { text: "---\nstatus: to do\n---\n# Copy\n", etag: "e7" });
+    await source().remember!(["1-projects/web/launch/overview.md", "1-projects/web/launch/copy.md"], ["1-projects/web/overview.md"]);
+    expect(await afterRefresh("1-projects/web/launch/copy.md")).toBe("to do");
+    expect(await afterRefresh("1-projects/web/launch/overview.md")).toBe("active");
+    forgetMirrorLists();
+    const listed = await source().load("1-projects", true);
+    expect(listed?.notes.map((note) => note.path)).not.toContain("1-projects/web/overview.md");
   });
 });
 

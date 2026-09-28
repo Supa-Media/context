@@ -54,7 +54,10 @@ bucket state. Large updates can fall back to that same path.
 
 Cursors encode positions against the durable editor document, including empty
 notes, and reannounce the current selection after socket reconnects. The
-presence chip shows peer names and a count of other editors. Acceptance checks
+presence pile draws each other editor's face on the note's breadcrumb row, and
+its accessible name and the list it opens carry their names and the count
+(decided by the owner, 2026-09-27, replacing a pill that repeated the names
+beside the faces). Acceptance checks
 must inspect those rendered elements and require separately typed characters
 to appear in another browser while durable writes are deliberately held;
 eventual convergence alone does not verify the live editing experience.

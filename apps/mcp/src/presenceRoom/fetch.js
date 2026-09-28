@@ -9,6 +9,7 @@ import {
   roster,
 } from "../presence.js";
 import { pruneActivity, recordActivity } from "../agentActivity.js";
+import { peopleForCaller, recordPerson } from "../peopleActive.js";
 import { PRESENCE_SOCKET_MAX_MS, json, publicMember } from "./wire.js";
 
 /**
@@ -55,9 +56,24 @@ export async function fetchRoom(request) {
       return json({ recorded: recordActivity(this.activity, event, now) });
     }
     if (request.method === "GET") {
+      /*
+        A console asking is its person saying they have this workspace open:
+        the gateway sends who they are, already resolved, and only for the
+        console's own client. See `peopleActive.js`.
+      */
+      let person = null;
+      try {
+        person = JSON.parse(request.headers.get("x-activity-person") ?? "null");
+      } catch {
+        person = null;
+      }
+      if (person) recordPerson(this.people, person, now);
       // Every event, unaggregated: the one filter is on the side that knows
       // the manifest, and it has to run before anything is counted.
-      return json({ events: pruneActivity(this.activity, now) });
+      return json({
+        events: pruneActivity(this.activity, now),
+        ...peopleForCaller(this.people, now, person?.key),
+      });
     }
     return new Response(null, { status: 405 });
   }

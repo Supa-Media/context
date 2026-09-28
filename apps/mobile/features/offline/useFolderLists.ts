@@ -4,12 +4,14 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { announceBucketWrite } from "../console/files/bucketWrites";
 import { capabilitiesForRole } from "../console/capabilities";
-import { folderListSource } from "./folderListSource";
+import { folderListSource, type ListWriteBack } from "./folderListSource";
 import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 import { openStore } from "./store";
 import type { FolderListSource } from "../console/files/listBlock/model";
 import { visibilityTierForRole } from "../console/visibility";
+import { DEFAULT_AGENTS } from "../console/files/folderPage/agents";
+import { matchingAgents } from "../console/files/folderPage/useAgents";
 
 /**
  * Where the console's folder lists read their notes: this device's copy of
@@ -29,12 +31,13 @@ import { visibilityTierForRole } from "../console/visibility";
  * (`create`), for a folder whose first property has nowhere to go yet.
  *
  * An owner is picked, never typed: `searchOwners` asks the control plane for
- * the workspace's people and connected agents matching what was typed.
+ * the workspace's people matching what was typed; agents are a short list of
+ * names the workspace keeps in its notes, not its connected clients.
  */
 export function useFolderLists(
   workspaceId: string | null | undefined,
   role: string | undefined,
-): FolderListSource | undefined {
+): (FolderListSource & ListWriteBack) | undefined {
   const tier = visibilityTierForRole(role);
   const readNote = useAction(api.functions.files.readNote);
   const writeNote = useAction(api.functions.files.writeNote);
@@ -65,13 +68,28 @@ export function useFolderLists(
         },
       },
     });
-    if (!canEdit) return source;
+    // Any member reads the owner column, so any member may ask what old owner words name.
+    const resolveOwners = (words: readonly string[]) =>
+      convex.query(api.functions.owners.resolveOwners, { workspaceId: id, words: [...words] });
+    if (!canEdit) return { ...source, resolveOwners };
     return {
       ...source,
-      searchOwners: (query: string, prefer: readonly string[]) =>
-        convex.query(api.functions.owners.searchOwners, { workspaceId: id, query, prefer: [...prefer] }),
-      suggestOwner: async (path: string, prefer: readonly string[]) =>
-        (await convex.action(api.functions.owners.suggestOwner, { workspaceId: id, path, prefer: [...prefer] }))?.value ?? null,
+      resolveOwners,
+      // People from the server; agents are the workspace's own list, which a
+      // folder page lays over these defaults (`folderPage/agents.ts`).
+      searchOwners: async (query: string, prefer: readonly string[]) => ({
+        ...(await convex.query(api.functions.owners.searchOwners, { workspaceId: id, query, prefer: [...prefer] })),
+        agents: matchingAgents(DEFAULT_AGENTS, query),
+      }),
+      suggestOwner: async (path: string, prefer: readonly string[], agents?: readonly string[]) =>
+        (
+          await convex.action(api.functions.owners.suggestOwner, {
+            workspaceId: id,
+            path,
+            prefer: [...prefer],
+            agents: [...(agents ?? DEFAULT_AGENTS)],
+          })
+        )?.value ?? null,
     };
   }, [workspaceId, tier, canEdit, readNote, writeNote, convex]);
 }

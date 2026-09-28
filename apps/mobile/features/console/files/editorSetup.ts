@@ -48,6 +48,7 @@ import { emojiInline } from "./emoji/emojiInline";
 import { emojiTyping } from "./emoji/emojiComplete";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
+import { applyLink, cancelLink, requestLink } from "./linkSelection";
 
 /**
  * "This text did not come from the person; it came from the app."
@@ -288,10 +289,10 @@ function toggleLinePrefix(view: EditorView, prefix: string): void {
  * `changeByRange` for the reason `wrapSelection` uses it: more than one
  * cursor is an ordinary document here, and each range gets its own pair
  * rather than every dispatch after the first landing at positions the
- * previous one already moved. Selected text is deliberately dropped rather
- * than wrapped — `[[some text]]` is not a link to anything, and a person
- * reaching for this key wants to *name* a note, not wrap one they already
- * typed.
+ * previous one already moved. This is the key with **nothing selected**; with
+ * words selected on a surface that has the Link sheet, `runCommand` opens the
+ * sheet instead (`linkSelection.ts`). Where there is no sheet — the desktop
+ * context menu — selected text is still replaced, as it always was.
  *
  * `startCompletion` is the explicit request `linkComplete.ts`'s own comment
  * describes: typing `[[` does not open the list on an empty query so the
@@ -299,13 +300,18 @@ function toggleLinePrefix(view: EditorView, prefix: string): void {
  * through this key already *is* the explicit ask that rule exists to
  * distinguish from typing.
  */
-function insertLink(view: EditorView): void {
+function insertLink(view: EditorView, keepSelected = false): void {
   view.dispatch(
     view.state.update(
-      view.state.changeByRange((range) => ({
-        changes: [{ from: range.from, to: range.to, insert: "[[]]" }],
-        range: EditorSelection.cursor(range.from + 2),
-      })),
+      view.state.changeByRange((range) => {
+        // With a sheet on this surface, selected words the sheet could not
+        // link (a line break, a bracket) are kept and the pair goes after them.
+        const at = keepSelected ? range.to : range.from;
+        return {
+          changes: [{ from: at, to: keepSelected ? at : range.to, insert: "[[]]" }],
+          range: EditorSelection.cursor(at + 2),
+        };
+      }),
       { scrollIntoView: true, userEvent: "input" },
     ),
   );
@@ -344,7 +350,15 @@ function insertLink(view: EditorView): void {
  * bar. `blur` is the one command that must not — it is the dismiss key, and
  * refocusing would raise the keyboard it just put away.
  */
-export function runCommand(view: EditorView, command: EditorCommand): void {
+export function runCommand(
+  view: EditorView,
+  command: EditorCommand,
+  /**
+   * The Link sheet, when the surface has one: `insertLink` over selected words
+   * saves them and calls this instead of writing `[[]]`. See `linkSelection.ts`.
+   */
+  askLink?: (text: string) => void,
+): void {
   if (command.name === "blur") {
     view.contentDOM.blur();
     return;
@@ -374,7 +388,16 @@ export function runCommand(view: EditorView, command: EditorCommand): void {
       toggleLinePrefix(view, command.prefix);
       break;
     case "insertLink":
-      insertLink(view);
+      // The sheet takes the keyboard from here; focusing first would only
+      // raise it for a frame.
+      if (askLink !== undefined && requestLink(view, askLink)) return;
+      insertLink(view, askLink !== undefined);
+      break;
+    case "applyLink":
+      applyLink(view, command.link);
+      break;
+    case "cancelLink":
+      cancelLink(view);
       break;
     case "undo":
       undo(view);
@@ -745,10 +768,12 @@ export function editorStateFor(options: {
   images?: ImageHostRef;
   reportImage?: (message: string) => void;
   emoji?: EmojiHostRef;
+  /** The guest's own additions: comments and folder lists (`webview/guestExtras.ts`). */
+  extra?: Extension;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,
-    extensions: editorExtensions(options),
+    extensions: [editorExtensions(options), options.extra ?? []],
   });
 }
 

@@ -20,7 +20,9 @@ import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { EmojiPictures } from "./emojiPictures";
+import { ImageRow, Pictures } from "./ImageRow";
 import type { Block, Inline } from "./markdown";
+import { NO_PUBLISHED_IMAGES, type PublishedImages } from "./publishedImages";
 import { SITE_HEADING_SIZE, SITE_WIDE_HEADING_SIZE, makeSiteStyles, makeSiteWideStyles } from "./siteLook";
 
 /**
@@ -74,18 +76,23 @@ export function NoteBody({
   look = "note",
   onSiteLink,
   emoji = NO_EMOJI,
+  images = NO_PUBLISHED_IMAGES,
 }: {
   blocks: readonly Block[];
   renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
   look?: NoteLook;
   onSiteLink?: (href: string) => void;
   emoji?: EmojiPictures;
+  /** The pasted pictures a published page carries (`publishedImages.ts`). */
+  images?: PublishedImages;
 }) {
   return (
     <Look.Provider value={look}>
       <SiteLink.Provider value={onSiteLink ?? null}>
         <Emoji.Provider value={emoji}>
-          <Blocks blocks={blocks} renderCode={renderCode} />
+          <Pictures.Provider value={images}>
+            <Blocks blocks={blocks} renderCode={renderCode} />
+          </Pictures.Provider>
         </Emoji.Provider>
       </SiteLink.Provider>
     </Look.Provider>
@@ -199,6 +206,9 @@ function BlockView({
     case "rule":
       return <View style={styles.rule} />;
 
+    case "images":
+      return <ImageRow images={block.images} align={block.align} />;
+
     case "table":
       return (
         <View style={styles.table}>
@@ -252,6 +262,12 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
           case "strike":
             return (
               <RNText key={index} style={styles.strike}>
+                {run.text}
+              </RNText>
+            );
+          case "mark":
+            return (
+              <RNText key={index} style={styles.mark}>
                 {run.text}
               </RNText>
             );
@@ -439,6 +455,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   strong: { color: colors.text, fontWeight: "600" },
   em: { fontStyle: "italic" },
   strike: { textDecorationLine: "line-through", color: colors.muted },
+  mark: { backgroundColor: colors.markWash, color: colors.text },
   inlineCode: {
     fontFamily: fonts.mono,
     fontSize: t.meta,

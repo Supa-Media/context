@@ -1,0 +1,60 @@
+name: Roll back Router + Web
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_id:
+        description: Cloudflare Worker version to restore
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-router-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    name: Restore a known production version
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/router..." --frozen-lockfile
+
+      - name: Validate the requested version
+        env:
+          VERSION_ID: ${{ inputs.version_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "ERROR: version_id must be a Cloudflare Worker version UUID."
+            exit 1
+          fi
+
+      - name: Restore code and Static Assets without rebuilding
+        working-directory: infra/router
+        env:
+          VERSION_ID: ${{ inputs.version_id }}
+        run: pnpm exec wrangler rollback "$VERSION_ID" --yes --env="" --message "Manual rollback from GitHub run ${GITHUB_RUN_ID}"
+
+      - name: Record the restored deployment
+        working-directory: infra/router
+        run: |
+          pnpm exec wrangler deployments status --env=""
+          {
+            echo "## Production rollback"
+            echo ""
+            echo "Restored Worker code and its matching Static Assets to \`${{ inputs.version_id }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -73,3 +73,9 @@ test('staging deployment syncs its own custom domain identifiers', () => {
     assert.ok(workflow.includes(`${name}: \u0024{{ secrets.${name} }}`));
   }
 });
+
+test('the pinned homepage seed repairs privacy through the dedicated operation', async () => {
+  const { stagingContextLcNotes } = await import('./fixtures/staging-context-lc.mjs');
+  assert.equal(stagingContextLcNotes['privacy.md'], undefined);
+  assert.match(read('scripts/staging-personas.mjs'), /functions\/files:resetPrivacy/);
+});

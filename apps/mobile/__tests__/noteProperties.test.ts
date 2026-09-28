@@ -313,12 +313,9 @@ describe("what is shown instead", () => {
 
   test("and a note with nothing filed on it gets no row at either width", () => {
     /*
-      An empty disclosure is worse than no disclosure. The one case where a
-      pointer layout and a phone differ is the *access map*: a phone's
-      breadcrumb carries no visibility chip, so that answer is a row in here
-      and the panel is drawn for it alone; a pointer layout says it one line
-      above the editor and a second copy would be the same answer twice. This
-      harness passes no `visibility`, so what it can hold is the shared half —
+      An empty disclosure is worse than no disclosure. A phone used to draw
+      the panel anyway, for a `visibility` row taken from the access map;
+      that row is gone (2026-09-27), so both widths hold the same rule —
       nothing filed, nothing drawn.
     */
     const plain = "# Just a note\n\nNothing filed about it.\n";

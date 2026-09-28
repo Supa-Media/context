@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { densityFor } from "../app/frame";
 import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { TextField } from "../design/components/Input";
@@ -48,6 +49,7 @@ export function LoginScreen() {
   const [resent, setResent] = useState(false);
 
   const wide = width >= 900;
+  const phone = densityFor(width) === "compact";
 
   async function requestCode(again = false) {
     setError(null);
@@ -173,6 +175,8 @@ export function LoginScreen() {
             disabled={submitting || !canSubmit}
             onPress={() => void requestCode()}
             trailing={spinner}
+            // The width of the thumb's reach on a phone, as one target.
+            style={phone ? styles.submitPhone : undefined}
             testID="login-submit"
           />
         </View>
@@ -215,7 +219,7 @@ export function LoginScreen() {
 
       <Text variant="foot" style={styles.foot}>
         {step === "request"
-          ? "One code by email. No password to lose. Signing in creates an account in the control plane — it never moves a file."
+          ? "We'll email you a code. There's no password to remember."
           : "Next: pick the name your notes live under."}
       </Text>
     </View>
@@ -279,6 +283,7 @@ const makeStyles = (colors: Colors) =>
     resent: { marginTop: space.x3, color: colors.muted },
     error: { marginTop: space.x3 },
     primaryRow: { marginTop: space.x5, alignSelf: "stretch" },
+    submitPhone: { alignSelf: "stretch", justifyContent: "center" },
     verifyRow: { marginTop: space.x5, flexDirection: "row", justifyContent: "space-between", gap: space.x3 },
     link: { marginTop: space.x4, color: colors.accent, fontWeight: "600", textDecorationLine: "underline" },
     foot: { marginTop: space.x4, color: colors.muted, lineHeight: leading(12.5, 1.5) },

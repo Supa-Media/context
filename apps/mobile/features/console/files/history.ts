@@ -43,7 +43,7 @@ import type { SettingsSectionKey } from "../settings/sections";
  * "the back button has to mean something"), so this union is the set of URLs
  * one context can be showing, minus the context segment they share:
  *
- *  - **`path`** — a note or a folder, and with it the inbox, a channel and a
+ *  - **`path`** — a note or a folder, and with it a channel-day and a
  *    contact page. Those are addressed by path too (`classifyCommsPath`), so
  *    they came along the moment the other two kinds did rather than needing a
  *    kind each.

@@ -247,7 +247,7 @@ async function copySkills(target) {
  */
 export async function stageGeminiExtension() {
   const target = join(await mkdtemp(join(tmpdir(), "context-gemini-")), "context");
-  for (const entry of ["bin", "src", "skills", "hooks", "package.json", "LICENSE", "README.md"]) {
+  for (const entry of ["cli", "src", "skills", "hooks", "package.json", "LICENSE", "README.md"]) {
     const from = join(PLUGIN_ROOT, entry);
     if (existsSync(from)) await cp(from, join(target, entry), { recursive: true });
   }

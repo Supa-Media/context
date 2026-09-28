@@ -222,6 +222,40 @@ describe("what a share reaches", () => {
   });
 });
 
+describe("comments stay with the note's own readers", () => {
+  /*
+    A share publishes the note, not the conversation about it
+    (docs/decisions/comments.md). The anchors and the comments block are
+    removed before the text leaves the control plane, and a link written only
+    inside a comment is not one the share can follow.
+  */
+  test("the recipient gets the note without its comments or their links", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ENTRY,
+      [
+        "# Chapter <!--c:k7f2-->transition<!--/c:k7f2-->",
+        "",
+        "See [the proposal](proposal.md) for the numbers.",
+        "",
+        "```comments",
+        'k7f2 "transition"',
+        "- 2026-09-27T07:30:12Z Codex: zzq-comment-body, and see [[unrelated]]",
+        "```",
+        "",
+      ].join("\n"),
+    );
+    const token = await shareEntry(f);
+
+    const result = await read(f, f.lk, token);
+    expect(result.text).toContain("# Chapter transition");
+    expect(result.text).not.toContain("zzq-comment-body");
+    expect(result.text).not.toContain("<!--c:");
+    expect(result.links).toContain(LINKED);
+    expect(result.links).not.toContain(UNLINKED);
+  });
+});
+
 describe("visibility is read live, on every request", () => {
   /**
    * THE test. A share carries no stored visibility, so the answer has to come

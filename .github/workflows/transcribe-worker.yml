@@ -40,20 +40,31 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/transcribe-worker"
+          paths: ".github/workflows/transcribe-worker.yml"
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter @context/transcribe-worker... --frozen-lockfile
 
       - name: Typecheck
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/transcribe-worker
         run: npx tsc --noEmit
 
       - name: Transcription tests
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/transcribe-worker
         run: npx vitest run

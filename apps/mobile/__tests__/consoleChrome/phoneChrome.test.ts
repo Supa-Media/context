@@ -27,12 +27,18 @@ describe("on a phone", () => {
    * failed to mount, so a rewrite that only checked the old things were absent
    * would pass on a broken screen. The two surfaces navigation actually moved
    * to are asserted present, and only then is the retired chrome asserted gone.
+   *
+   * **And the strip along the top went too** (owner, 2026-09-27, the phone
+   * artboards, screen 9): switching workspaces is the account sheet's now, so
+   * the top of a phone is the path row with the context you are in at its
+   * head, and the bottom is the five-key capsule.
    */
-  test("navigation is a strip along the top and a row along the bottom", () => {
+  test("navigation is the path along the top and a row along the bottom", () => {
     const app = mountConsole(390);
 
-    // The two things that replaced the panels, and neither is behind a control.
-    expect(app.find("context-strip")).not.toBeNull();
+    // The things that replaced the panels.
+    expect(app.find("nav-band")).not.toBeNull();
+    expect(app.find("context-strip")).toBeNull();
     expect(app.find("bottom-bar")).not.toBeNull();
     /*
       The `+`, which is the row's one way into making anything and — since the
@@ -109,23 +115,23 @@ describe("on a phone", () => {
    * same capability as being able to find the group of them.
    *
    * So this counts them at the console level rather than trusting a component:
-   * exactly one, and it is the strip. The bottom row is deliberately **not** a
+   * exactly one. It was the workspace strip; since the strip went into the
+   * account sheet (2026-09-27) it is the path row, `NavBand`, which is the
+   * navigation left on the glass. The bottom row is deliberately **not** a
    * second one — six of its seven keys are verbs about the open note, and
    * calling a row of verbs "navigation" because one destination sits at the end
    * behind a separator makes the landmark mean less rather than more — so it is
    * asserted to still be the toolbar it says it is.
    *
-   * SABOTAGE: dropped `role`/`aria-label` from `ContextStrip`'s root. Fails
-   * here and in `contextStrip.test.ts`'s `it is a navigation landmark, and it
-   * says which navigation`.
+   * SABOTAGE: dropped `role`/`aria-label` from `NavBand`'s root. Fails here.
    */
   test("a phone has a navigation landmark, and it is not the toolbar", () => {
     const app = mountConsole(390);
 
     const landmarks = Array.from(app.container.querySelectorAll("nav"));
     expect(landmarks).toHaveLength(1);
-    expect(landmarks[0]!.dataset.testid).toBe("context-strip");
-    expect(landmarks[0]!.getAttribute("aria-label")).toBe("Contexts");
+    expect(landmarks[0]!.dataset.testid).toBe("nav-band");
+    expect(landmarks[0]!.getAttribute("aria-label")).toBe("Path");
 
     // The bottom row stays a toolbar, named, and is not a second landmark.
     const bar = app.find("bottom-bar")!;
@@ -136,7 +142,7 @@ describe("on a phone", () => {
     app.unmount();
   });
 
-  test("the top row is an account and a capsule, and the contexts are below it", () => {
+  test("the top row is an account and a capsule, and the path is below it", () => {
     /*
       The two-rows-of-chrome complaint, at the console level.
       `appFrameRender.test.ts` pins the frame's own geometry; this pins what the
@@ -157,13 +163,13 @@ describe("on a phone", () => {
     // which is `noteChrome.test.ts`'s.
     expect(app.find("account-menu")).not.toBeNull();
 
-    // The contexts are on the screen, and not in the bar. `topBarCompact` is
-    // the bar's own testID-free container, so the check is the band: the strip
-    // is inside it, and the band is inside the pane.
-    const strip = app.find("context-strip");
-    expect(strip).not.toBeNull();
-    expect(strip!.closest('[data-testid="nav-band"]')).not.toBeNull();
-    expect(strip!.closest('[data-testid="app-frame"] > div')).not.toBe(
+    // The path is on the screen, and not in the bar: the band is inside the
+    // pane, and the workspace strip that used to lead it is gone — switching
+    // is the account sheet's now (2026-09-27).
+    const band = app.find("nav-band");
+    expect(band).not.toBeNull();
+    expect(app.find("context-strip")).toBeNull();
+    expect(band!.closest('[data-testid="app-frame"] > div')).not.toBe(
       app.find("account-menu")!.closest('[data-testid="app-frame"] > div'),
     );
 

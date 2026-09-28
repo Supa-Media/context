@@ -15,15 +15,17 @@
  * rather than replaced. A folder page uses it to give a folder its first
  * property (`folderPage/`); a list only ever edits notes it has listed.
  *
- * `visibility` is refused before anything is read, whoever asks (see
- * `writable.ts`). This is the one road every list and folder page write
- * takes, so the refusal lives here and not only in the surfaces, which happen
- * to offer safe keys today.
+ * `visibility` is refused before anything is read, whoever asks, and so is a
+ * website page's `folder:`, which publishes that folder on the site (see
+ * `writable.ts` for both). This is the one road every list and folder page
+ * write takes, so the refusal lives here and not only in the surfaces — a
+ * surface that offers a key this refuses is a menu that cannot work, and a
+ * surface nobody taught is a key written without one.
  */
 
 import { setNoteProperty } from "../../../../../mcp/src/lists.js";
 import { toFileError } from "../browser/errors";
-import { isWritableProperty } from "./writable";
+import { isWritableProperty, whyNotWritable } from "./writable";
 
 export interface NoteReadWrite {
   read(path: string): Promise<{ text: string; etag: string; encrypted?: boolean; readOnly?: boolean }>;
@@ -58,7 +60,8 @@ export async function writeNoteProperties(
   changes: readonly (readonly [string, PropertyWriteValue])[],
   options: { create?: boolean } = {},
 ): Promise<string | null> {
-  if (changes.some(([key]) => !isWritableProperty(key))) return "Who can see a note is set with Share, not as a property.";
+  const refused = changes.find(([key]) => !isWritableProperty(key, path));
+  if (refused !== undefined) return whyNotWritable(refused[0], path);
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let note: { text: string; etag: string | undefined; encrypted?: boolean; readOnly?: boolean };
     try {

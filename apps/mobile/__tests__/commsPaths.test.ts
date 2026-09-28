@@ -1,57 +1,34 @@
 import { describe, expect, test } from "@jest/globals";
-import { channelDayNotePath, contactNotePath, contactSlug } from "@context/communications";
-import { MEETINGS_FOLDER } from "@context/meetings/paths";
 import {
+  CHANNEL_FOLDERS,
   CONTACTS_FOLDER,
   INBOX_FOLDER,
-  classifyCommsPath,
-  mailboxFolder,
-} from "../features/console/communications/paths";
+  channelDayNotePath,
+  contactNotePath,
+  contactSlug,
+} from "@context/communications";
+import { MEETINGS_FOLDER } from "@context/meetings/paths";
+import { classifyCommsPath } from "../features/console/communications/paths";
 
 describe("classifyCommsPath", () => {
-  test("the inbox root", () => {
-    expect(classifyCommsPath(INBOX_FOLDER)).toEqual({ kind: "inbox" });
+  // Every folder under the inbox is an ordinary folder, drawn by the same
+  // `FolderView` as any other — Dev2 (2026-09-28): a custom Inbox list
+  // "looks broken" beside every other folder in the app.
+  test.each([
+    ["the inbox root", INBOX_FOLDER],
+    ["the contacts folder", CONTACTS_FOLDER],
+    ["meetings", MEETINGS_FOLDER],
+    ["google chat", CHANNEL_FOLDERS["google-chat"]],
+    ["imessage", CHANNEL_FOLDERS.imessage],
+    ["the email folder", CHANNEL_FOLDERS.email],
+    ["a mailbox", `${CHANNEL_FOLDERS.email}/name-at-example-com`],
+    ["a year folder in a mailbox", `${CHANNEL_FOLDERS.email}/name-at-example-com/2026`],
+  ])("%s is a regular folder, never a comms route", (_label, path) => {
+    expect(classifyCommsPath(path)).toBeNull();
   });
 
-  test("the contacts folder", () => {
-    expect(classifyCommsPath(CONTACTS_FOLDER)).toEqual({ kind: "contacts" });
-  });
-
-  test("meetings is never a comms route — it stays the generic folder view", () => {
-    expect(classifyCommsPath(MEETINGS_FOLDER)).toBeNull();
-  });
-
-  test("google-chat and imessage are flat channels", () => {
-    expect(classifyCommsPath("0-inbox/google-chat")).toEqual({
-      kind: "channel",
-      channel: "google-chat",
-      account: "",
-    });
-    expect(classifyCommsPath("0-inbox/imessage")).toEqual({
-      kind: "channel",
-      channel: "imessage",
-      account: "",
-    });
-  });
-
-  test("a mailbox folder is a channel with an account", () => {
-    expect(classifyCommsPath(mailboxFolder("name-at-example-com"))).toEqual({
-      kind: "channel",
-      channel: "email",
-      account: "name-at-example-com",
-    });
-  });
-
-  test("a folder somebody made by hand inside 0-inbox/email is not a mailbox", () => {
-    expect(classifyCommsPath("0-inbox/email/Work_Box")).toBeNull();
-  });
-
-  test("a forwarded capture is not a mailbox folder", () => {
+  test("a forwarded capture is not a comms route", () => {
     expect(classifyCommsPath("0-inbox/email/9f2c1d7a4b6e8035ac91d2f4.md")).toBeNull();
-  });
-
-  test("a subfolder of a mailbox — attachments, or one somebody made — is not the mailbox itself", () => {
-    expect(classifyCommsPath("0-inbox/email/name-at-example-com/attachments")).toBeNull();
   });
 
   test("a channel-day note, part 1", () => {

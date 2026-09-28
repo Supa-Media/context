@@ -1,3 +1,4 @@
+import { MARKER_RE } from "@context/shared/src/comments.cjs";
 import { baseName } from "./paths";
 import { namesIn } from "./tree";
 import type { FolderListing } from "./types";
@@ -132,7 +133,10 @@ export function titleFor(text: string): string | null {
   if (line === undefined) return null;
   const heading = /^#\s+(.*)$/.exec(line.trim());
   if (heading === null) return null;
-  const title = heading[1]!.trim();
+  // A comment on words in the title wraps them in anchors (`comments.cjs`).
+  // They are not part of the name: without this, commenting on a linked
+  // title would read as retitling it and rename the file after the markers.
+  const title = heading[1]!.replace(MARKER_RE, "").trim();
   return title === "" ? null : title;
 }
 

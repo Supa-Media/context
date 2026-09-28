@@ -48,7 +48,9 @@ import { editorMenuItems, type EditorMenuId } from "../editorMenu";
 import { insertTable } from "../markdownFormat";
 import { TableSizePicker } from "../TableSizePicker.web";
 import { closeFindPanel } from "../findInNote";
-import { setRemoteCarets } from "../../presence/remoteCarets";
+import { setCaretLabels, setRemoteCarets } from "../../presence/remoteCarets";
+import { useWindowDimensions } from "react-native";
+import { densityFor } from "../../../app/frame";
 import type { SharedDoc } from "../../presence/sharedDoc";
 import { editability, replaceDocument } from "../editorSetup";
 import type { NoteLinkContext } from "../noteLinks";
@@ -65,6 +67,8 @@ import { mountEditor } from "./mount";
 import { showTitleNote } from "./titleLine";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
+import { canComment, commentUi, setActiveThread } from "../comments/extension";
+import { hasMargin } from "../comments/model";
 
 export function LiveEditor({
   value,
@@ -76,6 +80,8 @@ export function LiveEditor({
   onFocus,
   onBlur,
   onTitleCaret,
+  commenter,
+  onSignInToComment,
   titleNote,
   accessibilityLabel,
   onOpenNote,
@@ -284,8 +290,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -407,6 +413,41 @@ export function LiveEditor({
     if (!current) return;
     current.dispatch({ effects: setRemoteCarets.of(presence?.members ?? []) });
   }, [presence?.members]);
+
+  /*
+    Compact name flags on a phone (owner, 2026-09-28: "why dont we show the
+    name of whos typing on the cursor on mobile"): a full flag covers the words
+    being read at 390pt, so a phone gets the small one. Follows a resize. See
+    `remoteCarets.ts`.
+  */
+  const caretFlags = densityFor(useWindowDimensions().width) === "compact" ? "compact" : "full";
+  useEffect(() => {
+    const current = view.current;
+    if (!current) return;
+    current.dispatch({ effects: setCaretLabels.of(caretFlags) });
+  }, [caretFlags]);
+
+  /*
+    A thread the room points at: the homepage cast commenting, replying or
+    resolving (`Presence.commentFocus`). It opens the way a tap on the
+    highlight would, where there is a margin to open it in. Only ever opened
+    from here, never closed: dismissing it stays the reader's.
+
+    **Never where the thread would open as a sheet** — a phone, or any pane
+    too thin for cards (`hasMargin`). A sheet covers half the screen, and the
+    cast raising one on every comment step took the page out from under a
+    reader who had not asked for it (Dev2, 2026-09-28). There the highlight
+    appearing is the whole event, and tapping it opens the thread.
+  */
+  const focusStep = presence?.commentFocus?.step;
+  useEffect(() => {
+    const current = view.current;
+    const thread = presence?.commentFocus?.thread;
+    if (!current || thread === undefined) return;
+    if (!hasMargin(current.scrollDOM.clientWidth)) return;
+    if (current.state.field(commentUi).active !== thread) current.dispatch({ effects: setActiveThread.of(thread) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the step is the event; see above
+  }, [focusStep]);
 
   // An authoritative change from outside: a draft discarded, a conflict
   // resolved, a note arriving into an editor that is already on it.
@@ -547,6 +588,7 @@ export function LiveEditor({
             canDictate: onDictate !== undefined,
             canAsk: onAsk !== undefined,
             canList: view.current.state.facet(listHost)?.current != null,
+            canComment: canComment(view.current.state),
             spelling: menuAt.spelling ?? null,
             spellingHint: menuAt.spellingHint === true,
           })}

@@ -1,6 +1,7 @@
 import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { revokeSharesAddressedTo, voidCapabilitiesAddressedTo } from "./addressedTo";
+import { deleteAccountPhoto } from "../faces/people";
 
 /**
  * Everything `deleteAccount` removes that is the person's rather than a
@@ -26,6 +27,9 @@ export async function deletePersonalRows(
   if (me?.email !== undefined && me.emailVerificationTime !== undefined) {
     await revokeSharesAddressedTo(ctx, "email", me.email.toLowerCase());
   }
+
+  // The photo they chose to be drawn with, and its object in file storage.
+  await deleteAccountPhoto(ctx, userId);
 
   // The user's own name claims. Nothing writes a `kind: "user"` row today
   // (see functions/invitations.ts), so this is usually a no-op — but the

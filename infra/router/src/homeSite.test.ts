@@ -3,7 +3,8 @@
  * beside the Expo HTML and puts the answer in an inert JSON block, so the
  * app's first paint is the live site. What is checked here: the block cannot
  * break out of its element, only named fields go in, every failure is the
- * untouched HTML, and nothing but `/` on the apex asks.
+ * untouched HTML, and nothing but `/` and a page's own address on the apex
+ * asks.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
@@ -34,6 +35,7 @@ const SITE: HomeSnapshot = {
     { path: "Legal/privacy.md", routePath: "/Legal/privacy", title: "Privacy", markdown: "We keep little.\n" },
   ],
   emoji: { partyparrot: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" },
+  images: { "paste-be3b688afc175efb.png": "data:image/png;base64,iVBORw0KGgo=" },
 };
 
 let convexAnswer: () => Response;
@@ -97,7 +99,23 @@ describe("the homepage's HTML", () => {
     expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({ handle: "context-lc" });
   });
 
-  it.each(["/login", "/@context-lc", "/console"])("%s does not ask", async (path) => {
+  /*
+    `/Legal/privacy` is a page's own address, which the app opens as that page
+    (`homePagePath` in the app), so its document carries the site too — the
+    first paint is the page rather than a wait for the app to ask.
+  */
+  it("a page's own address carries the site", async () => {
+    const html = await (await get("/Legal/privacy")).text();
+    expect(carried(html)).toEqual(SITE);
+  });
+
+  it("a name the site has no page for is left as it came", async () => {
+    const response = await get("/pricing-typo");
+    expect(await response.text()).toBe(HTML);
+    expect(response.headers.get("ETag")).toBe('"abc"');
+  });
+
+  it.each(["/login", "/@context-lc", "/console", "/s/abc", "/Legal/logo.png"])("%s does not ask", async (path) => {
     await get(path);
     expect(fetchSpy.mock.calls.map(([input]) => String(typeof input === "string" ? input : input.url))).toEqual([
       `https://context.expo.app${path}`,
@@ -209,6 +227,30 @@ describe("the block", () => {
     expect(parsed?.emoji).toEqual(SITE.emoji);
     expect(parseHomeSnapshot({ ...SITE, emoji: ["data:image/png;base64,AAAA"] })?.emoji).toEqual({});
     expect(parseHomeSnapshot({ ...SITE, emoji: undefined })?.emoji).toEqual({});
+  });
+
+  it("carries a page's pasted pictures inline under stored leaves, and nothing a browser would fetch", () => {
+    const parsed = parseHomeSnapshot({
+      ...SITE,
+      images: {
+        ...SITE.images,
+        "tracker.png": "https://attacker.example/pixel.gif",
+        "script.png": "data:text/html;base64,PHNjcmlwdD4=",
+        "vector.svg": "data:image/svg+xml;base64,PHN2Zz4=",
+        "../privacy.png": "data:image/png;base64,iVBORw0KGgo=",
+        "quoted.png": 'data:image/png;base64,iVBOR"onerror=',
+        "huge.png": `data:image/png;base64,${"A".repeat(3_000_000)}`,
+      },
+    });
+    expect(parsed?.images).toEqual(SITE.images);
+    expect(parseHomeSnapshot({ ...SITE, images: ["data:image/png;base64,AAAA"] })?.images).toEqual({});
+    expect(parseHomeSnapshot({ ...SITE, images: undefined })?.images).toEqual({});
+  });
+
+  it("stops carrying pictures once the pages' pictures together pass the cap", () => {
+    const big = `data:image/png;base64,${"A".repeat(2_800_000)}`;
+    const parsed = parseHomeSnapshot({ ...SITE, images: { "a.png": big, "b.png": big, "c.png": big } });
+    expect(Object.keys(parsed?.images ?? {})).toEqual(["a.png", "b.png"]);
   });
 
   it("an HTML document with no head is left as it is", () => {

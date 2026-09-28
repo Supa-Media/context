@@ -62,6 +62,23 @@ check(
   ["hooks", "skills", ".claude-plugin", "plugin.json", ".mcp.json", "mcp.json", "gemini"].every((entry) => pkg.files.includes(entry))
 );
 
+// -- installable by claude.ai and Cowork
+
+/*
+  claude.ai and Cowork refuse a plugin with a top-level bin/ folder ("Plugin
+  contains a top-level bin/ directory"), because Claude Code puts bin/ on the
+  shell's PATH. The CLI's entry lives in cli/, and npm's "bin" field points
+  there, so `npx @supa-media/context` is unchanged.
+*/
+check("the plugin has no top-level bin/ folder, which claude.ai rejects", !existsSync(join(ROOT, "bin")));
+check(
+  "npm's bin entry points at a file the package ships",
+  existsSync(join(ROOT, pkg.bin["context-lc"])) && pkg.files.includes(pkg.bin["context-lc"].replace(/^\.\//, "").split("/")[0])
+);
+const loginSkill = await readFile(join(ROOT, "skills", "login", "SKILL.md"), "utf8");
+const loginTarget = /\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+)/.exec(loginSkill)?.[1];
+check("the login skill runs the plugin's own copy of the CLI", loginTarget === "cli/context.mjs" && existsSync(join(ROOT, loginTarget)));
+
 // -- hook wiring
 
 const hookTargets = (config, root) =>

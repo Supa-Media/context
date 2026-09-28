@@ -65,6 +65,17 @@ describe("the question, as data", () => {
     expect(criteria.agent_1).toContain("Claude");
   });
 
+  test("a handle carries its name, since a note says Seyi and the owner line @seyi", () => {
+    const request = ownerRequest("# Launch\n\nSeyi is running the launch.\n", {
+      people: ["@seyi", "Sayo"],
+      agents: [],
+      names: ["Seyi Olujide", null],
+    });
+    const criteria = (request.questions.owner as { criteria: Record<string, string> }).criteria;
+    expect(criteria.person_1).toBe("@seyi (Seyi Olujide), a person in this workspace");
+    expect(criteria.person_2).toBe("Sayo, a person in this workspace");
+  });
+
   test("an answer is a candidate, any agent, or nothing", () => {
     const answer = (choice: string) => ({ owner: { type: "choice", choice, confidence: 0.4 } });
     expect(readOwnerAnswer(answer("person_2"), CANDIDATES)).toEqual({ value: "Sayo", kind: "person" });

@@ -12,6 +12,7 @@ import { settingsPreview } from "../previews";
 import { settingsSectionLabel, type SettingsSectionKey } from "../sections";
 import { useWorkspaceIcons } from "../../useWorkspaceIcons";
 import { WorkspaceIconPicker, WorkspaceMonogram } from "./WorkspaceIconPicker";
+import { YourPicture } from "./YourPicture";
 
 /**
  * Which context this is, whether it is working, and the way to each fact.
@@ -127,6 +128,13 @@ export function OverviewPanel({
       ) : null}
 
       <HealthStrip data={data} onSelect={onSelect} />
+
+      {/*
+        Your face, on your own workspace: it defaults to this workspace's icon,
+        so the two are chosen side by side. Only where a backend is mounted,
+        the rule the icon trigger above follows.
+      */}
+      {!shared && current?.role === "owner" && onSelect !== undefined ? <YourPicture /> : null}
 
       {/*
         One word for both kinds, now that both kinds are workspaces. The

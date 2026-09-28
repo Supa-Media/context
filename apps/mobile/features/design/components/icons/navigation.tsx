@@ -10,6 +10,8 @@ type NavigationIconName =
   | "chevronDown"
   | "arrowLeft"
   | "arrowRight"
+  | "expand"
+  | "openTab"
   | "more"
   | "sort"
   | "collapse"
@@ -63,6 +65,22 @@ export const navigationIcons: Record<NavigationIconName, DrawFn> = {
   arrowRight: (u, w, c) => [
     bar("shaft", u, w, c, { cx: 0.48, cy: 0.5, length: 0.62 }),
     chevron("head", u, w, c, { cx: 0.66, cy: 0.5, side: 0.34, angle: 45 }),
+  ],
+
+  /*
+    A chevron's point is its box's top right corner at 0°, so a head at a
+    corner is placed half a side in from it. 0° points up and right, 180°
+    down and left.
+  */
+  expand: (u, w, c) => [
+    bar("shaft", u, w, c, { cx: 0.5, cy: 0.5, length: 0.72, angle: -45 }),
+    chevron("out", u, w, c, { cx: 0.67, cy: 0.33, side: 0.3, angle: 0 }),
+    chevron("in", u, w, c, { cx: 0.33, cy: 0.67, side: 0.3, angle: 180 }),
+  ],
+  openTab: (u, w, c) => [
+    rect("page", u, w, c, { x0: 0.14, y0: 0.3, x1: 0.7, y1: 0.86, radius: 0.12 }),
+    bar("shaft", u, w, c, { cx: 0.62, cy: 0.38, length: 0.46, angle: -45 }),
+    chevron("head", u, w, c, { cx: 0.74, cy: 0.26, side: 0.26, angle: 0 }),
   ],
 
   more: (u, w, c) => [

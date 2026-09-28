@@ -9,6 +9,7 @@ export function activityToolDefinitions() {
   return [
     {
       name: "migrate_storage_layout",
+      title: "Migrate storage layout",
       description:
         "Owner-only maintenance: copy legacy Context-owned hidden objects into the consolidated .context tree in a resumable batch; after the copy is verified, cleanup=true removes the legacy copies.",
       inputSchema: {
@@ -23,6 +24,7 @@ export function activityToolDefinitions() {
     },
     {
       name: "read_activity",
+      title: "Read activity",
       description:
         "Read this context's activity: what people and AI clients have changed lately, newest " +
         "first, in sentences rather than log lines. Backed by activity.md at the root of the " +
@@ -39,6 +41,7 @@ export function activityToolDefinitions() {
     },
     {
       name: "list_changes",
+      title: "List changes",
       description:
         "List every recorded change, including ones activity.md judges too small to mention, as " +
         "immutable records filtered to paths visible to this connection. Records contain actions " +

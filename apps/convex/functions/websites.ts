@@ -82,6 +82,7 @@ const resolvedPageValidator = v.union(
     markdown: v.string(),
     navigation: navigationValidator,
     emoji: v.optional(v.record(v.string(), v.string())),
+    images: v.optional(v.record(v.string(), v.string())),
   }),
   authenticationRequiredValidator,
   unavailableValidator,
@@ -133,6 +134,15 @@ const resolutionPlanValidator = v.union(
     releaseFallback: v.boolean(),
     releaseId: v.optional(v.string()),
     releasePageId: v.optional(v.string()),
+    folderPages: v.optional(
+      v.array(
+        v.object({
+          routePath: v.string(),
+          title: v.string(),
+          description: v.union(v.string(), v.null()),
+        }),
+      ),
+    ),
   }),
 );
 const linkCatalogValidator = v.object({
@@ -175,6 +185,7 @@ export const siteSnapshot = action({
         v.object({ path: v.string(), routePath: v.string(), title: v.string(), markdown: v.string() }),
       ),
       emoji: v.record(v.string(), v.string()),
+      images: v.record(v.string(), v.string()),
     }),
   ),
   handler: async (ctx, args) => await websiteSnapshot(ctx, { handle: args.handle }),
@@ -190,6 +201,8 @@ export const homeSiteWorkspace = internalQuery({
       pages: v.array(
         v.object({
           objectKey: v.string(),
+          routePath: v.string(),
+          description: v.union(v.string(), v.null()),
           sourceEtag: v.string(),
           releaseId: v.optional(v.string()),
           releasePageId: v.optional(v.string()),

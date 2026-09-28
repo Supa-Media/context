@@ -12,19 +12,24 @@
  * the answer above everybody else under "Suggested". Only when the search
  * said `suggests`: elsewhere the answer is always nobody, so nobody is asked.
  *
+ * An agent opens a second step, "Whose Claude?", in the same box: just the
+ * agent, or somebody's (`agents.ts`). A name the agent list lacks is offered
+ * to be added when `onAddAgent` is given, and then asks whose, the same way.
+ *
  * A popover under the value with room for one, a sheet from the bottom on a
  * phone — the rule `Menu` uses, and for the same reason: the room decides,
  * not the device. Arrows move, Enter chooses, Escape closes.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, type Role } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions, type Role } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { place } from "../../../design/components/popoverPlacement";
 import { fonts, layout, pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
-import { ownerRows, type OwnerResults, type OwnerRow, type OwnerSearch } from "../owners";
+import { ownerRows, whoseRows, type OwnerResults, type OwnerRow, type OwnerSearch } from "../owners";
+import { useFieldFont } from "../../../design/fieldFont";
 
 /** How long the field waits for typing to pause before it asks. */
 export const OWNER_SEARCH_DELAY_MS = 150;
@@ -42,6 +47,7 @@ export function OwnerPicker({
   savesTo,
   onChoose,
   onDismiss,
+  onAddAgent,
 }: {
   current: string;
   search: OwnerSearch;
@@ -53,9 +59,12 @@ export function OwnerPicker({
   savesTo: string | null;
   onChoose: (value: string | null) => void;
   onDismiss: () => void;
+  /** Add a name to the workspace's agents; resolves to why not, or null. Absent where the list can't change. */
+  onAddAgent?: (name: string) => Promise<string | null>;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont();
   const view = useWindowDimensions();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OwnerResults | null>(null);
@@ -64,6 +73,9 @@ export function OwnerPicker({
   const asked = useRef(0);
   const [suggested, setSuggested] = useState<string | null>(null);
   const suggesting = useRef(false);
+  /** The agent whose owner is being asked, or null on the first step. */
+  const [whose, setWhose] = useState<string | null>(null);
+  const [addProblem, setAddProblem] = useState<string | null>(null);
   // The current owner is always preferred, so a hand-typed first name finds its member.
   const preferred = useMemo(() => (current === "" ? prefer : [current, ...prefer]), [current, prefer]);
 
@@ -110,10 +122,26 @@ export function OwnerPicker({
       .catch(() => {});
   }, [offered, preferred]);
 
-  const rows = ownerRows(query, current, results, suggested);
-  const choices = rows.flatMap((row, index) => (row.kind === "choice" ? [index] : []));
+  const rows = whose !== null ? whoseRows(whose, current, results) : ownerRows(query, current, results, suggested, { canAdd: onAddAgent !== undefined });
+  const choices = rows.flatMap((row, index) => (row.kind === "heading" ? [] : [index]));
+  const ask = (agent: string) => {
+    setWhose(agent);
+    setQuery("");
+    setFocus(0);
+    setAddProblem(null);
+  };
   const choose = (row: OwnerRow | undefined) => {
-    if (row === undefined || row.kind !== "choice") return;
+    if (row === undefined || row.kind === "heading") return;
+    if (row.kind === "add") {
+      onAddAgent?.(row.name)
+        .then((problem) => (problem === null ? ask(row.name) : setAddProblem(problem)))
+        .catch(() => setAddProblem("Couldn’t add that agent just now."));
+      return;
+    }
+    if (whose === null && row.agent !== undefined) {
+      ask(row.agent);
+      return;
+    }
     onDismiss();
     if (row.checked) return;
     onChoose(row.value);
@@ -122,11 +150,13 @@ export function OwnerPicker({
   const sheet = view.width < layout.narrowBreakpoint || anchor === null;
   const box = sheet ? null : place(anchor.x, anchor.y, { width: WIDTH, height: HEIGHT }, view, { minHeight: 120 });
   const note =
-    failed ? "Couldn’t search just now. Try again in a moment."
+    addProblem !== null ? addProblem
+    : failed ? "Couldn’t search just now. Try again in a moment."
     : results === null ? "Searching…"
     : choices.length === 0 ? "Nobody in this workspace matches."
     : results.truncated && query === "" ? "Type to find anybody else."
     : null;
+  const placeholder = whose === null ? "Search people and agents" : "Search people";
 
   return (
     <Modal transparent visible animationType={sheet ? "slide" : "none"} onRequestClose={onDismiss}>
@@ -137,16 +167,42 @@ export function OwnerPicker({
           accessibilityLabel="Owner"
           testID="owner-picker"
         >
+          {whose === null ? null : (
+            <View style={styles.step}>
+              <Pressable
+                onPress={() => {
+                  setWhose(null);
+                  setQuery("");
+                  setFocus(0);
+                }}
+                accessibilityLabel="Back to all owners"
+                role="button"
+                style={styles.back}
+                testID="owner-picker-back"
+              >
+                <Text variant="tree" style={styles.muted} aria-hidden>
+                  ‹
+                </Text>
+              </Pressable>
+              <Text variant="tree" style={styles.title} role="heading" testID="owner-picker-step">
+                {`Whose ${isolateForDisplay(whose)}?`}
+              </Text>
+            </View>
+          )}
           <TextInput
+            key={whose ?? ""}
             autoFocus
             value={query}
-            onChangeText={setQuery}
-            placeholder="Search people and agents"
+            onChangeText={(text) => {
+              setQuery(text);
+              setAddProblem(null);
+            }}
+            placeholder={placeholder}
             placeholderTextColor={colors.chromeMuted}
-            accessibilityLabel="Search people and agents"
+            accessibilityLabel={placeholder}
             autoCapitalize="none"
             autoCorrect={false}
-            style={styles.field}
+            style={[styles.field, fieldFont]}
             testID="owner-picker-field"
             onKeyPress={(event) => {
               const key = event.nativeEvent.key;
@@ -164,12 +220,33 @@ export function OwnerPicker({
                 <Text key={`h:${row.label}`} variant="treeMeta" style={styles.heading}>
                   {row.label}
                 </Text>
+              ) : row.kind === "add" ? (
+                <Pressable
+                  key={`a:${row.name}`}
+                  role="option"
+                  aria-selected={false}
+                  accessibilityLabel={row.label}
+                  onPress={() => choose(row)}
+                  onHoverIn={() => setFocus(choices.indexOf(index))}
+                  style={[styles.row, sheet && styles.rowTouch, choices[focus] === index && styles.rowLit]}
+                  testID="owner-picker-add"
+                >
+                  <Text variant="tree" style={[styles.check, styles.accent]} aria-hidden>
+                    +
+                  </Text>
+                  <Text variant="tree" numberOfLines={1} style={[styles.label, styles.accent]}>
+                    {isolateForDisplay(row.label)}
+                  </Text>
+                </Pressable>
               ) : (
                 <Pressable
                   key={`c:${row.value ?? ""}:${index}`}
                   role="option"
                   aria-selected={row.checked}
-                  accessibilityLabel={row.detail === undefined ? row.label : `${row.label}, ${row.detail}`}
+                  accessibilityLabel={
+                    (row.detail === undefined ? row.label : `${row.label}, ${row.detail}`) +
+                    (whose === null && row.agent !== undefined ? ", choose whose" : "")
+                  }
                   onPress={() => choose(row)}
                   onHoverIn={() => setFocus(choices.indexOf(index))}
                   style={[styles.row, sheet && styles.rowTouch, choices[focus] === index && styles.rowLit]}
@@ -186,12 +263,22 @@ export function OwnerPicker({
                       {isolateForDisplay(row.detail)}
                     </Text>
                   )}
+                  {whose === null && row.agent !== undefined ? (
+                    <Text variant="tree" style={[styles.muted, row.detail === undefined && styles.push]} aria-hidden>
+                      ›
+                    </Text>
+                  ) : null}
                 </Pressable>
               ),
             )}
             {note === null ? null : (
               <Text variant="treeMeta" style={styles.note} role="status" testID="owner-picker-note">
                 {note}
+              </Text>
+            )}
+            {onAddAgent === undefined || whose !== null || query !== "" || results === null ? null : (
+              <Text variant="treeMeta" style={styles.note} testID="owner-picker-add-hint">
+                Type a name to add an agent.
               </Text>
             )}
             {savesTo === null ? null : (
@@ -251,4 +338,9 @@ const makeStyles = (colors: Colors) =>
     muted: { color: colors.text2 },
     detail: { marginLeft: "auto", flexShrink: 1, color: colors.chromeMuted },
     note: { color: colors.chromeMuted, paddingHorizontal: 10, paddingVertical: 6 },
+    accent: { color: colors.accentText },
+    push: { marginLeft: "auto" },
+    step: { flexDirection: "row", alignItems: "center", gap: space.x1, marginBottom: 4 },
+    back: { width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: radii.sm },
+    title: { color: colors.text, fontWeight: "600" },
   });

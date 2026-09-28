@@ -25,6 +25,9 @@ import type { EmojiHostRef } from "../emoji/host";
 import type { EditorControls, EditorHandlers, LiveEditorProps, MenuOpen, MenuPoint } from "./contract";
 import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
+import { comments } from "../comments/extension";
+import { commentRail } from "../comments/rail";
+import { commentSheet } from "../comments/sheet";
 
 export function mountEditor({
   host,
@@ -197,8 +200,21 @@ export function mountEditor({
       // The title: the caret in it, and the line under it. Web only, like
       // find-in-note; see `titleLine.ts`.
       titleLine(() => handlers.current.onTitleCaret),
-      // Folder lists: web only, like find-in-note. The native guest has no
-      // copy of the workspace to read, so its lists stay as source.
+      /*
+        Comments: the highlights, the hidden markers and block, the margin of
+        cards on a wide pane and the bottom sheet on a phone (files/comments/).
+        The name is read at the moment of commenting, off the handlers ref, so
+        a sign-in that resolves after mount still signs. The iOS guest installs
+        the same extension with its own host (`webview/guestExtras.ts`).
+      */
+      comments({
+        author: () => handlers.current.commenter ?? null,
+        signIn: () => handlers.current.onSignInToComment,
+      }),
+      commentRail,
+      commentSheet({ placement: "viewport" }),
+      // Folder lists. The iOS guest asks its host for the same notes over the
+      // bridge (`webview/guestExtras.ts`).
       listHost.of(lists),
       /*
         Other people's carets, and this editor's own going out.
@@ -281,7 +297,9 @@ export function mountEditor({
   const api: EditorControls = {
     wrap: (before, after) => runCommand(created, { name: "wrap", before, after }),
     toggleLinePrefix: (prefix) => runCommand(created, { name: "toggleLinePrefix", prefix }),
-    insertLink: () => runCommand(created, { name: "insertLink" }),
+    insertLink: (ask) => runCommand(created, { name: "insertLink" }, ask),
+    applyLink: (link) => runCommand(created, { name: "applyLink", link }),
+    cancelLink: () => runCommand(created, { name: "cancelLink" }),
     undo: () => runCommand(created, { name: "undo" }),
     redo: () => runCommand(created, { name: "redo" }),
     blur: () => runCommand(created, { name: "blur" }),

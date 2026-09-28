@@ -16,7 +16,7 @@ function boardMessage(page: Page) {
 
 /**
  * The communications console's own walk: Inbox → a channel → a day → an
- * anchor, ending on the one message a contact's activity link names.
+ * anchor, through the same folder listing every other folder uses, ending on the one message a contact's activity link names.
  *
  * `docs/decisions/testing.md`'s rule for this directory is "reproduced in a
  * real engine, not simulated" — the same reason `editor.spec.ts` exists — and
@@ -42,28 +42,24 @@ async function openContextRoot(page: import("@playwright/test").Page): Promise<v
   await page.getByTestId("folder-row").first().waitFor();
 }
 
-test("Inbox lists every connected channel, most recently active first", async ({ page }) => {
+test("Inbox is an ordinary folder, listing each channel as a folder row", async ({ page }) => {
   await openContextRoot(page);
   await tap(page, "inbox, folder");
 
-  await expect(page.getByTestId("inbox-row")).toHaveCount(3);
-  await expect(page.getByText("Google Chat", { exact: true })).toBeVisible();
-  await expect(page.getByText("Contacts", { exact: true })).toBeVisible();
-  // The mailbox has no address read yet on the Inbox row by design — see
-  // `inbox.ts`'s `channelLabel` — so it is labelled by its folder slug here.
-  await expect(page.getByText("name-at-example-com", { exact: true })).toBeVisible();
+  // The same `FolderView` rows as every other folder — no custom Inbox list.
+  await page.getByLabel("email, folder").waitFor();
+  await expect(page.getByLabel("google-chat, folder")).toBeVisible();
+  await expect(page.getByLabel("contacts, folder")).toBeVisible();
+  await expect(page.getByTestId("inbox-row")).toHaveCount(0);
 });
 
 test("a channel's days, and a day's messages grouped by thread", async ({ page }) => {
   await openContextRoot(page);
   await tap(page, "inbox, folder");
-  await tap(page, "name-at-example-com, last active 2026-09-07");
+  await tap(page, "email, folder");
+  await tap(page, "name-at-example-com, folder");
 
-  // The Channel view: both of the mailbox's days, newest first, and the
-  // mailbox's real address — read off its own most recent day, not the slug.
-  await expect(page.getByText("name@example.com", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("channel-day-row")).toHaveCount(2);
-
+  // The mailbox is an ordinary folder listing its two days.
   await tap(page, "2026-09-07");
 
   // The Channel-day view: threads, and a message in each with its sender,
@@ -88,10 +84,9 @@ test("following a contact's activity link scrolls the channel-day to that messag
 }) => {
   await openContextRoot(page);
   await tap(page, "inbox, folder");
-  await tap(page, "Contacts, last active 2026-09-07");
+  await tap(page, "contacts, folder");
 
-  // The generic folder listing — Contacts is not a channel view of its own,
-  // see `paths.ts`'s own comment on why — showing the one contact page.
+  // The generic folder listing, showing the one contact page.
   await tap(page, "adam-okonkwo");
 
   // The Contact page: identifiers, and one activity link into the day the

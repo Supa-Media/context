@@ -8,6 +8,7 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   defaultFolderView,
+  isProjectsFolder,
   folderItems,
   groupFolderItems,
   dropValue,
@@ -129,6 +130,7 @@ describe("groups", () => {
   const list = defaultStatusList() as StatusList;
 
   test("run No status, Not started, In progress, Done, then words in no group", () => {
+    // Grouping itself still keeps the unset items together; the List and Board draw them as notes, not tasks.
     const groups = groupFolderItems(items, "status", list);
     expect(groups.map((group) => strip(group.label))).toEqual([
       "No status",
@@ -162,11 +164,25 @@ describe("the view a folder opens in", () => {
   });
 });
 
+describe("which folders track progress", () => {
+  test("a folder named for projects, with any prefix or case, and everything under it", () => {
+    for (const folder of ["1-projects", "Projects", "project", "work/Side-Projects", "1-projects/trip", "1-projects/trip/days"]) {
+      expect(isProjectsFolder(folder)).toBe(true);
+    }
+  });
+
+  test("areas, resources, the archive and the root do not", () => {
+    for (const folder of ["", "2-areas", "2-areas/apps", "3-resources/books", "4-archive", "website", "clients/acme"]) {
+      expect(isProjectsFolder(folder)).toBe(false);
+    }
+  });
+});
+
 describe("what a value menu offers", () => {
   test("a status is chosen from the folder's status list, not from whatever words are in use", () => {
     const items = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { status: "paused" })]).items;
     // Everything "paused" still offers "finished": moving a card on is one press, never typing.
-    expect(propertyChoices(items, "status", defaultStatusList() as StatusList)).toEqual(["in progress", "finished"]);
+    expect(propertyChoices(items, "status", defaultStatusList() as StatusList)).toEqual(["backlog", "to do", "in progress", "finished"]);
     const list = { "not-started": ["exploration"], "in-progress": ["doing"], done: ["won", "lost"] };
     expect(propertyChoices([], "status", list)).toEqual(["exploration", "doing", "won", "lost"]);
   });
@@ -200,17 +216,18 @@ describe("a board's columns and what a drop writes", () => {
     bands.map((band) => [band.label, band.columns.map((column) => [column.value, column.items.length])]);
 
   test("a column for every status in the list, empty or not, under its group", () => {
-    expect(shape(statusBands(groups, list, false))).toEqual([
-      ["Not started", [["", 1]]],
+    expect(shape(statusBands(groups, list))).toEqual([
+      ["Not started", [["backlog", 0], ["to do", 0]]],
       ["In progress", [["in progress", 0], ["Active", 1]]],
       ["Done", [["finished", 0], ["done", 1]]],
     ]);
   });
 
-  test("No status is a column to drop on for a writer even when nothing is in it, and not for a reader", () => {
-    const tracked = groupFolderItems(items.filter((item) => item.status !== ""), "status", list);
-    expect(shape(statusBands(tracked, list, true))[0]).toEqual(["Not started", [["", 0]]]);
-    expect(shape(statusBands(tracked, list, false)).map(([label]) => label)).toEqual(["In progress", "Done"]);
+  test("a note with no status is never a column: a board draws tasks only", () => {
+    // `p/c` has no status; it is not dropped into a column of its own anywhere.
+    const columns = statusBands(groups, list).flatMap((band) => band.columns);
+    expect(columns.map((column) => column.value)).not.toContain("");
+    expect(columns.flatMap((column) => column.items).map((item) => item.path)).not.toContain("p/c");
   });
 
   test("a drop writes the column's value, clears on No status, and does nothing where the card already is", () => {

@@ -1,4 +1,4 @@
-import { check, call, contextStore, lacks, env, accessTokenFor, suite, getFailures } from "./harness.mjs";
+import { check, call, contextStore, lacks, env, accessTokenFor, suite, getFailures, controlPlane, storedText, WORKSPACE_ID } from "./harness.mjs";
 import { runStoreChecks } from "./store.test.mjs";
 import { runCommunicationsChecks } from "./communications.test.mjs";
 import { runContactsChecks } from "./contacts.test.mjs";
@@ -44,6 +44,7 @@ import { runAgentActivityChecks } from "./agentActivity.test.mjs";
 import { runNoteCapGatewayChecks } from "./noteCapGateway.test.mjs";
 import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
+import { runCommentFormatChecks, runCommentToolChecks } from "./comments.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
@@ -51,6 +52,7 @@ import { runDayPlacementChecks } from "./dayPlacement.test.mjs";
 import { runGoogleChatChecks } from "./googleChat.test.mjs";
 import { runChatContributionStoreChecks } from "./chatContributionStore.test.mjs";
 import { runCalendarContributionStoreChecks } from "./calendarContributionStore.test.mjs";
+import { runHarnessExitChecks } from "./harnessExit.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runAuditPartialMoveChecks } from "./auditPartialMove.test.mjs";
@@ -213,6 +215,8 @@ await suite("runForwardingChecks", () => runForwardingChecks(check));
 await suite("runActivityChecks", () => runActivityChecks(check));
 await suite("runTreeHintChecks", () => runTreeHintChecks(check));
 await suite("runDrawingChecks", () => runDrawingChecks(check));
+await suite("runCommentFormatChecks", () => runCommentFormatChecks(check));
+await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, controlPlane, contextStore, storedText, WORKSPACE_ID }));
 
 /*
   A MESSAGE DEEP LINK IS A KEY THE READ TOOLS ACCEPT.
@@ -348,5 +352,10 @@ await suite("runCollaborationChecks", () => runCollaborationChecks(check));
 await suite("runAgentActivityChecks", () => runAgentActivityChecks(check));
 await suite("runNoteCapGatewayChecks", () => runNoteCapGatewayChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
+
+// Last, and about this file rather than the gateway: that a failure here
+// reaches the shell at all. Every check above is read by CI through an exit
+// status, so this one is the reason to believe the rest of them.
+await suite("runHarnessExitChecks", () => runHarnessExitChecks(check));
 
 console.log(getFailures() ? `\n${getFailures()} FAILURES` : "\nALL PASS");

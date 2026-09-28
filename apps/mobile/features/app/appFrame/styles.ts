@@ -32,7 +32,7 @@ import type { Colors, Shadows } from "../../design/theme";
  * see it, the same way it cannot see `dvh`.
  */
 const DRAG_REGION = { WebkitAppRegion: "drag" } as unknown as ViewStyle;
-const NO_DRAG_REGION = { WebkitAppRegion: "no-drag" } as unknown as ViewStyle;
+export const NO_DRAG_REGION = { WebkitAppRegion: "no-drag" } as unknown as ViewStyle;
 
 export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   frame: {
@@ -120,12 +120,20 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     alignSelf: "stretch",
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: 6,
     paddingRight: space.x2,
     flexShrink: 0,
+    /*
+      The bar's own gap would sit between this head and the tabs, and the
+      owner asked for the first tab to start exactly where the note does, with
+      no notch of page beside it (2026-09-28). This head is exactly the
+      column's width, so taking the gap back puts the tabs on the column's
+      edge.
+    */
+    marginRight: -space.x3,
   },
-  /** Pushes the tree's toggle to the column's trailing edge. */
-  columnHeadFill: { flex: 1 },
+  /** The tree's tools, filling the head up to the toggle. See `columnTools.ts`. */
+  columnHeadFill: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
   /** The same controls leading the bar while the tree is folded. */
   topNav: {
     flexDirection: "row",
@@ -219,31 +227,40 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
       It was a 420pt bordered input centred in the title bar — browser
       furniture, and the widest object in the band, for a feature whose whole
       interface is a keystroke. Centred, it also forced the band into three
-      fixed slots, so there was nowhere for tabs to go. As a button beside the
-      other actions it costs about 60pt and gives the centre back.
+      fixed slots, so there was nowhere for tabs to go. It stays at the
+      trailing edge, beside the other actions.
 
-      The label goes with the width: on web the shortcut *is* the label, and a
-      magnifier beside it says what it opens. Native keeps a word, having no
-      shortcut to show.
+      Then it shrank to a 60pt chip reading "⌘K", which was too far the other
+      way: next to the save and storage pills it read as a stray hint rather
+      than as search. So it is a field again, at 200pt rather than 420 — wide
+      enough for the word and the keycap, narrow enough to leave the tabs
+      their room — with a hairline edge on the resting fill, which is what
+      says "you can type here" before anybody hovers it.
     */
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
     height: 28,
-    paddingHorizontal: 10,
+    width: 200,
+    flexShrink: 1,
+    minWidth: 96,
+    paddingLeft: 9,
+    paddingRight: 5,
     borderRadius: radii.sm,
-    /*
-      A resting fill, the same one the switcher chip wears.
-
-      It was transparent until hovered, which reads as a word floating in the
-      bar rather than a control — and the canvas draws both ends of this bar
-      the same way, because a title bar with a filled chip at one end and
-      nothing at the other looks unfinished rather than quiet.
-    */
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
     backgroundColor: colors.chipFill,
   },
-  searchHover: { backgroundColor: colors.surface3 },
-  kbd: { color: colors.chromeMuted },
+  searchHover: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },
+  searchWord: { flex: 1, color: colors.chromeMuted },
+  /** The shortcut as a keycap: its own hairline box at the trailing end. */
+  kbd: {
+    color: colors.chromeMuted,
+    paddingHorizontal: 5,
+    borderRadius: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.lineStrong,
+  },
 
   /** The three columns. `flex: 1` plus `minHeight: 0` is what makes the
       children scroll instead of the frame growing past the viewport. */

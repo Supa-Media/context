@@ -5,9 +5,10 @@
  * (`apps/mcp/src/lists/statuses.js`), so a board, a list block and an agent
  * read one meaning; see "Status groups" in `docs/decisions/folder-lists.md`.
  *
- * - A **band** is one group drawn with its columns: No status (Not started
- *   only), the folder's own words in their order, then words in use that the
- *   folder never declared but that are ordinary lifecycle words (`active`).
+ * - A **band** is one group drawn with its columns: the folder's own words
+ *   in their order, then words in use that the folder never declared but
+ *   that are ordinary lifecycle words (`active`). A note with no status is
+ *   not a task and is never a column.
  * - Words in use that nobody placed are the **No group yet** band, drawn
  *   after Done, and each is offered to an owner or editor to place once.
  * - A change to the list is written to the front note that declared it, or,
@@ -70,12 +71,12 @@ export interface StatusBand {
 /**
  * The board's bands, in order. Every status the folder's list holds is a
  * column even while empty, so there is always somewhere to drop a card; a
- * word in use is a column where its group puts it. "No status" leads Not
- * started for somebody who can move cards (dropping there clears a status),
- * and for a reader only when something is in it. A band with no columns is
- * left out; so is No group yet when nothing needs one.
+ * word in use is a column where its group puts it. Items with no status are
+ * notes, not tasks, and are left out: a board draws tasks only. A band with
+ * no columns is left out; so is No group yet when nothing needs one.
  */
-export function statusBands(groups: readonly FolderGroup[], list: StatusList, canMove: boolean): StatusBand[] {
+export function statusBands(all: readonly FolderGroup[], list: StatusList): StatusBand[] {
+  const groups = all.filter((group) => group.value !== "");
   const byWord = new Map(groups.map((group) => [group.value.toLowerCase(), group]));
   const placed = new Set<string>();
   const column = (value: string): FolderGroup => {
@@ -85,7 +86,6 @@ export function statusBands(groups: readonly FolderGroup[], list: StatusList, ca
   const bands: StatusBand[] = [];
   for (const group of GROUPS) {
     const columns: FolderGroup[] = [];
-    if (group === "not-started" && (canMove || byWord.has(""))) columns.push(column(""));
     for (const word of list[group]) if (!placed.has(word.toLowerCase())) columns.push(column(word));
     const inUse = groups
       .filter((each) => each.value !== "" && !placed.has(each.value.toLowerCase()) && groupOfStatus(each.value, list) === group)
@@ -96,16 +96,6 @@ export function statusBands(groups: readonly FolderGroup[], list: StatusList, ca
   const unplaced = groups.filter((each) => !placed.has(each.value.toLowerCase())).sort((a, b) => compareStatuses(a.value, b.value, list));
   if (unplaced.length > 0) bands.push({ group: null, label: "No group yet", columns: unplaced });
   return bands;
-}
-
-/**
- * The List view's bands: the same groups, only what has something in it,
- * and no empty columns — a list is read, not dropped on.
- */
-export function listBands(groups: readonly FolderGroup[], list: StatusList): StatusBand[] {
-  return statusBands(groups, list, false)
-    .map((band) => ({ ...band, columns: band.columns.filter((column) => column.items.length > 0) }))
-    .filter((band) => band.columns.length > 0);
 }
 
 /** One section of the status menu: a group's name and the words it offers. */

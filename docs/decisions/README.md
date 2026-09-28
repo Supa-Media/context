@@ -178,9 +178,26 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
 - A folder page shows its children by status
+- Tasks and notes
+- Adding and nesting tasks, every write undoable
+- On a phone, the sheet is the right-click menu
+- Priority, tags, due and several owners
+- Show: whose tasks, per viewer
+- The side panel: any row opens beside the list
 - A list write is what this device holds afterwards
 - Status groups
 - An owner is picked, never typed
+- Agents are a list the workspace writes, each optionally somebody's
+
+## [Comments on notes](./comments.md)
+
+- Comments are in the note, never beside it
+- The log is append-only
+- Agents comment through write_note, and cannot choose their name
+- Comments are never published
+- Opening a card never moves the text
+- On a phone, a thread opens in a sheet
+- The iOS editor draws comments and lists
 
 ## [Bucket-backed websites](./websites.md)
 
@@ -194,7 +211,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The workspace icon is the site's favicon
 - A page unfurls as itself
 - The homepage is `@context-lc`'s website, in its HTML
+- The homepage is the console's frame, never a copy of it
 - A page's emoji travel with the page
+- A page's pasted pictures travel with the page
+- A website page can name a folder, and the folder narrows
+- The homepage's cast is written in its pages, and plays through real presence
 
 ## [Search and the derived index](./search.md)
 
@@ -249,12 +270,14 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A folder page is a page, and a folder is acted on like a note
 - A folder's placeholder is not a row
 - A phone gets a path bar, which is half of the line that was deleted
+- The phone shell is the artboards' five pieces, and a visitor gets the same ones
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
 - Making a workspace is its own flow, not onboarding with a flag
 - The first run is two screens, and the rest is a checklist in the console
 - Connecting an AI is a guide that checks itself
 - An action row is primary first, and the way out sits beside it
+- What arrives in the flow eases in, and one curve serves the whole console
 - Two name fields for a shared workspace, one for a personal one
 - The layout presets are business-shaped, and PARA is not the default
 - A new workspace is asked for its image
@@ -282,6 +305,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A control on a table belongs to the row or the column it acts on
 - A note may declare the mode it opens in, and the person still outranks it
 - The note is a measured column, and the demo note stopped faking one
+- On a touch screen, a tap on a heading does not reveal its `#`
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
 - A folder row says what differs, so `0-inbox` gets no count
@@ -290,6 +314,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
+- [People and agents working now share one bar, and it counts only who is active](./app-and-console/active-people-bar.md)
+- [People are drawn as faces, never initials](./app-and-console/faces.md)
 - A status wears a chip; a band is for what you have not been told
 - A workspace can wear a face, and the letter is what it falls back to
 - The allowed-sender list stays beside the address it gates
@@ -346,6 +372,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A build is what shipped, not what merged — two "the fix did not work" reports
   were one build
 - A resumed meeting is a new part spliced into the note it already has
+- A homepage visitor can record a two-minute demo meeting, into their tab
 
 ## [Communications](./communications.md)
 
@@ -430,6 +457,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One unreadable plugin costs one verdict, never the report
 - The read path cannot be aimed
 - [The agent plugin: one folder, three manifests, and an installer that asks each agent what it can do](./plugins/agent-plugin.md)
+- [A plugin installed from the repository signs itself in, and has no bin/](./plugins/agent-plugin.md)
 - The agent plugin: one folder, three manifests, and an installer that asks each agent what it can do
 - What is deliberately not built
 - Drawings: read the file, describe it, and refuse to write over it
@@ -470,6 +498,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An unauthenticated probe is not a health check for an authenticated endpoint
 - The socket is proven by hand, and CI does not cover it
 - One thing an agent writes to a canvas still reaches one screen
+- [Pull-request checks report broadly and work narrowly](./testing/ci-pipelines.md)
+- [Browser groups match the defect they prove](./testing/ci-pipelines.md)
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 

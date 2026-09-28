@@ -60,12 +60,3 @@ export function goingPublicLine(name: string, kind: "file" | "folder"): string {
     : `Anyone with the link will be able to read ${name} and the notes it links to, without signing in. You can turn it off anytime.`;
 }
 
-/** Initials for an avatar: two letters from a name, one from an address. */
-export function initials(label: string): string {
-  const name = label.replace(/\s*\(you\)$/, "").trim();
-  if (name.includes("@") && !name.includes(" ")) return name.charAt(0).toUpperCase();
-  const words = name.split(/\s+/).filter((word) => /[A-Za-z0-9]/.test(word));
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
-  return (words[0]!.charAt(0) + words[words.length - 1]!.charAt(0)).toUpperCase();
-}

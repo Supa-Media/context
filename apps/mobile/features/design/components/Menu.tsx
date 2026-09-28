@@ -67,6 +67,12 @@ export interface MenuProps<Id extends string = MenuActionId> {
    * there; `title` alone is unchanged for them.
    */
   titleDetail?: string;
+  /**
+   * What the sheet draws instead of `items`, and above them. Native is always
+   * the sheet, so this is what native draws. See `Menu.web.tsx`, where it is
+   * written out identically.
+   */
+  sheet?: { items: MenuItem<Id>[]; header?: ReactNode };
   onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
@@ -81,6 +87,7 @@ function SheetRow({
   id,
   label,
   detail,
+  value,
   accessibilityLabel,
   danger = false,
   checked,
@@ -95,6 +102,8 @@ function SheetRow({
   label: string;
   /** A second line, for an outcome the verb cannot carry alone. */
   detail?: string;
+  /** What the row is set to now, at its right. See `MenuItem.value`. */
+  value?: string;
   /**
    * The accessible name, where the visible label is not a whole one.
    *
@@ -179,6 +188,11 @@ function SheetRow({
           </Text>
         )}
       </View>
+      {value === undefined ? null : (
+        <Text variant="treeMeta" numberOfLines={1} style={styles.value} testID={`menu-value-${id}`}>
+          {value}
+        </Text>
+      )}
       {trailing}
     </PressRow>
   );
@@ -191,12 +205,14 @@ function Separator() {
 }
 
 export function Menu<Id extends string = MenuActionId>({
-  items,
+  items: pointerItems,
   title,
   titleDetail,
+  sheet,
   onSelect,
   onDismiss,
 }: MenuProps<Id>) {
+  const items = sheet?.items ?? pointerItems;
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /**
@@ -283,6 +299,8 @@ export function Menu<Id extends string = MenuActionId>({
             </>
           )}
 
+          {parent === null && sheet?.header !== undefined ? sheet.header : null}
+
           <ScrollView
             style={styles.list}
             contentContainerStyle={styles.listContent}
@@ -295,6 +313,8 @@ export function Menu<Id extends string = MenuActionId>({
                   id={item.id}
                   label={item.label}
                   detail={item.detail}
+                  value={item.value}
+                  leading={item.leading}
                   danger={item.danger === true}
                   checked={item.checked}
                   disabled={item.disabled === true}
@@ -395,6 +415,8 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   rowHover: { backgroundColor: colors.surface3 },
   dangerLabel: { color: colors.critText },
   chevron: { marginLeft: "auto", color: colors.muted },
+  /** `MenuItem.value`: pushed right, and the first thing to give way to a long label. */
+  value: { marginLeft: "auto", flexShrink: 1, maxWidth: "50%", color: colors.muted, textAlign: "right" },
   separator: {
     height: 1,
     backgroundColor: colors.line,

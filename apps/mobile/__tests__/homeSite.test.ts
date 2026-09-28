@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "@jest/globals";
 import { parseWebsitePage } from "@context/shared";
@@ -15,13 +15,17 @@ import {
 } from "../features/console/settings/panels/premium";
 import { BUILT_IN_PAGES } from "../features/home/builtInPages";
 import {
+  APP_SEGMENTS,
   BUILT_IN_SITE,
   LEGAL_PAGES,
   PRIVATE_PAGE,
   homeLink,
+  homePagePath,
+  homeRedirect,
   noteLinkHref,
   homeTree,
   liveHomeTree,
+  pageHref,
   pageParam,
   routeFromParam,
 } from "../features/home/homeSite";
@@ -41,7 +45,7 @@ import {
  * checkout charges. They hold the pages, which ship in the app.
  */
 
-const SHELL = ["HomeShell.tsx", "HomePage.tsx"]
+const SHELL = ["HomeShell.tsx", "HomePage.tsx", "useVisitorConsoleData.ts"]
   .map((file) => readFileSync(join(__dirname, "../features/home", file), "utf8"))
   .join("\n");
 
@@ -49,7 +53,8 @@ const SHELL = ["HomeShell.tsx", "HomePage.tsx"]
 const PROSE: readonly string[] = [
   ...Object.values(BUILT_IN_PAGES),
   PRIVATE_PAGE.markdown,
-  ...[...SHELL.matchAll(/(?:\blabel|\bplaceholder|\btext)[=:] ?"([^"]{6,})"/g)].map((match) => match[1]!),
+  ...[...SHELL.matchAll(/(?:\blabel|\bplaceholder|\btext|\bdetail)[=:] ?"([^"]{6,})"/g)].map((match) => match[1]!),
+  ...[...SHELL.matchAll(/\bsay\("([^"]{6,})"/g)].map((match) => match[1]!),
   ...[...SHELL.matchAll(/>\s*([A-Z][^<>{}]{11,}?)\s*</gs)].map((match) => match[1]!.replace(/\s+/g, " ")),
 ].flatMap((text) => text.split(/\n+/)).filter((line) => line.trim() !== "");
 
@@ -74,7 +79,8 @@ describe("the built-in pages are website pages", () => {
   });
 
   test("the shell's own shell strings were found, so the rules below read them", () => {
-    expect(PROSE).toContain("Search @context");
+    expect(PROSE).toContain("Not signed in");
+    expect(PROSE).toContain("This note is only in this tab, so it has no link yet.");
   });
 });
 
@@ -225,6 +231,66 @@ describe("links inside a page", () => {
   });
 });
 
+/*
+  `/pricing` used to be the not-found screen, and Share handed out
+  `/?page=pricing`. A page's address is now the one a person would type, and
+  the app's own screens and people's websites keep theirs.
+*/
+describe("a page's clean address", () => {
+  test("a name the app does not own is a page of the homepage", () => {
+    expect(homePagePath(["pricing"])).toBe("/pricing");
+    expect(homePagePath(["legal", "privacy"])).toBe("/legal/privacy");
+    expect(homePagePath(["login-help"])).toBe("/login-help");
+  });
+
+  test("the app's screens, the edge's paths and people's websites keep winning", () => {
+    for (const segments of [["login"], ["console", "seyi"], ["workspace", "new"], ["s", "abc"], ["privacy"],
+      ["terms"], ["note", "@seyi", "a.md"], ["_expo", "static"], ["api", "auth"], ["@seyi"], ["@seyi", "writing"],
+      ["LOGIN"], []]) {
+      expect({ segments, page: homePagePath(segments) }).toEqual({ segments, page: null });
+    }
+  });
+
+  test("on the web it opens the homepage on that page; elsewhere it is not found", () => {
+    expect(homeRedirect(["pricing"], true)).toEqual({ pathname: "/", params: { page: "pricing" } });
+    expect(homeRedirect(["legal", "privacy"], true)).toEqual({ pathname: "/", params: { page: "legal/privacy" } });
+    expect(homeRedirect(["login"], true)).toBeNull();
+    expect(homeRedirect(["pricing"], false)).toBeNull();
+  });
+
+  test("Share gives the clean address, and the query form only where the clean one is taken", () => {
+    expect(pageHref("/")).toBe("/");
+    expect(pageHref("/pricing")).toBe("/pricing");
+    expect(pageHref("/Public Worship/notes")).toBe("/Public%20Worship/notes");
+    expect(pageHref("/login")).toBe("/?page=login");
+    // Every clean address comes back to the page it was made from.
+    for (const route of ["/pricing", "/legal/privacy", "/Public Worship"]) {
+      const segments = decodeURI(pageHref(route)).slice(1).split("/");
+      expect(homeRedirect(segments, true)?.params.page).toBe(route.slice(1));
+    }
+  });
+
+  /**
+   * The list is only right while it names every screen under `app/`. A route
+   * added there and not here would lose to a site page of the same name in
+   * Share's links — and win in the router, so the link would open the screen.
+   */
+  test("every top-level route of the app is on the list", () => {
+    const appDir = join(__dirname, "../app");
+    const top = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        if (/^\(.*\)$/.test(name)) return top(join(dir, name));
+        const segment = name.replace(/\.tsx?$/, "");
+        if (segment.startsWith("_") || segment.startsWith("+") || segment.startsWith("[") || segment === "index") {
+          return [];
+        }
+        return [segment];
+      });
+    const missing = top(appDir).filter((segment) => !APP_SEGMENTS.has(segment));
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("the live site is website/, as its folders", () => {
   const site = [
     { routePath: "/", title: "Welcome", markdown: "# Welcome" },
@@ -249,6 +315,26 @@ describe("the live site is website/, as its folders", () => {
     expect(paths.get("/Legal/terms")).toBe("03-Legal/02-Terms.md");
     expect(tree.defaultSelection).toBe("01-Welcome.md");
     expect(tree.defaultExpanded).toEqual(["03-Legal"]);
+  });
+
+  test("a page that names a folder opens it, with the notes it published inside", () => {
+    // The snapshot sends `website/features.md` as `features/index.md` when it
+    // names a folder, so the sidebar draws Features as the folder it is.
+    const { tree, paths } = liveHomeTree([
+      { path: "index.md", routePath: "/", title: "Home", markdown: "# Home" },
+      { path: "features/index.md", routePath: "/features", title: "Features", markdown: "# Features" },
+      { path: "features/forms.md", routePath: "/features/forms", title: "Forms", markdown: "# Forms" },
+    ]);
+    expect(tree.listings[""]!.entries.map((entry) => [entry.path, entry.kind])).toEqual([
+      ["01-Home.md", "file"],
+      ["02-features", "folder"],
+    ]);
+    expect(tree.listings["02-features"]!.entries.map((entry) => entry.path)).toEqual([
+      "02-features/01-Features.md",
+      "02-features/02-Forms.md",
+    ]);
+    expect(paths.get("/features")).toBe("02-features/01-Features.md");
+    expect(paths.get("/features/forms")).toBe("02-features/02-Forms.md");
   });
 
   test("nothing is added that the folder does not hold", () => {
@@ -283,6 +369,7 @@ describe("a visit decides once between the site and the copy", () => {
     revision: "1:1",
     pages: [{ routePath: "/", title: "Welcome", markdown: "# Welcome" }],
     emoji: {},
+    images: {},
   };
   const element = (text: string | null) => ({
     getElementById: (id: string) => (id === HOME_SITE_ELEMENT_ID && text !== null ? ({ textContent: text } as HTMLElement) : null),

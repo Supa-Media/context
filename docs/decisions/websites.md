@@ -343,6 +343,34 @@ visitor got the built-in copy. The router keeps the answer per site revision
 (see "Edits wait for Publish"), including one that arrives after it stopped
 waiting, so the folder is read once per Publish, not once per visit.
 
+### The homepage is the console's frame, never a copy of it
+
+_Decided 2026-09-26, by the owner: "there are going to be a bunch of changes
+to the shell and the makeup of the app and I'd like to make sure the
+frontpage stays true and real to the actual state of the app."_
+
+`HomeShell` renders `features/console/ConsoleFrame.tsx` — the body of the
+console's own route layout — with `BrowsePane` inside it, over `ConsoleData`
+built from the website's notes (`useVisitorConsoleData`). It does not compose
+`AppFrame` itself. The first homepage did, and every piece it did not copy was
+missing: the account button at the foot of the tree, the note's eye and
+Share, `‹ ›`. A change to the console's shell reaches the homepage in the
+same commit because there is one frame.
+
+What differs is `data.visitor`, and only where an account is the point:
+Settings, the agent setup, Sign out and the right panel are not drawn, the
+account button offers Sign in and Create account (or the way back to the app
+for somebody signed in), and Share copies the page's public link — its clean
+address, `/pricing` (see "A homepage page is addressed by its own name") —
+rather than opening a dialog that needs a workspace. `demo` stays true, which
+keeps every server-backed control out, so the page asks Convex nothing.
+
+**What a "simplification" would cost:** a homepage frame of its own drifts
+from the app on the first shell change nobody ports.
+`homeConsoleFrame.test.ts` finds the console's own controls by their test ids
+and fails if the homepage stops rendering them, gains an account's controls,
+or reaches the server.
+
 A visitor can edit it the way they would their own workspace: every note
 opens in the editor, and notes and folders can be made, renamed, moved, copied
 and deleted. No button turns editing on and no line explains it (the owner:
@@ -353,6 +381,42 @@ visibility and downloads stay off because each is a claim about a real
 workspace. Until the visitor changes something the tree follows the site; after
 that it is theirs. There is no call to action in the top bar: the page is the
 product, and a signed-out visitor gets Sign in.
+
+### A homepage page is addressed by its own name
+
+_Approved by the owner with the phone redesign, 2026-09-27._
+
+`/pricing` is the homepage's Pricing page. It used to be the not-found screen,
+and Share handed out `/?page=pricing`. A clean address reaches the app through
+the `app/[handle]` routes (the only dynamic top-level route), which redirect a
+name that is not an `@handle` to `/?page=<name>` on the web, so a visit stays
+one homepage and moving between pages is a change of `?page=` on one screen —
+the visitor's in-tab edits are not dropped by a second copy of it mounting. A
+name the site has no page for gets the homepage's own "Nothing here". The
+router (`infra/router/src/homeSite.ts`) puts the site in a page address's
+HTML as it does in `/`'s, when the site has that page, so the first paint is
+the page rather than a wait for the app to ask.
+
+The app's own screens and people's websites keep winning: Expo Router matches
+static routes first, and `APP_SEGMENTS` in
+`apps/mobile/features/home/homeSite.ts` names every top-level route so that
+Share never hands out `/login` for a site page called `login` (that one keeps
+`/?page=login`).
+
+**What a "simplification" would cost:** drawing the homepage at `/pricing`
+instead of redirecting remounts it on the first click; dropping a segment
+from the list makes Share's link open an app screen. `homeSite.test.ts` reads
+`app/` and fails on a route the list does not name.
+
+**One screen means the layout, not the index route** (2026-09-28). A change of
+`?page=` is a push, and a push is a new screen for the route, so while the
+homepage was `app/index.tsx` every page a visitor opened mounted a new copy of
+it: `‹` and Recent stayed dimmed on a phone, and in-tab edits were dropped
+anyway. The homepage is drawn by `app/(home)/_layout.tsx`, which Expo Router
+keeps across its screens' pushes (the way `(app)/console/_layout` keeps the
+console); `app/(home)/index.tsx` draws nothing and is only the history entry,
+and `HomeShell` reads the page with `useGlobalSearchParams`. Moving it back
+into the index screen fails `e2e/webkit/homeNavigation.spec.ts`.
 
 A visit decides once between the site and the built-in copy
 (`apps/mobile/features/home/homeSnapshot.ts`): with no block in the HTML the
@@ -387,3 +451,173 @@ name publishes every emoji the workspace has. Reading names inside code
 publishes pictures the page does not show. `apps/convex/__tests__/websiteEmoji.test.ts`,
 `apps/mobile/__tests__/websiteEmoji.test.ts` and `infra/router/src/homeSite.test.ts`
 fail if either comes back, or if a non-inline picture gets through.
+
+## A page's pasted pictures travel with the page
+
+Decided 2026-09-28, when a screenshot pasted into `@context-lc`'s
+`website/use-cases.md` drew in the editor and showed "Not in this bucket" on
+the homepage. It is the emoji rule again, for the same reason: a site loads no
+images, so the pictures a page embeds arrive inside its answer as `data:` URLs
+(`lib/websites/images.ts`). Only a bare stored leaf the published text embeds
+outside code (`![[paste-….png]]`, `![alt](paste-….png)`) is read, through the
+store's own `readImage` leaf rule at the publication clearance, so publishing a
+page publishes the pictures in it and no other object in the store. A picture
+over 2 MB, past 4 MB in one answer (the homepage's whole site is one answer),
+past 24 leaves, or of a type browsers do not draw (HEIC, SVG) is left out and
+shows as missing. The router and the app each re-check every entry and keep
+only an inline PNG, JPEG, GIF or WebP under a stored leaf, so no answer can make
+a visitor's browser fetch an address. The homepage's editor answers
+`loadImage` from the snapshot; a `/@handle` page draws an image line as the
+editor lays it out, with its width and alignment. A remote image stays text.
+
+Whoever can Publish chooses what a page embeds, so a leaf named on a page is
+published even when the same picture is also pasted into a private note: the
+leaf is a content hash, which nobody can name without having seen the picture.
+
+**What a simplification costs.** Serving pictures from a URL makes each view a
+request the visitor did not ask for and needs a route that answers for leaves;
+one that answered for any leaf would publish every picture in the store.
+`apps/convex/__tests__/websiteImages.test.ts`,
+`apps/mobile/__tests__/websiteImages.test.ts` and
+`infra/router/src/homeSite.test.ts` fail if a leaf the page does not embed, one
+inside code, a path or a non-inline picture gets through.
+
+## A website page can name a folder, and the folder narrows
+
+Decided by the owner, 2026-09-26, so notes kept for their own sake (a
+`features/` folder of guides) can also be the site without being copied into
+`website/`. A page of the site's own whose frontmatter says `folder: features`
+publishes the notes in `features/` under its address: `website/features.md`
+puts `features/forms.md` at `/features/forms`, and `features/guides/tables.md`
+at `/features/guides/tables`. The page lists them under its own words, by
+title and description, and on the homepage it opens as that folder in the
+sidebar, with its notes inside. Every site gets this, not only the homepage.
+
+A referenced note is an ordinary route row keyed by its real path
+(`lib/websites/folders.ts`), so everything already true of a page is true of
+it: it is listed and read at `team` scope with no granted names, re-read at
+that clearance on every visit, served from the release when edited, dropped
+the moment it restricts, and edits wait for Publish. Where the route compiler
+needs a key inside `website/`, it gets the one the address implies
+(`routeStatusKey`). So a folder **narrows** exactly as a folder link does: a
+note `privacy.md` holds back by name, a private subfolder and a note pointed at
+a group are absent, and a folder `privacy.md` keeps private publishes nothing.
+Frontmatter still only narrows; `folder:` chooses *which* notes are
+candidates, never whether one publishes.
+
+What no page may name: the whole context (empty, `/`), `website/` or anything
+under it (already the site), anything with a segment starting with `.`
+(`.context/`, `..`), and anything ambiguous (a backslash, `%`, `?`, `#`, a
+control character). Only the site's own live pages name folders: a draft
+folder page publishes nothing of its folder, and a note a folder published
+cannot name another. A page of the site's own outranks a referenced note at
+the same address, and a note the compiler refuses is left off rather than
+reported, so one stray note never stops Publish. At most 300 notes join a site
+this way. The probe that serves an address the index has not caught up with
+still looks only in `website/`, so a referenced note is absent until the
+next rebuild, never early.
+
+**What a simplification costs.** Reading the folder at the owner's clearance
+publishes their private notes. Copying the notes into `website/` makes two
+sources that drift. Accepting `folder: /` makes the whole context one
+setting away from public, which non-negotiable #5 forbids.
+`apps/convex/__tests__/websiteFolders.test.ts` fails if any of these comes back.
+
+## The homepage's cast is written in its pages, and plays through real presence
+
+Decided by the owner, 2026-09-27: the homepage should feel like a workspace
+people are working in, with people and agents typing, reading and adding
+notes while a visitor watches, and the owner writes what they do. A page
+scripts its cast in a fenced `cast` block placed where the words should
+appear (`packages/shared/src/websiteCast.ts`):
+
+````
+```cast
+@maya adds to the line above: (the baby can read.)
+Claude writes: new here? [[getting-started]] is the tour.
+Claude reads: pricing
+Claude adds note: getting-started
+  # Getting started
+wait 3s
+```
+````
+
+**A block's position is its anchor.** A new line lands where the block was;
+"adds to the line above" lands at the end of whatever paragraph is above it
+now, and "adds a line below" on the line just under it, which is how a list
+gets its next item. Nothing matches quoted words, so editing a page can move where a step
+lands and never makes one fail. The owner chose this over a separate script
+note that quotes the text it attaches to (which silently drops a step once
+those words change) and over generated lines (which take the words out of
+their hands).
+
+**Comments are the one step that quotes words**, because a comment is about
+words: `Codex comments on "free, you cheapo": …` writes a real thread
+(`comments.cjs`: the anchor markers and a line in the note's `comments`
+block) around their first appearance, and `replies:` / `resolves` act on the
+last thread that page's cast started. The margin then draws it as it draws
+anybody's comment, a person's reply is typed into its line, and resolving
+hides the card. If the quoted words are gone, that comment and its replies
+do nothing rather than anchor elsewhere. A comment author written
+`@jon's Claude` is an agent in the margin too, not a person.
+
+**Only the homepage plays it; every served page is drawn without it.**
+`renderWebsitePage` strips the blocks for every site, and the homepage's
+snapshot keeps them so the homepage can split them out before building its
+tree (`features/home/cast/castSite.ts`).
+
+**The owner previews a script in the homepage itself, never in their
+editor** (Dev2, 2026-09-28: "is there a way to preview how the cast
+plays"). A note whose draft holds a cast block gets a play button beside the
+eye, "Preview demo", which opens the homepage in a new tab with that draft,
+unpublished and unsaved, as its only page (`features/home/castPreview.ts`).
+It cannot play in the console's editor: that editor is bound to the real
+note, and a show typed into it would be saved to the bucket as if the cast
+had written it. The handoff is a one-time key in this browser's storage,
+named in the address and deleted when read, so the draft never reaches a
+server, a reload is the real site, and the player is the homepage's own —
+what the preview shows is what visitors get after Publish.
+
+**It is the console's presence, not a homepage animation.** Each page's show
+is a local `SharedDoc` the web editor binds exactly as it binds a room
+(`castPresence`), so typing arrives as a colleague's keystrokes do and the
+carets, name flags, highlights, facepile, tree squares and agents line are
+the console's own code drawing ordinary `PresenceMember`s and an
+`AgentActivityView`. A change to how the console shows presence reaches the
+homepage in the same commit, which is the standing rule for the homepage.
+The two things added for it serve the console too: the chip draws an agent
+as a square, and a `demo` presence says `· demo` in the chip, so nobody takes
+a scripted @maya for a person watching them.
+
+**An agent is named by whose it is**, in the cast and in the console alike
+(the owner, 2026-09-27): several people's agents work in one shared
+workspace, so the gateway's `presenceActor` names one `@jon's Claude`, and
+the console draws that compactly (`agentName.ts`): the caret's flag reads
+`jo Claude`, and a facepile avatar for an agent is a square with its owner's
+initials. The full name stays in the chip's words, the agents list and the
+flag's tooltip.
+
+**The visitor comes first.** A change the visitor makes to a note ends that
+note's show at once and the cast leaves it. Each page plays once a visit,
+nothing is written anywhere but the visitor's in-tab copy, and with reduced
+motion text lands whole instead of being typed.
+
+**In the owner's editor a block is one row.** A cast block folds to
+"▸ Demo script · N steps" while the caret is elsewhere, N being the steps the
+shared parser will play from it (counted over the page, so a `replies` that
+needs an earlier block's thread counts where it plays), and gives its source
+back when the caret reaches it, the frontmatter's rule; tapping the row puts
+the caret on its first line (`livePreview/castBlock.ts`). An unclosed block is
+a line of text rather than a code block running to the end of the note, as
+the shared parser already shows it (`livePreview/castGrammar.ts`). Web and the
+iOS editor draw it from the same code.
+
+**What a simplification costs.** Drawing the cast with homepage-only
+components forks the shell the homepage exists to show. Anchoring steps by
+quoted text makes routine edits break the show silently. Serving the blocks
+on other sites prints the script as a code block on someone's public page.
+`apps/mobile/__tests__/homeCast.test.ts`, `websiteCast.test.ts` and the cast
+case in `apps/convex/__tests__/websiteResolution.test.ts` fail if any of
+these comes back. Printing the script in the editor puts the page's loudest
+lines where the owner writes it; `livePreview/castFences.test.ts` fails if
+the row or its count goes, or an unclosed block swallows the note again.

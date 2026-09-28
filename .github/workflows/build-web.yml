@@ -1,0 +1,88 @@
+# Build the production Expo web export once and hand it to the router deploy.
+# Cloudflare Workers Static Assets publishes this artifact with the router code
+# as one rollback-safe version; there is no second EAS upload or alias poll.
+name: Build Web (production)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: Export production web artifact
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
+      EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+      EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+      EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
+      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify the frontend and the control plane name the same Convex deployment
+        env:
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+        run: |
+          set -euo pipefail
+          router=$(node -e '
+            const url = process.env.CONTROL_PLANE_URL || "";
+            const match = url.match(/^https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)\/?$/);
+            if (!match) { console.error(`CONTROL_PLANE_URL is not a Convex URL: "${url}"`); process.exit(1); }
+            process.stdout.write(match[1]);
+          ')
+          front=$(node -e '
+            const url = process.env.EXPO_PUBLIC_CONVEX_URL || "";
+            const match = url.match(/^https:\/\/([a-z0-9-]+)\.convex\.(?:cloud|site)\/?$/);
+            if (!match) { console.error(`EXPO_PUBLIC_CONVEX_URL is not a Convex URL: "${url}"`); process.exit(1); }
+            process.stdout.write(match[1]);
+          ')
+          if [ "$router" != "$front" ]; then
+            echo "ERROR: frontend targets '$front' while the router targets '$router'."
+            exit 1
+          fi
+          echo "OK — frontend and router both use '$router'."
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the drawing editor
+        run: node scripts/build-drawing-editor.mjs
+
+      - name: Export web bundle
+        working-directory: apps/mobile
+        run: npx expo export --platform web
+
+      - name: Keep the exact export for the router release
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-web
+          path: apps/mobile/dist
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          {
+            echo "## Web export (production)"
+            echo ""
+            echo "- Built once and uploaded as \`production-web\`."
+            echo "- The router job publishes this exact artifact with Worker code."
+            echo "- Commit: \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

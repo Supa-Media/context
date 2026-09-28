@@ -1,14 +1,18 @@
 import type { Dispatch, SetStateAction } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { FrameIconButton } from "../../../app/AppFrame";
 import { noteGutterFor } from "../../../app/frame";
 import { useThemedStyles } from "../../../design/theme";
+import type { useConsoleNav } from "../../ConsoleNavContext";
 import { Breadcrumb } from "../../files/Breadcrumb";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
+import { PresencePile } from "../../presence/PresencePile";
+import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
+import { castPreviewButton } from "./castPreviewButton";
 import type { FolderListingState } from "./useFolderListing";
 
 /**
@@ -18,19 +22,25 @@ import type { FolderListingState } from "./useFolderListing";
 export function BrowseNoteHead({
   files,
   selected,
+  nav,
   reading,
   headWidth,
   setHeadWidth,
-  setSharing,
+  onShare,
   openCrumbMenu,
+  presence,
 }: {
   files: FileBrowser;
   selected: NonNullable<ReturnType<typeof entryAt>>;
+  nav: ReturnType<typeof useConsoleNav>;
   reading: boolean;
   headWidth: number;
   setHeadWidth: Dispatch<SetStateAction<number>>;
-  setSharing: Dispatch<SetStateAction<string | null>>;
+  /** Share, or `undefined` for somebody who may not share this. */
+  onShare: ((path: string) => void) | undefined;
   openCrumbMenu: FolderListingState["openCrumbMenu"];
+  /** The open note's room, for the pile beside the note's own controls. */
+  presence?: Presence;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -61,10 +71,23 @@ export function BrowseNoteHead({
         <Breadcrumb
           path={selected.path}
           /*
-            No `‹ ›` here any more: they are in the title row over the file
-            tree (`AppFrame`'s `history`), on every console page rather than
-            only on this one.
+            `‹ ›` at the head of the path, on a pointer, as Obsidian has them.
+            For a day they were in the title row over the file tree; the
+            owner moved them back into the note (2026-09-28): they walk
+            between notes, so they belong to the note. The phone's
+            breadcrumb is `pathOnly` and draws neither, because its bottom
+            bar carries the same pair over the same `history.ts` stack.
           */
+          history={
+            nav === null
+              ? undefined
+              : {
+                  canBack: nav.canBack,
+                  canForward: nav.canForward,
+                  onBack: nav.back,
+                  onForward: nav.forward,
+                }
+          }
           /*
             What the note calls itself, where it calls itself anything.
 
@@ -80,10 +103,6 @@ export function BrowseNoteHead({
               ? noteHeading(files.editor.draft, selected.path)
               : undefined
           }
-          visibility={selected.visibility}
-          inherited={selected.inherited}
-          exception={selected.exception}
-          readOnly={selected.readOnly}
           onSelectFolder={files.select}
           onFolderMenu={openCrumbMenu}
         />
@@ -160,6 +179,21 @@ export function BrowseNoteHead({
         row too and gets no eye: there is no document to read, which is the
         reason `_layout.tsx` gives for the same gate.
       */}
+      {/*
+        Who else is in this note, on the note's own header row rather than a
+        row of its own over the title, so somebody arriving never moves the
+        note. Only for the note the editor holds — the room is that note's.
+      */}
+      {presence !== undefined && selected.kind === "file" && files.editor.path === selected.path ? (
+        <PresencePile presence={presence} compact={false} />
+      ) : null}
+      {/*
+        Preview demo: only on a note with a cast block in it, and only on the
+        web, where the homepage it opens is. See `castPreview.ts`.
+      */}
+      {Platform.OS === "web" && selected.kind === "file" && files.editor.path === selected.path
+        ? castPreviewButton(files.editor.draft, selected.path)
+        : null}
       {selected.kind === "file" ? (
         <FrameIconButton
           icon={reading ? "pencil" : "eye"}
@@ -168,11 +202,11 @@ export function BrowseNoteHead({
           testID="browse-read"
         />
       ) : null}
-      {files.canShare && !selected.readOnly ? (
+      {onShare !== undefined && !selected.readOnly ? (
         <FrameIconButton
           icon="share"
           label="Share this"
-          onPress={() => setSharing(selected.path)}
+          onPress={() => onShare(selected.path)}
           testID="browse-share"
         />
       ) : null}

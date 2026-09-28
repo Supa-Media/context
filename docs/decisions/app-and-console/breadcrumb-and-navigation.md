@@ -366,3 +366,55 @@ The test that fails if this is reversed: `noteAccessory.test.ts`'s check that
 the `link` key exists, inserts `[[]]` with the caret between the brackets, and
 opens the completion — dropping any one of those three fails it and only it.
 
+**Selected words open the Link sheet (2026-09-27, screen 10 of the phone
+artboards).** The key as first shipped threw a selection away — "`[[some
+text]]` names nothing" — and that is the part the owner hit: select words,
+press the key, lose them, and no way anywhere to link words to a web page. He
+also could not tell what the key was ("what is this 5th icon???"): the `link`
+glyph was two upright capsules that did not touch. So, three changes:
+
+- **The glyph is a chain**: two closed links on the rising diagonal, each
+  through the other (`icons/files.tsx`), fixed in the icon set so every use of
+  `link` gets it. `icons.test.ts` fails on the old drawing.
+- **With words selected, the key opens a sheet** titled *Link*, showing
+  `on "<words>"` and one 16pt field. An address (`http(s)`, or a bare host
+  `webUrl` recognises, like `example.com`) gives one row, *Link to this web
+  page*, which writes `[words](url)`. Anything else lists the notes `[[`
+  completion would offer for the same letters (`noteChoices`, the same
+  ranking and the same rooted, extension-less target), then
+  `Link to "<typed>"`; both write `[[target|words]]` — the second a note that
+  may not exist yet, which is how a note is asked for here. Return picks the
+  first row; the scrim, a drag down on the grabber and Escape all cancel, and
+  cancelling puts the selection back exactly.
+- **With nothing selected, the key is unchanged**: `[[]]` and completion.
+
+*How it holds the selection.* The sheet is native on iOS and the selection is
+in the web view, so the key sends `insertLink` with `ask: true`; the guest saves
+the ranges in a state field (installed on first use, so an editor that never
+opens the sheet is untouched) and answers `link-request` with the words; the
+sheet answers `applyLink` or `cancelLink`. The saved ranges are **mapped through
+every change** while the sheet is open, and a range whose words no longer match
+is left alone — in a shared note somebody can type above or inside the words in
+the meantime, and a link written over text the person did not choose is worse
+than no link. Every non-empty range of a multi-cursor selection is linked with
+its own words in one transaction. The link is checked again on the guest side
+(`decodeLinkTarget`): an address must be one `webPageAddress` itself produces,
+so nothing the sheet could not have offered is written into a note.
+
+*Where it deliberately does not apply.* Words containing a line break or a
+square bracket cannot be the words of either link form — `parseLinks` reads
+`[^\]\n]` for both, so the link would be written and never recognised — and
+for those the key keeps the words and puts `[[]]` after them rather than
+opening a sheet it cannot honour. The desktop context menu's *Insert link*
+keeps its old behaviour (the words are replaced by `[[]]`): a pointer layout
+has no accessory bar and no sheet host yet, and a popover there is a separate
+piece of work. A host that does not pass `ask` gets the old key exactly, which
+is also what a stale guest bundle does with a newer host.
+
+The tests that fail if this is reversed: `linkSelection.test.ts` (each kind's
+Markdown over a real editor, cancel, the note moving underneath, several
+cursors, read-only), `linkMarkdown.test.ts` (address detection, every form
+round-tripped through `parseLinks`, the sheet's rows),
+`noteAccessory.test.ts`'s *the link key over selected words*, and the bridge
+round trip in `webviewBridge/accessoryBarCommands.test.ts`.
+

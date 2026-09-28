@@ -8,6 +8,7 @@ import {
   type WebsiteRouteDiagnostic,
   type WebsiteRouteOptions,
 } from "./websiteRoutes";
+import { stripComments } from "./comments.cjs";
 
 /** The route-affecting subset of one ordinary Markdown note. */
 export interface ParsedWebsitePage {
@@ -110,7 +111,12 @@ export function parseWebsitePage(markdown: string): ParsedWebsitePage {
     if (body.startsWith("\n")) body = body.slice(1);
   }
 
-  const parsed = base(body);
+  /*
+    A page's comments are the workspace's conversation about it, never part of
+    what the site publishes: the anchors and the `comments` block are removed
+    here, where every site surface takes its body from.
+  */
+  const parsed = base(stripComments(body));
   const seen = new Set<ControlledField>();
 
   for (const line of frontmatter) {

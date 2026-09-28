@@ -15,6 +15,9 @@
  * field here, and written so it cannot close its own `<script>` element.
  * Every failure (no CONVEX_ORIGIN, a timeout, a non-200, a site that is off)
  * is the untouched HTML, and the app falls back on its own.
+ *
+ * A page's own address, `/pricing`, carries it as well when the site has that
+ * page: the app opens that address as the homepage on that page.
  */
 
 /** The element the app reads (`apps/mobile/features/home/homeSnapshot.ts`). */
@@ -49,6 +52,8 @@ export interface HomeSnapshot {
   pages: HomeSnapshotPage[];
   /** The workspace emoji the pages use, `name → data: URL`; the site loads no images. */
   emoji: Record<string, string>;
+  /** The pasted pictures the pages embed, `leaf → data: URL`, for the same reason. */
+  images: Record<string, string>;
 }
 
 const MAX_EMOJI = 48;
@@ -67,9 +72,62 @@ function parseEmoji(value: unknown): Record<string, string> {
   return emoji;
 }
 
-/** A navigation to `/` itself, which is the only document that carries the site. */
+/** Mirrors `lib/websites/images.ts` in Convex: 24 pictures, 2 MB each, 4 MB in all, as base64. */
+const MAX_IMAGES = 24;
+const IMAGE_LEAF = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.(?:png|jpe?g|gif|webp)$/i;
+const MAX_IMAGE_URL = 2_900_000;
+const MAX_IMAGES_TEXT = 5_700_000;
+
+/** Each entry re-checked, as emoji are; one that fails is dropped and shows as missing. */
+function parseImages(value: unknown): Record<string, string> {
+  const images: Record<string, string> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return images;
+  let total = 0;
+  for (const [leaf, url] of Object.entries(value).slice(0, MAX_IMAGES)) {
+    if (!IMAGE_LEAF.test(leaf) || !isText(url, MAX_IMAGE_URL) || !EMOJI_PICTURE.test(url)) continue;
+    if (total + url.length > MAX_IMAGES_TEXT) continue;
+    total += url.length;
+    images[leaf] = url;
+  }
+  return images;
+}
+
+/**
+ * First segments that are never a homepage page: the app's own screens and
+ * this Worker's paths. Mirrors `APP_SEGMENTS` in
+ * `apps/mobile/features/home/homeSite.ts`, which the app's tests hold to its
+ * routes. Only a saving here: a page is injected into a document only when the
+ * site has it, and the app never draws the homepage at one of these anyway.
+ */
+const NOT_PAGES = new Set([
+  "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "login", "meetings",
+  "note", "preview", "privacy", "s", "terms", "welcome", "workspace", "_expo", "api", "og",
+]);
+
+/**
+ * The homepage page a document's path may be — `/`, or a clean page address
+ * such as `/pricing` that the app opens as that page — or `null` for a path
+ * that is an app screen, somebody's website (`/@handle`), or a file.
+ */
+export function homePagePathOf(url: URL): string | null {
+  if (url.pathname === "/") return "/";
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    return null;
+  }
+  const segments = path.split("/").filter((segment) => segment !== "");
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  if (first === undefined || last === undefined) return null;
+  if (first.startsWith("@") || NOT_PAGES.has(first.toLowerCase()) || /\.[a-z0-9]+$/i.test(last)) return null;
+  return `/${segments.join("/")}`;
+}
+
+/** A navigation to `/`, or to a page's own address: the documents that carry the site. */
 export function isHomeDocument(request: Request, url: URL): boolean {
-  return request.method === "GET" && url.pathname === "/";
+  return request.method === "GET" && homePagePathOf(url) !== null;
 }
 
 function isText(value: unknown, max = MAX_TEXT): value is string {
@@ -94,7 +152,13 @@ export function parseHomeSnapshot(value: unknown): HomeSnapshot | null {
     if (!isText(page.title, 200) || !isText(page.markdown)) return null;
     pages.push({ path: page.path, routePath: page.routePath, title: page.title, markdown: page.markdown });
   }
-  return { siteName: body.siteName, revision: body.revision, pages, emoji: parseEmoji(body.emoji) };
+  return {
+    siteName: body.siteName,
+    revision: body.revision,
+    pages,
+    emoji: parseEmoji(body.emoji),
+    images: parseImages(body.images),
+  };
 }
 
 /**
@@ -137,9 +201,15 @@ async function postJson(url: string, body: unknown, limitMs: number): Promise<un
   return await response.json();
 }
 
+/**
+ * The answer's shape, in the key: a copy kept before the snapshot carried its
+ * pictures (`images`) would otherwise be served until the next Publish.
+ */
+const SNAPSHOT_FORMAT = "v2";
+
 function keyFor(handle: string, revision: string): Request {
   return new Request(
-    `https://home-site.invalid/${encodeURIComponent(handle)}/${encodeURIComponent(revision)}`,
+    `https://home-site.invalid/${SNAPSHOT_FORMAT}/${encodeURIComponent(handle)}/${encodeURIComponent(revision)}`,
   );
 }
 
@@ -202,11 +272,15 @@ export async function fetchHomeSnapshot(
 export async function homeDocumentResponse(
   upstream: Response,
   snapshot: Promise<HomeSnapshot | null>,
+  routePath = "/",
 ): Promise<Response> {
   const type = upstream.headers.get("Content-Type") ?? "";
   if (upstream.status !== 200 || !type.toLowerCase().includes("text/html")) return upstream;
   const site = await snapshot;
   if (site === null) return upstream;
+  // `/pricing` carries the site only when the site has a Pricing page; any
+  // other name is not the homepage's, and its document is left as it came.
+  if (routePath !== "/" && !site.pages.some((page) => page.routePath === routePath)) return upstream;
   const html = await upstream.text();
   const headers = new Headers(upstream.headers);
   // The body is no longer the upstream's bytes: its length, encoding and
@@ -220,7 +294,7 @@ export async function homeDocumentResponse(
 }
 
 /**
- * `/` with its site: asked for while the HTML is fetched, so waiting for one
+ * A home page address (`/`, `/pricing`) with its site: asked for while the HTML is fetched, so waiting for one
  * costs no more than the other. `HOME_SITE_HANDLE` names another workspace
  * for a self-host; anything not shaped like a handle is ignored.
  */
@@ -229,9 +303,11 @@ export async function withHomeSite(
   env: { HOME_SITE_HANDLE?: string },
   convexOrigin: string | null,
   ctx: ExecutionContext,
+  url: URL,
 ): Promise<Response> {
+  const routePath = homePagePathOf(url) ?? "/";
   const named = env.HOME_SITE_HANDLE ?? "";
   const handle = /^[a-z0-9-]{1,64}$/.test(named) ? named : DEFAULT_HOME_SITE_HANDLE;
   const snapshot = fetchHomeSnapshot(convexOrigin, handle, ctx);
-  return await homeDocumentResponse(await document(), snapshot);
+  return await homeDocumentResponse(await document(), snapshot, routePath);
 }

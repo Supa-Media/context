@@ -138,7 +138,7 @@ export async function readBillingStatus(
   const freeManagedEligible =
     isOwner &&
     plan?.freeManaged !== true &&
-    (await freeManagedRefusal(ctx, userId, args.workspaceId, plan)) === null;
+    (await freeManagedRefusal(ctx, args.workspaceId, plan)) === null;
 
   return {
     status: planStatus,

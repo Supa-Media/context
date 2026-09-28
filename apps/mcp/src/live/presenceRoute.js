@@ -23,7 +23,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { normalizePath } from "../notes/paths.js";
 import { objectExists } from "../storageLayout.js";
 import { presenceClientKey } from "./relayAuthorization.js";
-import { presenceDisplayName } from "./presence.js";
+import { isConsoleActor, presenceDisplayName } from "./presence.js";
 import { roomKey } from "../presence.js";
 
 /**
@@ -288,13 +288,18 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
   if (privacy.error) return json(activityForCaller([], now, () => false));
 
   let events = [];
+  let people = { peopleCount: 0, people: [] };
   try {
     const room = env.PRESENCE_ROOM.get(
       env.PRESENCE_ROOM.idFromName(agentActivityKey(session.workspaceId)),
     );
-    const response = await room.fetch("https://presence.invalid/activity", { method: "GET" });
+    const response = await room.fetch("https://presence.invalid/activity", {
+      method: "GET",
+      headers: await personHeaders(session),
+    });
     const body = await response.json();
     if (Array.isArray(body?.events)) events = body.events;
+    people = peopleFromRoom(body);
   } catch {
     // No log is an empty answer. The tree simply draws no marks.
   }
@@ -304,11 +309,42 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
       typeof event.name === "string" && (event.kind === "read" || event.kind === "write") &&
       Number.isFinite(event.at),
   );
-  return json(
-    activityForCaller(
+  return json({
+    ...activityForCaller(
       wellFormed,
       now,
       (path) => !isPlumbing(path) && canSee(path, session.scope, privacy.rules, privacy.overrides),
     ),
-  );
+    ...people,
+  });
+}
+
+/**
+ * Who is asking, for the people count — or nothing, when it is not a person.
+ *
+ * Only the console's own client is a person with the workspace open. Any
+ * other grant is a tool, already counted as an agent by what it reads and
+ * writes. The key is a digest of the account id, in a namespace of its own so
+ * it can never equal a client's digest; two tabs of one person are one entry.
+ */
+async function personHeaders(session) {
+  if (!isConsoleActor({ clientId: session.actorClientId })) return {};
+  const key = await presenceClientKey(`person:${session.actorUserId}`);
+  if (key === null) return {};
+  return {
+    "x-activity-person": JSON.stringify({ key, name: presenceDisplayName(session) }),
+  };
+}
+
+/** The room's people, re-checked for shape: they are drawn in every sidebar. */
+function peopleFromRoom(body) {
+  const count = Number.isInteger(body?.peopleCount) && body.peopleCount >= 0 ? body.peopleCount : 0;
+  const listed = Array.isArray(body?.people)
+    ? body.people.filter(
+        (person) =>
+          person && typeof person.id === "string" && typeof person.name === "string" &&
+          typeof person.color === "string" && typeof person.self === "boolean",
+      )
+    : [];
+  return { peopleCount: Math.max(count, listed.length), people: listed };
 }

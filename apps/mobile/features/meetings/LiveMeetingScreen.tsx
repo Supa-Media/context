@@ -9,6 +9,8 @@ import { fonts, layout, leading, pointerType as t, radii, tracking } from "../de
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
+import { BackgroundCaptureWarning } from "./components/BackgroundCaptureWarning";
+import { CallAudioWarning } from "./components/CallAudioWarning";
 import { LiveWaveform } from "./components/LiveWaveform";
 import { TransportMark } from "./components/TransportMark";
 import { NotesPad } from "./components/NotesPad";
@@ -98,7 +100,7 @@ import { useMeetingsSnapshot, useTick } from "./useMeetings";
  * having to find it. `app/(app)/meetings/[id].tsx` is the one place that
  * chooses which of the two screens to draw.
  */
-export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
+export function LiveMeetingScreen({ meetingId, onClose }: { meetingId: string; onClose?: () => void }) {
   const snapshot = useMeetingsSnapshot();
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -183,7 +185,7 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
     <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
       <View style={styles.topBar}>
         <Pressable
-          onPress={() => router.back()}
+          onPress={onClose ?? (() => router.back())}
           accessibilityRole="button"
           accessibilityLabel="Back to meetings"
           style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
@@ -276,13 +278,8 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
         </View>
       ) : null}
 
-      {snapshot.backgroundCaptureWarning === null ? null : (
-        <View style={styles.backgroundWarning} testID="meeting-background-warning">
-          <Text variant="rowSub" style={styles.backgroundWarningText}>
-            {snapshot.backgroundCaptureWarning}
-          </Text>
-        </View>
-      )}
+      <BackgroundCaptureWarning message={snapshot.backgroundCaptureWarning} />
+      <CallAudioWarning style={styles.callAudio} />
 
       {/*
         The transport's place in the flow, so the chips above it are never
@@ -673,17 +670,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   chipCritText: { color: colors.critText },
   chipWarn: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder, height: undefined, minHeight: 26 },
   chipWarnText: { color: colors.warnText, flexShrink: 1 },
-  backgroundWarning: {
-    marginHorizontal: layout.readingMargin,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: radii.card,
-    backgroundColor: colors.warnWash,
-    borderWidth: 1,
-    borderColor: colors.warnBorder,
-  },
-  backgroundWarningText: { color: colors.warnText },
+  callAudio: { marginHorizontal: layout.readingMargin, marginBottom: 12 },
   /*
     The background warning's band, in the quiet tone rather than the warning
     one. Ending a meeting is the ordinary path through this screen and nothing

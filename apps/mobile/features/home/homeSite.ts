@@ -251,6 +251,87 @@ export function noteLinkHref(path: string): string {
   return page === "index" ? "/" : `/${page}`;
 }
 
+/**
+ * The first path segments the app answers itself, so a site page can never
+ * be addressed by one of them. Expo Router matches these before the dynamic
+ * `[handle]` route that clean page addresses arrive through, so a page called
+ * `login` is still `/?page=login`, never `/login`.
+ *
+ * Every top-level route under `app/` (groups flattened) must be here —
+ * `homeSite.test.ts` reads the directory and fails on one that is missing. The
+ * rest are the edge's own (`infra/router`): the bundle, the auth endpoints and
+ * the preview card.
+ */
+export const APP_SEGMENTS: ReadonlySet<string> = new Set([
+  "admin",
+  "authorize",
+  "connect",
+  "console",
+  "e2e-fixture",
+  "invite",
+  "login",
+  "meetings",
+  "note",
+  "preview",
+  "privacy",
+  "s",
+  "terms",
+  "welcome",
+  "workspace",
+  // The edge's.
+  "_expo",
+  "api",
+  "og",
+]);
+
+/**
+ * The page a clean address names — `/pricing` for `["pricing"]` — or `null`
+ * when the address is somebody's website (`/@handle`) or one of the app's
+ * own screens. Whether the site has that page is the shell's to say: it knows
+ * the pages, and an address it does not have gets its own "Nothing here".
+ */
+export function homePagePath(segments: readonly string[]): string | null {
+  const parts = segments.filter((segment) => segment !== "");
+  const first = parts[0];
+  if (first === undefined || first.startsWith("@") || first.startsWith("+")) return null;
+  if (APP_SEGMENTS.has(first.toLowerCase())) return null;
+  return `/${parts.join("/")}`;
+}
+
+/**
+ * Where a clean page address goes: the homepage, on that page.
+ *
+ * A redirect to `/?page=` rather than drawing the homepage at `/pricing`, so a
+ * visit is one homepage however it arrived — moving to another page is a
+ * change of `?page=` on the same screen, and what the visitor typed into this
+ * tab's notes is not dropped by a second copy of the screen mounting. Web
+ * only: on a phone app `/` is the console, and a page of the website is not
+ * somewhere it goes.
+ */
+export function homeRedirect(
+  segments: readonly string[],
+  web: boolean,
+): { pathname: "/"; params: { page: string } } | null {
+  if (!web) return null;
+  const route = homePagePath(segments);
+  const page = route === null ? undefined : pageParam(route);
+  return page === undefined ? null : { pathname: "/", params: { page } };
+}
+
+/**
+ * The address a page is linked by: `/pricing`, and `/` for the home page.
+ *
+ * A page whose first segment is one of the app's own (a site page called
+ * `login`) keeps `/?page=login`, since `/login` would open sign-in.
+ */
+export function pageHref(routePath: string): string {
+  const page = pageParam(routePath);
+  if (page === undefined) return "/";
+  return homePagePath(page.split("/")) === null
+    ? `/?page=${encodeURIComponent(page)}`
+    : `/${page.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 /** The `?page=` a route path is written as in the address bar; the home page has none. */
 export function pageParam(routePath: string): string | undefined {
   return routePath === "/" ? undefined : routePath.slice(1);

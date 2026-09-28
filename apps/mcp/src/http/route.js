@@ -5,6 +5,7 @@
  * is one statement, so a pure move cannot make this file shorter.
  */
 
+import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { attachGatewayJobQueue, attachLinkCalls, matchWellKnown } from "./routing.js";
 import {
@@ -113,6 +114,9 @@ export async function route(request, env, ctx) {
     }
 
     if (request.method === "OPTIONS") return corsResponse();
+
+    const challenge = openaiAppsChallengeResponse(request, env, { slug, path });
+    if (challenge) return challenge;
 
     const wellKnown = matchWellKnown(path);
     if (wellKnown) {

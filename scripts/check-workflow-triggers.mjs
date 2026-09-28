@@ -102,14 +102,14 @@
  *
  * ── WHERE IT RUNS ─────────────────────────────────────────────────────────
  *
- * From two workflows (mcp.yml and email-worker.yml), on purpose. A checker
- * hosted in one workflow is blind to that workflow's own trigger being narrowed
- * — narrow it and the job simply does not run on the pull request that narrowed
- * it, which is the bug it exists to catch. Two hosts means one narrowing is
- * always caught by the other. The residual is stated rather than papered over:
- * a single change narrowing BOTH would go unreported on its own pull request,
- * and would fail on the push run to `main` afterwards, because both files list
- * their own path in their `push:` filter.
+ * From two workflows (fast-guards.yml and email-worker.yml), on purpose. A
+ * checker hosted in one workflow is blind to that workflow's own trigger being
+ * narrowed — narrow it and the job simply does not run on the pull request that
+ * narrowed it, which is the bug it exists to catch. Two hosts means one
+ * narrowing is always caught by the other. The residual is stated rather than
+ * papered over: a single change narrowing BOTH would go unreported on its own
+ * pull request, and would fail on the push run to `main` afterwards, because
+ * both files list their own path in their `push:` filter.
  *
  * Run `node scripts/check-workflow-triggers.mjs --self-test` to prove the rules
  * catch what they claim.

@@ -128,11 +128,10 @@ export function deploymentProvidesManagedStorage(): boolean {
 /**
  * Does this deployment offer the free managed tier right now?
  *
- * The deployment switch *and* somewhere to put the bucket. The switch is off in
- * production until the export and hand-off path lands (non-negotiable #1;
- * `docs/decisions/billing.md`, "The free managed tier"). No price is needed —
- * nothing is sold — but a bucket still needs the customer-data account, and a
- * malformed one is false here for the reason
+ * The deployment switch *and* somewhere to put the bucket. The switch is an
+ * emergency brake, not a launch flag: production normally offers the free
+ * tier. No price is needed — nothing is sold — but a bucket still needs the
+ * customer-data account, and a malformed one is false here for the reason
  * `deploymentProvidesManagedStorage` gives.
  */
 export function deploymentOffersFreeManaged(): boolean {

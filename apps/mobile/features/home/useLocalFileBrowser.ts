@@ -6,11 +6,14 @@ import { editorReducer, emptyEditor } from "../console/files/editor";
 import { drawingFileName, ensureMarkdown, knownNotePaths } from "../console/files/paths";
 import { untitledName } from "../console/files/untitled";
 import { demoNote, useStaticFileBrowser } from "../console/files/useDemoFileBrowser";
+import { NO_PUBLISHED_IMAGES, type PublishedImages } from "../share/publishedImages";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
 import type { HomeTree } from "./homeSite";
+import { searchLocalNotes } from "./localSearch";
 import {
   addFolder,
   addNote,
+  putNote,
   copyPath,
   editNote,
   followPath,
@@ -57,6 +60,17 @@ export interface LocalHome {
   pathOf: (routePath: string) => string | undefined;
   /** The visitor has changed something; the site no longer replaces the tree. */
   touched: boolean;
+  /**
+   * A note somebody else added: in the tree, and not opened. The homepage's
+   * cast (`features/home/cast`); the visitor's own `+` opens what it makes.
+   */
+  addNote: (folder: string, name: string, text: string) => string | null;
+  /**
+   * A note at exactly `path`, folders made on the way, and not opened: a
+   * finished demo meeting (`features/home/meeting`). `false` when something
+   * is already there, since the writer is create-only.
+   */
+  putNote: (path: string, text: string) => boolean;
 }
 
 /** How long typing rests before the editor calls it kept. */
@@ -71,8 +85,12 @@ export function useLocalFileBrowser(
   contextId: string,
   routePath: string,
   events: LocalHomeEvents = {},
+  images: PublishedImages = NO_PUBLISHED_IMAGES,
 ): LocalHome {
   const inert = useStaticFileBrowser(home.tree, contextId);
+  // The site's pasted pictures, which came with it; read at call time.
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
   const [tree, setTree] = useState<DemoContextTree>(home.tree);
   const [routes, setRoutes] = useState(() => routesOf(home));
   const [touched, setTouched] = useState(false);
@@ -273,6 +291,12 @@ export function useLocalFileBrowser(
   const files = useMemo<FileBrowser>(
     () => ({
       ...inert,
+      /*
+        A pasted picture is drawn from what the site carried, never fetched:
+        the site loads no images. A leaf it did not carry (over the caps, or
+        one the visitor typed) draws as missing.
+      */
+      loadImage: async (target: string) => imagesRef.current[target] ?? null,
       canEdit: true,
       readOnlyReason: undefined,
       listings: tree.listings,
@@ -330,6 +354,9 @@ export function useLocalFileBrowser(
       archiveMany: remove,
       destroyMany: remove,
       linkPaths: knownNotePaths(tree.listings),
+      // Every body is here, so search reads them and rows carry their titles.
+      heldNotes: tree.notes,
+      search: async (query: string) => searchLocalNotes(treeRef.current.notes, query),
       readRaw: async (path: string) => {
         const text = treeRef.current.notes[path];
         return text === undefined ? null : { text, etag: "local" };
@@ -352,9 +379,32 @@ export function useLocalFileBrowser(
       setDraft,
       toggleFolder,
       tree.listings,
+      tree.notes,
     ],
   );
 
+  const addQuietly = useCallback(
+    (folder: string, name: string, text: string) => {
+      const made = addNote(treeRef.current, folder, name, text);
+      if (made === null) return null;
+      change(made.tree);
+      reveal(made.path);
+      return made.path;
+    },
+    [change, reveal],
+  );
+
+  const putQuietly = useCallback(
+    (path: string, text: string) => {
+      const made = putNote(treeRef.current, path, text);
+      if (made === null) return false;
+      change(made);
+      reveal(path);
+      return true;
+    },
+    [change, reveal],
+  );
+
   const routeOf = useCallback((path: string) => routes.get(path), [routes]);
-  return { files, notes: tree.notes, routeOf, pathOf, touched };
+  return { files, notes: tree.notes, routeOf, pathOf, touched, addNote: addQuietly, putNote: putQuietly };
 }

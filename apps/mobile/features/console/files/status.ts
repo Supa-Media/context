@@ -27,6 +27,7 @@
 import type { EditorState } from "./editor";
 import type { ConflictCheck } from "./types";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { stripComments } from "@context/shared/src/comments.cjs";
 import { connectionLine, queueLine, type SyncFacts } from "../../offline/copy";
 
 /**
@@ -133,9 +134,12 @@ export interface StatusSegment {
  * space, not on punctuation, because "read-compare" is one thing a person
  * wrote and counting it as two would be surprising in a way no reader benefits
  * from.
+ *
+ * Comments are not the note's words: the anchors and the `comments` block at
+ * the end are left out, so a thread does not change the count.
  */
 export function countWords(text: string): number {
-  const trimmed = text.trim();
+  const trimmed = stripComments(text).trim();
   if (trimmed === "") return 0;
   return trimmed.split(/\s+/).length;
 }

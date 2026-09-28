@@ -5,16 +5,14 @@ import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
+import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
 import { useFolderLists } from "../../../offline/useFolderLists";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
-import { ChannelView } from "../../communications/ChannelView";
 import { ContactPageView } from "../../communications/ContactPageView";
-import { InboxView } from "../../communications/InboxView";
 import { DocumentPage } from "./DocumentPage";
-import { MAIL_CONNECT_ENABLED } from "../../communications/flags";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
@@ -22,6 +20,7 @@ import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
 import type { FolderListingState } from "./useFolderListing";
+import { useTaskHost } from "./useTaskHost";
 
 /**
  * Whatever is in front of somebody: the empty state or the phone's landing
@@ -46,6 +45,7 @@ export function BrowseDocument({
   handleOpenComms,
   folderMenuFor,
   folderDrag,
+  setFolderDialog,
   noteEncryption,
   notices,
   pathBar,
@@ -68,6 +68,8 @@ export function BrowseDocument({
   handleOpenComms: (path: string, anchor?: string) => void;
   folderMenuFor: FolderListingState["folderMenuFor"];
   folderDrag: FolderListingState["folderDrag"];
+  /** The pane's dialogs — a List's Archive opens the console's own. */
+  setFolderDialog: FolderListingState["setFolderDialog"];
   noteEncryption: BrowseEncryption["noteEncryption"];
   notices: ReactNode;
   pathBar: ReactNode;
@@ -82,6 +84,8 @@ export function BrowseDocument({
     in a note does. The workspace's people are what an owner menu offers.
   */
   const people = data.members?.members;
+  // Adding, nesting and moving a project's tasks, through the console's own writes (undefined for who may not write).
+  const tasks = useTaskHost(files, current?.id, folderLists, setFolderDialog);
   const folderPage = useMemo(
     () =>
       folderLists === undefined || current?.id == null
@@ -90,8 +94,14 @@ export function BrowseDocument({
             source: folderLists,
             workspaceId: current.id,
             people: (people ?? []).map((member) => member.name ?? "").filter((name) => name !== ""),
+            // Who "Mine" is on a project's List: this viewer's name and address, never written anywhere.
+            me: (people ?? [])
+              .filter((member) => member.isMe)
+              .flatMap((member) => [member.name ?? "", member.email ?? ""])
+              .filter((word) => word !== ""),
+            ...(tasks === undefined ? {} : { tasks }),
           },
-    [folderLists, current?.id, people],
+    [folderLists, current?.id, people, tasks],
   );
   /**
    * Where a phone starts, when nothing has been opened yet.
@@ -212,28 +222,10 @@ export function BrowseDocument({
             drag={folderDrag}
             pendingStateFor={files.pending?.stateFor}
             page={folderPage}
+            showAudience={data.visitor === undefined}
           />
         )
       ) : null
-    ) : commsRoute?.kind === "inbox" ? (
-      /*
-        The Inbox landing page — virtual, built from the same listings a
-        folder view would fetch, never a written rollup. See
-        `docs/decisions/communications.md`.
-      */
-      <DocumentPage>
-        <InboxView files={files} onOpen={files.select} mailConnectEnabled={MAIL_CONNECT_ENABLED} />
-      </DocumentPage>
-    ) : commsRoute?.kind === "channel" ? (
-      <DocumentPage>
-        <ChannelView
-          channel={commsRoute.channel}
-          account={commsRoute.account}
-          path={selected.path}
-          files={files}
-          onOpen={files.select}
-        />
-      </DocumentPage>
     ) : commsRoute?.kind === "channel-day" ? (
       /*
         Not in a DocumentPage: a channel's day owns its scroller, to scroll to
@@ -268,6 +260,7 @@ export function BrowseDocument({
         drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}
         page={folderPage}
+        showAudience={data.visitor === undefined}
       />
     ) : files.conflict?.path === selected.path ? (
       /*
@@ -306,6 +299,11 @@ export function BrowseDocument({
           which context it is in.
         */
         activity={data.activity}
+        // A person signs with their handle; a visitor comments locally, like they edit.
+        commenter={commenterFor(data.viewer?.name, data.visitor !== undefined)}
+        onSignInToComment={data.visitor?.signIn}
+        // A visitor's edits stay in their tab; the foot must not say "bucket".
+        local={data.visitor !== undefined}
         activityShared={(data.members?.members?.length ?? 1) > 1}
         /*
           Owner-only, and the rule is `capabilities.ts`'s rather than this
@@ -345,18 +343,6 @@ export function BrowseDocument({
         onLoadImage={files.loadImage}
         onStoreImage={files.storeImage}
         onImageProblem={files.say}
-        /*
-          What the note's own frontmatter cannot say. `visibility:` in a note
-          is prose — `privacy.md` decides access — so the Properties panel
-          shows the manifest's answer under that key rather than the file's,
-          which is where the breadcrumb's chip has gone.
-        */
-        visibility={{
-          visibility: selected.visibility,
-          inherited: selected.inherited,
-          exception: selected.exception,
-          readOnly: selected.readOnly,
-        }}
         notices={compact ? notices : null}
         pathBar={pathBar}
         onChange={files.setDraft}

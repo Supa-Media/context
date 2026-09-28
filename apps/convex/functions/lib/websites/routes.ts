@@ -15,6 +15,7 @@ import { websiteTextRestricts } from "./changes";
 import { workspaceNotFound } from "../workspaceAuth";
 import { PUBLICATION_CLEARANCE, ensureWebsitePublicationRule } from "./publication";
 import { narrowedRows } from "./narrowing";
+import { referencedWebsitePages } from "./folders";
 import {
   READ_BATCH,
   commitPublicationSnapshot,
@@ -55,6 +56,8 @@ export async function scanWebsiteRoutes(
   restricted: string[];
 }> {
   const paths: string[] = [];
+  /* Every other note this clearance may list, for the folders a page names. */
+  const elsewhere: string[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   do {
@@ -73,16 +76,16 @@ export async function scanWebsiteRoutes(
     if (manifest.kind !== "manifest")
       throw scanError("The website listing returned an invalid result.");
     for (const entry of manifest.entries) {
-      if (
-        entry.path.startsWith(`${DEFAULT_WEBSITE_ROOT}/`) &&
-        /\.md$/i.test(entry.path)
-      ) {
-        paths.push(entry.path);
-        if (paths.length > MAX_WEBSITE_ROUTES) {
-          throw scanError(
-            `A website may contain at most ${MAX_WEBSITE_ROUTES} route files.`,
-          );
-        }
+      if (!/\.md$/i.test(entry.path)) continue;
+      if (!entry.path.startsWith(`${DEFAULT_WEBSITE_ROOT}/`)) {
+        elsewhere.push(entry.path);
+        continue;
+      }
+      paths.push(entry.path);
+      if (paths.length > MAX_WEBSITE_ROUTES) {
+        throw scanError(
+          `A website may contain at most ${MAX_WEBSITE_ROUTES} route files.`,
+        );
       }
     }
     // `truncated` means the manifest is only a non-resumable floor. Ordinary
@@ -104,6 +107,39 @@ export async function scanWebsiteRoutes(
     }
   } while (cursor !== undefined);
 
+  const read = (keys: string[]) =>
+    readScanPages(ctx, workspaceId, clearance, keys, options.publication === true);
+  const { pages, etags } = await read(paths);
+  const own = buildWebsiteRouteStatuses(pages);
+  /*
+    The folders the site's pages name. Their notes are read through the same
+    barrier at the same clearance as the pages, so a note `privacy.md` holds
+    back was never listed above and is not here either.
+  */
+  const referenced = await referencedWebsitePages(own, pages, elsewhere, read);
+  for (const [key, etag] of referenced.etags) etags.set(key, etag);
+  const statuses = [...own, ...referenced.statuses];
+  const allPages = [...pages, ...referenced.pages];
+  return {
+    restricted: allPages
+      .filter((page) => websiteTextRestricts(page.markdown))
+      .map((page) => page.objectKey),
+    statuses,
+    indexed: statuses.map((status) => ({
+      ...status,
+      sourceEtag: etags.get(status.objectKey)!,
+    })),
+  };
+}
+
+/** Read `paths` through the barrier at `clearance`: what it lets through, with each note's etag. */
+async function readScanPages(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  clearance: Clearance,
+  paths: string[],
+  publication: boolean,
+): Promise<{ pages: Array<{ objectKey: string; markdown: string }>; etags: Map<string, string> }> {
   const pages: Array<{ objectKey: string; markdown: string }> = [];
   const etags = new Map<string, string>();
   for (let offset = 0; offset < paths.length; offset += READ_BATCH) {
@@ -139,7 +175,7 @@ export async function scanWebsiteRoutes(
         // Ciphertext can never be published, so a publication snapshot holds
         // it as it holds a private note: absent. As a "problem" it would stop
         // every later rebuild while it sat in the folder.
-        if (options.publication === true && isEncryptedNote(result.note.text)) {
+        if (publication && isEncryptedNote(result.note.text)) {
           continue;
         }
         pages.push({ objectKey: result.path, markdown: result.note.text });
@@ -158,17 +194,7 @@ export async function scanWebsiteRoutes(
     }
   }
 
-  const statuses = buildWebsiteRouteStatuses(pages);
-  return {
-    restricted: pages
-      .filter((page) => websiteTextRestricts(page.markdown))
-      .map((page) => page.objectKey),
-    statuses,
-    indexed: statuses.map((status) => ({
-      ...status,
-      sourceEtag: etags.get(status.objectKey)!,
-    })),
-  };
+  return { pages, etags };
 }
 
 async function websiteState(
