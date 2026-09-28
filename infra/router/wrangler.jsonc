@@ -3,13 +3,12 @@
   //
   // Full routing table lives in src/route.ts's module comment. In short:
   //   - context.lc (apex): /api/auth/* -> Convex HTTP actions, /og/card.png ->
-  //     the Worker's own OpenGraph card, everything else -> the Expo web app
-  //     on EAS Hosting (or, for a link-preview crawler, server-rendered meta
-  //     tags). Paths are never rewritten.
+  //     the Worker's own OpenGraph card, everything else -> the versioned web
+  //     export in Workers Static Assets (or, for a link-preview crawler,
+  //     server-rendered meta tags). Paths are never rewritten.
   //   - www.context.lc -> 301 https://context.lc<path><search>
   //
-  // It exists because EAS Hosting only attaches custom domains on a paid plan.
-  // publicworship.life solves the same problem the same way (pw-router).
+  // Worker code and the web export are deployed and rolled back together.
   //
   // CUSTOM DOMAINS ARE NOT ATTACHED HERE. This file intentionally has no
   // top-level "routes"/"route" key. `context.lc` and `www.context.lc` are
@@ -43,20 +42,6 @@
   ],
 
   "vars": {
-    // The EAS Hosting origin for the exported Expo web bundle.
-    //
-    // Derived from apps/mobile/app.config.js's `slug: "context"` — EAS Hosting
-    // names the production alias after the project slug. CONFIRM IT: the first
-    // `eas deploy --prod` prints the real URL, and expo.app names are globally
-    // unique, so a slug this generic may well already be taken and the deploy
-    // will have landed somewhere else. Correcting it is a change to this line
-    // and a redeploy, nothing more — which is why it is a var and not a
-    // constant in src/route.ts.
-    //
-    // Public information (it is in every web client's network tab), so it is
-    // fine in a public repository. Neither of these is a secret.
-    "EXPO_ORIGIN": "https://context.expo.app"
-
     // CONVEX_ORIGIN — the Convex HTTP-actions origin: https://<deployment>.
     // convex.site, the `.site` host, NOT the `.cloud` one the client library
     // uses — used to live here as a plaintext var. It named which Convex
@@ -82,12 +67,19 @@
   "observability": {
     "enabled": true
   },
+  "assets": {
+    "directory": "../../apps/mobile/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
   "env": {
     "staging": {
       "name": "context-router-staging",
       "workers_dev": true,
-      "vars": { "EXPO_ORIGIN": "https://context--staging.expo.app" },
-      // Staging is the canary for moving the Expo export off EAS Hosting.
+      "vars": {},
+      // Environments do not inherit Static Assets configuration, so keep the
+      // staging binding explicit and identical to production.
       // `run_worker_first` preserves auth, previews, customer domains and the
       // dynamic homepage before `index.ts` hands ordinary app requests to the
       // binding. The SPA fallback keeps deep links working.

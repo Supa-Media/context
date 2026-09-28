@@ -50,7 +50,9 @@ test('only staging can deploy automatically; production services share one manua
     }
   }
   assert.match(production, /convex:\s+needs: validate/);
-  assert.match(production, /web:\s+needs: \[validate, convex, gateway, email, transcribe, egress\]/);
+  assert.match(production, /web:\s+needs: validate/);
+  assert.match(production, /uses: \.\/\.github\/workflows\/build-web\.yml/);
+  assert.match(production, /router:\s+needs: \[validate, convex, gateway, email, transcribe, egress, web\]/);
   assert.match(production, /mobile-update:\s+needs: \[validate, convex, gateway, email, transcribe, egress\]/);
   // Every deploy job waits on the staging check, directly or through Convex.
   const jobs = production.split(/^  (?=[a-z-]+:$)/m).slice(2);
@@ -58,6 +60,24 @@ test('only staging can deploy automatically; production services share one manua
   for (const job of jobs) {
     assert.match(job, /needs: (validate|\[validate,)/, `${job.split(':')[0]} must need validate`);
   }
+});
+
+test('web is one artifact and a failed router release restores its exact prior version', () => {
+  const dir = new URL('../.github/workflows/', import.meta.url);
+  const web = readFileSync(new URL('build-web.yml', dir), 'utf8');
+  const router = readFileSync(new URL('deploy-router.yml', dir), 'utf8');
+  const rollback = readFileSync(new URL('rollback-router.yml', dir), 'utf8');
+  assert.match(web, /name: production-web/);
+  assert.doesNotMatch(web, /eas deploy|expo\/expo-github-action/);
+  assert.match(router, /name: production-web/);
+  assert.match(router, /wrangler deployments status --json/);
+  assert.match(router, /wrangler rollback "\$previous" --yes/);
+  assert.match(router, /https:\/\/context\.lc\/console\/storage/);
+  const secret = router.indexOf('wrangler secret put CONVEX_ORIGIN');
+  const stable = router.indexOf('wrangler deployments status --json');
+  const deploy = router.indexOf('wrangler deploy --message');
+  assert.ok(stable !== -1 && deploy > stable && secret > deploy, 'capture the rollback target, deploy code and assets, then sync the secret');
+  assert.match(rollback, /wrangler rollback "\$VERSION_ID" --yes/);
 });
 
 test('production decides what to deploy only after proving staging passed', () => {
