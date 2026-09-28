@@ -13,6 +13,7 @@ import { searchLocalNotes } from "./localSearch";
 import {
   addFolder,
   addNote,
+  putNote,
   copyPath,
   editNote,
   followPath,
@@ -64,6 +65,12 @@ export interface LocalHome {
    * cast (`features/home/cast`); the visitor's own `+` opens what it makes.
    */
   addNote: (folder: string, name: string, text: string) => string | null;
+  /**
+   * A note at exactly `path`, folders made on the way, and not opened: a
+   * finished demo meeting (`features/home/meeting`). `false` when something
+   * is already there, since the writer is create-only.
+   */
+  putNote: (path: string, text: string) => boolean;
 }
 
 /** How long typing rests before the editor calls it kept. */
@@ -387,6 +394,17 @@ export function useLocalFileBrowser(
     [change, reveal],
   );
 
+  const putQuietly = useCallback(
+    (path: string, text: string) => {
+      const made = putNote(treeRef.current, path, text);
+      if (made === null) return false;
+      change(made);
+      reveal(path);
+      return true;
+    },
+    [change, reveal],
+  );
+
   const routeOf = useCallback((path: string) => routes.get(path), [routes]);
-  return { files, notes: tree.notes, routeOf, pathOf, touched, addNote: addQuietly };
+  return { files, notes: tree.notes, routeOf, pathOf, touched, addNote: addQuietly, putNote: putQuietly };
 }

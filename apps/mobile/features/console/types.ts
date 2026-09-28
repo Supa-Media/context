@@ -1,4 +1,5 @@
 import type { MirrorStatus } from "../offline/mirrorStatus";
+import type { MeetingDestination } from "../meetings/destination";
 import type { ActivityView } from "./activity/activity";
 import type { AgentActivityView } from "./agents/agentActivity";
 import type { AdvancedView } from "./advanced/advanced";
@@ -365,6 +366,21 @@ export interface VisitorActions {
   openApp?: () => void;
   /** Share, for somebody with no workspace: copy the page's public link. */
   share: (path: string) => void;
+  /**
+   * Recording a demo meeting into this tab (`features/home/meeting`). Absent
+   * where the homepage has no recorder, and New meeting then refuses.
+   */
+  meetings?: VisitorMeetings;
+}
+
+/** What the console needs to run a visitor's demo meeting. */
+export interface VisitorMeetings {
+  /** Where every meeting lands: the tab's `inbox/meetings`. */
+  destination: MeetingDestination;
+  /** Open a finished meeting's note in the tree, by its path. */
+  openNote: (path: string) => void;
+  /** A phone has no panel, so it is told which meeting to show instead. */
+  showOnPhone: (meetingId: string) => void;
 }
 
 export interface ConsoleData {

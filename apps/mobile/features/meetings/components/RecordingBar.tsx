@@ -71,7 +71,18 @@ import { Waveform } from "./Waveform";
  * `max`. It sits *above* the safe-area inset rather than inside it, because a
  * control under the home indicator is a control a swipe takes instead of a tap.
  */
-export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
+export function RecordingBar({
+  bottomInset = 0,
+  onOpen,
+}: {
+  bottomInset?: number;
+  /**
+   * Where the meeting is shown, instead of its route. The homepage passes
+   * this: its visitor has no account, so `/meetings/<id>` is a sign-in wall,
+   * and the homepage shows the meeting over itself instead.
+   */
+  onOpen?: (meetingId: string) => void;
+}) {
   const snapshot = useMeetingsSnapshot();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
@@ -93,8 +104,9 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
 
   const open = useCallback(() => {
     if (live === null) return;
+    if (onOpen !== undefined) return onOpen(live.session.id);
     router.push(meetingHref(live.session.id));
-  }, [router, live]);
+  }, [router, live, onOpen]);
 
   /**
    * End the recording, and land on the meeting that just ended.
@@ -135,7 +147,8 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
    */
   const end = useCallback(() => {
     if (live === null) return;
-    const href = meetingHref(live.session.id);
+    const id = live.session.id;
+    const href = meetingHref(id);
     void (async () => {
       try {
         await meetings.end();
@@ -143,9 +156,10 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
         // See above: the meeting screen is where this is reported, because it
         // is the screen that can say what is actually on the device.
       }
-      if (pathname !== href) router.push(href);
+      if (onOpen !== undefined) onOpen(id);
+      else if (pathname !== href) router.push(href);
     })();
-  }, [live, pathname, router]);
+  }, [live, pathname, router, onOpen]);
 
   if (live === null || carried) return null;
   // The screen underneath is this meeting's own, and it has a transport of its

@@ -13,7 +13,7 @@ import { openStore } from "../offline/store";
 import type { KeyValueStore } from "../offline/memory";
 import { MeetingRefusal } from "./components/MeetingRefusal";
 import { MeetingsController, meetings } from "./controller";
-import { automaticDestination, type DestinationContext } from "./destination";
+import { automaticDestination, type DestinationContext, type MeetingDestination } from "./destination";
 import { recallSystemAudio } from "./machineAudio";
 import { meetingHref } from "./route";
 import { UNTITLED_MEETING } from "./session";
@@ -86,6 +86,14 @@ export interface MeetingFlowInput {
    * to put a running meeting, and the meeting's own screen is pushed instead.
    */
   onStarted?: (meetingId: string) => void;
+  /**
+   * Where every meeting started here lands, instead of the person's own inbox.
+   *
+   * Only the homepage passes it: a visitor has no workspace, and their demo
+   * meeting is written into the tab they are reading (`features/home/meeting`).
+   * Absent everywhere else, where `automaticDestination` is the rule.
+   */
+  destination?: MeetingDestination;
   /** Injected by tests. Defaults to this device's store. */
   store?: KeyValueStore;
   /** Injected by tests. Defaults to the app's one controller. */
@@ -112,7 +120,7 @@ export interface MeetingFlow {
 }
 
 export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
-  const { contexts, onClaimName, onStarted, title = UNTITLED_MEETING } = input;
+  const { contexts, destination, onClaimName, onStarted, title = UNTITLED_MEETING } = input;
   const router = useRouter();
   const controller = input.controller ?? meetings;
 
@@ -174,7 +182,10 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       return;
     }
 
-    const answer = automaticDestination({ contexts });
+    const answer =
+      destination === undefined
+        ? automaticDestination({ contexts })
+        : ({ kind: "destination", destination } as const);
     if (answer.kind === "claimName") {
       setClaim(true);
       return;
@@ -220,7 +231,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
         starting.current = false;
       }
     })();
-  }, [canSystemAudio, contexts, controller, live, show, snapshot.status, store, title]);
+  }, [canSystemAudio, contexts, controller, destination, live, show, snapshot.status, store, title]);
 
   const dismiss = useCallback(() => {
     setRefusal(null);

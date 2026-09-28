@@ -80,8 +80,13 @@ export function consoleAsidePanel({
     `hasExplorer` term for it.
   */
   return (
-    data.demo ? undefined : (
+    data.demo && data.visitor?.meetings === undefined ? undefined : (
       <AsidePanel
+        /*
+          The homepage's visitor gets the Meetings tab alone: their demo
+          meeting runs here, and there is no agent behind a chat for them.
+        */
+        chat={!data.demo}
         engine={agentEngine}
         place={agentPlace}
         asked={asked}
@@ -93,7 +98,13 @@ export function consoleAsidePanel({
           record's own two halves, so this is the ordinary "open a note"
           the console already does rather than a route of this feature's.
         */
-        onOpenNote={data.demo ? null : (href) => router.push(href)}
+        onOpenNote={
+          data.visitor?.meetings !== undefined
+            ? (_href, path) => data.visitor?.meetings?.openNote(path)
+            : data.demo
+              ? null
+              : (href) => router.push(href)
+        }
       />
     )
   );

@@ -327,7 +327,7 @@ const CHUNK_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{1,${MAX_CHUNK_ID_LENGTH}}$`)
  * always be null. The day a diarizing engine arrives it will arrive as a change
  * to this type, reviewed, rather than as a label somebody inferred.
  */
-const transcriptSegment = v.object({
+export const transcriptSegment = v.object({
   id: v.string(),
   startMs: v.number(),
   endMs: v.number(),
@@ -707,132 +707,161 @@ export const transcribeChunk = action({
     );
     if (!budget.allowed) throw rateLimited(budget.retryAfterMs);
 
-    // After authentication, because the shape of an unauthenticated caller's
-    // arguments is not something to tell them about — and before the fetch,
-    // because a check that runs after one has already bought the inference.
-    if (!CHUNK_ID_PATTERN.test(args.chunkId)) throw invalidChunkId();
-
-    const workerUrl = configured(TRANSCRIBE_WORKER_URL_ENV_VAR);
-    const workerSecret = configured(TRANSCRIBE_WORKER_SECRET_ENV_VAR);
-    // Both, or neither. A URL with no secret would post somebody's meeting
-    // audio to a public endpoint unauthenticated, which is worse than the
-    // refusal it replaces.
-    if (workerUrl === null || workerSecret === null) throw notConfigured();
-    // A misconfigured scheme is a misconfigured deployment, so it is the same
-    // refusal — and it happens before the fetch, because a check that runs
-    // after one has already sent the meeting.
-    if (!isTranscribeWorkerUrlUsable(workerUrl)) throw insecureWorkerUrl();
-
-    // Who is asking, opaquely. The worker keys its rate limit by this and names
-    // it in its logs; see `callerHash` for what it is and how to invert it.
-    const caller = await callerHash(userId, workerSecret);
-
-    let response: Response;
-    try {
-      response = await fetch(transcribeEndpoint(workerUrl), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${workerSecret}`,
-          "Content-Type": "application/json",
-          [CALLER_HEADER]: caller,
-        },
-        // The audio, what it is, and how long it is. Nothing else: no chunk
-        // id, no offset, no session and no user, because a stateless
-        // transcriber that knew where a chunk sat in a recording would be
-        // holding a fragment of somebody's meeting. The caller identifier is a
-        // header rather than a field here for the same reason the worker needs
-        // it at all — it must be readable before the body is.
-        body: JSON.stringify({
-          audioBase64: args.audioBase64,
-          mimeType: args.mimeType,
-          durationMs: args.durationMs,
-        }),
-      });
-    } catch {
-      // DNS, TLS, a connection dropped mid-flight. The error is not attached:
-      // a rejection from `fetch` can carry the request URL, and this one is
-      // about to be logged.
-      throw transcriptionFailed("the worker could not be reached");
-    }
-
-    if (!response.ok) {
-      // The status and nothing else — never the body, for the reason
-      // `transcriptionFailed` gives.
-      console.warn(
-        JSON.stringify({
-          event: "transcribe_worker_error",
-          chunkId: args.chunkId,
-          status: response.status,
-        }),
-      );
-      throw transcriptionFailed(`the worker answered ${response.status}`);
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw transcriptionFailed("the worker's answer was not JSON");
-    }
-
-    const raw = (payload as { segments?: unknown })?.segments;
-    // A missing array is a worker whose shape has changed, and reading it as an
-    // empty one is how a deploy silently stops transcribing while every meeting
-    // still looks like it is being recorded.
-    if (!Array.isArray(raw)) {
-      throw transcriptionFailed("the worker's answer carried no segments");
-    }
-
-    const segments: TranscriptSegment[] = [];
-    for (let index = 0; index < raw.length; index += 1) {
-      const segment = raw[index];
-      if (!isWorkerSegment(segment)) {
-        throw transcriptionFailed(`segment ${index} was malformed`);
-      }
-      // Dropped, but **not** renumbered: the id names this segment's position
-      // in the worker's own answer, so a blank appearing or disappearing
-      // between two runs cannot shift the id of everything after it. An id that
-      // is a function of what survived the filter is an id that moves, and
-      // "the same segment id replaces" is the whole of the client's ability to
-      // replay its log after a dropped connection.
-      if (segment.text.trim().length === 0) continue;
-      segments.push({
-        id: `${args.chunkId}-${index}`,
-        // The worker sees one chunk and times everything from the start of it.
-        // Without this the transcript of a forty-minute meeting would claim to
-        // be entirely within its first thirty seconds, and a flag — whose only
-        // job is to land on the right sentence — would land on nothing.
-        startMs: args.offsetMs + segment.startMs,
-        endMs: args.offsetMs + segment.endMs,
-        text: segment.text,
-        // Never invented. Whisper does no diarization, and a "Speaker 1" the
-        // engine did not produce is a label presented with more confidence than
-        // it has earned.
-        speaker: null,
-        channel: "mic",
-        // Passed through untouched, including `0` — a real confidence — and
-        // including absent, which is `null` rather than a number we chose.
-        confidence: segment.confidence ?? null,
-      });
-    }
-
-    /*
-      Zero for anything unreadable, and that direction is deliberate on every
-      hop this field takes. A worker one deploy behind, a proxy that rewrote the
-      body, a value that is not a number: none of them is evidence that a room
-      was quiet, and reading them as such would put "no speech was heard" on a
-      phone during a meeting somebody is talking in.
-
-      Note the asymmetry with `segments` above, which throws when it is absent.
-      That is not an inconsistency: a missing `segments` array means the worker's
-      shape has changed and nothing is being transcribed, which must be loud; a
-      missing `refusedSegments` means the worker cannot yet say why an answer was
-      short, which costs a sentence and no words.
-    */
-    const refused = (payload as { refused?: unknown })?.refused;
-    const refusedSegments =
-      typeof refused === "number" && Number.isFinite(refused) && refused > 0 ? Math.floor(refused) : 0;
-
-    return { segments, refusedSegments };
+    return await transcribeAtWorker(args, userId);
   },
 });
+
+/** One chunk as both actions take it: the audio and where it sits. */
+export type ChunkArgs = {
+  audioBase64: string;
+  mimeType: string;
+  chunkId: string;
+  offsetMs: number;
+  durationMs: number;
+};
+
+/**
+ * Send one chunk to the transcription Worker and read its words back.
+ *
+ * Everything `transcribeChunk` does once it knows who is asking and has
+ * charged them for it, lifted out so the homepage's demo action
+ * (`demoTranscribe.ts`) buys inference through exactly the same door: the
+ * same chunk-id check, the same https rule, the same secret, the same parse.
+ * **The caller must have authenticated and spent a budget before calling
+ * this** — it spends inference and checks neither.
+ *
+ * `callerId` is what the Worker's caller hash is computed over: an account id
+ * for a signed-in recorder, a fixed label for the demo.
+ */
+export async function transcribeAtWorker(
+  args: ChunkArgs,
+  callerId: string,
+): Promise<{ segments: TranscriptSegment[]; refusedSegments: number }> {
+  // After authentication, because the shape of an unauthenticated caller's
+  // arguments is not something to tell them about — and before the fetch,
+  // because a check that runs after one has already bought the inference.
+  if (!CHUNK_ID_PATTERN.test(args.chunkId)) throw invalidChunkId();
+
+  const workerUrl = configured(TRANSCRIBE_WORKER_URL_ENV_VAR);
+  const workerSecret = configured(TRANSCRIBE_WORKER_SECRET_ENV_VAR);
+  // Both, or neither. A URL with no secret would post somebody's meeting
+  // audio to a public endpoint unauthenticated, which is worse than the
+  // refusal it replaces.
+  if (workerUrl === null || workerSecret === null) throw notConfigured();
+  // A misconfigured scheme is a misconfigured deployment, so it is the same
+  // refusal — and it happens before the fetch, because a check that runs
+  // after one has already sent the meeting.
+  if (!isTranscribeWorkerUrlUsable(workerUrl)) throw insecureWorkerUrl();
+
+  // Who is asking, opaquely. The worker keys its rate limit by this and names
+  // it in its logs; see `callerHash` for what it is and how to invert it.
+  const caller = await callerHash(callerId, workerSecret);
+
+  let response: Response;
+  try {
+    response = await fetch(transcribeEndpoint(workerUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${workerSecret}`,
+        "Content-Type": "application/json",
+        [CALLER_HEADER]: caller,
+      },
+      // The audio, what it is, and how long it is. Nothing else: no chunk
+      // id, no offset, no session and no user, because a stateless
+      // transcriber that knew where a chunk sat in a recording would be
+      // holding a fragment of somebody's meeting. The caller identifier is a
+      // header rather than a field here for the same reason the worker needs
+      // it at all — it must be readable before the body is.
+      body: JSON.stringify({
+        audioBase64: args.audioBase64,
+        mimeType: args.mimeType,
+        durationMs: args.durationMs,
+      }),
+    });
+  } catch {
+    // DNS, TLS, a connection dropped mid-flight. The error is not attached:
+    // a rejection from `fetch` can carry the request URL, and this one is
+    // about to be logged.
+    throw transcriptionFailed("the worker could not be reached");
+  }
+
+  if (!response.ok) {
+    // The status and nothing else — never the body, for the reason
+    // `transcriptionFailed` gives.
+    console.warn(
+      JSON.stringify({
+        event: "transcribe_worker_error",
+        chunkId: args.chunkId,
+        status: response.status,
+      }),
+    );
+    throw transcriptionFailed(`the worker answered ${response.status}`);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw transcriptionFailed("the worker's answer was not JSON");
+  }
+
+  const raw = (payload as { segments?: unknown })?.segments;
+  // A missing array is a worker whose shape has changed, and reading it as an
+  // empty one is how a deploy silently stops transcribing while every meeting
+  // still looks like it is being recorded.
+  if (!Array.isArray(raw)) {
+    throw transcriptionFailed("the worker's answer carried no segments");
+  }
+
+  const segments: TranscriptSegment[] = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    const segment = raw[index];
+    if (!isWorkerSegment(segment)) {
+      throw transcriptionFailed(`segment ${index} was malformed`);
+    }
+    // Dropped, but **not** renumbered: the id names this segment's position
+    // in the worker's own answer, so a blank appearing or disappearing
+    // between two runs cannot shift the id of everything after it. An id that
+    // is a function of what survived the filter is an id that moves, and
+    // "the same segment id replaces" is the whole of the client's ability to
+    // replay its log after a dropped connection.
+    if (segment.text.trim().length === 0) continue;
+    segments.push({
+      id: `${args.chunkId}-${index}`,
+      // The worker sees one chunk and times everything from the start of it.
+      // Without this the transcript of a forty-minute meeting would claim to
+      // be entirely within its first thirty seconds, and a flag — whose only
+      // job is to land on the right sentence — would land on nothing.
+      startMs: args.offsetMs + segment.startMs,
+      endMs: args.offsetMs + segment.endMs,
+      text: segment.text,
+      // Never invented. Whisper does no diarization, and a "Speaker 1" the
+      // engine did not produce is a label presented with more confidence than
+      // it has earned.
+      speaker: null,
+      channel: "mic",
+      // Passed through untouched, including `0` — a real confidence — and
+      // including absent, which is `null` rather than a number we chose.
+      confidence: segment.confidence ?? null,
+    });
+  }
+
+  /*
+    Zero for anything unreadable, and that direction is deliberate on every
+    hop this field takes. A worker one deploy behind, a proxy that rewrote the
+    body, a value that is not a number: none of them is evidence that a room
+    was quiet, and reading them as such would put "no speech was heard" on a
+    phone during a meeting somebody is talking in.
+
+    Note the asymmetry with `segments` above, which throws when it is absent.
+    That is not an inconsistency: a missing `segments` array means the worker's
+    shape has changed and nothing is being transcribed, which must be loud; a
+    missing `refusedSegments` means the worker cannot yet say why an answer was
+    short, which costs a sentence and no words.
+  */
+  const refused = (payload as { refused?: unknown })?.refused;
+  const refusedSegments =
+    typeof refused === "number" && Number.isFinite(refused) && refused > 0 ? Math.floor(refused) : 0;
+
+  return { segments, refusedSegments };
+}

@@ -68,6 +68,44 @@ export function addNote(
   return { tree: { ...next, notes: { ...next.notes, [path]: text } }, path };
 }
 
+/**
+ * A note at exactly `path`, with every folder above it made on the way.
+ *
+ * `addNote` picks a free name inside a folder that already exists; this is
+ * for a writer that has already chosen the key, which is how a finished
+ * meeting arrives (`meetingNotePath`), and whose folder may not exist yet —
+ * the homepage has no `inbox/` until the first meeting. `null` when something
+ * is already at `path`: the writer is create-only, and a second write of the
+ * same meeting must be told so rather than overwrite it.
+ */
+export function putNote(
+  tree: DemoContextTree,
+  path: string,
+  text: string,
+): DemoContextTree | null {
+  if (tree.notes[path] !== undefined || tree.listings[path] !== undefined) return null;
+  let next = tree;
+  const parts = parentOf(path).split("/").filter((part) => part !== "");
+  let folder = "";
+  for (const part of parts) {
+    const at = join(folder, part);
+    if (next.listings[at] === undefined) {
+      if (next.notes[at] !== undefined) return null;
+      next = withEntry(next, fileEntry(at, "folder"));
+      next = {
+        ...next,
+        listings: {
+          ...next.listings,
+          [at]: { path: at, folderDefault: "team", entries: [], truncated: false, manifestUsable: true },
+        },
+      };
+    }
+    folder = at;
+  }
+  next = withEntry(next, fileEntry(path, "file"));
+  return { ...next, notes: { ...next.notes, [path]: text } };
+}
+
 /** A new, empty folder in `folder`. Answers with its path. */
 export function addFolder(
   tree: DemoContextTree,

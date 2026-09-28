@@ -98,7 +98,7 @@ import { useMeetingsSnapshot, useTick } from "./useMeetings";
  * having to find it. `app/(app)/meetings/[id].tsx` is the one place that
  * chooses which of the two screens to draw.
  */
-export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
+export function LiveMeetingScreen({ meetingId, onClose }: { meetingId: string; onClose?: () => void }) {
   const snapshot = useMeetingsSnapshot();
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -183,7 +183,7 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
     <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
       <View style={styles.topBar}>
         <Pressable
-          onPress={() => router.back()}
+          onPress={onClose ?? (() => router.back())}
           accessibilityRole="button"
           accessibilityLabel="Back to meetings"
           style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
