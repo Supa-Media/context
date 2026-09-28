@@ -206,7 +206,7 @@ describe("the list", () => {
 
   test("ends each row with whose it is: a face and a name, a robot for an AI helper, and nobody as No owner", async () => {
     await mount(host([]));
-    expect(strip(one("folder-item-owner", row("Sign the lease")).textContent)).toBe("SE@seyi");
+    expect(strip(one("folder-item-owner", row("Sign the lease")).textContent)).toBe("@seyi");
     expect(all("owner-face-agent", row("opening-day post"))).toHaveLength(1);
     expect(strip(one("folder-item-owner", row("opening-day post")).textContent)).toBe("Claude");
     expect(all("owner-face-nobody", row("Take photos"))).toHaveLength(1);

@@ -5,8 +5,8 @@
  * (`presenceActor`), because several people's agents work in one shared
  * workspace and "Claude" alone does not say which (the owner, 2026-09-27).
  * The full name is long for a caret's flag or a 22px avatar, so those draw it
- * compactly: the owner's initials, then the agent — `jo Claude`. A person's
- * name ("@jon") never has the possessive, so it is never split.
+ * compactly: the owner's face, then the agent. A person's name ("@jon") never
+ * has the possessive, so it is never split.
  */
 
 export interface AgentName {
@@ -19,10 +19,4 @@ export interface AgentName {
 export function agentName(name: string): AgentName {
   const match = /^(@[A-Za-z0-9][A-Za-z0-9_.-]*)['’]s (.+)$/.exec(name);
   return match === null ? { owner: null, agent: name } : { owner: match[1]!, agent: match[2]! };
-}
-
-/** Two lowercase characters of a handle, without its `@`. */
-export function handleInitials(handle: string): string {
-  const bare = handle.startsWith("@") ? handle.slice(1) : handle;
-  return bare.slice(0, 2).toLowerCase() || "?";
 }

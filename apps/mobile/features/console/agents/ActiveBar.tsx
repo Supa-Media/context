@@ -2,6 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { Text } from "../../design/components/Text";
 import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { PersonFace } from "../faces/PersonFace";
 import { AgentStack } from "./AgentList";
 import { activeParts, compactCount, peopleActive, type ActivePerson, type AgentActivityView } from "./agentActivity";
 
@@ -59,7 +60,7 @@ export function PeopleList({ view }: { view: AgentActivityView }) {
     <View style={styles.list} testID="active-people-list">
       {people.map((person) => (
         <View key={person.id} style={styles.row} accessibilityLabel={person.self ? `${person.name}, you` : person.name}>
-          <View style={[styles.rowFace, person.color === null ? styles.faceUnknown : { backgroundColor: person.color }]} />
+          <PersonFace name={person.name} size={20} />
           <Text variant="tree" numberOfLines={1} style={styles.name}>
             {person.name}
           </Text>
@@ -110,7 +111,6 @@ const sheet = (colors: Colors) =>
     stacked: { marginLeft: -3 },
     list: { paddingTop: space.x1 },
     row: { flexDirection: "row", alignItems: "center", gap: space.x3, paddingVertical: space.x2, paddingHorizontal: space.x3 },
-    rowFace: { width: 14, height: 14, borderRadius: 7, flexShrink: 0 },
     name: { color: colors.text2, flexGrow: 1, flexShrink: 1, minWidth: 0 },
     meta: { color: colors.chromeMuted, flexShrink: 0 },
     more: { paddingVertical: space.x2, paddingHorizontal: space.x3 },

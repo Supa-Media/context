@@ -25,7 +25,7 @@ import {
   tasksWithSubtasks,
   type OwnerWho,
 } from "../features/console/files/folderPage/showFilter";
-import { dueOf, dueWord, initialsOf, ownersOf, priorityOf, priorityWord, tagsOf } from "../features/console/files/folderPage/taskProps";
+import { dueOf, dueWord, ownersOf, priorityOf, priorityWord, tagsOf } from "../features/console/files/folderPage/taskProps";
 import type { StatusList } from "../features/console/files/folderPage/statuses";
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry } from "../features/console/files/types";
@@ -82,12 +82,6 @@ describe("a task's own properties", () => {
     // Past dates are never a weekday, which would read as next week's.
     expect(dueWord({ year: 2026, month: 9, day: 25 }, now)).toBe("Sep 25");
     expect(dueWord({ year: 2027, month: 1, day: 4 }, now)).toBe("Jan 4, 2027");
-  });
-
-  test("a face's initials are the first two letters of a one-word name, else two words' first letters", () => {
-    expect(initialsOf("@seyi")).toBe("SE");
-    expect(initialsOf("Sayo Adé")).toBe("SA");
-    expect(initialsOf("")).toBe("?");
   });
 });
 

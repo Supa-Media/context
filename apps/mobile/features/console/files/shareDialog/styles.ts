@@ -203,8 +203,6 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
   avatarSmall: { width: 22, height: 22 },
   avatarGroup: { backgroundColor: colors.sharedWash },
   avatarOwner: { backgroundColor: colors.warnWash },
-  avatarText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.text2 },
-  avatarTextSmall: { fontSize: pointerType.label },
 
   dropdown: {
     flexDirection: "row",

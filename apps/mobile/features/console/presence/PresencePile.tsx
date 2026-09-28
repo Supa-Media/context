@@ -7,7 +7,10 @@ import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { MenuItem } from "../files/menuItem";
-import { agentName, handleInitials } from "./agentName";
+import { Icon } from "../../design/components/Icon";
+import { FaceView } from "../faces/PersonFace";
+import { useFace } from "../faces/useFace";
+import { agentName } from "./agentName";
 import {
   memberWhere,
   pileFaces,
@@ -33,8 +36,10 @@ import type { PresenceMember } from "./protocol";
  *
  * **It renders nothing when nobody else is here**, which is almost always, and
  * nothing when presence is unavailable. The faces are the colour the room gave
- * each person, the colour their caret is drawn in; people are circles and
- * agents rounded squares carrying their owner's initials, as in the tree.
+ * each person, the colour their caret is drawn in, under their face. People
+ * are circles showing their face (`PersonFace`); agents are rounded squares
+ * showing their owner's face, or a robot when no owner is in their name.
+ * Never initials (Dev2, 2026-09-28).
  */
 export function PresencePile({ presence, compact }: { presence: Presence; compact: boolean }) {
   const styles = useThemedStyles(makeStyles);
@@ -128,6 +133,10 @@ function Face({
   ring?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  // An agent is drawn with whose it is: `@jon's Claude` shows @jon's face.
+  const owner = member.isAgent ? agentName(member.name).owner : member.name;
+  const face = useFace(owner);
+  const size = sized?.face.width ?? FACE;
   return (
     <View
       aria-hidden
@@ -143,19 +152,19 @@ function Face({
         stacked ? (sized?.stacked ?? styles.stacked) : null,
       ]}
     >
-      <Text variant="treeMeta" style={[styles.initials, sized?.text]}>
-        {sized?.oneInitial ? initialsFor(member.name).slice(0, 1) : initialsFor(member.name)}
-      </Text>
+      {owner === null ? (
+        <Icon name="robot" size={Math.round(size * 0.6)} color={styles.robot.color} />
+      ) : (
+        <FaceView
+          face={face}
+          name={owner}
+          size={size}
+          style={member.isAgent ? styles.square : null}
+          testID="presence-face-inner"
+        />
+      )}
     </View>
   );
-}
-
-/**
- * Two characters from a handle, without its `@` — a pile of faces all reading
- * "@" says how many and nothing else. An agent carries its owner's.
- */
-function initialsFor(name: string): string {
-  return handleInitials(agentName(name).owner ?? name);
 }
 
 const FACE = pileGeometry(false).face;
@@ -164,11 +173,8 @@ const FACE = pileGeometry(false).face;
  * The per-density half of a face's style: its size, its overlap, and what the
  * face can hold.
  *
- * A face smaller than the pointer's draws **one** initial, at the scale's
- * smallest size, on a line as tall as the space inside the ring. Two initials
- * do not fit inside an 18pt ring at any size on the type scale, and a size
- * below the scale is the literal `typeScale.test.ts` refuses. The member's
- * full name is in the list the pile opens, which is where it is read.
+ * The member's full name is in the list the pile opens, which is where it is
+ * read; the face itself carries no text.
  */
 function sizeStyle({ face, overlap }: { face: number; overlap: number }) {
   const small = face < FACE;
@@ -176,8 +182,8 @@ function sizeStyle({ face, overlap }: { face: number; overlap: number }) {
     face: { width: face, height: face, borderRadius: face / 2 },
     agent: { borderRadius: Math.round((face * 7) / 24) },
     stacked: { marginLeft: -overlap },
+    // For the "+2" face, the one face still drawn in text.
     text: small ? { lineHeight: face - 4 } : null,
-    oneInitial: small,
   };
 }
 
@@ -193,6 +199,7 @@ const makeStyles = (c: Colors) =>
       borderRadius: FACE / 2,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     },
     // The ring is the note's own paper, so an overlap reads as a stack of
     // faces in both themes rather than faces sitting in grey boxes — which is
@@ -203,6 +210,8 @@ const makeStyles = (c: Colors) =>
     noColor: { backgroundColor: c.chromeMuted },
     more: { backgroundColor: c.surface3 },
     moreText: { color: c.muted, fontWeight: "700" },
-    initials: { color: c.ink, fontWeight: "700" },
+    robot: { color: c.ink },
+    // The outer square clips; the face inside fills it rather than sitting in it as a circle.
+    square: { borderRadius: 0 },
     note: { color: c.muted },
   });

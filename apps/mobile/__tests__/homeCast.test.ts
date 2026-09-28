@@ -3,7 +3,7 @@ import { splitWebsiteCast, type CastActor } from "@context/shared";
 import { createSharedDoc, seedSharedDoc } from "../features/console/presence/sharedDoc";
 import { cursorOffset } from "../features/console/presence/sync";
 import type { PresenceMember } from "../features/console/presence/protocol";
-import { agentName, handleInitials } from "../features/console/presence/agentName";
+import { agentName } from "../features/console/presence/agentName";
 import { CAST_ORIGIN, LIVELY, castColors, playCast, type CastHost } from "../features/home/cast/castRun";
 import { castPresence, castSite } from "../features/home/cast/castSite";
 import { pageNamed, recordAgent } from "../features/home/cast/useHomeCast";
@@ -305,7 +305,6 @@ describe("whose agent it is", () => {
     expect(agentName("@maya\u2019s Codex")).toEqual({ owner: "@maya", agent: "Codex" });
     expect(agentName("@maya")).toEqual({ owner: null, agent: "@maya" });
     expect(agentName("Claude")).toEqual({ owner: null, agent: "Claude" });
-    expect(handleInitials("@jon")).toBe("jo");
   });
 
   test("two people's Claudes are two colours, and the first keeps Claude's", () => {

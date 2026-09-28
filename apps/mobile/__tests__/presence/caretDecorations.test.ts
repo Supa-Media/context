@@ -99,7 +99,7 @@ describe("the caret decorations", () => {
     expect(label(long)).toBe("Some Client");
   });
 
-  test("somebody's agent is flagged compactly: their initials, then the agent", () => {
+  test("somebody's agent is flagged compactly: their face, then the agent", () => {
     const set = buildCaretDecorations(
       [member({ head: at(3), name: "@jon's Claude", isAgent: true })],
       10,
@@ -114,8 +114,9 @@ describe("the caret decorations", () => {
       if (spec.widget) flag = spec.widget.toDOM().querySelector(".cm-presence-label");
       cursor.next();
     }
-    expect(flag?.querySelector(".cm-presence-owner")?.textContent).toBe("jo");
-    expect(flag?.textContent).toBe("joClaude");
+    // No face chosen: the drawn figure, never initials.
+    expect(flag?.querySelector(".cm-presence-owner svg")).not.toBeNull();
+    expect(flag?.textContent).toBe("Claude");
     // The whole name is still there, for whoever hovers it.
     expect(flag?.title).toBe("@jon's Claude");
   });

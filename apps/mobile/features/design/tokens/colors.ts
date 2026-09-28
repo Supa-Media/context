@@ -534,3 +534,22 @@ export const presenceColors = {
   cyan: "#06b6d4",
   lime: "#84cc16",
 } as const;
+
+/**
+ * The drawn face everybody has until they choose a picture: a head and
+ * shoulders on a gradient, as in the faces mockup Dev2 picked (2026-09-28,
+ * "this actually looks pretty cool"). Which set a person gets is a hash of
+ * their handle (`faces/defaultFace.ts`), so it never changes unless they
+ * upload a photo or choose a workspace icon. The same in both themes, like a
+ * photo would be. Each is `[groundTop, groundBottom, shirt, skin, hair]`.
+ */
+export const DEFAULT_FACE_PALETTES: ReadonlyArray<readonly [string, string, string, string, string]> = [
+  ["#F6D365", "#FDA085", "#E4572E", "#E3B48C", "#2A1A12"],
+  ["#A8E063", "#56AB2F", "#2F6F4F", "#8A5A3C", "#1B1B1B"],
+  ["#89F7FE", "#66A6FF", "#2D4FA3", "#F1C9A5", "#3B2A20"],
+  ["#FBC2EB", "#A18CD1", "#6A4C9C", "#C68B63", "#231815"],
+  ["#FFE29F", "#FFA99F", "#C0392B", "#6B4430", "#141010"],
+  ["#84FAB0", "#8FD3F4", "#1F7A8C", "#E8B894", "#5A3825"],
+  ["#FAD0C4", "#F6A6B2", "#B83B5E", "#A86B4C", "#2B1D16"],
+  ["#D4FC79", "#96E6A1", "#3C8D5A", "#F3D1B4", "#6B3E26"],
+];

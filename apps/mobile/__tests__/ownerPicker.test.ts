@@ -324,9 +324,9 @@ describe("an owner written before handles", () => {
     };
     await mount(entry("folder", "1-projects"), PROJECTS, page);
     expect([...resolved[0]].sort()).toEqual(["Sayo", "Seyi"]);
-    // The face's initials come first; the name is the member's, not the word written.
-    expect(strip(ownerOf("Website").textContent)).toBe("SOSeyi Olujide");
-    expect(strip(ownerOf("App").textContent)).toBe("SASayo");
+    // The face is a picture, never initials; the name is the member's, not the word written.
+    expect(strip(ownerOf("Website").textContent)).toBe("Seyi Olujide");
+    expect(strip(ownerOf("App").textContent)).toBe("Sayo");
     await press(ownerOf("Website"));
     await settle();
     expect(options()).not.toContain("✓SeyiNot a member");
