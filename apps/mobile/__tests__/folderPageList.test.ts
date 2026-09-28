@@ -247,6 +247,19 @@ describe("the list", () => {
     expect(writes).toEqual([[`${CAFE}/budget.md`, "status", "to do", undefined]]);
   });
 
+  test("a note inside a task becomes that task's subtask with the first To do of the list that describes it", async () => {
+    const writes: Write[] = [];
+    const page = host(writes);
+    const own = NOTES.map((each) =>
+      each.path === `${CAFE}/kitchen/overview.md` ? { ...each, properties: { ...each.properties, "statuses-not-started": ["prep"] } } : each,
+    );
+    page.source.load = async () => ({ notes: own, complete: true });
+    await mount(page);
+    await press(one("folder-expand", row("kitchen")));
+    await press(one("folder-make-task", one("folder-task-open")));
+    expect(writes).toEqual([[`${CAFE}/kitchen/layout.md`, "status", "prep", undefined]]);
+  });
+
   test("a member reads the same list with nothing that would write", async () => {
     const page = await mount(host(null));
     expect(heads()).toEqual(["Backlog1Ideas and later work, out of the way", "To do3", "In progress1", "Finished1"]);
@@ -285,6 +298,17 @@ describe("Show", () => {
     await mount(host([]));
     expect(one("folder-show-mine").getAttribute("aria-pressed")).toBe("true");
     expect(localStorage.getItem(["context.folderView", "ws_test", CAFE, "filter"].join("\u001f"))).toBe("mine");
+  });
+
+  test("a filter remembered from when there were tasks hides nothing once there are none", async () => {
+    localStorage.setItem(["context.folderView", "ws_test", CAFE, "filter"].join("\u001f"), "urgent");
+    localStorage.setItem(["context.folderView", "ws_test", CAFE].join("\u001f"), "list");
+    const page = host([]);
+    page.source.load = async () => ({ notes: NOTES.map((each) => ({ ...each, properties: {} })), complete: true });
+    await mount(page);
+    expect(all("folder-show-bar")).toHaveLength(0);
+    expect(all("folder-note").length).toBeGreaterThan(0);
+    expect(all("folder-filter-empty")).toHaveLength(0);
   });
 
   test("Owner opens a searchable list of no owner, me, the people and the AI helpers, with counts", async () => {

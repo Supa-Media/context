@@ -17,6 +17,7 @@ import { Text } from "../../../design/components/Text";
 import { place } from "../../../design/components/popoverPlacement";
 import { fonts, layout, pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import type { Shadows } from "../../../design/tokens/shadows";
 import { useFieldFont } from "../../../design/fieldFont";
 import { OwnerFace, type Face } from "./Glyphs";
 import { ANY_AGENT } from "../owners";
@@ -251,7 +252,7 @@ function OwnerFilterMenu({
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     bar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: space.x2 },
     lab: { color: colors.chromeMuted, marginRight: 2 },
@@ -270,7 +271,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.lineStrong,
       borderRadius: radii.xl,
       backgroundColor: colors.surface3,
-      boxShadow: "0 24px 60px -18px rgba(0,0,0,.9)",
+      boxShadow: shadows.floating,
     },
     sheet: {
       maxHeight: "80%",

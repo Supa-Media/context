@@ -55,6 +55,7 @@ import {
 import { useFolderNotes, type FolderPageHost } from "./useFolderPage";
 import {
   folderStatuses,
+  governingFolder,
   groupOfStatus,
   statusBands,
   statusMenu,
@@ -167,9 +168,11 @@ export function FolderPage({
   const taskOwners = useTaskOwners(me ?? NO_WORDS, label, agents.isAgent, agentList);
   const allTasks = useMemo(() => tasksWithSubtasks(items, notes ?? []), [items, notes]);
   const counts = useMemo(() => chipCounts(allTasks, taskOwners.who), [allTasks, taskOwners.who]);
+  // A filter remembered from when there were tasks narrows nothing once there are none: its bar is gone.
+  const shown = allTasks.length === 0 ? EVERYONE : filter;
   const layout = useMemo(
-    () => listLayout(items, list, notes ?? [], filterMatch(filter, taskOwners.who)),
-    [items, list, notes, filter, taskOwners.who],
+    () => listLayout(items, list, notes ?? [], filterMatch(shown, taskOwners.who)),
+    [items, list, notes, shown, taskOwners.who],
   );
   const suggestAgents = useMemo(
     () => (suggestFor === undefined ? undefined : (path: string, prefer: readonly string[]) => suggestFor(path, prefer, agentList)),
@@ -258,7 +261,11 @@ export function FolderPage({
           },
     owners,
     faceOf: taskOwners.faceOf,
-    onMakeTask: edit === null ? null : (item) => void edit(item.target, "status", makeItTaskStatus(list), item.creates),
+    // The first To do of the list that describes the item: a note inside a task folder is read by that folder's.
+    onMakeTask:
+      edit === null
+        ? null
+        : (item) => void edit(item.target, "status", makeItTaskStatus(folderStatuses(governingFolder(item.target), notes ?? []).list), item.creates),
     makeTaskLabel: rowsAreProjects(folder) ? "Make it a project" : "Make it a task",
   };
   const problem = loaded.problem ?? tidyProblem;

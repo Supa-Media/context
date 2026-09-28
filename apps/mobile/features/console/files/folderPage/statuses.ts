@@ -98,16 +98,6 @@ export function statusBands(all: readonly FolderGroup[], list: StatusList): Stat
   return bands;
 }
 
-/**
- * The List view's bands: the same groups, only what has something in it,
- * and no empty columns — a list is read, not dropped on.
- */
-export function listBands(groups: readonly FolderGroup[], list: StatusList): StatusBand[] {
-  return statusBands(groups, list)
-    .map((band) => ({ ...band, columns: band.columns.filter((column) => column.items.length > 0) }))
-    .filter((band) => band.columns.length > 0);
-}
-
 /** One section of the status menu: a group's name and the words it offers. */
 export interface StatusMenuSection {
   readonly group: StatusGroup;
