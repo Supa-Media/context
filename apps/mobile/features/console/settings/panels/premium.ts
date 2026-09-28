@@ -507,7 +507,7 @@ export function premiumPill(
  *   status. Updating a card, cancelling and restarting all live in Stripe's
  *   portal, which is where the card and the invoices already are.
  */
-export type PremiumControl = "none" | "choose" | "upgrade" | "manage";
+export type PremiumControl = "none" | "upgrade" | "manage";
 
 export function premiumControl(view: PremiumView): PremiumControl {
   const status = view.status;
@@ -518,11 +518,10 @@ export function premiumControl(view: PremiumView): PremiumControl {
   if (status.hasStripeCustomer === true) {
     return view.manageBilling === undefined ? "none" : "manage";
   }
-  if (!status.configured) return "none";
-  if (view.upgrade === undefined) return "none";
-  if (!status.selected.managedStorage && !status.selected.fastSearch)
-    return "choose";
-  return "upgrade";
+  // A status this build does not know is never sold over: with nothing to
+  // tick first, the state is now the only thing between it and a checkout.
+  if (!status.configured || premiumStateOf(status.status) === "unavailable") return "none";
+  return view.upgrade === undefined ? "none" : "upgrade";
 }
 
 /**

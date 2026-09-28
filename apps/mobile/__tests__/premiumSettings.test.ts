@@ -199,10 +199,10 @@ describe("which control is offered", () => {
     ).toBe("upgrade");
   });
 
-  test("an owner who has chosen nothing is told what to tick, not shown a dead button", () => {
-    // The server refuses a checkout with nothing in it, and the fix is one tap
-    // away rather than a permission a person cannot get.
-    expect(premiumControl(view())).toBe("choose");
+  test("an owner who has chosen nothing can still upgrade: Premium is one plan", () => {
+    // Nothing to tick first (2026-09-28): the control plane fills in what the
+    // upgrade buys, so an empty selection is no longer a dead end.
+    expect(premiumControl(view())).toBe("upgrade");
   });
 
   test("a context with a customer goes to the portal, whatever the status", () => {

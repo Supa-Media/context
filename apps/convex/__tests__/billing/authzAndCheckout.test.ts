@@ -349,12 +349,14 @@ describe("asking for a checkout URL", () => {
     expect(row?.url).toBeUndefined();
   });
 
-  test("nothing is bought without choosing something first", async () => {
+  test("nothing needs choosing first: the upgrade fills in what it buys", async () => {
+    // Premium is one plan (2026-09-28). What exactly it fills in is
+    // `onePlan.test.ts`; here, only that an empty cart is no longer refused.
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "empty-cart");
     await expect(
       asUser(t, owner).mutation(api.functions.billing.startCheckout, { workspaceId }),
-    ).rejects.toThrow(/managed storage|fast search/i);
+    ).resolves.toHaveProperty("sessionId");
   });
 
   test("a deployment with no price id records a reason rather than spinning", async () => {

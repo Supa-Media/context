@@ -188,6 +188,31 @@ export function hasAnyEntitlement(selected: Entitlements): boolean {
 }
 
 /**
+ * What pressing Upgrade buys. Premium is one plan (decided 2026-09-28): the
+ * owner no longer ticks boxes first, so the selection is filled in here.
+ *
+ * - **Managed storage follows where the notes already are.** On a bucket we
+ *   run it stays selected, so paying lifts the free cap on the same bucket. On
+ *   the owner's own storage it is never switched on by paying, because that
+ *   would start moving their notes; that move is Settings › Storage's.
+ * - **Fast search comes with the plan** for a context that has never paid.
+ *   A context that paid before keeps what it chose then, so turning the index
+ *   off once is not undone by resubscribing, unless that would leave nothing.
+ *
+ * An explicit earlier choice (onboarding's paid bucket) is only ever added
+ * to, never taken away. `docs/decisions/billing.md`, "One plan".
+ */
+export function selectionAtUpgrade(
+  selected: Entitlements,
+  status: PlanStatus,
+  storageIsManaged: boolean,
+): Entitlements {
+  const managedStorage = selected.managedStorage || storageIsManaged;
+  const fastSearch = selected.fastSearch || status === "none" || !managedStorage;
+  return { managedStorage, fastSearch };
+}
+
+/**
  * How many notes a context on the free managed tier holds.
  *
  * A note is counted the way the console counts one (`lib/noteCount.ts`):

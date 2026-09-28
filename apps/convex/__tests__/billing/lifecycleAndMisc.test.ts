@@ -433,7 +433,7 @@ describe("free staging storage", () => {
       expect(await t.run(ctx => ctx.db.system.query("_scheduled_functions").collect())).toHaveLength(scheduled.length);
       expect(await t.run(ctx => ctx.db.query("billingSessions").collect())).toEqual([]);
       expect(await asUser(t, owner).query(api.functions.billing.status, { workspaceId }))
-        .toMatchObject({ status: "active", active: { managedStorage: true, fastSearch: false }, managedProvisioning: "running", hasStripeCustomer: false });
+        .toMatchObject({ status: "active", active: { managedStorage: true, fastSearch: true }, managedProvisioning: "running", hasStripeCustomer: false });
     } finally { vi.unstubAllEnvs(); }
   });
 
