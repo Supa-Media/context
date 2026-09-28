@@ -82,8 +82,10 @@ const AFTER_SENTENCE =
  * open, their rows hand off to it: the button opens the guide rather than the
  * client, and there is no Details panel, because a second copy of the same
  * fields beside a guide that already has them is two answers to one question.
- * Where it cannot — the demo, the owner of a shared workspace, whose grant list
- * is everybody's — `onConnectAgent` is absent and the rows are what they were.
+ * Where it cannot — the demo and the pinned read-only context —
+ * `onConnectAgent` is absent and the rows are what they were. A shared
+ * workspace owner can use the guide: its checks distinguish their grants and
+ * activity from their teammates'.
  */
 type Panel = { id: string; section: "details" | "hook" } | null;
 

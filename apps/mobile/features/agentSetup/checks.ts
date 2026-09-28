@@ -32,11 +32,20 @@ function isAgent(agent: SetupAgent, name: string | null | undefined): boolean {
   return providerIdForClientName(name ?? "") === agent;
 }
 
+/** The setup guide is personal even when the selected workspace is shared. */
+function isOwnGrant(grant: GrantFacts): boolean {
+  // An older self-hosted control plane did not return `isMine`. Once the guide
+  // is available to shared owners, treating absence as true could advance on a
+  // teammate's row, so an old backend gets a stalled check rather than a lie.
+  return grant.isMine === true;
+}
+
 /** Whether this agent holds a live grant here. Any grant counts: reconnecting is signing in. */
 export function signedIn(agent: SetupAgent, grants: readonly GrantFacts[] | undefined): boolean {
   return (grants ?? []).some(
     (grant) =>
       grant.status === "active" &&
+      isOwnGrant(grant) &&
       grant.clientId !== CONSOLE_CLIENT_ID &&
       isAgent(agent, grant.clientName ?? grant.clientId),
   );
@@ -47,6 +56,7 @@ export function agentUsed(agent: SetupAgent, grants: readonly GrantFacts[] | und
   return (grants ?? []).some(
     (grant) =>
       grant.status === "active" &&
+      isOwnGrant(grant) &&
       grant.clientId !== CONSOLE_CLIENT_ID &&
       isAgent(agent, grant.clientName ?? grant.clientId) &&
       typeof grant.lastUsedAt === "number" &&
@@ -66,7 +76,11 @@ export function agentMarks(
   since: number,
 ): { reads: number; writes: WrittenNote[] } {
   if (activity === undefined) return { reads: 0, writes: [] };
-  const mine = new Set(activity.agents.filter((row) => isAgent(agent, row.name)).map((row) => row.id));
+  const mine = new Set(
+    activity.agents
+      .filter((row) => row.self === true && isAgent(agent, row.name))
+      .map((row) => row.id),
+  );
   let reads = 0;
   const writes: WrittenNote[] = [];
   for (const mark of activity.marks) {

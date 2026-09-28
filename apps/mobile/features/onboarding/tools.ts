@@ -23,6 +23,8 @@ export interface GrantFacts {
   clientId: string;
   clientName?: string | null;
   status: string;
+  /** True for the viewer's client; false for another member's owner-visible row. */
+  isMine?: boolean;
   lastUsedAt?: number | null;
 }
 

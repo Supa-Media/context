@@ -39,16 +39,16 @@ import type { AgentActivityView } from "../features/console/agents/agentActivity
 
 const T0 = 1_700_000_000_000;
 const claudeGrant = (over: Partial<GrantFacts> = {}): GrantFacts =>
-  ({ clientId: "c-claude", clientName: "Claude", status: "active", lastUsedAt: null, ...over }) as GrantFacts;
+  ({ clientId: "c-claude", clientName: "Claude", status: "active", isMine: true, lastUsedAt: null, ...over }) as GrantFacts;
 const gptGrant = (over: Partial<GrantFacts> = {}): GrantFacts =>
-  ({ clientId: "c-gpt", clientName: "ChatGPT", status: "active", lastUsedAt: null, ...over }) as GrantFacts;
+  ({ clientId: "c-gpt", clientName: "ChatGPT", status: "active", isMine: true, lastUsedAt: null, ...over }) as GrantFacts;
 const progress = (over: Partial<SetupProgress> = {}): SetupProgress => ({ ...FRESH_PROGRESS, ...over });
 
 function activity(marks: Array<{ path: string; kind: "read" | "write"; at: number; agent?: string }>): AgentActivityView {
   return {
     agents: [
-      { id: "a-claude", name: "Claude" },
-      { id: "a-cursor", name: "Cursor" },
+      { id: "a-claude", name: "Claude", self: true },
+      { id: "a-cursor", name: "Cursor", self: false },
     ],
     marks: marks.map((mark) => ({ agent: "a-claude", ...mark })),
   } as unknown as AgentActivityView;
@@ -109,12 +109,15 @@ describe("what the guide can see", () => {
     expect(signedIn("claude", [gptGrant()])).toBe(false);
     expect(signedIn("chatgpt", [gptGrant()])).toBe(true);
     expect(signedIn("claude", [claudeGrant({ clientId: CONSOLE_CLIENT_ID })])).toBe(false);
+    expect(signedIn("claude", [claudeGrant({ isMine: false })])).toBe(false);
+    expect(signedIn("claude", [claudeGrant({ isMine: undefined })])).toBe(false);
     expect(signedIn("claude", undefined)).toBe(false);
   });
 
   test("used means it has called in, not just signed in", () => {
     expect(agentUsed("claude", [claudeGrant()])).toBe(false);
     expect(agentUsed("claude", [claudeGrant({ lastUsedAt: T0 })])).toBe(true);
+    expect(agentUsed("claude", [claudeGrant({ isMine: false, lastUsedAt: T0 })])).toBe(false);
   });
 
   test("only this agent's marks since the prompt was copied", () => {
@@ -127,6 +130,12 @@ describe("what the guide can see", () => {
     const marks = agentMarks("claude", view, T0);
     expect(marks.reads).toBe(1);
     expect(marks.writes).toEqual([{ path: "1-projects/a.md", at: T0 + 2 }]);
+  });
+
+  test("another member's Claude activity never completes this person's guide", () => {
+    const view = activity([{ path: "0-inbox/Sync report.md", kind: "write", at: T0 + 1 }]);
+    view.agents = view.agents.map((agent) => ({ ...agent, self: false }));
+    expect(agentMarks("claude", view, T0)).toEqual({ reads: 0, writes: [] });
   });
 
   test("notes seen stay seen after the gateway forgets them, in first-seen order", () => {

@@ -103,11 +103,15 @@ export function recordActivity(log, event, now) {
   if (!KINDS.has(kind)) return false;
   if (!actor || typeof actor !== "object") return false;
   if (typeof actor.id !== "string" || !/^[0-9a-f]{16}$/.test(actor.id)) return false;
+  if (actor.owner !== undefined && (typeof actor.owner !== "string" || !/^[0-9a-f]{16}$/.test(actor.owner))) {
+    return false;
+  }
   log.push({
     path,
     kind,
     id: agentMemberId(actor.id),
     name: normalizeDisplayName(typeof actor.name === "string" ? actor.name.slice(0, MAX_DISPLAY_NAME * 4) : ""),
+    ...(actor.owner === undefined ? {} : { owner: actor.owner }),
     at: now,
   });
   pruneActivity(log, now);
@@ -129,7 +133,7 @@ export function recordActivity(log, event, now) {
  *  - `agents`: one entry per agent with any visible event, newest first, for
  *    the pill and its list.
  */
-export function activityForCaller(log, now, visible) {
+export function activityForCaller(log, now, visible, callerOwner = null) {
   pruneActivity(log, now);
   const marks = new Map();
   const agents = new Map();
@@ -143,7 +147,17 @@ export function activityForCaller(log, now, visible) {
 
     let agent = agents.get(event.id);
     if (!agent) {
-      agent = { id: event.id, name: event.name, color: colorFor(event.id), read: new Set(), written: new Set(), at: 0, kind: event.kind, path: event.path };
+      agent = {
+        id: event.id,
+        name: event.name,
+        color: colorFor(event.id),
+        self: callerOwner !== null && event.owner === callerOwner,
+        read: new Set(),
+        written: new Set(),
+        at: 0,
+        kind: event.kind,
+        path: event.path,
+      };
       agents.set(event.id, agent);
     }
     (event.kind === "write" ? agent.written : agent.read).add(event.path);
