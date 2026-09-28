@@ -20,7 +20,10 @@ open, on the same bar as "N agents active", drawn by the same component
   are, the count includes the viewer.
 - **The homepage draws the same bar** with a demo crowd
   (`HOMEPAGE_PEOPLE_ACTIVE`) and the cast's own people as faces, never a
-  homepage-only copy.
+  homepage-only copy. The crowd is 13, not a round 200 (owner, 2026-09-28).
+- **The bar is short**: "13 ppl, 2 agents active", one "active" for the whole
+  line, so both halves fit the sidebar without truncating. Its accessible
+  label says it in words ("13 people and 2 agents active").
 
 Reversing it: showing membership ("300 people") re-adds the number the owner
 asked to drop, and splitting people from agents re-adds the second bar. The

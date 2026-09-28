@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import type { CastStep } from "@context/shared";
-import { agentsLine } from "../features/console/agents/agentActivity";
+import { activeParts, agentsLine } from "../features/console/agents/agentActivity";
 import { HOMEPAGE_PEOPLE_ACTIVE, castPeople, withDemoPeople } from "../features/home/cast/demoPeople";
 
 const steps: CastStep[] = [
@@ -28,7 +28,8 @@ describe("the homepage's people", () => {
   test("the demo crowd joins the cast's agents on the one bar", () => {
     const agents = [{ id: "a:cast-x", name: "x", color: null, at: 1, kind: "read" as const, path: "a.md", reads: 1, writes: 0 }];
     const view = withDemoPeople({ agents, marks: [] }, castPeople(steps, new Map()));
-    expect(agentsLine(view)).toBe(`${HOMEPAGE_PEOPLE_ACTIVE} people active · 1 agent active`);
+    expect(agentsLine(view)).toBe(`${HOMEPAGE_PEOPLE_ACTIVE} people and 1 agent active`);
     expect(agentsLine(withDemoPeople(undefined, []))).toBe(`${HOMEPAGE_PEOPLE_ACTIVE} people active`);
+    expect(activeParts(view)).toEqual({ people: "13 ppl,", agents: "1 agent active" });
   });
 });

@@ -9,6 +9,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  activeParts,
   agentMarkRows,
   agentsLine,
   agoShort,
@@ -135,7 +136,16 @@ describe("people with the workspace open share the agents' bar", () => {
   test("people and agents are one line", () => {
     const agents = [{ id: "a:1", name: "Claude", color: null, at: 1, kind: "read" as const, path: "a.md", reads: 1, writes: 0 }];
     const view = { agents, marks: [], people: [person("me", true), person("jon")], peopleCount: 2 };
-    expect(agentsLine(view)).toBe("2 people active · 1 agent active");
+    expect(agentsLine(view)).toBe("2 people and 1 agent active");
+    expect(activeParts(view)).toEqual({ people: "2 ppl,", agents: "1 agent active" });
+  });
+
+  test("the bar is short, with one active for the whole line", () => {
+    const agents = [1, 2].map((n) => ({ id: `a:${n}`, name: "Claude", color: null, at: 1, kind: "read" as const, path: "a.md", reads: 1, writes: 0 }));
+    const people = [person("me", true), person("jon")];
+    expect(activeParts({ agents, marks: [], people, peopleCount: 13 })).toEqual({ people: "13 ppl,", agents: "2 agents active" });
+    expect(activeParts({ agents: [], marks: [], people, peopleCount: 13 })).toEqual({ people: "13 ppl active", agents: null });
+    expect(activeParts({ agents, marks: [], people: [person("me", true)], peopleCount: 1 })).toEqual({ people: null, agents: "2 agents active" });
   });
 
   test("you alone are not news, so a personal workspace shows no people", () => {
@@ -145,6 +155,7 @@ describe("people with the workspace open share the agents' bar", () => {
 
   test("one other person, with the viewer not among those listed, still counts", () => {
     expect(agentsLine({ agents: [], marks: [], people: [person("maya")], peopleCount: 1 })).toBe("1 person active");
+    expect(activeParts({ agents: [], marks: [], people: [person("maya")], peopleCount: 1 }).people).toBe("1 person active");
   });
 
   test("an older gateway with no people says nothing about people", () => {
