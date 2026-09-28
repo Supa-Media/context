@@ -208,6 +208,16 @@ export const operationValidator = v.union(
    */
   v.object({ kind: v.literal("maintainIndex"), passes: v.optional(v.number()) }),
   /**
+   * Re-index the notes one operation just changed — see `indexChangeOf`.
+   * Scheduled by the barrier behind that operation, never called by a client:
+   * no public action reaches this variant.
+   */
+  v.object({
+    kind: v.literal("indexNotes"),
+    written: v.array(v.string()),
+    gone: v.array(v.string()),
+  }),
+  /**
    * Copy a pass's worth of this context's notes into its search database.
    * Scheduled, never called by a client — there is no public action that
    * reaches this variant either.

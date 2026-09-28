@@ -117,6 +117,37 @@ and the cost would land on the buckets least able to afford it. The re-ask is
 skipped when the pass moved no document, and preferred only when it has hits —
 a refresh must never turn an answer into a miss.
 
+### A write indexes its own note, and only a listing decides what is gone
+
+Reviewed 2026-09-28 after the owner reported search "not indexing fast
+enough": a note written a moment ago was missing from every answer that also
+matched an older note. Nothing but a search started a pass, a search started
+one only once the last listing was a minute old, and a search with hits never
+waited for it. Free contexts had no write-time indexing at all; Premium had it
+for gateway writes into D1 only, and never for console saves.
+
+So every write re-indexes the notes it changed, behind its response, on every
+plan: `recordChange` in the gateway (edits, live editing, moves, archives,
+meetings, email capture) and a scheduled `indexNotes` operation behind the
+control plane's single-note operations. Both run `syncShardedIndex` with
+`only`, the paths the writer names. It is the same pass with a narrower diff,
+not a second indexer, and it is deliberately unable to do what only a listing
+may:
+
+- **It removes nothing it was not handed.** A path is removed only when the
+  writer named it as gone, or when the read it asked for by name found nothing.
+- **It records no freshness.** `listedAt`, `pending` and `truncated` describe
+  the last listing; stamping them from a pass that did not list would call a
+  bucket Obsidian also writes to converged when nobody looked.
+- **It does not build an index** (no manifest: the full pass does) and **never
+  rebuilds a shard it cannot read**, since only a listing knows the versions of
+  the other notes in it.
+
+Edits made outside Context (Obsidian, rclone) still wait for the reconcile
+clock above. Reversing this puts the minute-plus lag back for every saved note;
+`searchShards/writeTargeted.test.mjs`, `searchIntegration/writeThenSearch.test.mjs`
+and `apps/convex/__tests__/consoleIndexOnSave.test.ts` fail.
+
 ### …and it opens the shards that can answer it, not all of them
 
 v2 partitions by document, so a term can be in any shard and the walk read every

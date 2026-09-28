@@ -85,6 +85,7 @@ import {
  *   shardByteCap?: number,
  *   manifestByteCap?: number,
  *   now?: Date | number,
+ *   only?: Map<string, { version?: string, uploaded?: string | null, size?: number } | null> | null,
  * }} options `reserve` is store ops the caller keeps for its own later work.
  * @returns {Promise<{
  *   manifest: ReturnType<typeof emptyManifest>,
@@ -173,8 +174,37 @@ export async function syncShardedIndex(
      * ran. Nothing in production passes it.
      */
     now,
+    /**
+     * The notes a writer just changed, instead of a listing of the bucket.
+     *
+     * A `Map` of path to what the writer knows about the object it stored —
+     * `{ version, uploaded, size }` — or to `null` for a path it removed. With
+     * it, the pass re-indexes exactly those notes and nothing else, which is
+     * what lets a write make its own note searchable rather than leaving it to
+     * the next search that happens to find the index a minute old.
+     *
+     * It is the same pass with a narrower diff, not a second maintenance path,
+     * and it is deliberately incapable of the two things only a listing may
+     * decide:
+     *
+     *  - **It removes nothing it was not handed.** A path is removed only
+     *    where the writer named it with `null`, or where the read it asked for
+     *    by name found nothing — the same ground `regionComplete` gives a full
+     *    listing, narrowed to the paths this pass was told about.
+     *  - **It records no freshness.** `listedAt`, `pending` and `truncated`
+     *    describe the last listing, and this pass did not list; stamping them
+     *    would tell the next search a bucket Obsidian also writes to is
+     *    converged when nobody looked.
+     *
+     * It needs an index to add to. With no manifest it does nothing, and the
+     * full pass a search starts builds the index from a listing as before.
+     * A shard it cannot read is skipped rather than rebuilt: rebuilding needs
+     * the version of every note in it, which only a listing has.
+     */
+    only = null,
   } = {}
 ) {
+  const targeted = only instanceof Map;
   const shardCap = Number.isFinite(requestedShardCap) ? requestedShardCap : SHARD_PARSE_BYTE_CAP;
   const manifestCap = Number.isFinite(requestedManifestCap)
     ? requestedManifestCap
@@ -220,6 +250,25 @@ export async function syncShardedIndex(
   // would point at a docmap that does not exist and the next pass would
   // re-index the whole bucket.
   const migratingFromV2 = Boolean(manifest && manifest.docmapLoaded);
+
+  if (targeted && (!manifest || migratingFromV2)) {
+    // Nothing to add to, or an index this pass would have to migrate — both a
+    // listing's job. Reported as a pass that did nothing, which it did.
+    return {
+      manifest: manifest || emptyManifest(1),
+      shards,
+      pending: 0,
+      listingTruncated: false,
+      manifestOverflow: false,
+      touched: [],
+      removed: [],
+      changed: false,
+      committed: false,
+      shed: [],
+      oversizedShards: 0,
+      spent: ops.spent,
+    };
+  }
 
   // The diff, where the manifest is v3 and did not bring it. One op, spent
   // before the listing rather than after it, because everything the listing
@@ -269,12 +318,9 @@ export async function syncShardedIndex(
   // that count is a floor and the shard count is therefore low — the honest
   // failure, since the alternative is refusing to index the largest workspaces at
   // all, and re-sharding is deleting the manifest.
-  const { entries, regionComplete, truncated } = await listNoteObjects(
-    store,
-    ops,
-    callerReserve,
-    isIndexable
-  );
+  const { entries, regionComplete, truncated } = targeted
+    ? writtenEntries(only, isIndexable, manifest)
+    : await listNoteObjects(store, ops, callerReserve, isIndexable);
 
   let manifestChanged = false;
   // Tracked apart from `manifestChanged` because the two objects change for
@@ -376,7 +422,9 @@ export async function syncShardedIndex(
   // Appended rather than merged into the sorted order: the work the diff asked
   // for goes first and spends first, and an audit gets only what that leaves.
   // The shard-id order the contract states is the order of the real work.
-  const auditing = new Set(auditCandidates(manifest, new Set(ids), nowMsOf(now)));
+  // Spare-budget work belongs to a pass that listed; a write's pass does the
+  // write's work and returns.
+  const auditing = new Set(targeted ? [] : auditCandidates(manifest, new Set(ids), nowMsOf(now)));
 
   /**
    * Shards that hold documents and have no routing filter.
@@ -388,7 +436,7 @@ export async function syncShardedIndex(
    * the audit, and each costs one read and no write of its own.
    */
   const filtering = new Set();
-  for (let id = 0; id < shardCount && filtering.size < FILTER_BACKFILL_PER_SYNC; id += 1) {
+  for (let id = 0; !targeted && id < shardCount && filtering.size < FILTER_BACKFILL_PER_SYNC; id += 1) {
     if (ids.includes(id) || auditing.has(id)) continue;
     if (manifest.filters[id] !== null) continue;
     if ((manifest.stats[id]?.docCount || 0) === 0) continue;
@@ -456,6 +504,13 @@ export async function syncShardedIndex(
     const loaded = hasStored
       ? await loadShard(store, ops, callerReserve + MANIFEST_WRITE_RESERVE, id, shardCap)
       : null;
+    if (targeted && hasStored && !loaded) {
+      // Unreadable. A full pass rebuilds it from a listing; this one only
+      // knows the versions of the notes it was handed, and rebuilding from
+      // those would write away every other doc the shard holds.
+      pending += stale.length;
+      continue;
+    }
     const shard = loaded || emptyShard();
     shards.set(id, shard);
 
@@ -674,6 +729,7 @@ export async function syncShardedIndex(
     truncated,
   };
   if (
+    !targeted &&
     manifest.freshness.listedAt !== freshness.listedAt ||
     manifest.freshness.pending !== freshness.pending ||
     manifest.freshness.truncated !== freshness.truncated
@@ -797,5 +853,33 @@ export async function syncShardedIndex(
     shed: [...shedPaths],
     oversizedShards,
     spent: ops.spent,
+  };
+}
+
+/**
+ * A writer's own account of what it changed, in the shape a listing returns.
+ *
+ * `fromEtag` is true only where the writer has the stored object's etag, so a
+ * note written through a backend with no etag records whatever token its next
+ * listing reports — once, and then converges — rather than one no listing will
+ * ever match. `truncated` is carried from the manifest, since this pass did
+ * not list and has nothing new to say about it.
+ */
+function writtenEntries(only, isIndexable, manifest) {
+  const entries = new Map();
+  for (const [path, written] of only) {
+    if (!written || !isIndexable(path)) continue;
+    const version = typeof written.version === "string" ? written.version : "";
+    entries.set(path, {
+      version,
+      uploaded: typeof written.uploaded === "string" ? written.uploaded : null,
+      fromEtag: version.length > 0,
+      size: Number.isFinite(written.size) ? written.size : null,
+    });
+  }
+  return {
+    entries,
+    regionComplete: (path) => only.has(path),
+    truncated: Boolean(manifest.freshness?.truncated),
   };
 }
