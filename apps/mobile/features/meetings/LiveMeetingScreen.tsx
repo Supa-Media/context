@@ -9,6 +9,7 @@ import { fonts, layout, leading, pointerType as t, radii, tracking } from "../de
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
+import { BackgroundCaptureWarning } from "./components/BackgroundCaptureWarning";
 import { CallAudioWarning } from "./components/CallAudioWarning";
 import { LiveWaveform } from "./components/LiveWaveform";
 import { TransportMark } from "./components/TransportMark";
@@ -277,14 +278,7 @@ export function LiveMeetingScreen({ meetingId, onClose }: { meetingId: string; o
         </View>
       ) : null}
 
-      {snapshot.backgroundCaptureWarning === null ? null : (
-        <View style={styles.backgroundWarning} testID="meeting-background-warning">
-          <Text variant="rowSub" style={styles.backgroundWarningText}>
-            {snapshot.backgroundCaptureWarning}
-          </Text>
-        </View>
-      )}
-
+      <BackgroundCaptureWarning message={snapshot.backgroundCaptureWarning} />
       <CallAudioWarning style={styles.callAudio} />
 
       {/*
@@ -676,17 +670,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   chipCritText: { color: colors.critText },
   chipWarn: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder, height: undefined, minHeight: 26 },
   chipWarnText: { color: colors.warnText, flexShrink: 1 },
-  backgroundWarning: {
-    marginHorizontal: layout.readingMargin,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: radii.card,
-    backgroundColor: colors.warnWash,
-    borderWidth: 1,
-    borderColor: colors.warnBorder,
-  },
-  backgroundWarningText: { color: colors.warnText },
   callAudio: { marginHorizontal: layout.readingMargin, marginBottom: 12 },
   /*
     The background warning's band, in the quiet tone rather than the warning

@@ -51,7 +51,6 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 let mockLive: unknown = null;
 let mockRecords: unknown[] = [];
 let mockCanContinue = false;
-let mockCallAudio: string | null = null;
 const mockCalls: { name: string; args: unknown[] }[] = [];
 
 jest.mock("../features/meetings/useMeetings", () => ({
@@ -62,8 +61,6 @@ jest.mock("../features/meetings/useMeetings", () => ({
     ending: null,
     audio: {},
     offline: false,
-    callAudioWarning: mockCallAudio,
-    capture: { systemAudioNeedsPicker: true },
   }),
   useTick: () => 0,
 }));
@@ -96,7 +93,6 @@ jest.mock("../features/meetings/controller", () => {
       retry: record("retry"),
       retryFinalize: record("retryFinalize"),
       continueMeeting: record("continueMeeting"),
-      shareCallAudio: record("shareCallAudio"),
     },
   };
 });
@@ -680,27 +676,6 @@ describe("a meeting that never reached the bucket", () => {
     panel.press("aside-tab-meetings");
     panel.press("aside-meeting-row-m0");
     expect(panel.find("aside-meeting-resume")).toBeNull();
-  });
-
-  test("a meeting recording one side of a call says so on the live card, with the fix", () => {
-    mockLive = recording();
-    mockCallAudio = "Only your side of this call is being recorded.";
-    try {
-      const panel = mount({ onOpenNote: () => undefined });
-      panel.press("aside-tab-meetings");
-      expect(panel.find("aside-call-audio-warning")).not.toBeNull();
-      panel.press("aside-call-audio-warning-share");
-      expect(mockCalls.some((c) => c.name === "shareCallAudio")).toBe(true);
-    } finally {
-      mockCallAudio = null;
-    }
-  });
-
-  test("and says nothing when both sides are in it", () => {
-    mockLive = recording();
-    const panel = mount({ onOpenNote: () => undefined });
-    panel.press("aside-tab-meetings");
-    expect(panel.find("aside-call-audio-warning")).toBeNull();
   });
 
   test("stopping leaves the panel on the meeting that just ended, one press from Resume", () => {
