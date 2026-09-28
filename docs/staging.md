@@ -7,6 +7,22 @@ It has a separate Convex deployment in the existing Context project.
 Every merge to `main` runs `Deploy Staging`; it can also be run manually
 against a selected branch. Merging never deploys production.
 
+A staging run deploys only what the commit can affect. Its first job,
+`scripts/deploy-plan.mjs`, compares the commit with what staging is running
+(the newest successful run, plus any later run that failed part way) and
+selects Convex, each Worker, and the app (web export and OTA update) from the
+files that changed. A component owns its workspace directories, the workspace
+packages it declares, and every file its sources import, including files
+Convex and the app import from `apps/mcp/src`. Tests and READMEs do not deploy
+anything. Dependency, workflow or planner changes, a base that cannot be found,
+and any file the planner does not recognise deploy everything. The run summary
+lists each component and why it was or was not deployed. Independent jobs run
+in parallel, and the live staging check runs on every run.
+
+A manual run deploys everything unless `full` is unchecked. Run it with `full`
+after rotating a staging secret, since a component's secrets are synced only
+when that component deploys.
+
 To release, open **Actions → Deploy to Production → Run workflow** and select
 `main`. The action requires a successful staging deployment for that exact
 commit, then deploys Convex, the Workers, web, router and production OTA. All
