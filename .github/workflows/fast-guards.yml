@@ -1,0 +1,76 @@
+name: Fast repository guards
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    name: Fast repository guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # These guards use only Node built-ins. Avoiding package-manager setup
+      # and an install is the point of this lane.
+
+      - name: Workflow files and triggers are valid
+        run: |
+          node scripts/check-workflow-shell.mjs --self-test
+          node scripts/check-workflow-shell.mjs
+          node scripts/check-workflow-yaml.mjs --self-test
+          node scripts/check-workflow-yaml.mjs
+          node scripts/check-workflow-triggers.mjs --self-test
+          node scripts/check-workflow-triggers.mjs
+          node scripts/check-package-tests-run.mjs --self-test
+          node scripts/check-package-tests-run.mjs
+          node scripts/check-workflow-cloudflare-preflight.mjs --self-test
+          node scripts/check-workflow-cloudflare-preflight.mjs
+          node scripts/check-workflow-secret-order.mjs --self-test
+          node scripts/check-workflow-secret-order.mjs
+          node scripts/check-wrangler-vars-not-secrets.mjs --self-test
+          node scripts/check-wrangler-vars-not-secrets.mjs
+
+      - name: Secrets, identifiers, and export remain safe
+        run: |
+          node scripts/check-secrets-allowlist.mjs --self-test
+          node --test scripts/staging-config.test.mjs
+          node scripts/check-secrets-allowlist.mjs
+          node scripts/check-no-identifiers.mjs --self-test
+          node scripts/check-no-identifiers.mjs
+          node scripts/check-exit-is-ungated.mjs --self-test
+          node scripts/check-exit-is-ungated.mjs
+
+      - name: Desktop bridge and deploy coverage remain reviewed
+        run: |
+          node --experimental-strip-types packages/desktop-bridge/test/test.mjs
+          node --test scripts/production-release.test.mjs
+          node scripts/check-convex-deploy-paths.mjs --self-test
+          node scripts/check-convex-deploy-paths.mjs
+
+      - name: Gateway dependency boundary remains explicit
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const manifest = JSON.parse(readFileSync('apps/mcp/package.json', 'utf8'));
+          assert.deepEqual(manifest.dependencies, { '@context/collaboration': 'workspace:*' });
+          for (const field of ['optionalDependencies', 'peerDependencies', 'bundleDependencies']) {
+            assert.deepEqual(manifest[field] ?? {}, {}, `apps/mcp declared ${field}`);
+          }
+          JS
+          node scripts/check-gateway-imports.mjs --self-test
+          node scripts/check-gateway-imports.mjs apps/mcp/src
+
+      - name: Gateway health probe can still fail
+        run: node scripts/health-check-gateway.mjs --self-test
