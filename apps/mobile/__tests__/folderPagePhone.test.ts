@@ -317,9 +317,12 @@ async function swipe(node: HTMLElement, distance: number) {
   await settle();
 }
 
-/** Waits for `testID` under `within`, the way `appears` in `folderPageList.test.ts` waits for a menu. */
+/**
+ * Waits for `testID` under `within`, the way `appears` in `folderPageList.test.ts` waits for a menu.
+ * Up to 4s: a loaded CI runner took longer than the 1s this once allowed to reveal a swipe's buttons.
+ */
 async function appearsIn(testID: string, within: ParentNode): Promise<HTMLElement> {
-  for (let tries = 0; tries < 50 && all(testID, within).length === 0; tries++) {
+  for (let tries = 0; tries < 200 && all(testID, within).length === 0; tries++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
   }
   return one(testID, within);
