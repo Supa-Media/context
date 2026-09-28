@@ -191,6 +191,110 @@ export function assertBundleSourcesWatched(root = ROOT) {
   }
 }
 
+/**
+ * A GUARD THAT NAMES ITS OWN SOURCE ROOTS MUST BE RUN WHERE THEY CHANGE.
+ *
+ * `check-worker-fetch-options.mjs` scans four Worker source trees — the
+ * gateway, the email worker, the router and the transcribe worker — because
+ * workerd does not implement `redirect: "error"` and shipping it stops the
+ * worker dead before the request is made. Its header says it shipped twice,
+ * and that the second occurrence was found only because the first had been.
+ *
+ * Its only host is `mcp.yml`'s `Test Gateway`, which since #1074 is
+ * `ci-scope`d to `@context/mcp` plus five named packages. Three of its four
+ * roots are outside that set, so a pull request touching only
+ * `infra/email-worker/src`, `infra/router/src` or `infra/transcribe-worker/src`
+ * computed `affected: false` and the guard did not run — measured with this
+ * module's own matcher, not assumed.
+ *
+ * The recurring shape: what a guard checks and where a guard runs are written
+ * down in two places, and only one of them is enforced. This is the other one.
+ *
+ * A job with no `ci-scope` step in a workflow that triggers on `pull_request`
+ * watches the whole tree: `check-workflow-triggers.mjs` already refuses a
+ * `paths:` or `paths-ignore:` filter on `pull_request`, so there is no second
+ * way to narrow one.
+ */
+export function guardRoots(script, root = ROOT) {
+  const source = readFileSync(join(root, script), "utf8");
+  const block = source.match(/^const ROOTS = \[\n((?:.*\n)*?)\];$/m);
+  if (block === null) throw new Error(`${script} declares no ROOTS array`);
+  // `,?` deliberately: a reader that needs the trailing comma drops the last
+  // root the moment somebody removes it, and drops it **silently** — fewer
+  // roots to cover is a guard that passes for the wrong reason, which is the
+  // failure shape this whole file exists for.
+  const roots = [...block[1].matchAll(/^\s*"([^"]+)",?\s*$/gm)].map((match) => match[1]);
+  if (roots.length === 0) throw new Error(`read no roots from ${script}; the reader is wrong`);
+  return roots;
+}
+
+/** Which workflow jobs run `script` against the tree, and what each watches. */
+export function guardHosts(script, root = ROOT) {
+  const dir = join(root, ".github/workflows");
+  const hosts = [];
+  for (const file of readdirSync(dir).filter((name) => name.endsWith(".yml")).sort()) {
+    const yaml = readFileSync(join(dir, file), "utf8");
+    if (!/^on:\n(?:  .*\n)*?  pull_request:/m.test(yaml)) continue;
+    const jobsAt = yaml.search(/^jobs:$/m);
+    if (jobsAt === -1) continue;
+    for (const [, job] of yaml.slice(jobsAt).matchAll(/^  ([A-Za-z0-9_-]+):$/gm)) {
+      const block = jobBlock(yaml, job);
+      const runs = block
+        .split("\n")
+        .some((line) => line.trim().replace(/^run:\s+/, "") === `node ${script}`);
+      if (!runs) continue;
+      hosts.push({ workflow: file, job, watched: hostWatches(yaml, job, root) });
+    }
+  }
+  return hosts;
+}
+
+/** The paths one host job watches, or `null` when it is ungated. */
+function hostWatches(yaml, job, root) {
+  const scope = stepBlocks(jobBlock(yaml, job)).find((step) =>
+    step.includes("uses: ./.github/actions/ci-scope"),
+  );
+  if (scope === undefined) return null;
+  const named = scope.match(/packages:\s*["']?([^"'\n]+)["']?/)?.[1] ?? "";
+  const packages = named.split(/[\s,]+/).filter(Boolean);
+  return new Set([...scopePaths(yaml, job), ...workspacePaths(packages, root)]);
+}
+
+/**
+ * The guards that declare their own source roots, discovered rather than
+ * listed: a hard-coded list is the thing that goes stale, and a rename would
+ * empty it silently, so the floor below refuses an empty answer.
+ */
+export function rootDeclaringGuards(root = ROOT) {
+  const dir = join(root, "scripts");
+  const found = readdirSync(dir)
+    .filter((name) => name.startsWith("check-") && name.endsWith(".mjs"))
+    .filter((name) => /^const ROOTS = \[$/m.test(readFileSync(join(dir, name), "utf8")))
+    .map((name) => `scripts/${name}`)
+    .sort();
+  if (found.length === 0) throw new Error("found no guard declaring ROOTS; the reader is wrong");
+  return found;
+}
+
+export function assertRootsCovered(roots, hosts, script) {
+  if (hosts.length === 0) throw new Error(`no pull-request job runs ${script}`);
+  if (hosts.some((host) => host.watched === null)) return;
+  const watched = new Set(hosts.flatMap((host) => [...host.watched]));
+  const unwatched = roots.filter(
+    (source) => ![...watched].some((pattern) => matches(`${source}/probe`, pattern)),
+  );
+  if (unwatched.length > 0) {
+    const where = hosts.map((host) => `${host.workflow}:${host.job}`).join(", ");
+    throw new Error(
+      `${script} scans ${unwatched.join(", ")}, which no job running it watches (${where})`,
+    );
+  }
+}
+
+export function assertGuardRootsWatched(script, root = ROOT) {
+  assertRootsCovered(guardRoots(script, root), guardHosts(script, root), script);
+}
+
 export function assertExpensiveStepsAreGated(yaml, job, output) {
   const steps = stepBlocks(jobBlock(yaml, job));
   const detector = steps.findIndex((step) => step.includes("id: changes"));
@@ -310,6 +414,7 @@ export function check(root = ROOT) {
     assertScopedJob(readFileSync(join(root, workflow), "utf8"), job, workflow, packages);
   }
   assertBundleSourcesWatched(root);
+  for (const script of rootDeclaringGuards(root)) assertGuardRootsWatched(script, root);
 }
 
 function expectFailure(name, fn, includes) {
@@ -360,6 +465,38 @@ export function selfTest() {
   }
   if (unwatchedSources(["apps/mobile/package.json"], ["apps/mobile/package.json"]).length !== 0) {
     throw new Error("an exactly-named watched file was read as unwatched");
+  }
+
+  /*
+    And the same rule for a guard's own source roots, in both directions. The
+    scoped host is the shape `mcp.yml` had: it watches the gateway and nothing
+    else, while the guard it runs also scans three `infra/` workers.
+  */
+  const scopedHost = { workflow: "w.yml", job: "test", watched: new Set(["apps/mcp/**"]) };
+  expectFailure(
+    "a guard whose host watches fewer roots than it scans",
+    () => assertRootsCovered(["apps/mcp/src", "infra/router/src"], [scopedHost], "scripts/g.mjs"),
+    "infra/router/src",
+  );
+  expectFailure(
+    "a guard no pull-request job runs",
+    () => assertRootsCovered(["apps/mcp/src"], [], "scripts/g.mjs"),
+    "no pull-request job runs",
+  );
+  try {
+    assertRootsCovered(
+      ["apps/mcp/src", "infra/router/src"],
+      [{ workflow: "fast-guards.yml", job: "guards", watched: null }],
+      "scripts/g.mjs",
+    );
+  } catch (error) {
+    throw new Error(`an ungated host did not cover every root: ${error.message}`);
+  }
+  // Pinned rather than "more than zero": the reader above drops a root it
+  // cannot parse, and dropping one is the direction that makes this guard
+  // quietly weaker. A legitimate change to the list fails here and gets read.
+  if (guardRoots("scripts/check-worker-fetch-options.mjs").length !== 4) {
+    throw new Error("check-worker-fetch-options.mjs no longer declares the four roots read here");
   }
 
   const noPaths = `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          packages: "@context/mobile"\n`;

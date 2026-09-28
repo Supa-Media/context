@@ -65,6 +65,26 @@ jobs:
           node scripts/check-ci-path-gates.mjs --self-test
           node scripts/check-ci-path-gates.mjs
 
+      # ── AND THE GUARD OVER EVERY WORKER, NOT JUST THE GATEWAY ────────────
+      #
+      # `check-worker-fetch-options.mjs` scans four Worker source trees: the
+      # gateway, the email worker, the router and the transcribe worker. Its
+      # only host was `mcp.yml`'s `Test Gateway`, which is `ci-scope`d to
+      # `@context/mcp` plus five named packages — so a pull request touching
+      # only `infra/email-worker/src`, `infra/router/src` or
+      # `infra/transcribe-worker/src` computed `affected: false` and the guard
+      # did not run over the very trees it was written for. Its own header
+      # records that `redirect: "error"` shipped twice and each time stopped a
+      # Worker dead before the request was made.
+      #
+      # It stays in `mcp.yml` too — two hosts is the idiom here — and this is
+      # the ungated one. `check-ci-path-gates.mjs` now asserts the relationship
+      # rather than leaving it to a comment.
+      - name: No Worker source asks for a fetch option workerd lacks
+        run: |
+          node scripts/check-worker-fetch-options.mjs --self-test
+          node scripts/check-worker-fetch-options.mjs
+
       - name: Secrets, identifiers, and export remain safe
         run: |
           node scripts/check-secrets-allowlist.mjs --self-test
