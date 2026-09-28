@@ -45,6 +45,7 @@ import { PanelHead } from "./PanelHead";
 import { PanelProperties } from "./PanelProperties";
 import { Add, NoteLine, Subtask, subtaskHead } from "./PanelRows";
 import { bodyPath, panelEntry, taskRefOf, type PanelEntry } from "./panelModel";
+import type { PeekEditing } from "./peekEditing";
 import { useFoldTree } from "./useFoldTree";
 
 export interface TaskPanelProps {
@@ -76,6 +77,8 @@ export interface TaskPanelProps {
   /** Leave for a note's or a folder's own page. */
   onNavigate: (path: string) => void;
   onClose: () => void;
+  /** The console's editor, lent to the peek so a writer types in the note here; absent for a member. */
+  editing?: PeekEditing;
 }
 
 export function TaskPanel(props: TaskPanelProps) {
@@ -123,6 +126,8 @@ export function TaskPanel(props: TaskPanelProps) {
   const onNewTab = nav === null || words === null ? null : () => nav.follow(words, "background");
   // A plain folder lists what is in it, to open here; a task's are its subtasks and its notes.
   const inside = isTask ? entry.notes : [...(entry.subtasks ?? []), ...entry.notes];
+  // A writer types in the note itself here (`PanelBody`); a member reads it.
+  const editing = chooseMany === null ? undefined : props.editing;
   return (
     <View style={styles.panel} role="complementary" aria-label={isTask ? "Task details" : "Note"} testID="task-panel">
       <PanelHead
@@ -197,6 +202,8 @@ export function TaskPanel(props: TaskPanelProps) {
           title={item.label}
           width={props.width}
           onOpenNote={(to, mode) => (mode === "background" && nav !== null ? nav.follow(to, "background") : onNavigate(to))}
+          {...(editing === undefined ? {} : { editing })}
+          onExpand={() => onNavigate(ref.path)}
         />
       </View>
     </View>

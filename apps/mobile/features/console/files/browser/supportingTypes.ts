@@ -89,3 +89,34 @@ export interface NoteRename {
   from: string;
   to: string;
 }
+
+/**
+ * The console's one editor, lent to a folder page's side peek (the owner,
+ * 2026-09-28: "the side panel shouldnt be read only, it should be editable").
+ *
+ * The peek does not get an editor of its own. It puts the peeked note into
+ * *the* editor — the same draft, autosave, unsaved-changes guard, conflict
+ * and collaboration room a note opened from the tree gets — while the
+ * selection, the address and the page stay on the folder. That is safe
+ * because a folder page holds no note in the editor (`select` of a folder
+ * closes it), so there is nothing for the peek to compete with. See "The
+ * side panel" in `docs/decisions/folder-lists.md`.
+ */
+export interface BesideEditing {
+  /**
+   * Put the note at `path` in the editor, beside the folder on screen: what
+   * `select` does — the autosave flushed and the guard asked first — without
+   * moving the selection. False when the guard refused. Absent where the
+   * console has no editor to lend (the landing page's demo).
+   */
+  openBeside?: (path: string) => boolean;
+  /**
+   * Take the note at `path` back out of the editor as the peek closes: the
+   * autosave flushed and the guard asked, as leaving any note is. Nothing
+   * when the editor holds something else, or when the note became the
+   * selection (Expand), which then keeps it open.
+   */
+  closeBeside?: (path: string) => boolean;
+  /** The note the editor holds only for the peek, or null: the tab strip opens no tab for it. */
+  beside?: string | null;
+}

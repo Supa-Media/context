@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderListSource, ListNote, PropertyValue } from "../listBlock/model";
 import { parentPath } from "../paths";
 import type { TaskHost } from "./tasks/taskHost";
+import type { PeekEditing } from "./panel/peekEditing";
 
 /** What a folder page is handed to read and change properties with. */
 export interface FolderPageHost {
@@ -42,6 +43,12 @@ export interface FolderPageHost {
    * none of it.
    */
   readonly tasks?: TaskHost;
+  /**
+   * The console's one editor, lent to the side peek so a writer types in the
+   * note there (`panel/peekEditing.ts`). Absent where there is none to lend —
+   * the landing page's demo — and the peek reads the note, read-only.
+   */
+  readonly editing?: PeekEditing;
 }
 
 export interface FolderNotes {

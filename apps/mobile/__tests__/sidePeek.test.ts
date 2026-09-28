@@ -21,21 +21,31 @@
  *  - where the list and the panel do not both fit, the panel lies over the
  *    list rather than not opening; a phone still opens the page.
  *
- * The words are read-only here, for everyone: the note's own page is where it
- * is edited, with its saving, its conflicts and the people typing in it.
+ * The words are editable for a writer (the owner, 2026-09-28, reversing the
+ * read-only peek of the same day: "the side panel shouldnt be read only, it
+ * should be editable") — by the console's one editor, lent to the peek
+ * (`panel/peekEditing.ts`), never a second one: opening the panel puts the
+ * note in it, closing gives it back, and a keystroke goes to its draft. A
+ * member, and a page with no editor to lend, still reads them read-only.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
+/** The last editor drawn, so a test can type into it. */
+const drawn: { onChange?: (text: string) => void } = {};
+
 jest.mock("../features/console/files/LiveEditor", () => ({
-  LiveEditor: (props: { value: string; editable: boolean }) =>
-    require("react").createElement("div", { "data-testid": "task-panel-body-editor", "data-editable": String(props.editable) }, props.value),
+  LiveEditor: (props: { value: string; editable: boolean; onChange: (text: string) => void }) => {
+    drawn.onChange = props.onChange;
+    return require("react").createElement("div", { "data-testid": "task-panel-body-editor", "data-editable": String(props.editable) }, props.value);
+  },
 }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act } from "react";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
+import type { PeekEditing } from "../features/console/files/folderPage/panel/peekEditing";
 import {
   BODIES,
   CAFE,
@@ -244,5 +254,79 @@ describe("where it opens", () => {
     await press(row("folder-note", "Opening budget"));
     expect(all("task-panel")).toHaveLength(0);
     expect(phone.selected).toEqual([`${CAFE}/budget.md`]);
+  });
+});
+
+/**
+ * The console's editor as the peek borrows it: every open, close and
+ * keystroke recorded. `holds` is the note it already has — the note is open
+ * in the console, or the lend has landed.
+ */
+function lender(holds: string | null, draft = "", canEdit = true) {
+  const calls: string[] = [];
+  const editing: PeekEditing = {
+    open: (path) => (calls.push(`open ${path}`), true),
+    close: (path) => (calls.push(`close ${path}`), true),
+    editor: { path: holds, draft, status: "clean", readOnly: false, encrypted: false },
+    canEdit,
+    onChange: (text) => void calls.push(`type ${text}`),
+    onSave: () => void calls.push("save"),
+  };
+  return { editing, calls };
+}
+
+describe("a writer edits in the peek, through the console's one editor", () => {
+  const LEASE = `${CAFE}/lease.md`;
+
+  test("opening lends the note to the editor, its draft is drawn editable, and a keystroke goes to it", async () => {
+    const { editing, calls } = lender(LEASE, "---\nstatus: to do\n---\n# Sign the lease\n\nTwo years, unsaved.\n");
+    await mount({ ...host([], { files: [] }), editing });
+    await press(row("folder-item", "Sign the lease"));
+    expect(calls).toEqual([`open ${LEASE}`]);
+    expect(body().getAttribute("data-editable")).toBe("true");
+    // The editor's draft — what is unsaved included — not the copy on the device.
+    expect(strip(body().textContent)).toContain("Two years, unsaved.");
+    await act(async () => drawn.onChange?.("typed"));
+    expect(calls).toContain("type typed");
+  });
+
+  test("closing the panel, or moving to another row, gives the note back", async () => {
+    const { editing, calls } = lender(LEASE);
+    await mount({ ...host([], { files: [] }), editing });
+    await press(row("folder-item", "Sign the lease"));
+    await press(row("folder-note", "Opening budget"));
+    expect(calls).toEqual([`open ${LEASE}`, `close ${LEASE}`, `open ${CAFE}/budget.md`]);
+    await press(one("task-panel-close"));
+    expect(calls.at(-1)).toBe(`close ${CAFE}/budget.md`);
+  });
+
+  test("until the editor holds the note, its words are read from the device, read-only", async () => {
+    const { editing } = lender(null);
+    await mount({ ...host([], { files: [] }), editing });
+    await press(row("folder-item", "Sign the lease"));
+    expect(body().getAttribute("data-editable")).toBe("false");
+    expect(strip(body().textContent)).toBe("Two years, with a break at one.\n");
+  });
+
+  test("a member is never lent the editor, and reads", async () => {
+    const { editing, calls } = lender(LEASE, "draft", false);
+    await mount({ ...host(null), editing });
+    await press(row("folder-item", "Sign the lease"));
+    expect(calls).toEqual([]);
+    expect(body().getAttribute("data-editable")).toBe("false");
+    expect(strip(body().textContent)).toBe("Two years, with a break at one.\n");
+    // The editor's own word decides too, not only the page's: a console that may not write lends nothing.
+    unmountAll();
+    await mount({ ...host([], { files: [] }), editing });
+    await press(row("folder-item", "Sign the lease"));
+    expect(calls).toEqual([]);
+    expect(body().getAttribute("data-editable")).toBe("false");
+  });
+
+  test("a locked note is not typed into even when the editor holds it", async () => {
+    const { editing } = lender(LEASE, "ciphertext");
+    await mount({ ...host([], { files: [] }), editing: { ...editing, editor: { ...editing.editor, encrypted: true } } });
+    await press(row("folder-item", "Sign the lease"));
+    expect(all("task-panel-body-editor").every((node) => node.getAttribute("data-editable") === "false")).toBe(true);
   });
 });

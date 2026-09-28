@@ -85,6 +85,8 @@ export function useTabs(
    */
   const openPath = files.editor.path;
   const status = files.editor.status;
+  // A note lent to a folder page's side peek is not opened in a tab: the page is still the folder.
+  const lent = files.beside ?? null;
 
   useEffect(() => {
     // `""` as well as `null`. The empty path is the bucket root, which is a
@@ -93,17 +95,17 @@ export function useTabs(
     // that the prune below deletes a commit later, and the flicker is the least
     // of it: with the last-tab rule added at the foot of this file, a phantom
     // tab appearing and vanishing is a *deselect* nobody asked for.
-    if (openPath === null || openPath === "") return;
+    if (openPath === null || openPath === "" || openPath === lent) return;
     dispatch({ type: "opened", path: openPath, mode: "preview" });
-  }, [openPath]);
+  }, [openPath, lent]);
 
   // Typing pins the tab; saving clears its dot. Both are derived from the
   // editor's own status, so there is no second definition of "dirty".
   useEffect(() => {
-    if (openPath === null) return;
+    if (openPath === null || openPath === lent) return;
     if (status === "dirty") dispatch({ type: "edited", path: openPath });
     if (status === "saved" || status === "clean") dispatch({ type: "saved", path: openPath });
-  }, [openPath, status]);
+  }, [openPath, status, lent]);
 
   /**
    * A renamed note keeps its tab, under its new name.

@@ -1,22 +1,26 @@
 /**
- * The note's words, in the side panel: drawn by the console's own editor,
- * read-only, so a note looks here as it does on its own page — headings,
- * lists, links, tables — rather than as a second rendering of Markdown.
+ * The note's words, in the side panel, drawn by the console's own editor so
+ * a note looks here as it does on its own page — headings, lists, links,
+ * tables — rather than as a second rendering of Markdown.
  *
- * **Read-only for everybody, a writer too, and that is a decision.** The
- * console holds one open note: one draft, one autosave, one unsaved-changes
- * guard, one conflict to resolve, and one collaboration room that the people
- * typing in it share (`docs/decisions/collaboration.md`). A second editable
- * editor here would be a second writer of the same file outside all of that
- * — an edit that bypasses the room is the lost keystroke the room exists to
- * prevent. Expand opens the note where it is edited. A second *read-only*
- * editor holds nothing and writes nothing, so it can sit beside the first.
+ * **Editable for somebody who may write** (the owner, 2026-09-28, reversing
+ * the read-only peek of the same day). Not by a second editor: the console
+ * holds one open note — one draft, one autosave, one unsaved-changes guard,
+ * one conflict, one collaboration room — and a second editable editor would
+ * be a second writer of the file outside all of it. The peek borrows *that*
+ * editor instead (`peekEditing.ts`): opening the panel on a note puts the note
+ * in it, as if it had been opened from the tree, and closing the panel or
+ * moving to another row gives it back, the draft written first. The note's
+ * words are then the editor's, typed into exactly as on its page
+ * (`PeekEditor.tsx`). Until it has them — and for a member, and a note that
+ * is locked or not a note one types in — they are read as before, read-only.
  *
  * The frontmatter is not drawn — the values above say it — nor a first
  * heading that is only the title again (`panelText`). An encrypted note says
  * it is locked; a note this device has not got says so.
  */
 
+import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { space } from "../../../../design/tokens";
@@ -26,6 +30,8 @@ import type { FolderListSource } from "../../listBlock/model";
 import type { NoteLinkOpen } from "../../noteLinks";
 import { panelText } from "./panelModel";
 import { usePanelBody } from "./usePanelBody";
+import { editsHere, type PeekEditing } from "./peekEditing";
+import { PeekEditor } from "./PeekEditor";
 
 /** The editor's reading line, 16pt at 1.75 (`liveEditorWeb/stylesheet.ts`). */
 const LINE = 28;
@@ -55,6 +61,8 @@ export function PanelBody({
   title,
   width,
   onOpenNote,
+  editing,
+  onExpand,
 }: {
   source: FolderListSource | undefined;
   /** The note whose words these are (`bodyPath`); null for a folder with no front note. */
@@ -63,9 +71,34 @@ export function PanelBody({
   title: string;
   width: number;
   onOpenNote: (path: string, mode: NoteLinkOpen) => void;
+  /** The console's editor, lent to the peek; absent for a member and wherever there is none to lend. */
+  editing?: PeekEditing;
+  /** The note's own page. */
+  onExpand?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const body = usePanelBody(source, path);
+  const open = editing?.canEdit === true ? editing.open : undefined;
+  const close = editing?.canEdit === true ? editing.close : undefined;
+  // The note goes into the editor while it is shown here, and comes back out when it is not.
+  useEffect(() => {
+    if (path === null || open === undefined || close === undefined) return;
+    open(path);
+    return () => void close(path);
+  }, [path, open, close]);
+  if (path !== null && editsHere(editing, path)) {
+    return (
+      <PeekEditor
+        editing={editing}
+        path={path}
+        title={title}
+        width={width}
+        source={source}
+        onOpenNote={onOpenNote}
+        onExpand={onExpand ?? (() => onOpenNote(path, "foreground"))}
+      />
+    );
+  }
   if (body.kind === "none") return null;
   if (body.kind === "loading") return <View style={styles.loading} testID="task-panel-body-loading" />;
   if (body.kind !== "text") {
