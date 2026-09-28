@@ -23,13 +23,15 @@
  * of somebody typing in your line. It is `pointer-events: none` for the same
  * reason — a peer's name must never eat a click meant for the word under it.
  *
- * ## A phone draws no label at all
+ * ## A phone draws a smaller label
  *
- * The owner's phone artboards (2026-09-27, screen 1): "Cursor name tags are
- * hidden on phones." At 390pt a flag lies over the very words being read and
- * clips at the edge of the glass. The caret and the selection wash stay, since
- * they say *where* somebody is, and the presence pile says *who*. The editor
- * decides by density and says so with `setCaretLabels`; this file only obeys.
+ * The phone artboards (2026-09-27) first hid the flags on phones, because at
+ * 390pt a full flag lies over the words being read and clips at the edge of the
+ * glass. The owner then asked why a phone could not see who was typing
+ * (2026-09-28), so a phone gets a compact flag instead: smaller type, a tighter
+ * pad, and a width cap that ends a long name in an ellipsis. It still fades
+ * like the full one. The editor picks the size by density and says so with
+ * `setCaretLabels`; this file only obeys.
  */
 
 import { EditorView, Decoration, WidgetType } from "@codemirror/view";
@@ -43,6 +45,10 @@ import type * as Y from "yjs";
 import { darkColors } from "../../design/tokens";
 
 /** Replace the whole roster. Nothing here merges: the reducer already did. */
+/** How carets carry their name flags: full size, the phone's compact size, or not at all. */
+export type CaretLabels = "full" | "compact" | "none";
+
+
 export const setRemoteCarets = StateEffect.define<PresenceMember[]>();
 
 /**
@@ -58,7 +64,7 @@ class CaretWidget extends WidgetType {
   constructor(
     readonly name: string,
     readonly color: string,
-    readonly labelled: boolean,
+    readonly labelled: CaretLabels,
   ) {
     super();
   }
@@ -76,9 +82,10 @@ class CaretWidget extends WidgetType {
     // The name is set as *text*, never as markup. It has been stripped twice
     // before it got here and this is the third place it cannot become HTML.
     caret.setAttribute("aria-hidden", "true");
-    if (this.labelled) {
+    if (this.labelled !== "none") {
       const label = document.createElement("span");
-      label.className = "cm-presence-label";
+      label.className =
+        this.labelled === "compact" ? "cm-presence-label cm-presence-label-compact" : "cm-presence-label";
       label.style.backgroundColor = this.color;
       // "@jon's Claude" is drawn as `jo Claude`: whose, compactly, then what.
       const { owner, agent } = agentName(this.name);
@@ -125,11 +132,11 @@ export function buildCaretDecorations(
    */
   resolve?: (encoded: string) => number | null,
   /**
-   * Whether any caret may carry its name flag. False on a phone, where the
-   * flag covers what is being read — see the file header. It overrides a
-   * tool's never-fading flag too.
+   * How a caret's name flag is drawn: compact on a phone, where a full flag
+   * covers what is being read (see the file header). "none" overrides a tool's
+   * never-fading flag too.
    */
-  labels = true,
+  labels: CaretLabels = "full",
 ): DecorationSet {
   const ranges: { from: number; to: number; deco: Decoration }[] = [];
 
@@ -165,7 +172,7 @@ export function buildCaretDecorations(
       which is the question this feature exists to answer.
     */
     const movedAt = lastMoved.get(member.id) ?? 0;
-    const labelled = labels && (member.isAgent || now - movedAt < CARET_LABEL_MS);
+    const labelled = member.isAgent || now - movedAt < CARET_LABEL_MS ? labels : "none";
     ranges.push({
       from: head,
       to: head,
@@ -235,14 +242,14 @@ const caretState = StateField.define<CaretState>({
 });
 
 /**
- * Whether carets carry name flags in this editor. The editor sets it from its
- * density (`LiveEditor.web.tsx`): off on a phone. On until told otherwise, so
- * an editor nobody configures behaves as it always did.
+ * How carets carry name flags in this editor. The editor sets it from its
+ * density (`LiveEditor.web.tsx`): compact on a phone. Full until told
+ * otherwise, so an editor nobody configures behaves as it always did.
  */
-export const setCaretLabels = StateEffect.define<boolean>();
+export const setCaretLabels = StateEffect.define<CaretLabels>();
 
-const caretLabels = StateField.define<boolean>({
-  create: () => true,
+const caretLabels = StateField.define<CaretLabels>({
+  create: () => "full",
   update(value, transaction) {
     for (const effect of transaction.effects) {
       if (effect.is(setCaretLabels)) return effect.value;
@@ -252,8 +259,8 @@ const caretLabels = StateField.define<boolean>({
 });
 
 /** Read back what `setCaretLabels` last said, for the editor's own checks. */
-export function caretLabelsShown(state: EditorState): boolean {
-  return state.field(caretLabels, false) ?? true;
+export function caretLabelsShown(state: EditorState): CaretLabels {
+  return state.field(caretLabels, false) ?? "full";
 }
 
 /**
@@ -330,6 +337,15 @@ const caretTheme = EditorView.baseTheme({
     color: darkColors.ink,
     pointerEvents: "none",
     userSelect: "none",
+  },
+  // The phone's flag: the same flag, smaller, and never wider than a short name.
+  ".cm-presence-label.cm-presence-label-compact": {
+    top: "-1.25em",
+    padding: "0 4px",
+    fontSize: "10px",
+    maxWidth: "9em",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   ".cm-presence-selection": {
     borderRadius: "3px",
