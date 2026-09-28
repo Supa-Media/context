@@ -72,54 +72,75 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
 
   const results = await mapInBatches(keys, REFERENCE_READ_CONCURRENCY, async (key) => {
-    const fromPath = wasAt.get(key) ?? key;
-    const object = await getWithLegacyFallback(store, key);
-    if (!object) return { notes: 0, links: 0, written: null };
-    const storedText = await object.text();
-    const collaborationBase = await generatedCollaborationBase(store, key, storedText);
-    const text = collaborationBase?.text ?? storedText;
-    /*
-      AN ENCRYPTED NOTE'S STORED BYTES ARE NEVER REWRITTEN.
+    try {
+      const fromPath = wasAt.get(key) ?? key;
+      const object = await getWithLegacyFallback(store, key);
+      if (!object) return { notes: 0, links: 0, written: null, failed: false };
+      const storedText = await object.text();
+      const collaborationBase = await generatedCollaborationBase(store, key, storedText);
+      const text = collaborationBase?.text ?? storedText;
+      /*
+        AN ENCRYPTED NOTE'S STORED BYTES ARE NEVER REWRITTEN.
 
-      There are no links in them to rewrite — the note's links are inside the
-      ciphertext — and running a link regex over base64 is a way to corrupt a
-      note that nothing can then recover. Skipping is the safe direction, and
-      it is checked on the marker rather than on a successful parse so that a
-      *broken* envelope is skipped exactly as hard as a good one.
+        There are no links in them to rewrite — the note's links are inside the
+        ciphertext — and running a link regex over base64 is a way to corrupt a
+        note that nothing can then recover. Skipping is the safe direction, and
+        it is checked on the marker rather than on a successful parse so that a
+        *broken* envelope is skipped exactly as hard as a good one.
 
-      **The cost, stated rather than left to be discovered: links written
-      inside an encrypted note are not rewritten when their target moves, and
-      they go stale.** The alternative is decrypt-rewrite-re-encrypt inside a
-      walk that already runs against a 50-subrequest budget and a 4,000-note
-      cap, which is the trade `storage-and-credentials.md` has already made in
-      the other direction for bulk moves. See `docs/decisions/encryption.md`,
-      "Round-tripping without damaging ciphertext".
-    */
-    if (isEncryptedNote(text)) return { notes: 0, links: 0, written: null };
-    const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName });
-    if (rewritten === null) return { notes: 0, links: 0, written: null };
-    if (!write) return { notes: 1, links: rewritten.changed, written: null };
-    /*
-      No snapshot before the overwrite, and that is the *current* rule rather
-      than an omission: version history is the customer's object versioning
-      (`docs/decisions/storage-and-credentials.md`), and this write path landed
-      the same week the snapshots were removed from every other one. Restoring
-      one here would put back the write amplification that decision measured,
-      on somebody else's bill, for a rollback nothing can read.
-    */
-    if (collaborationBase) {
-      await replaceCollaborationText(store, key, {
-        documentId: collaborationBase.documentId,
-        expectedEtag: collaborationBase.etag,
-        text: rewritten.text,
-      });
-    } else {
-      await store.put(key, rewritten.text);
+        **The cost, stated rather than left to be discovered: links written
+        inside an encrypted note are not rewritten when their target moves,
+        and they go stale.** The alternative is decrypt-rewrite-re-encrypt
+        inside a walk that already runs against a 50-subrequest budget and a
+        4,000-note cap, which is the trade `storage-and-credentials.md` has
+        already made in the other direction for bulk moves. See
+        `docs/decisions/encryption.md`, "Round-tripping without damaging
+        ciphertext".
+      */
+      if (isEncryptedNote(text)) return { notes: 0, links: 0, written: null, failed: false };
+      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName });
+      if (rewritten === null) return { notes: 0, links: 0, written: null, failed: false };
+      if (!write) return { notes: 1, links: rewritten.changed, written: null, failed: false };
+      /*
+        No snapshot before the overwrite, and that is the *current* rule rather
+        than an omission: version history is the customer's object versioning
+        (`docs/decisions/storage-and-credentials.md`), and this write path
+        landed the same week the snapshots were removed from every other one.
+        Restoring one here would put back the write amplification that decision
+        measured, on somebody else's bill, for a rollback nothing can read.
+      */
+      if (collaborationBase) {
+        await replaceCollaborationText(store, key, {
+          documentId: collaborationBase.documentId,
+          expectedEtag: collaborationBase.etag,
+          text: rewritten.text,
+        });
+      } else {
+        await store.put(key, rewritten.text);
+      }
+      return { notes: 1, links: rewritten.changed, written: key, failed: false };
+    } catch {
+      /*
+        THE MOVE HAS ALREADY COMMITTED.
+
+        A reference target can be temporarily unavailable even though the
+        moved note is healthy. One concrete case is a different collaborative
+        note holding an accepted Yjs update whose dependency has not arrived
+        yet. Failing the whole tool here reports a move as failed after its
+        source and destination already changed, so a retry can only produce a
+        confusing conflict. Keep walking, report the rewrite as incomplete,
+        and leave the unavailable note untouched for its normal recovery path.
+
+        The path is deliberately not returned. A caller may be allowed to move
+        the target without being allowed to infer which private note could not
+        be inspected.
+      */
+      return { notes: 0, links: 0, written: null, failed: true };
     }
-    return { notes: 1, links: rewritten.changed, written: key };
   });
   const notes = results.reduce((sum, result) => sum + result.notes, 0);
   const links = results.reduce((sum, result) => sum + result.links, 0);
+  const failed = results.reduce((sum, result) => sum + (result.failed ? 1 : 0), 0);
   const written = results.flatMap((result) => result.written === null ? [] : [result.written]);
 
   /*
@@ -150,5 +171,5 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
       truncated: written.length > RECORDED_PATH_CAP,
     });
   }
-  return { notes, links, capped: false };
+  return { notes, links, capped: failed > 0, failed };
 }

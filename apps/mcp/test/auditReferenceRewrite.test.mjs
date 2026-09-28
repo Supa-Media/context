@@ -20,6 +20,9 @@
  */
 
 import worker from "../src/index.js";
+import * as Y from "yjs";
+import { commitUpdate, readDocument } from "@context/collaboration";
+import { S3Store } from "../src/store/s3.js";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -55,6 +58,15 @@ function binding(bucket) {
     },
     status: "active",
   };
+}
+
+function dependentUpdateWithoutItsOrigin() {
+  const source = new Y.Doc({ gc: false });
+  const text = source.getText("note");
+  text.insert(0, "origin");
+  const afterOrigin = Y.encodeStateVector(source);
+  text.insert(text.length, " dependent");
+  return Buffer.from(Y.encodeStateAsUpdate(source, afterOrigin)).toString("base64");
 }
 
 async function callTool(env, name, args = {}, token = TOKEN_OWNER) {
@@ -140,9 +152,21 @@ export async function runReferenceRewriteAuditChecks(check) {
     seed("privacy.md", PRIVACY_MANIFEST);
     seed("1-projects/foo.md", "# Foo\n\nthe note everything points at\n");
     seed("website/about.md", "# About\n\nSee [foo](../1-projects/foo.md) for the details.\n");
+    seed("1-projects/pending-collaboration.md", "# Pending collaboration\n");
     for (let index = 0; index < 12; index += 1) {
       seed(`1-projects/unrelated-${index}.md`, `# Unrelated ${index}\n`);
     }
+
+    const collaborationStore = new S3Store(binding("ref-rewrite"));
+    const pendingDocument = await readDocument(collaborationStore, "1-projects/pending-collaboration.md");
+    const pending = await commitUpdate(collaborationStore, "1-projects/pending-collaboration.md", {
+      documentId: pendingDocument.documentId,
+      update: dependentUpdateWithoutItsOrigin(),
+    });
+    check(
+      "the fixture contains a durable Yjs update waiting for a missing dependency",
+      pending.applied === false && pending.pendingDependencies === true,
+    );
 
     const auditRows = () =>
       [...bucket.keys()]
@@ -160,10 +184,16 @@ export async function runReferenceRewriteAuditChecks(check) {
     const beforeRows = auditRows().length;
     const beforeReports = reports.count;
 
-    await callTool(env, "move_note", {
+    const moveResult = await callTool(env, "move_note", {
       source: "1-projects/foo.md",
       destination: "1-projects/bar.md",
     });
+
+    check(
+      "an unrelated dependency-pending collaboration note cannot turn a completed move into a failure",
+      moveResult.includes("moved: 1-projects/foo.md") &&
+        moveResult.includes("references: partially rewritten (1 note could not be checked or updated)"),
+    );
 
     const body = String(bucket.get("website/about.md")?.body || "");
     check(
