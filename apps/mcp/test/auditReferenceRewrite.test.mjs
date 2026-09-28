@@ -106,13 +106,33 @@ export async function runReferenceRewriteAuditChecks(check) {
   // Count the announcements the way the resolver's freshness depends on them:
   // one POST per report, over the stub's own fetch.
   const reports = { count: 0 };
+  let activeObjectReads = 0;
+  let peakObjectReads = 0;
   const beneath = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith(CONTROL_PLANE_ORIGIN) && new URL(url).pathname === "/gateway/website") {
+    const parsed = new URL(url);
+    if (url.startsWith(CONTROL_PLANE_ORIGIN) && parsed.pathname === "/gateway/website") {
       reports.count += 1;
     }
-    return beneath(input, init);
+    const method = String(init?.method || "GET").toUpperCase();
+    const objectRead =
+      url.startsWith(S3_ENDPOINT) &&
+      method === "GET" &&
+      parsed.searchParams.get("list-type") !== "2" &&
+      /\/ref-rewrite\/(?:1-projects|website)\//.test(parsed.pathname);
+    if (!objectRead) return beneath(input, init);
+    activeObjectReads += 1;
+    peakObjectReads = Math.max(peakObjectReads, activeObjectReads);
+    try {
+      // A real S3/R2 round trip is the cost that made a 596-note workspace
+      // cross the connector's HTTP timeout. Keep a small delay here so the
+      // test can distinguish a serial sweep from bounded overlapping reads.
+      await new Promise((resolve) => setTimeout(resolve, 3));
+      return await beneath(input, init);
+    } finally {
+      activeObjectReads -= 1;
+    }
   };
 
   try {
@@ -120,6 +140,9 @@ export async function runReferenceRewriteAuditChecks(check) {
     seed("privacy.md", PRIVACY_MANIFEST);
     seed("1-projects/foo.md", "# Foo\n\nthe note everything points at\n");
     seed("website/about.md", "# About\n\nSee [foo](../1-projects/foo.md) for the details.\n");
+    for (let index = 0; index < 12; index += 1) {
+      seed(`1-projects/unrelated-${index}.md`, `# Unrelated ${index}\n`);
+    }
 
     const auditRows = () =>
       [...bucket.keys()]
@@ -157,6 +180,10 @@ export async function runReferenceRewriteAuditChecks(check) {
     check(
       "and the control plane is told its route index no longer describes the bytes",
       reports.count > beforeReports,
+    );
+    check(
+      "the reference sweep overlaps remote object reads instead of timing out serially",
+      peakObjectReads > 1,
     );
   } finally {
     globalThis.fetch = beneath;

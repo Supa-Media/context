@@ -87,19 +87,16 @@ export function stagingStorageIsFree(): boolean {
 /**
  * The switch that turns the free managed tier on for a deployment.
  *
- * **Off in production until the export and hand-off path lands.** A free tier
- * puts every new signup's notes in a bucket they hold no key to, and the only
- * way out of such a bucket that non-negotiable #1 accepts is a free export or
- * hand-off, which is not built yet (`docs/decisions/billing.md`, "The free
- * managed tier"). So the tier ships dark: on for staging, where storage is
- * already free and disposable, and on elsewhere only when an operator sets
- * this to exactly `enabled` — a deliberate act, never a truthy accident.
+ * **On wherever managed storage is configured.** The free tier is the normal
+ * no-card first-run path. This switch is now an emergency brake: setting it to
+ * exactly `disabled` stops new free buckets while leaving every existing one
+ * readable and writable under its existing plan.
  */
 export const FREE_MANAGED_STORAGE_ENV_VAR = "FREE_MANAGED_STORAGE";
 
 export function freeManagedStorageSwitchedOn(): boolean {
   if (stagingStorageIsFree()) return true;
-  return process.env[FREE_MANAGED_STORAGE_ENV_VAR] === "enabled";
+  return process.env[FREE_MANAGED_STORAGE_ENV_VAR] !== "disabled";
 }
 
 /**

@@ -155,7 +155,9 @@ export function SettingsPane({
         does not exist.
       */}
       <PanelHead section="storage" sectioned={section !== undefined} first>
-        {storage?.provider === "dropbox"
+        {storage?.managed === true
+          ? "Context runs this bucket for you. You can move every file to a bucket you control at any time, free — the managed bucket stays live until the copy is verified."
+          : storage?.provider === "dropbox"
           ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
           : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
       </PanelHead>
@@ -196,7 +198,17 @@ export function SettingsPane({
         // Dropbox binding has no key to rotate and nothing to prefill — what
         // its owner wants is either the same consent screen again or a bucket
         // instead, which is exactly the pair `StorageChoice` draws.
-        storage.provider === "dropbox" ? (
+        storage.managed === true ? (
+          <ConnectForm
+            lede="Choose the bucket you want to own. Context keeps the managed bucket live while it copies and verifies every file, then switches over."
+            connect={async (values) => {
+              await actions.handoff(values);
+              setRebinding(false);
+              return { status: "copying" };
+            }}
+            onCancel={() => setRebinding(false)}
+          />
+        ) : storage.provider === "dropbox" ? (
           <SettingsStorageChoice allowDropbox
             workspaceId={actions.workspaceId}
             contextName={current == null ? "this context" : `@${current.slug}`}
@@ -661,7 +673,21 @@ function BindingCard({
           that has never existed for it — the same lie the failure copy avoids
           by not telling a Dropbox owner to paste an access key.
         */}
-        {isManaged ? null : (
+        {isManaged ? (
+          <Button
+            label={
+              storage.handoffStatus === "copying"
+                ? "Moving…"
+                : storage.handoffStatus === "failed"
+                  ? "Retry move"
+                  : "Move to my bucket"
+            }
+            accessibilityLabel="Move every file to a bucket I control"
+            disabled={actions === undefined || storage.handoffStatus === "copying"}
+            onPress={onRebind}
+            testID="storage-handoff"
+          />
+        ) : (
           <Button
             label={isDropbox ? "Reconnect" : "Rotate key"}
             accessibilityLabel={
@@ -701,6 +727,30 @@ function BindingCard({
           />
         )}
       </Row>
+
+      {storage.handoffStatus === "copying" ? (
+        <Hint>
+          <Text variant="hint" role="status" testID="storage-handoff-progress">
+            {storage.handoffPhase === "count"
+              ? "Counting every file before the move starts."
+              : `Copying and verifying every file${
+                storage.handoffObjectsTotal === undefined
+                  ? "."
+                  : ` — ${Math.min(
+                    storage.handoffObjectsProcessed ?? 0,
+                    storage.handoffObjectsTotal,
+                  ).toLocaleString()} of ${storage.handoffObjectsTotal.toLocaleString()} checked.`
+              }`} The managed bucket remains authoritative until the destination matches it.
+          </Text>
+        </Hint>
+      ) : storage.handoffStatus === "failed" ? (
+        <Hint>
+          <Text variant="hint" role="alert" testID="storage-handoff-failed">
+            The move stopped before cutover. Your managed bucket is still live and unchanged.
+            Re-enter the destination to retry.
+          </Text>
+        </Hint>
+      ) : null}
 
       {/*
         The reversibility the product actually promises, at the moment of the

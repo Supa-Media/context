@@ -14,6 +14,7 @@
  * @maya types: p.s. this page is live.
  * @jon's Claude writes: new here? [[getting-started]] is the tour.
  * @maya adds to the line above: (the baby can read.)
+ * @maya adds a line below: - clearer skin
  * Claude reads: pricing
  * Claude adds note: getting-started
  *   # Getting started
@@ -54,8 +55,11 @@ export interface CastActor {
 export type CastStep =
   /** A new paragraph at `at`. People type it; an agent's lands whole. */
   | { kind: "line"; actor: CastActor; text: string; at: number }
-  /** Text added to the end of the paragraph that ends at `at`. */
-  | { kind: "append"; actor: CastActor; text: string; at: number }
+  /**
+   * Text added to the end of the paragraph that ends at `at`, or, with
+   * `below`, on a line of its own directly under it: the next item of a list.
+   */
+  | { kind: "append"; actor: CastActor; text: string; at: number; below?: boolean }
   /** An agent (or person) reading this page, or the page named. */
   | { kind: "read"; actor: CastActor; page: string | null }
   /** A new note in the tree, beside this page. */
@@ -86,7 +90,7 @@ const NAME = String.raw`[A-Za-z][A-Za-z0-9._-]{0,30}(?: [A-Za-z0-9][A-Za-z0-9._-
 /** `@maya`, `Claude`, or somebody's agent: `@jon's Claude`. */
 const ACTOR = String.raw`(@[A-Za-z0-9][A-Za-z0-9_.-]{0,38}(?:['\u2019]s ${NAME})?|${NAME})`;
 const LINE = new RegExp(String.raw`^${ACTOR}\s+(?:types|writes)\s*:\s*(.+)$`, "i");
-const APPEND = new RegExp(String.raw`^${ACTOR}\s+adds to the line above\s*:\s*(.+)$`, "i");
+const APPEND = new RegExp(String.raw`^${ACTOR}\s+adds (to the line above|a line below)\s*:\s*(.+)$`, "i");
 const READ = new RegExp(String.raw`^${ACTOR}\s+reads(?:\s*:\s*(.+))?$`, "i");
 const NOTE = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?note\s*:\s*(.+)$`, "i");
 const COMMENT = new RegExp(String.raw`^${ACTOR}\s+comments on\s+["\u201c](.+?)["\u201d]\s*:\s*(.+)$`, "i");
@@ -135,9 +139,11 @@ function parseBlock(
       if (name === "") problems.push(`A note needs a name: ${text}`);
       else steps.push({ kind: "note", actor: actor(match[1]!), name, text: clip(body.join("\n")) });
     } else if ((match = APPEND.exec(text)) !== null) {
-      const words = clip(match[2]!);
+      const words = clip(match[3]!);
+      const below = match[2]!.toLowerCase() === "a line below";
       // Nothing above the block: the words become a line of their own.
       if (anchors.append === null) steps.push({ kind: "line", actor: actor(match[1]!), text: words, at: anchors.line });
+      else if (below) steps.push({ kind: "append", actor: actor(match[1]!), text: words, at: anchors.append, below });
       else steps.push({ kind: "append", actor: actor(match[1]!), text: words, at: anchors.append });
     } else if ((match = LINE.exec(text)) !== null) {
       steps.push({ kind: "line", actor: actor(match[1]!), text: clip(match[2]!), at: anchors.line });

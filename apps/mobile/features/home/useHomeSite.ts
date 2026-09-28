@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -9,11 +9,26 @@ import {
   injectedHomeSnapshot,
   isStale,
   parseHomeSnapshot,
+  type HomeSnapshot,
   type HomeSource,
 } from "./homeSnapshot";
+import { browserStorage, takeCastPreview } from "./castPreview";
 
 /** How long a visit with no site in its HTML waits before drawing the copy. */
 const WAIT_MS = 4_000;
+
+/**
+ * Taken once per address: the handoff is deleted when read, and a second read
+ * (a remount, React's development double render) must see the same draft.
+ */
+const taken = new Map<string, HomeSnapshot | null>();
+
+function previewForThisTab(): HomeSnapshot | null {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  const search = window.location.search;
+  if (!taken.has(search)) taken.set(search, takeCastPreview(browserStorage(), search));
+  return taken.get(search) ?? null;
+}
 
 /**
  * The homepage's source for this visit (`HomeSource` says what each is). It
@@ -22,13 +37,16 @@ const WAIT_MS = 4_000;
  * without a reload and nothing else ever redraws the page.
  */
 export function useHomeSite(): HomeSource {
+  // An owner's "Preview demo" tab: their draft is the site, and the real one
+  // never replaces it (`castPreview.ts`).
+  const [preview] = useState(previewForThisTab);
   const [source, dispatch] = useReducer(homeSourceReducer, undefined, () =>
-    initialHomeSource(injectedHomeSnapshot(), Platform.OS === "web"),
+    initialHomeSource(preview ?? injectedHomeSnapshot(), Platform.OS === "web"),
   );
   const snapshot = useAction(api.functions.websites.siteSnapshot);
   const revision = useQuery(
     api.functions.websites.siteRevision,
-    source.kind === "builtIn" ? "skip" : { handle: HOME_SITE_HANDLE },
+    source.kind === "builtIn" || preview !== null ? "skip" : { handle: HOME_SITE_HANDLE },
   );
 
   const asking = useRef(false);

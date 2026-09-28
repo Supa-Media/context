@@ -6,11 +6,24 @@
  * comment on `provisionManagedStorage` for the whole flow this belongs to.
  */
 
+import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { requireWorkspaceRole } from "../workspaceAuth";
 import { R2_CREDENTIAL_SETTLE_MS } from "../cloudflare";
+import { managedBucketName } from "../managedStorage";
+
+type CustomerTarget = {
+  provider: "r2" | "s3" | "b2" | "s3-compatible";
+  endpoint: string;
+  region: string;
+  bucket: string;
+  rootPrefix?: string;
+  accessKeyId: string;
+  encryptedSecretAccessKey: string;
+  forcePathStyle?: boolean;
+};
 
 /** Park the managed destination without changing which storage is live. */
 export async function beginManagedStorageMigrationHandler(
@@ -45,7 +58,10 @@ export async function beginManagedStorageMigrationHandler(
   const fields = {
     workspaceId: args.workspaceId,
     sourceBindingId: args.sourceBindingId,
+    direction: "to_managed" as const,
+    targetProvider: "r2" as const,
     targetEndpoint: args.endpoint,
+    targetRegion: "auto",
     targetBucket: args.bucket,
     targetAccessKeyId: args.accessKeyId,
     encryptedTargetSecretAccessKey: args.encryptedSecretAccessKey,
@@ -94,6 +110,97 @@ export async function beginManagedStorageMigrationHandler(
     },
   );
   return null;
+}
+
+/**
+ * Park a customer-owned destination while the managed binding remains live.
+ *
+ * This deliberately shares the same migration row and worker as the paid move
+ * in the other direction: both are raw-object reconciliation followed by one
+ * atomic binding swap. The direction changes only the target binding written
+ * at cutover and the cleanup owed afterwards.
+ */
+export async function beginManagedStorageHandoffHandler(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    actorUserId: Id<"users">;
+    target: CustomerTarget;
+  },
+): Promise<{ started: true }> {
+  await requireWorkspaceRole(ctx, args.workspaceId, args.actorUserId, "owner");
+  const current = await ctx.db
+    .query("storageBindings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  const plan = await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  if (
+    current === null ||
+    current.bucket !== managedBucketName(args.workspaceId) ||
+    current.accessKeyId === undefined ||
+    plan?.managedStorage !== true
+  ) {
+    throw new ConvexError({
+      code: "NOT_MANAGED_STORAGE",
+      message: "This context is not using Context-managed storage.",
+    });
+  }
+
+  const now = Date.now();
+  const existing = await ctx.db
+    .query("managedStorageMigrations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  const fields = {
+    workspaceId: args.workspaceId,
+    sourceBindingId: current._id,
+    direction: "to_customer" as const,
+    targetProvider: args.target.provider,
+    targetEndpoint: args.target.endpoint,
+    targetRegion: args.target.region,
+    targetBucket: args.target.bucket,
+    targetRootPrefix: args.target.rootPrefix,
+    targetAccessKeyId: args.target.accessKeyId,
+    encryptedTargetSecretAccessKey: args.target.encryptedSecretAccessKey,
+    targetForcePathStyle: args.target.forcePathStyle,
+    status: "copying" as const,
+    phase: "count" as const,
+    cursor: undefined,
+    objectsCopied: 0,
+    objectsTotal: undefined,
+    objectsProcessedInPhase: 0,
+    changesInPass: 0,
+    readyToCutover: false,
+    errorCode: undefined,
+    startedBy: args.actorUserId,
+    updatedAt: now,
+  };
+  if (existing === null) {
+    await ctx.db.insert("managedStorageMigrations", { ...fields, createdAt: now });
+  } else {
+    // Re-entering the destination is the retry. Start a fresh census because
+    // the customer may have corrected the bucket or credential.
+    await ctx.db.patch(existing._id, fields);
+  }
+
+  await ctx.db.patch(plan._id, {
+    managedProvisioning: "running",
+    managedProvisioningError: undefined,
+    managedProvisioningAt: now,
+    updatedAt: now,
+  });
+  await ctx.scheduler.runAfter(
+    0,
+    internal.functions.managedProvisioning.awaitManagedTargetReady,
+    {
+      workspaceId: args.workspaceId,
+      retryUntil: now + R2_CREDENTIAL_SETTLE_MS,
+    },
+  );
+  return { started: true };
 }
 
 /** Resume the parked destination; a newly connected source restarts its scan. */

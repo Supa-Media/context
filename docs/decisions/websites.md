@@ -452,6 +452,36 @@ publishes pictures the page does not show. `apps/convex/__tests__/websiteEmoji.t
 `apps/mobile/__tests__/websiteEmoji.test.ts` and `infra/router/src/homeSite.test.ts`
 fail if either comes back, or if a non-inline picture gets through.
 
+## A page's pasted pictures travel with the page
+
+Decided 2026-09-28, when a screenshot pasted into `@context-lc`'s
+`website/use-cases.md` drew in the editor and showed "Not in this bucket" on
+the homepage. It is the emoji rule again, for the same reason: a site loads no
+images, so the pictures a page embeds arrive inside its answer as `data:` URLs
+(`lib/websites/images.ts`). Only a bare stored leaf the published text embeds
+outside code (`![[paste-….png]]`, `![alt](paste-….png)`) is read, through the
+store's own `readImage` leaf rule at the publication clearance, so publishing a
+page publishes the pictures in it and no other object in the store. A picture
+over 2 MB, past 4 MB in one answer (the homepage's whole site is one answer),
+past 24 leaves, or of a type browsers do not draw (HEIC, SVG) is left out and
+shows as missing. The router and the app each re-check every entry and keep
+only an inline PNG, JPEG, GIF or WebP under a stored leaf, so no answer can make
+a visitor's browser fetch an address. The homepage's editor answers
+`loadImage` from the snapshot; a `/@handle` page draws an image line as the
+editor lays it out, with its width and alignment. A remote image stays text.
+
+Whoever can Publish chooses what a page embeds, so a leaf named on a page is
+published even when the same picture is also pasted into a private note: the
+leaf is a content hash, which nobody can name without having seen the picture.
+
+**What a simplification costs.** Serving pictures from a URL makes each view a
+request the visitor did not ask for and needs a route that answers for leaves;
+one that answered for any leaf would publish every picture in the store.
+`apps/convex/__tests__/websiteImages.test.ts`,
+`apps/mobile/__tests__/websiteImages.test.ts` and
+`infra/router/src/homeSite.test.ts` fail if a leaf the page does not embed, one
+inside code, a path or a non-inline picture gets through.
+
 ## A website page can name a folder, and the folder narrows
 
 Decided by the owner, 2026-09-26, so notes kept for their own sake (a
@@ -514,7 +544,8 @@ wait 3s
 
 **A block's position is its anchor.** A new line lands where the block was;
 "adds to the line above" lands at the end of whatever paragraph is above it
-now. Nothing matches quoted words, so editing a page can move where a step
+now, and "adds a line below" on the line just under it, which is how a list
+gets its next item. Nothing matches quoted words, so editing a page can move where a step
 lands and never makes one fail. The owner chose this over a separate script
 note that quotes the text it attaches to (which silently drops a step once
 those words change) and over generated lines (which take the words out of
@@ -534,6 +565,18 @@ do nothing rather than anchor elsewhere. A comment author written
 `renderWebsitePage` strips the blocks for every site, and the homepage's
 snapshot keeps them so the homepage can split them out before building its
 tree (`features/home/cast/castSite.ts`).
+
+**The owner previews a script in the homepage itself, never in their
+editor** (Dev2, 2026-09-28: "is there a way to preview how the cast
+plays"). A note whose draft holds a cast block gets a play button beside the
+eye, "Preview demo", which opens the homepage in a new tab with that draft,
+unpublished and unsaved, as its only page (`features/home/castPreview.ts`).
+It cannot play in the console's editor: that editor is bound to the real
+note, and a show typed into it would be saved to the bucket as if the cast
+had written it. The handoff is a one-time key in this browser's storage,
+named in the address and deleted when read, so the draft never reaches a
+server, a reload is the real site, and the player is the homepage's own —
+what the preview shows is what visitors get after Publish.
 
 **It is the console's presence, not a homepage animation.** Each page's show
 is a local `SharedDoc` the web editor binds exactly as it binds a room

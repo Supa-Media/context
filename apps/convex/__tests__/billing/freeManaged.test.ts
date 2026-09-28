@@ -3,14 +3,9 @@
  *
  * Three properties matter here.
  *
- * **It is off unless a deployment deliberately turns it on.** A free tier puts
- * a new signup's notes in a bucket they hold no key to, and the only exit
- * non-negotiable #1 accepts from such a bucket — free export, or handing it to
- * storage of their own — is not built yet. So the tier ships dark in
- * production; staging turns it on (storage there is already free).
- *
- * **It is one per account.** Every free context is a bucket we create and pay
- * for with no card behind it.
+ * **It is on wherever managed storage is configured.** A deployment may use
+ * the emergency switch to stop new free buckets, but a normal production
+ * signup gets the same no-card path staging exercises.
  *
  * **It gates provisioning, never access.** Turning the switch off stops new
  * free buckets being minted; it does nothing to a bucket that already exists.
@@ -19,7 +14,6 @@
  *
  *   `collect.ts` dropping the `freeManaged` argument                      1
  *   provisioning standing ignoring the deployment switch                  1
- *   the one-per-account limit raised out of reach                         1
  *   a second press scheduling a second provisioning run                   1
  */
 
@@ -47,16 +41,29 @@ import { context } from "./fixtures.helpers";
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 
 function freeTierOn() {
-  vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, "enabled");
   vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
 }
 
 describe("offering the free tier", () => {
-  test("a deployment that has not switched it on does not offer it", async () => {
+  test("a configured production deployment offers it without a feature flag", async () => {
     const t = setupTest();
     vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
     try {
-      const { owner, workspaceId } = await context(t, "free-off");
+      const { owner, workspaceId } = await context(t, "free-default");
+      const status = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+      expect(status.freeManagedAvailable).toBe(true);
+      expect(status.freeManagedEligible).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("an explicit emergency disable stops new buckets without touching existing ones", async () => {
+    const t = setupTest();
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
+    vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, "disabled");
+    try {
+      const { owner, workspaceId } = await context(t, "free-disabled");
       const status = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
       expect(status.freeManagedAvailable).toBe(false);
       expect(status.freeManagedEligible).toBe(false);
@@ -197,7 +204,7 @@ describe("starting on the free tier", () => {
     }
   });
 
-  test("one free context per account", async () => {
+  test("a second workspace can use the same thousand-note free tier", async () => {
     const t = setupTest();
     freeTierOn();
     try {
@@ -207,14 +214,10 @@ describe("starting on the free tier", () => {
 
       const status = await asUser(t, owner).query(api.functions.billing.status, { workspaceId: second });
       expect(status.freeManagedAvailable).toBe(true);
-      expect(status.freeManagedEligible).toBe(false);
-      expect(
-        errorCode(
-          await captureError(() =>
-            asUser(t, owner).mutation(api.functions.billing.startFreeManaged, { workspaceId: second }),
-          ),
-        ),
-      ).toBe("FREE_TIER_LIMIT");
+      expect(status.freeManagedEligible).toBe(true);
+      await expect(
+        asUser(t, owner).mutation(api.functions.billing.startFreeManaged, { workspaceId: second }),
+      ).resolves.toEqual({ started: true });
     } finally {
       vi.unstubAllEnvs();
     }
@@ -242,6 +245,7 @@ describe("what the free tier is entitled to", () => {
     await asUser(t, owner).mutation(api.functions.billing.startFreeManaged, { workspaceId });
     vi.unstubAllEnvs();
     vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
+    vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, "disabled");
     try {
       const standing = await t.query(internal.functions.managedProvisioning.provisioningStanding, { workspaceId });
       expect(standing?.entitled).toBe(false);

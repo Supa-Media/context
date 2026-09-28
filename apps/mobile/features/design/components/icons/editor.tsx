@@ -10,7 +10,8 @@ type EditorIconName =
   | "italic"
   | "keyboardHide"
   | "eye"
-  | "pencil";
+  | "pencil"
+  | "play";
 
 /**
  * The eye's geometry, named rather than inlined, because `icons.test.ts`
@@ -198,6 +199,12 @@ export const editorIcons: Record<EditorIconName, DrawFn> = {
       circles: [{ cx: 0.5, cy: 0.5, r: EYE_IRIS }],
     });
   },
+
+  play: (u, w, c) =>
+    // One closed path, so the three corners meet by construction; the box's
+    // centre falls inside the triangle's wide half, which is where a play
+    // mark looks centred.
+    glyph("play", u, w, c, { paths: ["M 0.3 0.18 L 0.82 0.5 L 0.3 0.82 Z"] }),
 
   pencil: (u, w, c) => {
     /*

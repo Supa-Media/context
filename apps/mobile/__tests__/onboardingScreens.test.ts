@@ -331,9 +331,8 @@ describe("the fork (A-04)", () => {
 
 describe("the payment nudge", () => {
   test("promises nothing the product cannot do yet", () => {
-    // Moving a managed bucket's notes into one of the customer's own is the
-    // exit path still being finished — the reason the free tier ships dark in
-    // production. The nudge may not promise it; it points at what works now.
+    // The handoff is the free-tier exit: every raw object is copied and
+    // verified while managed storage stays authoritative.
     const { text } = render(
       createElement(PaymentStep, {
         used: 1000,
@@ -346,7 +345,7 @@ describe("the payment nudge", () => {
     );
     expect(text).not.toMatch(/in one call|25\s*GB|&nbsp;/);
     expect(text).toContain("50 GB");
-    expect(text).toMatch(/downloads as a \.zip/);
+    expect(text).toMatch(/copies and verifies every file/i);
     expect(text).toMatch(/editing, moving and downloading/i);
   });
 });
@@ -403,4 +402,3 @@ describe("point at a bucket (B1-01)", () => {
     expect(vault).not.toMatch(/role="button"/);
   });
 });
-

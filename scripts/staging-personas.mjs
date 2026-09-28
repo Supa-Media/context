@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
+import { CONTEXT_LC_IMAGE_LEAF } from './fixtures/staging-context-lc.mjs';
 import { stagingNotes } from './fixtures/staging-notes.mjs';
 
 const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
@@ -49,7 +51,7 @@ for (const { slug, workspaceId, owner } of workspaces) {
   let index;
   try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); }
   catch (error) { if (error?.data?.code !== "FILE_NOT_FOUND") throw error; }
-  if (!index) {
+  if (!index && slug !== 'context-lc') {
     await client.mutation(ref('functions/workspaces:applyStructure'), { workspaceId, template: 'para' });
     for (let attempt = 0; attempt < 60; attempt++) {
       try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); break; }
@@ -62,7 +64,8 @@ for (const { slug, workspaceId, owner } of workspaces) {
     let existing;
     try { existing = await client.action(ref('functions/files:readNote'), { workspaceId, path }); }
     catch (error) { if (error?.data?.code !== "FILE_NOT_FOUND") throw error; }
-    if (!existing || reset || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
+    const exactProductionMirror = slug === 'context-lc';
+    if (!existing || reset || (exactProductionMirror && existing.text !== text) || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
       await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
     }
     await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: ['alpha','delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team' });
@@ -70,10 +73,27 @@ for (const { slug, workspaceId, owner } of workspaces) {
     if (reset) assert.equal(read.text, text, `${slug}/${path}: readback differs`);
     noteCount++;
   }
+  if (slug === 'context-lc') {
+    const base64 = readFileSync(new URL('./fixtures/context-lc-use-cases.png.base64', import.meta.url), 'utf8').replace(/\s/g, '');
+    const image = Buffer.from(base64, 'base64');
+    const bytes = image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength);
+    const stored = await client.action(ref('functions/files:storeNoteImage'), { workspaceId, bytes, contentType: 'image/png' });
+    assert.equal(stored.leaf, CONTEXT_LC_IMAGE_LEAF, `${slug}: production image hash differs`);
+    await client.action(ref('functions/workspaces:enableWebsite'), { workspaceId });
+    const published = await client.action(ref('functions/websites:publish'), { workspaceId });
+    assert.equal(published.published, true, `${slug}: website publish failed (${JSON.stringify(published.problems)})`);
+    const snapshot = await client.action(ref('functions/websites:siteSnapshot'), { handle: slug });
+    assert.ok(snapshot, `${slug}: published website is unavailable`);
+    const expectedPages = Object.entries(stagingNotes[slug])
+      .filter(([path]) => path.startsWith('website/'))
+      .map(([path]) => path.slice('website/'.length))
+      .sort();
+    assert.deepEqual(snapshot.pages.map(page => page.path).sort(), expectedPages, `${slug}: published pages differ`);
+  }
   console.log(`${slug}: storage ready, ${Object.keys(stagingNotes[slug]).length} fixture notes verified.`);
 }
 const expected = {
-  alpha: { 'alpha': 'owner', lumio: 'owner', 'maison-solenne': 'editor' },
+  alpha: { 'alpha': 'owner', 'context-lc': 'owner', lumio: 'owner', 'maison-solenne': 'editor' },
   beta: { lumio: 'editor', 'maison-solenne': 'member', 'common-ground': 'editor' },
   gamma: { lumio: 'member', 'common-ground': 'member' },
   delta: { 'delta': 'owner', 'maison-solenne': 'owner', 'common-ground': 'owner' },
@@ -85,7 +105,13 @@ for (const [persona, roles] of Object.entries(expected)) {
   const actual = (await client.query(ref('functions/workspaces:listMyWorkspaces'), {})).filter(w => !w.pinned);
   assert.deepEqual(Object.fromEntries(actual.map(w => [w.slug, w.role])), roles, `${persona}: workspace access differs; use --reset to restore fixture memberships`);
   for (const { slug, workspaceId } of workspaces) {
-    if (!roles[slug]) {
+    if (slug === 'context-lc') {
+      const pinned = (await client.query(ref('functions/workspaces:listMyWorkspaces'), {})).find(w => w.slug === slug);
+      assert.equal(pinned?.role, roles[slug] ?? 'member');
+      assert.equal(pinned?.pinned, roles[slug] ? undefined : true);
+      const read = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' });
+      assert.ok(read.text.includes('staging-context-lc-v1'));
+    } else if (!roles[slug]) {
       await assert.rejects(client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }), error => error?.data?.code === "WORKSPACE_NOT_FOUND");
     } else {
       const read = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' });
@@ -96,6 +122,7 @@ for (const [persona, roles] of Object.entries(expected)) {
   console.log(`${persona}: exact workspace roles and isolation verified.`);
 }
 await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws.lumio, path: '0-inbox/should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "INSUFFICIENT_ROLE" && error.data.actualRole === 'member' && error.data.requiredRole === 'editor');
+await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws['context-lc'], path: 'should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "INSUFFICIENT_ROLE" && error.data.actualRole === 'member' && error.data.requiredRole === 'editor');
 // Prove that a shared-only editor can save using ordinary permissions.
 const editorPath = '1-projects/pulse-launch/roadmap.md';
 const editorNote = await clients.beta.action(ref('functions/files:readNote'), { workspaceId: ws.lumio, path: editorPath });
@@ -112,4 +139,4 @@ try {
 assert.equal((await clients.epsilon.query(ref('functions/workspaces:listMyWorkspaces'), {})).filter(w => !w.pinned).length, 0);
 assert.equal((await clients.epsilon.query(ref('functions/invitations:listMyInvitations'), {})).length, 1);
 for (const client of Object.values(clients)) await client.action(ref('auth:signOut'), {});
-console.log(`PASS: five logins, five workspaces, ${noteCount} notes, role boundaries, private notes, editor save and invitation acceptance; Epsilon restored to pending.`);
+console.log(`PASS: five logins, six workspaces, ${noteCount} notes, pinned homepage, role boundaries, private notes, editor save and invitation acceptance; Epsilon restored to pending.`);

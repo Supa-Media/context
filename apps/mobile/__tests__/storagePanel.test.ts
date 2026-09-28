@@ -28,15 +28,13 @@
  * answer different questions: one is what you connected, the other is what
  * came back when something looked.
  *
- * ## The card this pane must not grow
+ * ## The exit this pane may claim
  *
- * The design this was drawn from has a "Take everything with you" card, with
- * Download everything and Move to my own bucket. **Neither exists.** There is
- * no export or hand-off path in the gateway or the control plane —
- * `storage-and-credentials.md` says so in as many words — and the exit is
- * non-negotiable #1. A control that looked live and did nothing, or a disabled
- * one implying it works later, would be worse than the absence: it is the one
- * promise a customer would test before trusting the product with their notes.
+ * A whole-bucket handoff now exists for managed storage. A whole-workspace
+ * archive still does not, so this pane may offer the former and must not invent
+ * the latter. A control that looked live and did less than it said would be
+ * worse than the absence: it is the one promise a customer would test before
+ * trusting the product with their notes.
  *
  * What is true today is already said, in the lede: on a bucket somebody owns,
  * revoking the key at the provider is the exit, and no export is needed. The
@@ -188,7 +186,6 @@ describe("the exit is stated, and never mocked up", () => {
     for (const label of labels) {
       expect(label).not.toContain("download");
       expect(label).not.toContain("export");
-      expect(label).not.toContain("hand over");
     }
   });
 

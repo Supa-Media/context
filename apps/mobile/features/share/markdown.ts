@@ -36,6 +36,7 @@
  */
 
 import { standardEmojiNamed } from "../console/files/emoji/standardEmoji";
+import { parseImageLine, type ImageAlign } from "../console/files/imageLine";
 import { stripComments } from "@context/shared/src/comments.cjs";
 
 export type Inline =
@@ -72,7 +73,14 @@ export type Block =
   | { kind: "quote"; content: Inline[] }
   | { kind: "code"; text: string; language?: string }
   | { kind: "rule" }
-  | { kind: "table"; header: Inline[][]; rows: Inline[][][] };
+  | { kind: "table"; header: Inline[][]; rows: Inline[][][] }
+  /**
+   * A line that is nothing but image embeds, as the editor lays it out
+   * (`imageLine.ts`). Only a picture the page carried is drawn — a published
+   * page's pasted images arrive with it (`publishedImages.ts`) — and nothing is
+   * ever fetched from `target`; without one, the alt text or name is shown.
+   */
+  | { kind: "images"; images: { target: string; alt: string; width: number | null }[]; align: ImageAlign };
 
 /**
  * The most blocks one note contributes.
@@ -446,6 +454,14 @@ export function parseNote(source: string): ParsedNote {
       continue;
     }
 
+    const row = parseImageLine(line);
+    if (row !== null) {
+      const images = row.images.map(({ target, alt, width }) => ({ target, alt, width }));
+      if (!push({ kind: "images", images, align: row.align })) break;
+      i += 1;
+      continue;
+    }
+
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
     if (heading) {
       const level = heading[1].length as 1 | 2 | 3 | 4 | 5 | 6;
@@ -542,6 +558,7 @@ function isBlockStart(line: string): boolean {
     /^\s*[-*+]\s/.test(line) ||
     /^\s*\d+[.)]\s/.test(line) ||
     /^\s*(`{3,}|~{3,})/.test(line) ||
+    parseImageLine(line) !== null ||
     /^\s*(?:-\s*){3,}$|^\s*(?:\*\s*){3,}$|^\s*(?:_\s*){3,}$/.test(line)
   );
 }

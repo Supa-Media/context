@@ -213,6 +213,49 @@ describe("comments in the cast", () => {
   });
 });
 
+describe("a list item and the argument about it", () => {
+  test("a line below is the list's next item; the hedge lands after it, ahead of the comments", () => {
+    const page = [
+      "# pricing",
+      "",
+      "- unlimited members",
+      "",
+      "```cast",
+      "@maya adds a line below: - clearer skin",
+      '@priya comments on "clearer skin": legal here. we cannot promise this.',
+      "@maya replies: it's a joke",
+      "@priya replies: fine. hedge it",
+      "@maya adds to the line above: (maybe)",
+      "@priya resolves",
+      "```",
+      "",
+    ].join("\n");
+    const { markdown, steps } = splitWebsiteCast(page);
+    expect(steps[0]).toMatchObject({ kind: "append", below: true, text: "- clearer skin" });
+    const shared = createSharedDoc({});
+    seedSharedDoc(shared, markdown);
+    playCast(steps, shared, {
+      schedule: (ms, run) => {
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      },
+      instant: () => false,
+      pageNamed: () => null,
+      addNote: () => null,
+      agentDid: () => {},
+      room: () => {},
+    });
+    jest.advanceTimersByTime(60_000);
+    const text = shared.text.toString();
+    const [thread] = parseComments(text).threads;
+    expect(thread).toMatchObject({ quote: "clearer skin", status: "resolved" });
+    expect(thread!.events.map((event) => event.author)).toEqual(["@priya", "@maya", "@priya", "@priya"]);
+    const visible = text.replace(/<!--\/?c:[a-z0-9]+-->/g, "");
+    expect(visible.startsWith("# pricing\n\n- unlimited members\n- clearer skin (maybe)\n")).toBe(true);
+    expect(text.indexOf("(maybe)")).toBeLessThan(text.indexOf("```comments"));
+  });
+});
+
 describe("castSite", () => {
   test("takes the blocks out of each page and keeps each page's steps", () => {
     const site = castSite([
