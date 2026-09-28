@@ -46,10 +46,9 @@ test("every advertised tool states readOnlyHint, destructiveHint and openWorldHi
   const missing = [];
   for (const tool of tools) {
     const hints = tool.annotations ?? {};
-    for (const hint of ["readOnlyHint", "openWorldHint"]) {
+    for (const hint of ["readOnlyHint", "destructiveHint", "openWorldHint"]) {
       if (typeof hints[hint] !== "boolean") missing.push(`${tool.name}.${hint}`);
     }
-    if (hints.readOnlyHint === false && typeof hints.destructiveHint !== "boolean") missing.push(`${tool.name}.destructiveHint`);
   }
   assert.deepEqual(missing, []);
 });
