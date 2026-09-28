@@ -89,6 +89,8 @@ function named(address: ResolvedWebsiteAddress): ResolvedWebsiteAddress {
         navigation: menu(address.navigation),
         // The emoji the page shows, as inline pictures; see `lib/websites/emoji.ts`.
         emoji: address.emoji,
+        // And its pasted pictures, the same way; see `lib/websites/images.ts`.
+        images: address.images,
       };
     case "authentication_required":
       return {

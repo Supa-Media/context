@@ -14,6 +14,7 @@ import { usePublishedEmoji } from "../console/emoji/published";
 import { writeClipboard } from "../design/clipboard";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { EmojiPictures } from "../share/emojiPictures";
+import { NO_PUBLISHED_IMAGES } from "../share/publishedImages";
 import {
   BUILT_IN_SITE,
   MISSING_PAGE_MARKDOWN,
@@ -112,7 +113,7 @@ export function HomeShell() {
       const last = moves[moves.length - 1];
       if (last !== undefined) setRenamed({ id: Date.now(), from: last[0], to: last[1] });
     },
-  });
+  }, source.kind === "live" ? source.snapshot.images : NO_PUBLISHED_IMAGES);
   const browser = local.files;
   const { routeOf, pathOf, notes } = local;
 

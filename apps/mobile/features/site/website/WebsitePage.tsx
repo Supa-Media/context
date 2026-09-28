@@ -7,6 +7,7 @@ import { leading, siteType } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { parseNote, noteTitle } from "../../share/markdown";
 import { emojiPictures } from "../../share/emojiPictures";
+import { publishedImages } from "../../share/publishedImages";
 import { NoteBody } from "../../share/NoteBody";
 import { UNDERLINE } from "../../share/siteLook";
 import { PLATFORM_ORIGIN } from "../host";
@@ -60,6 +61,7 @@ export function WebsitePage({
           title={view.title}
           markdown={view.markdown}
           emoji={view.emoji}
+          images={view.images}
           home={view.routePath === "/"}
           navigate={navigate}
         />
@@ -103,6 +105,7 @@ function Page({
   title,
   markdown,
   emoji,
+  images,
   home,
   navigate,
 }: {
@@ -110,6 +113,8 @@ function Page({
   markdown: string;
   /** Checked again here: whatever the answer carried, only inline pictures are drawn. */
   emoji: unknown;
+  /** The page's pasted pictures, checked the same way. */
+  images: unknown;
   home: boolean;
   navigate: (routePath: string) => void;
 }) {
@@ -126,6 +131,7 @@ function Page({
     return { heading: home ? null : title, blocks: parsed };
   }, [markdown, title, home]);
   const pictures = useMemo(() => emojiPictures(emoji), [emoji]);
+  const pasted = useMemo(() => publishedImages(images), [images]);
   return (
     <View testID="site-page" style={[styles.stack, size === "desktop" && styles.stackDesktop]}>
       {heading === null ? null : (
@@ -138,6 +144,7 @@ function Page({
         look={size === "desktop" ? "siteWide" : "site"}
         onSiteLink={(href) => followSiteLink(href, navigate)}
         emoji={pictures}
+        images={pasted}
       />
     </View>
   );

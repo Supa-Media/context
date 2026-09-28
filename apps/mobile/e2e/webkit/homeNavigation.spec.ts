@@ -70,6 +70,7 @@ test("a cast comment on a phone shows its highlight and waits for a tap", async 
     revision: "e2e",
     pages: [{ path: "website/index.md", routePath: "/", title: "Welcome", markdown }],
     emoji: {},
+    images: {},
   };
   await page.route(/\/$/, async (route) => {
     const response = await route.fetch();
