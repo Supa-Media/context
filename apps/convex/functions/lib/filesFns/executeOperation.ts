@@ -25,6 +25,7 @@ import {
   importVaultFiles,
   listFolder,
   listFolderPaths,
+  indexChangedNotes,
   maintainSearchIndex,
   movePath,
   notePathIndex,
@@ -578,6 +579,14 @@ export async function executeOperation(
         // every path, snippet and count that leaves a *search* — `isVisible`
         // in `searchNotes`, never here.
         const pass = await maintainSearchIndex(store);
+        return { kind: "indexMaintained", ...pass };
+      }
+      case "indexNotes": {
+        // Scope-blind, like `maintainIndex` above, and for the same reason.
+        const pass = await indexChangedNotes(store, {
+          written: operation.written,
+          gone: operation.gone,
+        });
         return { kind: "indexMaintained", ...pass };
       }
       case "write": {

@@ -73,6 +73,11 @@ export type FileOperation =
     }
   | { kind: "notePaths" }
   | { kind: "maintainIndex"; passes?: number }
+  /**
+   * Re-index the notes one file operation changed, without listing the bucket.
+   * Scheduled by the barrier behind that operation; never sent by a client.
+   */
+  | { kind: "indexNotes"; written: string[]; gone: string[] }
   | { kind: "projectIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {

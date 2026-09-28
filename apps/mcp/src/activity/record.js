@@ -21,6 +21,7 @@ import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
 import { TREE_ACTIONS, treeHintOf } from "./changes.js";
+import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
   const at = new Date().toISOString();
@@ -38,6 +39,57 @@ export async function recordChange(store, action, actorScope, paths, details = {
   await recordActivity(store, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
   announceWebsiteChange(store, paths);
+  await indexChangedNotes(store, action, paths, details);
+}
+
+/**
+ * Actions whose paths are notes a search should find as they now are.
+ *
+ * `written`: every path holds new text. `moved`: `[source, destination]`, the
+ * source gone and the destination new. Folder-wide actions are absent on
+ * purpose — their paths are prefixes, and a folder's worth of notes is a
+ * listing's job, which the next full pass does.
+ */
+export const INDEX_ON_CHANGE = new Map([
+  ["update_note", "written"],
+  ["create_note", "written"],
+  ["save_context", "written"],
+  ["meeting_note", "written"],
+  ["propose_note", "written"],
+  ["rewrite_references", "written"],
+  ["inbox_capture", "written"],
+  ["inbox_update", "written"],
+  ["calendar_sync", "written"],
+  ["move_note", "moved"],
+  ["archive_note", "moved"],
+]);
+
+/**
+ * Re-index what this change touched, so it is searchable now rather than at
+ * the next full pass a search happens to start. Behind the response, and it
+ * never throws: the change itself has already landed.
+ */
+async function indexChangedNotes(store, action, paths, details) {
+  const kind = INDEX_ON_CHANGE.get(action);
+  if (!kind || !Array.isArray(paths) || paths.length === 0) return;
+  // The etag a writer recorded is the stored object's, and it lets the pass
+  // skip a note already indexed at that version. Only where it names one path.
+  const etag = typeof details?.etag === "string" ? details.etag : "";
+  let notes;
+  if (kind === "moved") {
+    const [source, destination] = paths;
+    notes = [
+      { path: source, removed: true },
+      { path: destination, version: etag },
+    ];
+  } else {
+    notes = paths.map((path) => ({ path, version: paths.length === 1 ? etag : "" }));
+  }
+  try {
+    await indexWrittenNotesAfterResponse(store, notes);
+  } catch {
+    // A derivative that is one note late, never a failed write.
+  }
 }
 
 /**

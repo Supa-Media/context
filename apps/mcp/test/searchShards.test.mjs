@@ -75,6 +75,7 @@ import { runSearchShardsSyncBehaviorChecks } from "./searchShards/syncBehavior.t
 import { runSearchShardsBudgetAndFailuresChecks } from "./searchShards/budgetAndFailures.test.mjs";
 import { runSearchShardsCorruptionAndConcurrencyChecks } from "./searchShards/corruptionAndConcurrency.test.mjs";
 import { runSearchShardsMiscChecks } from "./searchShards/misc.test.mjs";
+import { runSearchShardsWriteTargetedChecks } from "./searchShards/writeTargeted.test.mjs";
 
 /**
  * This file used to hold every one of these checks directly, in one large
@@ -90,4 +91,5 @@ export async function runSearchShardsChecks(check) {
   await runSearchShardsBudgetAndFailuresChecks(check);
   await runSearchShardsCorruptionAndConcurrencyChecks(check);
   await runSearchShardsMiscChecks(check);
+  await runSearchShardsWriteTargetedChecks(check);
 }

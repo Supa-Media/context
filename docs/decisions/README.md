@@ -227,6 +227,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - Search answers from a derived index, and the index is budgeted, filtered, and disposable
 - A search reads a ready index, and never builds one
+- A write indexes its own note, and only a listing decides what is gone
 - …and it opens the shards that can answer it, not all of them
 - The manifest is the query surface, and the diff moved out from under it
 - The console searches through the gateway's search, not a copy of it

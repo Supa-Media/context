@@ -458,6 +458,44 @@ export async function maintainSearchIndex(
 }
 
 /**
+ * Re-index the notes one file operation changed, without listing the bucket.
+ *
+ * The console's half of "a note is searchable when it is saved". The gateway
+ * does the same from `recordChange`; both hand `syncShardedIndex` the paths
+ * through `only`, which re-indexes those notes, removes only the ones named
+ * as gone, and records no freshness — see that option's own comment.
+ *
+ * Returned in `maintainSearchIndex`'s shape so the barrier's result type does
+ * not grow a variant for it, and so a reader of one understands the other.
+ */
+export async function indexChangedNotes(
+  store: FileStore,
+  change: { written: string[]; gone: string[] },
+): Promise<{ pending: number; changed: boolean; complete: boolean; shed: number; oversizedShards: number }> {
+  const only = new Map<string, { version: string; uploaded: string } | null>();
+  const uploaded = new Date().toISOString();
+  for (const path of change.gone) only.set(path, null);
+  // A version the writer cannot vouch for: the pass reads the note and records
+  // the version it finds, which is what makes a stale hint harmless.
+  for (const path of change.written) only.set(path, { version: "", uploaded });
+  const pass = await syncShardedIndex(store as unknown as Parameters<typeof syncShardedIndex>[0], {
+    budget: createSearchBudget(INDEX_NOTES_BUDGET),
+    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    only,
+  });
+  return {
+    pending: pass.pending,
+    changed: Boolean(pass.committed),
+    complete: pass.pending === 0,
+    shed: pass.shed.length,
+    oversizedShards: pass.oversizedShards,
+  };
+}
+
+/** Enough for a move's two paths in two shards, with room to spare. */
+const INDEX_NOTES_BUDGET = 40;
+
+/**
  * The part of the gateway's D1 client this needs, and nothing more.
  *
  * Structural rather than an import of `createD1Client`'s return, because the
