@@ -71,10 +71,12 @@ Context still pays Cloudflare for the storage and operations.
 
 The backend requires `APP_ENV=staging`, the staging app origin, and its own
 platform-provided `CONVEX_CLOUD_URL` to match `STAGING_CONVEX_DEPLOYMENT` before
-allowing the bypass. The staging sync sets these deployment selectors; a client
-flag or request origin cannot enable it. Ordinary production owners still need
-payment. Selected services activate through the existing test activation path,
-with a distinct staging audit event; fast search remains an explicit opt-in.
+allowing the test-only Premium bypass. The staging sync sets these deployment
+selectors; a client flag or request origin cannot enable it. Production owners
+instead use the normal free managed tier: no card, with a 1,000-note cap, or the
+paid plan when they want its additional entitlements. Selected services activate
+through the existing test activation path, with a distinct staging audit event;
+fast search remains an explicit opt-in.
 
 Every managed bucket created by staging is named `staging-ctx-<workspaceId>`;
 production retains `ctx-<workspaceId>`. Inspect and select only the `staging-`

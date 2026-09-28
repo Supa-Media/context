@@ -384,8 +384,10 @@ the creator, and the first-run return sentence kept out of this flow.
 
 Staging testers can provision dedicated managed buckets without paying or supplying
 a card. The backend checks its environment, app origin and platform deployment URL;
-ordinary production owners cannot use this bypass. Existing workspace caps and
-owner authorization remain in force, and no production buckets are reused.
+ordinary production owners cannot use this test-only Premium bypass. Production's
+normal no-card path is the separate free managed tier described below, with its
+1,000-note cap. Existing workspace caps and owner authorization remain in force,
+and no production buckets are reused.
 The UI says storage is free on staging and proceeds directly to provisioning.
 Selected services use the normal entitlement machinery; fast search is still opt-in.
 Context pays the underlying Cloudflare usage. This replaces the proposal to hand
