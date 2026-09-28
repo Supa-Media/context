@@ -72,9 +72,13 @@ jobs:
         with:
           paths: |
             apps/mcp/src/forms/**
+            apps/mcp/src/forms.js
             apps/mcp/src/lists/**
+            apps/mcp/src/lists.js
+            apps/mobile/features/console/faces/**
             apps/mobile/features/console/files/**
             apps/mobile/features/console/presence/**
+            apps/mobile/features/design/tokens/colors.ts
             apps/mobile/features/voice/**
             apps/mobile/package.json
             packages/drawings/**

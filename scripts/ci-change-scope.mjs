@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { workspacePaths } from "./check-ci-path-gates.mjs";
+import { matches, workspacePaths } from "./check-ci-path-gates.mjs";
 
 const ROOT_INPUTS = [
   ".npmrc",
@@ -30,10 +30,13 @@ export function parseList(value = "") {
     .filter(Boolean);
 }
 
-export function matches(file, pattern) {
-  if (pattern.endsWith("/**")) return file.startsWith(pattern.slice(0, -2));
-  return file === pattern;
-}
+/**
+ * Re-exported, not defined here: `check-ci-path-gates.mjs` owns it, because the
+ * guard that checks a job's watched paths cover what it must has to decide
+ * coverage with exactly this matcher, and a second copy is a rule nobody
+ * enforces.
+ */
+export { matches };
 
 export function selectChanged(changed, watched) {
   return changed.filter((file) => watched.some((pattern) => matches(file, pattern)));
