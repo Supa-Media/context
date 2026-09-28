@@ -195,3 +195,34 @@ describe("a request the question outlived", () => {
     app.unmount();
   });
 });
+
+describe("an answer the question outlived during the debounce", () => {
+  test("is dropped rather than drawn under the newer query", async () => {
+    const first = deferred();
+    mockClient.action.mockImplementation(async () => await first.promise);
+    const app = mount("review cycle");
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+
+    // Another letter, and the old answer lands before the new debounce fires.
+    const second = deferred();
+    mockClient.action.mockImplementation(async () => await second.promise);
+    app.retype("review cycles");
+    await act(async () => {
+      first.resolve(page(null, "alice"));
+      await Promise.resolve();
+    });
+    expect(app.view().results).toEqual([]);
+
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+    await act(async () => {
+      second.resolve(page(null, "team"));
+      await Promise.resolve();
+    });
+    expect(app.view().results.map((row) => row.slug)).toEqual(["team"]);
+    app.unmount();
+  });
+});

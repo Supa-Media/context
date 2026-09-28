@@ -316,6 +316,10 @@ export function useContextSearch(
       return;
     }
 
+    // Claimed now, not when the debounce fires: an answer to the previous
+    // query that lands during the debounce belongs to text that is no longer
+    // in the field, and would otherwise be drawn as "ready" over it.
+    latest.current = trimmed;
     setShown((current) => ({ ...current, state: "searching" }));
 
     /** The device's answer, if the person has not typed since. */
@@ -331,7 +335,6 @@ export function useContextSearch(
     };
 
     const timer = setTimeout(() => {
-      latest.current = trimmed;
       void (async () => {
         const local = deviceRef.current;
         if (offline && local !== null) {
