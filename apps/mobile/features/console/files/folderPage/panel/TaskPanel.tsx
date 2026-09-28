@@ -32,7 +32,8 @@ import { folderStatuses, governingFolder, groupOfStatus } from "../statuses";
 import { faceFor } from "../taskFace";
 import { ownersOf } from "../taskProps";
 import { QuickAddComposer, type QuickAddTask } from "../tasks/QuickAddComposer";
-import { planAddNote, planAddSubtask, runPlanned, type Planned, type TaskRef, type TaskWriteIO } from "../tasks/taskWrites";
+import { planAddNote, planAddSubtask, type Planned, type TaskRef } from "../tasks/taskWrites";
+import type { TaskControls } from "../tasks/useTaskActions";
 import { tagsInUse } from "../tasks/taskWords";
 import type { PropertyChanges } from "../useFolderPage";
 import { PanelProperties } from "./PanelProperties";
@@ -49,8 +50,12 @@ export interface TaskPanelProps {
   actions: ItemActions;
   /** Several properties of one note, as the page writes them (`FolderNotes.chooseMany`); null for a member. */
   chooseMany: ((target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>) | null;
-  /** The console's file writes; null where the page cannot make them, and nothing is offered that needs them. */
-  io: TaskWriteIO | null;
+  /**
+   * The List's own write road (`TaskControls.perform`): drawn at once, read
+   * again, put into this device's copy and said with an Undo. Null where the
+   * page cannot write, and nothing is offered that needs it.
+   */
+  perform: TaskControls["perform"] | null;
   /** Every path the page's listing shows, so a new name misses them too. */
   paths: readonly string[];
   now: number;
@@ -62,12 +67,14 @@ export interface TaskPanelProps {
 }
 
 export function TaskPanel(props: TaskPanelProps) {
-  const { path, folder, notes, actions, chooseMany, io, now, onShow, onNavigate, onClose } = props;
+  const { path, folder, notes, actions, chooseMany, perform, now, onShow, onNavigate, onClose } = props;
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   // What was last shown stays while the device's copy catches up with a move (a task that just became a folder).
   const last = useRef<PanelEntry | null>(null);
-  const found = panelEntry(path, folder, notes);
+  // A one-note task that just became a folder is drawn as that folder at once (the List's pending
+  // overlay), before the panel is told to follow it there: it is the same task, not one that went.
+  const found = panelEntry(path, folder, notes) ?? (/\.md$/i.test(path) ? panelEntry(path.replace(/\.md$/i, ""), folder, notes) : null);
   if (found !== null) last.current = found;
   const entry = found ?? (last.current !== null && became(last.current.item, path) ? last.current : null);
   const [opened, setOpened] = useState<{ path: string; kind: "subtask" | "note" } | null>(null);
@@ -85,15 +92,17 @@ export function TaskPanel(props: TaskPanelProps) {
   const write =
     chooseMany === null ? null : (key: string, value: string | readonly string[] | null) => void chooseMany(ref.target, [[key, value]], ref.creates);
   const run = async (planned: Planned): Promise<string | null> => {
-    if (io === null) return "This can’t be changed from here.";
-    const result = await runPlanned(io, planned);
-    if (!result.ok) return result.problem;
-    // A one-note task is a folder now; the panel follows it there.
-    if (ref.kind === "note") onShow(ref.path.replace(/\.md$/i, ""));
-    return null;
+    if (perform === null) return "This can’t be changed from here.";
+    return perform(planned, {
+      quiet: true,
+      // A one-note task is a folder now; the panel follows it there.
+      after: () => {
+        if (ref.kind === "note") onShow(ref.path.replace(/\.md$/i, ""));
+      },
+    });
   };
   const snapshot = { folder, notes, paths: props.paths };
-  const canAdd = write !== null && io !== null;
+  const canAdd = write !== null && perform !== null;
   return (
     <View style={styles.panel} role="complementary" aria-label="Task details" testID="task-panel">
       <View style={styles.crumb} testID="task-panel-crumb">

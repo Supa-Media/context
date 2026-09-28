@@ -70,6 +70,12 @@ export function pendMove(pending: Pending, known: readonly ListNote[], from: str
   // A note moved into a folder that is new to the listing (`x.md` → `x/overview.md`) makes that folder a row.
   const home = parentPath(to);
   if (home !== parentPath(from) && !entries.has(home)) entries.set(home, entryFor(home, "folder", now));
+  // Taking back such a move leaves that folder empty: the row this overlay drew for it goes too.
+  const left = parentPath(from);
+  const drawn = pending.entries.get(left);
+  if (drawn != null && drawn.kind === "folder" && ![...notes.keys()].some((path) => path.startsWith(`${left}/`) && notes.get(path) !== null) && !known.some((note) => note.path.startsWith(`${left}/`) && note.path !== from && !note.path.startsWith(`${from}/`))) {
+    entries.delete(left);
+  }
   return { notes, entries };
 }
 

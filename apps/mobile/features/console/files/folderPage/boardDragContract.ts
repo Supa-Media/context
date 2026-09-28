@@ -19,3 +19,14 @@ export interface ColumnDropOptions {
   /** A card was let go of here. */
   onDrop(path: string): void;
 }
+
+/** Where on a task row a drag is: its top quarter, its middle half, its bottom quarter (`tasks/taskDrop.ts`). */
+export type RowZone = "above" | "middle" | "below";
+
+export interface RowDropOptions {
+  enabled: boolean;
+  /** Which band of the row a card is over, or null once it has left. */
+  onOver(zone: RowZone | null): void;
+  /** A card was let go of in that band. */
+  onDrop(zone: RowZone): void;
+}

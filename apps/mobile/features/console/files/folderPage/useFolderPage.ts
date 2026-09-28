@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderListSource, ListNote, PropertyValue } from "../listBlock/model";
 import { parentPath } from "../paths";
-import type { TaskWriteIO } from "./tasks/taskWrites";
+import type { TaskHost } from "./tasks/taskHost";
 
 /** What a folder page is handed to read and change properties with. */
 export interface FolderPageHost {
@@ -36,11 +36,12 @@ export interface FolderPageHost {
    */
   readonly me?: readonly string[];
   /**
-   * The console's own file writes — a new note, a move — for what a project
-   * adds beyond a property line: a subtask, a note in a task (`taskWrites.ts`).
-   * Absent where the page cannot write, and nothing is offered that needs it.
+   * Adding, nesting and moving tasks on a project's List, with an undo for
+   * each (`tasks/taskHost.ts`). Absent where the console cannot write — and
+   * for a member, whose `source` has no `setProperty` — so the List offers
+   * none of it.
    */
-  readonly tasks?: TaskWriteIO;
+  readonly tasks?: TaskHost;
 }
 
 export interface FolderNotes {

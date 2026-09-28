@@ -203,6 +203,15 @@ describe("what has just been written, drawn before the device catches up", () =>
     expect(withPendingNotes(known, pending).map((note) => note.path)).toEqual([`${P}/lease/overview.md`]);
   });
 
+  test("taking that back leaves no empty folder drawn where the task was", () => {
+    const known = [{ path: `${P}/lease.md`, properties: { status: "to do" } }];
+    const rows = [{ kind: "file" as const, path: `${P}/lease.md`, name: "lease.md" }];
+    const there = pendMove(NO_PENDING, known, `${P}/lease.md`, `${P}/lease/overview.md`, 5);
+    const back = pendMove(there, withPendingNotes(known, there), `${P}/lease/overview.md`, `${P}/lease.md`, 6);
+    expect(withPendingEntries(P, rows, back).map((row) => [row.kind, row.path])).toEqual([["file", `${P}/lease.md`]]);
+    expect(withPendingNotes(known, back).map((note) => note.path)).toEqual([`${P}/lease.md`]);
+  });
+
   test("a folder moved carries everything under it; a removal hides it", () => {
     const known = [
       { path: `${P}/kitchen/overview.md`, properties: {} },

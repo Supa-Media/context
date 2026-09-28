@@ -6,6 +6,7 @@ import type { Face } from "./Glyphs";
 import type { FolderItem } from "./model";
 import type { StatusGroup, StatusMenuSection } from "./statuses";
 import type { StatusTone } from "./StatusPill";
+import type { TaskControls } from "./tasks/useTaskActions";
 
 /** A save older than this is drawn a step quieter (spec: staleness is only a date). */
 const STALE_AFTER = 14 * 24 * 60 * 60 * 1000;
@@ -35,6 +36,8 @@ export interface ItemActions {
   makeTaskLabel?: string;
   /** The task open in the side panel, marked where it is drawn; null or absent for none. */
   selected?: string | null;
+  /** Adding, picking, dragging and the right-click menu, for somebody who may write (`tasks/useTaskActions.ts`). */
+  tasks?: TaskControls | null;
 }
 
 /** An owner picker's search, and the owners the folder already uses, most used first. */

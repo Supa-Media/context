@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 import { isoDay } from "../features/console/files/folderPage/tasks/taskWords";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
 import { act } from "react";
-import { CAFE, NOTES, all, host, key, mount, one, press, strip, type, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
+import { CAFE, NOTES, all, host, key, mount, one, press, strip, type, unmountAll, windowOf, type Toast, type Write } from "./projectPage/fixtures";
 
 beforeEach(() => {
   windowOf(1280);
@@ -148,6 +148,24 @@ describe("the side panel", () => {
     await type(one("quick-add-title"), "Get the keys");
     await key(one("quick-add-title"), "Enter");
     expect(files[2]).toBe(`create ${CAFE}/lease/Get the keys.md\n---\nstatus: to do\n---\n\n# Get the keys\n`);
+  });
+
+  test("a subtask added here is drawn at once, in the List too, and one Undo takes it and the folder back", async () => {
+    const files: string[] = [];
+    const toasts: Toast[] = [];
+    await mount(host([], { files, toasts }));
+    await press(row("Sign the lease"));
+    await press(one("task-panel-add-subtask"));
+    await type(one("quick-add-title"), "Read the small print");
+    await key(one("quick-add-title"), "Enter");
+    // The same road as the List's own "+ Subtask": drawn before any reload, and said with an Undo.
+    expect(all("task-panel-subtask").map((node) => strip(node.textContent))).toEqual([expect.stringContaining("Read the small print")]);
+    expect(strip(row("Sign the lease").textContent)).toContain("0 of 1 done");
+    expect(toasts.at(-1)?.undo).toBeDefined();
+    await act(async () => toasts.at(-1)!.undo!());
+    await act(async () => undefined);
+    expect(files.slice(2)).toEqual([`remove ${CAFE}/lease/Read the small print.md`, `move ${CAFE}/lease/overview.md -> ${CAFE}/lease.md`]);
+    expect(toasts.at(-1)!.message).toBe("Undone.");
   });
 
   test("+ Add a note writes a plain note in the task", async () => {

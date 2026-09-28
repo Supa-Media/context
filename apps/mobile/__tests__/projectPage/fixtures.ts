@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FolderView } from "../../features/console/files/FolderView";
 import type { FolderPageHost } from "../../features/console/files/folderPage/FolderPage";
-import type { TaskWriteIO } from "../../features/console/files/folderPage/tasks/taskWrites";
+import type { TaskHost } from "../../features/console/files/folderPage/tasks/taskHost";
 import type { ListNote } from "../../features/console/files/listBlock/model";
 import type { FileEntry, FolderListing } from "../../features/console/files/types";
 
@@ -60,21 +60,32 @@ export const LISTING: FolderListing = {
 
 export type Write = [path: string, key: string, value: unknown, options: { create?: boolean } | undefined];
 
-/** A writer's page (every property write recorded in `writes`, every file write in `files`), or a member's with `null`. */
-export function host(writes: Write[] | null, options: { notes?: ListNote[]; files?: string[] } = {}): FolderPageHost {
+/** A toast the page said, with its Undo when it offered one. */
+export type Toast = { message: string; undo?: () => void };
+
+/**
+ * A writer's page (every property write recorded in `writes`, every file write
+ * in `files`, every toast in `toasts`), or a member's with `null`.
+ */
+export function host(writes: Write[] | null, options: { notes?: ListNote[]; files?: string[]; toasts?: Toast[] } = {}): FolderPageHost {
   const notes = options.notes ?? NOTES;
   const files = options.files;
-  const tasks: TaskWriteIO | undefined =
+  const toasts = options.toasts ?? [];
+  const tasks: TaskHost | undefined =
     writes === null || files === undefined
       ? undefined
       : {
-          create: async (path, text) => void files.push(`create ${path}\n${text}`),
-          move: async (from, to) => void files.push(`move ${from} -> ${to}`),
-          setProperties: async (path, changes, opts) => {
-            for (const [key, value] of changes) writes.push([path, key, value, opts]);
-            return null;
+          io: {
+            create: async (path, text) => void files.push(`create ${path}\n${text}`),
+            move: async (from, to) => void files.push(`move ${from} -> ${to}`),
+            setProperties: async (path, changes, opts) => {
+              for (const [key, value] of changes) writes.push([path, key, value, opts]);
+              return null;
+            },
+            remove: async (path) => void files.push(`remove ${path}`),
           },
-          remove: async (path) => void files.push(`remove ${path}`),
+          say: (message, undo) => void toasts.push({ message, ...(undo === undefined ? {} : { undo }) }),
+          refresh: () => undefined,
         };
   return {
     workspaceId: "ws_test",

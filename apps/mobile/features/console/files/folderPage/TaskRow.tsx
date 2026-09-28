@@ -13,6 +13,11 @@
  * last saved, and — for somebody who may write — "Make it a task", which
  * gives it the folder's first To do status.
  *
+ * For somebody who may write (`actions.tasks`), a task row is also a thing
+ * to pick up and drop on, right-click, pick with its checkbox or Shift/⌘/Ctrl,
+ * and give a subtask with "+ Subtask"; an opened task ends with "+ Add
+ * subtask" (`tasks/RowParts.tsx`).
+ *
  * A member sees the same rows with words where the controls would be. An
  * owner line naming several is shown, never offered as one choice: picking
  * one would drop the others.
@@ -32,6 +37,7 @@ import type { TaskEntry } from "./listLayout";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { PropertyValue } from "./PropertyValue";
 import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
+import { isPickPress, PickBox, RowFrame, SubtaskAdder, SubtaskButton } from "./tasks/RowParts";
 
 /** Tags drawn on a row before the rest are counted. */
 const TAGS_SHOWN = 2;
@@ -60,63 +66,73 @@ export function TaskRow({
   const due = dueOf(item.properties);
   const edit = actions.onChoose;
   const progress = item.progress === null ? null : `${item.progress.done} of ${item.progress.total} done`;
+  const tasks = actions.tasks ?? null;
+  const picked = tasks?.selected.has(item.path) ?? false;
   return (
     <>
-      <Pressable
-        onPress={() => actions.onOpen(item)}
-        onHoverIn={() => setHovered(true)}
-        onHoverOut={() => setHovered(false)}
-        role="link"
-        aria-current={actions.selected === item.path ? "true" : undefined}
-        accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
-        style={[compact ? styles.rowTouch : styles.row, (hovered || actions.selected === item.path) && styles.rowHover, entry.dim && styles.dim]}
-        testID="folder-item"
-      >
-        <View style={styles.gutter}>
-          {opens ? (
-            <Pressable
-              onPress={onToggle}
-              role="button"
-              aria-expanded={open}
-              accessibilityLabel={open ? `Close ${item.label}` : `Open ${item.label}`}
-              hitSlop={8}
-              testID="folder-expand"
-            >
-              <Icon name={open ? "chevronDown" : "chevronRight"} size={13} color={colors.chromeMuted} />
-            </Pressable>
-          ) : null}
-        </View>
-        <PriorityGlyph priority={item.priority} />
-        <View style={styles.name}>
-          <View style={styles.nameLine}>
-            <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={styles.label}>
-              {item.label}
-            </Text>
-            {progress === null ? null : (
-              <Text variant="meta" style={styles.muted} testID="folder-item-progress">
-                {progress}
+      <RowFrame item={item} controls={tasks}>
+        <Pressable
+          onPress={(event) => (tasks !== null && isPickPress(event) ? tasks.togglePick(item.path) : actions.onOpen(item))}
+          onHoverIn={() => setHovered(true)}
+          onHoverOut={() => setHovered(false)}
+          role="link"
+          aria-current={actions.selected === item.path ? "true" : undefined}
+          accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
+          style={[compact ? styles.rowTouch : styles.row, (hovered || actions.selected === item.path) && styles.rowHover, picked && styles.rowPicked, entry.dim && styles.dim]}
+          testID="folder-item"
+        >
+          {tasks === null ? null : (
+            <PickBox picked={picked} shown={hovered || tasks.selected.size > 0} label={item.label} onPick={() => tasks.togglePick(item.path)} />
+          )}
+          <View style={styles.gutter}>
+            {opens ? (
+              <Pressable
+                onPress={onToggle}
+                role="button"
+                aria-expanded={open}
+                accessibilityLabel={open ? `Close ${item.label}` : `Open ${item.label}`}
+                hitSlop={8}
+                testID="folder-expand"
+              >
+                <Icon name={open ? "chevronDown" : "chevronRight"} size={13} color={colors.chromeMuted} />
+              </Pressable>
+            ) : null}
+          </View>
+          <PriorityGlyph priority={item.priority} />
+          <View style={styles.name}>
+            <View style={styles.nameLine}>
+              <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={styles.label}>
+                {item.label}
               </Text>
-            )}
+              {progress === null ? null : (
+                <Text variant="meta" style={styles.muted} testID="folder-item-progress">
+                  {progress}
+                </Text>
+              )}
+            </View>
+            {compact ? <CompactLine item={item} due={due === null ? "" : dueWord(due, now)} actions={actions} /> : null}
           </View>
-          {compact ? <CompactLine item={item} due={due === null ? "" : dueWord(due, now)} actions={actions} /> : null}
-        </View>
-        {compact ? null : <Tags tags={tags} />}
-        {compact ? null : (
-          <Text variant="meta" numberOfLines={1} style={styles.due} testID="folder-item-due">
-            {due === null ? "" : dueWord(due, now)}
-          </Text>
-        )}
-        {edit === null ? null : (
-          <View style={compact ? styles.statusTouch : styles.cell}>
-            <StatusValue item={item} actions={actions} quiet={!compact && !hovered} compact={compact} />
-          </View>
-        )}
-        {compact ? null : (
-          <View style={styles.owner}>
-            <OwnerCell item={item} actions={actions} />
-          </View>
-        )}
-      </Pressable>
+          {tasks === null || compact ? null : (
+            <SubtaskButton shown={hovered} onPress={() => tasks.openComposer({ kind: "subtask", parent: item.path })} />
+          )}
+          {compact ? null : <Tags tags={tags} />}
+          {compact ? null : (
+            <Text variant="meta" numberOfLines={1} style={styles.due} testID="folder-item-due">
+              {due === null ? "" : dueWord(due, now)}
+            </Text>
+          )}
+          {edit === null ? null : (
+            <View style={compact ? styles.statusTouch : styles.cell}>
+              <StatusValue item={item} actions={actions} quiet={!compact && !hovered} compact={compact} />
+            </View>
+          )}
+          {compact ? null : (
+            <View style={styles.owner}>
+              <OwnerCell item={item} actions={actions} />
+            </View>
+          )}
+        </Pressable>
+      </RowFrame>
       {open ? <Opened entry={entry} compact={compact} now={now} actions={actions} /> : null}
     </>
   );
@@ -139,6 +155,7 @@ function Opened({ entry, compact, now, actions }: { entry: TaskEntry; compact: b
           ))}
         </>
       )}
+      {actions.tasks == null || entry.dim ? null : <SubtaskAdder parent={entry.item} controls={actions.tasks} />}
     </View>
   );
 }
@@ -147,31 +164,38 @@ function SubtaskRow({ item, compact, actions }: { item: FolderItem; compact: boo
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const tone = actions.toneOf(item.status);
+  const tasks = actions.tasks ?? null;
+  const picked = tasks?.selected.has(item.path) ?? false;
   return (
-    <Pressable
-      onPress={() => actions.onOpen(item)}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      role="link"
-      accessibilityLabel={item.label}
-      style={[compact ? styles.rowTouch : styles.row, styles.nested, hovered && styles.rowHover]}
-      testID="folder-subtask"
-    >
-      <StatusDot tone={tone} />
-      <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={[styles.label, styles.grow, tone === "done" && styles.finished]}>
-        {item.label}
-      </Text>
-      {actions.onChoose === null ? null : (
-        <View style={compact ? styles.statusTouch : styles.cell}>
-          <StatusValue item={item} actions={actions} quiet={!compact && !hovered} compact={compact} />
-        </View>
-      )}
-      {compact ? null : (
-        <View style={styles.owner}>
-          <OwnerCell item={item} actions={actions} />
-        </View>
-      )}
-    </Pressable>
+    <RowFrame item={item} controls={tasks}>
+      <Pressable
+        onPress={(event) => (tasks !== null && isPickPress(event) ? tasks.togglePick(item.path) : actions.onOpen(item))}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        role="link"
+        accessibilityLabel={item.label}
+        style={[compact ? styles.rowTouch : styles.row, styles.nested, hovered && styles.rowHover, picked && styles.rowPicked]}
+        testID="folder-subtask"
+      >
+        {tasks === null ? null : (
+          <PickBox picked={picked} shown={hovered || tasks.selected.size > 0} label={item.label} onPick={() => tasks.togglePick(item.path)} />
+        )}
+        <StatusDot tone={tone} />
+        <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={[styles.label, styles.grow, tone === "done" && styles.finished]}>
+          {item.label}
+        </Text>
+        {actions.onChoose === null ? null : (
+          <View style={compact ? styles.statusTouch : styles.cell}>
+            <StatusValue item={item} actions={actions} quiet={!compact && !hovered} compact={compact} />
+          </View>
+        )}
+        {compact ? null : (
+          <View style={styles.owner}>
+            <OwnerCell item={item} actions={actions} />
+          </View>
+        )}
+      </Pressable>
+    </RowFrame>
   );
 }
 
@@ -199,40 +223,42 @@ export function NoteRow({
   const make = actions.onMakeTask ?? null;
   const label = actions.makeTaskLabel ?? "Make it a task";
   return (
-    <Pressable
-      onPress={() => actions.onOpen(item)}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      role="link"
-      accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
-      style={[compact ? styles.rowTouch : styles.noteRow, nested && styles.nested, hovered && styles.rowHover]}
-      testID="folder-note"
-    >
-      <Icon name={item.kind === "folder" ? "folder" : "file"} size={16} color={colors.chromeMuted} />
-      <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={[styles.noteLabel, styles.grow]}>
-        {item.label}
-      </Text>
-      {make === null ? null : (
-        <Pressable
-          onPress={() => make(item)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          role="button"
-          accessibilityLabel={item.creates ? `${label}, saves to ${NEW_FRONT_NOTE}` : label}
-          style={[styles.mini, !compact && !hovered && !focused && styles.quiet]}
-          testID="folder-make-task"
-        >
-          <Text variant="meta" style={styles.miniText}>
-            {label}
-          </Text>
-        </Pressable>
-      )}
-      {meta === "" ? null : (
-        <Text variant="meta" numberOfLines={1} style={styles.muted}>
-          {meta}
+    <RowFrame item={item} controls={actions.tasks ?? null} note>
+      <Pressable
+        onPress={() => actions.onOpen(item)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        role="link"
+        accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
+        style={[compact ? styles.rowTouch : styles.noteRow, nested && styles.nested, hovered && styles.rowHover]}
+        testID="folder-note"
+      >
+        <Icon name={item.kind === "folder" ? "folder" : "file"} size={16} color={colors.chromeMuted} />
+        <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={[styles.noteLabel, styles.grow]}>
+          {item.label}
         </Text>
-      )}
-    </Pressable>
+        {make === null ? null : (
+          <Pressable
+            onPress={() => make(item)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            role="button"
+            accessibilityLabel={item.creates ? `${label}, saves to ${NEW_FRONT_NOTE}` : label}
+            style={[styles.mini, !compact && !hovered && !focused && styles.quiet]}
+            testID="folder-make-task"
+          >
+            <Text variant="meta" style={styles.miniText}>
+              {label}
+            </Text>
+          </Pressable>
+        )}
+        {meta === "" ? null : (
+          <Text variant="meta" numberOfLines={1} style={styles.muted}>
+            {meta}
+          </Text>
+        )}
+      </Pressable>
+    </RowFrame>
   );
 }
 
@@ -373,6 +399,7 @@ const makeStyles = (colors: Colors) =>
       borderBottomColor: colors.line,
     },
     rowHover: { backgroundColor: colors.surface3 },
+    rowPicked: { backgroundColor: colors.rowSelected },
     dim: { opacity: 0.55 },
     nested: { paddingLeft: 42 },
     gutter: { width: 13, alignItems: "center", justifyContent: "center", marginRight: -space.x1 },

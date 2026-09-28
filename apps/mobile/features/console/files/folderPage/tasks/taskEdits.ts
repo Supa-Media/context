@@ -13,6 +13,7 @@
  */
 
 import type { PropertyValue } from "../../listBlock/model";
+import { groupLabel } from "../../listBlock/words";
 import type { PropertyWriteValue } from "../../listBlock/writeProperty";
 import { baseName, parentPath } from "../../paths";
 import type { FolderItem } from "../model";
@@ -79,6 +80,12 @@ export function planSet(
       touched: [parentPath(item.target)],
     },
   };
+}
+
+/** `item` moved to `status`, said in the owner's words. */
+export function statusPlan(item: Pick<FolderItem, "path" | "target" | "creates" | "properties" | "label">, status: string): Planned {
+  const word = groupLabel("status", status);
+  return planSet(item, [["status", status]], `Moved ${quote(item.label)} to ${word}.`, `${quote(item.label)} is already in ${word}.`);
 }
 
 /** A project beside this one, by its folder and its name. */
