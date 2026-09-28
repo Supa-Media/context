@@ -358,6 +358,7 @@ export function BrowsePane({
         <BrowseNoteHead
           files={files}
           selected={selected}
+          nav={nav}
           reading={reading}
           headWidth={headWidth}
           setHeadWidth={setHeadWidth}

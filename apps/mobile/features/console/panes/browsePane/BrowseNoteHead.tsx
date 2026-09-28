@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { FrameIconButton } from "../../../app/AppFrame";
 import { noteGutterFor } from "../../../app/frame";
 import { useThemedStyles } from "../../../design/theme";
+import type { useConsoleNav } from "../../ConsoleNavContext";
 import { Breadcrumb } from "../../files/Breadcrumb";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
@@ -20,6 +21,7 @@ import type { FolderListingState } from "./useFolderListing";
 export function BrowseNoteHead({
   files,
   selected,
+  nav,
   reading,
   headWidth,
   setHeadWidth,
@@ -29,6 +31,7 @@ export function BrowseNoteHead({
 }: {
   files: FileBrowser;
   selected: NonNullable<ReturnType<typeof entryAt>>;
+  nav: ReturnType<typeof useConsoleNav>;
   reading: boolean;
   headWidth: number;
   setHeadWidth: Dispatch<SetStateAction<number>>;
@@ -67,10 +70,23 @@ export function BrowseNoteHead({
         <Breadcrumb
           path={selected.path}
           /*
-            No `‹ ›` here any more: they are in the title row over the file
-            tree (`AppFrame`'s `history`), on every console page rather than
-            only on this one.
+            `‹ ›` at the head of the path, on a pointer, as Obsidian has them.
+            For a day they were in the title row over the file tree; the
+            owner moved them back into the note (2026-09-28): they walk
+            between notes, so they belong to the note. The phone's
+            breadcrumb is `pathOnly` and draws neither, because its bottom
+            bar carries the same pair over the same `history.ts` stack.
           */
+          history={
+            nav === null
+              ? undefined
+              : {
+                  canBack: nav.canBack,
+                  canForward: nav.canForward,
+                  onBack: nav.back,
+                  onForward: nav.forward,
+                }
+          }
           /*
             What the note calls itself, where it calls itself anything.
 

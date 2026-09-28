@@ -1,7 +1,6 @@
 /**
  * @jest-environment jsdom
  */
-import type { FrameHistory } from "../../features/app/AppFrame";
 
 import { jest } from "@jest/globals";
 import { act, createElement, useEffect, useState, type ReactNode } from "react";
@@ -111,7 +110,6 @@ export function mountFrame(
     explorer?: boolean;
     accountSlot?: boolean;
     aside?: boolean;
-    history?: FrameHistory;
   } = {},
 ): Mounted {
   // Widening the window in jsdom takes more than it looks like it should, and
@@ -185,7 +183,6 @@ export function mountFrame(
         status: createElement("span", { "data-testid": "status" }, "490 words"),
         bottomBar: createElement("span", { "data-testid": "bottom" }, "toolbar"),
         onSearch: () => {},
-        ...(options.history === undefined ? {} : { history: options.history }),
         children,
       }),
     );
