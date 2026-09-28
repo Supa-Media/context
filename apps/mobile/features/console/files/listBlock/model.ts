@@ -30,7 +30,7 @@ import {
 } from "../../../../../mcp/src/lists.js";
 import { revealSelection } from "../livePreview/engagement";
 import { selectionTouches } from "../livePreview/reveal";
-import type { OwnerSearch, OwnerSuggest } from "../owners";
+import type { OwnerResolve, OwnerSearch, OwnerSuggest } from "../owners";
 
 export { LIST_FENCE_LANG };
 
@@ -152,6 +152,11 @@ export interface FolderListSource {
    * (`owners.suggestOwner`). Asked only when a search said `suggests`.
    */
   suggestOwner?: OwnerSuggest;
+  /**
+   * What owner words written before handles now name (`owners.resolveOwners`),
+   * so a page can show `@seyi` for `seyi@example.com`. Any member may ask.
+   */
+  resolveOwners?: OwnerResolve;
 }
 
 /** What the notes for one list came back as. */

@@ -57,6 +57,8 @@ export interface PropertyValueProps {
     readonly prefer: readonly string[];
     /** Who this note names as its owner; asked only when the search says `suggests`. */
     readonly suggest?: (prefer: readonly string[]) => Promise<string | null>;
+    /** How an owner line is shown: `@seyi` for one written as an address. */
+    readonly label?: (value: string) => string;
   };
   variant?: TextVariant;
   /**
@@ -97,11 +99,13 @@ export function PropertyValue({
   // A keyboard reaches a quiet value by Tab; it shows while focused, as it does under the pointer.
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState("");
+  // An owner written before handles is shown as the member it names, never rewritten here.
+  const shown = value === "" || owners?.label === undefined ? value : owners.label(value);
 
   if (onChoose === null) {
     return value === "" ? null : (
       <Text variant={variant} style={style} numberOfLines={1} testID={testID}>
-        {isolateForDisplay(value)}
+        {isolateForDisplay(shown)}
       </Text>
     );
   }
@@ -200,7 +204,7 @@ export function PropertyValue({
         role="button"
         aria-haspopup="menu"
         aria-expanded={menu !== null || picking}
-        accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${current}`}
+        accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${shown}`}
         hitSlop={6}
         testID={testID}
       >
@@ -209,12 +213,12 @@ export function PropertyValue({
           numberOfLines={1}
           style={[style, current === null && styles.unset, hovered && styles.hover, quiet && !hovered && !focused && menu === null && styles.quiet]}
         >
-          {current === null ? `Set ${property}` : isolateForDisplay(current)}
+          {current === null ? `Set ${property}` : isolateForDisplay(shown)}
         </Text>
       </Pressable>
       {owners === undefined || !picking ? null : (
         <OwnerPicker
-          current={value}
+          current={shown}
           search={owners.search}
           prefer={owners.prefer}
           {...(owners.suggest === undefined ? {} : { suggest: owners.suggest })}

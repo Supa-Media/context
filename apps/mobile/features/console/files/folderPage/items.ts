@@ -36,6 +36,13 @@ export interface OwnerChoice {
   readonly suggestFor?: OwnerSuggest;
   /** Who this note names as its owner, given what the picker prefers. */
   readonly suggest?: (prefer: readonly string[]) => Promise<string | null>;
+  /** How an owner line is shown: `@seyi` for an owner written as their address. */
+  readonly label?: (value: string) => string;
+}
+
+/** `value` as `choice` shows it. */
+export function ownerLabel(choice: OwnerChoice | undefined, value: string): string {
+  return value === "" || choice?.label === undefined ? value : choice.label(value);
 }
 
 /** `choice` for the note at `path`: one that does not exist yet names nobody. */

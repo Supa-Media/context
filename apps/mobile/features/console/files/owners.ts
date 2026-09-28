@@ -10,7 +10,16 @@
  * The people come from the server as the picker is typed into
  * (`owners.searchOwners` in the control plane), because a workspace of a
  * hundred people is not a roster to send every folder page. What is written is
- * the plain name, so the Markdown still reads `owner: Sayo` in any editor.
+ * the member's handle, `owner: @sayo`, the name people are addressed by
+ * everywhere else here; a member with no handle is written by name. Nobody's
+ * email address is shown, or sent to the page at all.
+ *
+ * ## An owner written before handles
+ *
+ * `owner: sayo@example.com` or `owner: Sayo Adé` still names that member. The
+ * server says so (`owners.resolveOwners`), and the page shows the handle
+ * (`OwnerChoice.label`) without rewriting the note; picking an owner writes
+ * the handle from then on.
  *
  * ## An owner already written by hand
  *
@@ -34,11 +43,15 @@
 export const ANY_AGENT = "any agent";
 
 export interface OwnerPerson {
-  /** What the owner line will say: the member's name, or their address. */
+  /** What the owner line will say: `@handle`, or the member's name when they have none. */
   readonly value: string;
-  readonly email?: string;
+  /** Shown beside a handle; absent when it would only repeat it. */
+  readonly name?: string;
   readonly isMe: boolean;
 }
+
+/** Owner words written before handles, and the member value each now names. */
+export type OwnerResolve = (words: readonly string[]) => Promise<readonly { word: string; value: string }[]>;
 
 export interface OwnerResults {
   readonly people: readonly OwnerPerson[];
@@ -125,7 +138,7 @@ export function ownerRows(query: string, current: string, results: OwnerResults 
         kind: "choice",
         value: person.value,
         label: person.isMe ? `${person.value} (you)` : person.value,
-        ...(person.email === undefined ? {} : { detail: person.email }),
+        ...(person.name === undefined ? {} : { detail: person.name }),
         checked: same(person.value, current),
       });
     }

@@ -30,7 +30,7 @@ import { PropertyValue } from "./PropertyValue";
 import type { StatusBand } from "./statuses";
 import { StatusPill, toneColor } from "./StatusPill";
 import { useCardDrag, useColumnDrop } from "./boardDrag";
-import { textOf, type ItemActions } from "./items";
+import { ownerLabel, textOf, type ItemActions } from "./items";
 
 /** A column's width at rest; columns narrow to `BOARD_COLUMN_MIN` before the board scrolls. */
 export const BOARD_COLUMN = 240;
@@ -174,7 +174,7 @@ function Card({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
-  const owner = textOf(item.properties, "owner");
+  const owner = ownerLabel(actions.owners, textOf(item.properties, "owner"));
   const meta = [owner === "" ? null : owner, item.updatedAt === null ? null : shortWhen(item.updatedAt, now)].filter(Boolean).join(" · ");
   const edit = actions.onChoose;
   const ref = useCardDrag({ path: item.path, enabled: edit !== null, onStart: () => onLift(true), onEnd: () => onLift(false) });
