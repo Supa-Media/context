@@ -132,9 +132,9 @@ export function useBrowserState() {
    * is about the console's own state. `nextToastId` rather than the message for
    * identity, for the reason that counter's own comment gives.
    */
-  const say = useCallback((message: string) => {
+  const say = useCallback((message: string, undo?: () => void) => {
     nextToastId.current += 1;
-    setToasts([{ id: `say-${nextToastId.current}`, message }]);
+    setToasts([{ id: `say-${nextToastId.current}`, message, ...(undo === undefined ? {} : { undo }) }]);
   }, []);
 
   /**
