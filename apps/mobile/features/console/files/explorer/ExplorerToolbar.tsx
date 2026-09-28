@@ -42,6 +42,15 @@ type ViewId = "sort-asc" | "sort-desc" | "collapse";
  *
  * Sort and collapse are about the *panel* rather than about the context, so
  * View is not gated on `canEdit`; New is, and a reader's header is two buttons.
+ *
+ * ## In the title row, it has no label
+ *
+ * Where the title bar has a row over the column, these tools are drawn there
+ * (`inBar`, see `columnTools.ts`): the owner's option A (2026-09-28), which
+ * fills what was an empty row and lets the tree start one row higher. There
+ * is no `Notes` in that row, because the tree under it says what it is. The
+ * filter still opens in the label's place, which up there is the room before
+ * the buttons.
  */
 export function ExplorerToolbar({
   files,
@@ -51,6 +60,7 @@ export function ExplorerToolbar({
   query,
   setQuery,
   closeFilter,
+  inBar = false,
 }: {
   files: FileBrowser;
   selectedFolder: ExplorerState["selectedFolder"];
@@ -59,6 +69,8 @@ export function ExplorerToolbar({
   query: string;
   setQuery: ExplorerState["setQuery"];
   closeFilter: ExplorerState["closeFilter"];
+  /** Drawn in the title row over the column rather than at its head. */
+  inBar?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -146,7 +158,7 @@ export function ExplorerToolbar({
   };
 
   return (
-    <View style={styles.toolbar} testID="explorer-header">
+    <View style={inBar ? styles.toolbarInBar : styles.toolbar} testID="explorer-header">
       {filtering ? (
         <TextInput
           value={query}
@@ -169,7 +181,7 @@ export function ExplorerToolbar({
             blurClosedAt.current = Date.now();
             setFilterOpen(false);
           }}
-          style={[styles.filter, fieldFont]}
+          style={[styles.filter, fieldFont, inBar && styles.noDrag]}
           accessibilityLabel="Filter notes and folders"
           autoCapitalize="none"
           autoCorrect={false}
@@ -177,11 +189,9 @@ export function ExplorerToolbar({
           testID="explorer-filter"
         />
       ) : (
-        <View style={styles.label}>
-          <Text variant="eyebrow">Notes</Text>
-        </View>
+        <View style={styles.label}>{inBar ? null : <Text variant="eyebrow">Notes</Text>}</View>
       )}
-      <View style={styles.tools}>
+      <View style={[styles.tools, inBar && styles.noDrag]}>
         <IconButton
           label={filtering ? "Clear the filter" : "Filter notes and folders"}
           icon="search"
@@ -192,7 +202,11 @@ export function ExplorerToolbar({
           }}
           testID="explorer-filter-toggle"
         />
-        {files.canEdit ? (
+        {/*
+          Up in the title row the field shares a narrow run with the window's
+          buttons, so while it is open New and View step aside for it.
+        */}
+        {files.canEdit && !(inBar && filtering) ? (
           <View ref={newRef}>
             <IconButton
               label="New"
@@ -204,16 +218,18 @@ export function ExplorerToolbar({
             />
           </View>
         ) : null}
-        <View ref={viewRef}>
-          <IconButton
-            label="View options"
-            icon="more"
-            menu
-            on={open === "view"}
-            onPress={() => openMenu("view")}
-            testID="explorer-view"
-          />
-        </View>
+        {inBar && filtering ? null : (
+          <View ref={viewRef}>
+            <IconButton
+              label="View options"
+              icon="more"
+              menu
+              on={open === "view"}
+              onPress={() => openMenu("view")}
+              testID="explorer-view"
+            />
+          </View>
+        )}
       </View>
 
       {open === "new" ? (

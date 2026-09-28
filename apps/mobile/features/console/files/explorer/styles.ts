@@ -1,6 +1,7 @@
 import { StyleSheet } from "react-native";
 import { layout, pointerType as t, radii, space } from "../../../design/tokens";
 import type { Colors, Shadows } from "../../../design/theme";
+import { NO_DRAG_REGION } from "../../../app/appFrame/styles";
 
 /** One foot line: 5pt padding either side of a `treeMeta` line, and its rule. */
 export const AGENTS_LINE_HEIGHT = 28;
@@ -28,6 +29,13 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     height: 28 + space.x2 * 2,
     paddingHorizontal: space.x2,
   },
+  /**
+   * The same row in the title bar: the bar sets the height and the edges, and
+   * the empty room before the buttons stays the window's drag handle.
+   */
+  toolbarInBar: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
+  /** A control in the title bar takes clicks rather than dragging the window. */
+  noDrag: NO_DRAG_REGION,
   /** `Notes`, inset to where a field's first character would sit. */
   label: { flex: 1, minWidth: 0, paddingLeft: space.x2 },
   /** The filter, once somebody has asked for it. Always boxed: it is a field. */

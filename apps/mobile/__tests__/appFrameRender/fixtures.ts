@@ -108,6 +108,8 @@ export function mountFrame(
   children: ReactNode = "the note",
   options: {
     explorer?: boolean;
+    /** A tree of the test's own, in place of the stub. */
+    explorerNode?: ReactNode;
     accountSlot?: boolean;
     aside?: boolean;
   } = {},
@@ -168,7 +170,7 @@ export function mountFrame(
         explorer:
           options.explorer === false
             ? undefined
-            : createElement("span", { "data-testid": "explorer" }, "tree"),
+            : (options.explorerNode ?? createElement("span", { "data-testid": "explorer" }, "tree")),
         /*
           The right panel, supplied by default so the toggle exists in most
           cases and absent when a case is about a surface that has none — the

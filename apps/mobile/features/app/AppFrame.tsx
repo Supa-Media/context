@@ -214,6 +214,7 @@ export function AppFrame({
     holdsLights,
     shellBandPx,
     hasExplorer,
+    columnTools,
     regions,
     toggleExplorer,
     toggleAside,
@@ -271,6 +272,7 @@ export function AppFrame({
           regions,
           toggleAside,
           hasExplorer,
+          columnTools,
           explorerWidth: state.explorerWidth,
           toggleExplorer,
         })}

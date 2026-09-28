@@ -24,11 +24,13 @@ import {
   lightsInBarFor,
   panelsClearedFor,
   regionsFor,
+  topBarLeadFor,
   type FrameState,
 } from "../frame";
 import { setBottomChromeHeight } from "../bottomChrome";
 import { useShellBandAbovePx, useShellLightsLeadPx, useWindowFillsScreen } from "../ShellTitleBandView";
 import { setTopChromeHoldsLights } from "../topChrome";
+import { createColumnToolsSlot } from "./columnTools";
 import { NO_CONTENT_INSETS, type FrameApi } from "./context";
 
 /**
@@ -301,6 +303,17 @@ export function useFrameController({
 
   const compact = density === "compact";
 
+  /*
+    Whether the title bar has a stretch over the file tree, the tree's own
+    title row, and so somewhere for the tree's tools to go. A pointer layout
+    with the tree as a column; not a phone, a drawer or a folded tree. The
+    top bar draws the row from this same answer — see `columnTools.ts`.
+  */
+  const [columnToolsSlot] = useState(createColumnToolsSlot);
+  const columnHead =
+    !compact && topBarLeadFor(density) !== "account" && hasExplorer && regions.explorer === "column";
+  const columnTools = columnHead ? columnToolsSlot : null;
+
   /**
    * Whether there is a right panel here for a toggle to act on.
    *
@@ -459,6 +472,7 @@ export function useFrameController({
       chromeGap,
       accessoryOpen,
       setAccessoryOpen,
+      columnTools,
     }),
     [
       density,
@@ -478,6 +492,7 @@ export function useFrameController({
       chromeGap,
       accessoryOpen,
       setAccessoryOpen,
+      columnTools,
     ],
   );
 
@@ -489,6 +504,7 @@ export function useFrameController({
     holdsLights,
     shellBandPx,
     hasExplorer,
+    columnTools,
     regions,
     toggleExplorer,
     toggleAside,

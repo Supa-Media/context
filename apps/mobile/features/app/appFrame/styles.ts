@@ -32,7 +32,7 @@ import type { Colors, Shadows } from "../../design/theme";
  * see it, the same way it cannot see `dvh`.
  */
 const DRAG_REGION = { WebkitAppRegion: "drag" } as unknown as ViewStyle;
-const NO_DRAG_REGION = { WebkitAppRegion: "no-drag" } as unknown as ViewStyle;
+export const NO_DRAG_REGION = { WebkitAppRegion: "no-drag" } as unknown as ViewStyle;
 
 export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   frame: {
@@ -120,12 +120,20 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     alignSelf: "stretch",
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: 6,
     paddingRight: space.x2,
     flexShrink: 0,
+    /*
+      The bar's own gap would sit between this head and the tabs, and the
+      owner asked for the first tab to start exactly where the note does, with
+      no notch of page beside it (2026-09-28). This head is exactly the
+      column's width, so taking the gap back puts the tabs on the column's
+      edge.
+    */
+    marginRight: -space.x3,
   },
-  /** Pushes the tree's toggle to the column's trailing edge. */
-  columnHeadFill: { flex: 1 },
+  /** The tree's tools, filling the head up to the toggle. See `columnTools.ts`. */
+  columnHeadFill: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
   /** The same controls leading the bar while the tree is folded. */
   topNav: {
     flexDirection: "row",
