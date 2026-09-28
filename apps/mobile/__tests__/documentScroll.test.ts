@@ -9,7 +9,7 @@
  *
  * `BrowsePane` has two layouts. On a phone the whole document region is one
  * scroller (`browse-scroll`) and everything drawn into it — a folder listing,
- * the Inbox, a channel, a contact — scrolls as a page. On a pointer layout
+ * a contact page — scrolls as a page. On a pointer layout
  * that branch is not taken, and the region was a plain `View`:
  *
  *     {notices}
@@ -178,7 +178,7 @@ describe("the document region on a pointer layout", () => {
     expect(container.textContent).toContain("note-49");
   });
 
-  test("puts the Inbox in a scroller", () => {
+  test("puts the Inbox, an ordinary folder listing, in a scroller", () => {
     const container = mount(
       createElement(BrowsePane, {
         data: consoleWith({
@@ -205,8 +205,11 @@ describe("the document region on a pointer layout", () => {
         } as Partial<FileBrowser>),
       }),
     );
-    expect(scroller(container)).not.toBeNull();
-    expect(container.textContent).toContain("Inbox");
+    // The Inbox is drawn by the same folder view as every other folder.
+    const scroll = scroller(container);
+    expect(scroll).not.toBeNull();
+    expect(scroll!.querySelector('[data-testid="folder-column"]')).not.toBeNull();
+    expect(container.textContent).toContain("meetings");
   });
 
   test("leaves a note alone, because the editor brings its own", () => {

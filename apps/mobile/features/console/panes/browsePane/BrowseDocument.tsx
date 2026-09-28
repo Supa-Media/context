@@ -11,10 +11,7 @@ import { useFolderLists } from "../../../offline/useFolderLists";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
-import { ChannelView } from "../../communications/ChannelView";
 import { ContactPageView } from "../../communications/ContactPageView";
-import { InboxView } from "../../communications/InboxView";
-import { MAIL_CONNECT_ENABLED } from "../../communications/flags";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
@@ -228,21 +225,6 @@ export function BrowseDocument({
           />
         )
       ) : null
-    ) : commsRoute?.kind === "inbox" ? (
-      /*
-        The Inbox landing page — virtual, built from the same listings a
-        folder view would fetch, never a written rollup. See
-        `docs/decisions/communications.md`.
-      */
-      <InboxView files={files} onOpen={files.select} mailConnectEnabled={MAIL_CONNECT_ENABLED} />
-    ) : commsRoute?.kind === "channel" ? (
-      <ChannelView
-        channel={commsRoute.channel}
-        account={commsRoute.account}
-        path={selected.path}
-        files={files}
-        onOpen={files.select}
-      />
     ) : commsRoute?.kind === "channel-day" ? (
       <ChannelDayView
         key={selected.path}
