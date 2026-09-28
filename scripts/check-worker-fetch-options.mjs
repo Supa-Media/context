@@ -59,17 +59,58 @@ function walk(dir, out = []) {
   return out;
 }
 
-const hits = [];
-for (const root of ROOTS) {
-  for (const file of walk(root)) {
-    if (BANNED.test(code(readFileSync(file, "utf8")))) hits.push(file);
+/**
+ * Every listed root must exist and hold sources.
+ *
+ * `walk` returns `[]` for a directory it cannot read, so a root that was
+ * renamed or moved leaves this guard printing OK over a tree it no longer
+ * looks at — the same silence the header describes, arriving by the other
+ * door. A root that scans nothing is a broken guard, not a clean repository.
+ */
+export function scan(roots = ROOTS) {
+  const hits = [];
+  for (const root of roots) {
+    const files = walk(root);
+    if (files.length === 0) throw new Error(`${root} holds no Worker source; this guard is not scanning it`);
+    for (const file of files) {
+      if (BANNED.test(code(readFileSync(file, "utf8")))) hits.push(file);
+    }
   }
+  return hits;
 }
 
-if (hits.length > 0) {
-  console.error('Worker source asks for redirect: "error", which workerd does not implement:\n');
-  for (const h of hits) console.error("  " + h);
-  console.error('\nUse redirect: "manual" and refuse any non-200 status.');
-  process.exit(1);
+/** The detector still detects, and the comment-stripper still strips. */
+function selfTest() {
+  const cases = [
+    ['fetch(url, { redirect: "error" })', true],
+    ["fetch(url, { redirect:'error' })", true],
+    ['fetch(url, { redirect: "manual" })', false],
+  ];
+  for (const [source, expected] of cases) {
+    if (BANNED.test(code(source)) !== expected) throw new Error(`detector is wrong for: ${source}`);
+  }
+  if (BANNED.test(code('// never ask for redirect: "error" here'))) {
+    throw new Error("a comment naming the banned option was read as code");
+  }
+  let threw = false;
+  try {
+    scan(["infra/no-such-worker/src"]);
+  } catch {
+    threw = true;
+  }
+  if (!threw) throw new Error("a root that scans nothing was accepted");
+  console.log("OK — self-test passed.");
 }
-console.log('OK — no Worker source asks for redirect: "error".');
+
+if (process.argv.includes("--self-test")) {
+  selfTest();
+} else {
+  const hits = scan();
+  if (hits.length > 0) {
+    console.error('Worker source asks for redirect: "error", which workerd does not implement:\n');
+    for (const h of hits) console.error("  " + h);
+    console.error('\nUse redirect: "manual" and refuse any non-200 status.');
+    process.exit(1);
+  }
+  console.log('OK — no Worker source asks for redirect: "error".');
+}
