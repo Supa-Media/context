@@ -235,6 +235,15 @@ collaboration step uses the gate, and self-tests the failure cases. Add a
 workspace dependency to either app and the guard fails until CI's path set is
 updated.
 
+The WebKit suite uses four workers in CI. The run before this decision executed
+118 cases with Playwright's two-worker default and spent 2m 46s in the suite,
+inside a 5m 31s job. These cases spend most of their time waiting on the built
+page, so the speed test uses all four runner cores instead of creating more jobs
+that repeat browser and dependency setup. Local runs keep Playwright's
+machine-dependent default. `scripts/webkit-ci-workers.test.mjs` pins the CI
+value. A live pull-request run must stay green and beat the 5m 31s job baseline
+before this setting is kept.
+
 Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long
 press has two signals" was found on a phone and reproduced by *simulating*
 WebKit's event sequence in Chromium — `editorLinks.test.ts` drives
