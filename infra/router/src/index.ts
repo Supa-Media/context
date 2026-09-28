@@ -25,6 +25,8 @@ import ogCard from "./og-card.png";
 export interface Env {
   /** EAS Hosting origin for the exported Expo web bundle. */
   EXPO_ORIGIN?: string;
+  /** Cloudflare Static Assets binding. Staging uses it before production cuts over. */
+  ASSETS?: Fetcher;
   /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
   CONVEX_ORIGIN?: string;
   HOME_SITE_HANDLE?: string; // whose website/ is the homepage (`homeSite.ts`)
@@ -235,6 +237,14 @@ async function respond(
         });
 
       case "proxy": {
+        if (decision.upstream === "expo" && env.ASSETS) {
+          // Static Assets and Worker code are one version. Passing the original
+          // request preserves the path, query and navigation headers so
+          // Cloudflare's SPA fallback can distinguish documents from missing
+          // files. Production keeps the EAS fallback until staging canaries
+          // this exact route.
+          return env.ASSETS.fetch(request);
+        }
         const origin = originFor(decision.upstream, env);
         if (!origin) {
           return new Response(
