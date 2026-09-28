@@ -504,8 +504,12 @@ signed-out visitor differs only by data and permissions.
 
 - **The bottom bar is a centred capsule of five icon keys**: Back (hold for
   Recent), Browse, Search, New, Recent. The › forward and ✓ save keys went.
-  Browse opens the folder page of whatever is open: a note's folder, or a
-  folder's parent (`browseDestination`). A save the queue can take by hand is
+  Browse opens the whole tree as a bottom sheet (`TreeSheet`), never dimmed:
+  a tap on a note opens it and closes the sheet, a tap on a folder folds it in
+  place, and the note on screen is revealed and highlighted. It first opened
+  the folder page of whatever was open, which read as "up a level" under a
+  folder glyph and duplicated the breadcrumb; the owner picked the tree sheet
+  with Recent kept on 2026-09-28 (artboard option B). A save the queue can take by hand is
   still offered, in the note's footer, on every density. New opens the
   existing create menu, drawn as a bottom sheet (`Shell`'s `sheet`). Pinned by
   `bottomRowWidth.test.ts`, `browseKey.test.ts` and `createPrompt.test.ts`.

@@ -7,6 +7,7 @@ import { NO_PENDING } from "../files/pendingMarks";
 import { RecentSheet } from "../files/RecentSheet";
 import { saveChip } from "../files/status";
 import { SyncSheet } from "../files/SyncSheet";
+import { TreeSheet } from "../files/TreeSheet";
 import type { useTabs } from "../files/useTabs";
 import { noteHref, settingsHref, type settingsFromQuery } from "../nav";
 import { AgentSetupOverlay } from "../../agentSetup/AgentSetupOverlay";
@@ -66,6 +67,27 @@ export function consoleRecentSheet({
       />
     ) : null
   );
+}
+
+/** The folder key's sheet: the whole tree, on a phone. See `TreeSheet`. */
+export function consoleTreeSheet({
+  treeSheetOpen,
+  phone,
+  browsing,
+  data,
+  contextLabel,
+  setTreeSheetOpen,
+}: {
+  treeSheetOpen: boolean;
+  phone: boolean;
+  browsing: boolean;
+  data: ConsoleData;
+  contextLabel: string;
+  setTreeSheetOpen: Dispatch<SetStateAction<boolean>>;
+}) {
+  return treeSheetOpen && phone && browsing ? (
+    <TreeSheet files={data.files} title={contextLabel} onDismiss={() => setTreeSheetOpen(false)} />
+  ) : null;
 }
 
 export function consoleSyncSheet({

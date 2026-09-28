@@ -1,85 +1,40 @@
 /**
- * The phone's Browse key: the folder page of what is open.
+ * The phone's folder key: the whole tree, as a sheet.
  *
- * Owner-approved on 2026-09-27 (the phone artboards, screens 1 and 2): Browse
- * replaced `›` on the five-key capsule, and it opens the folder page the
- * breadcrumb's segments already open. The rule is a pure function so the one
- * decision in it — a note goes to its folder, a folder goes one up — is pinned
- * without a renderer. That the key is on the row is `bottomRowWidth.test.ts`.
+ * Owner-approved on 2026-09-28 (phone bottom bar artboard, option B). The key
+ * used to open the folder page of the note on screen, which was "up a level"
+ * under a folder glyph. It now raises `TreeSheet`, never dimmed. The two
+ * decisions in the sheet are pure and pinned here: which folders open so the
+ * note on screen is a visible row, and what a tap on a row does. That the key
+ * is on the row is `bottomRowWidth.test.ts`; the sheet in a browser is
+ * `e2e/webkit/homeNavigation.spec.ts`.
  *
- * SABOTAGE: `browseDestination` returning `targetFolder(...)` unchanged. The
- * folder cases fail — a folder page's Browse would re-select itself and the
- * key would look dead.
+ * SABOTAGE: `foldersToReveal` returning `[]` fails the reveal cases (the note
+ * on screen would sit inside a collapsed branch); `treeSheetTap` answering
+ * "open" for a folder fails the tap case (a folder tap would close the sheet
+ * onto a folder page, the old key's behaviour).
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { browseDestination } from "../features/console/ConsoleBottomBar";
-import type { FolderListing } from "../features/console/files/types";
+import { foldersToReveal, treeSheetTap } from "../features/console/files/TreeSheet";
 
-function listing(path: string, entries: FolderListing["entries"]): FolderListing {
-  return {
-    path,
-    folderDefault: "private",
-    truncated: false,
-    manifestUsable: true,
-    entries,
-  } as FolderListing;
-}
-
-const listings: Record<string, FolderListing> = {
-  "": listing("", [
-    {
-      kind: "folder",
-      path: "1-projects",
-      name: "1-projects",
-      visibility: "private",
-      inherited: "private",
-      exception: false,
-      readOnly: false,
-    },
-    {
-      kind: "file",
-      path: "todo.md",
-      name: "todo.md",
-      visibility: "private",
-      inherited: "private",
-      exception: false,
-      readOnly: false,
-    },
-  ] as FolderListing["entries"]),
-  "1-projects": listing("1-projects", [
-    {
-      kind: "folder",
-      path: "1-projects/trips",
-      name: "trips",
-      visibility: "private",
-      inherited: "private",
-      exception: false,
-      readOnly: false,
-    },
-  ] as FolderListing["entries"]),
-};
-
-describe("the Browse key", () => {
-  test("from a note, opens the folder the note is in", () => {
-    expect(browseDestination(listings, "1-projects/trips/plan.md")).toBe("1-projects/trips");
+describe("the tree sheet", () => {
+  test("opens every closed folder above the note on screen, outermost first", () => {
+    expect(foldersToReveal("1-projects/trips/plan.md", new Set())).toEqual(["1-projects", "1-projects/trips"]);
   });
 
-  test("from a top-level note, opens the context's own page", () => {
-    expect(browseDestination(listings, "todo.md")).toBe("");
+  test("leaves folders already open alone", () => {
+    expect(foldersToReveal("1-projects/trips/plan.md", new Set(["1-projects"]))).toEqual(["1-projects/trips"]);
   });
 
-  test("from a folder page, goes one folder up", () => {
-    expect(browseDestination(listings, "1-projects/trips")).toBe("1-projects");
-    expect(browseDestination(listings, "1-projects")).toBe("");
+  test("has nothing to open for a top-level note or with nothing open", () => {
+    expect(foldersToReveal("todo.md", new Set())).toEqual([]);
+    expect(foldersToReveal(null, new Set())).toEqual([]);
   });
 
-  test("from a folder whose parent has not been listed, still goes one up", () => {
-    // `targetFolder`'s rule: an unknown path that is not markdown is a folder.
-    expect(browseDestination({}, "2-areas/health")).toBe("2-areas");
-  });
-
-  test("on the context's own page there is nowhere further out", () => {
-    expect(browseDestination(listings, null)).toBeNull();
+  test("a note opens and a folder folds in place", () => {
+    expect(treeSheetTap({ kind: "file", path: "todo.md" })).toBe("open");
+    expect(treeSheetTap({ kind: "folder", path: "1-projects" })).toBe("toggle");
+    expect(treeSheetTap({ kind: "loading", path: "1-projects" })).toBeNull();
   });
 });
