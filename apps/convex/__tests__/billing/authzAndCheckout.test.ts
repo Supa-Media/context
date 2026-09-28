@@ -105,6 +105,12 @@ describe("choosing what a context pays for", () => {
         fastSearch: false,
       }),
     ).rejects.toThrow(/at least one/i);
+    // The switches read this to lock the last box, so the refusal above is
+    // never how an owner first hears the rule (CONTEXT-LC-MOBILE-F).
+    const view = await asUser(t, owner).query(api.functions.billing.status, {
+      workspaceId,
+    });
+    expect(view.keepOneSelected).toBe(true);
   });
 
   test("nor while a checkout is in flight, which is where the gap was", async () => {
@@ -128,6 +134,10 @@ describe("choosing what a context pays for", () => {
         fastSearch: false,
       }),
     ).rejects.toThrow(/at least one/i);
+    const view = await asUser(t, owner).query(api.functions.billing.status, {
+      workspaceId,
+    });
+    expect(view.keepOneSelected).toBe(true);
   });
 
   test("but is allowed on a context nobody is paying for", async () => {
@@ -144,6 +154,7 @@ describe("choosing what a context pays for", () => {
       workspaceId,
     });
     expect(view.selected).toEqual({ managedStorage: false, fastSearch: false });
+    expect(view.keepOneSelected).toBe(false);
   });
 
   test("the choice is audited", async () => {
@@ -183,6 +194,7 @@ describe("what a member may see, and what only an owner may", () => {
     expect(seen.currentPeriodEnd).toBeUndefined();
     expect(seen.hasStripeCustomer).toBeUndefined();
     expect(seen.notes).toBeUndefined();
+    expect(seen.keepOneSelected).toBeUndefined();
     // The id itself is never returned to anybody, owner included.
     expect(JSON.stringify(seen)).not.toContain("cus_FAKE");
 

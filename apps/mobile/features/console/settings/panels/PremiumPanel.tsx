@@ -27,8 +27,6 @@ import {
   describePremium,
   describeSessionFailure,
   earlyTesterPriceNote,
-  entitlementRows,
-  entitlementsHint,
   formatPrice,
   managedMigrationCopy,
   premiumControl,
@@ -40,6 +38,11 @@ import {
   type PremiumEntitlements,
   type PremiumView,
 } from "./premium";
+import {
+  entitlementRows,
+  entitlementsHint,
+  wouldEmptyRequiredSelection,
+} from "./premiumEntitlements";
 import { usePremium } from "./usePremium";
 import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
 import { useArming } from "../../useArming";
@@ -241,6 +244,7 @@ export function PremiumBody({
   const toggle = (value: string, next: boolean) => {
     if (status === undefined || status === null || view.choose === undefined)
       return;
+    if (wouldEmptyRequiredSelection(status, value, next)) return;
     const chosen: PremiumEntitlements = { ...status.selected };
     if (value === "managedStorage") chosen.managedStorage = next;
     if (value === "fastSearch") chosen.fastSearch = next;

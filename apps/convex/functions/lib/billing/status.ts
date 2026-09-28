@@ -10,10 +10,12 @@ import {
   FREE_MANAGED_NOTE_CAP,
   activeEntitlements,
   noteCapFor,
+  planIsPaying,
 } from "../premium";
 import { stagingStorageIsFree } from "../managedStorage";
 import { isProductionTestAccount } from "../testAccount";
 import { freeManagedRefusal } from "./freeManaged";
+import { hasLiveCheckout } from "./sessions";
 import {
   bindingIsManaged,
   deploymentOffersFreeManaged,
@@ -105,6 +107,13 @@ export const billingStatusReturns = v.object({
   /** Exact production CUJ account; owner only. */
   isTestAccount: v.optional(v.boolean()),
   stagingFreeStorage: v.optional(v.boolean()),
+  /**
+   * Whether `setEntitlements` would refuse an empty selection right now: a
+   * paying plan, or a checkout somebody may be paying on. The switches lock
+   * the last ticked box on this, so the refusal is never the first time an
+   * owner hears the rule. Owner only — a live checkout is a money fact.
+   */
+  keepOneSelected: v.optional(v.boolean()),
 });
 
 export async function readBillingStatus(
@@ -189,5 +198,11 @@ export async function readBillingStatus(
     noteCap: noteCap ?? undefined,
     stagingFreeStorage: stagingStorageIsFree(),
     isTestAccount: isOwner ? isProductionTestAccount(user) : undefined,
+    // The same predicate `setEntitlements` refuses on, read from the same
+    // rows, so the lock and the refusal cannot disagree about the rule.
+    keepOneSelected: isOwner
+      ? planIsPaying(planStatus) ||
+        (await hasLiveCheckout(ctx, args.workspaceId))
+      : undefined,
   };
 }
