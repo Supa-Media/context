@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useGlobalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import type { CastStep } from "@context/shared";
 import { densityFor } from "../app/frame";
@@ -75,7 +75,8 @@ export function HomeShell() {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const auth = useConvexAuth();
-  const params = useLocalSearchParams<{ page?: string | string[] }>();
+  // Global: this is drawn by `(home)/_layout`, whose own params are not the page.
+  const params = useGlobalSearchParams<{ page?: string | string[] }>();
   const routePath = routeFromParam(params.page);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const source = useHomeSite();

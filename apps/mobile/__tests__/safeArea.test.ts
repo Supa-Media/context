@@ -223,8 +223,11 @@ const ROUTES: Record<string, Coverage> = {
     (`features/home/HomeShell.tsx`), so it reaches the glass through `AppFrame`
     like the console and is covered by the same region tests. On a phone the
     route redirects and paints nothing; that half is `authRedirect.test.ts`'s.
+    It is drawn by the group's layout, which outlives the `?page=` pushes;
+    the index screen under it draws nothing (`app/(home)/index.tsx`).
   */
-  "index.tsx": { kind: "framed" },
+  "(home)/_layout.tsx": { kind: "framed" },
+  "(home)/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("(home)/index.tsx")) },
   "privacy.tsx": { kind: "screen", mount: () => createElement(requireRoute("privacy.tsx")) },
   "terms.tsx": { kind: "screen", mount: () => createElement(requireRoute("terms.tsx")) },
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },

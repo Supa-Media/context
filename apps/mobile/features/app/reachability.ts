@@ -226,7 +226,7 @@ const APP_LAYOUT = "app/(app)/_layout.tsx";
 export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
   {
     route: "/",
-    file: "app/index.tsx",
+    file: "app/(home)/index.tsx",
     reachable: true,
     from: [
       {

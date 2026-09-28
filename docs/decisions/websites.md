@@ -408,6 +408,16 @@ instead of redirecting remounts it on the first click; dropping a segment
 from the list makes Share's link open an app screen. `homeSite.test.ts` reads
 `app/` and fails on a route the list does not name.
 
+**One screen means the layout, not the index route** (2026-09-28). A change of
+`?page=` is a push, and a push is a new screen for the route, so while the
+homepage was `app/index.tsx` every page a visitor opened mounted a new copy of
+it: `‹` and Recent stayed dimmed on a phone, and in-tab edits were dropped
+anyway. The homepage is drawn by `app/(home)/_layout.tsx`, which Expo Router
+keeps across its screens' pushes (the way `(app)/console/_layout` keeps the
+console); `app/(home)/index.tsx` draws nothing and is only the history entry,
+and `HomeShell` reads the page with `useGlobalSearchParams`. Moving it back
+into the index screen fails `e2e/webkit/homeNavigation.spec.ts`.
+
 A visit decides once between the site and the built-in copy
 (`apps/mobile/features/home/homeSnapshot.ts`): with no block in the HTML the
 app asks, draws nothing until it hears, and falls back to `builtInPages.ts`

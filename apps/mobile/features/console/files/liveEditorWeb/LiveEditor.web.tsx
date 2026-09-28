@@ -68,6 +68,7 @@ import { showTitleNote } from "./titleLine";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
+import { hasMargin } from "../comments/model";
 
 export function LiveEditor({
   value,
@@ -429,15 +430,21 @@ export function LiveEditor({
   /*
     A thread the room points at: the homepage cast commenting, replying or
     resolving (`Presence.commentFocus`). It opens the way a tap on the
-    highlight would, so on a phone the cast drives the same sheet a visitor
-    opens themselves. Only ever opened from here, never closed: dismissing it
-    stays the reader's.
+    highlight would, where there is a margin to open it in. Only ever opened
+    from here, never closed: dismissing it stays the reader's.
+
+    **Never where the thread would open as a sheet** — a phone, or any pane
+    too thin for cards (`hasMargin`). A sheet covers half the screen, and the
+    cast raising one on every comment step took the page out from under a
+    reader who had not asked for it (Dev2, 2026-09-28). There the highlight
+    appearing is the whole event, and tapping it opens the thread.
   */
   const focusStep = presence?.commentFocus?.step;
   useEffect(() => {
     const current = view.current;
     const thread = presence?.commentFocus?.thread;
     if (!current || thread === undefined) return;
+    if (!hasMargin(current.scrollDOM.clientWidth)) return;
     if (current.state.field(commentUi).active !== thread) current.dispatch({ effects: setActiveThread.of(thread) });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the step is the event; see above
   }, [focusStep]);
