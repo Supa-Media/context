@@ -12,6 +12,7 @@ import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
 import { ContactPageView } from "../../communications/ContactPageView";
+import { DocumentPage } from "./DocumentPage";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
@@ -226,6 +227,12 @@ export function BrowseDocument({
         )
       ) : null
     ) : commsRoute?.kind === "channel-day" ? (
+      /*
+        Not in a DocumentPage: a channel's day owns its scroller, to scroll to
+        an anchored message on open, and pads its own page, as a note does. A
+        wrapper here would take the height that scroller needs. See
+        `documentOwnsScroller` in DocumentSurface.
+      */
       <ChannelDayView
         key={selected.path}
         channel={commsRoute.channel}
@@ -236,7 +243,9 @@ export function BrowseDocument({
         anchor={anchor}
       />
     ) : commsRoute?.kind === "contact" ? (
-      <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
+      <DocumentPage>
+        <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
+      </DocumentPage>
     ) : selected.kind === "folder" ? (
       <FolderView
         entry={selected}

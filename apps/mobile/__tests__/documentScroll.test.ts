@@ -53,6 +53,9 @@ import { emptyEditor } from "../features/console/files/editor";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
+import { layout } from "../features/design/tokens";
+import { noteColumnWidth } from "../features/app/frame";
+import { DocumentPage } from "../features/console/panes/browsePane/DocumentPage";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -61,9 +64,9 @@ afterEach(() => {
 });
 
 /** A desktop window: wide enough that `densityFor` is not `compact`. */
-function desktopWidth(): void {
+function desktopWidth(width = 1440): void {
   Object.defineProperty(document.documentElement, "clientWidth", {
-    value: 1440,
+    value: width,
     configurable: true,
   });
   Object.defineProperty(document.documentElement, "clientHeight", {
@@ -75,8 +78,8 @@ function desktopWidth(): void {
   });
 }
 
-function mount(element: ReturnType<typeof createElement>): HTMLElement {
-  desktopWidth();
+function mount(element: ReturnType<typeof createElement>, width = 1440): HTMLElement {
+  desktopWidth(width);
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -233,5 +236,59 @@ describe("the document region on a pointer layout", () => {
       }),
     );
     expect(scroller(container)).toBeNull();
+  });
+});
+
+/*
+  The Inbox sat on the edge of the glass on a phone. It is an ordinary folder
+  listing now (#1091), so it takes FolderView's page; a contact page is still
+  its own view and takes the same page from DocumentPage, whose two styles
+  FolderView also uses, so the two cannot drift apart.
+*/
+const INBOX_LISTING: FolderListing = {
+  path: "0-inbox",
+  folderDefault: "private",
+  entries: [
+    {
+      kind: "folder",
+      path: "0-inbox/meetings",
+      name: "meetings",
+      visibility: "private",
+      inherited: "private",
+      exception: false,
+      readOnly: false,
+    },
+  ],
+  truncated: false,
+  manifestUsable: true,
+};
+
+const px = (node: Element, property: string) => Number.parseFloat(window.getComputedStyle(node).getPropertyValue(property));
+
+describe("every document page has the same margins", () => {
+  test("on a phone the Inbox has the reading margin, off the edge of the glass", () => {
+    const inbox = mount(
+      createElement(BrowsePane, {
+        data: consoleWith({ selectedPath: "0-inbox", listings: { "0-inbox": INBOX_LISTING } } as Partial<FileBrowser>),
+      }),
+      375,
+    );
+    const page = inbox.querySelector('[data-testid="folder-column"]')!.parentElement!;
+    expect(page.textContent).toContain("meetings");
+    expect(px(page, "padding-left")).toBe(layout.readingMargin);
+    expect(px(page, "padding-right")).toBe(layout.readingMargin);
+  });
+
+  test("a page wrapped in DocumentPage gets the same margin on a phone", () => {
+    const page = mount(createElement(DocumentPage, null, createElement("p", null, "a contact page")), 375)
+      .querySelector('[data-testid="document-page"]')!;
+    expect(px(page, "padding-left")).toBe(layout.readingMargin);
+    expect(px(page, "padding-right")).toBe(layout.readingMargin);
+  });
+
+  test("...and the note's measure, centred, on a pointer layout", () => {
+    const column = mount(createElement(DocumentPage, null, createElement("p", null, "a contact page")), 1440)
+      .querySelector('[data-testid="document-column"]')!;
+    expect(px(column, "max-width")).toBe(noteColumnWidth);
   });
 });
