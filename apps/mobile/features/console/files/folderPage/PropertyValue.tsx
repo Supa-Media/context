@@ -25,7 +25,7 @@
  * would only ever fail.
  */
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Icon } from "../../../design/components/Icon";
@@ -66,6 +66,10 @@ export interface PropertyValueProps {
     readonly isAgent?: (value: string) => boolean;
   };
   variant?: TextVariant;
+  /** What an unset value reads; `Set owner` by default. Shown to a reader too when given. */
+  unsetLabel?: string;
+  /** Drawn before the value, inside its button: an owner's face, which then marks an agent itself. */
+  lead?: ReactNode;
   /**
    * Drawn invisible until something asks for it — a row under the pointer —
    * but still there, so its menu does not close when the pointer moves into
@@ -89,6 +93,8 @@ export function PropertyValue({
   onEditList = null,
   owners,
   variant = "tree",
+  unsetLabel,
+  lead,
   quiet = false,
   style,
   testID,
@@ -108,18 +114,21 @@ export function PropertyValue({
   const shown = value === "" || owners?.label === undefined ? value : owners.label(value);
   // The model mark, so an agent reads as one in a column of people without a word for it.
   const agent =
-    value !== "" && owners?.isAgent?.(value) === true ? (
+    lead !== undefined ? (
+      lead
+    ) : value !== "" && owners?.isAgent?.(value) === true ? (
       <View accessibilityLabel="agent" testID="owner-agent-mark">
         <Icon name="sparkle" size={12} color={colors.chromeMuted} />
       </View>
     ) : null;
 
   if (onChoose === null) {
-    return value === "" ? null : (
+    if (value === "" && unsetLabel === undefined) return null;
+    return (
       <View style={styles.owner} testID={testID}>
         {agent}
-        <Text variant={variant} style={[style, styles.shrink]} numberOfLines={1}>
-          {isolateForDisplay(shown)}
+        <Text variant={variant} style={[style, styles.shrink, value === "" && styles.unset]} numberOfLines={1}>
+          {value === "" ? unsetLabel : isolateForDisplay(shown)}
         </Text>
       </View>
     );
@@ -222,9 +231,9 @@ export function PropertyValue({
         accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${shown}`}
         hitSlop={6}
         testID={testID}
-        style={agent === null || current === null ? undefined : styles.owner}
+        style={agent === null || (current === null && lead === undefined) ? undefined : styles.owner}
       >
-        {current === null ? null : agent}
+        {current === null && lead === undefined ? null : agent}
         <Text
           variant={variant}
           numberOfLines={1}
@@ -236,7 +245,7 @@ export function PropertyValue({
             quiet && !hovered && !focused && menu === null && styles.quiet,
           ]}
         >
-          {current === null ? `Set ${property}` : isolateForDisplay(shown)}
+          {current === null ? (unsetLabel ?? `Set ${property}`) : isolateForDisplay(shown)}
         </Text>
       </Pressable>
       {owners === undefined || !picking ? null : (

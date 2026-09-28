@@ -7,10 +7,10 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { folderItems, groupFolderItems } from "../features/console/files/folderPage/model";
+import { listLayout } from "../features/console/files/folderPage/listLayout";
 import {
   folderStatuses,
   governingFolder,
-  listBands,
   moveStatus,
   notesUsing,
   placeStatus,
@@ -68,8 +68,8 @@ describe("a folder with nothing declared", () => {
   });
 
   test("draws Active under In progress, In Progress as the default, and Exploration apart", () => {
-    expect(shape(statusBands(groups, list, true))).toEqual([
-      ["Not started", [["", 1], ["backlog", 0], ["to do", 0]]],
+    expect(shape(statusBands(groups, list))).toEqual([
+      ["Not started", [["backlog", 0], ["to do", 0]]],
       ["In progress", [["In Progress", 1], ["active", 2]]],
       ["Done", [["finished", 0]]],
       ["No group yet", [["exploration", 1]]],
@@ -77,7 +77,10 @@ describe("a folder with nothing declared", () => {
   });
 
   test("the List leaves empty statuses out", () => {
-    expect(shape(listBands(groups, list)).map(([label]) => label)).toEqual(["Not started", "In progress", "No group yet"]);
+    const layout = listLayout(items, list, PROJECTS, null);
+    expect(layout.sections.map((section) => section.label)).toEqual(["In progress", "No group yet"]);
+    // `idea.md` has no status: a note below the tasks, not an empty Not started.
+    expect(layout.notes.map((item) => item.path)).toEqual(["1-projects/idea.md"]);
   });
 
   test("says which words the list does not hold, with what merging would do", () => {
@@ -106,8 +109,8 @@ describe("a declared list", () => {
 
   test("is read from the folder's front note, and places its words", () => {
     expect(from).toBe("1-projects");
-    const bands = shape(statusBands(groupFolderItems(items, "status", list), list, false));
-    expect(bands[0]).toEqual(["Not started", [["", 1], ["exploration", 1]]]);
+    const bands = shape(statusBands(groupFolderItems(items, "status", list), list));
+    expect(bands[0]).toEqual(["Not started", [["exploration", 1]]]);
     expect(bands.map(([label]) => label)).not.toContain("No group yet");
   });
 

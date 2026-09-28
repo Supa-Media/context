@@ -130,6 +130,7 @@ describe("groups", () => {
   const list = defaultStatusList() as StatusList;
 
   test("run No status, Not started, In progress, Done, then words in no group", () => {
+    // Grouping itself still keeps the unset items together; the List and Board draw them as notes, not tasks.
     const groups = groupFolderItems(items, "status", list);
     expect(groups.map((group) => strip(group.label))).toEqual([
       "No status",
@@ -215,17 +216,18 @@ describe("a board's columns and what a drop writes", () => {
     bands.map((band) => [band.label, band.columns.map((column) => [column.value, column.items.length])]);
 
   test("a column for every status in the list, empty or not, under its group", () => {
-    expect(shape(statusBands(groups, list, false))).toEqual([
-      ["Not started", [["", 1], ["backlog", 0], ["to do", 0]]],
+    expect(shape(statusBands(groups, list))).toEqual([
+      ["Not started", [["backlog", 0], ["to do", 0]]],
       ["In progress", [["in progress", 0], ["Active", 1]]],
       ["Done", [["finished", 0], ["done", 1]]],
     ]);
   });
 
-  test("No status is a column to drop on for a writer even when nothing is in it, and not for a reader", () => {
-    const tracked = groupFolderItems(items.filter((item) => item.status !== ""), "status", list);
-    expect(shape(statusBands(tracked, list, true))[0]).toEqual(["Not started", [["", 0], ["backlog", 0], ["to do", 0]]]);
-    expect(shape(statusBands(tracked, list, false))[0]).toEqual(["Not started", [["backlog", 0], ["to do", 0]]]);
+  test("a note with no status is never a column: a board draws tasks only", () => {
+    // `p/c` has no status; it is not dropped into a column of its own anywhere.
+    const columns = statusBands(groups, list).flatMap((band) => band.columns);
+    expect(columns.map((column) => column.value)).not.toContain("");
+    expect(columns.flatMap((column) => column.items).map((item) => item.path)).not.toContain("p/c");
   });
 
   test("a drop writes the column's value, clears on No status, and does nothing where the card already is", () => {

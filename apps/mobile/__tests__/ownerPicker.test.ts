@@ -305,8 +305,10 @@ describe("an agent owner", () => {
     const page = host([], []);
     page.source.load = async () => ({ notes, complete: true });
     await mount(entry("folder", "1-projects"), PROJECTS, page);
-    expect(ownerOf("Website").querySelectorAll('[data-testid="owner-agent-mark"]')).toHaveLength(1);
-    expect(ownerOf("App").querySelectorAll('[data-testid="owner-agent-mark"]')).toHaveLength(0);
+    // An AI helper's face is the robot; a person's is their initials.
+    expect(ownerOf("Website").querySelectorAll('[data-testid="owner-face-agent"]')).toHaveLength(1);
+    expect(ownerOf("App").querySelectorAll('[data-testid="owner-face-agent"]')).toHaveLength(0);
+    expect(ownerOf("App").querySelectorAll('[data-testid="owner-face-person"]')).toHaveLength(1);
   });
 });
 
@@ -322,8 +324,9 @@ describe("an owner written before handles", () => {
     };
     await mount(entry("folder", "1-projects"), PROJECTS, page);
     expect([...resolved[0]].sort()).toEqual(["Sayo", "Seyi"]);
-    expect(strip(ownerOf("Website").textContent)).toBe("Seyi Olujide");
-    expect(strip(ownerOf("App").textContent)).toBe("Sayo");
+    // The face's initials come first; the name is the member's, not the word written.
+    expect(strip(ownerOf("Website").textContent)).toBe("SOSeyi Olujide");
+    expect(strip(ownerOf("App").textContent)).toBe("SASayo");
     await press(ownerOf("Website"));
     await settle();
     expect(options()).not.toContain("✓SeyiNot a member");
@@ -394,6 +397,15 @@ describe("what the picker offers, as data", () => {
       { properties: {}, updatedAt: 10 },
     ];
     expect(ownersInUse(notes)).toEqual(["Seyi", "John", "Sayo"]);
+  });
+
+  test("a task with several owners counts each of them", () => {
+    const notes = [
+      { properties: { owner: ["Sayo", "Claude"] }, updatedAt: 3 },
+      { properties: { owner: "Sayo" }, updatedAt: 1 },
+      { properties: { owner: ["sayo", " "] }, updatedAt: 2 },
+    ];
+    expect(ownersInUse(notes)).toEqual(["Sayo", "Claude"]);
   });
 
   test("a known owner is checked in place; an unknown one leads, marked", () => {

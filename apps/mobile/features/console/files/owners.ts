@@ -111,13 +111,20 @@ const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLow
 export function ownersInUse(notes: readonly { properties: Record<string, unknown>; updatedAt?: number | null }[]): string[] {
   const tally = new Map<string, { word: string; count: number; last: number }>();
   for (const note of notes) {
+    // `owner:` may name several (`owner: [@sayo, Claude]`); each counts, once per note.
     const raw = note.properties.owner;
-    if (typeof raw !== "string" || raw.trim() === "") continue;
-    const key = raw.trim().toLowerCase();
-    const row = tally.get(key) ?? { word: raw.trim(), count: 0, last: 0 };
-    row.count += 1;
-    row.last = Math.max(row.last, note.updatedAt ?? 0);
-    tally.set(key, row);
+    const words = Array.isArray(raw) ? raw : [raw];
+    const seen = new Set<string>();
+    for (const word of words) {
+      if (typeof word !== "string" || word.trim() === "") continue;
+      const key = word.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const row = tally.get(key) ?? { word: word.trim(), count: 0, last: 0 };
+      row.count += 1;
+      row.last = Math.max(row.last, note.updatedAt ?? 0);
+      tally.set(key, row);
+    }
   }
   return [...tally.values()].sort((a, b) => b.count - a.count || b.last - a.last).map((row) => row.word);
 }
