@@ -38,7 +38,7 @@ import {
   setCaretLabels,
   setRemoteCarets,
 } from "../../features/console/presence/remoteCarets";
-import { FLIP_CLASS, flagMeasure, placeFlag, ROOM_PROPERTY } from "../../features/console/presence/caretFlagFit";
+import { FLIP_CLASS, flagMeasure, LIFT_PROPERTY, placeFlag, ROOM_PROPERTY, stackFlags } from "../../features/console/presence/caretFlagFit";
 import { cursorPosition } from "../../features/console/presence/sync";
 import { at, member, resolve } from "./fixtures";
 
@@ -62,6 +62,74 @@ describe("which way a flag opens", () => {
     const narrow = { left: 0, right: 100 };
     expect(placeFlag({ ...narrow, caretX: 70, width: 160 })).toEqual({ flip: true, room: 71 });
     expect(placeFlag({ ...narrow, caretX: 20, width: 160 })).toEqual({ flip: false, room: 81 });
+  });
+});
+
+/*
+  Desktop, the pricing page's cast (the owner, after #1053): on the bullet line
+  "clearer skin (maybe)" the flags read "riya" and "on". A bullet line has a
+  hanging indent (`text-indent` about -20px on `.cm-lp-li`), and the flag, an
+  absolutely positioned child of that line, inherited it: its text started
+  20px left of its own padding, inside `overflow: hidden`, and `max-content`
+  shrank by the same 20px. Sampled in Chromium at 1280: a 22px box for a 36px
+  "@jon", scrollLeft 0, no room cap, not flipped.
+*/
+describe("a flag never loses the start of its name", () => {
+  test("it does not inherit the line's hanging indent, alignment or letter case", () => {
+    const view = new EditorView({
+      state: EditorState.create({ doc: "x", extensions: [remoteCarets()] }),
+      parent: document.body,
+    });
+    const doc = new Y.Doc();
+    doc.getText("t").insert(0, "x");
+    view.dispatch({
+      effects: [
+        setCaretDocument.of(doc),
+        setRemoteCarets.of([member({ head: cursorPosition(doc.getText("t"), 1), anchor: cursorPosition(doc.getText("t"), 1) })]),
+      ],
+    });
+    const line = view.dom.querySelector(".cm-line") as HTMLElement;
+    line.style.textIndent = "-20px";
+    line.style.textAlign = "right";
+    line.style.textTransform = "uppercase";
+    const label = view.dom.querySelector(".cm-presence-label") as HTMLElement;
+    const style = getComputedStyle(label);
+    expect(["0", "0px"]).toContain(style.textIndent);
+    expect(style.textAlign).toBe("left");
+    expect(style.textTransform).toBe("none");
+    view.destroy();
+  });
+});
+
+describe("two flags on one line", () => {
+  test("flags that would overlap are stacked, the later one above", () => {
+    // @priya's and @jon's carets a few characters apart on "clearer skin (maybe)".
+    expect(
+      stackFlags([
+        { line: 400, left: 300, right: 350 },
+        { line: 400, left: 330, right: 370 },
+      ]),
+    ).toEqual([0, 1]);
+  });
+
+  test("flags with room between them, or on different lines, stay down", () => {
+    expect(
+      stackFlags([
+        { line: 400, left: 300, right: 350 },
+        { line: 400, left: 360, right: 400 },
+        { line: 440, left: 300, right: 350 },
+      ]),
+    ).toEqual([0, 0, 0]);
+  });
+
+  test("a third flag takes the lowest level that is free", () => {
+    expect(
+      stackFlags([
+        { line: 400, left: 300, right: 350 },
+        { line: 400, left: 330, right: 370 },
+        { line: 400, left: 360, right: 420 },
+      ]),
+    ).toEqual([0, 1, 0]);
   });
 });
 
@@ -189,6 +257,33 @@ describe("in a real editor", () => {
     expect(style.position).toBe("relative");
     expect(style.height).toBe("1.2em");
     expect(getComputedStyle(caret.querySelector(".cm-presence-label")!).position).toBe("absolute");
+  });
+
+  test("two overlapping flags on one line: the later one is lifted, bar and flag together", () => {
+    geometry(100, 66);
+    const doc = new Y.Doc();
+    const text = doc.getText("t");
+    text.insert(0, "clearer skin (maybe)");
+    view = new EditorView({
+      state: EditorState.create({ doc: text.toString(), extensions: [remoteCarets()] }),
+      parent: document.body,
+    });
+    view.dispatch({
+      effects: [
+        setCaretDocument.of(doc),
+        setRemoteCarets.of([
+          member({ id: "p", name: "@priya", anchor: cursorPosition(text, 12), head: cursorPosition(text, 12) }),
+          member({ id: "j", name: "@jon", anchor: cursorPosition(text, 20), head: cursorPosition(text, 20) }),
+        ]),
+      ],
+    });
+    flush();
+    const carets = [...view.dom.querySelectorAll<HTMLElement>(".cm-presence-caret")];
+    expect(carets).toHaveLength(2);
+    // Every caret sits at x=100 in this geometry, so the two flags coincide.
+    const lifts = carets.map((one) => one.style.getPropertyValue(LIFT_PROPERTY));
+    expect(lifts[0]).toBe("");
+    expect(parseFloat(lifts[1]!)).toBeGreaterThan(0);
   });
 
   test("a flag with room opens rightwards", () => {
