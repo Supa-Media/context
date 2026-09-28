@@ -83,9 +83,33 @@ jobs:
         id: scope
         with:
           packages: "@context/mcp"
+          # The five packages below are NOT in `@context/mcp`'s dependency
+          # closure and have to be named by hand, which is the one thing about
+          # this job that is not automatic.
+          #
+          # `ci-scope` derives a job's watched paths from the package's **pnpm
+          # dependencies**, and the gateway's are pinned to one entry —
+          # `@context/collaboration` — with a fast guard asserting that exact
+          # set, because dependency-freedom is a promise the gateway makes. It
+          # reaches everything else by **relative path**: `src/` imports
+          # `packages/shared/src/storageLayout.cjs`, the module that computes
+          # storage keys, and the suite imports `packages/communications`,
+          # `packages/drawings`, `packages/meetings` and
+          # `packages/obsidian-runtime`.
+          #
+          # Without them a pull request touching only one of those computed
+          # `affected: false` here, so all ~4,700 checks — tenant isolation,
+          # path resolution, the privacy engine's port parity — were skipped and
+          # the job still reported success. `browser.yml`'s full WebKit suite
+          # already enumerates the same packages for the same reason.
           paths: |
             scripts/check-worker-fetch-options.mjs
             .github/workflows/mcp.yml
+            packages/shared/**
+            packages/communications/**
+            packages/drawings/**
+            packages/meetings/**
+            packages/obsidian-runtime/**
 
       - uses: actions/setup-node@v5
         if: steps.scope.outputs.affected == 'true'
