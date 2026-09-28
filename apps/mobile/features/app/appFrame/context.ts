@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { ColumnToolsSlot } from "./columnTools";
 import { useWindowDimensions } from "react-native";
 import {
   closesOnSelect,
@@ -185,6 +186,12 @@ export interface FrameApi {
    */
   accessoryOpen: boolean;
   setAccessoryOpen: (open: boolean) => void;
+  /**
+   * Where the file tree puts its tools while the title bar has a row over it,
+   * or `null` when it has none and the tree keeps its header in the column.
+   * See `columnTools.ts`.
+   */
+  columnTools: ColumnToolsSlot | null;
 }
 
 export const FrameContext = createContext<FrameApi | null>(null);
@@ -224,6 +231,7 @@ export function useFrame(): FrameApi {
       chromeGap: floatingGapFor(0),
       accessoryOpen: false,
       setAccessoryOpen: noop,
+      columnTools: null,
     }
   );
 }

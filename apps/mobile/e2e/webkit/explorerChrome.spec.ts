@@ -60,8 +60,11 @@ test.beforeEach(async ({ page }) => {
   await page.mouse.move(1200, 500);
 });
 
-test("at rest the header is the column's name and three lit buttons", async ({ page }) => {
-  await expect(page.getByTestId("explorer-header")).toContainText("Notes");
+test("at rest the tools are three lit buttons in the title row over the tree", async ({ page }) => {
+  // Up in the row over the column, beside the tree's toggle (owner, 2026-09-28),
+  // with no `Notes` label: the tree under it says what it is.
+  await expect(page.getByTestId("frame-column-head").getByTestId("explorer-header")).toBeVisible();
+  await expect(page.getByTestId("explorer-header")).not.toContainText("Notes");
   for (const id of ["explorer-filter-toggle", "explorer-new", "explorer-view"]) {
     expect(await page.getByTestId(id).isVisible()).toBe(true);
   }
@@ -89,15 +92,12 @@ test("the filter is a press away, and the tree does not move when it opens", asy
   await page.getByTestId("explorer-filter-toggle").click();
   const field = page.getByTestId("explorer-filter");
   await expect(field).toBeFocused();
-  await expect(page.getByTestId("explorer-header")).not.toContainText("Notes");
-
   const treeAfter = await tree.boundingBox();
   if (treeBefore === null || treeAfter === null) throw new Error("no box for the tree");
   expect(treeAfter.y).toBe(treeBefore.y);
 
   await page.keyboard.press("Escape");
   await expect(field).toHaveCount(0);
-  await expect(page.getByTestId("explorer-header")).toContainText("Notes");
 });
 
 test("pressing the lit magnifier on an empty field closes it rather than reopening it", async ({
@@ -110,5 +110,37 @@ test("pressing the lit magnifier on an empty field closes it rather than reopeni
 
   await page.getByTestId("explorer-filter-toggle").click();
   await expect(page.getByTestId("explorer-filter")).toHaveCount(0);
-  await expect(page.getByTestId("explorer-header")).toContainText("Notes");
+});
+
+/**
+ * The row over the tree is exactly the column's width, and the first tab
+ * starts at its edge, which is where the note starts: no notch of page beside
+ * the tab (owner, 2026-09-28). The tab keeps its rounded top-left corner.
+ */
+test("the first tab starts where the note does, and keeps its rounded corner", async ({ page }) => {
+  const column = await page.getByTestId("explorer").boundingBox();
+  const head = await page.getByTestId("frame-column-head").boundingBox();
+  const strip = await page.getByTestId("tab-strip").boundingBox();
+  if (column === null || head === null || strip === null) throw new Error("no box");
+  expect(Math.round(head.width)).toBe(Math.round(column.width));
+  expect(Math.round(strip.x)).toBe(Math.round(column.x + column.width));
+  const radius = await page.evaluate(() => {
+    const tab = document.querySelector('[data-testid^="tab-1-projects/"]');
+    return tab === null ? null : getComputedStyle(tab).borderTopLeftRadius;
+  });
+  expect(radius).toBe("8px");
+});
+
+test("in the title row, New and View step aside while the filter is open", async ({ page }) => {
+  await page.getByTestId("explorer-filter-toggle").click();
+  await expect(page.getByTestId("explorer-filter")).toBeFocused();
+  await expect(page.getByTestId("explorer-new")).toHaveCount(0);
+  await expect(page.getByTestId("explorer-view")).toHaveCount(0);
+  const field = await page.getByTestId("explorer-filter").boundingBox();
+  if (field === null) throw new Error("no field");
+  expect(field.width).toBeGreaterThan(120);
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("explorer-new")).toBeVisible();
+  await expect(page.getByTestId("explorer-view")).toBeVisible();
 });

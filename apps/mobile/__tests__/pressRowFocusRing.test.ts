@@ -42,11 +42,13 @@ test("a row disabled while it holds focus stops drawing the ring", () => {
   const render = (disabled: boolean) =>
     act(() => {
       root!.render(
-        createElement(
-          PressRow,
-          { accessibilityLabel: "Go back", onPress: () => {}, disabled, testID: "row" },
-          createElement(Text, null, "‹"),
-        ),
+        createElement(PressRow, {
+          accessibilityLabel: "Go back",
+          onPress: () => {},
+          disabled,
+          testID: "row",
+          children: createElement(Text, null, "‹"),
+        }),
       );
     });
 

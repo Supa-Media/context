@@ -6,6 +6,7 @@ import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
+import { useColumnTools } from "../../app/appFrame/columnTools";
 import { ExplorerDialogs } from "./explorer/ExplorerDialogs";
 import { ExplorerFoot } from "./explorer/ExplorerFoot";
 import { ExplorerFootLists } from "./explorer/ExplorerFootLists";
@@ -131,17 +132,29 @@ export function Explorer({
   });
   useFootDismiss({ activity, activityOpen, setActivityOpen, agentsOpen, setAgentsOpen });
 
+  /*
+    Filter, New and View. They go up into the title row over the column when
+    the frame has one (the owner's choice, 2026-09-28), and stay at the
+    column's head otherwise: a drawer, or a tree outside the console.
+  */
+  const toolbar = (
+    <ExplorerToolbar
+      files={files}
+      selectedFolder={selectedFolder}
+      setDialog={setDialog}
+      descending={descending}
+      query={query}
+      setQuery={setQuery}
+      closeFilter={closeFilter}
+      inBar={frame.columnTools !== null}
+    />
+  );
+  useColumnTools(frame.columnTools, frame.columnTools === null ? null : toolbar);
+
   return (
     <View style={styles.explorer} testID="explorer">
-      <ExplorerToolbar
-        files={files}
-        selectedFolder={selectedFolder}
-        setDialog={setDialog}
-        descending={descending}
-        query={query}
-        setQuery={setQuery}
-        closeFilter={closeFilter}
-      />
+      {/* In the column only when the title bar has no row over it. */}
+      {frame.columnTools === null ? toolbar : null}
 
       <ExplorerTree
         files={files}

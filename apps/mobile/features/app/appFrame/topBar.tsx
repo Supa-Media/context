@@ -3,6 +3,7 @@ import { View } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import { space } from "../../design/tokens";
 import { topBarLeadFor, type Density, type Regions } from "../frame";
+import { ColumnToolsOutlet, type ColumnToolsSlot } from "./columnTools";
 import type { FrameApi } from "./context";
 import { FrameIconButton, SearchTrigger } from "./controls";
 import type { FrameStyles } from "./styles";
@@ -33,6 +34,7 @@ export function frameTopBar({
   regions,
   toggleAside,
   hasExplorer,
+  columnTools,
   explorerWidth,
   toggleExplorer,
 }: {
@@ -53,6 +55,7 @@ export function frameTopBar({
   regions: Regions;
   toggleAside: () => void;
   hasExplorer: boolean;
+  columnTools: ColumnToolsSlot | null;
   explorerWidth: number;
   toggleExplorer: () => void;
 }) {
@@ -60,8 +63,8 @@ export function frameTopBar({
     THE FILE TREE'S OWN TITLE ROW.
 
     While the tree is a column, the stretch of this bar above it belongs to
-    it: exactly the column's width, holding the window's buttons and the
-    tree's own toggle, so the column reads as running from the top edge
+    it: exactly the column's width, holding the window's buttons, the
+    tree's own tools (filter, new, view — `columnTools.ts`) and its toggle, so the column reads as running from the top edge
     of the window to its foot rather than starting under a blank strip. The
     owner chose this (2026-09-26) over a column with separate rows for inbox,
     activity and meetings — everything in the column stays a folder or a
@@ -76,11 +79,16 @@ export function frameTopBar({
     see `BrowseNoteHead`.
   */
   const pointer = !compact && topBarLeadFor(density) !== "account";
-  const columnHead = pointer && hasExplorer && regions.explorer === "column";
+  // The controller's answer, so the bar and the tree agree on where the tools are.
+  const columnHead = columnTools !== null;
   const navigation =
     !pointer || !hasExplorer ? null : (
       <>
-        {columnHead ? <View style={styles.columnHeadFill} /> : null}
+        {columnTools === null ? null : (
+          <View style={styles.columnHeadFill}>
+            <ColumnToolsOutlet slot={columnTools} />
+          </View>
+        )}
         <FrameIconButton
           label={regions.explorer === "column" ? "Hide the file tree" : "Show the file tree"}
           icon="panelLeft"
