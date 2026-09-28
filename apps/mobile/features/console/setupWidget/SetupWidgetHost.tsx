@@ -52,6 +52,7 @@ export function SetupWidgetHost({
       slug={current.slug}
       kind={current.kind}
       role={current.role}
+      setupRetired={current.setupRetired}
       compact={compact}
       onOpenSettings={onOpenSettings}
       onNavigate={onNavigate}
@@ -66,6 +67,7 @@ function SetupWidgetLive({
   slug,
   kind,
   role,
+  setupRetired,
   compact,
   onOpenSettings,
   onNavigate,
@@ -76,12 +78,13 @@ function SetupWidgetLive({
   slug: string;
   kind: string;
   role: string;
+  setupRetired: boolean | undefined;
   compact: boolean;
   onOpenSettings?: (section?: SettingsSectionKey) => void;
   onNavigate?: (href: string) => void;
   onConnectAgent?: (agent: SetupAgent) => void;
 }) {
-  const { grants, retired, retire } = useSetupWidget(workspaceId, true);
+  const { grants, retired, retire } = useSetupWidget(workspaceId, true, setupRetired);
   if (!showSetupWidget({ demo: data.demo === true, compact, kind, role, retired })) return null;
 
   const view = setupView({ slug, storage: data.storage, grants });
@@ -93,7 +96,16 @@ function SetupWidgetLive({
         <SetupDone
           onClose={retire}
           onCopyBootstrap={copyBootstrap}
-          onNewWorkspace={onNavigate ? () => onNavigate(NEW_WORKSPACE_ROUTE) : undefined}
+          onNewWorkspace={
+            onNavigate
+              ? () => {
+                  // Following "What's next" is leaving the card too; it said
+                  // it would not come back.
+                  retire();
+                  onNavigate(NEW_WORKSPACE_ROUTE);
+                }
+              : undefined
+          }
         />
       </View>
     );

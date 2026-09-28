@@ -63,6 +63,12 @@ export const workspaceSummary = v.object({
    */
   activityAt: v.optional(v.number()),
   activitySeenAt: v.optional(v.number()),
+  /**
+   * Whether this member has put the setup checklist away here, on any device.
+   * See `workspaceMembers.setupRetiredAt`. Absent on the pinned row, which has
+   * no membership and never draws the checklist.
+   */
+  setupRetired: v.optional(v.boolean()),
   joinedAt: v.number(),
   createdAt: v.number(),
   /**

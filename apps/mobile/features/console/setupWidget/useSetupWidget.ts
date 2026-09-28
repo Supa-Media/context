@@ -1,25 +1,42 @@
 import { useCallback, useEffect, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { openStore } from "../../offline/store";
 import type { GrantFacts } from "../../onboarding/tools";
 
 /**
- * Where "put the setup widget away" is remembered, per workspace.
+ * Where "put the setup widget away" is remembered on this device, per
+ * workspace.
  *
- * A device flag, for `contextIntro.ts`'s reason: whether somebody has finished
- * looking at a checklist is a fact about a person on a screen, nothing else
- * can observe it, and no control-plane table holds it. The rows themselves are
- * never stored — each is read from a fact every time (`rules.ts`).
+ * No longer the record — the membership's `setupRetiredAt` is, so the card
+ * stays away on every origin and device (a device flag alone brought it back
+ * on staging, the desktop app and any browser with cleared site data, under a
+ * card promising it would not). The device flag stays as the fast first
+ * answer, and as the way a dismissal made before the account field existed
+ * reaches the account. The rows themselves are never stored — each is read
+ * from a fact every time (`rules.ts`).
  */
 export function setupWidgetRetiredKey(workspaceId: string): string {
   return `context.lc.setup-widget.retired.v1.${workspaceId}`;
 }
 
 /**
+ * Put away for this person here: on their account, or on this device.
+ * `undefined` only while the device has not answered and the account has not
+ * said yes.
+ */
+export function setupRetired(
+  account: boolean | undefined,
+  device: boolean | undefined,
+): boolean | undefined {
+  if (account === true || device === true) return true;
+  return device;
+}
+
+/**
  * The widget's live inputs: the grants list its tools row reads, and whether
- * this device has put it away.
+ * this person has put it away (`account`, from their membership row).
  *
  * `retired` starts `undefined` and the widget is not drawn until the device
  * answers — a card that appears and vanishes on every load for everybody who
@@ -27,12 +44,17 @@ export function setupWidgetRetiredKey(workspaceId: string): string {
  * that fails counts as put away: a card nobody can dismiss durably is worse
  * than no card, and every row's fact is on its own screen anyway.
  */
-export function useSetupWidget(workspaceId: string | null, enabled: boolean) {
+export function useSetupWidget(
+  workspaceId: string | null,
+  enabled: boolean,
+  account: boolean | undefined,
+) {
   const grants = useQuery(
     api.functions.grants.listGrants,
     enabled && workspaceId !== null ? { workspaceId: workspaceId as Id<"workspaces"> } : "skip",
   ) as GrantFacts[] | undefined;
 
+  const retireOnAccount = useMutation(api.functions.workspaces.retireSetupWidget);
   const key = workspaceId === null ? null : setupWidgetRetiredKey(workspaceId);
   const [answer, setAnswer] = useState<{ key: string; retired: boolean } | null>(null);
 
@@ -52,17 +74,31 @@ export function useSetupWidget(workspaceId: string | null, enabled: boolean) {
     };
   }, [enabled, key]);
 
+  const device = answer !== null && answer.key === key ? answer.retired : undefined;
+
   const retire = useCallback(() => {
-    if (key === null) return;
+    if (key === null || workspaceId === null) return;
     setAnswer({ key, retired: true });
     void openStore()
       .set(key, "1")
       .catch(() => {});
-  }, [key]);
+    void retireOnAccount({ workspaceId: workspaceId as Id<"workspaces"> }).catch(() => {});
+  }, [key, workspaceId, retireOnAccount]);
+
+  /*
+    A dismissal this device remembers from before the account held it: carry
+    it up once, so the other devices stop asking too. `account === false`, not
+    `!== true` — an old cached row that does not know the field yet says
+    nothing either way.
+  */
+  useEffect(() => {
+    if (!enabled || workspaceId === null || device !== true || account !== false) return;
+    void retireOnAccount({ workspaceId: workspaceId as Id<"workspaces"> }).catch(() => {});
+  }, [enabled, workspaceId, device, account, retireOnAccount]);
 
   return {
     grants: grants instanceof Error ? undefined : grants,
-    retired: answer !== null && answer.key === key ? answer.retired : undefined,
+    retired: setupRetired(account, device),
     retire,
   };
 }

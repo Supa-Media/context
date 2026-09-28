@@ -50,6 +50,7 @@ export async function listMyWorkspacesHandler(
       activityAt:
         membership.role === "owner" ? workspace.activityAt : workspace.activityTeamAt,
       activitySeenAt: membership.activitySeenAt,
+      setupRetired: membership.setupRetiredAt !== undefined,
       joinedAt: membership.joinedAt,
       createdAt: workspace.createdAt,
     });
