@@ -251,6 +251,9 @@ export function useBlendedSearch(options: {
       return;
     }
 
+    // Claimed now, not when the debounce fires, so an answer to the previous
+    // question that lands during the debounce is dropped rather than drawn.
+    asked.current = question;
     setLoading(true);
     setFailed(false);
 
@@ -300,7 +303,6 @@ export function useBlendedSearch(options: {
     };
 
     const timer = setTimeout(() => {
-      asked.current = question;
       void (async () => {
         const local = deviceRef.current;
         if (offline && local !== null) {

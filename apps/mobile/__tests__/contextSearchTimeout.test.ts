@@ -187,4 +187,40 @@ describe("a console search that never answers", () => {
     expect(probe.value.state).toBe("failed");
     probe.unmount();
   });
+
+  test("an answer to the previous query that lands during the debounce is dropped", async () => {
+    // "ike" is sent; "iken" is typed; "ike"'s answer arrives before "iken"'s
+    // debounce fires. Drawing it would show results for text no longer in the
+    // field, marked ready, until the newer answer happened to replace them.
+    const pending = new Map<string, (value: SearchAnswer) => void>();
+    const probe = mount(
+      (query) =>
+        new Promise<SearchAnswer>((resolve) => {
+          pending.set(query, resolve);
+        }),
+    );
+    type(probe, "ike");
+    expect(pending.has("ike")).toBe(true);
+
+    act(() => probe.value.onQuery("iken"));
+    await act(async () => {
+      pending.get("ike")?.(
+        answer({ hits: [{ path: "ike.md", title: "Ike", snippets: ["ike"] }] }),
+      );
+    });
+    expect(probe.value.state).toBe("searching");
+    expect(probe.value.items.map((item) => item.id)).not.toContain("ike.md");
+
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+    await act(async () => {
+      pending.get("iken")?.(
+        answer({ hits: [{ path: "ikenna.md", title: "Ikenna", snippets: ["ikenna"] }] }),
+      );
+    });
+    expect(probe.value.state).toBe("ready");
+    expect(probe.value.items.map((item) => item.id)).toEqual(["ikenna.md"]);
+    probe.unmount();
+  });
 });
