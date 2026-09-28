@@ -197,6 +197,7 @@ export function check(root = ROOT) {
   }
 
   const scoped = [
+    [".github/workflows/ci.yml", "editor-bundle", []],
     [".github/workflows/ci.yml", "convex-deploy-typecheck", ["@context/convex"]],
     [".github/workflows/gateway-contracts.yml", "contracts", ["@context/mcp", "@context/convex"]],
     [".github/workflows/mcp.yml", "test", ["@context/mcp"]],

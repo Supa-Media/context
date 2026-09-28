@@ -67,9 +67,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          paths: |
+            apps/mcp/src/forms/**
+            apps/mcp/src/lists/**
+            apps/mobile/features/console/files/**
+            apps/mobile/features/console/presence/**
+            apps/mobile/features/voice/**
+            apps/mobile/package.json
+            packages/drawings/**
+            packages/shared/**
+            scripts/build-editor-bundle.mjs
+            .github/workflows/ci.yml
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -79,6 +96,7 @@ jobs:
       # resolved version of every package it bundles — so a partial install
       # would rebuild against different code than the commit was built from.
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --frozen-lockfile
 
       # What this binds, and what it does not. A hand-edited blob is caught:
@@ -94,9 +112,11 @@ jobs:
       # that cause; the honest fix is to record esbuild's resolved version in
       # the generated header so the failure can name itself.
       - name: Rebuild the bundle from its sources
+        if: steps.scope.outputs.affected == 'true'
         run: node scripts/build-editor-bundle.mjs
 
       - name: It must be byte-for-byte what is committed
+        if: steps.scope.outputs.affected == 'true'
         run: |
           set -euo pipefail
           file=apps/mobile/features/console/files/webview/bundle.generated.ts
@@ -122,7 +142,7 @@ jobs:
       # compare it against the commit to see what was added, and scrolling a
       # 500kb single-line diff in a job log is not that.
       - name: What the sources actually build
-        if: failure()
+        if: failure() && steps.scope.outputs.affected == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: bundle-rebuilt
