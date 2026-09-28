@@ -97,6 +97,13 @@ export interface PremiumStatus {
   freeManaged?: boolean;
   /** The note cap in force on this context, absent where there is none. */
   noteCap?: number;
+  /**
+   * The control plane would refuse an empty selection right now — paying, or
+   * a checkout somebody may be paying on. Owner only; absent reads as "no",
+   * and the server still refuses, so an older control plane costs a sentence
+   * rather than a subscription that entitles nothing.
+   */
+  keepOneSelected?: boolean;
 }
 
 /** Where an opened Checkout or portal attempt has got to. */
@@ -534,6 +541,12 @@ export interface EntitlementRow {
    */
   detail: string;
   on: boolean;
+  /**
+   * The last ticked box while `keepOneSelected` holds. Unticking it is a
+   * refusal from `setEntitlements` (`ENTITLEMENTS_EMPTY`), so the box is not
+   * offered rather than offered and then refused.
+   */
+  locked?: boolean;
 }
 
 /**
@@ -550,7 +563,7 @@ export interface EntitlementRow {
  * card says which of the two it is.
  */
 export function entitlementRows(status: PremiumStatus): EntitlementRow[] {
-  return [
+  const rows: EntitlementRow[] = [
     {
       value: "managedStorage",
       label: "Managed storage",
@@ -566,6 +579,29 @@ export function entitlementRows(status: PremiumStatus): EntitlementRow[] {
       on: status.selected.fastSearch,
     },
   ];
+  const ticked = rows.filter((row) => row.on);
+  if (status.keepOneSelected === true && ticked.length === 1) {
+    ticked[0]!.locked = true;
+  }
+  return rows;
+}
+
+/**
+ * Whether turning `value` to `next` would leave nothing selected while the
+ * control plane refuses that. The switches' last line of defence for a status
+ * that is a moment stale: the locked row covers the ordinary case, and this
+ * keeps a race from reaching the refusal.
+ */
+export function wouldEmptyRequiredSelection(
+  status: PremiumStatus,
+  value: string,
+  next: boolean,
+): boolean {
+  if (status.keepOneSelected !== true || next) return false;
+  const after = { ...status.selected };
+  if (value === "managedStorage") after.managedStorage = false;
+  if (value === "fastSearch") after.fastSearch = false;
+  return !after.managedStorage && !after.fastSearch;
 }
 
 /**
@@ -583,9 +619,18 @@ export function entitlementsHint(status: PremiumStatus): string {
   const chosenNotActive =
     !planIsPayingStatus(status.status) &&
     (status.selected.managedStorage || status.selected.fastSearch);
-  return chosenNotActive
+  const withChosen = chosenNotActive
     ? `${price} What is ticked is what you have chosen; it turns on when the subscription is active.`
     : price;
+  const onlyOne =
+    (status.selected.managedStorage ? 1 : 0) +
+      (status.selected.fastSearch ? 1 : 0) ===
+    1;
+  if (status.keepOneSelected !== true || !onlyOne) return withChosen;
+  // Mid-checkout there is no subscription yet, so no Manage billing to name.
+  return planIsPayingStatus(status.status)
+    ? `${withChosen} Premium keeps at least one on. To stop paying, use Manage billing.`
+    : `${withChosen} Premium keeps at least one on.`;
 }
 
 /** `planIsPaying` for the wire's own string, without importing the server's. */

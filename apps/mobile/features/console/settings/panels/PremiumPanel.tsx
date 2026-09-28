@@ -37,6 +37,7 @@ import {
   renewalLine,
   unreadablePremiumView,
   usageLine,
+  wouldEmptyRequiredSelection,
   type PremiumEntitlements,
   type PremiumView,
 } from "./premium";
@@ -241,6 +242,7 @@ export function PremiumBody({
   const toggle = (value: string, next: boolean) => {
     if (status === undefined || status === null || view.choose === undefined)
       return;
+    if (wouldEmptyRequiredSelection(status, value, next)) return;
     const chosen: PremiumEntitlements = { ...status.selected };
     if (value === "managedStorage") chosen.managedStorage = next;
     if (value === "fastSearch") chosen.fastSearch = next;

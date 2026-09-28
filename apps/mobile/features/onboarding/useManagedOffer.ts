@@ -10,6 +10,7 @@ import {
   type PremiumEntitlements,
   type PremiumSession,
   type PremiumStatus,
+  wouldEmptyRequiredSelection,
 } from "../console/settings/panels/premium";
 import type { ManagedConfirmState } from "./steps/ManagedConfirm";
 
@@ -186,6 +187,9 @@ export function useManagedOffer(options: {
   const toggle = useCallback(
     (value: string, next: boolean) => {
       if (workspaceId === null || status === null) return;
+      // Mid-checkout the control plane refuses an empty selection; the last
+      // box is drawn locked, and this covers a status a moment stale.
+      if (wouldEmptyRequiredSelection(status, value, next)) return;
       const chosen: PremiumEntitlements = { ...status.selected };
       if (value === "managedStorage") chosen.managedStorage = next;
       if (value === "fastSearch") chosen.fastSearch = next;
