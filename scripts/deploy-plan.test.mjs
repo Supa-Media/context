@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { baseCommits, buildGraph, COMPONENTS, isInert, selectComponents } from "./deploy-plan.mjs";
+import { baseCommits, buildGraph, isInert, selectComponents, TARGETS } from "./deploy-plan.mjs";
 
 const graph = buildGraph();
 const plan = (...files) => selectComponents(files, graph).selected;
 const on = (selected) => Object.keys(selected).filter((name) => selected[name]).sort();
-const ALL = Object.keys(COMPONENTS).sort();
+const ALL = Object.keys(TARGETS.staging.components).sort();
 
 test("a CI-only merge deploys nothing (the PR #1057 reference case)", () => {
   assert.deepEqual(on(plan(".github/workflows/ci.yml", "scripts/check-ci-path-gates.mjs", "docs/testing.md")), []);
@@ -68,7 +68,7 @@ test("files Convex bundles out of the gateway select Convex", () => {
 
 test("every Worker the staging workflow deploys is a component", () => {
   const workflow = readFileSync(new URL("../.github/workflows/deploy-staging.yml", import.meta.url), "utf8");
-  for (const [name, component] of Object.entries(COMPONENTS)) {
+  for (const [name, component] of Object.entries(TARGETS.staging.components)) {
     if (component.worker) assert.ok(workflow.includes(`${name})`), `deploy-staging.yml has no case for ${name}`);
   }
 });
@@ -80,4 +80,30 @@ test("the base is the newest success plus every run after it", () => {
   assert.equal(baseCommits([run(9, "c", null, "in_progress"), run(8, "b", "failure")], 9), null, "no success means a full deploy");
   assert.equal(baseCommits([run(10, "d", "success"), run(9, "c", null, "in_progress")], 9), null, "a rerun of an old run deploys everything");
   assert.equal(baseCommits([run(9, "c", null, "in_progress"), run(8, "b", null, "queued"), run(7, "a", "success")], 9), null);
+});
+
+const production = buildGraph("production");
+const promote = (...files) => on(selectComponents(files, production, { target: "production" }).selected);
+
+test("production selects the same way, per reusable workflow", () => {
+  assert.deepEqual(promote("docs/staging.md", ".github/workflows/ci.yml"), []);
+  assert.deepEqual(promote("infra/router/src/route.ts"), ["router"]);
+  assert.deepEqual(promote("apps/mobile/features/console/NoteEditor.tsx"), ["ota", "web"]);
+  assert.deepEqual(promote("infra/sentry-worker/src/index.js"), ["sentry"]);
+  assert.deepEqual(promote("apps/mcp/src/lists.js"), ["convex", "gateway", "ota", "web"]);
+});
+
+test("a production component's own workflow redeploys it", () => {
+  assert.deepEqual(promote(".github/workflows/deploy-mcp.yml"), ["gateway"]);
+  assert.deepEqual(promote(".github/workflows/deploy-mobile-update.yml"), ["ota"]);
+  const all = Object.keys(TARGETS.production.components).sort();
+  assert.deepEqual(promote(".github/workflows/deploy-production.yml"), all);
+  assert.deepEqual(promote("pnpm-lock.yaml"), all);
+});
+
+test("every component the production workflow calls is gated by its plan output", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/deploy-production.yml", import.meta.url), "utf8");
+  for (const name of Object.keys(TARGETS.production.components)) {
+    assert.ok(workflow.includes(`needs.validate.outputs.${name} == 'true'`), `deploy-production.yml does not gate ${name}`);
+  }
 });

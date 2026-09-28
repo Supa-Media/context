@@ -32,8 +32,8 @@
  * Every uncertainty deploys everything: no successful run to compare with, a
  * base commit that cannot be fetched, a manual run asking for it, a change to
  * dependencies, this script or the workflow, and any file this script does not
- * recognise. Only paths listed in IGNORED can be skipped without being
- * attributed to a component. Over-deploying costs minutes; under-deploying
+ * recognise. Only paths a target lists as ignored can be skipped without
+ * being attributed to a component. Over-deploying costs minutes; under-deploying
  * leaves staging running code nobody can see.
  */
 
@@ -44,39 +44,22 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/**
- * Staging components. `workers` carries what the workflow's matrix needs; the
- * app covers both the web export and the OTA update, which bundle the same
- * sources.
- */
-export const COMPONENTS = {
-  convex: { packages: ["@context/convex"], files: ["convex.json", "scripts/staging-env.mjs"] },
-  transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
-  egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
-  email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
-  mcp: { packages: ["@context/mcp"], worker: "apps/mcp" },
-  router: { packages: ["@context/router"], worker: "infra/router" },
-  app: { packages: ["@context/mobile"], files: ["scripts/build-drawing-editor.mjs"] },
-};
-
-/** A change to any of these can alter every component. */
-export const FAN_OUT = [
+/** A change to any of these can alter every component, on either target. */
+const SHARED_FAN_OUT = [
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   ".npmrc",
   "tsconfig.json",
   "patches/**",
-  ".github/workflows/deploy-staging.yml",
   "scripts/deploy-plan.mjs",
 ];
 
 /**
- * Paths no staging component is built from, unless a component reaches them
- * (checked first). Everything else that no component claims deploys
- * everything.
+ * Paths no component is built from, unless a component reaches them (checked
+ * first). Everything else that no component claims deploys everything.
  */
-export const IGNORED = [
+const SHARED_IGNORED = [
   "docs/**",
   ".github/**",
   ".claude/**",
@@ -84,7 +67,6 @@ export const IGNORED = [
   "plugins/**",
   "artifacts/**",
   "apps/desktop/**",
-  "infra/sentry-worker/**",
   "infra/domain-connect/**",
   "packages/encryption-decryptor/**",
   "README.md",
@@ -95,6 +77,50 @@ export const IGNORED = [
   "turbo.json",
   "architecture.config.json",
 ];
+
+const workflow = (name) => `.github/workflows/${name}.yml`;
+
+/**
+ * What each target deploys. A staging `worker` carries what that workflow's
+ * matrix needs; the staging app covers both the web export and the OTA
+ * update, which bundle the same sources. Production calls one reusable
+ * workflow per component, so each one's workflow file is one of its inputs.
+ */
+export const TARGETS = {
+  staging: {
+    title: "Staging",
+    workflow: "deploy-staging.yml",
+    components: {
+      convex: { packages: ["@context/convex"], files: ["convex.json", "scripts/staging-env.mjs"] },
+      transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
+      egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
+      email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
+      mcp: { packages: ["@context/mcp"], worker: "apps/mcp" },
+      router: { packages: ["@context/router"], worker: "infra/router" },
+      app: { packages: ["@context/mobile"], files: ["scripts/build-drawing-editor.mjs"] },
+    },
+    fanOut: [...SHARED_FAN_OUT, workflow("deploy-staging")],
+    // Staging runs no Sentry inbox.
+    ignored: [...SHARED_IGNORED, "infra/sentry-worker/**"],
+  },
+  production: {
+    title: "Production",
+    workflow: "deploy-production.yml",
+    components: {
+      convex: { packages: ["@context/convex"], files: ["convex.json", workflow("deploy-convex")] },
+      gateway: { packages: ["@context/mcp"], files: [workflow("deploy-mcp")] },
+      email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
+      transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
+      egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
+      sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },
+      web: { packages: ["@context/mobile"], files: ["scripts/build-drawing-editor.mjs", workflow("deploy-web")] },
+      router: { packages: ["@context/router"], files: [workflow("deploy-router")] },
+      ota: { packages: ["@context/mobile"], files: [workflow("deploy-mobile-update")] },
+    },
+    fanOut: [...SHARED_FAN_OUT, workflow("deploy-production")],
+    ignored: SHARED_IGNORED,
+  },
+};
 
 const TEST_SEGMENTS = new Set(["__tests__", "test", "tests"]);
 const DOC_NAMES = new Set(["README.md", "CLAUDE.md", "AGENTS.md", "CHANGELOG.md"]);
@@ -208,10 +234,10 @@ export function componentInputs(component, root = ROOT, byName = manifests(root)
   return { dirs: [...dirs].sort(), files };
 }
 
-export function buildGraph(root = ROOT) {
+export function buildGraph(target = "staging", root = ROOT) {
   const byName = manifests(root);
   return Object.fromEntries(
-    Object.entries(COMPONENTS).map(([name, component]) => [name, componentInputs(component, root, byName)]),
+    Object.entries(TARGETS[target].components).map(([name, component]) => [name, componentInputs(component, root, byName)]),
   );
 }
 
@@ -224,7 +250,8 @@ function owns(inputs, file) {
  * The components a set of changed files requires, with the reason for each.
  * `full` deploys everything regardless.
  */
-export function selectComponents(changed, graph, { full = false } = {}) {
+export function selectComponents(changed, graph, { full = false, target = "staging" } = {}) {
+  const { fanOut, ignored } = TARGETS[target];
   const names = Object.keys(graph);
   const reasons = Object.fromEntries(names.map((name) => [name, []]));
   const everything = (why) => {
@@ -232,14 +259,14 @@ export function selectComponents(changed, graph, { full = false } = {}) {
   };
   if (full) everything("full deployment requested");
   for (const file of changed) {
-    if (FAN_OUT.some((pattern) => matches(file, pattern))) {
+    if (fanOut.some((pattern) => matches(file, pattern))) {
       everything(`${file} can affect every component`);
       continue;
     }
     const owners = names.filter((name) => owns(graph[name], file));
     for (const name of owners) reasons[name].push(file);
     if (owners.length > 0) continue;
-    if (isInert(file) || IGNORED.some((pattern) => matches(file, pattern))) continue;
+    if (isInert(file) || ignored.some((pattern) => matches(file, pattern))) continue;
     everything(`${file} is not attributed to a component`);
   }
   const selected = Object.fromEntries(names.map((name) => [name, reasons[name].length > 0]));
@@ -280,26 +307,26 @@ export function baseCommits(runs, currentRunId) {
   return null;
 }
 
-async function recentRuns(env, request = fetch) {
-  const url = new URL(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/actions/workflows/deploy-staging.yml/runs`);
+async function recentRuns(env, target, request = fetch) {
+  const url = new URL(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${TARGETS[target].workflow}/runs`);
   url.search = new URLSearchParams({ per_page: "100", exclude_pull_requests: "true" }).toString();
   const response = await request(url, {
     headers: { Authorization: `Bearer ${env.GH_TOKEN}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
   });
-  if (!response.ok) throw new Error(`Could not list staging runs (HTTP ${response.status}).`);
+  if (!response.ok) throw new Error(`Could not list earlier runs (HTTP ${response.status}).`);
   return (await response.json()).workflow_runs ?? [];
 }
 
-async function changedFiles(env) {
+async function changedFiles(env, target) {
   if (env.FULL_DEPLOY === "true") return { full: "full deployment requested", files: [] };
   let runs;
   try {
-    runs = await recentRuns(env);
+    runs = await recentRuns(env, target);
   } catch (error) {
     return { full: error.message, files: [] };
   }
   const bases = baseCommits(runs, env.GITHUB_RUN_ID);
-  if (!bases) return { full: "no earlier successful staging deployment to compare with", files: [] };
+  if (!bases) return { full: "no earlier successful deployment to compare with", files: [] };
   const files = new Set();
   for (const sha of bases) {
     if (!/^[0-9a-f]{40}$/.test(sha)) return { full: `invalid base commit ${sha}`, files: [] };
@@ -315,8 +342,8 @@ async function changedFiles(env) {
   return { full: null, files: [...files].sort(), bases };
 }
 
-function summary({ selected, reasons }, { full, files, bases }) {
-  const lines = ["## Staging deployment plan", ""];
+function summary({ selected, reasons }, { full, files, bases }, target) {
+  const lines = [`## ${TARGETS[target].title} deployment plan`, ""];
   if (full) lines.push(`Deploying everything: ${full.replace(/\.$/, "")}.`, "");
   else lines.push(`Compared with ${bases.map((sha) => `\`${sha.slice(0, 7)}\``).join(", ")}: ${files.length} changed files.`, "");
   lines.push("| Component | Deploys | Because |", "| --- | --- | --- |");
@@ -327,15 +354,22 @@ function summary({ selected, reasons }, { full, files, bases }) {
   return `${lines.join("\n")}\n`;
 }
 
-async function main() {
-  const change = await changedFiles(process.env);
-  const plan = selectComponents(change.files, buildGraph(), { full: Boolean(change.full) });
+function targetArg(argv) {
+  const at = argv.indexOf("--target");
+  const target = at === -1 ? "staging" : argv[at + 1];
+  if (!Object.hasOwn(TARGETS, target)) throw new Error(`Unknown target ${target}`);
+  return target;
+}
+
+async function main(target) {
+  const change = await changedFiles(process.env, target);
+  const plan = selectComponents(change.files, buildGraph(target), { full: Boolean(change.full), target });
   if (change.full) for (const name of Object.keys(plan.reasons)) plan.reasons[name] = [change.full];
-  const workers = Object.entries(COMPONENTS)
+  const workers = Object.entries(TARGETS[target].components)
     .filter(([name, component]) => component.worker && plan.selected[name])
     .map(([name, component]) => ({ name, package: component.packages[0], dir: component.worker }));
   const outputs = { ...plan.selected, workers: JSON.stringify(workers), any_worker: String(workers.length > 0) };
-  const text = summary(plan, change);
+  const text = summary(plan, change, target);
   console.log(text);
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(""));
@@ -345,10 +379,13 @@ async function main() {
 
 const invoked = process.argv[1] && realpathSync(process.argv[1]);
 if (invoked && import.meta.url === pathToFileURL(invoked).href) {
-  if (process.argv[2] === "--files") {
-    // Local dry run: `node scripts/deploy-plan.mjs --files a b c`.
-    console.log(summary(selectComponents(process.argv.slice(3), buildGraph()), { full: null, files: process.argv.slice(3), bases: ["local"] }));
+  const target = targetArg(process.argv);
+  const at = process.argv.indexOf("--files");
+  if (at !== -1) {
+    // Local dry run: `node scripts/deploy-plan.mjs [--target production] --files a b c`.
+    const files = process.argv.slice(at + 1);
+    console.log(summary(selectComponents(files, buildGraph(target), { target }), { full: null, files, bases: ["local"] }, target));
   } else {
-    await main();
+    await main(target);
   }
 }
