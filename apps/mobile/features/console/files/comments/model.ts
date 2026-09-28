@@ -28,6 +28,22 @@ export function isPerson(author: string): boolean {
 }
 
 /** Two letters for an agent's square, one for a person's circle. */
+/**
+ * Who a viewer's comments are signed as, or null when they cannot comment.
+ *
+ * A signed-in person signs with their `@handle` (an email or "Signed in" is
+ * not one). A homepage visitor comments as `@you`: their comments, like their
+ * edits, stay in their own tab and are never saved, so the name only has to
+ * read well to them. Without it the visitor saw no Comment option at all on a
+ * page that is meant to show the real editor (Dev2, 2026-09-28).
+ */
+export const VISITOR_AUTHOR = "@you";
+
+export function commenterFor(viewerName: string | null | undefined, visitor: boolean): string | null {
+  if (viewerName?.startsWith("@")) return viewerName;
+  return visitor ? VISITOR_AUTHOR : null;
+}
+
 export function initialsFor(author: string): string {
   const name = (isPerson(author) ? author : agentName(author).agent).replace(/^@/, "").trim();
   if (!name) return "?";
