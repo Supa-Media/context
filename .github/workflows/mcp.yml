@@ -106,15 +106,18 @@ jobs:
         if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
+      # The package's own script, not `node test/test.mjs`: that entry is the
+      # first half of it, and the `node --test` half behind the `&&` — the tool
+      # annotations, the scope-info workspace set, the app-origin metadata, the
+      # logical delete, the note cap, the store HEAD, the encrypted generation
+      # footer, the gateway source guards and the OpenAI challenge — ran in no
+      # lane at all. `check-package-tests-run.mjs` reported `apps/mcp` covered
+      # because this step names the directory, which was true of the package and
+      # false of nine of its files.
       - name: Run test suite
         if: steps.scope.outputs.affected == 'true'
         working-directory: apps/mcp
-        run: node test/test.mjs
-
-      - name: Test live relay grant permissions
-        if: steps.scope.outputs.affected == 'true'
-        working-directory: apps/mcp
-        run: node --test test/liveGrantAccess.test.js
+        run: pnpm test
 
       - name: Test collaboration storage and recovery
         if: steps.scope.outputs.affected == 'true'
@@ -325,19 +328,20 @@ jobs:
       # Bare node with no install, because this package has no dependencies —
       # the same promise the gateway makes, and the reason the gateway can
       # import it by relative path.
-      # Two files, both run explicitly rather than through `npm test`, so a
-      # suite added to the package but not to this list fails visibly here
-      # instead of silently not running — which is the failure every other job
-      # in this workflow exists because of.
+      # The package's own script, so the list cannot drift. Two files used to be
+      # named here instead, "so a suite added to the package but not to this
+      # list fails visibly here instead of silently not running" — and then
+      # `test/collab.test.mjs` was added to the package and not to the list, and
+      # its 27 checks ran in no lane at all. Naming files here is the same bet
+      # this workflow exists because of, made one level down.
+      #
+      # `npm test` rather than `pnpm test`: npm arrives with the runner's node,
+      # so running the script costs neither a package-manager setup step nor an
+      # install, and the promise above holds.
       - name: Run test suite
         if: steps.scope.outputs.affected == 'true'
         working-directory: packages/drawings
-        run: node test/test.mjs
-
-      - name: Run serializer suite
-        if: steps.scope.outputs.affected == 'true'
-        working-directory: packages/drawings
-        run: node test/serialize.test.mjs
+        run: npm test
 
   desktop:
     name: Test Desktop
