@@ -131,10 +131,14 @@ export function useRuntime(options: {
   const waiting = useRef(new Map<number, {
     resolve: (items: { text: string }[]) => void;
     timer: ReturnType<typeof setTimeout>;
+    pluginId: string;
+    nonce: string;
   }>());
   const applying = useRef(new Map<number, {
     resolve: (line: string | null) => void;
     timer: ReturnType<typeof setTimeout>;
+    pluginId: string;
+    nonce: string;
   }>());
   const lastAsked = useRef<number | null>(null);
   /*
@@ -284,6 +288,8 @@ export function useRuntime(options: {
   const previewing = useRef(new Map<number, {
     resolve: (previews: LinkPreview[]) => void;
     timer: ReturnType<typeof setTimeout>;
+    pluginId: string;
+    nonce: string;
   }>());
   const lastPreviewAsked = useRef<number | null>(null);
   const previewWalk = useRef(0);

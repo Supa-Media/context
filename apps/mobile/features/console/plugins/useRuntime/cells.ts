@@ -10,15 +10,19 @@ export type Ref<T> = { current: T };
 export type Setter<T> = Dispatch<SetStateAction<T>>;
 type Timer = ReturnType<typeof setTimeout>;
 
-/** A completion query waiting on a frame, by sequence number. */
+/** A completion query waiting on the exact frame it was sent to. */
 export type SuggestWaiting = Map<number, {
   resolve: (items: { text: string }[]) => void;
   timer: Timer;
+  pluginId: string;
+  nonce: string;
 }>;
-/** A picked completion waiting for the line it produced. */
+/** A picked completion waiting for the exact frame that offered it. */
 export type ApplyWaiting = Map<number, {
   resolve: (line: string | null) => void;
   timer: Timer;
+  pluginId: string;
+  nonce: string;
 }>;
 /** A dialog query waiting on the one frame that owns the dialog. */
 export type ModalWaiting = Map<number, {
@@ -27,10 +31,12 @@ export type ModalWaiting = Map<number, {
   pluginId: string;
   nonce: string;
 }>;
-/** A link preview waiting on a frame. */
+/** A link preview waiting on the exact frame it was sent to. */
 export type PreviewWaiting = Map<number, {
   resolve: (previews: LinkPreview[]) => void;
   timer: Timer;
+  pluginId: string;
+  nonce: string;
 }>;
 /** The frame something belongs to: a plugin, and the load it is running as. */
 export type FrameOwner = { pluginId: string; nonce: string } | null;

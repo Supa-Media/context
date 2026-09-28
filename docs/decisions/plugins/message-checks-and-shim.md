@@ -105,6 +105,29 @@ dismissal hands a plugin the power to keep a dialog on screen.
 sabotage-confirmed — the observer one after a first version survived its
 sabotage by testing the awaited path instead.
 
+## A sequence number orders a reply; it does not identify its sender
+
+Suggestion, suggestion-apply and preview requests leave the trusted host for
+one plugin frame. Their replies used to be matched against a process-wide
+sequence number alone. That number orders overlapping work, but every running
+plugin can predict it and send a reply carrying it. One plugin could therefore
+answer another plugin's pending request. The most serious form was a forged
+`suggest-applied` line entering the trusted editor after the reader picked a
+different plugin's suggestion.
+
+Each pending entry now records the plugin id and sandbox nonce it was sent to.
+The host accepts the reply only from that exact frame. An impostor reply leaves
+the entry in place so the real frame can answer or its timer can expire. The
+nonce matters as much as the id: a restarted plugin is a new frame and cannot
+finish work addressed to its predecessor.
+
+**What a simplification costs.** Matching on `seq` alone lets any running
+plugin answer another plugin's request. Matching on the plugin id but not the
+nonce lets a restarted frame inherit a line or preview it never received.
+Deleting the pending entry after an impostor reply lets one plugin silence
+another. `apps/mobile/__tests__/pluginReplyOwnership.test.ts` holds all three
+paths and was sabotage-confirmed by removing the suggestion owner check.
+
 ## The only check that has ever caught a plugin not loading
 
 Every other check on the shim asks whether a member exists and behaves. Three
