@@ -2,6 +2,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { parseAdminEmails } from "./lib/admin";
 import { stagingStorageIsFree } from "./lib/managedStorage";
 import { claimName, findName } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
@@ -9,9 +10,18 @@ import { seedIngestionSettings } from "./lib/ingestionStore";
 export const PERSONAS = ["alpha", "beta", "gamma", "delta", "epsilon"] as const;
 type Persona = typeof PERSONAS[number];
 type Role = "owner" | "editor" | "member";
-export const FIXTURES: { slug: string; name: string; owner: Persona; kind: "personal" | "shared"; roles: Partial<Record<Persona, Role>> }[] = [
+type Fixture = {
+  slug: string;
+  name: string;
+  owner: Persona;
+  kind: "personal" | "shared";
+  roles: Partial<Record<Persona, Role>>;
+  vouchedByStaff?: true;
+};
+export const FIXTURES: Fixture[] = [
   { slug: "alpha", name: "Alpha Morgan", owner: "alpha", kind: "personal", roles: { alpha: "owner" } },
   { slug: "delta", name: "Delta Brooks", owner: "delta", kind: "personal", roles: { delta: "owner" } },
+  { slug: "context-lc", name: "Context.LC", owner: "alpha", kind: "shared", roles: { alpha: "owner" }, vouchedByStaff: true },
   { slug: "lumio", name: "Lumio", owner: "alpha", kind: "shared", roles: { alpha: "owner", beta: "editor", gamma: "member" } },
   { slug: "maison-solenne", name: "Maison Solenne", owner: "delta", kind: "shared", roles: { delta: "owner", alpha: "editor", beta: "member" } },
   { slug: "common-ground", name: "Common Ground", owner: "delta", kind: "shared", roles: { delta: "owner", beta: "editor", gamma: "member" } },
@@ -31,26 +41,35 @@ export const prepare = internalMutation({
         email, emailVerificationTime: now, name: displayNames[i], isActive: true, createdAt: now,
       });
     }
+    const staffEmail = [...parseAdminEmails(process.env.ADMIN_EMAILS)].sort()[0];
+    if (!staffEmail) throw new Error("Staging personas require at least one ADMIN_EMAILS entry for @context-lc.");
+    const existingStaff = await ctx.db.query("users").withIndex("by_email", q => q.eq("email", staffEmail)).unique();
+    const staffUserId = existingStaff?._id ?? await ctx.db.insert("users", {
+      email: staffEmail, emailVerificationTime: now, name: "Context Staff", isActive: true, createdAt: now,
+    });
     const workspaces: { slug: string; workspaceId: Id<"workspaces">; owner: Persona }[] = [];
     for (const fixture of FIXTURES) {
+      const creator = fixture.vouchedByStaff ? staffUserId : users[fixture.owner];
       const claim = await findName(ctx, fixture.slug);
       let workspaceId = claim?.workspaceId;
       if (claim) {
         const workspace = workspaceId ? await ctx.db.get(workspaceId) : null;
-        if (!workspace || workspace.createdBy !== users[fixture.owner] || workspace.kind !== fixture.kind) {
+        if (!workspace || workspace.createdBy !== creator || workspace.kind !== fixture.kind) {
           throw new Error(`Fixture name collision: ${fixture.slug}; nothing was changed.`);
         }
       } else {
         workspaceId = await ctx.db.insert("workspaces", {
-          slug: fixture.slug, displayName: fixture.name, createdBy: users[fixture.owner],
+          slug: fixture.slug, displayName: fixture.name, createdBy: creator,
           kind: fixture.kind, structureTemplate: "para", createdAt: now, updatedAt: now,
         });
-        await claimName(ctx, fixture.slug, users[fixture.owner], { kind: "workspace", workspaceId }, fixture.slug === "alpha" ? { stagingPersona: "alpha" } : {});
+        await claimName(ctx, fixture.slug, creator, { kind: "workspace", workspaceId }, fixture.slug === "alpha" ? { stagingPersona: "alpha" } : {});
       }
       const id = workspaceId!;
       const memberships = await ctx.db.query("workspaceMembers").withIndex("by_workspace", q => q.eq("workspaceId", id)).collect();
-      // A reset may remove fixture identities, never an unrelated teammate.
-      if (memberships.some(m => !Object.values(users).includes(m.userId))) {
+      // A reset may remove fixture identities, never an unrelated teammate. The
+      // official pinned workspace is allowed to accumulate real staff members,
+      // so its reset only repairs the fixture personas and preserves the rest.
+      if (!fixture.vouchedByStaff && memberships.some(m => !Object.values(users).includes(m.userId))) {
         throw new Error(`Non-fixture member in ${fixture.slug}; refusing to reset their workspace.`);
       }
       for (const persona of PERSONAS) {
@@ -59,6 +78,11 @@ export const prepare = internalMutation({
         if (role && !member) await ctx.db.insert("workspaceMembers", { workspaceId: id, userId: users[persona], role, joinedAt: now });
         else if (role && member && reset) await ctx.db.patch(member._id, { role });
         else if (!role && member && reset) await ctx.db.delete(member._id);
+      }
+      if (fixture.vouchedByStaff && staffUserId !== users[fixture.owner]) {
+        const staffMembership = memberships.find(m => m.userId === staffUserId);
+        if (!staffMembership) await ctx.db.insert("workspaceMembers", { workspaceId: id, userId: staffUserId, role: "owner", joinedAt: now });
+        else if (reset && staffMembership.role !== "owner") await ctx.db.patch(staffMembership._id, { role: "owner" });
       }
       if (!claim && fixture.kind === "personal") await seedIngestionSettings(ctx, { workspaceId: id, ownerUserId: users[fixture.owner], now });
       workspaces.push({ slug: fixture.slug, workspaceId: id, owner: fixture.owner });
