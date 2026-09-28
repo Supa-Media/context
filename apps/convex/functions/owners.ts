@@ -9,17 +9,26 @@
  *
  * ## What it discloses, and to whom
  *
- * People: names and addresses of this workspace's members, to a member — the
- * same fact `workspaces.listMembers` already gives them, and nothing about
- * anybody outside it. A non-member gets `workspaceNotFound`, identical to a
- * workspace that does not exist.
+ * People: this workspace's members by handle (`@seyi`), with their name beside
+ * it, to a member — less than `workspaces.listMembers` already gives them, and
+ * nothing about anybody outside it. An address is matched against what is
+ * typed but never sent: a project page shows who owns the work, not how to
+ * email them. A member with no handle is offered by name, and by address only
+ * when there is nothing else to call them. A non-member gets
+ * `workspaceNotFound`, identical to a workspace that does not exist.
+ *
+ * `resolveOwners` answers the other half: an owner line written before handles
+ * (`owner: seyi@example.com`, `owner: Seyi Olujide`) still names that member,
+ * and the page shows it as `@seyi` without rewriting anybody's note.
  *
  * Agents: the names of connected AI clients, drawn **only from the grants the
  * caller could already list** with `grants.listGrants` — every grant for the
  * workspace's owner, their own for anybody else. A colleague's tooling is
  * theirs to disclose (see `listGrants`), and an owner picker is not a way
  * round that. Only the client's name leaves: never who connected it, when,
- * or with what scopes. The console's own grant is not an agent anybody means.
+ * or with what scopes. The console's own grant is not an agent anybody means,
+ * and neither is an integration such as the Sentry incident inbox, which files
+ * notes and never picks work up (`lib/owners/integrations.ts`).
  *
  * ## The suggested owner
  *
@@ -38,7 +47,9 @@ import { action, internalQuery, query, type QueryCtx } from "../_generated/serve
 import type { Doc, Id } from "../_generated/dataModel";
 import { requireWorkspaceAccess } from "./lib/workspaceAuth";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";
-import { matchAgents, rankMembers, type OwnerMember } from "./lib/owners/rank";
+import { handleForUser } from "./lib/identities";
+import { isIntegrationClient } from "./lib/owners/integrations";
+import { fold, matchAgents, ownerValue, rankMembers, resolveOwnerWords, type OwnerMember } from "./lib/owners/rank";
 import { type OwnerCandidates, type SuggestedOwner, mayRead, ownerRequest, readOwnerAnswer } from "./lib/owners/suggest";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { withJev } from "./lib/jev/client";
@@ -58,6 +69,14 @@ const MAX_LIMIT = 20;
 const MAX_AGENTS = 6;
 const MAX_TEXT = 80;
 const MAX_PREFER = 12;
+/** The most owner words one `resolveOwners` call reads: a folder's worth. */
+const MAX_WORDS = 50;
+/**
+ * The most members whose handle one read looks up. A handle is two index reads
+ * a member, so past this a very large workspace is offered by name instead of
+ * running into the read limits; no workspace today is near it.
+ */
+const MAX_HANDLE_SCAN = 300;
 
 /**
  * A name as one line an owner field can hold. Names are what their holders
@@ -78,7 +97,8 @@ export const searchOwners = query({
     limit: v.optional(v.number()),
   },
   returns: v.object({
-    people: v.array(v.object({ value: v.string(), email: v.optional(v.string()), isMe: v.boolean() })),
+    /** `value` is what the owner line will say; `name` is shown beside a handle. */
+    people: v.array(v.object({ value: v.string(), name: v.optional(v.string()), isMe: v.boolean() })),
     agents: v.array(v.string()),
     /** The workspace has more members than one search reads. */
     truncated: v.boolean(),
@@ -105,23 +125,13 @@ async function findOwners(
   const asked = Number.isFinite(args.limit) ? Math.floor(args.limit as number) : DEFAULT_LIMIT;
   const limit = Math.max(1, Math.min(MAX_LIMIT, asked));
 
-  const rows = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .take(MAX_OWNER_SCAN + 1);
-  const truncated = rows.length > MAX_OWNER_SCAN;
-  const members: OwnerMember[] = [];
-  for (const row of rows.slice(0, MAX_OWNER_SCAN)) {
-    const user = await ctx.db.get(row.userId);
-    const name = oneLine(user?.name);
-    const email = oneLine(user?.email);
-    const value = name ?? email;
-    if (value === undefined) continue;
-    members.push({ value, name, email, isMe: row.userId === userId });
-  }
+  const { members, truncated } = await loadMembers(ctx, workspaceId, userId);
   const people = rankMembers(members, text, prefer, limit).map((member) => ({
     value: member.value,
-    ...(member.email === undefined || member.email === member.value ? {} : { email: member.email }),
+    // A name that only repeats the handle (`@sayo`, Sayo) says nothing beside it.
+    ...(member.name === undefined || member.name === member.value || fold(member.name) === fold(member.handle ?? "")
+      ? {}
+      : { name: member.name }),
     isMe: member.isMe,
   }));
 
@@ -149,12 +159,65 @@ async function findOwners(
       .query("oauthClients")
       .withIndex("by_clientId", (q) => q.eq("clientId", grant.clientId))
       .unique();
+    if (isIntegrationClient(client)) continue;
     const name = oneLine(client?.clientName);
     if (name) names.push(name);
   }
 
   return { people, agents: matchAgents(names, text, MAX_AGENTS), truncated };
 }
+
+/** A workspace's members as owners, read once for a search or a resolve. */
+async function loadMembers(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  userId: Id<"users">,
+): Promise<{ members: OwnerMember[]; truncated: boolean }> {
+  const rows = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .take(MAX_OWNER_SCAN + 1);
+  const truncated = rows.length > MAX_OWNER_SCAN;
+  const withHandles = rows.length <= MAX_HANDLE_SCAN;
+  const members: OwnerMember[] = [];
+  for (const row of rows.slice(0, MAX_OWNER_SCAN)) {
+    const user = await ctx.db.get(row.userId);
+    const name = oneLine(user?.name);
+    const email = oneLine(user?.email);
+    const handle = withHandles ? oneLine((await handleForUser(ctx, row.userId)) ?? undefined) : undefined;
+    const value = ownerValue({ handle, name, email });
+    if (value === undefined) continue;
+    members.push({
+      value,
+      ...(name === undefined ? {} : { name }),
+      ...(email === undefined ? {} : { email }),
+      ...(handle === undefined ? {} : { handle }),
+      isMe: row.userId === userId,
+    });
+  }
+  return { members, truncated };
+}
+
+/**
+ * What owner words written before handles mean now: for each of `words` that
+ * names exactly one member by address, full name or handle, the value the
+ * picker would write for them (`@seyi`). Words that already say it that way,
+ * name nobody, or name two people are left out, and the page shows them as
+ * written. Any member may ask — it is the owner column every member reads —
+ * and learns only handles, which `@name` addressing already makes public.
+ */
+export const resolveOwners = query({
+  args: { workspaceId: v.id("workspaces"), words: v.array(v.string()) },
+  returns: v.array(v.object({ word: v.string(), value: v.string() })),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    const words = args.words.slice(0, MAX_WORDS).map((word) => word.slice(0, MAX_TEXT));
+    if (words.length === 0) return [];
+    const { members } = await loadMembers(ctx, args.workspaceId, userId);
+    return resolveOwnerWords(members, words);
+  },
+});
 
 /** Premium, and the owner suggestion not switched off through Jev smarts. */
 async function suggestsOwners(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
@@ -165,10 +228,18 @@ async function suggestsOwners(ctx: QueryCtx, workspaceId: Id<"workspaces">): Pro
 /** The candidates a suggestion chooses among: what the caller's own search offers first. */
 export const ownerCandidates = internalQuery({
   args: { workspaceId: v.id("workspaces"), userId: v.id("users"), prefer: v.array(v.string()) },
-  returns: v.object({ people: v.array(v.string()), agents: v.array(v.string()) }),
+  returns: v.object({
+    people: v.array(v.string()),
+    agents: v.array(v.string()),
+    names: v.array(v.union(v.string(), v.null())),
+  }),
   handler: async (ctx, args) => {
     const found = await findOwners(ctx, args.workspaceId, args.userId, { query: "", prefer: args.prefer });
-    return { people: found.people.map((person) => person.value), agents: found.agents };
+    return {
+      people: found.people.map((person) => person.value),
+      agents: found.agents,
+      names: found.people.map((person) => person.name ?? null),
+    };
   },
 });
 

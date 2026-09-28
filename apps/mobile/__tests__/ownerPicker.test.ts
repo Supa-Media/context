@@ -249,6 +249,28 @@ describe("the owner picker on a folder's List", () => {
   });
 });
 
+describe("an owner written before handles", () => {
+  test("shows as the member it names, in the column and checked in the picker, without a write", async () => {
+    const writes: Write[] = [];
+    const resolved: (readonly string[])[] = [];
+    const page = host(writes, []);
+    // As `owners.resolveOwners` answers: the old word, and the value the picker writes today.
+    page.source.resolveOwners = async (words) => {
+      resolved.push(words);
+      return words.includes("Seyi") ? [{ word: "Seyi", value: "Seyi Olujide" }] : [];
+    };
+    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    expect([...resolved[0]].sort()).toEqual(["Sayo", "Seyi"]);
+    expect(strip(ownerOf("Website").textContent)).toBe("Seyi Olujide");
+    expect(strip(ownerOf("App").textContent)).toBe("Sayo");
+    await press(ownerOf("Website"));
+    await settle();
+    expect(options()).not.toContain("✓SeyiNot a member");
+    expect(options()[0]).toBe("✓Seyi Olujide");
+    expect(writes).toEqual([]);
+  });
+});
+
 describe("the suggested owner", () => {
   test("leads the picker, named in the note, and is not offered twice", async () => {
     const writes: Write[] = [];

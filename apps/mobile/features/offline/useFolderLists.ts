@@ -65,9 +65,13 @@ export function useFolderLists(
         },
       },
     });
-    if (!canEdit) return source;
+    // Any member reads the owner column, so any member may ask what old owner words name.
+    const resolveOwners = (words: readonly string[]) =>
+      convex.query(api.functions.owners.resolveOwners, { workspaceId: id, words: [...words] });
+    if (!canEdit) return { ...source, resolveOwners };
     return {
       ...source,
+      resolveOwners,
       searchOwners: (query: string, prefer: readonly string[]) =>
         convex.query(api.functions.owners.searchOwners, { workspaceId: id, query, prefer: [...prefer] }),
       suggestOwner: async (path: string, prefer: readonly string[]) =>
