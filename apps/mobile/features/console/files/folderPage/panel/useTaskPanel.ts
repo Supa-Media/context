@@ -1,12 +1,12 @@
 /**
- * Which task is open in a project page's side panel, and whether the page
+ * Which row is open in a project page's side panel, and whether the page
  * has room for one.
  *
  * Per page and per viewer, held only while the page is open: nothing is
- * written, and moving to another folder closes it. On a phone, or a page
- * too narrow for the list and the panel side by side (`panelFits`), there is
- * no panel and pressing a task opens its page as it always has. Escape
- * closes it — unless a menu or a field has the key, which answer it first.
+ * written, and moving to another folder closes it. On a phone, or a page too
+ * narrow for the panel itself (`panelFits`), there is no panel and pressing a
+ * row opens its page as it always has. Escape closes it — unless a menu or a
+ * field has the key, which answer it first.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -14,9 +14,9 @@ import { Platform, useWindowDimensions } from "react-native";
 import { panelFits } from "./panelModel";
 
 export interface TaskPanelState {
-  /** The task shown, or null when the panel is closed or has no room. */
+  /** The row shown, or null when the panel is closed or has no room. */
   readonly path: string | null;
-  /** Whether a pressed task opens here rather than on its own page. */
+  /** Whether a pressed row opens here rather than on its own page. */
   readonly fits: boolean;
   show(path: string): void;
   close(): void;

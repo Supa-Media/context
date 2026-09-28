@@ -1,46 +1,54 @@
 /**
- * One task, open beside a project's List or Board (the approved artboard):
- * where it is, its name, its values (`PanelProperties.tsx`), its subtasks
- * with dots that tick them off, and the notes in it — with "+ Add subtask",
- * "+ Add a note", "Open full page" and ✕.
+ * One row of the page, open beside its List or Board — Notion's side peek:
+ * where it is, then Expand, Open in new tab and ✕ (`PanelHead.tsx`), its
+ * name, and then —
+ *
+ * - for a **task** (anything with a status: a task, a subtask, a project on
+ *   the projects folder's page): its values (`PanelProperties.tsx`), its
+ *   subtasks with dots that tick them off, the notes in it, "+ Add subtask"
+ *   and "+ Add a note";
+ * - for a **plain note**: nothing else; for a plain folder, what is in it;
+ * - and for either, the note's words (`PanelBody.tsx`) — a folder's are its
+ *   front note's.
  *
  * - A **subtask's dot** flips it between the list's first Done word and its
- *   first Not started word that is not Backlog (`tickStatus`); its name
- *   opens it here, under the task it belongs to. A subtask has no Subtasks
- *   section: two levels and no deeper.
+ *   first Not started word that is not Backlog (`tickStatus`). Two levels of
+ *   task and no deeper: a subtask has no Subtasks section.
  * - **Adding** a subtask or a note is planned first (`planAddSubtask`,
  *   `planAddNote`) and run through the console's own writes; a one-note task
  *   becomes a folder on the first, and the panel follows it there.
- * - A **note** in the task opens as a note, leaving the page.
+ * - A **name** — a subtask, a note in the task — opens it here, in this
+ *   one's place; the crumb goes back up.
  *
  * Nothing is read but the device's notes at the reader's clearance, and a
- * member is shown the same task with nothing to press that would write.
+ * member is shown the same row with nothing to press that would write.
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { Icon } from "../../../../design/components/Icon";
+import { StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
-import { radii, space } from "../../../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import type { ListNote } from "../../listBlock/model";
-import { OwnerFace, StatusDot } from "../Glyphs";
+import { space } from "../../../../design/tokens";
+import { useThemedStyles, type Colors } from "../../../../design/theme";
+import { useConsoleNav } from "../../../ConsoleNavContext";
+import type { FolderListSource, ListNote } from "../../listBlock/model";
 import type { ItemActions } from "../items";
 import { makeItTaskStatus } from "../listLayout";
 import type { FolderItem } from "../model";
-import { folderStatuses, governingFolder, groupOfStatus } from "../statuses";
-import { faceFor } from "../taskFace";
-import { ownersOf } from "../taskProps";
+import { folderStatuses } from "../statuses";
 import { QuickAddComposer, type QuickAddTask } from "../tasks/QuickAddComposer";
 import { planAddNote, planAddSubtask, type Planned, type TaskRef } from "../tasks/taskWrites";
 import type { TaskControls } from "../tasks/useTaskActions";
 import { tagsInUse } from "../tasks/taskWords";
 import type { PropertyChanges } from "../useFolderPage";
+import { PanelBody } from "./PanelBody";
+import { PanelHead } from "./PanelHead";
 import { PanelProperties } from "./PanelProperties";
-import { panelEntry, PANEL_WIDTH, taskRefOf, tickStatus, type PanelEntry } from "./panelModel";
+import { Add, NoteLine, Subtask, subtaskHead } from "./PanelRows";
+import { bodyPath, panelEntry, taskRefOf, type PanelEntry } from "./panelModel";
+import { useFoldTree } from "./useFoldTree";
 
 export interface TaskPanelProps {
-  /** The task shown: a task of the project, or a subtask of one. */
+  /** The row shown: a task, a subtask, a plain note, a project. */
   path: string;
   /** The project's folder. */
   folder: string;
@@ -59,7 +67,11 @@ export interface TaskPanelProps {
   /** Every path the page's listing shows, so a new name misses them too. */
   paths: readonly string[];
   now: number;
-  /** Show another task here. */
+  /** Where the words are read from (`FolderListSource.readBody`). */
+  source: FolderListSource | undefined;
+  /** The width the panel's contents are drawn at (`PanelBeside`). */
+  width: number;
+  /** Show another row here. */
   onShow: (path: string) => void;
   /** Leave for a note's or a folder's own page. */
   onNavigate: (path: string) => void;
@@ -69,7 +81,9 @@ export interface TaskPanelProps {
 export function TaskPanel(props: TaskPanelProps) {
   const { path, folder, notes, actions, chooseMany, perform, now, onShow, onNavigate, onClose } = props;
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
+  const nav = useConsoleNav();
+  // Notion's side peek: the file tree gives the panel its width while it is on screen.
+  useFoldTree();
   // What was last shown stays while the device's copy catches up with a move (a task that just became a folder).
   const last = useRef<PanelEntry | null>(null);
   // A one-note task that just became a folder is drawn as that folder at once (the List's pending
@@ -103,46 +117,36 @@ export function TaskPanel(props: TaskPanelProps) {
   };
   const snapshot = { folder, notes, paths: props.paths };
   const canAdd = write !== null && perform !== null;
+  const isTask = item.status !== "";
+  // A tab holds a note: a folder opens its front note, and one with none is not offered a tab.
+  const words = bodyPath(ref);
+  const onNewTab = nav === null || words === null ? null : () => nav.follow(words, "background");
+  // A plain folder lists what is in it, to open here; a task's are its subtasks and its notes.
+  const inside = isTask ? entry.notes : [...(entry.subtasks ?? []), ...entry.notes];
   return (
-    <View style={styles.panel} role="complementary" aria-label="Task details" testID="task-panel">
-      <View style={styles.crumb} testID="task-panel-crumb">
-        <Text variant="treeMeta" numberOfLines={1} style={styles.muted}>
-          {props.projectTitle}
-        </Text>
-        {parent === null ? null : (
-          <>
-            <Text variant="treeMeta" style={styles.muted}>
-              ›
-            </Text>
-            <Pressable onPress={() => onShow(parent.path)} role="link" style={styles.shrink} testID="task-panel-crumb-parent">
-              <Text variant="treeMeta" numberOfLines={1} style={styles.link}>
-                {parent.label}
-              </Text>
-            </Pressable>
-          </>
-        )}
-        <View style={styles.push} />
-        <Pressable onPress={() => onNavigate(ref.path)} role="link" testID="task-panel-open">
-          <Text variant="treeMeta" style={styles.link}>
-            Open full page
-          </Text>
-        </Pressable>
-        <Pressable onPress={onClose} role="button" accessibilityLabel="Close" hitSlop={8} testID="task-panel-close">
-          <Icon name="close" size={13} color={colors.chromeMuted} />
-        </Pressable>
-      </View>
+    <View style={styles.panel} role="complementary" aria-label={isTask ? "Task details" : "Note"} testID="task-panel">
+      <PanelHead
+        where={props.projectTitle}
+        parent={parent}
+        onShow={onShow}
+        onExpand={() => onNavigate(ref.path)}
+        onNewTab={onNewTab}
+        onClose={onClose}
+      />
       <Text variant="paneTitle" testID="task-panel-title">
         {item.label}
       </Text>
-      <PanelProperties
-        item={item}
-        target={item.creates ? null : ref.target}
-        actions={actions}
-        write={write}
-        tagSuggestions={tagsInUse(notes, folder)}
-        now={now}
-      />
-      {entry.subtasks === null ? null : (
+      {isTask ? (
+        <PanelProperties
+          item={item}
+          target={item.creates ? null : ref.target}
+          actions={actions}
+          write={write}
+          tagSuggestions={tagsInUse(notes, folder)}
+          now={now}
+        />
+      ) : null}
+      {!isTask || entry.subtasks === null ? null : (
         <View style={styles.section}>
           <Text variant="tree" style={styles.head} testID="task-panel-subtasks-head">
             {subtaskHead(entry.subtasks, notes)}
@@ -163,20 +167,15 @@ export function TaskPanel(props: TaskPanelProps) {
           ) : null}
         </View>
       )}
-      {entry.notes.length === 0 && !canAdd ? null : (
+      {inside.length === 0 && !(isTask && canAdd) ? null : (
         <View style={styles.section}>
           <Text variant="tree" style={styles.head} testID="task-panel-notes-head">
-            {`Notes · ${entry.notes.length}`}
+            {`${isTask ? "Notes" : "In this folder"} · ${inside.length}`}
           </Text>
-          {entry.notes.map((each) => (
-            <Pressable key={each.path} onPress={() => onNavigate(each.path)} role="link" style={styles.line} testID="task-panel-note">
-              <Icon name={each.kind === "folder" ? "folder" : "file"} size={15} color={colors.chromeMuted} />
-              <Text variant="tree" numberOfLines={1} style={[styles.shrink, styles.text2]}>
-                {each.label}
-              </Text>
-            </Pressable>
+          {inside.map((each) => (
+            <NoteLine key={each.path} item={each} onShow={onShow} />
           ))}
-          {canAdd ? (
+          {isTask && canAdd ? (
             adding === "note" ? (
               <QuickAddComposer
                 compact
@@ -191,6 +190,15 @@ export function TaskPanel(props: TaskPanelProps) {
           ) : null}
         </View>
       )}
+      <View style={isTask ? styles.words : undefined}>
+        <PanelBody
+          source={props.source}
+          path={words}
+          title={item.label}
+          width={props.width}
+          onOpenNote={(to, mode) => (mode === "background" && nav !== null ? nav.follow(to, "background") : onNavigate(to))}
+        />
+      </View>
     </View>
   );
 }
@@ -200,102 +208,18 @@ function became(item: FolderItem, path: string): boolean {
   return item.kind === "note" && item.path !== path && item.path.replace(/\.md$/i, "") === path;
 }
 
-function isDone(item: FolderItem, notes: readonly ListNote[]): boolean {
-  return groupOfStatus(item.status, folderStatuses(governingFolder(item.target), notes).list) === "done";
-}
-
-function subtaskHead(subtasks: readonly FolderItem[], notes: readonly ListNote[]): string {
-  if (subtasks.length === 0) return "Subtasks";
-  const done = subtasks.filter((sub) => isDone(sub, notes)).length;
-  return `Subtasks · ${done} of ${subtasks.length} done`;
-}
-
 /** A subtask starts at the first To do of the list inside its task (`to do` by default), never Backlog. */
 function newSubtask(task: QuickAddTask, parent: TaskRef, notes: readonly ListNote[]) {
   const inside = parent.kind === "folder" ? parent.path : parent.path.replace(/\.md$/i, "");
   return { ...task, status: makeItTaskStatus(folderStatuses(inside, notes).list) };
 }
 
-function Subtask({
-  item,
-  notes,
-  actions,
-  chooseMany,
-  onShow,
-}: {
-  item: FolderItem;
-  notes: readonly ListNote[];
-  actions: ItemActions;
-  chooseMany: TaskPanelProps["chooseMany"];
-  onShow: (path: string) => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const list = folderStatuses(governingFolder(item.target), notes).list;
-  const tone = groupOfStatus(item.status, list) ?? "unplaced";
-  const done = tone === "done";
-  const next = tickStatus(item.status, list);
-  const owner = ownersOf(item.properties)[0];
-  return (
-    <View style={styles.line} testID="task-panel-subtask">
-      {chooseMany === null || next === null ? (
-        <StatusDot tone={tone} />
-      ) : (
-        <Pressable
-          onPress={() => void chooseMany(item.target, [["status", next]], item.creates)}
-          role="button"
-          accessibilityLabel={done ? "Mark not done" : "Mark done"}
-          hitSlop={6}
-          testID="task-panel-tick"
-        >
-          <StatusDot tone={tone} />
-        </Pressable>
-      )}
-      <Pressable onPress={() => onShow(item.path)} role="link" style={styles.shrink} testID="task-panel-subtask-open">
-        <Text variant="tree" numberOfLines={1} style={done ? styles.finished : styles.text}>
-          {item.label}
-        </Text>
-      </Pressable>
-      <View style={styles.push} />
-      <OwnerFace face={faceFor(actions, owner)} size={20} />
-    </View>
-  );
-}
-
-function Add({ label, onPress, testID }: { label: string; onPress: () => void; testID: string }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Pressable onPress={onPress} role="button" style={styles.add} testID={testID}>
-      <Text variant="tree" style={styles.muted}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    panel: {
-      width: PANEL_WIDTH,
-      flexShrink: 0,
-      alignSelf: "flex-start",
-      gap: space.x5,
-      paddingVertical: space.x6,
-      paddingHorizontal: space.x6,
-      borderRadius: radii.card,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.surface,
-    },
-    crumb: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
+    // The frame, the width and the scrolling are the peek's (`PanelBeside`).
+    panel: { gap: space.x5 },
     section: { gap: 2 },
     head: { color: colors.muted, fontWeight: "600", paddingBottom: space.x1 },
-    line: { flexDirection: "row", alignItems: "center", gap: space.x3, minHeight: 32, borderRadius: radii.sm },
-    push: { flexGrow: 1 },
-    shrink: { flexShrink: 1, minWidth: 0 },
-    muted: { color: colors.chromeMuted },
-    link: { color: colors.chromeMuted, textDecorationLine: "underline" },
-    text: { color: colors.text },
-    text2: { color: colors.text2 },
-    finished: { color: colors.chromeMuted, textDecorationLine: "line-through" },
-    add: { alignSelf: "flex-start", paddingVertical: space.x2, paddingRight: space.x2 },
+    // Under a task's values and lists, the words start below a rule.
+    words: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space.x5 },
   });

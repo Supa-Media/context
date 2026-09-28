@@ -3,9 +3,11 @@
  * Board and the task side panel's tests share it. Fake names and paths only.
  */
 
-import { act, createElement } from "react";
+import { act, createElement, useState, type ReactNode } from "react";
+import { FrameContext, useFrame } from "../../features/app/appFrame/context";
 import { createRoot } from "react-dom/client";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ConsoleNavProvider, type ConsoleNav } from "../../features/console/ConsoleNavContext";
 import { FolderView } from "../../features/console/files/FolderView";
 import type { FolderPageHost } from "../../features/console/files/folderPage/FolderPage";
 import type { TaskHost } from "../../features/console/files/folderPage/tasks/taskHost";
@@ -48,6 +50,15 @@ export const NOTES: ListNote[] = [
   note("budget.md", {}, 8, "Opening budget"),
 ];
 
+/** What some of the notes say, as the device holds them; any other note has no body on this device. */
+export const BODIES: Record<string, string> = {
+  [`${CAFE}/overview.md`]: "---\nstatus: in progress\n---\n# Café opening\n\nOpen a café on the corner by spring.\n",
+  [`${CAFE}/kitchen/overview.md`]: "---\nstatus: in progress\npriority: p1\n---\n# Get the kitchen ready\n\nEverything the cooks need on day one.\n",
+  [`${CAFE}/kitchen/layout.md`]: "# Kitchen layout sketch\n\nOven on the back wall.\n",
+  [`${CAFE}/budget.md`]: "# Opening budget\n\nRent, stock and the first month's wages.\n",
+  [`${CAFE}/lease.md`]: "---\nstatus: to do\n---\n# Sign the lease\n\nTwo years, with a break at one.\n",
+};
+
 export const LISTING: FolderListing = {
   path: CAFE,
   folderDefault: "team",
@@ -67,8 +78,12 @@ export type Toast = { message: string; undo?: () => void };
  * A writer's page (every property write recorded in `writes`, every file write
  * in `files`, every toast in `toasts`), or a member's with `null`.
  */
-export function host(writes: Write[] | null, options: { notes?: ListNote[]; files?: string[]; toasts?: Toast[] } = {}): FolderPageHost {
+export function host(
+  writes: Write[] | null,
+  options: { notes?: ListNote[]; files?: string[]; toasts?: Toast[]; bodies?: Record<string, string>; reads?: string[] } = {},
+): FolderPageHost {
   const notes = options.notes ?? NOTES;
+  const bodies = options.bodies ?? BODIES;
   const files = options.files;
   const toasts = options.toasts ?? [];
   const tasks: TaskHost | undefined =
@@ -94,6 +109,11 @@ export function host(writes: Write[] | null, options: { notes?: ListNote[]; file
     ...(tasks === undefined ? {} : { tasks }),
     source: {
       load: async () => ({ notes, complete: true }),
+      readBody: async (path: string) => {
+        options.reads?.push(path);
+        const text = bodies[path];
+        return text === undefined ? null : { text, encrypted: false };
+      },
       searchOwners: async () => ({ people: [{ value: "@sayo", name: "Sayo", isMe: false }, { value: "@seyi", name: "Seyi", isMe: true }], agents: ["Claude"], truncated: false }),
       ...(writes === null
         ? {}
@@ -124,7 +144,12 @@ export function unmountAll() {
   document.body.innerHTML = "";
 }
 
-export async function mount(page: FolderPageHost, listing: FolderListing = LISTING) {
+/** The console's file tree as a test sees it: shown or folded, as the frame last left it. */
+export interface Tree {
+  hidden: boolean;
+}
+
+export async function mount(page: FolderPageHost, listing: FolderListing = LISTING, nav?: ConsoleNav, tree?: Tree) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -137,20 +162,58 @@ export async function mount(page: FolderPageHost, listing: FolderListing = LISTI
     root.render(
       createElement(SafeAreaProvider, {
         initialMetrics: { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } },
-        children: createElement(FolderView, {
-          entry: entry("folder", CAFE),
+        children: wrap(nav, tree, createElement(FolderView, {
+          entry: entry("folder", listing.path),
           listing,
           canSetVisibility: true,
           contextLabel: "@seyi",
           onSelect: (path: string) => void selected.push(path),
           page,
-        }),
+        })),
       }),
     );
   });
   await act(async () => {});
   await act(async () => {});
   return { container, selected };
+}
+
+function wrap(nav: ConsoleNav | undefined, tree: Tree | undefined, child: ReturnType<typeof createElement>) {
+  const framed = tree === undefined ? child : createElement(FrameWith, { tree, children: child });
+  return nav === undefined ? framed : createElement(ConsoleNavProvider, { value: nav, children: framed });
+}
+
+/** A frame whose file tree folds and unfolds, and says where it is left in `tree`. */
+function FrameWith({ tree, children }: { tree: Tree; children: ReactNode }) {
+  const base = useFrame();
+  const [hidden, setHidden] = useState(tree.hidden);
+  tree.hidden = hidden;
+  const value = {
+    ...base,
+    state: { ...base.state, explorerHidden: hidden },
+    regions: { ...base.regions, explorer: hidden ? ("hidden" as const) : ("column" as const) },
+    toggleExplorer: () => {
+      tree.hidden = !tree.hidden;
+      setHidden(tree.hidden);
+    },
+    // Said to `tree` at once too: a page being left folds nothing back by rendering again.
+    setExplorerFolded: (folded: boolean) => {
+      tree.hidden = folded;
+      setHidden(folded);
+    },
+  };
+  return createElement(FrameContext.Provider, { value, children });
+}
+
+/** The console's navigation, recording every tab a link or a panel opens. */
+export function navRecording(opened: [string, string][]): ConsoleNav {
+  return {
+    follow: (path, mode) => void opened.push([path, mode]),
+    back: () => {},
+    forward: () => {},
+    canBack: false,
+    canForward: false,
+  };
 }
 
 export const all = (testID: string, within: ParentNode = document): HTMLElement[] => [

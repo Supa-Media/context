@@ -5,16 +5,23 @@
 /**
  * A TASK OPENS BESIDE THE LIST, NOT INSTEAD OF IT.
  *
- * The approved side panel (owner, 2026-09-28): on a wide page, pressing a
+ * The approved side panel (owner, 2026-09-28): on a desktop page, pressing a
  * task — a List row or a Board card — opens it on the right: where it is,
  * its name, Status, Priority, Owners, Tags and Due as one-click values, its
  * subtasks with dots that tick them off, and the notes in it, with "+ Add
- * subtask" and "+ Add a note". "Open full page" goes where pressing used to;
- * ✕ and Escape close it. On a phone pressing still opens the page. A member
- * reads every value and has nothing to press that would write.
+ * subtask" and "+ Add a note". Expand goes where pressing used to; ✕ and
+ * Escape close it. On a phone pressing still opens the page. A member reads
+ * every value and has nothing to press that would write. Notes, projects and
+ * the body are `sidePeek.test.ts`'s.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
+
+// What is under test is the panel around the note's words, not CodeMirror's own DOM.
+jest.mock("../features/console/files/LiveEditor", () => ({
+  LiveEditor: (props: { value: string; editable: boolean }) =>
+    require("react").createElement("div", { "data-testid": "task-panel-body-editor", "data-editable": String(props.editable) }, props.value),
+}));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -61,9 +68,9 @@ describe("the side panel", () => {
     expect(row("Get the kitchen ready").getAttribute("aria-current")).toBe("true");
   });
 
-  test("Open full page goes where pressing the row used to; ✕ and Escape close it", async () => {
+  test("Expand goes where pressing the row used to; ✕ and Escape close it", async () => {
     const { selected } = await openTask("Get the kitchen ready");
-    await press(one("task-panel-open"));
+    await press(one("task-panel-expand"));
     expect(selected).toEqual([`${CAFE}/kitchen`]);
     await press(one("task-panel-close"));
     expect(all("task-panel")).toHaveLength(0);
@@ -126,11 +133,13 @@ describe("the side panel", () => {
     expect(writes).toEqual([[`${CAFE}/kitchen/overview.md`, "owner", "@sayo", undefined]]);
   });
 
-  test("the notes in a task are listed and open as notes", async () => {
+  test("the notes in a task are listed, and one opens here in its place", async () => {
     const { selected } = await openTask("Get the kitchen ready");
     expect(strip(one("task-panel-notes-head").textContent)).toBe("Notes · 1");
     await press(one("task-panel-note"));
-    expect(selected).toEqual([`${CAFE}/kitchen/layout.md`]);
+    expect(selected).toEqual([]);
+    expect(strip(one("task-panel-title").textContent)).toBe("Kitchen layout sketch");
+    expect(strip(one("task-panel-crumb").textContent)).toMatch(/Café opening.*Get the kitchen ready/);
   });
 
   test("+ Add subtask on a one-note task makes it a folder first, then writes the subtask", async () => {
@@ -188,11 +197,11 @@ describe("the side panel", () => {
     expect(all("task-panel-subtask")).toHaveLength(3);
   });
 
-  test("a plain note still opens as a note, and a Board card opens in the panel", async () => {
+  test("a plain note opens in the panel too, and so does a Board card", async () => {
     const { selected } = await mount(host([]));
     await press(all("folder-note").find((node) => strip(node.textContent).includes("Opening budget"))!);
-    expect(selected).toEqual([`${CAFE}/budget.md`]);
-    expect(all("task-panel")).toHaveLength(0);
+    expect(selected).toEqual([]);
+    expect(strip(one("task-panel-title").textContent)).toBe("Opening budget");
     await press(one("folder-view-board"));
     await press(all("folder-card").find((node) => strip(node.textContent).includes("Take photos"))!);
     expect(strip(one("task-panel-title").textContent)).toBe("Take photos for the menu");

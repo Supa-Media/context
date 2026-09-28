@@ -35,6 +35,7 @@ import { OwnerFace, PriorityGlyph, StatusDot, type Face } from "./Glyphs";
 import { ownerChoiceFor, ownerLabel, type ItemActions } from "./items";
 import type { TaskEntry } from "./listLayout";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
+import { PeekButton } from "./PeekButton";
 import { PropertyValue } from "./PropertyValue";
 import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
 import { isPickPress, PickBox, RowFrame, SubtaskAdder, SubtaskButton } from "./tasks/RowParts";
@@ -114,6 +115,7 @@ export function TaskRow({
             </View>
             {compact ? <CompactLine item={item} due={due === null ? "" : dueWord(due, now)} actions={actions} /> : null}
           </View>
+          <PeekButton item={item} actions={actions} shown={hovered} />
           {tasks === null || compact ? null : (
             <SubtaskButton shown={hovered} onPress={() => tasks.openComposer({ kind: "subtask", parent: item.path })} />
           )}
@@ -177,8 +179,9 @@ function SubtaskRow({ item, compact, actions }: { item: FolderItem; compact: boo
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         role="link"
+        aria-current={actions.selected === item.path ? "true" : undefined}
         accessibilityLabel={item.label}
-        style={[compact ? styles.rowTouch : styles.row, styles.nested, hovered && styles.rowHover, picked && styles.rowPicked]}
+        style={[compact ? styles.rowTouch : styles.row, styles.nested, (hovered || actions.selected === item.path) && styles.rowHover, picked && styles.rowPicked]}
         testID="folder-subtask"
       >
         {tasks === null ? null : (
@@ -188,6 +191,7 @@ function SubtaskRow({ item, compact, actions }: { item: FolderItem; compact: boo
         <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={[styles.label, styles.grow, tone === "done" && styles.finished]}>
           {item.label}
         </Text>
+        <PeekButton item={item} actions={actions} shown={hovered} />
         {actions.onChoose === null ? null : (
           <View style={compact ? styles.statusTouch : styles.cell}>
             <StatusValue item={item} actions={actions} quiet={!compact && !hovered} compact={compact} />
@@ -235,14 +239,16 @@ export function NoteRow({
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         role="link"
+        aria-current={actions.selected === item.path ? "true" : undefined}
         accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}
-        style={[compact ? styles.rowTouch : styles.noteRow, nested && styles.nested, hovered && styles.rowHover]}
+        style={[compact ? styles.rowTouch : styles.noteRow, nested && styles.nested, (hovered || actions.selected === item.path) && styles.rowHover]}
         testID="folder-note"
       >
         <Icon name={item.kind === "folder" ? "folder" : "file"} size={16} color={colors.chromeMuted} />
         <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={[styles.noteLabel, styles.grow]}>
           {item.label}
         </Text>
+        <PeekButton item={item} actions={actions} shown={hovered || focused} />
         {make === null ? null : (
           <Pressable
             onPress={() => make(item)}

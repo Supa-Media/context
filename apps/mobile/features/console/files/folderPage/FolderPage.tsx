@@ -18,7 +18,9 @@
  * "Show" narrows it to whose tasks, per viewer (`ShowBar.tsx`). Somebody who
  * may write adds, nests, moves and changes tasks from the List — "+ Add
  * task", a right-click, a selection, a drag — each write undoable from its
- * toast (`tasks/useFolderTasks.tsx`).
+ * toast (`tasks/useFolderTasks.tsx`). On a desktop page any row — a task, a
+ * note, a project — opens beside the List or Board in the side panel
+ * (`panel/`); on a phone, on its own page.
  *
  * Nothing new is stored and nothing is read that a list block could not read:
  * the notes are the device's copy at the role's clearance, and every change is
@@ -216,10 +218,9 @@ export function FolderPage({
   const [editing, setEditing] = useState(false);
   const [tidyProblem, setTidyProblem] = useState<string | null>(null);
   const toneOf = useCallback((status: string) => groupOfStatus(status, list) ?? ("unplaced" as const), [list]);
-  // A task pressed on a wide page opens beside the list (`panel/`); anywhere narrower, on its own page.
+  // Any row pressed on a desktop page opens beside the list (`panel/`); on a phone, on its own page.
   const panel = useTaskPanel(folder, compact, pageWidth);
-  // A task opens beside the list where it fits; a note, or anything on a narrow page, on its own page.
-  const openItem = (item: FolderItem) => (panel.fits && item.status !== "" ? panel.show(item.path) : onSelect(item.path));
+  const openItem = (item: FolderItem) => (panel.fits ? panel.show(item.path) : onSelect(item.path));
   const makeTaskLabel = rowsAreProjects(folder) ? "Make it a project" : "Make it a task";
   const tasks = useFolderTasks({
     host: host?.tasks,
@@ -287,6 +288,7 @@ export function FolderPage({
   const onEditStatuses = edits.savesTo === null ? null : () => setEditing(true);
   const actions: ItemActions = {
     onOpen: openItem,
+    onPeek: panel.fits ? (item) => panel.show(item.path) : null,
     selected: panel.path,
     choices,
     onChoose: tasks.choose ?? (edit === null ? null : (item, key, value) => void edit(item.target, key, value, item.creates)),
@@ -313,23 +315,29 @@ export function FolderPage({
     taskMenu: tasks.menu,
   };
   const problem = loaded.problem ?? tidyProblem ?? tasks.controls?.problem ?? null;
+  const peeking = panel.path;
+  // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
-    view === "files" || waiting || panel.path === null ? null : (
-      <TaskPanel
-        path={panel.path}
-        folder={folder}
-        notes={notes ?? []}
-        projectTitle={summary?.title ?? fallbackTitle}
-        actions={actions}
-        chooseMany={loaded.canEdit ? loaded.chooseMany : null}
-        perform={tasks.controls?.perform ?? null}
-        paths={pending.rows.map((row) => row.path)}
-        now={now}
-        onShow={panel.show}
-        onNavigate={onSelect}
-        onClose={panel.close}
-      />
-    );
+    view === "files" || waiting || peeking === null
+      ? null
+      : (width: number) => (
+          <TaskPanel
+            path={peeking}
+            folder={folder}
+            notes={notes ?? []}
+            projectTitle={summary?.title ?? fallbackTitle}
+            actions={actions}
+            chooseMany={loaded.canEdit ? loaded.chooseMany : null}
+            perform={tasks.controls?.perform ?? null}
+            paths={pending.rows.map((row) => row.path)}
+            now={now}
+            source={host.source}
+            width={width}
+            onShow={panel.show}
+            onNavigate={onSelect}
+            onClose={panel.close}
+          />
+        );
 
   return (
     <>
