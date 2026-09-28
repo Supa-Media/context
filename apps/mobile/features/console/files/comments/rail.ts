@@ -108,7 +108,10 @@ class Rail implements PluginValue {
 
   update(update: ViewUpdate) {
     const uiChanged = update.startState.field(commentUi) !== update.state.field(commentUi);
-    if (update.docChanged || uiChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
+    // The column's shift moves every card with it, so a new shift is a new
+    // layout even though nothing else about the note changed.
+    const shiftChanged = update.startState.field(marginShift) !== update.state.field(marginShift);
+    if (update.docChanged || uiChanged || shiftChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
       this.sync();
     }
   }
@@ -210,12 +213,18 @@ class Rail implements PluginValue {
     // of which the margin changes, so reserving it cannot undo the decision.
     const measure = parseFloat(style.getPropertyValue("--lp-measure")) * parseFloat(style.fontSize);
     const gutter = Number.isFinite(measure) ? (contentRect.width - measure) / 2 : 0;
+    // Where the column's right edge is when centred, whatever padding it has
+    // this frame: the shift eases in over 220ms, and a card placed against the
+    // column mid-ease would be left behind (off the pane's edge) until the next
+    // update moved it.
+    const centredRight =
+      Number.isFinite(measure) && gutter >= 0 ? contentRect.left - scrollerRect.left + scroller.scrollLeft + gutter + measure : null;
     const length = view.state.doc.length;
     const cards = [...this.cards].map(([id, card]) => {
       const block = view.lineBlockAt(Math.min(card.pos, length));
       return { id, top: block.top + offset, height: card.node.offsetHeight };
     });
-    return { cards, columnRight, offset, gutter };
+    return { cards, columnRight, centredRight, offset, gutter };
   }
 
   private place(layout: ReturnType<Rail["measure"]>) {
@@ -232,7 +241,8 @@ class Rail implements PluginValue {
       });
     }
     if (this.wide) {
-      const left = layout.columnRight + CARD_GAP;
+      // Against where the column is going, not where it is mid-ease.
+      const left = (layout.centredRight === null ? layout.columnRight : layout.centredRight - shift) + CARD_GAP;
       const focus = this.cards.has(DRAFT) ? DRAFT : active;
       const placed = stackCards(
         layout.cards.map((card) => ({ id: card.id, want: card.id === HEAD ? layout.offset : card.top, height: card.height })),
