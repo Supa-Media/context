@@ -34,6 +34,7 @@ import { FolderGroups } from "./Groups";
 import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
 import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./items";
 import { localOwnerSearch, ownersInUse } from "../owners";
+import { useOwnerLabels } from "./useOwnerLabels";
 import {
   defaultFolderView,
   folderItems,
@@ -140,13 +141,17 @@ export function FolderPage({
   const serverOwners = host?.source.searchOwners;
   const searchOwners = useMemo(() => serverOwners ?? localOwnerSearch(people ?? []), [serverOwners, people]);
   const suggestFor = host?.source.suggestOwner;
+  const inUse = useMemo(() => ownersInUse(items), [items]);
+  const siblingsInUse = useMemo(() => ownersInUse(siblings), [siblings]);
+  const ownerWords = useMemo(() => [...inUse, ...siblingsInUse], [inUse, siblingsInUse]);
+  const label = useOwnerLabels(host?.source.resolveOwners, ownerWords);
   const owners = useMemo<OwnerChoice>(
-    () => ({ search: searchOwners, prefer: ownersInUse(items), ...(suggestFor === undefined ? {} : { suggestFor }) }),
-    [searchOwners, items, suggestFor],
+    () => ({ search: searchOwners, prefer: inUse, label, ...(suggestFor === undefined ? {} : { suggestFor }) }),
+    [searchOwners, inUse, label, suggestFor],
   );
   const siblingOwners = useMemo<OwnerChoice>(
-    () => ({ search: searchOwners, prefer: ownersInUse(siblings), ...(suggestFor === undefined ? {} : { suggestFor }) }),
-    [searchOwners, siblings, suggestFor],
+    () => ({ search: searchOwners, prefer: siblingsInUse, label, ...(suggestFor === undefined ? {} : { suggestFor }) }),
+    [searchOwners, siblingsInUse, label, suggestFor],
   );
   const menuSections = useMemo(() => statusMenu(list), [list]);
   const parentMenu = useMemo(() => statusMenu(parentStatuses.list), [parentStatuses]);

@@ -28,6 +28,8 @@ const MIN_BODY_CHARS = 12;
 export interface OwnerCandidates {
   readonly people: readonly string[];
   readonly agents: readonly string[];
+  /** Each person's name, beside `people`: a note says "Seyi", the owner line `@seyi`. */
+  readonly names?: readonly (string | null)[];
 }
 
 export interface NoteToRead {
@@ -71,9 +73,10 @@ export function ownerOptions(candidates: OwnerCandidates): Map<string, Suggested
 export function ownerRequest(text: string, candidates: OwnerCandidates): { state: string; questions: Record<string, unknown> } {
   const criteria: Record<string, string> = {};
   for (const [key, option] of ownerOptions(candidates)) {
+    const name = option?.kind === "person" ? candidates.names?.[candidates.people.indexOf(option.value)] : null;
     criteria[key] =
       option === null ? "None of these: the note does not make clear who should do this work"
-      : option.kind === "person" ? `${option.value}, a person in this workspace`
+      : option.kind === "person" ? `${option.value}${name ? ` (${name})` : ""}, a person in this workspace`
       : option.kind === "agent" ? `${option.value}, an AI agent connected to this workspace`
       : "Any AI agent: the note hands this work to an agent, whichever picks it up";
   }

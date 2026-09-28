@@ -16,7 +16,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { MAX_OWNER_SCAN } from "../functions/owners";
-import { matchTier, preferWeight, rankMembers } from "../functions/lib/owners/rank";
+import { matchTier, preferWeight, rankMembers, resolveOwnerWords } from "../functions/lib/owners/rank";
 import {
   addMember,
   asUser,
@@ -36,13 +36,14 @@ async function person(t: T, email: string, name?: string): Promise<Id<"users">> 
   return id;
 }
 
-async function client(t: T, clientId: string, clientName: string): Promise<void> {
+async function client(t: T, clientId: string, clientName: string, softwareId?: string): Promise<void> {
   await t.run((ctx) =>
     ctx.db.insert("oauthClients", {
       clientId,
       clientName,
       redirectUris: ["https://client.example.invalid/callback"],
       hashedClientSecret: null,
+      ...(softwareId === undefined ? {} : { softwareId }),
       createdAt: Date.now(),
     }),
   );
@@ -110,6 +111,68 @@ describe("who is offered", () => {
   });
 });
 
+describe("handles, never addresses", () => {
+  /** Seyi claims a handle; Sayo has one as the slug of a personal workspace; John has none. */
+  async function handled() {
+    const found = await team();
+    const { t, owner, editor } = found;
+    await t.run((ctx) =>
+      ctx.db.insert("names", { name: "seyi", kind: "user", userId: owner, claimedBy: owner, claimedAt: Date.now() }),
+    );
+    await createWorkspace(t, editor, "sayo");
+    return found;
+  }
+
+  test("a member with a handle is offered as @handle with their name beside it, and no address leaves", async () => {
+    const { t, editor, workspaceId } = await handled();
+    const found = await search(t, editor, workspaceId, "");
+    expect(found.people).toEqual([
+      { value: "@sayo", isMe: true },
+      { value: "@seyi", name: "Seyi Olujide", isMe: false },
+      { value: "John Adé", isMe: false },
+    ]);
+    expect(JSON.stringify(found)).not.toContain("example.invalid");
+  });
+
+  test("a handle, a name or an address finds them; the address is still never sent", async () => {
+    const { t, editor, workspaceId } = await handled();
+    for (const typed of ["@se", "sey", "Seyi Olu", "seyi@exa"]) {
+      const found = await search(t, editor, workspaceId, typed);
+      expect(found.people.map((p) => p.value)).toEqual(["@seyi"]);
+      expect(JSON.stringify(found)).not.toContain("example.invalid");
+    }
+  });
+
+  test("an owner line written before handles resolves to the member it names", async () => {
+    const { t, john, workspaceId } = await handled();
+    const resolved = await asUser(t, john).query(api.functions.owners.resolveOwners, {
+      workspaceId,
+      words: ["seyi@example.invalid", "Sayo", "@seyi", "John Adé", "Mallory Sayers", "mallory@example.invalid", "nobody"],
+    });
+    // Already a handle, no handle to give, or not a member: left as written.
+    expect(resolved).toEqual([
+      { word: "seyi@example.invalid", value: "@seyi" },
+      { word: "Sayo", value: "@sayo" },
+    ]);
+  });
+
+  test("resolving is a member's question, refused to anybody else as a missing workspace", async () => {
+    const { t, outsider, workspaceId } = await handled();
+    const error = await captureError(() =>
+      asUser(t, outsider).query(api.functions.owners.resolveOwners, { workspaceId, words: ["seyi@example.invalid"] }),
+    );
+    expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
+  });
+
+  test("a name two members share names nobody", () => {
+    const twins = [
+      { value: "@a", name: "Sam", handle: "a", isMe: false },
+      { value: "@b", name: "Sam", handle: "b", isMe: false },
+    ];
+    expect(resolveOwnerWords(twins, ["Sam", "@A"])).toEqual([{ word: "@A", value: "@a" }]);
+  });
+});
+
 describe("which agents are offered", () => {
   test("an owner sees every connected agent; an editor only their own", async () => {
     const { t, owner, editor, workspaceId } = await team();
@@ -123,6 +186,19 @@ describe("which agents are offered", () => {
     expect((await search(t, owner, workspaceId, "")).agents.sort()).toEqual(["Claude", "Codex"]);
     expect((await search(t, editor, workspaceId, "")).agents).toEqual(["Codex"]);
     expect((await search(t, owner, workspaceId, "cla")).agents).toEqual(["Claude"]);
+  });
+
+  test("an integration that only files notes is not an agent anybody can own work", async () => {
+    const { t, owner, editor, workspaceId } = await team();
+    await client(t, "c-claude", "Claude");
+    await client(t, "c-sentry", "Context Sentry incident inbox");
+    await client(t, "c-hook", "Deploy notes", "context-integration:deploys");
+    await seedGrant(t, workspaceId, owner, "c-claude", "a".repeat(64));
+    // Held by another member, as the Sentry Worker's journey-test account holds its grant.
+    await seedGrant(t, workspaceId, editor, "c-sentry", "b".repeat(64));
+    await seedGrant(t, workspaceId, owner, "c-hook", "c".repeat(64));
+    expect((await search(t, owner, workspaceId, "")).agents).toEqual(["Claude"]);
+    expect((await search(t, owner, workspaceId, "sentry")).agents).toEqual([]);
   });
 
   test("a name is offered as one line, whatever its holder registered", async () => {

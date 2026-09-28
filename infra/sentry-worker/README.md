@@ -48,3 +48,12 @@ ignored. If token refresh or the Context write fails, the Worker returns `503`
 so Sentry retries instead of losing the issue.
 
 Run `pnpm --filter @context/sentry-worker test` from the repository root.
+
+## Not an agent
+
+The Worker's OAuth client is an integration, not an AI agent, so an owner
+picker never offers it as somebody who could own a project
+(`apps/convex/functions/lib/owners/integrations.ts`). Its client was registered
+as "Context Sentry incident inbox" and is recognised by that name. An
+integration registered from now on says so with a `software_id` beginning
+`context-integration` (for example `context-integration:sentry-inbox`).
