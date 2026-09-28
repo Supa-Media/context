@@ -31,7 +31,22 @@
  * (2026-09-28), so a phone gets a compact flag instead: smaller type, a tighter
  * pad, and a width cap that ends a long name in an ellipsis. It still fades
  * like the full one. The editor picks the size by density and says so with
- * `setCaretLabels`; this file only obeys.
+ * `setCaretLabels`; this file only obeys. A flag that would cross the note's
+ * right edge opens leftwards instead (`caretFlagFit.ts`).
+ *
+ * ## One box
+ *
+ * A caret is a zero-width `inline-block` a line tall, with its bar and its flag
+ * both absolutely positioned inside it. It used to be an empty inline span
+ * drawing a border, with the flag positioned against that span. On a phone
+ * (the owner's homepage screenshots, 2026-09-28) that left pink stubs on a
+ * blank line, a second caret at the start of a line the peer had typed past,
+ * and a flag floating free of any caret, while the document itself held one
+ * caret per member throughout (sampled every 150ms at 390 and 440pt). So the
+ * leftovers were paint, not roster: most likely WebKit not repainting a
+ * relatively positioned *empty inline*, whose box is derived from line boxes
+ * that change under it as the line fills. An atomic box has bounds of its own,
+ * a real height on an empty line, and is never split across line fragments.
  */
 
 import { EditorView, Decoration, WidgetType } from "@codemirror/view";
@@ -43,6 +58,7 @@ import { cursorOffset } from "./sync";
 import { agentName, handleInitials } from "./agentName";
 import type * as Y from "yjs";
 import { darkColors } from "../../design/tokens";
+import { caretFlagFit, FLIP_CLASS, ROOM_PROPERTY } from "./caretFlagFit";
 
 /** Replace the whole roster. Nothing here merges: the reducer already did. */
 /** How carets carry their name flags: full size, the phone's compact size, or not at all. */
@@ -76,12 +92,17 @@ class CaretWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    // One positioned box, the bar and the flag both inside it: see the file
+    // header's "One box" for what drawing them separately cost on a phone.
     const caret = document.createElement("span");
     caret.className = "cm-presence-caret";
-    caret.style.borderLeftColor = this.color;
+    caret.setAttribute("aria-hidden", "true");
+    const bar = document.createElement("span");
+    bar.className = "cm-presence-bar";
+    bar.style.backgroundColor = this.color;
+    caret.appendChild(bar);
     // The name is set as *text*, never as markup. It has been stripped twice
     // before it got here and this is the third place it cannot become HTML.
-    caret.setAttribute("aria-hidden", "true");
     if (this.labelled !== "none") {
       const label = document.createElement("span");
       label.className =
@@ -318,16 +339,33 @@ const caretLabelTimer = EditorView.updateListener.of((update: ViewUpdate) => {
 });
 
 const caretTheme = EditorView.baseTheme({
+  // A zero-width atomic box a line tall, on an empty line as on a full one.
   ".cm-presence-caret": {
     position: "relative",
-    borderLeft: "2px solid",
-    marginLeft: "-1px",
+    display: "inline-block",
+    width: "0",
+    height: "1.2em",
+    verticalAlign: "text-bottom",
     pointerEvents: "none",
+  },
+  ".cm-presence-bar": {
+    position: "absolute",
+    left: "-1px",
+    top: "0",
+    bottom: "0",
+    width: "2px",
+    borderRadius: "1px",
   },
   ".cm-presence-label": {
     position: "absolute",
     left: "-1px",
-    top: "-1.35em",
+    bottom: "100%",
+    boxSizing: "border-box",
+    width: "max-content",
+    // `caretFlagFit` narrows this only when neither side has room for the name.
+    maxWidth: `var(${ROOM_PROPERTY}, none)`,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
     padding: "1px 6px",
     borderRadius: "5px 5px 5px 0",
     fontSize: "11px",
@@ -338,14 +376,18 @@ const caretTheme = EditorView.baseTheme({
     pointerEvents: "none",
     userSelect: "none",
   },
+  // Opens leftwards, its right edge on the caret: set by `caretFlagFit` when
+  // the flag would otherwise cross the content's right edge.
+  [`.cm-presence-label.${FLIP_CLASS}`]: {
+    left: "auto",
+    right: "-1px",
+    borderRadius: "5px 5px 0 5px",
+  },
   // The phone's flag: the same flag, smaller, and never wider than a short name.
   ".cm-presence-label.cm-presence-label-compact": {
-    top: "-1.25em",
     padding: "0 4px",
     fontSize: "10px",
-    maxWidth: "9em",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
+    maxWidth: `min(9em, var(${ROOM_PROPERTY}, 9em))`,
   },
   ".cm-presence-selection": {
     borderRadius: "3px",
@@ -384,5 +426,5 @@ export type Reporter = (anchor: number, head: number) => void;
 
 /** The whole extension, for `editorExtensions` to include. */
 export function remoteCarets(): Extension {
-  return [caretState, caretDocument, caretLabels, caretDecorations, caretLabelTimer, caretTheme];
+  return [caretState, caretDocument, caretLabels, caretDecorations, caretLabelTimer, caretFlagFit, caretTheme];
 }
