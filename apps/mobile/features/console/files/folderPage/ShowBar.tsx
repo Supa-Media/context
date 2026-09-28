@@ -11,6 +11,10 @@
  *
  * `end` sits at the bar's right: the List's primary "+ Add task", for
  * somebody who may write.
+ *
+ * On a phone the chips are one line that scrolls sideways (PhoneList
+ * artboard) rather than wrapping onto a second and third: the list is what
+ * the screen is for, and a chip past the edge is a thumb-flick away.
  */
 
 import { useRef, useState, type ReactNode } from "react";
@@ -68,23 +72,25 @@ export function ShowBar({
       });
   };
   return (
-    <View style={styles.bar} role="toolbar" accessibilityLabel="Show" testID="folder-show-bar">
+    <View style={[styles.bar, compact && styles.barPhone]} role="toolbar" accessibilityLabel="Show" testID="folder-show-bar">
       <Text variant="meta" style={styles.lab}>
         Show
       </Text>
-      <Chip label="Everyone" on={filter.kind === "everyone"} onPress={() => onChange({ kind: "everyone" })} compact={compact} id="everyone" />
-      {me === null ? null : <Chip label="Mine" on={filter.kind === "mine"} onPress={() => onChange({ kind: "mine" })} compact={compact} id="mine" />}
-      <Chip label={`No owner · ${counts.noOwner}`} on={filter.kind === "no-owner"} onPress={() => onChange({ kind: "no-owner" })} compact={compact} id="no-owner" />
-      <Chip label={`Urgent · ${counts.urgent}`} on={filter.kind === "urgent"} onPress={() => onChange({ kind: "urgent" })} compact={compact} id="urgent" />
-      <View ref={trigger} collapsable={false}>
-        <Chip
-          label={owner === null ? "Owner ▾" : `${ownerName(who, owner)} ▾`}
-          on={owner !== null}
-          onPress={open}
-          compact={compact}
-          id="owner"
-        />
-      </View>
+      <Chips compact={compact}>
+        <Chip label="Everyone" on={filter.kind === "everyone"} onPress={() => onChange({ kind: "everyone" })} compact={compact} id="everyone" />
+        {me === null ? null : <Chip label="Mine" on={filter.kind === "mine"} onPress={() => onChange({ kind: "mine" })} compact={compact} id="mine" />}
+        <Chip label={`No owner · ${counts.noOwner}`} on={filter.kind === "no-owner"} onPress={() => onChange({ kind: "no-owner" })} compact={compact} id="no-owner" />
+        <Chip label={`Urgent · ${counts.urgent}`} on={filter.kind === "urgent"} onPress={() => onChange({ kind: "urgent" })} compact={compact} id="urgent" />
+        <View ref={trigger} collapsable={false}>
+          <Chip
+            label={owner === null ? "Owner ▾" : `${ownerName(who, owner)} ▾`}
+            on={owner !== null}
+            onPress={open}
+            compact={compact}
+            id="owner"
+          />
+        </View>
+      </Chips>
       {picking ? (
         <OwnerFilterMenu
           anchor={menu}
@@ -106,6 +112,24 @@ export function ShowBar({
       ) : null}
       {end === undefined ? null : <View style={styles.end}>{end}</View>}
     </View>
+  );
+}
+
+/** The chips: wrapping where there is room, one sideways-scrolling line on a phone. */
+function Chips({ compact, children }: { compact: boolean; children: ReactNode }) {
+  const styles = useThemedStyles(makeStyles);
+  if (!compact) return <>{children}</>;
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      style={styles.chipScroll}
+      contentContainerStyle={styles.chipLine}
+      testID="folder-show-chips"
+    >
+      {children}
+    </ScrollView>
   );
 }
 
@@ -261,7 +285,10 @@ function OwnerFilterMenu({
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     bar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: space.x2 },
+    barPhone: { flexWrap: "nowrap" },
     lab: { color: colors.chromeMuted, marginRight: 2 },
+    chipScroll: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+    chipLine: { flexDirection: "row", alignItems: "center", gap: 6 },
     end: { marginLeft: "auto" },
     chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.md, backgroundColor: colors.chipFill },
     chipTouch: { paddingVertical: 8 },

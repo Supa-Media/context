@@ -235,6 +235,7 @@ export function FolderPage({
     me,
     onOpen: openItem,
     makeTaskLabel,
+    compact,
   });
 
   if (host === undefined) {
@@ -309,6 +310,7 @@ export function FolderPage({
         : (item) => void edit(item.target, "status", makeItTaskStatus(folderStatuses(governingFolder(item.target), notes ?? []).list), item.creates)),
     makeTaskLabel,
     tasks: tasks.controls,
+    taskMenu: tasks.menu,
   };
   const problem = loaded.problem ?? tidyProblem ?? tasks.controls?.problem ?? null;
   const beside =
@@ -425,6 +427,7 @@ export function FolderPage({
                 No tasks match. Choose Everyone to see them all.
               </Text>
             ) : null}
+            {tasks.phoneBar}
           </>
         )}
         {view !== "files" && !waiting && !loaded.complete && notes !== null ? (

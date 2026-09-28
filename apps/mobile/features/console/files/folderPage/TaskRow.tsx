@@ -38,6 +38,7 @@ import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { PropertyValue } from "./PropertyValue";
 import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
 import { isPickPress, PickBox, RowFrame, SubtaskAdder, SubtaskButton } from "./tasks/RowParts";
+import { holdToOpen, MoreButton } from "./tasks/PhoneParts";
 
 /** Tags drawn on a row before the rest are counted. */
 const TAGS_SHOWN = 2;
@@ -70,9 +71,10 @@ export function TaskRow({
   const picked = tasks?.selected.has(item.path) ?? false;
   return (
     <>
-      <RowFrame item={item} controls={tasks}>
+      <RowFrame item={item} controls={tasks} swipe={compact ? actions.taskMenu : null}>
         <Pressable
           onPress={(event) => (tasks !== null && isPickPress(event) ? tasks.togglePick(item.path) : actions.onOpen(item))}
+          {...holdToOpen(item, tasks, compact)}
           onHoverIn={() => setHovered(true)}
           onHoverOut={() => setHovered(false)}
           role="link"
@@ -131,6 +133,7 @@ export function TaskRow({
               <OwnerCell item={item} actions={actions} />
             </View>
           )}
+          {compact && tasks !== null ? <MoreButton item={item} controls={tasks} /> : null}
         </Pressable>
       </RowFrame>
       {open ? <Opened entry={entry} compact={compact} now={now} actions={actions} /> : null}
@@ -167,9 +170,10 @@ function SubtaskRow({ item, compact, actions }: { item: FolderItem; compact: boo
   const tasks = actions.tasks ?? null;
   const picked = tasks?.selected.has(item.path) ?? false;
   return (
-    <RowFrame item={item} controls={tasks}>
+    <RowFrame item={item} controls={tasks} swipe={compact ? actions.taskMenu : null}>
       <Pressable
         onPress={(event) => (tasks !== null && isPickPress(event) ? tasks.togglePick(item.path) : actions.onOpen(item))}
+        {...holdToOpen(item, tasks, compact)}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         role="link"
@@ -194,6 +198,7 @@ function SubtaskRow({ item, compact, actions }: { item: FolderItem; compact: boo
             <OwnerCell item={item} actions={actions} />
           </View>
         )}
+        {compact && tasks !== null ? <MoreButton item={item} controls={tasks} /> : null}
       </Pressable>
     </RowFrame>
   );
@@ -226,6 +231,7 @@ export function NoteRow({
     <RowFrame item={item} controls={actions.tasks ?? null} note>
       <Pressable
         onPress={() => actions.onOpen(item)}
+        {...holdToOpen(item, actions.tasks ?? null, compact)}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         role="link"
@@ -257,6 +263,7 @@ export function NoteRow({
             {meta}
           </Text>
         )}
+        {compact && actions.tasks != null ? <MoreButton item={item} controls={actions.tasks} /> : null}
       </Pressable>
     </RowFrame>
   );

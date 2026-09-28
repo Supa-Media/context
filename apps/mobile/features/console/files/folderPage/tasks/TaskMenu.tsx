@@ -1,76 +1,61 @@
 /**
- * A task row's right-click menu, and the one small step some of its rows
- * lead to: an owner picked, a new tag typed, a day typed. What is offered is
- * `taskMenu.ts`; what each row does is `menuRun.ts`.
+ * A task row's menu, and the one small step some of its rows lead to: an
+ * owner picked, a new tag typed, a day typed. What is offered, and what each
+ * row does, is `useTaskMenu` (over `taskMenu.ts` and `menuRun.ts`).
+ *
+ * One menu, two presentations, chosen by `Menu` itself: a popover at the
+ * pointer, and on a phone a sheet from the bottom whose Priority page is a
+ * row of chips above the rest, each row showing what it is set to
+ * (`phoneSheet.ts`). The ids are the same, so both go through `select`.
  */
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Menu } from "../../../../design/components/Menu";
 import { place } from "../../../../design/components/popoverPlacement";
 import { radii, space } from "../../../../design/tokens";
 import { useThemedStyles, type Colors, type Shadows } from "../../../../design/theme";
-import type { MenuItem } from "../../menuItem";
-import { ownerLabel, type OwnerChoice } from "../items";
-import type { FolderItem } from "../model";
+import type { OwnerChoice } from "../items";
 import { OwnerPicker } from "../OwnerPicker";
-import { PriorityGlyph } from "../Glyphs";
-import { dueOf, ownersOf, tagsOf } from "../taskProps";
-import type { StatusMenuSection } from "../statuses";
+import { tagsOf, ownersOf } from "../taskProps";
 import { DuePanel, TagPanel } from "./QuickAddParts";
-import { duePlan, ownersPlan, runMenuAction, tagsPlan, writtenPriority, type MenuAsk } from "./menuRun";
-import type { ProjectRef } from "./taskEdits";
-import type { TaskHost } from "./taskHost";
-import { taskMenuAction, taskMenuItems } from "./taskMenu";
+import { duePlan, ownersPlan, tagsPlan } from "./menuRun";
+import { phoneSheet } from "./phoneSheet";
+import { PriorityChips } from "./PhoneParts";
+import type { TaskMenuModel } from "./useTaskMenu";
 import type { TaskControls } from "./useTaskActions";
 
 export interface TaskMenuProps {
   controls: TaskControls;
-  host: TaskHost;
-  items: readonly FolderItem[];
-  statusSections: readonly StatusMenuSection[];
-  projects: readonly ProjectRef[];
-  me: string | null;
+  model: TaskMenuModel;
   owners: OwnerChoice | undefined;
-  makeTaskLabel: string;
-  onOpen: (item: FolderItem) => void;
-  onMakeTask: (item: FolderItem) => void;
 }
 
-type Asking = { readonly kind: MenuAsk; readonly path: string; readonly anchor: { x: number; y: number } } | null;
-
-export function TaskMenu(props: TaskMenuProps) {
-  const { controls, host, owners } = props;
-  const [asking, setAsking] = useState<Asking>(null);
+export function TaskMenu({ controls, model, owners }: TaskMenuProps) {
   const open = controls.menu;
-  const entry = open === null ? undefined : controls.lookup(open.path);
+  const items = open === null ? null : model.itemsFor(open.path);
+  const title = open === null ? undefined : controls.lookup(open.path)?.item.label;
+  const asking = model.asking;
   const asked = asking === null ? undefined : controls.lookup(asking.path)?.item;
+  const sheet = open === null || items === null ? null : phoneSheet(items, model.valuesFor(open.path));
+  const select = (id: string) => {
+    if (open === null) return;
+    controls.closeMenu();
+    model.select(open.path, id, open.anchor);
+  };
   return (
     <>
-      {open !== null && entry !== undefined ? (
+      {open !== null && items !== null && sheet !== null ? (
         <Menu<string>
-          items={menuItems(props, entry.item, entry.parent !== null)}
+          items={items}
           anchor={open.anchor}
-          title={entry.item.label}
-          onDismiss={controls.closeMenu}
-          onSelect={(id) => {
-            controls.closeMenu();
-            const action = taskMenuAction(id);
-            if (action === null) return;
-            runMenuAction(action, {
-              controls,
-              entry,
-              me: props.me,
-              owners,
-              projects: props.projects,
-              now: new Date(),
-              open: props.onOpen,
-              makeTask: props.onMakeTask,
-              ask: (kind) => setAsking({ kind, path: entry.item.path, anchor: open.anchor }),
-              ...(host.copyLink === undefined ? {} : { copyLink: host.copyLink }),
-              ...(host.archive === undefined ? {} : { archive: host.archive }),
-            });
+          {...(title === undefined ? {} : { title })}
+          sheet={{
+            items: sheet.items,
+            ...(sheet.chips.length === 0 ? {} : { header: <PriorityChips chips={sheet.chips} onPick={select} /> }),
           }}
+          onDismiss={controls.closeMenu}
+          onSelect={select}
         />
       ) : null}
       {asking?.kind === "owner" && asked !== undefined && owners !== undefined ? (
@@ -81,79 +66,40 @@ export function TaskMenu(props: TaskMenuProps) {
           anchor={asking.anchor}
           savesTo={null}
           onChoose={(value) => {
-            setAsking(null);
+            model.endAsk();
             const now = ownersOf(asked.properties);
             const has = now.some((owner) => owner.toLowerCase() === value?.toLowerCase());
             if (value !== null && !has) void controls.perform(ownersPlan(asked, [...now, value], owners));
           }}
-          onDismiss={() => setAsking(null)}
+          onDismiss={model.endAsk}
           {...(owners.addAgent === undefined ? {} : { onAddAgent: owners.addAgent })}
         />
       ) : null}
       {asking?.kind === "tag" && asked !== undefined ? (
-        <FieldPopover anchor={asking.anchor} onDismiss={() => setAsking(null)}>
+        <FieldPopover anchor={asking.anchor} onDismiss={model.endAsk}>
           <TagPanel
             suggestions={controls.tagSuggestions.filter((tag) => !tagsOf(asked.properties).some((each) => each.toLowerCase() === tag.toLowerCase()))}
             onAdd={(tag) => {
-              setAsking(null);
+              model.endAsk();
               void controls.perform(tagsPlan(asked, [...tagsOf(asked.properties), tag]));
             }}
-            onClose={() => setAsking(null)}
+            onClose={model.endAsk}
           />
         </FieldPopover>
       ) : null}
       {asking?.kind === "due" && asked !== undefined ? (
-        <FieldPopover anchor={asking.anchor} onDismiss={() => setAsking(null)}>
+        <FieldPopover anchor={asking.anchor} onDismiss={model.endAsk}>
           <DuePanel
             now={new Date()}
             onPick={(day) => {
-              setAsking(null);
+              model.endAsk();
               void controls.perform(duePlan(asked, day, new Date()));
             }}
-            onClose={() => setAsking(null)}
+            onClose={model.endAsk}
           />
         </FieldPopover>
       ) : null}
     </>
-  );
-}
-
-function menuItems(props: TaskMenuProps, item: FolderItem, isSubtask: boolean): MenuItem<string>[] {
-  const { controls, owners } = props;
-  const parent = controls.lookup(item.path)?.parent ?? null;
-  const items = taskMenuItems({
-    kind: item.status === "" ? "note" : "task",
-    status: item.status,
-    priority: writtenPriority(item),
-    owners: ownersOf(item.properties),
-    tags: tagsOf(item.properties),
-    hasDue: dueOf(item.properties) !== null,
-    isSubtask,
-    hasSubtasks: item.progress !== null,
-    statusSections: props.statusSections,
-    backlog: controls.backlog,
-    nestTargets: props.items
-      .filter((each) => each.status !== "" && each.path !== item.path && each.path !== parent?.path)
-      .map((each) => ({ path: each.path, label: each.label })),
-    projects: props.projects,
-    tagsInUse: controls.tagSuggestions,
-    me: props.me,
-    ownerLabel: (value) => ownerLabel(owners, value),
-    canCopyLink: props.host.copyLink !== undefined,
-    canArchive: props.host.archive !== undefined,
-    makeTaskLabel: props.makeTaskLabel,
-  });
-  // Each priority leads with the glyph its rows are drawn with.
-  return items.map((each) =>
-    each.id !== "priority" || each.items === undefined
-      ? each
-      : {
-          ...each,
-          items: each.items.map((choice) => {
-            const scale = choice.id === "priority:none" ? null : (Number(choice.id.slice("priority:p".length)) as 0 | 1 | 2 | 3);
-            return { ...choice, leading: <PriorityGlyph priority={scale} /> };
-          }),
-        },
   );
 }
 
