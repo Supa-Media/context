@@ -262,6 +262,10 @@ export function playCast(
       const suffix = after === "" ? "\n" : after.startsWith("\n") ? "\n" : "\n\n";
       write(cursor, prefix + suffix);
       cursor += prefix.length;
+    } else if (step.below === true) {
+      // The next line of what is above, with no blank line: a list's next item.
+      write(cursor, "\n");
+      cursor += 1;
     } else if (step.text !== "" && !/^[\s,.;:!?)]/.test(step.text)) {
       write(cursor, " ");
       cursor += 1;

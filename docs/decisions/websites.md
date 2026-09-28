@@ -514,7 +514,8 @@ wait 3s
 
 **A block's position is its anchor.** A new line lands where the block was;
 "adds to the line above" lands at the end of whatever paragraph is above it
-now. Nothing matches quoted words, so editing a page can move where a step
+now, and "adds a line below" on the line just under it, which is how a list
+gets its next item. Nothing matches quoted words, so editing a page can move where a step
 lands and never makes one fail. The owner chose this over a separate script
 note that quotes the text it attaches to (which silently drops a step once
 those words change) and over generated lines (which take the words out of
