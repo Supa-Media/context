@@ -157,7 +157,12 @@ export async function askFramesForSuggestions(
         waiting.current.delete(seq);
         resolve([]);
       }, SUGGEST_TIMEOUT_MS);
-      waiting.current.set(seq, { resolve, timer });
+      waiting.current.set(seq, {
+        resolve,
+        timer,
+        pluginId: frame.bundle.pluginId,
+        nonce: frame.nonce,
+      });
     });
     setSuggest({ seq, pluginId: frame.bundle.pluginId, nonce: frame.nonce, line, ch });
     const items = await answer;
@@ -222,7 +227,12 @@ export async function askFramesForPreviews(
         previewing.current.delete(seq);
         resolve([]);
       }, PREVIEW_TIMEOUT_MS);
-      previewing.current.set(seq, { resolve, timer });
+      previewing.current.set(seq, {
+        resolve,
+        timer,
+        pluginId: frame.bundle.pluginId,
+        nonce: frame.nonce,
+      });
     });
     setPreview({
       seq,
@@ -273,7 +283,12 @@ export async function applyOfferedSuggestion(
       applying.current.delete(seq);
       resolve(null);
     }, SUGGEST_TIMEOUT_MS);
-    applying.current.set(seq, { resolve, timer });
+    applying.current.set(seq, {
+      resolve,
+      timer,
+      pluginId: offer.pluginId,
+      nonce: offer.nonce,
+    });
   });
   setSuggestApply({ seq, pluginId: offer.pluginId, nonce: offer.nonce, index });
   return answer;

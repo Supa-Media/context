@@ -140,6 +140,13 @@ export function handleSandboxEvent(
     const pending = waiting.current.get(event.seq);
     if (pending === undefined) return;
     /*
+      Only the frame that was asked may answer. Sequence numbers order work
+      inside the host; they are predictable and are not an identity boundary.
+      Leave the entry intact on an impostor reply so the real frame can still
+      answer or its own timer can expire.
+    */
+    if (pending.pluginId !== pluginId || pending.nonce !== sandbox.nonce) return;
+    /*
       Stale answers are dropped rather than shown. Typing outruns the round
       trip, and a menu for a line the cursor has left offers completions for
       text that is no longer there.
@@ -294,6 +301,9 @@ export function handleSandboxEvent(
   if (event.type === "preview-results") {
     const pending = previewing.current.get(event.seq);
     if (pending === undefined) return;
+    // A preview belongs to the frame the host sent the links to, not merely to
+    // a matching process-wide sequence number.
+    if (pending.pluginId !== pluginId || pending.nonce !== sandbox.nonce) return;
     const previews = freshPreviews(event, lastPreviewAsked.current);
     previewing.current.delete(event.seq);
     clearTimeout(pending.timer);
@@ -303,6 +313,9 @@ export function handleSandboxEvent(
   if (event.type === "suggest-applied") {
     const pending = applying.current.get(event.seq);
     if (pending === undefined) return;
+    // This line is about to enter the trusted editor. Accept it only from the
+    // exact frame that supplied the suggestion the reader picked.
+    if (pending.pluginId !== pluginId || pending.nonce !== sandbox.nonce) return;
     applying.current.delete(event.seq);
     clearTimeout(pending.timer);
     pending.resolve(event.line);
