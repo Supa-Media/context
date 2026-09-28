@@ -536,6 +536,18 @@ do nothing rather than anchor elsewhere. A comment author written
 snapshot keeps them so the homepage can split them out before building its
 tree (`features/home/cast/castSite.ts`).
 
+**The owner previews a script in the homepage itself, never in their
+editor** (Dev2, 2026-09-28: "is there a way to preview how the cast
+plays"). A note whose draft holds a cast block gets a play button beside the
+eye, "Preview demo", which opens the homepage in a new tab with that draft,
+unpublished and unsaved, as its only page (`features/home/castPreview.ts`).
+It cannot play in the console's editor: that editor is bound to the real
+note, and a show typed into it would be saved to the bucket as if the cast
+had written it. The handoff is a one-time key in this browser's storage,
+named in the address and deleted when read, so the draft never reaches a
+server, a reload is the real site, and the player is the homepage's own —
+what the preview shows is what visitors get after Publish.
+
 **It is the console's presence, not a homepage animation.** Each page's show
 is a local `SharedDoc` the web editor binds exactly as it binds a room
 (`castPresence`), so typing arrives as a colleague's keystrokes do and the

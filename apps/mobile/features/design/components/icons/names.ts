@@ -189,6 +189,14 @@ export const ICON_NAMES = [
    */
   "pencil",
   /**
+   * Preview demo: play a website page's cast the way the homepage will.
+   *
+   * An outlined triangle pointing forward, the mark every player draws. It
+   * sits beside the eye and must not read as another reading mode, which is
+   * why it is not an eye or a screen.
+   */
+  "play",
+  /**
    * The file tree's sort order, as Obsidian draws it: an up arrow beside three
    * rules of decreasing length.
    *
