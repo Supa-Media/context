@@ -22,7 +22,7 @@ import { DEFAULT_AGENTS } from "@context/shared/src/agentOwners";
 import { FRONT_NOTES } from "../../../../../mcp/src/lists/grammar.js";
 import type { ListNote, PropertyValue } from "../listBlock/model";
 import { NEW_FRONT_NOTE } from "./model";
-export { agentName, agentOwner, knownAgent, parseAgentOwner } from "../agentOwners";
+export { agentName, agentOwner, agentShown, knownAgent, ownerNote, parseAgentOwner } from "../agentOwners";
 
 export { DEFAULT_AGENTS };
 /** The frontmatter key the list is kept under. */

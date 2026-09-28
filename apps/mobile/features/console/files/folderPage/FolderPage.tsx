@@ -46,6 +46,7 @@ import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./it
 import { localOwnerSearch, ownersInUse } from "../owners";
 import { useOwnerLabels } from "./useOwnerLabels";
 import { useAgents } from "./useAgents";
+import { agentShown } from "./agents";
 import {
   defaultFolderView,
   folderItems,
@@ -174,10 +175,15 @@ export function FolderPage({
   // The viewer's own words are asked about only where a List can say "Mine": a projects folder.
   const me = isProjectsFolder(folder) ? host?.me : undefined;
   const ownerWords = useMemo(() => [...inUse, ...siblingsInUse, ...(me ?? [])], [inUse, siblingsInUse, me]);
-  const label = useOwnerLabels(host?.source.resolveOwners, ownerWords);
+  const resolved = useOwnerLabels(host?.source.resolveOwners, ownerWords);
   // Agents are the workspace's own short list, and somebody may add to it here (`agents.ts`).
   const agents = useAgents(loaded, folder, notes, searchOwners);
   const agentList = agents.list;
+  // An agent that claimed work notes its thread in brackets; the column shows the agent, the note is for hovering.
+  const label = useCallback(
+    (value: string) => resolved(agentShown(value, agentList) ?? value),
+    [resolved, agentList],
+  );
   const taskOwners = useTaskOwners(me ?? NO_WORDS, label, agents.isAgent, agentList);
   const allTasks = useMemo(() => tasksWithSubtasks(items, notes ?? []), [items, notes]);
   const counts = useMemo(() => chipCounts(allTasks, taskOwners.who), [allTasks, taskOwners.who]);

@@ -558,6 +558,11 @@ of words** the workspace keeps as text:
   project's List (see "Priority, tags, due and several owners"), and by the
   model mark on a project's own property line — so a column of people and
   agents reads without a word for it.
+- **An agent that claims work may note its thread in brackets**
+  (`owner: Claude (faster CI/CD project thread)`). It is still that agent,
+  with the robot face; the column shows `Claude` and the whole line is the
+  hover text (Dev2, 2026-09-28). Only an agent's note is hidden: a bracket
+  after a person's name is theirs and shows as written.
 - The list-block menu inside a note writes an agent alone and offers no add;
   asking whose is the folder page's.
 
