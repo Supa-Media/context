@@ -40,28 +40,40 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/router"
+          paths: ".github/workflows/router.yml"
+
       # Browser checks still report on every pull request, but their expensive
       # steps belong only to changes in the dependency graph they execute.
       # email-worker.yml is the second independent host for this guard.
       - name: Expensive CI stays scoped to its dependency graph
+        if: steps.scope.outputs.affected == 'true'
         run: |
           node scripts/check-ci-path-gates.mjs --self-test
           node scripts/check-ci-path-gates.mjs
 
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter @context/router... --frozen-lockfile
 
       - name: Typecheck
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/router
         run: npx tsc --noEmit
 
       - name: Routing tests
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/router
         run: npx vitest run

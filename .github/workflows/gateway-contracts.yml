@@ -97,6 +97,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: |
+            @context/mcp
+            @context/convex
+          paths: |
+            apps/mobile/features/console/storage/dropbox.ts
+            apps/mobile/features/console/storage/dropbox.web.ts
+            .github/workflows/gateway-contracts.yml
+
       # The detector self-tests, and fails when it finds nothing. A scan that
       # matches no files is not a pass — it is this job quietly becoming
       # decorative, which is the failure it was written to catch.
@@ -109,6 +120,7 @@ jobs:
       # exited 0, `--self-test` included. Only an assertion outside the script
       # catches the script not executing.
       - name: The cross-package contract still exists
+        if: steps.scope.outputs.affected == 'true'
         run: |
           node scripts/gateway-contract-tests.mjs --self-test
           found=$(node scripts/gateway-contract-tests.mjs | tee /dev/stderr | wc -l)
@@ -119,8 +131,10 @@ jobs:
           echo "$found contract tests listed."
 
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -153,6 +167,7 @@ jobs:
       # belong. Then the control plane's suite is self-contained and this
       # paragraph is unnecessary. Filed, not done here.
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --frozen-lockfile
 
       # The whole control-plane suite, not only the files the detector names.
@@ -164,5 +179,6 @@ jobs:
       # a floor printed as a total, which is the thing this repository already
       # refuses to do with note counts.
       - name: Control-plane suite, against this commit's gateway
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/convex
         run: npx vitest run

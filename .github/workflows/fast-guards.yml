@@ -24,6 +24,7 @@ jobs:
 
       - name: Workflow files and triggers are valid
         run: |
+          node scripts/ci-change-scope.mjs --self-test
           node scripts/check-workflow-shell.mjs --self-test
           node scripts/check-workflow-shell.mjs
           node scripts/check-workflow-yaml.mjs --self-test

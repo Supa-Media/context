@@ -86,6 +86,7 @@ jobs:
       # in either workflow whose path gates the script validates.
       - name: Expensive CI stays scoped to its dependency graph
         run: |
+          node scripts/ci-change-scope.mjs --self-test
           node scripts/check-ci-path-gates.mjs --self-test
           node scripts/check-ci-path-gates.mjs
 
@@ -127,20 +128,31 @@ jobs:
           node scripts/check-wrangler-vars-not-secrets.mjs --self-test
           node scripts/check-wrangler-vars-not-secrets.mjs
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/email-worker"
+          paths: ".github/workflows/email-worker.yml"
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter @context/email-worker... --frozen-lockfile
 
       - name: Typecheck
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/email-worker
         run: npx tsc --noEmit
 
       - name: Ingestion tests
+        if: steps.scope.outputs.affected == 'true'
         working-directory: infra/email-worker
         run: npx vitest run
