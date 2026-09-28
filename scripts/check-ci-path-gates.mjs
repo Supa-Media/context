@@ -17,6 +17,23 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const INFRA_PATHS = [".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**"];
 
+/** Where the editor bundle records the sources it was built from. */
+const BUNDLE = "apps/mobile/features/console/files/webview/bundle.generated.ts";
+
+/**
+ * Does one changed file fall under one watched pattern?
+ *
+ * The definition lives here rather than in `ci-change-scope.mjs`, which imports
+ * it: that module already depends on this one, and the coverage guard below has
+ * to decide "is this file watched?" with **exactly** the matcher the runtime
+ * uses. Two copies of two lines is how a gate comes to be checked against a
+ * rule nobody enforces — which is the defect this whole file exists for.
+ */
+export function matches(file, pattern) {
+  if (pattern.endsWith("/**")) return file.startsWith(pattern.slice(0, -2));
+  return file === pattern;
+}
+
 function manifests(root) {
   const byName = new Map();
   for (const parent of ["apps", "packages", "infra", "plugins"]) {
@@ -98,6 +115,80 @@ export function assertPaths(actual, required, label) {
 
 function stepBlocks(job) {
   return job.split(/^      - /m).slice(1).map((step) => `      - ${step}`);
+}
+
+/**
+ * The paths one job's shared CI scope step watches, read from its `paths: |`
+ * block.
+ *
+ * Indentation-relative rather than a fixed column, because the block's depth is
+ * a formatting choice and a checker that hard-codes it reports "no paths" on a
+ * reindented file — which reads as "this job watches nothing" and would be
+ * believed.
+ */
+export function scopePaths(yaml, job) {
+  const scope = stepBlocks(jobBlock(yaml, job)).find((step) =>
+    step.includes("uses: ./.github/actions/ci-scope"),
+  );
+  if (scope === undefined) throw new Error(`${job} has no shared CI scope step`);
+  const lines = scope.split("\n");
+  const at = lines.findIndex((line) => /^\s+paths: \|\s*$/.test(line));
+  if (at === -1) throw new Error(`${job}'s scope step has no paths: | block`);
+  const depth = lines[at].search(/\S/);
+  const paths = [];
+  for (const line of lines.slice(at + 1)) {
+    if (line.trim() === "") continue;
+    if (line.search(/\S/) <= depth) break;
+    paths.push(line.trim());
+  }
+  if (paths.length === 0) throw new Error(`${job}'s paths: | block is empty`);
+  return new Set(paths);
+}
+
+/** Which of `sources` no pattern in `watched` covers. */
+export function unwatchedSources(sources, watched) {
+  return [...sources].filter((source) => ![...watched].some((pattern) => matches(source, pattern)));
+}
+
+/**
+ * EVERY SOURCE THE EDITOR BUNDLE RECORDS MUST BE WATCHED BY THE JOB THAT
+ * REBUILDS IT.
+ *
+ * `bundle.generated.ts` is a 950kb blob that runs inside the editor webview
+ * over somebody's private markdown, and the only thing binding it to its
+ * sources is the `editor-bundle` job rebuilding it and comparing bytes. That
+ * job is now scoped, so a pull request outside its `paths:` skips every step
+ * and the job reports success — correct for an unrelated change, and a hole for
+ * a source the list forgot.
+ *
+ * The list forgot two, and in a way a list of directories always will:
+ * `apps/mcp/src/forms/**` and `apps/mcp/src/lists/**` do not match their
+ * siblings `apps/mcp/src/forms.js` and `apps/mcp/src/lists.js`, which are
+ * bundle sources — and `lists.js` is `setNoteProperty`, the frontmatter writer
+ * every list and folder-page write calls. A change confined to it skipped this
+ * job *and* the hash check in `apps/mobile/__tests__/editorBundle.test.ts`,
+ * because the mobile suite is itself filtered to `apps/mobile`, `apps/convex`
+ * and `packages/shared`. Nothing was left to notice that the committed bundle
+ * no longer matched its sources.
+ *
+ * So the list is checked against the bundle's own record of what it was built
+ * from, here, in the lane that runs on every pull request.
+ */
+export function assertBundleSourcesWatched(root = ROOT) {
+  const generated = readFileSync(join(root, BUNDLE), "utf8");
+  const sources = [...generated.matchAll(/^ {2}"([^"]+)": "[0-9a-f]{64}",$/gm)].map((match) => match[1]);
+  // A reader that silently matches nothing would pass every repository it is
+  // pointed at, which is this file's own most-repeated failure shape.
+  if (sources.length < 50) {
+    throw new Error(`read only ${sources.length} sources from ${BUNDLE}; the reader is wrong`);
+  }
+  const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
+  const unwatched = unwatchedSources(sources, watched);
+  if (unwatched.length > 0) {
+    throw new Error(
+      `editor-bundle does not run when these bundle sources change: ${unwatched.join(", ")}`,
+    );
+  }
 }
 
 export function assertExpensiveStepsAreGated(yaml, job, output) {
@@ -218,6 +309,7 @@ export function check(root = ROOT) {
   for (const [workflow, job, packages] of scoped) {
     assertScopedJob(readFileSync(join(root, workflow), "utf8"), job, workflow, packages);
   }
+  assertBundleSourcesWatched(root);
 }
 
 function expectFailure(name, fn, includes) {
@@ -253,6 +345,33 @@ export function selfTest() {
     () => assertScopedJob(unscoped, "test", ".github/workflows/router.yml", ["@context/router"]),
     "Expensive",
   );
+
+  /*
+    The coverage rule, on the case that was actually wrong: a directory pattern
+    does not match its own sibling file. Asserted in both directions, because a
+    matcher that answered "watched" for everything would satisfy the first half
+    and hide every gap.
+  */
+  if (unwatchedSources(["apps/mcp/src/lists.js"], ["apps/mcp/src/lists/**"]).length !== 1) {
+    throw new Error("a directory pattern was read as covering its sibling file");
+  }
+  if (unwatchedSources(["apps/mcp/src/lists/status.js"], ["apps/mcp/src/lists/**"]).length !== 0) {
+    throw new Error("a file inside a watched directory was read as unwatched");
+  }
+  if (unwatchedSources(["apps/mobile/package.json"], ["apps/mobile/package.json"]).length !== 0) {
+    throw new Error("an exactly-named watched file was read as unwatched");
+  }
+
+  const noPaths = `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          packages: "@context/mobile"\n`;
+  expectFailure(
+    "a scoped job whose paths cannot be read",
+    () => scopePaths(noPaths, "editor-bundle"),
+    "no paths: | block",
+  );
+  const reindented = `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          paths: |\n              apps/mcp/src/lists.js\n              scripts/build-editor-bundle.mjs\n`;
+  if (scopePaths(reindented, "editor-bundle").size !== 2) {
+    throw new Error("a reindented paths block was not read");
+  }
 }
 
 const invoked = process.argv[1] && realpathSync(process.argv[1]);
