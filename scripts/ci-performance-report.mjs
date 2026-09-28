@@ -166,20 +166,19 @@ async function api(env, path, params = {}) {
   return response.json();
 }
 
-async function runs(env, params, pages = 5) {
+async function runs(env, params, path = "actions/runs", pages = 10) {
   const all = [];
   for (let page = 1; page <= pages; page++) {
-    const data = await api(env, "actions/runs", { per_page: "100", page: String(page), ...params });
+    const data = await api(env, path, { per_page: "100", page: String(page), ...params });
     all.push(...(data.workflow_runs ?? []));
     if ((data.workflow_runs ?? []).length < 100) break;
   }
   return all;
 }
 
-async function workflowRuns(env, file) {
-  const data = await api(env, `actions/workflows/${file}/runs`, { per_page: "100" });
-  return data.workflow_runs ?? [];
-}
+// Every run in the window, not the newest hundred: a busy week can merge more
+// than that, which left the previous week empty and the comparison skipped.
+const workflowRuns = (env, file, since) => runs(env, { created: `>=${since}` }, `actions/workflows/${file}/runs`);
 
 async function jobsFor(env, ids) {
   const lists = [];
@@ -212,8 +211,8 @@ async function main(env) {
   const since = new Date(Date.now() - 14 * DAY).toISOString().slice(0, 10);
   const [pr, staging, production] = await Promise.all([
     runs(env, { event: "pull_request", created: `>=${since}` }),
-    workflowRuns(env, "deploy-staging.yml"),
-    workflowRuns(env, "deploy-production.yml"),
+    workflowRuns(env, "deploy-staging.yml", since),
+    workflowRuns(env, "deploy-production.yml", since),
   ]);
   const deploys = [];
   for (const [title, list] of [["Staging", staging], ["Production", production]]) {
