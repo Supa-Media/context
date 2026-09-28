@@ -20,7 +20,7 @@ const BROWSER =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
-const ENV = { EXPO_ORIGIN: "https://context.expo.app", CONVEX_ORIGIN: "https://example.convex.site" };
+const ENV = { EXPO_ORIGIN: "https://context.expo.app", CONVEX_ORIGIN: "https://example-deployment.convex.site" };
 const CTX = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
 
 let fetchSpy: ReturnType<typeof vi.fn>;
