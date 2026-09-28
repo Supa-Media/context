@@ -28,6 +28,7 @@
 import { useRef, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { Icon } from "../../../design/components/Icon";
 import { Menu } from "../../../design/components/Menu";
 import { Text, type TextVariant } from "../../../design/components/Text";
 import { fonts, pointerType, radii } from "../../../design/tokens";
@@ -59,6 +60,10 @@ export interface PropertyValueProps {
     readonly suggest?: (prefer: readonly string[]) => Promise<string | null>;
     /** How an owner line is shown: `@seyi` for one written as an address. */
     readonly label?: (value: string) => string;
+    /** Add a name to the workspace's agents; absent where the list can't change. */
+    readonly addAgent?: (name: string) => Promise<string | null>;
+    /** Whether an owner line names an agent, which is marked beside it. */
+    readonly isAgent?: (value: string) => boolean;
   };
   variant?: TextVariant;
   /**
@@ -101,12 +106,22 @@ export function PropertyValue({
   const [draft, setDraft] = useState("");
   // An owner written before handles is shown as the member it names, never rewritten here.
   const shown = value === "" || owners?.label === undefined ? value : owners.label(value);
+  // The model mark, so an agent reads as one in a column of people without a word for it.
+  const agent =
+    value !== "" && owners?.isAgent?.(value) === true ? (
+      <View accessibilityLabel="agent" testID="owner-agent-mark">
+        <Icon name="sparkle" size={12} color={colors.chromeMuted} />
+      </View>
+    ) : null;
 
   if (onChoose === null) {
     return value === "" ? null : (
-      <Text variant={variant} style={style} numberOfLines={1} testID={testID}>
-        {isolateForDisplay(shown)}
-      </Text>
+      <View style={styles.owner} testID={testID}>
+        {agent}
+        <Text variant={variant} style={[style, styles.shrink]} numberOfLines={1}>
+          {isolateForDisplay(shown)}
+        </Text>
+      </View>
     );
   }
 
@@ -207,11 +222,19 @@ export function PropertyValue({
         accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${shown}`}
         hitSlop={6}
         testID={testID}
+        style={agent === null || current === null ? undefined : styles.owner}
       >
+        {current === null ? null : agent}
         <Text
           variant={variant}
           numberOfLines={1}
-          style={[style, current === null && styles.unset, hovered && styles.hover, quiet && !hovered && !focused && menu === null && styles.quiet]}
+          style={[
+            style,
+            agent !== null && styles.shrink,
+            current === null && styles.unset,
+            hovered && styles.hover,
+            quiet && !hovered && !focused && menu === null && styles.quiet,
+          ]}
         >
           {current === null ? `Set ${property}` : isolateForDisplay(shown)}
         </Text>
@@ -222,6 +245,7 @@ export function PropertyValue({
           search={owners.search}
           prefer={owners.prefer}
           {...(owners.suggest === undefined ? {} : { suggest: owners.suggest })}
+          {...(owners.addAgent === undefined ? {} : { onAddAgent: owners.addAgent })}
           anchor={menu}
           savesTo={savesTo}
           onChoose={onChoose}
@@ -261,6 +285,8 @@ const makeStyles = (colors: Colors) =>
     unset: { color: colors.chromeMuted },
     hover: { color: colors.accentText },
     quiet: { opacity: 0 },
+    owner: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
+    shrink: { flexShrink: 1 },
     field: {
       fontFamily: fonts.body,
       fontSize: pointerType.ui,

@@ -35,6 +35,7 @@ import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
 import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./items";
 import { localOwnerSearch, ownersInUse } from "../owners";
 import { useOwnerLabels } from "./useOwnerLabels";
+import { useAgents } from "./useAgents";
 import {
   defaultFolderView,
   folderItems,
@@ -145,14 +146,25 @@ export function FolderPage({
   const siblingsInUse = useMemo(() => ownersInUse(siblings), [siblings]);
   const ownerWords = useMemo(() => [...inUse, ...siblingsInUse], [inUse, siblingsInUse]);
   const label = useOwnerLabels(host?.source.resolveOwners, ownerWords);
-  const owners = useMemo<OwnerChoice>(
-    () => ({ search: searchOwners, prefer: inUse, label, ...(suggestFor === undefined ? {} : { suggestFor }) }),
-    [searchOwners, inUse, label, suggestFor],
+  // Agents are the workspace's own short list, and somebody may add to it here (`agents.ts`).
+  const agents = useAgents(loaded, folder, notes, searchOwners);
+  const agentList = agents.list;
+  const suggestAgents = useMemo(
+    () => (suggestFor === undefined ? undefined : (path: string, prefer: readonly string[]) => suggestFor(path, prefer, agentList)),
+    [suggestFor, agentList],
   );
-  const siblingOwners = useMemo<OwnerChoice>(
-    () => ({ search: searchOwners, prefer: siblingsInUse, label, ...(suggestFor === undefined ? {} : { suggestFor }) }),
-    [searchOwners, siblingsInUse, label, suggestFor],
+  const shared = useMemo(
+    () => ({
+      search: agents.search,
+      label,
+      isAgent: agents.isAgent,
+      ...(suggestAgents === undefined ? {} : { suggestFor: suggestAgents }),
+      ...(agents.addAgent === null ? {} : { addAgent: agents.addAgent }),
+    }),
+    [agents.search, agents.addAgent, agents.isAgent, label, suggestAgents],
   );
+  const owners = useMemo<OwnerChoice>(() => ({ ...shared, prefer: inUse }), [shared, inUse]);
+  const siblingOwners = useMemo<OwnerChoice>(() => ({ ...shared, prefer: siblingsInUse }), [shared, siblingsInUse]);
   const menuSections = useMemo(() => statusMenu(list), [list]);
   const parentMenu = useMemo(() => statusMenu(parentStatuses.list), [parentStatuses]);
   const undeclared = useMemo(() => undeclaredStatuses(items, list), [items, list]);

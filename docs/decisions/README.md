@@ -181,6 +181,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A list write is what this device holds afterwards
 - Status groups
 - An owner is picked, never typed
+- Agents are a list the workspace writes, each optionally somebody's
 
 ## [Comments on notes](./comments.md)
 
