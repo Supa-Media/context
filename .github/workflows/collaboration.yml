@@ -30,6 +30,8 @@ jobs:
     name: Two editors, agents, and offline recovery
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
     env:
       CI: "1"
       EXPO_PUBLIC_E2E_FIXTURE: "1"
@@ -79,10 +81,6 @@ jobs:
       - name: Verify durable history and interrupted storage operations
         if: steps.changes.outputs.browser == 'true'
         run: pnpm --filter @context/collaboration test
-
-      - name: Install Playwright Chromium
-        if: steps.changes.outputs.browser == 'true'
-        run: pnpm --filter @context/mobile exec playwright install --with-deps chromium
 
       - name: Build the actual app with its local-only test screen
         if: steps.changes.outputs.browser == 'true'

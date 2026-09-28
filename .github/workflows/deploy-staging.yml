@@ -7,15 +7,17 @@ name: Deploy Staging
 # and when it falls back to deploying everything) and the jobs below read its
 # answer. Independent work runs side by side:
 #
-#   plan ─┬─ convex ──────────────┬─ workers ─┬─ web ─── verify
-#         ├─ worker-tests ────────┘           └─ ota
-#         └─ web-build ─────────────────────────┘
+#   plan ─┬─ convex ──────────────┬─ workers ──────────┬─ verify
+#         ├─ worker-tests ────────┘                    │
+#         └─ web-build ─┬─ router-with-assets ─────────┤
+#                       ├─ EAS canary fallback ────────┤
+#                       └─ OTA ────────────────────────┘
 #
 # Why each edge exists:
 # - Workers deploy after Convex, because a new gateway may call functions the
 #   old backend does not have. Their tests do not need Convex and run alongside.
-# - The web app goes live after every backend it calls; it is built alongside
-#   them and only published at the end.
+# - The web app is built once. Staging's router publishes that exact export as
+#   Static Assets; EAS stays beside it only during the canary.
 # - The OTA update needs the same backends, not the web alias, so it publishes
 #   alongside the web deploy.
 # - `verify` always runs, as the one end-to-end check, even when nothing else
@@ -51,6 +53,7 @@ jobs:
     outputs:
       convex: ${{ steps.plan.outputs.convex }}
       app: ${{ steps.plan.outputs.app }}
+      router: ${{ steps.plan.outputs.router }}
       workers: ${{ steps.plan.outputs.workers }}
       any_worker: ${{ steps.plan.outputs.any_worker }}
     steps:
@@ -146,6 +149,23 @@ jobs:
       - name: Test ${{ matrix.worker.package }}
         run: pnpm --filter "${{ matrix.worker.package }}" test
 
+  router-test:
+    name: Test router
+    needs: plan
+    if: ${{ needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/router..." --frozen-lockfile
+      - run: pnpm --dir infra/router typecheck
+      - run: pnpm --dir infra/router test
+
   workers:
     name: Deploy ${{ matrix.worker.name }}
     needs: [plan, convex, worker-tests]
@@ -207,9 +227,6 @@ jobs:
               printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
               printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_URL --env staging
               ;;
-            router)
-              printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
-              ;;
             *)
               echo "No secret list for Worker '$WORKER'; add one before deploying it." >&2
               exit 1
@@ -219,7 +236,7 @@ jobs:
   web-build:
     name: Export web
     needs: plan
-    if: ${{ needs.plan.outputs.app == 'true' }}
+    if: ${{ needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 20
@@ -249,6 +266,34 @@ jobs:
           include-hidden-files: true
           retention-days: 3
           if-no-files-found: error
+
+  router:
+    name: Deploy router with web assets
+    needs: [plan, convex, web-build, router-test]
+    if: ${{ !cancelled() && !failure() && (needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true') }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/router..." --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: staging-web
+          path: apps/mobile/dist
+      - name: Sync the staging Convex origin
+        run: printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
+      - name: Deploy staging router and the exact export together
+        run: pnpm --dir infra/router exec wrangler deploy --env staging --message "Staging ${GITHUB_SHA}"
 
   web:
     name: Publish web
@@ -315,7 +360,7 @@ jobs:
 
   verify:
     name: Verify live staging
-    needs: [plan, convex, workers, web, ota]
+    needs: [plan, convex, workers, router, web, ota]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     environment: staging
@@ -331,7 +376,7 @@ jobs:
           node-version: 22
           package-manager-cache: false
       - uses: actions/download-artifact@v4
-        if: ${{ needs.plan.outputs.app == 'true' }}
+        if: ${{ needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true' }}
         with:
           name: staging-web
           path: apps/mobile/dist

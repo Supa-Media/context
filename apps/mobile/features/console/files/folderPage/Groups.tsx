@@ -15,15 +15,23 @@
  * A row opens its note or folder; a task's chevron opens its subtasks in
  * place (`TaskRow.tsx`). On a phone the columns move under the name, and
  * each column is one card like the Notes view's.
+ *
+ * For somebody who may write (`actions.tasks`), each open group ends with
+ * "+ Add task" (a task in that group's first status), the primary "+ Add
+ * task" opens the composer at the top of the first To do group, and every
+ * group and folded band takes a dragged task: its status, or Backlog.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { ChooseGroup } from "./ChooseGroup";
+import { groupLabel } from "../listBlock/words";
+import { AddLine, DropArea, TaskComposer } from "./tasks/RowParts";
+import type { TaskControls } from "./tasks/useTaskActions";
 import type { ItemActions } from "./items";
 import { BACKLOG_HINT, type LayoutColumn, type LayoutSection, type ListLayout } from "./listLayout";
 import { StatusPill, toneColor } from "./StatusPill";
@@ -51,26 +59,65 @@ export function FolderGroups({
     });
   const count = (section: { shown: number; total: number }) =>
     layout.filtered ? `${section.shown} of ${section.total}` : String(section.total);
+  const tasks = actions.tasks ?? null;
+  const composer = tasks?.composer ?? null;
+  const writing = composer?.kind === "task" ? composer : null;
+  // The primary button's composer, when the group it belongs at the top of is not drawn (no To do yet, or filtered away).
+  const loose = writing !== null && writing.at === "top" && !layout.sections.some((section) => section.key === writing.section && !section.folded);
+  const openOn = composer?.kind === "subtask" ? composer.parent : null;
+  const onToggle = (path: string) => toggle(setOpened, path);
+  const composerAt = (section: LayoutSection, at: "top" | "end") =>
+    tasks !== null && writing !== null && writing.section === section.key && writing.at === at ? (
+      <TaskComposer controls={tasks} status={writing.status} groupLabel={groupLabel("status", writing.status)} />
+    ) : null;
+  const addLine = (section: LayoutSection) =>
+    tasks === null || (writing !== null && writing.section === section.key) ? null : (
+      <AddLine
+        label={tasks.addLabel}
+        onPress={() => tasks.openComposer({ kind: "task", section: section.key, status: sectionStatus(section, tasks), at: "end" })}
+        testID="folder-add-task"
+      />
+    );
   return (
     <View testID="folder-groups" style={styles.stack}>
+      {loose && tasks !== null ? (
+        <TaskComposer controls={tasks} status={writing.status} groupLabel={groupLabel("status", writing.status)} />
+      ) : null}
       {layout.sections.map((section) =>
         section.folded ? (
           <View key={section.key} testID="folder-group">
-            <FoldedBand
-              section={section}
-              count={count(section)}
-              open={unfolded.has(section.key)}
-              onToggle={() => toggle(setUnfolded, section.key)}
-            />
+            <DropArea controls={tasks} status={tasks === null ? "" : sectionStatus(section, tasks)}>
+              {(hint) => (
+                <FoldedBand
+                  section={section}
+                  count={count(section)}
+                  open={unfolded.has(section.key)}
+                  onToggle={() => toggle(setUnfolded, section.key)}
+                  hint={hint}
+                />
+              )}
+            </DropArea>
             {unfolded.has(section.key) ? (
-              <Columns section={section} compact={compact} now={now} actions={actions} opened={opened} onToggle={(path) => toggle(setOpened, path)} />
+              <>
+                {composerAt(section, "top")}
+                <Columns section={section} compact={compact} now={now} actions={actions} opened={opened} openOn={openOn} onToggle={onToggle} />
+                {composerAt(section, "end")}
+                {addLine(section)}
+              </>
             ) : null}
           </View>
         ) : (
-          <View key={section.key} testID="folder-group">
-            <SectionHead section={section} count={count(section)} actions={actions} />
-            <Columns section={section} compact={compact} now={now} actions={actions} opened={opened} onToggle={(path) => toggle(setOpened, path)} />
-          </View>
+          <DropArea key={section.key} controls={tasks} status={tasks === null ? "" : sectionStatus(section, tasks)} testID="folder-group">
+            {(hint) => (
+              <>
+                <SectionHead section={section} count={count(section)} actions={actions} hint={hint} />
+                {composerAt(section, "top")}
+                <Columns section={section} compact={compact} now={now} actions={actions} opened={opened} openOn={openOn} onToggle={onToggle} />
+                {composerAt(section, "end")}
+                {addLine(section)}
+              </>
+            )}
+          </DropArea>
         ),
       )}
       {layout.notes.length === 0 ? null : (
@@ -97,7 +144,23 @@ export function FolderGroups({
   );
 }
 
-function SectionHead({ section, count, actions }: { section: LayoutSection; count: string; actions: ItemActions }) {
+/** The status a group's "+ Add task" writes and a drop on it sets: its first, and for To do the first that is not Backlog. */
+export function sectionStatus(section: LayoutSection, tasks: Pick<TaskControls, "list" | "firstToDo">): string {
+  if (section.key === "not-started") return tasks.firstToDo;
+  if (section.key !== "backlog" && section.group !== null) return tasks.list[section.group][0] ?? section.columns[0]?.value ?? "";
+  return section.columns[0]?.value ?? "";
+}
+
+function DropHint({ hint }: { hint: string | null }): ReactNode {
+  const styles = useThemedStyles(makeStyles);
+  return hint === null ? null : (
+    <Text variant="meta" numberOfLines={1} style={[styles.hint, styles.headEnd]} role="status" testID="folder-drop-hint">
+      {hint}
+    </Text>
+  );
+}
+
+function SectionHead({ section, count, actions, hint }: { section: LayoutSection; count: string; actions: ItemActions; hint: string | null }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const place = section.group === null ? actions.onPlaceStatus : null;
@@ -114,11 +177,24 @@ function SectionHead({ section, count, actions }: { section: LayoutSection; coun
           <ChooseGroup word={section.columns[0].value} onPlace={place} onEditList={actions.onEditStatuses} />
         </View>
       ) : null}
+      <DropHint hint={hint} />
     </View>
   );
 }
 
-function FoldedBand({ section, count, open, onToggle }: { section: LayoutSection; count: string; open: boolean; onToggle: () => void }) {
+function FoldedBand({
+  section,
+  count,
+  open,
+  onToggle,
+  hint,
+}: {
+  section: LayoutSection;
+  count: string;
+  open: boolean;
+  onToggle: () => void;
+  hint: string | null;
+}) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   return (
@@ -137,7 +213,9 @@ function FoldedBand({ section, count, open, onToggle }: { section: LayoutSection
       <Text variant="tree" style={styles.count}>
         {count}
       </Text>
-      {section.key === "backlog" ? (
+      {hint !== null ? (
+        <DropHint hint={hint} />
+      ) : section.key === "backlog" ? (
         <Text variant="meta" numberOfLines={1} style={[styles.count, styles.headEnd]}>
           {BACKLOG_HINT}
         </Text>
@@ -152,6 +230,7 @@ function Columns({
   now,
   actions,
   opened,
+  openOn,
   onToggle,
 }: {
   section: LayoutSection;
@@ -159,6 +238,8 @@ function Columns({
   now: number;
   actions: ItemActions;
   opened: ReadonlySet<string>;
+  /** The task a subtask is being added to: open, so the composer is under it. */
+  openOn: string | null;
   onToggle: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -187,7 +268,7 @@ function Columns({
                 key={entry.item.path}
                 entry={entry}
                 // Kept only for a subtask that matches: shown open, so the reason it is here is in sight.
-                open={opened.has(entry.item.path) || entry.dim}
+                open={opened.has(entry.item.path) || entry.dim || openOn === entry.item.path}
                 onToggle={() => onToggle(entry.item.path)}
                 compact={compact}
                 now={now}
@@ -226,4 +307,5 @@ const makeStyles = (colors: Colors) =>
     bandTitle: { color: colors.muted },
     status: { marginTop: space.x3 },
     statusHead: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingBottom: space.x2 },
+    hint: { color: colors.accentText },
   });

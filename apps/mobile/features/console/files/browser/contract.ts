@@ -401,8 +401,12 @@ export interface FileBrowser {
    *
    * Separate from `notice`, which is about the console's own state (no storage
    * connected, a stale listing) and stays until it stops being true.
+   *
+   * `undo`, when given, is offered beside it for the toast's few seconds —
+   * for a write made outside `run` that has an exact inverse, such as a
+   * project List's task writes (`folderPage/tasks/useTaskActions.ts`).
    */
-  say(message: string): void;
+  say(message: string, undo?: () => void): void;
   dismissToast: (id: string) => void;
 
   clipboard: Clipboard | null;

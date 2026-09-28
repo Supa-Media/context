@@ -17,17 +17,17 @@ test("a router-only change deploys the router and not the app", () => {
   assert.deepEqual(on(plan("infra/router/src/route.ts")), ["router"]);
 });
 
-test("a mobile change deploys the app", () => {
-  assert.deepEqual(on(plan("apps/mobile/features/console/NoteEditor.tsx")), ["app"]);
+test("a mobile change deploys the app and its staging assets Worker", () => {
+  assert.deepEqual(on(plan("apps/mobile/features/console/NoteEditor.tsx")), ["app", "router"]);
 });
 
 test("a shared package fans out to every consumer", () => {
-  assert.deepEqual(on(plan("packages/shared/src/storageLayout.cjs")), ["app", "convex", "email", "mcp"]);
-  assert.deepEqual(on(plan("packages/collaboration/src/index.js")), ["app", "convex", "mcp"]);
+  assert.deepEqual(on(plan("packages/shared/src/storageLayout.cjs")), ["app", "convex", "email", "mcp", "router"]);
+  assert.deepEqual(on(plan("packages/collaboration/src/index.js")), ["app", "convex", "mcp", "router"]);
 });
 
 test("a gateway file the app and Convex import by relative path deploys them too", () => {
-  assert.deepEqual(on(plan("apps/mcp/src/lists.js")), ["app", "convex", "mcp"]);
+  assert.deepEqual(on(plan("apps/mcp/src/lists.js")), ["app", "convex", "mcp", "router"]);
 });
 
 test("a gateway file nobody else imports deploys only the gateway", () => {
@@ -69,7 +69,13 @@ test("files Convex bundles out of the gateway select Convex", () => {
 test("every Worker the staging workflow deploys is a component", () => {
   const workflow = readFileSync(new URL("../.github/workflows/deploy-staging.yml", import.meta.url), "utf8");
   for (const [name, component] of Object.entries(TARGETS.staging.components)) {
-    if (component.worker) assert.ok(workflow.includes(`${name})`), `deploy-staging.yml has no case for ${name}`);
+    if (!component.worker) continue;
+    if (name === "router") {
+      assert.match(workflow, /router:\n    name: Deploy router with web assets/);
+      assert.ok(workflow.includes("needs.plan.outputs.app == 'true' || needs.plan.outputs.router == 'true'"));
+    } else {
+      assert.ok(workflow.includes(`${name})`), `deploy-staging.yml has no case for ${name}`);
+    }
   }
 });
 

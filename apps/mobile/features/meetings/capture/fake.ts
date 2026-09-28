@@ -72,6 +72,8 @@ export interface FakeRecorder extends MeetingRecorder {
   readonly segmentSubscribers: number;
   /** How many error handlers are attached right now. See `segmentSubscribers`. */
   readonly errorSubscribers: number;
+  /** What the next `shareSystemAudio` resolves: the person shared, or did not. */
+  answerShare(shared: boolean): void;
 }
 
 export function fakeRecorder(
@@ -83,6 +85,7 @@ export function fakeRecorder(
   let state: RecorderState = "idle";
   let refusal: string | null = null;
   let startedWith: CaptureOptions | null = null;
+  let shareAnswer = true;
   /** Set by `holdStop`; awaited by `stop` while it is not `null`. */
   let held: Promise<void> | null = null;
   /** The same, for `drain`. */
@@ -135,6 +138,13 @@ export function fakeRecorder(
         };
       });
       return release;
+    },
+    answerShare(shared) {
+      shareAnswer = shared;
+    },
+    async shareSystemAudio() {
+      calls.push("share");
+      return shareAnswer;
     },
     emit(segment) {
       for (const listener of segmentListeners) listener(segment);

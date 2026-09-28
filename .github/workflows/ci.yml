@@ -67,9 +67,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          paths: |
+            apps/mcp/src/forms/**
+            apps/mcp/src/lists/**
+            apps/mobile/features/console/files/**
+            apps/mobile/features/console/presence/**
+            apps/mobile/features/voice/**
+            apps/mobile/package.json
+            packages/drawings/**
+            packages/shared/**
+            scripts/build-editor-bundle.mjs
+            .github/workflows/ci.yml
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -79,6 +96,7 @@ jobs:
       # resolved version of every package it bundles — so a partial install
       # would rebuild against different code than the commit was built from.
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --frozen-lockfile
 
       # What this binds, and what it does not. A hand-edited blob is caught:
@@ -94,9 +112,11 @@ jobs:
       # that cause; the honest fix is to record esbuild's resolved version in
       # the generated header so the failure can name itself.
       - name: Rebuild the bundle from its sources
+        if: steps.scope.outputs.affected == 'true'
         run: node scripts/build-editor-bundle.mjs
 
       - name: It must be byte-for-byte what is committed
+        if: steps.scope.outputs.affected == 'true'
         run: |
           set -euo pipefail
           file=apps/mobile/features/console/files/webview/bundle.generated.ts
@@ -122,7 +142,7 @@ jobs:
       # compare it against the commit to see what was added, and scrolling a
       # 500kb single-line diff in a job log is not that.
       - name: What the sources actually build
-        if: failure()
+        if: failure() && steps.scope.outputs.affected == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: bundle-rebuilt
@@ -342,172 +362,6 @@ jobs:
           fi
           exit "$status"
 
-  # ── NO WEBKIT IN CI OR IN AN AGENT SANDBOX, UNTIL NOW ─────────────────────
-  #
-  # Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long
-  # press has two signals" — the WebKit long-press recogniser's own
-  # `touchcancel`, and the caret/touch trap it argues through — was reproduced
-  # by SIMULATING WebKit's event sequence in Chromium (`editorLinks.test.ts`,
-  # jsdom). That is enough to fix a bug once somebody has already found it on a
-  # phone; it is not enough to prove the fix holds, because nothing in this
-  # repository's CI, and nothing in the sandbox an agent here runs in, had ever
-  # executed the editor inside an actual WebKit engine.
-  #
-  # This job closes that gap, and only that gap — see
-  # `docs/decisions/testing.md` for what a green run here proves and does not
-  # (Linux WebKit is close to iOS Safari's DOM event handling, not identical).
-  #
-  # `ubuntu-latest` rather than `macos-latest`: this repository runs no job on
-  # macOS today, and Linux WebKit is the documented cheap path for exactly this
-  # trade — a real WebKit engine's touch event pipeline, at a fraction of a
-  # macOS runner's cost and queue time. If a bug ever surfaces here that Linux
-  # WebKit cannot see and only iOS Safari can, that is the point to spend a
-  # macOS runner, not before.
-  #
-  # `apps/mobile/e2e/webkit/playwright.config.ts` carries the rest of the
-  # reasoning — what the suite runs against (the built web export, not `expo
-  # start`), why the fixture route exists and how it is kept out of every real
-  # build, and why case (a) steps outside `page.touchscreen` to dispatch one
-  # `TouchEvent` by hand.
-  editor-webkit:
-    name: Editor in WebKit
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-
-      # Change detection lives INSIDE the job, as a step, rather than as a
-      # `paths:` filter on the trigger above — see mcp.yml's header and
-      # `scripts/check-workflow-triggers.mjs`, which enforces the rule this
-      # repeats: a required check filtered out of the trigger never reports at
-      # all, and GitHub leaves the pull request pending on it forever. This way
-      # the job always runs and always reports; an unrelated pull request just
-      # finds every step after this one skipped, which is a pass.
-      - name: Does this touch the editor or what it runs on?
-        uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
-
-      - uses: pnpm/action-setup@v4
-        if: steps.changes.outputs.mobile == 'true'
-
-      - uses: actions/setup-node@v5
-        if: steps.changes.outputs.mobile == 'true'
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        if: steps.changes.outputs.mobile == 'true'
-        run: pnpm install --frozen-lockfile
-
-      - name: The browser suite uses the measured CI worker count
-        if: steps.changes.outputs.mobile == 'true'
-        run: node --test scripts/webkit-ci-workers.test.mjs
-
-      # Pinned by `apps/mobile/package.json`'s `@playwright/test` version, not
-      # by a version here — `playwright install` always installs the browser
-      # matching the npm package `pnpm install` just resolved, so the two
-      # cannot drift, and bumping the browser is the same pull request as
-      # bumping the dependency.
-      #
-      # Chromium comes too, and only for `offlineShell.spec.ts` below: WebKit
-      # runs the suite, and that one case skips itself there because
-      # Playwright's WebKit driver errors on a reload taken while offline. The
-      # first attempt at this installed WebKit alone and the Chromium step died
-      # with "Executable doesn't exist" — a step that runs a browser has to ask
-      # for it, and nothing else in this job did.
-      - name: Install Playwright's WebKit (and Chromium, for the offline case)
-        if: steps.changes.outputs.mobile == 'true'
-        working-directory: apps/mobile
-        run: pnpm exec playwright install --with-deps webkit chromium
-
-      # `EXPO_PUBLIC_E2E_FIXTURE=1` is the only thing that makes `/e2e-fixture`
-      # render anything — see that route's own header. Every other export in
-      # this repository (`deploy-web.yml`, `deploy-mobile-*.yml`, a laptop's
-      # `expo start`) leaves it unset, so this build is never what ships.
-      # `EXPO_PUBLIC_CONVEX_URL` is a syntactically valid, deliberately
-      # unreachable host — the fixture console never opens a Convex
-      # subscription (`useDemoConsoleData` is literals), so nothing here ever
-      # dials out to it.
-      - name: Build the web export with the E2E fixture route enabled
-        if: steps.changes.outputs.mobile == 'true'
-        working-directory: apps/mobile
-        env:
-          EXPO_PUBLIC_E2E_FIXTURE: "1"
-          EXPO_PUBLIC_CONVEX_URL: "https://e2e-fixture.invalid"
-        # This also builds the standalone drawing editor into `public/` before
-        # Expo copies public assets into the export. Calling `expo export`
-        # directly leaves `/drawing-assets/editor/index.html` absent, and the
-        # static server serves the SPA fallback page at that URL instead.
-        run: pnpm build:e2e-web
-
-      # `pluginBundles.spec.ts` runs a real community-plugin release through the
-      # real shim, which is the only check that has ever caught a plugin failing
-      # to load at all — `SuggestModal`, then `Events`, then `Modal`, each a
-      # class nobody had listed and each taking a whole bundle down while every
-      # jsdom suite stayed green.
-      #
-      # The releases are not committed (megabytes of third-party minified code
-      # in a public repository) and the spec skips when they are absent, so a
-      # GitHub outage costs a skip rather than a red run. `continue-on-error`
-      # says that out loud rather than leaving it to a silent `|| true`.
-      - name: Fetch the community plugin releases the browser suite runs
-        if: steps.changes.outputs.mobile == 'true'
-        continue-on-error: true
-        working-directory: apps/mobile
-        run: node e2e/webkit/fetch-bundles.mjs
-
-      - name: Run the suite in WebKit
-        if: steps.changes.outputs.mobile == 'true'
-        working-directory: apps/mobile
-        env:
-          CI: "true"
-        run: pnpm test:e2e:webkit
-
-      # ── THE OFFLINE CHECK, IN THE ENGINE THAT CAN BE TAKEN OFFLINE ──────
-      #
-      # `offlineShell.spec.ts` is the only thing in this repository that loads
-      # the app in a real browser with the network genuinely gone — the class
-      # of defect #690 escaped into, where a hand-written `CacheStorage` fake
-      # could not model `Response.url` and a private note path ended up in a
-      # cache that sign-out does not clear.
-      #
-      # It skips itself on WebKit, and the reason is measured rather than
-      # assumed: WebKit registers and controls the worker fine (85 cases passed
-      # beside it), but a reload taken while `setOffline(true)` is in force
-      # fails inside Playwright's WebKit driver — "WebKit encountered an
-      # internal error", before the navigation starts. The spec's own header
-      # carries the detail and says to re-check it when that support changes.
-      #
-      # So it runs here, in Chromium, as its own step. A step rather than
-      # folding the chromium project into the line above, because that project
-      # exists to validate *the tests* against the whole suite and would double
-      # every case's runtime for one file's worth of coverage.
-      - name: The app opens with the network off (Chromium)
-        if: steps.changes.outputs.mobile == 'true'
-        working-directory: apps/mobile
-        env:
-          CI: "true"
-        run: pnpm test:e2e:offline
-
-      # Playwright's own HTML report — screenshots, traces, and the exact
-      # assertion that failed — rather than the raw `test-results/` directory,
-      # which is one PNG per failure with no way to see which case it was
-      # without cross-referencing the log. `playwright.config.ts` sets
-      # `screenshot: "only-on-failure"` and `trace: "retain-on-failure"`, so a
-      # red run always has both without a slow run ever paying for them.
-      - name: The failing case's screenshot and trace
-        if: failure() && steps.changes.outputs.mobile == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: editor-webkit-report
-          path: apps/mobile/e2e/webkit/playwright-report/
-          retention-days: 7
-          if-no-files-found: ignore
-
   # ── THE MONITOR HAS TO BE ABLE TO GO RED ────────────────────────────────
   #
   # `gateway-health.yml` probes production on a schedule, so nothing about it
@@ -553,7 +407,7 @@ jobs:
       - uses: actions/checkout@v5
 
       # Inside the job as a step, never a `paths:` filter on the trigger —
-      # see `editor-webkit` above and `scripts/check-workflow-triggers.mjs`.
+      # see `browser.yml` and `scripts/check-workflow-triggers.mjs`.
       - name: Does this touch the app or what it bundles?
         uses: dorny/paths-filter@v3
         id: changes
@@ -593,15 +447,27 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/convex"
+          paths: |
+            apps/mcp/**
+            .github/workflows/ci.yml
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck what the Convex deploy would push
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm exec convex typecheck

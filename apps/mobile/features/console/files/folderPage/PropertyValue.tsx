@@ -25,8 +25,8 @@
  * would only ever fail.
  */
 
-import { useRef, useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Platform, Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Icon } from "../../../design/components/Icon";
 import { Menu } from "../../../design/components/Menu";
@@ -112,6 +112,10 @@ export function PropertyValue({
   const [draft, setDraft] = useState("");
   // An owner written before handles is shown as the member it names, never rewritten here.
   const shown = value === "" || owners?.label === undefined ? value : owners.label(value);
+  // An agent's thread note (`Claude (faster CI/CD thread)`) is left out of the column and kept for hovering.
+  const noted = value !== "" && shown !== value && owners?.isAgent?.(value) === true;
+  const spoken = noted ? value : shown;
+  useHoverTitle(trigger, noted ? value : null);
   // The model mark, so an agent reads as one in a column of people without a word for it.
   const agent =
     lead !== undefined ? (
@@ -125,9 +129,14 @@ export function PropertyValue({
   if (onChoose === null) {
     if (value === "" && unsetLabel === undefined) return null;
     return (
-      <View style={styles.owner} testID={testID}>
+      <View ref={trigger} style={styles.owner} testID={testID}>
         {agent}
-        <Text variant={variant} style={[style, styles.shrink, value === "" && styles.unset]} numberOfLines={1}>
+        <Text
+          variant={variant}
+          style={[style, styles.shrink, value === "" && styles.unset]}
+          numberOfLines={1}
+          accessibilityLabel={value === "" ? undefined : spoken}
+        >
           {value === "" ? unsetLabel : isolateForDisplay(shown)}
         </Text>
       </View>
@@ -228,7 +237,7 @@ export function PropertyValue({
         role="button"
         aria-haspopup="menu"
         aria-expanded={menu !== null || picking}
-        accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${shown}`}
+        accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${spoken}`}
         hitSlop={6}
         testID={testID}
         style={agent === null || (current === null && lead === undefined) ? undefined : styles.owner}
@@ -287,6 +296,21 @@ export function PropertyValue({
       )}
     </View>
   );
+}
+
+/**
+ * A native tooltip on web: `title` on the cell's DOM node. React Native Web
+ * does not forward a `title` prop, so it is set on the node itself. Native
+ * has no hover; the same words are the accessible name there.
+ */
+function useHoverTitle(ref: RefObject<View | null>, title: string | null): void {
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = ref.current as unknown as HTMLElement | null;
+    if (node === null || typeof node.setAttribute !== "function") return;
+    if (title === null) node.removeAttribute("title");
+    else node.setAttribute("title", title);
+  });
 }
 
 const makeStyles = (colors: Colors) =>

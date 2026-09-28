@@ -179,8 +179,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A list changes one line of a note, the same way any save does
 - A folder page shows its children by status
 - Tasks and notes
+- Adding and nesting tasks, every write undoable
 - Priority, tags, due and several owners
 - Show: whose tasks, per viewer
+- The side panel: a task opens beside the list
 - A list write is what this device holds afterwards
 - Status groups
 - An owner is picked, never typed
@@ -495,6 +497,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An unauthenticated probe is not a health check for an authenticated endpoint
 - The socket is proven by hand, and CI does not cover it
 - One thing an agent writes to a canvas still reaches one screen
+- [Pull-request checks report broadly and work narrowly](./testing/ci-pipelines.md)
+- [Browser groups match the defect they prove](./testing/ci-pipelines.md)
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 

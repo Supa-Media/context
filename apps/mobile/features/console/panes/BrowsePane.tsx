@@ -311,6 +311,7 @@ export function BrowsePane({
       handleOpenComms={handleOpenComms}
       folderMenuFor={folderMenuFor}
       folderDrag={folderDrag}
+      setFolderDialog={setFolderDialog}
       noteEncryption={noteEncryption}
       notices={notices}
       pathBar={pathBar}

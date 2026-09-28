@@ -202,7 +202,7 @@ describe("the whole call, where a browser can ask for it", () => {
     expect(recorder.state).toBe("recording");
     expect(errors).toHaveLength(1);
     expect(errors[0].recoverable).toBe(true);
-    expect(errors[0].message).toMatch(/only your microphone/i);
+    expect(errors[0].message).toMatch(/only your side of this call/i);
     expect(CAPTURE_MESSAGES).toContain(errors[0].message);
     await recorder.stop();
   });
@@ -237,7 +237,7 @@ describe("the whole call, where a browser can ask for it", () => {
 
     expect(recordedStream()).toBe("microphone");
     expect(errors.map((error) => error.message)).toEqual([
-      expect.stringMatching(/only your microphone/i),
+      expect.stringMatching(/only your side of this call/i),
     ]);
     expect(webState.displayTracks.every((track) => track.stopped)).toBe(true);
     await recorder.stop();
@@ -277,6 +277,53 @@ describe("the whole call, where a browser can ask for it", () => {
     // will release it now that `releaseStream` has lost its handle on it.
     expect(webState.displayTracks.every((track) => track.stopped)).toBe(true);
     await recorder.stop();
+  });
+
+  /**
+   * ASKED AGAIN FROM THE WARNING'S BUTTON, AND MIXED IN FROM THERE.
+   *
+   * The way back from a declined share used to be ending the meeting and
+   * starting another. Now the rest of the meeting gets the call: the chunk in
+   * progress closes at its real length (what it held was the microphone, and it
+   * is kept), and the next one records the mix.
+   */
+  test("a share declined at the start can be given mid-meeting, and the rest records both sides", async () => {
+    installSharing("cancelled");
+    const { recorder, errors, transcriber } = harness({ systemAudio: true });
+    await recorder.start();
+    expect(recordedStream()).toBe("microphone");
+    expect(errors.map((error) => error.kind)).toEqual(["call-audio-missing"]);
+
+    await advance(5_000);
+    webState.pickerAnswer = "audio";
+    await expect(recorder.shareSystemAudio?.()).resolves.toBe(true);
+
+    const latest = webState.instances.at(-1)?.source;
+    expect(latest instanceof FakeStream ? latest.label : String(latest)).toBe("mix");
+    // The microphone-only stretch before the share is still sent, not dropped.
+    expect(transcriber.chunks).toHaveLength(1);
+    expect(recorder.state).toBe("recording");
+    await recorder.stop();
+    expect(webState.displayTracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  test("declining again from the button keeps recording the microphone and says so again", async () => {
+    installSharing("cancelled");
+    const { recorder, errors } = harness({ systemAudio: true });
+    await recorder.start();
+    await expect(recorder.shareSystemAudio?.()).resolves.toBe(false);
+    expect(recorder.state).toBe("recording");
+    expect(errors.map((error) => error.kind)).toEqual(["call-audio-missing", "call-audio-missing"]);
+    await recorder.stop();
+  });
+
+  test("a share given after the meeting ended is handed straight back", async () => {
+    installSharing("cancelled");
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+    await recorder.stop();
+    webState.pickerAnswer = "audio";
+    await expect(recorder.shareSystemAudio?.()).resolves.toBe(false);
   });
 
   test("ending a meeting turns the sharing indicator off as well as the recording one", async () => {

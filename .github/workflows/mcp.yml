@@ -79,7 +79,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/mcp"
+          paths: |
+            scripts/check-worker-fetch-options.mjs
+            .github/workflows/mcp.yml
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           # pnpm is installed below; do not try to locate its cache before then.
@@ -87,22 +96,28 @@ jobs:
 
       # Yjs is confined to the explicit collaboration package boundary.
       - name: Worker fetch options workerd implements
+        if: steps.scope.outputs.affected == 'true'
         run: node scripts/check-worker-fetch-options.mjs
 
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - name: Install the collaboration engine
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/mcp
         run: node test/test.mjs
 
       - name: Test live relay grant permissions
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/mcp
         run: node --test test/liveGrantAccess.test.js
 
       - name: Test collaboration storage and recovery
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm --filter @context/collaboration test
 
   decryptor:
@@ -112,7 +127,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@supa-media/context-encryption-decryptor"
+          paths: |
+            apps/mcp/src/encryption.js
+            .github/workflows/mcp.yml
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -138,6 +162,7 @@ jobs:
       # the change most likely to break it. Bare node, no install: zero
       # dependencies is this package's promise too.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/encryption-decryptor
         run: node test/decrypt.test.mjs
 
@@ -148,7 +173,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/meetings"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -177,6 +209,7 @@ jobs:
       # shape that ran nothing before. Bare node with no install, because this
       # package has no dependencies either.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/meetings
         run: node test/test.mjs
 
@@ -187,7 +220,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/obsidian-runtime"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -210,6 +250,7 @@ jobs:
       # including one that changes only the console's plugin host. Bare node,
       # no install: this package's only dependency is a typechecker.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/obsidian-runtime
         run: node test/test.mjs
 
@@ -220,7 +261,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/communications"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -236,6 +284,7 @@ jobs:
       # owning package's suite is the contract. Bare node with no install,
       # because this package has no dependencies either.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/communications
         run: node test/test.mjs
 
@@ -246,7 +295,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/drawings"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           package-manager-cache: false
@@ -274,10 +330,12 @@ jobs:
       # instead of silently not running — which is the failure every other job
       # in this workflow exists because of.
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/drawings
         run: node test/test.mjs
 
       - name: Run serializer suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: packages/drawings
         run: node test/serialize.test.mjs
 
@@ -288,9 +346,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/desktop"
+          paths: ".github/workflows/mcp.yml"
+
       - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -311,13 +377,16 @@ jobs:
       # dependency, and this uses the same filtered graph production's desktop
       # deploy installs instead of repairing the graph in CI.
       - name: Install
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       - name: Run test suite
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/desktop
         run: node --experimental-strip-types test/test.mjs
 
       - name: Typecheck
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/desktop
         run: pnpm exec tsc --noEmit
 
@@ -325,6 +394,7 @@ jobs:
       # cannot be bundled is an app that does not start — a failure no unit
       # test in this repository can see, because none of them import Electron.
       - name: The app still bundles
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/desktop
         run: node scripts/build.mjs
 

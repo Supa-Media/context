@@ -65,7 +65,7 @@ describe("the e2e fixture route ships disabled", () => {
       .filter(({ source }) => source.includes(gateName))
       .map(({ name }) => name)
       .sort();
-    expect(setters).toEqual(["ci.yml", "collaboration.yml"]);
+    expect(setters).toEqual(["browser.yml", "collaboration.yml"]);
   });
 
   test("in particular, no deploy workflow sets it", () => {

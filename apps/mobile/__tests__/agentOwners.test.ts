@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { agentName, agentOwner, knownAgent, parseAgentOwner } from "../features/console/files/agentOwners";
+import { agentName, agentOwner, agentShown, knownAgent, ownerNote, parseAgentOwner } from "../features/console/files/agentOwners";
 import { DEFAULT_AGENTS, agentsHome, folderAgents, withAgent } from "../features/console/files/folderPage/agents";
 import { matchingAgents } from "../features/console/files/folderPage/useAgents";
 import { ownerRows, whoseRows, type OwnerResults } from "../features/console/files/owners";
@@ -73,12 +73,28 @@ describe("an owner line", () => {
 
   test("is read back as the agent and whose", () => {
     const list = ["Claude", "Codex"];
-    expect(parseAgentOwner("claude", list)).toEqual({ agent: "Claude", whose: null });
-    expect(parseAgentOwner("@shay's Claude", list)).toEqual({ agent: "Claude", whose: "@shay" });
-    expect(parseAgentOwner("@illuminate's codex", list)).toEqual({ agent: "Codex", whose: "@illuminate" });
+    expect(parseAgentOwner("claude", list)).toEqual({ agent: "Claude", whose: null, note: null });
+    expect(parseAgentOwner("@shay's Claude", list)).toEqual({ agent: "Claude", whose: "@shay", note: null });
+    expect(parseAgentOwner("@illuminate's codex", list)).toEqual({ agent: "Codex", whose: "@illuminate", note: null });
     expect(parseAgentOwner("'s Claude", list)).toBeNull();
     expect(parseAgentOwner("Cursor", list)).toBeNull();
     expect(parseAgentOwner("@seyi", list)).toBeNull();
+  });
+
+  test("keeps the thread an agent noted after it, and is shown without it", () => {
+    const list = ["Claude", "Codex"];
+    expect(parseAgentOwner("Claude (faster CI/CD project thread)", list)).toEqual({
+      agent: "Claude",
+      whose: null,
+      note: "faster CI/CD project thread",
+    });
+    expect(parseAgentOwner("Seyi's Codex (release)", list)).toEqual({ agent: "Codex", whose: "Seyi", note: "release" });
+    expect(agentShown("Claude (faster CI/CD project thread)", list)).toBe("Claude");
+    expect(agentShown("Claude", list)).toBeNull();
+    // A person's bracket is theirs to write; only an agent's note is hidden.
+    expect(agentShown("Jon (contractor)", list)).toBeNull();
+    expect(ownerNote("Claude ()")).toEqual({ name: "Claude ()", note: null });
+    expect(ownerNote("Claude (a) b")).toEqual({ name: "Claude (a) b", note: null });
   });
 });
 

@@ -1,0 +1,30 @@
+name: Decide whether a CI job is affected
+description: Keep the check visible while skipping setup and tests for unrelated pull requests
+
+inputs:
+  packages:
+    description: Newline-separated workspace package names whose recursive inputs this job proves
+    required: false
+    default: ""
+  paths:
+    description: Newline-separated additional repository paths or prefix/** patterns
+    required: false
+    default: ""
+
+outputs:
+  affected:
+    description: true when this job must run its guarded steps
+    value: ${{ steps.scope.outputs.affected }}
+  reason:
+    description: Short explanation of why the job runs or skips
+    value: ${{ steps.scope.outputs.reason }}
+
+runs:
+  using: composite
+  steps:
+    - id: scope
+      shell: bash
+      env:
+        CI_SCOPE_PACKAGES: ${{ inputs.packages }}
+        CI_SCOPE_PATHS: ${{ inputs.paths }}
+      run: node scripts/ci-change-scope.mjs

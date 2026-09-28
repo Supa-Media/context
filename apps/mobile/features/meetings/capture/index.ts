@@ -187,6 +187,15 @@ export interface MeetingRecorder {
    * somewhere. `notesOnly` has nothing in flight, ever.
    */
   drain?(): Promise<void>;
+  /**
+   * Ask for the call's own audio again, mid-meeting, and mix it in from here.
+   *
+   * Only a recorder whose share costs a picker has it (the browser's), and it
+   * must be called from a press: the picker needs the press's activation.
+   * Resolves `true` once the call's audio is in the recording, `false` when
+   * it still is not (which the recorder has already reported).
+   */
+  shareSystemAudio?(): Promise<boolean>;
   /** Segments as they are produced. Returns an unsubscribe. */
   onSegment(listener: (segment: TranscriptSegment) => void): () => void;
   /**
@@ -236,8 +245,14 @@ export interface RecorderError {
   /** Whether capture can continue. `false` means the session is notes-only from here. */
   recoverable: boolean;
   message: string;
-  /** A durable limitation of this session, separate from transient capture errors. */
-  kind?: "background-unavailable";
+  /**
+   * A durable limitation of this session, separate from transient capture errors.
+   *
+   * `call-audio-missing`: the meeting is recording the microphone only because
+   * the call's own audio was not shared, or stopped being shared. It is held
+   * until a share succeeds, and drawn with a button that asks again.
+   */
+  kind?: "background-unavailable" | "call-audio-missing";
 }
 
 /**
