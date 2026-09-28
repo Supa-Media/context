@@ -15,7 +15,10 @@
  * with none gets an `overview.md` holding just that. The page itself is one
  * too — a project folder is titled by its front note and says its status,
  * owner and first paragraph under the title (`Head.tsx`). Above the List,
- * "Show" narrows it to whose tasks, per viewer (`ShowBar.tsx`).
+ * "Show" narrows it to whose tasks, per viewer (`ShowBar.tsx`). Somebody who
+ * may write adds, nests, moves and changes tasks from the List — "+ Add
+ * task", a right-click, a selection, a drag — each write undoable from its
+ * toast (`tasks/useFolderTasks.tsx`).
  *
  * Nothing new is stored and nothing is read that a list block could not read:
  * the notes are the device's copy at the role's clearance, and every change is
@@ -30,6 +33,7 @@ import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import type { FileEntry } from "../types";
+import type { ListNote } from "../listBlock/model";
 import { noteColumnWidth } from "../../../app/frame";
 import { BOARD_COLUMN, FolderBoard } from "./Board";
 import { FolderGroups } from "./Groups";
@@ -50,6 +54,7 @@ import {
   propertyChoices,
   rowsAreProjects,
   summarizeFolder,
+  type FolderItem,
   type FolderPageView,
 } from "./model";
 import { useFolderNotes, type FolderPageHost } from "./useFolderPage";
@@ -67,10 +72,16 @@ import { useStatusEdits } from "./useStatusEdits";
 import { TrackNudge } from "./Nudge";
 import { dismissNudge, nudgeDismissed, rememberFilter, rememberView, rememberedFilter, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
+import { PanelBeside } from "./panel/PanelBeside";
+import { TaskPanel } from "./panel/TaskPanel";
+import { useTaskPanel } from "./panel/useTaskPanel";
+import { usePendingNotes } from "./tasks/usePendingNotes";
+import { useFolderTasks } from "./tasks/useFolderTasks";
 
 export type { FolderPageHost } from "./useFolderPage";
 
 const NO_WORDS: readonly string[] = [];
+const NO_NOTES: readonly ListNote[] = [];
 
 export function FolderPage({
   folder,
@@ -104,7 +115,9 @@ export function FolderPage({
 }) {
   const styles = useThemedStyles(makeStyles);
   const loaded = useFolderNotes(host, folder);
-  const notes = loaded.notes;
+  // What the List itself just wrote, drawn before the device's copy and the listing catch up.
+  const pending = usePendingNotes(folder, loaded.notes, rows);
+  const notes = pending.notes;
   const [picked, setPicked] = useState<FolderPageView | null>(() =>
     host === undefined ? null : rememberedView(host.workspaceId, folder),
   );
@@ -122,7 +135,7 @@ export function FolderPage({
 
   const now = Date.now();
   const summary = useMemo(() => (notes === null || folder === "" ? null : summarizeFolder(folder, notes)), [notes, folder]);
-  const { items, skipped } = useMemo(() => folderItems(folder, rows, notes ?? []), [folder, rows, notes]);
+  const { items, skipped } = useMemo(() => folderItems(folder, pending.rows, notes ?? []), [folder, pending.rows, notes]);
   // The folder's status list says what its children's statuses mean; its parent's, what its own means.
   const statuses = useMemo(() => folderStatuses(folder, notes ?? []), [folder, notes]);
   const parentFolder = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
@@ -197,6 +210,26 @@ export function FolderPage({
   const [editing, setEditing] = useState(false);
   const [tidyProblem, setTidyProblem] = useState<string | null>(null);
   const toneOf = useCallback((status: string) => groupOfStatus(status, list) ?? ("unplaced" as const), [list]);
+  // A task pressed on a wide page opens beside the list (`panel/`); anywhere narrower, on its own page.
+  const panel = useTaskPanel(folder, compact, pageWidth);
+  // A task opens beside the list where it fits; a note, or anything on a narrow page, on its own page.
+  const openItem = (item: FolderItem) => (panel.fits && item.status !== "" ? panel.show(item.path) : onSelect(item.path));
+  const makeTaskLabel = rowsAreProjects(folder) ? "Make it a project" : "Make it a task";
+  const tasks = useFolderTasks({
+    host: host?.tasks,
+    loaded,
+    folder,
+    notes: notes ?? NO_NOTES,
+    rows: pending.rows,
+    items,
+    list,
+    record: pending.record,
+    owners,
+    label,
+    me,
+    onOpen: openItem,
+    makeTaskLabel,
+  });
 
   if (host === undefined) {
     return (
@@ -246,9 +279,10 @@ export function FolderPage({
   const columnCount = bands.reduce((sum, band) => sum + band.columns.length, 0);
   const onEditStatuses = edits.savesTo === null ? null : () => setEditing(true);
   const actions: ItemActions = {
-    onOpen: (item) => onSelect(item.path),
+    onOpen: openItem,
+    selected: panel.path,
     choices,
-    onChoose: edit === null ? null : (item, key, value) => void edit(item.target, key, value, item.creates),
+    onChoose: tasks.choose ?? (edit === null ? null : (item, key, value) => void edit(item.target, key, value, item.creates)),
     statusMenu: menuSections,
     toneOf,
     onEditStatuses,
@@ -263,12 +297,31 @@ export function FolderPage({
     faceOf: taskOwners.faceOf,
     // The first To do of the list that describes the item: a note inside a task folder is read by that folder's.
     onMakeTask:
-      edit === null
+      tasks.makeTask ??
+      (edit === null
         ? null
-        : (item) => void edit(item.target, "status", makeItTaskStatus(folderStatuses(governingFolder(item.target), notes ?? []).list), item.creates),
-    makeTaskLabel: rowsAreProjects(folder) ? "Make it a project" : "Make it a task",
+        : (item) => void edit(item.target, "status", makeItTaskStatus(folderStatuses(governingFolder(item.target), notes ?? []).list), item.creates)),
+    makeTaskLabel,
+    tasks: tasks.controls,
   };
-  const problem = loaded.problem ?? tidyProblem;
+  const problem = loaded.problem ?? tidyProblem ?? tasks.controls?.problem ?? null;
+  const beside =
+    view === "files" || waiting || panel.path === null ? null : (
+      <TaskPanel
+        path={panel.path}
+        folder={folder}
+        notes={notes ?? []}
+        projectTitle={summary?.title ?? fallbackTitle}
+        actions={actions}
+        chooseMany={loaded.canEdit ? loaded.chooseMany : null}
+        perform={tasks.controls?.perform ?? null}
+        paths={pending.rows.map((row) => row.path)}
+        now={now}
+        onShow={panel.show}
+        onNavigate={onSelect}
+        onClose={panel.close}
+      />
+    );
 
   return (
     <>
@@ -323,12 +376,12 @@ export function FolderPage({
           onClose={() => setEditing(false)}
         />
       ) : null}
-      <View style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} style={styles.contents}>
         {view === "files" ? (
           files
         ) : waiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="folder-waiting" />
-        ) : items.length === 0 ? (
+        ) : items.length === 0 && (view === "board" || tasks.controls === null) ? (
           <Text variant="meta" style={styles.aside}>
             Nothing here to track yet. A note or folder added here can be given a status.
           </Text>
@@ -338,13 +391,15 @@ export function FolderPage({
               Nothing here is a task yet. Give something a status and it shows here.
             </Text>
           ) : (
-            <View style={compact || pageWidth <= 0 ? undefined : [styles.wide, { width: boardWidth(columnCount, bands.length, pageWidth) }]}>
+            <View style={compact || pageWidth <= 0 || beside !== null ? undefined : [styles.wide, { width: boardWidth(columnCount, bands.length, pageWidth) }]}>
               <FolderBoard bands={bands} compact={compact} now={now} actions={actions} />
             </View>
           )
         ) : (
           <>
-            {allTasks.length === 0 ? null : (
+            {allTasks.length === 0 ? (
+              tasks.addButton === null ? null : <View style={styles.addBar}>{tasks.addButton}</View>
+            ) : (
               <ShowBar
                 filter={filter}
                 onChange={showFilter}
@@ -354,9 +409,11 @@ export function FolderPage({
                 counts={counts}
                 faceOf={taskOwners.faceOf}
                 compact={compact}
+                end={tasks.addButton ?? undefined}
               />
             )}
             <FolderGroups layout={layout} compact={compact} now={now} actions={actions} />
+            {tasks.overlays}
             {layout.filtered && layout.sections.length === 0 ? (
               <Text variant="meta" style={styles.aside} testID="folder-filter-empty">
                 No tasks match. Choose Everyone to see them all.
@@ -374,7 +431,7 @@ export function FolderPage({
             {skipped === 1 ? "1 other file is in Notes" : `${skipped} other files are in Notes`}
           </Text>
         ) : null}
-      </View>
+      </PanelBeside>
     </>
   );
 }
@@ -397,6 +454,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     contents: { marginTop: space.x3 },
     nudge: { marginTop: space.x3 },
+    addBar: { flexDirection: "row", justifyContent: "flex-end", marginBottom: space.x2 },
     // Wider than the column it sits in, and centred on it, so it overflows both sides alike.
     wide: { alignSelf: "center" },
     // About a short column of cards, so the page does not collapse and grow back.

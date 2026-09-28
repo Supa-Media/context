@@ -240,10 +240,9 @@ describe("the switch", () => {
     // The listing is called Notes: "Files" was a word for the storage, not for what is in it.
     expect(strip(one("folder-view-files").textContent)).toBe("Notes");
     await press(one("folder-view-board"));
-    // Every status in the folder's list is a column to drop on, empty or not, under its group; notes are not cards.
-    expect(all("folder-board-band").map((band) => band.getAttribute("aria-label"))).toEqual(["Not started", "In progress", "Done"]);
+    // Every status in the folder's list is somewhere to drop, empty or not — Backlog as the rail — and notes are not cards.
+    expect(one("folder-board-rail").getAttribute("aria-label")).toBe("Backlog, 0");
     expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
-      "Backlog, 0",
       "To do, 0",
       "In progress, 0",
       "Active, 1",
@@ -360,7 +359,7 @@ describe("a folder outside projects", () => {
   test("a view picked there before is not brought back", async () => {
     rememberView("ws_test", "2-areas", "board");
     await mount(entry("folder", "2-areas"), AREAS, areas());
-    expect(all("folder-board-band")).toHaveLength(0);
+    expect(all("folder-board")).toHaveLength(0);
     expect(all("folder-row")).toHaveLength(3);
   });
 });
@@ -517,7 +516,7 @@ describe("the board", () => {
     await press(one("folder-view-board"));
     expect(all("folder-card-drag").every((node) => node.getAttribute("draggable") === "false")).toBe(true);
     expect(all("folder-card-status")).toHaveLength(0);
-    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["Backlog, 0", "To do, 0", "In progress, 0", "Active, 1", "Paused, 1", "Finished, 0"]);
+    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["To do, 0", "In progress, 0", "Active, 1", "Paused, 1", "Finished, 0"]);
     const data = new Map<string, string>([["application/x-context-folder-card", "1-projects/loose.md"]]);
     const over = drag("dragover", data);
     await act(async () => void column("Active").dispatchEvent(over));
@@ -593,8 +592,8 @@ describe("a word nobody placed", () => {
   test("on the board, Choose group is in the word's own column head", async () => {
     await mount(entry("folder", "1-projects"), RESEARCH, placing([]));
     await press(one("folder-view-board"));
-    const bands = all("folder-board-band");
-    expect(bands.map((band) => band.getAttribute("aria-label"))).toEqual(["Not started", "In progress", "Done", "No group yet"]);
+    // Its column comes after Done, the way No group yet ends the List.
+    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label")).at(-1)).toBe("Exploration, 1");
     const column = all("folder-board-column").find((node) => node.getAttribute("aria-label") === "Exploration, 1")!;
     expect(column.contains(one("folder-choose-group"))).toBe(true);
   });
@@ -665,8 +664,8 @@ describe("opening a board before the device has the folder's notes", () => {
     expect(all("folder-card")).toHaveLength(0);
     await arrive();
     expect(all("folder-waiting")).toHaveLength(0);
+    expect(one("folder-board-rail").getAttribute("aria-label")).toBe("Backlog, 0");
     expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
-      "Backlog, 0",
       "To do, 0",
       "In progress, 0",
       "Active, 1",

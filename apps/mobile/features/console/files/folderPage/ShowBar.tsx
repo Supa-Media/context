@@ -8,9 +8,12 @@
  * helpers the tasks name, each with a count — as a popover under the button
  * where there is room for one, and a sheet from the bottom on a phone, the
  * rule the owner picker uses.
+ *
+ * `end` sits at the bar's right: the List's primary "+ Add task", for
+ * somebody who may write.
  */
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
@@ -36,6 +39,7 @@ export function ShowBar({
   counts,
   faceOf,
   compact,
+  end,
 }: {
   filter: ShowFilter;
   onChange: (filter: ShowFilter) => void;
@@ -47,6 +51,7 @@ export function ShowBar({
   counts: { readonly noOwner: number; readonly urgent: number; readonly mine: number };
   faceOf: (owner: string) => Face;
   compact: boolean;
+  end?: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   const trigger = useRef<View>(null);
@@ -99,6 +104,7 @@ export function ShowBar({
           }}
         />
       ) : null}
+      {end === undefined ? null : <View style={styles.end}>{end}</View>}
     </View>
   );
 }
@@ -256,6 +262,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     bar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: space.x2 },
     lab: { color: colors.chromeMuted, marginRight: 2 },
+    end: { marginLeft: "auto" },
     chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.md, backgroundColor: colors.chipFill },
     chipTouch: { paddingVertical: 8 },
     chipHover: { backgroundColor: colors.surface3 },

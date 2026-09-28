@@ -1,6 +1,6 @@
-import type { CardDragOptions, ColumnDropOptions, DomRef } from "./boardDragContract";
+import type { CardDragOptions, ColumnDropOptions, DomRef, RowDropOptions } from "./boardDragContract";
 
-export type { CardDragOptions, ColumnDropOptions, DomRef } from "./boardDragContract";
+export type { CardDragOptions, ColumnDropOptions, DomRef, RowDropOptions, RowZone } from "./boardDragContract";
 
 /**
  * Dragging a Board card — the native half, which does nothing.
@@ -17,5 +17,9 @@ export function useCardDrag(_options: CardDragOptions): DomRef {
 }
 
 export function useColumnDrop(_options: ColumnDropOptions): DomRef {
+  return none;
+}
+
+export function useRowDrop(_options: RowDropOptions): DomRef {
   return none;
 }

@@ -4,7 +4,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { announceBucketWrite } from "../console/files/bucketWrites";
 import { capabilitiesForRole } from "../console/capabilities";
-import { folderListSource } from "./folderListSource";
+import { folderListSource, type ListWriteBack } from "./folderListSource";
 import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 import { openStore } from "./store";
@@ -37,7 +37,7 @@ import { matchingAgents } from "../console/files/folderPage/useAgents";
 export function useFolderLists(
   workspaceId: string | null | undefined,
   role: string | undefined,
-): FolderListSource | undefined {
+): (FolderListSource & ListWriteBack) | undefined {
   const tier = visibilityTierForRole(role);
   const readNote = useAction(api.functions.files.readNote);
   const writeNote = useAction(api.functions.files.writeNote);

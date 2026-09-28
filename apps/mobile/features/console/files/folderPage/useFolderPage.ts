@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderListSource, ListNote, PropertyValue } from "../listBlock/model";
 import { parentPath } from "../paths";
+import type { TaskHost } from "./tasks/taskHost";
 
 /** What a folder page is handed to read and change properties with. */
 export interface FolderPageHost {
@@ -34,6 +35,13 @@ export interface FolderPageHost {
    * Absent where the page does not know who is looking; Mine is then not offered.
    */
   readonly me?: readonly string[];
+  /**
+   * Adding, nesting and moving tasks on a project's List, with an undo for
+   * each (`tasks/taskHost.ts`). Absent where the console cannot write — and
+   * for a member, whose `source` has no `setProperty` — so the List offers
+   * none of it.
+   */
+  readonly tasks?: TaskHost;
 }
 
 export interface FolderNotes {

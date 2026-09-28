@@ -3,7 +3,7 @@ import type { FolderListSource } from "../console/files/listBlock/model";
 import type { OpenNote } from "../console/files/types";
 import { currentEpoch } from "./epoch";
 import type { CacheScope } from "./keys";
-import { putMirroredNotes, type Needed } from "./mirror";
+import { forgetMirroredNote, putMirroredNotes, type Needed } from "./mirror";
 import { onMirrorListed, onMirrorNotesChanged, publishMirrorNotesChanged } from "./mirrorEvents";
 import { mirroredListNotes } from "./mirrorLists";
 import type { MirrorStore } from "./mirrorStoreCore";
@@ -50,7 +50,19 @@ export interface FolderListInputs {
   needed: (workspaceId: string) => Promise<Needed>;
 }
 
-export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, needed }: FolderListInputs): FolderListSource {
+/**
+ * After notes were created, moved or removed outside `setProperty` — a
+ * project List adding or nesting a task — `remember` reads `written` back
+ * into this device's copy and drops `gone` from it, so a reload draws what
+ * was saved rather than waiting for a sync ("A list write is what this
+ * device holds afterwards"). Best effort: a failure leaves the next sync to
+ * bring them. Absent for a reader who may not write.
+ */
+export interface ListWriteBack {
+  remember?(written: readonly string[], gone: readonly string[]): Promise<void>;
+}
+
+export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, needed }: FolderListInputs): FolderListSource & ListWriteBack {
   return {
     load: async (folder, subfolders) => {
       const store = await openMirror();
@@ -77,9 +89,24 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
             changes: readonly (readonly [string, string | readonly string[] | null])[],
             options?: { create?: boolean },
           ) => write(path, changes, options),
+          remember: async (written: readonly string[], gone: readonly string[]) => {
+            for (const path of written) await remember(path).catch(() => {});
+            if (gone.length > 0) await forget(gone).catch(() => {});
+          },
         }
       : {}),
   };
+
+  async function forget(paths: readonly string[]): Promise<void> {
+    const epoch = currentEpoch();
+    const store = await openMirror();
+    if (store === null) return;
+    for (const path of paths) {
+      if (epoch !== currentEpoch()) return;
+      await forgetMirroredNote(store, epoch, workspaceId, path);
+    }
+    if (epoch === currentEpoch()) publishMirrorNotesChanged(workspaceId);
+  }
 
   async function write(
     path: string,
