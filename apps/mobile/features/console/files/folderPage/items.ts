@@ -33,6 +33,8 @@ export interface ItemActions {
   onMakeTask?: ((item: FolderItem) => void) | null;
   /** What that button says: "Make it a task", or "Make it a project" where the rows are projects. */
   makeTaskLabel?: string;
+  /** The task open in the side panel, marked where it is drawn; null or absent for none. */
+  selected?: string | null;
 }
 
 /** An owner picker's search, and the owners the folder already uses, most used first. */
