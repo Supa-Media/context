@@ -40,6 +40,7 @@ import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
 import { StorageMigrationCard } from "../storage/StorageMigration";
+import { describeHandoffFailure, HANDOFF_FORM_LEDE } from "../storage/handoffCopy";
 import type { SetupAgent } from "../../agentSetup/guides";
 
 /**
@@ -200,7 +201,7 @@ export function SettingsPane({
         // instead, which is exactly the pair `StorageChoice` draws.
         storage.managed === true ? (
           <ConnectForm
-            lede="Choose the bucket you want to own. Context keeps the managed bucket live while it copies and verifies every file, then switches over."
+            lede={HANDOFF_FORM_LEDE}
             connect={async (values) => {
               await actions.handoff(values);
               setRebinding(false);
@@ -746,8 +747,7 @@ function BindingCard({
       ) : storage.handoffStatus === "failed" ? (
         <Hint>
           <Text variant="hint" role="alert" testID="storage-handoff-failed">
-            The move stopped before cutover. Your managed bucket is still live and unchanged.
-            Re-enter the destination to retry.
+            {describeHandoffFailure(storage.handoffErrorCode)}
           </Text>
         </Hint>
       ) : null}
