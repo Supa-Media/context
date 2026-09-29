@@ -12,12 +12,14 @@ import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalAction, internalQuery, mutation, query } from "../_generated/server";
+import { internalAction, internalMutation, mutation, query } from "../_generated/server";
 import { handleForUser } from "./lib/identities";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
+import { hashToken } from "./lib/crypto";
 import { consumeRateLimit } from "./lib/rateLimit";
 import {
+  accountFor,
   allowanceFor,
   INVITE_TTL_MS,
   invitesOff,
@@ -184,6 +186,9 @@ export const undoCancel = mutation({
     const now = Date.now();
     if (invite.cancelledAt === undefined || now - invite.cancelledAt > UNDO_WINDOW_MS) return { changed: false };
     if (invite.expiresAt <= now) return { changed: false };
+    // Joined meanwhile, through somebody else's invite or any other way: an
+    // invite brought back now would take credit for a join it had no part in.
+    if ((await accountFor(ctx.db, invite.email)) !== null) return { changed: false };
     const allowance = await allowanceFor(ctx.db, userId, now);
     if (allowance.left <= 0) return { changed: false };
     await ctx.db.patch(invite._id, { status: "pending", cancelledAt: undefined });
@@ -238,7 +243,25 @@ export const communityLinks = query({
   },
 });
 
-export const mailFacts = internalQuery({
+/**
+ * Mails one address may be sent by referrals in a day, whoever sends them.
+ *
+ * Each inviter can mail an address only once per live invite, but cancelling
+ * and sending again, or several accounts inviting the same person, would each
+ * mail again. Keyed on the recipient, and spent here in the scheduled claim
+ * rather than in `send`, so a refusal is never an error the inviter sees:
+ * that would tell them how much mail *other* people had sent the address.
+ * The same design as workspace invitation mail (`invitationEmail.ts`).
+ */
+const RECIPIENT_MAIL_LIMIT = 3;
+const RECIPIENT_MAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Claim one invite's email: at most once per invite, and only while it is
+ * still live. Returns what the message needs, or null for every reason not to
+ * send, all alike.
+ */
+export const claimMail = internalMutation({
   args: { inviteId: v.id("referralInvites") },
   returns: v.union(
     v.null(),
@@ -246,7 +269,20 @@ export const mailFacts = internalQuery({
   ),
   handler: async (ctx, args) => {
     const invite = await ctx.db.get(args.inviteId);
-    if (invite === null || invite.status !== "pending") return null;
+    if (invite === null || invite.mailedAt !== undefined) return null;
+    const { statuses } = await invitesTo(ctx.db, invite.email, Date.now());
+    if (statuses.get(invite._id) !== "pending") return null;
+    // Hashed: the limiter table has no need of a second list of addresses.
+    try {
+      await consumeRateLimit(ctx, {
+        key: `referral.mail:${await hashToken(invite.email)}`,
+        limit: RECIPIENT_MAIL_LIMIT,
+        windowMs: RECIPIENT_MAIL_WINDOW_MS,
+      });
+    } catch {
+      return null;
+    }
+    await ctx.db.patch(invite._id, { mailedAt: Date.now() });
     return {
       email: invite.email,
       token: invite.token,
@@ -277,8 +313,11 @@ export const sendMail = internalAction({
       log("skipped", { reason: "app_origin_unset" });
       return null;
     }
-    const facts = await ctx.runQuery(internal.functions.referrals.mailFacts, { inviteId: args.inviteId });
-    if (facts === null) return null;
+    const facts = await ctx.runMutation(internal.functions.referrals.claimMail, { inviteId: args.inviteId });
+    if (facts === null) {
+      log("skipped", { reason: "not_sendable" });
+      return null;
+    }
     const rendered = renderReferralEmail(
       facts.inviterHandle,
       new URL(`/join/${facts.token}`, origin).toString(),

@@ -17,10 +17,13 @@
  *   `cancel` not checking the inviter                                  1
  *   `allowanceFor` skipping the friend wait                            1
  *   `communityLinks` returning members links signed out                1
+ *   `claimMail` skipping the per-recipient limit                       1
+ *   `claimMail` not setting `mailedAt`                                 1
+ *   `undoCancel` not checking for an account                           1
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { allowanceFor, FRIEND_WAIT_MS, INVITE_TTL_MS, SENDS_PER_DAY } from "../functions/lib/referrals";
@@ -228,6 +231,51 @@ describe("when the friend joins", () => {
     expect(now.locked).toBe("new");
     const later = await t.run(async (ctx) => allowanceFor(ctx.db, jon, Date.now() + FRIEND_WAIT_MS + 1));
     expect(later.locked).toBeNull();
+  });
+
+  test("Undo cannot bring an invite back once the address has joined", async () => {
+    const t = setupTest();
+    const maya = await setUpUser(t, "maya@acme.test");
+    await as(t, maya).mutation(api.functions.referrals.send, { email: "jon@studio.test" });
+    const [invite] = await invites(t);
+    await as(t, maya).mutation(api.functions.referrals.cancel, { inviteId: invite._id });
+    await seedUser(t, "jon@studio.test");
+    expect(await as(t, maya).mutation(api.functions.referrals.undoCancel, { inviteId: invite._id })).toEqual({
+      changed: false,
+    });
+    const mine = await as(t, maya).query(api.functions.referrals.mine, {});
+    expect(mine?.invites.map((row) => row.status)).toEqual(["cancelled"]);
+  });
+});
+
+describe("invite mail", () => {
+  const claim = (t: TestConvex, inviteId: Id<"referralInvites">) =>
+    t.mutation(internal.functions.referrals.claimMail, { inviteId });
+
+  test("each invite is mailed at most once, and only while it is live", async () => {
+    const t = setupTest();
+    const maya = await setUpUser(t, "maya@acme.test");
+    await as(t, maya).mutation(api.functions.referrals.send, { email: "jon@studio.test" });
+    await as(t, maya).mutation(api.functions.referrals.send, { email: "ana@kiln.test" });
+    const [jon, ana] = await invites(t);
+    expect((await claim(t, jon._id))?.email).toBe("jon@studio.test");
+    expect(await claim(t, jon._id)).toBeNull();
+    await as(t, maya).mutation(api.functions.referrals.cancel, { inviteId: ana._id });
+    expect(await claim(t, ana._id)).toBeNull();
+  });
+
+  test("one address gets three invite emails a day, however many people invite it", async () => {
+    const t = setupTest();
+    const senders: Array<Id<"users">> = [];
+    for (const name of ["maya", "lee", "sam", "kai"]) senders.push(await setUpUser(t, `${name}@acme.test`));
+    for (const sender of senders) {
+      await as(t, sender).mutation(api.functions.referrals.send, { email: "jon@studio.test" });
+    }
+    const claimed = [];
+    for (const invite of await invites(t)) claimed.push(await claim(t, invite._id));
+    expect(claimed.filter((row) => row !== null)).toHaveLength(3);
+    // The limit is on mail, never on the invite: every one still lets jon in.
+    expect(await admitted(t, "jon@studio.test")).toBe(true);
   });
 });
 
