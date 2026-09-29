@@ -165,7 +165,9 @@ export function HomeShell() {
   /*
     Invite-only (Dev2, 2026-09-28): signing in and joining the waitlist are one
     email field, and it lives in the page (`JoinCard`): where the page's
-    ```join fence is (`websiteJoin.ts`), else above the note. The
+    ```join fence is (`websiteJoin.ts`), else above the note. The page's own
+    field is drawn for everyone, signed in or not (Dev2, 2026-09-29): it is part
+    of the page, and the page should look the same to whoever reads it. The
     account button's "Sign in or join" and every link to sign-in or a new
     workspace bring that field into view and focus it, instead of taking the
     visitor to another page. Somebody already signed in follows the link.
@@ -292,7 +294,7 @@ export function HomeShell() {
   return (
     <View style={styles.ground}>
       {joinSlot !== null ? (
-        <JoinSlotPortal slot={joinSlot}>{auth.isAuthenticated ? null : joinCard}</JoinSlotPortal>
+        <JoinSlotPortal slot={joinSlot}>{joinCard}</JoinSlotPortal>
       ) : null}
       <ConsoleFrame
         data={data}
