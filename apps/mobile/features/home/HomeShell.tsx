@@ -142,16 +142,6 @@ export function HomeShell() {
   );
   // Inside the cast studio: the show waits for it, and plays on its clock.
   const stage = useStudioStage();
-  const castRoom = useHomeCast({
-    stage,
-    enabled: Platform.OS === "web" && cast !== null,
-    scripts,
-    colors: cast?.colors ?? NO_COLORS,
-    selectedPath: browser.selectedPath,
-    notes,
-    pages: home.pages,
-    addNote: local.addNote,
-  });
 
   // A push, not `setParams`: that replaces the entry, and Back then left the
   // site instead of going to the page before.
@@ -165,6 +155,23 @@ export function HomeShell() {
     },
     [browser, pathOf, routePath, router],
   );
+
+  const castRoom = useHomeCast({
+    stage,
+    enabled: Platform.OS === "web" && cast !== null,
+    scripts,
+    colors: cast?.colors ?? NO_COLORS,
+    selectedPath: browser.selectedPath,
+    notes,
+    pages: home.pages,
+    addNote: local.addNote,
+    // A scene's `opens:` goes where a click on that page would.
+    open: (path) => {
+      const route = routeOf(path);
+      if (route !== undefined) openRoute(route);
+      else browser.select(path);
+    },
+  });
 
   /*
     Invite-only (Dev2, 2026-09-28): signing in and joining the waitlist are one

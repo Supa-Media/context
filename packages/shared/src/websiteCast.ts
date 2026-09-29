@@ -27,6 +27,8 @@
  * @ana clicks @maya
  * @ana ticks: send the invoice
  * @ana leaves
+ * @maya opens: pricing
+ * @maya types: and this is what it costs.
  * ```
  * ````
  *
@@ -34,6 +36,11 @@
  * was; "adds to the line above" lands at the end of whatever paragraph is
  * above it now. Nothing matches quoted words, so editing the page around a
  * block can move where a step lands but can never make one fail.
+ *
+ * **A scene can span pages.** "opens: pricing" moves the show to that page,
+ * the way a visitor clicking it would, and every step after it plays there:
+ * a new line lands at the end of that page, comments quote its words, and the
+ * person who opened it goes along while the rest rejoin when they next act.
  *
  * **Comments are the exception, because a comment is about words.** "comments
  * on" quotes them and writes a real thread (`comments.cjs`) around the first
@@ -82,6 +89,8 @@ export type CastStep =
   | { kind: "click"; actor: CastActor; target: string }
   /** Ticking the first open task (`- [ ]`) whose words include `quote`. */
   | { kind: "tick"; actor: CastActor; quote: string }
+  /** The show moves to another page, and the steps after this one play there. */
+  | { kind: "open"; actor: CastActor; page: string }
   | { kind: "wait"; ms: number };
 
 export interface WebsiteCast {
@@ -112,6 +121,7 @@ const JOIN = new RegExp(String.raw`^${ACTOR}\s+(?:joins|comes in)$`, "i");
 const LEAVE = new RegExp(String.raw`^${ACTOR}\s+leaves$`, "i");
 const CLICK = new RegExp(String.raw`^${ACTOR}\s+clicks(?: on)?\s+${ACTOR}$`, "i");
 const TICK = new RegExp(String.raw`^${ACTOR}\s+(?:ticks|checks off|completes)\s*:\s*(.+)$`, "i");
+const GOTO = new RegExp(String.raw`^${ACTOR}\s+(?:opens|goes to)\s*:?\s*(.+)$`, "i");
 const WAIT = /^wait\s+(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds?)?$/i;
 
 function actor(written: string): CastActor {
@@ -177,6 +187,8 @@ function parseBlock(
       steps.push({ kind: "click", actor: actor(match[1]!), target: actor(match[2]!).name });
     } else if ((match = TICK.exec(text)) !== null) {
       steps.push({ kind: "tick", actor: actor(match[1]!), quote: match[2]!.trim().slice(0, 200) });
+    } else if ((match = GOTO.exec(text)) !== null) {
+      steps.push({ kind: "open", actor: actor(match[1]!), page: match[2]!.trim().slice(0, 120) });
     } else if ((match = READ.exec(text)) !== null) {
       const page = match[2]?.trim();
       steps.push({ kind: "read", actor: actor(match[1]!), page: page ? page.slice(0, 120) : null });

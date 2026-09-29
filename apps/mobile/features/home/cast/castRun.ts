@@ -83,6 +83,12 @@ export interface CastHost {
   clicked?: (name: string) => void;
   /** A moment the studio can put a sound to (`castSounds.ts`). */
   cue?: (moment: CastMoment) => void;
+  /**
+   * Take the view to the page `name` means, as a visitor clicking it would:
+   * its tree path and a document seeded with it, for the rest of the show to
+   * play into. `null` when there is no such page, and the show stays here.
+   */
+  open?: (name: string) => { path: string; shared: SharedDoc } | null;
 }
 
 /**
@@ -147,9 +153,12 @@ export function playCast(
     colors?: ReadonlyMap<string, string>;
   } = {},
 ): { stop: () => void } {
-  const { doc, text } = shared;
+  // The page the show is in: the one it started on until a step opens another.
+  let { doc, text } = shared;
+  let path = options.path ?? "";
+  // Moved to another page, a line or an addition lands at its end.
+  let moved = false;
   const pace = options.pace ?? LIVELY;
-  const path = options.path ?? "";
   const colors = options.colors ?? castColors(steps);
   const members = new Map<string, PresenceMember>();
   let stopped = false;
@@ -161,7 +170,7 @@ export function playCast(
     step.kind === "line" || step.kind === "append" ? Y.createRelativePositionFromTypeIndex(text, step.at) : null,
   );
   const resolve = (anchor: Y.RelativePosition) =>
-    Y.createAbsolutePositionFromRelativePosition(anchor, doc)?.index ?? text.length;
+    moved ? text.toString().trimEnd().length : (Y.createAbsolutePositionFromRelativePosition(anchor, doc)?.index ?? text.length);
   /*
     A caret *after* the character left of it (`assoc` -1), so each keystroke
     is a new position and `remoteCarets` sees the caret move — which is what
@@ -288,6 +297,24 @@ export function playCast(
       publish();
       host.cue?.("click");
       host.clicked?.(step.target);
+      return then();
+    }
+
+    if (step.kind === "open") {
+      const page = host.open?.(step.page) ?? null;
+      if (page === null) return then();
+      text.unobserve(onChange);
+      ({ doc, text } = page.shared);
+      path = page.path;
+      moved = true;
+      thread = null;
+      text.observe(onChange);
+      // Whoever opened it goes along; the others follow when they next act.
+      const opener = castMemberId(step.actor);
+      for (const id of [...members.keys()]) if (id !== opener) members.delete(id);
+      // No caret yet: where it was is in the page they left.
+      place(join(step.actor), null, null);
+      host.cue?.("click");
       return then();
     }
 

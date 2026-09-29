@@ -5,6 +5,7 @@ import type { PresenceMember } from "../../console/presence/protocol";
 import { createSharedDoc, seedSharedDoc, type SharedDoc } from "../../console/presence/sharedDoc";
 import type { Presence } from "../../console/presence/usePresence";
 import { useReducedMotion } from "../../design/useReducedMotion";
+import { previewSlug } from "../castPreview";
 import type { HomePage } from "../homeSite";
 import { castActorNamed, castMemberId, playCast } from "./castRun";
 import { castPresence } from "./castSite";
@@ -35,6 +36,8 @@ export function useHomeCast(options: {
   pages: ReadonlyMap<string, HomePage>;
   /** Add a note without opening it; its tree path, or `null`. */
   addNote: (folder: string, name: string, text: string) => string | null;
+  /** Open the page at this tree path, as the visitor clicking it would. */
+  open?: (path: string) => void;
   /**
    * The cast studio's stage (`useStudioStage`), or `null` for a visit. A stage
    * plays on the studio's clock, only once told to start.
@@ -44,17 +47,11 @@ export function useHomeCast(options: {
   const { enabled, scripts, colors, selectedPath } = options;
   const stage = options.stage ?? null;
   const start = stage?.start ?? null;
-  const [room, setRoom] = useState<{
-    path: string;
-    shared: SharedDoc;
-    members: PresenceMember[];
-    /** The thread the cast last acted on; see `Presence.commentFocus`. */
-    focus?: { thread: string; step: number };
-    /** The face a cast member clicked, for the pile to open its list on. */
-    peek?: { member: string; step: number };
-  } | null>(null);
+  const [room, setRoom] = useState<Room | null>(null);
   const [activity, setActivity] = useState<AgentActivityView>({ agents: [], marks: [] });
   const played = useRef(new Set<string>());
+  // The show playing now, and what it was started from.
+  const show = useRef<Show | null>(null);
   const reduced = useReducedMotion();
 
   // Read at the moment a step runs, never captured when the show started.
@@ -63,8 +60,26 @@ export function useHomeCast(options: {
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
 
+  // Unmounting ends whatever is playing.
+  useEffect(
+    () => () => {
+      show.current?.end();
+      show.current = null;
+    },
+    [],
+  );
+
   useEffect(() => {
     const path = selectedPath;
+    /*
+      A show that opened this page itself (`opens:`) carries on here: the view
+      followed the show, not the other way round. Anything else that changes
+      ends it, the visitor going to another page included.
+    */
+    const before = show.current;
+    if (before !== null && before.at === path && same(before.from, [enabled, scripts, colors, start])) return;
+    before?.end();
+    show.current = null;
     const steps = path === null ? undefined : scripts.get(path);
     const waiting = stage !== null && start === null;
     if (!enabled || waiting || path === null || steps === undefined || played.current.has(path)) {
@@ -77,6 +92,10 @@ export function useHomeCast(options: {
     const seen = played.current;
     seen.add(path);
     let begun = false;
+    const here: Show = { at: path, from: [enabled, scripts, colors, start], end: () => {} };
+    // Only while this is the room the show is in.
+    const inRoom = (fn: (current: Room) => Room) =>
+      setRoom((current) => (current !== null && current.path === here.at ? fn(current) : current));
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
     const clock = start?.clock ?? null;
     // In the studio, the step it asked to play from, once the rush reaches it.
@@ -101,19 +120,26 @@ export function useHomeCast(options: {
         pageNamed: (name) => pageNamed(name, latest.current.pages, latest.current.notes),
         addNote: (name, text) => latest.current.addNote(folder, name, text),
         agentDid: (actor, kind, at) => setActivity((current) => recordAgent(current, actor, kind, at, colors, Date.now())),
-        room: (members) => setRoom((current) => (current !== null && current.path === path ? { ...current, members } : current)),
-        commented: (thread) =>
-          setRoom((current) =>
-            current !== null && current.path === path
-              ? { ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } }
-              : current,
-          ),
+        room: (members) => inRoom((current) => ({ ...current, members })),
+        commented: (thread) => inRoom((current) => ({ ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } })),
         clicked: (name) =>
-          setRoom((current) =>
-            current !== null && current.path === path
-              ? { ...current, peek: { member: castMemberId(castActorNamed(name)), step: (current.peek?.step ?? 0) + 1 } }
-              : current,
-          ),
+          inRoom((current) => ({
+            ...current,
+            peek: { member: castMemberId(castActorNamed(name)), step: (current.peek?.step ?? 0) + 1 },
+          })),
+        open: (name) => {
+          const target = pageNamed(name, latest.current.pages, latest.current.notes);
+          const open = latest.current.open;
+          if (target === null || target === here.at || open === undefined) return null;
+          const next = createSharedDoc({});
+          seedSharedDoc(next, latest.current.notes[target] ?? "");
+          // Its own cast, if it has one, does not start over this one.
+          seen.add(target);
+          here.at = target;
+          setRoom({ path: target, shared: next, members: [] });
+          open(target);
+          return { path: target, shared: next };
+        },
         step: (index) => {
           if (start !== null && index >= start.from) live = true;
           stage?.step(index);
@@ -127,12 +153,13 @@ export function useHomeCast(options: {
       { path, colors },
     );
     if (clock !== null && !live) clock.rush(() => live);
-    return () => {
+    here.end = () => {
       run.stop();
       // Taken down before it did anything (a remount, the site arriving): it
       // has not been seen, so it still plays.
       if (!begun) seen.delete(path);
     };
+    show.current = here;
     // `stage` changes identity with `start`, which is what it is read for here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, selectedPath, scripts, colors, start]);
@@ -144,6 +171,29 @@ export function useHomeCast(options: {
   return { presence, agents: activity.agents.length === 0 ? undefined : activity };
 }
 
+/** The page a show is in, who is there, and what the chip and margin should open. */
+interface Room {
+  path: string;
+  shared: SharedDoc;
+  members: PresenceMember[];
+  /** The thread the cast last acted on; see `Presence.commentFocus`. */
+  focus?: { thread: string; step: number };
+  /** The face a cast member clicked, for the pile to open its list on. */
+  peek?: { member: string; step: number };
+}
+
+/** A show under way: the page it is in now, and how to end it. */
+interface Show {
+  at: string;
+  /** What it was started from; a change to any of it ends the show. */
+  from: readonly unknown[];
+  end: () => void;
+}
+
+function same(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 /** A page a step names: by its title, its address, or its file name. */
 export function pageNamed(
   name: string,
@@ -152,7 +202,8 @@ export function pageNamed(
 ): string | null {
   const wanted = name.trim().toLowerCase().replace(/\.md$/, "").replace(/^\//, "");
   for (const [path, page] of pages) {
-    if (page.title.toLowerCase() === wanted || page.routePath.slice(1).toLowerCase() === wanted) return path;
+    const route = page.routePath.slice(1).toLowerCase();
+    if (page.title.toLowerCase() === wanted || route === wanted || route === previewSlug(wanted)) return path;
   }
   for (const path of Object.keys(notes)) {
     const stem = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "").replace(/^\d{2}-/, "");

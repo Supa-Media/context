@@ -4,6 +4,8 @@ import { FrameIconButton } from "../../../app/AppFrame";
 import { hasCast } from "../../../home/castPreview";
 import { CastStudio } from "../../../studio/CastStudio";
 import type { SaveSounds, SoundStorage } from "../../../studio/sounds/useStudioSounds";
+import type { ReadScenePage } from "../../../studio/scenePages";
+import { previewSlug } from "../../../home/castPreview";
 import { setNoteProperty } from "../../../../../mcp/src/lists.js";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
@@ -19,9 +21,15 @@ import { SOUNDS_PROPERTY } from "../../../studio/sounds/castSounds";
  * same player (`features/studio/`). The stage is a web page in a frame, so
  * the button is on the web (and the desktop app) only.
  */
-export function castPreviewButton(draft: string, path: string, saveSounds?: SaveSounds, soundStorage?: SoundStorage) {
+export function castPreviewButton(
+  draft: string,
+  path: string,
+  saveSounds?: SaveSounds,
+  soundStorage?: SoundStorage,
+  readPage?: ReadScenePage,
+) {
   if (Platform.OS !== "web" || !hasCast(draft)) return null;
-  return <CastPreviewButton draft={draft} path={path} saveSounds={saveSounds} soundStorage={soundStorage} />;
+  return <CastPreviewButton draft={draft} path={path} saveSounds={saveSounds} soundStorage={soundStorage} readPage={readPage} />;
 }
 
 function CastPreviewButton({
@@ -29,11 +37,13 @@ function CastPreviewButton({
   path,
   saveSounds,
   soundStorage,
+  readPage,
 }: {
   draft: string;
   path: string;
   saveSounds?: SaveSounds;
   soundStorage?: SoundStorage;
+  readPage?: ReadScenePage;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -45,6 +55,7 @@ function CastPreviewButton({
           onClose={() => setOpen(false)}
           onSaveSounds={saveSounds}
           soundStorage={soundStorage}
+          readPage={readPage}
         /> : null}
     </>
   );
@@ -79,4 +90,26 @@ export function soundsWriter(files: FileBrowser, presence: Presence | undefined)
  */
 export function soundStorage(files: FileBrowser): SoundStorage {
   return { store: files.canEdit ? files.storeImage : undefined, load: files.loadImage };
+}
+
+/**
+ * The page a scene opens, found beside the scene's own note: `opens: pricing`
+ * is `pricing.md` (or `02-pricing.md`) in the same folder, or a path from it.
+ * Read as the person reading this note can read it, and nothing else.
+ */
+export function scenePageReader(files: FileBrowser, notePath: string): ReadScenePage {
+  const folder = notePath.includes("/") ? notePath.slice(0, notePath.lastIndexOf("/")) : "";
+  return async (name) => {
+    const wanted = previewSlug(name.slice(name.lastIndexOf("/") + 1));
+    const within = name.includes("/") ? name.slice(0, name.lastIndexOf("/")).replace(/^\/+|\/+$/g, "") : "";
+    const where = within === "" ? folder : folder === "" ? within : `${folder}/${within}`;
+    if (wanted === "" || where.split("/").includes("..")) return null;
+    const listed = (files.listings[where]?.entries ?? [])
+      .filter((entry) => entry.kind === "file" && entry.path.endsWith(".md") && entry.path !== notePath)
+      .find((entry) => previewSlug(entry.name.replace(/^\d{2}-/, "")) === wanted)?.path;
+    const path = listed ?? `${where === "" ? "" : `${where}/`}${wanted}.md`;
+    if (path === notePath) return null;
+    const read = await files.readRaw(path);
+    return read === null ? null : { name, title: noteHeading(read.text, path), markdown: read.text };
+  };
 }
