@@ -39,12 +39,14 @@
  * every server-side copy unreadable at its destination. The workspace id is
  * bound, so bytes lifted from another workspace's bucket never open here.
  *
- * ## Two modes
+ * ## Three modes
  *
  * `migrating` accepts plain objects on read (the walk has not reached them
  * yet) and writes encrypted. `encrypted` refuses a plain object on read,
  * except a content-free deletion marker, which the decision leaves visible.
- * Deletion markers are also written plain in both modes.
+ * `decrypting` is the way back: it accepts both kinds on read and writes
+ * plain, while staff walk the bucket back to plain bytes. Deletion markers are
+ * written plain in every mode.
  *
  * A read that cannot be decrypted is never answered with the raw bytes. It
  * throws `ManagedEncryptionError` with code `ENCRYPTED_UNREADABLE`, which the
@@ -59,7 +61,7 @@ import {
 } from "../encryption/primitives.js";
 import { LOGICAL_DELETE_CONTENT_TYPE } from "./index.js";
 
-export const MANAGED_ENCRYPTION_MODES = Object.freeze(["migrating", "encrypted"]);
+export const MANAGED_ENCRYPTION_MODES = Object.freeze(["migrating", "encrypted", "decrypting"]);
 
 const MAGIC = new Uint8Array([0x43, 0x54, 0x58, 0x45, 0x4e, 0x43, 0x01]); // "CTXENC" v1
 const WRAPPED_KEY_LENGTH = KEY_BYTE_LENGTH + 16;
@@ -82,7 +84,7 @@ export class ManagedEncryptionError extends Error {
  *
  * @param {unknown} descriptor `{mode}` from the control plane, or null/undefined
  * @param {{current: string, keys: Record<string,string>}|null} dataKey
- * @returns {{mode: "migrating"|"encrypted", current: string, keys: Record<string,string>}|null}
+ * @returns {{mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}
  */
 export function readManagedEncryption(descriptor, dataKey) {
   if (descriptor === null || descriptor === undefined) return null;
@@ -286,11 +288,12 @@ function isMarkerWrite(options) {
  * `storeForBinding` is covered by construction.
  *
  * @param {import("./index.js").ContextStore} store
- * @param {{workspaceId: string, mode: "migrating"|"encrypted", current: string, keys: Record<string,string>}} config
+ * @param {{workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}} config
  */
 export function withManagedEncryption(store, config) {
   const cipher = new ManagedCipher(config.workspaceId, config);
   const strict = config.mode === "encrypted";
+  const sealsWrites = config.mode !== "decrypting";
 
   async function openObject(object) {
     if (!object) return object;
@@ -326,7 +329,7 @@ export function withManagedEncryption(store, config) {
       return await openObject(await store.get(key, ...rest));
     },
     async put(key, value, options) {
-      if (isMarkerWrite(options)) return await store.put(key, value, options);
+      if (!sealsWrites || isMarkerWrite(options)) return await store.put(key, value, options);
       const sealed = await cipher.seal(await bytesOf(value));
       return await store.put(key, sealed, options);
     },
