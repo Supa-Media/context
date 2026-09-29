@@ -17,6 +17,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { probeStore } from "../../../../mcp/src/store/index.js";
+import { R2_CREDENTIAL_SETTLE_MS } from "../cloudflare";
 import { MANAGED_STORAGE_SETTLE_POLL_MS } from "./constants";
 import type { StorageCapabilities } from "../storage/shapes";
 import { summarizeProbe, type ProbeResult } from "../verification";
@@ -94,6 +95,91 @@ export async function destinationHoldsObjects(
   );
   const page = await target.list({ limit: 1 });
   return page.objects.length > 0;
+}
+
+/** The slice of a store `clearDestination` uses. */
+export interface ClearableStore {
+  list(options: { limit?: number }): Promise<{ objects: { key: string }[]; truncated?: boolean }>;
+  delete(key: string): Promise<unknown>;
+}
+
+/**
+ * Where a start-fresh clear got to: the bucket is empty; this run's budget ran
+ * out with files still there, and the caller comes back for the rest before
+ * claiming it; or a listing came back unchanged after every file on it was
+ * deleted (object lock, a retention rule, a key that may not delete), so
+ * coming back would only repeat it.
+ */
+export type ClearOutcome = "empty" | "more" | "stuck";
+
+/**
+ * Empty a destination the owner agreed to start fresh in, up to a budget.
+ *
+ * Always lists from the start: every listed object is deleted, so the first
+ * page is the next one, and a continuation token would name a listing that no
+ * longer exists.
+ */
+export async function clearDestination(
+  store: ClearableStore,
+  budget: { pageSize: number; maxPages: number },
+): Promise<ClearOutcome> {
+  let previous: string | undefined;
+  for (let page = 0; page < budget.maxPages; page += 1) {
+    const listed = await store.list({ limit: budget.pageSize });
+    if (listed.objects.length === 0) return "empty";
+    const keys = listed.objects.map((object) => object.key).join("\n");
+    if (keys === previous) return "stuck";
+    previous = keys;
+    for (let start = 0; start < listed.objects.length; start += CLEAR_WAVE_WIDTH) {
+      await Promise.all(
+        listed.objects.slice(start, start + CLEAR_WAVE_WIDTH).map((object) => store.delete(object.key)),
+      );
+    }
+  }
+  return (await store.list({ limit: 1 })).objects.length === 0 ? "empty" : "more";
+}
+
+const CLEAR_WAVE_WIDTH = 16;
+
+/** `clearDestination` against a parked customer destination, raw. */
+export async function clearMigrationTarget(
+  migration: Doc<"managedStorageMigrations">,
+  secretAccessKey: string,
+): Promise<ClearOutcome> {
+  const target = storeForBinding(
+    migrationTargetCredential(migration, secretAccessKey),
+    undefined,
+    { rawObjects: true },
+  ) as unknown as ClearableStore;
+  return await clearDestination(target, { pageSize: 1000, maxPages: 20 });
+}
+
+/**
+ * A start-fresh clear that did not finish never claims the bucket: nothing is
+ * copied into one that still holds the owner's old files.
+ */
+export async function afterUnfinishedClear(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  cleared: Exclude<ClearOutcome, "empty">,
+): Promise<{ ready: false }> {
+  if (cleared === "stuck") {
+    // Deleting did nothing, so neither would another run; the owner is told.
+    await ctx.runMutation(
+      internal.functions.managedProvisioning.failManagedStorageMigration,
+      { workspaceId, errorCode: "DESTINATION_NOT_CLEARED" },
+    );
+    return { ready: false };
+  }
+  // More than one run can delete. This run made progress, so the next gets a
+  // fresh window rather than this one's remainder.
+  const retryUntil = Date.now() + R2_CREDENTIAL_SETTLE_MS;
+  await ctx.scheduler.runAfter(
+    0,
+    internal.functions.managedProvisioning.awaitManagedTargetReady,
+    { workspaceId, retryUntil },
+  );
+  return { ready: false };
 }
 
 /** The parked target in the ordinary gateway shape, in either direction. */

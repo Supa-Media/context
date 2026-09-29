@@ -23,9 +23,10 @@ import type { ConsoleStorage } from "../features/console/types";
  * stopped". Reading `managedRetainedUntil` without comparing it to now drew
  * the switch-back offer after the copy was gone, failing the last test.
  * Enabling "Delete and start fresh" before the name matched sent an answer
- * for "my-note", failing the existing-files test. Dropping the claimed case
- * from `existingFilesLine` hid the warning not to add files mid-move, failing
- * "says not to add files meanwhile".
+ * for "my-note", failing the existing-files test. Showing the choice only for
+ * `DESTINATION_NOT_EMPTY` left a start-fresh that could not delete everything
+ * with no way forward, failing "a bucket that would not empty offers the
+ * choice again".
  */
 
 const NOW = Date.UTC(2026, 8, 29, 12);
@@ -192,17 +193,31 @@ describe("the way out of managed storage", () => {
       }),
     });
     expect(screen.q("storage-handoff-existing")?.textContent).toContain("Keeping the files");
-    expect(screen.text).not.toContain("Don't add files");
     screen.unmount();
   });
 
-  test("a move into a bucket it will make match says not to add files meanwhile", () => {
+  test("a file added while the move runs is not threatened", () => {
     const screen = mount({
       storage: managed({ handoffStatus: "copying", handoffPhase: "copy", handoffClaimed: true }),
     });
-    expect(screen.q("storage-handoff-existing")?.textContent).toContain(
-      "Don't add files to your bucket until the move finishes",
-    );
+    expect(screen.q("storage-handoff-existing")).toBeNull();
+    expect(screen.text).not.toContain("removed");
+    screen.unmount();
+  });
+
+  test("a bucket that would not empty offers the choice again", () => {
+    const screen = mount({
+      storage: managed({
+        handoffStatus: "failed",
+        handoffErrorCode: "DESTINATION_NOT_CLEARED",
+        handoffBucket: "my-bucket",
+      }),
+      onChooseExisting: async () => {},
+    });
+    expect(screen.text).toContain("Some files in your bucket wouldn't delete");
+    expect(screen.text).toContain("Nothing has been copied yet");
+    expect(screen.q("storage-handoff-failed")).not.toBeNull();
+    expect(screen.text).toContain("Delete and start fresh");
     screen.unmount();
   });
 

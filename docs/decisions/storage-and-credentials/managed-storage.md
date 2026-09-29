@@ -458,23 +458,42 @@ at all parks the move with `DESTINATION_NOT_EMPTY` until the owner answers.
 Context sees the whole bucket, never a folder of it (owner, 2026-09-29), so the
 answer is not "pick an empty bucket or a prefix" but one of two choices
 (`managedHandoff.chooseExistingFilesForHandoff`, recorded as `existingFiles`):
-**start fresh**, which needs the bucket's name typed as consent and then claims
-the destination, so the last pass deletes what was there; or **merge**, which
-never claims it, so nothing of theirs is deleted, their files appear in the
-workspace after the switch, and a file of theirs that shares a key with one of
-the workspace's is kept once as `name (from your bucket).ext` before the copy
-pass writes over it. A destination that answers empty is recorded as
-`targetClaimed` on the migration row, and only a claimed destination may lose
-keys later — everything in it is then this move's own writes. A retry into the
-same endpoint, bucket and prefix keeps the claim and carries on from the partial
-copy; any other destination is asked again. A row started before the check
-existed is unclaimed, and its verify pass deletes nothing.
+**start fresh**, which needs the bucket's name typed as consent, or **merge**,
+which never claims the destination, so nothing of theirs is deleted, their
+files appear in the workspace after the switch, and a file of theirs that
+shares a key with one of the workspace's is kept once as
+`name (from your bucket).ext` before the copy pass writes over it. A
+destination that answers empty is recorded as `targetClaimed` on the migration
+row. A retry into the same endpoint, bucket and prefix keeps the claim and
+carries on from the partial copy; any other destination is asked again. A row
+started before the check existed is unclaimed, and its verify pass deletes
+nothing.
+
+**Start fresh deletes once, up front, and nothing of theirs after** (owner's
+rule and ask for rigor, 2026-09-29). The typed consent covers the files that
+were there when they typed it, so `awaitManagedTargetReady` empties the bucket
+before the first copy (`clearDestination`, listing from the start each page,
+over as many runs as it takes) and only claims it once a listing comes back
+empty. A listing that comes back unchanged after every key on it was deleted
+(object lock, a retention rule, a key that may not delete) parks the move as
+`DESTINATION_NOT_CLEARED`, which asks the same keep-or-start-fresh question
+again rather than copying into a bucket that still holds their files. After
+that, a move out's verify pass may delete only keys under `.context/`, the
+move's own plumbing (`deleteOnlyUnder`): a file the owner adds to their bucket
+while the move runs is theirs and stays, exactly as merge keeps theirs. Until
+2026-09-29 the verify pass deleted any key the source lacked in a claimed
+bucket, and the app told owners not to touch their bucket meanwhile; a warning
+was the wrong fix for deleting somebody's file. A hand-added file at the very
+same key as a workspace file is still written over by the copy, which is the
+workspace's file arriving where it belongs.
 
 **What a simplification would cost.** Dropping the check, letting the claim
-survive a change of destination, letting a merge claim, or starting fresh
-without the typed name puts the deletion back in front of a customer's own
-files. `__tests__/managedHandoffDestination.test.ts` and
-`managedHandoffExistingFiles.test.ts` fail on each.
+survive a change of destination, letting a merge claim, starting fresh without
+the typed name, claiming before the clear reports empty, or letting the verify
+pass delete outside `.context/` again puts a deletion in front of a customer's
+own files. `__tests__/managedHandoffDestination.test.ts`,
+`managedHandoffExistingFiles.test.ts` and `managedHandoffMidMove.test.ts` fail
+on each.
 
 ## The managed copy is kept a week after a move out
 

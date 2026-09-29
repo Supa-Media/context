@@ -107,7 +107,7 @@ export function HandoffCard({
       processed: storage.handoffObjectsProcessed,
       readyToSwitch: storage.handoffReadyToSwitch,
     });
-    const existing = existingFilesLine(storage.handoffExistingFiles, storage.handoffClaimed);
+    const existing = existingFilesLine(storage.handoffExistingFiles);
     return (
       <Card testID="storage-handoff-moving" style={styles.card}>
         <Text variant="rowTitle">
@@ -154,7 +154,8 @@ export function HandoffCard({
 
   if (
     storage.handoffStatus === "failed" &&
-    storage.handoffErrorCode === "DESTINATION_NOT_EMPTY" &&
+    (storage.handoffErrorCode === "DESTINATION_NOT_EMPTY" ||
+      storage.handoffErrorCode === "DESTINATION_NOT_CLEARED") &&
     owner &&
     onChooseExisting !== undefined &&
     storage.handoffBucket !== undefined
