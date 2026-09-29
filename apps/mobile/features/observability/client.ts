@@ -213,12 +213,27 @@ export function setObservabilityUser(userId: string): void {
   currentUserId = userId;
   sentry?.setUser({ id: userId });
   posthog?.identify(userId);
+  for (const listener of userListeners) listener();
 }
 
 export function resetObservabilityUser(): void {
+  const changed = currentUserId !== null;
   currentUserId = null;
   sentry?.setUser(null);
   posthog?.reset();
+  if (changed) for (const listener of userListeners) listener();
+}
+
+const userListeners = new Set<() => void>();
+
+/** Who is signed in, as telemetry knows it: the account id, or null. */
+export function observedUserId(): string | null {
+  return currentUserId;
+}
+
+export function onObservedUserChange(listener: () => void): () => void {
+  userListeners.add(listener);
+  return () => userListeners.delete(listener);
 }
 
 /** Whether this build can send a feedback report at all. */

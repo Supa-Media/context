@@ -21,6 +21,7 @@ import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
+import { telemetryTables } from "./functions/lib/schema/telemetry";
 
 /**
  * Control-plane schema for Context.
@@ -73,6 +74,7 @@ const schema = defineSchema({
   ...waitlistTables,
   ...referralTables,
   ...devlogTables,
+  ...telemetryTables,
 });
 
 export default schema;

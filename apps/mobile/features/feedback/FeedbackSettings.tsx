@@ -43,8 +43,8 @@ export function FeedbackSettings() {
         {settingsSectionLabel("feedback")}
       </Text>
       <Text variant="paneSub" style={styles.sub}>
-        Context is in early beta. These help us find and fix problems. They apply to this
-        device.
+        Context is in early beta. These help us find and fix problems. They follow your
+        account to every device you sign in on.
       </Text>
 
       <Card>
@@ -83,7 +83,7 @@ export function FeedbackSettings() {
 
       {failed ? (
         <Text variant="hint" style={styles.problem} testID="privacy-save-failed">
-          Couldn't save that change on this device. Try again.
+          Couldn't save that change. Try again.
         </Text>
       ) : null}
 
