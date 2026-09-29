@@ -210,6 +210,7 @@ export function mountEditor({
       comments({
         author: () => handlers.current.commenter ?? null,
         signIn: () => handlers.current.onSignInToComment,
+        moderator: () => handlers.current.commentModerator === true,
       }),
       commentRail,
       commentSheet({ placement: "viewport" }),

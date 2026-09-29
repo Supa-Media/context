@@ -50,7 +50,8 @@ export function noteWriteToolDefinitions() {
         "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead." +
         "\n\nTHIS TOOL ALSO COMMENTS, the way people comment in a shared document. read_note lists a note's open comment threads; " +
         "pass comment: { action: \"add\", quote, text } to highlight words and say something about them, or { action: \"reply\" | \"resolve\" | \"reopen\", thread, text? } to answer one. " +
-        "Resolve a thread once you have acted on it. Comments are never deleted: resolving keeps the whole thread in the note's history.",
+        "Resolve a thread once you have acted on it: resolving keeps the whole thread in the note's history. " +
+        "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here.",
       inputSchema: {
         type: "object",
         properties: {
@@ -60,10 +61,10 @@ export function noteWriteToolDefinitions() {
             type: "object",
             description:
               "Comment on this note instead of rewriting it; pass this without content. " +
-              "add highlights the quoted words and starts a thread; reply, resolve and reopen act on a thread by the id read_note lists. " +
+              "add highlights the quoted words and starts a thread; reply, resolve, reopen and delete act on a thread by the id read_note lists. " +
               "The gateway writes the anchor and the log line into the note itself, signed with this connection's name.",
             properties: {
-              action: { type: "string", enum: ["add", "reply", "resolve", "reopen"] },
+              action: { type: "string", enum: ["add", "reply", "resolve", "reopen", "delete"] },
               quote: {
                 type: "string",
                 description: "add: the exact words to highlight, as they read in the note (without markup the reader does not see).",
@@ -73,7 +74,7 @@ export function noteWriteToolDefinitions() {
                 minimum: 1,
                 description: "add: which appearance of quote, counting from 1, when it appears more than once.",
               },
-              thread: { type: "string", description: "reply, resolve, reopen: the thread id, e.g. k7f2." },
+              thread: { type: "string", description: "reply, resolve, reopen, delete: the thread id, e.g. k7f2." },
               text: { type: "string", description: "add and reply: what you are saying, up to 5000 characters." },
             },
             required: ["action"],

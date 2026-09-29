@@ -19,7 +19,8 @@ export interface ExtrasSink {
 }
 
 export interface HostExtras {
-  setCommenter: (author: string | null) => void;
+  /** Who signs comments, and whether they may delete anybody's (a workspace owner) rather than only their own. */
+  setCommenter: (author: string | null, moderator?: boolean) => void;
   setLists: (available: boolean, editable: boolean) => void;
   listsChanged: () => void;
   /** Everything the guest should hold, for a `ready`. */
@@ -59,6 +60,7 @@ export function wireListSource(source: {
 
 export function hostExtras(post: (message: ToGuest) => void, sink: ExtrasSink): HostExtras {
   let author: string | null = null;
+  let moderator = false;
   let lists = { available: false, editable: false };
   /*
     The notes a list has been handed. A `list-set` may only name one of these:
@@ -71,13 +73,14 @@ export function hostExtras(post: (message: ToGuest) => void, sink: ExtrasSink): 
     handed to one page of the editor is not still writable from the next.
   */
   const listed = new Set<string>();
-  const commenter = (): ToGuest => ({ v: PROTOCOL_VERSION, type: "commenter", author });
+  const commenter = (): ToGuest => ({ v: PROTOCOL_VERSION, type: "commenter", author, moderator });
   const listing = (): ToGuest => ({ v: PROTOCOL_VERSION, type: "lists", ...lists });
 
   return {
-    setCommenter: (next) => {
-      if (next === author) return;
+    setCommenter: (next, owner = false) => {
+      if (next === author && owner === moderator) return;
       author = next;
+      moderator = owner;
       post(commenter());
     },
     setLists: (available, editable) => {

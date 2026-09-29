@@ -35,21 +35,24 @@
 
 import { StateEffect, StateField } from "@codemirror/state";
 import { EditorView, ViewPlugin, type PluginValue, type ViewUpdate } from "@codemirror/view";
-import type { CommentThread } from "@context/shared/src/comments.cjs";
+import type { CommentEvent, CommentThread } from "@context/shared/src/comments.cjs";
 import {
   addToThread,
   canComment,
+  canDeleteComment,
+  commentHost,
   commentUi,
   commentableSelection,
   commentsParsed,
   setActiveThread,
   setDraft,
+  removeFromThread,
   setShowResolved,
   startComment,
   submitDraft,
 } from "./extension";
-import { button, carryOver, composer, el, message, report } from "./dom";
-import { hasMargin, messages, resolvedBy, stackCards, visibleThreads } from "./model";
+import { button, carryOver, composer, el, message, report, type Deletion } from "./dom";
+import { eventsKey, hasMargin, messages, resolvedBy, stackCards, visibleThreads } from "./model";
 
 /** The margin the note gives up when it has comments: the card width plus air. */
 export const RAIL_RESERVE = 300;
@@ -128,6 +131,7 @@ class Rail implements PluginValue {
     const parsed = state.field(commentsParsed);
     const ui = state.field(commentUi);
     const editable = canComment(state);
+    const moderator = state.facet(commentHost).moderator?.() ?? false;
     const threads = visibleThreads(parsed.threads, ui.showResolved);
     const specs: CardSpec[] = [];
     const resolvedCount = parsed.threads.filter((thread) => thread.status === "resolved").length;
@@ -146,7 +150,7 @@ class Rail implements PluginValue {
       specs.push({
         id: thread.id,
         pos: anchor?.from ?? 0,
-        signature: JSON.stringify([thread.events, thread.status, thread.anchored, active, editable]),
+        signature: JSON.stringify([eventsKey(thread), thread.status, thread.anchored, active, editable, moderator]),
         build: () => this.threadCard(thread, active, editable),
       });
     }
@@ -286,7 +290,7 @@ class Rail implements PluginValue {
       card.append(el("div", "cm-cmt-quote", thread.quote));
       card.append(el("div", "cm-cmt-detached", "The highlighted text was deleted"));
     }
-    for (const event of messages(thread)) card.append(message(event.author, event.at, event.text));
+    messages(thread).forEach((event, index) => card.append(message(event.author, event.at, event.text, this.deletion(thread, index, event))));
     const closed = resolvedBy(thread);
     if (closed) {
       const line = el("div", "cm-cmt-resolved", `Resolved by ${closed.author}`);
@@ -306,6 +310,11 @@ class Rail implements PluginValue {
     }
     card.append(actions);
     return card;
+  }
+
+  private deletion(thread: CommentThread, index: number, event: CommentEvent): Deletion | undefined {
+    if (!canDeleteComment(this.view.state, event)) return undefined;
+    return { thread: index === 0, run: () => removeFromThread(this.view, thread.id, index, event) };
   }
 
   private draftCard(): HTMLElement {

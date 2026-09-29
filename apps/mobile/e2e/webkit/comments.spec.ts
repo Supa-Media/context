@@ -73,6 +73,16 @@ test("a comment is written, answered and resolved in the margin", async ({
   const history = page.locator(".cm-cmt-card");
   await expect(history).toContainText("Resolved by");
   await expect(history).toContainText("eh, I don't really care");
+
+  // Deleting asks first, in the card, and the first comment takes the thread.
+  await history.getByRole("button", { name: "Delete this thread" }).click();
+  await expect(history).toContainText("Delete this thread and its replies?");
+  await expect(page.locator(".cm-cmt-card")).toHaveCount(1);
+  await page.screenshot({ path: process.env.COMMENT_SHOT ?? "test-results/comment-delete.png" });
+  await history.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.locator(".cm-cmt-card")).toHaveCount(0);
+  await expect(page.locator(".cm-content")).not.toContainText("<!--c:");
+  await expect(line).toContainText("Tenancy is bucket-level");
 });
 
 test.describe("a window with a little less room than a card needs", () => {

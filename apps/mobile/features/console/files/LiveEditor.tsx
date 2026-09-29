@@ -126,6 +126,7 @@ export function LiveEditor({
   onLoadImage,
   onStoreImage,
   commenter,
+  commentModerator,
   folderLists,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
@@ -480,7 +481,7 @@ export function LiveEditor({
     bridge.setSuggest(onSuggest !== undefined);
   }, [bridge, onSuggest]);
 
-  useExtras(bridge, commenter, folderLists, onOpenNote !== undefined);
+  useExtras(bridge, commenter, commentModerator === true, folderLists, onOpenNote !== undefined);
 
   /**
    * KEEPING THE CARET OFF THE KEYBOARD, and it is answered differently at the
