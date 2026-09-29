@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { FrameIconButton } from "../../../app/AppFrame";
 import { hasCast } from "../../../home/castPreview";
 import { CastStudio } from "../../../studio/CastStudio";
-import type { SaveSounds } from "../../../studio/sounds/useStudioSounds";
+import type { SaveSounds, SoundStorage } from "../../../studio/sounds/useStudioSounds";
 import { setNoteProperty } from "../../../../../mcp/src/lists.js";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
@@ -19,12 +19,22 @@ import { SOUNDS_PROPERTY } from "../../../studio/sounds/castSounds";
  * same player (`features/studio/`). The stage is a web page in a frame, so
  * the button is on the web (and the desktop app) only.
  */
-export function castPreviewButton(draft: string, path: string, saveSounds?: SaveSounds) {
+export function castPreviewButton(draft: string, path: string, saveSounds?: SaveSounds, soundStorage?: SoundStorage) {
   if (Platform.OS !== "web" || !hasCast(draft)) return null;
-  return <CastPreviewButton draft={draft} path={path} saveSounds={saveSounds} />;
+  return <CastPreviewButton draft={draft} path={path} saveSounds={saveSounds} soundStorage={soundStorage} />;
 }
 
-function CastPreviewButton({ draft, path, saveSounds }: { draft: string; path: string; saveSounds?: SaveSounds }) {
+function CastPreviewButton({
+  draft,
+  path,
+  saveSounds,
+  soundStorage,
+}: {
+  draft: string;
+  path: string;
+  saveSounds?: SaveSounds;
+  soundStorage?: SoundStorage;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -34,6 +44,7 @@ function CastPreviewButton({ draft, path, saveSounds }: { draft: string; path: s
           title={noteHeading(draft, path)}
           onClose={() => setOpen(false)}
           onSaveSounds={saveSounds}
+          soundStorage={soundStorage}
         /> : null}
     </>
   );
@@ -58,4 +69,14 @@ export function soundsWriter(files: FileBrowser, presence: Presence | undefined)
     else files.setDraft(changed.text);
     return null;
   };
+}
+
+/**
+ * Uploaded sounds go where the note's images go: the workspace's own bucket,
+ * named from their bytes, read back for the open note that names them
+ * (`storeImage`/`loadImage`, which the server routes by the file's type).
+ * Only somebody who can change the note may keep one.
+ */
+export function soundStorage(files: FileBrowser): SoundStorage {
+  return { store: files.canEdit ? files.storeImage : undefined, load: files.loadImage };
 }

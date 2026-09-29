@@ -13,6 +13,7 @@ import {
   defaultPlan,
   momentCount,
   soundItems,
+  soundLabel,
   soundPlan,
 } from "../features/studio/sounds/castSounds";
 import { createSoundPlayer, TYPING_GAP_MS } from "../features/studio/sounds/soundPlayer";
@@ -67,6 +68,21 @@ describe("a scene's sounds, kept in its note", () => {
     expect(plan.moments.comment).toEqual({ sound: "bell", volume: 100 });
     expect(plan.moments.join.sound).toBe("doorbell");
     expect(soundPlan("---\nsounds: chime\n---\n").moments).toEqual(defaultPlan().moments);
+  });
+
+  test("an uploaded sound is named by its stored file, and read back as one", () => {
+    const leaf = "sound-0123456789abcdef.wav";
+    const plan = defaultPlan();
+    plan.moments.agent = { sound: leaf, volume: 60 };
+    const items = soundItems(plan);
+    expect(items).toEqual([`agent ${leaf} 60%`]);
+    const text = (setNoteProperty("# x\n", SOUNDS_PROPERTY, items) as { text: string }).text;
+    expect(soundPlan(text).moments.agent).toEqual({ sound: leaf, volume: 60 });
+    expect(soundLabel(leaf)).toBe("Your sound");
+    // Anything else shaped like a file is not a sound the studio will ask for.
+    for (const other of ["sound-0123.wav", "sound-0123456789abcdef.svg", "paste-0123456789abcdef.png", "../privacy.md"]) {
+      expect(soundPlan(`---\nsounds: [agent ${other}]\n---\n`).moments.agent.sound).toBe("pop");
+    }
   });
 
   test("counts read in words", () => {

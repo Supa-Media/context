@@ -12,7 +12,7 @@ import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
-import { castPreviewButton, soundsWriter } from "./castPreviewButton";
+import { castPreviewButton, soundStorage, soundsWriter } from "./castPreviewButton";
 import type { FolderListingState } from "./useFolderListing";
 
 /**
@@ -192,7 +192,7 @@ export function BrowseNoteHead({
         web, where the homepage it opens is. See `castPreview.ts`.
       */}
       {Platform.OS === "web" && selected.kind === "file" && files.editor.path === selected.path
-        ? castPreviewButton(presence?.collaboration?.text ?? files.editor.draft, selected.path, soundsWriter(files, presence))
+        ? castPreviewButton(presence?.collaboration?.text ?? files.editor.draft, selected.path, soundsWriter(files, presence), soundStorage(files))
         : null}
       {selected.kind === "file" ? (
         <FrameIconButton

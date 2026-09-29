@@ -9,6 +9,10 @@ const HEADROOM = 0.6;
 export interface SoundPlayer {
   /** Play a built-in sound at `volume` percent. `"off"` and unknown ids are silent. */
   play: (id: string, volume: number, options?: { typing?: boolean }) => void;
+  /** An uploaded sound's bytes, made ready to play; `null` when the browser cannot read them. */
+  decode: (bytes: ArrayBuffer) => Promise<AudioBuffer | null>;
+  /** Play a decoded upload at `volume` percent. */
+  playBuffer: (buffer: AudioBuffer, volume: number, options?: { typing?: boolean }) => void;
   close: () => void;
 }
 
@@ -76,21 +80,47 @@ export function createSoundPlayer(
     source.stop(end + 0.02);
   };
 
+  /** The output at `volume`, or `null` for silence (Off, a key too soon, no Web Audio). */
+  const output = (volume: number, typing: boolean): { ctx: AudioContext; level: GainNode } | null => {
+    if (volume <= 0) return null;
+    if (typing) {
+      const t = now();
+      if (t - lastKey < TYPING_GAP_MS) return null;
+      lastKey = t;
+    }
+    const ctx = ready();
+    if (ctx === null) return null;
+    const level = ctx.createGain();
+    level.gain.value = (Math.min(100, volume) / 100) * HEADROOM;
+    level.connect(ctx.destination);
+    return { ctx, level };
+  };
+
   return {
     play(id, volume, options) {
       const sound = (BUILT_IN_SOUNDS as Record<string, BuiltInSound | undefined>)[id];
-      if (sound === undefined || volume <= 0) return;
-      if (options?.typing === true) {
-        const t = now();
-        if (t - lastKey < TYPING_GAP_MS) return;
-        lastKey = t;
-      }
+      if (sound === undefined) return;
+      const out = output(volume, options?.typing === true);
+      if (out === null) return;
+      for (const one of sound.voices) voice(out.ctx, out.level, one, out.ctx.currentTime + 0.005);
+    },
+    async decode(bytes) {
       const ctx = ready();
-      if (ctx === null) return;
-      const level = ctx.createGain();
-      level.gain.value = (Math.min(100, volume) / 100) * HEADROOM;
-      level.connect(ctx.destination);
-      for (const one of sound.voices) voice(ctx, level, one, ctx.currentTime + 0.005);
+      if (ctx === null) return null;
+      try {
+        // A copy: decoding detaches the buffer it is handed.
+        return await ctx.decodeAudioData(bytes.slice(0));
+      } catch {
+        return null;
+      }
+    },
+    playBuffer(buffer, volume, options) {
+      const out = output(volume, options?.typing === true);
+      if (out === null) return;
+      const source = out.ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(out.level);
+      source.start(out.ctx.currentTime + 0.005);
     },
     close() {
       void context?.close();

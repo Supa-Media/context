@@ -40,6 +40,15 @@ export function CastStudioFixture() {
         setDraft(changed.text);
         return null;
       }}
+      soundStorage={{
+        // Kept in memory: the spec checks what was sent, and the server's own
+        // checks are `apps/convex/__tests__/files/sceneSounds.test.ts`.
+        store: async ({ bytes, contentType }) => {
+          (window as unknown as { __castStudioUpload?: unknown }).__castStudioUpload = { size: bytes.byteLength, contentType };
+          return { target: "sound-0123456789abcdef.wav" };
+        },
+        load: async () => null,
+      }}
     />
   );
 }

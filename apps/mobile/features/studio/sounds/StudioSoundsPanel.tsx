@@ -6,7 +6,7 @@ import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CAST_MOMENTS, type CastMoment } from "../../home/cast/castRun";
-import { MOMENT_LABELS, MOMENT_SOUNDS, momentCount, soundLabel, type SoundPlan } from "./castSounds";
+import { MOMENT_LABELS, MOMENT_SOUNDS, isUploadedSound, momentCount, soundLabel, type SoundPlan } from "./castSounds";
 import type { StudioSounds } from "./useStudioSounds";
 
 const VOLUME_STEP = 10;
@@ -15,7 +15,7 @@ const VOLUME_STEP = 10;
  * "Sounds in this scene", drawn from the studio artboard's Sounds screen: one
  * row a moment, with how often it happens in this scene and the sound it
  * makes; open a row to pick another sound, hear each one, or change its
- * volume. One switch mutes the scene.
+ * volume, or upload a sound of your own. One switch mutes the scene.
  */
 export function StudioSoundsPanel({ sounds, counts }: { sounds: StudioSounds; counts: Record<CastMoment, number> }) {
   const styles = useThemedStyles(makeStyles);
@@ -72,7 +72,7 @@ export function StudioSoundsPanel({ sounds, counts }: { sounds: StudioSounds; co
               </Pressable>
               {isOpen ? (
                 <View style={styles.options} accessibilityRole="radiogroup" aria-label={MOMENT_LABELS[moment]}>
-                  {[...MOMENT_SOUNDS[moment], "off"].map((id) => {
+                  {[...MOMENT_SOUNDS[moment], ...(isUploadedSound(choice.sound) ? [choice.sound] : []), "off"].map((id) => {
                     const on = choice.sound === id;
                     return (
                       <View key={id} style={[styles.option, on ? styles.optionOn : null]}>
@@ -104,6 +104,20 @@ export function StudioSoundsPanel({ sounds, counts }: { sounds: StudioSounds; co
                       </View>
                     );
                   })}
+                  {sounds.upload === undefined ? null : (
+                    <Pressable
+                      onPress={() => pickSound((file) => void sounds.upload?.(moment, file))}
+                      disabled={sounds.uploading !== null}
+                      accessibilityRole="button"
+                      style={[styles.optionPick, sounds.uploading !== null ? styles.dim : null]}
+                      testID={`studio-sound-${moment}-upload`}
+                    >
+                      <Icon name="plus" size={14} color={colors.muted} />
+                      <Text variant="rowSub" style={styles.optionText}>
+                        {sounds.uploading === moment ? "Uploading…" : "Upload your own sound"}
+                      </Text>
+                    </Pressable>
+                  )}
                   {choice.sound === "off" ? null : (
                     <View style={styles.volume}>
                       <Text variant="rowSub" style={styles.muted}>
@@ -133,6 +147,19 @@ export function StudioSoundsPanel({ sounds, counts }: { sounds: StudioSounds; co
       </ScrollView>
     </View>
   );
+}
+
+/** The browser's file chooser, for one sound file. The studio is web only. */
+function pickSound(then: (file: File) => void) {
+  if (typeof document === "undefined") return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.m4a";
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (file !== undefined) then(file);
+  };
+  input.click();
 }
 
 function VolumeButton({ label, glyph, disabled, onPress }: { label: string; glyph: string; disabled: boolean; onPress: () => void }) {
