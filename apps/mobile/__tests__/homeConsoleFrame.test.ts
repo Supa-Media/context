@@ -194,6 +194,22 @@ describe("the homepage is the console's frame", () => {
     expect(card!.closest(".cm-lp-join")).toBeNull();
   });
 
+  test("somebody signed in still sees the page's own field", async () => {
+    mockAuth.isAuthenticated = true;
+    const index = mockSite.snapshot.pages[0]!;
+    const before = index.markdown;
+    index.markdown = "# Welcome\n\n```join\n```\n\nthe end";
+    try {
+      mountHome();
+      await act(async () => {});
+      const card = document.querySelector('[data-testid="join-card"]');
+      expect(card).not.toBeNull();
+      expect(card!.closest(".cm-lp-join")).not.toBeNull();
+    } finally {
+      index.markdown = before;
+    }
+  });
+
   test("somebody signed in has no join card", () => {
     mockAuth.isAuthenticated = true;
     const home = mountHome();
