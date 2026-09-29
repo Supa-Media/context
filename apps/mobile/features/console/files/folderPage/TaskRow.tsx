@@ -190,6 +190,7 @@ function SubtaskRow({ item, compact, actions }: { item: FolderItem; compact: boo
           </View>
         )}
         <StatusDot tone={tone} />
+        <PriorityCell item={item} actions={actions} />
         <View style={[styles.name, room]}>
           <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={[styles.label, tone === "done" && styles.finished]} testID="folder-item-label">
             {item.label}

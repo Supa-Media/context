@@ -273,6 +273,18 @@ describe("the list", () => {
     expect(writes).toEqual([[`${CAFE}/kitchen/layout.md`, "status", "prep", undefined]]);
   });
 
+  test("a subtask shows its priority and changes it like its parent does", async () => {
+    const writes: Write[] = [];
+    await mount(host(writes));
+    await press(one("folder-expand", row("kitchen")));
+    const inspection = all("folder-subtask").find((node) => strip(node.textContent).includes("Book the health inspection"))!;
+    const mark = one("folder-item-priority", inspection);
+    expect(mark.getAttribute("aria-label")).toBe("Change priority, No priority");
+    await press(mark);
+    await press(await appears("menu-item-p0"));
+    expect(writes).toEqual([[`${CAFE}/kitchen/inspection.md`, "priority", "p0", undefined]]);
+  });
+
   test("a member reads the same list with nothing that would write", async () => {
     const page = await mount(host(null));
     expect(heads()).toEqual(["Backlog1Ideas and later work, out of the way", "To do3", "In progress1", "Finished1"]);
