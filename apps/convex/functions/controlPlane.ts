@@ -395,7 +395,7 @@ export const openStorageBinding = internalAction({
       them. So a failure here is no binding at all, the same answer as an
       unopenable credential.
     */
-    let managedEncryption: { mode: "migrating" | "encrypted" } | undefined;
+    let managedEncryption: { mode: "migrating" | "encrypted" | "decrypting" } | undefined;
     try {
       const mode = await ctx.runQuery(internal.functions.managedEncryption.gatewayMode, { workspaceId });
       managedEncryption = mode === null ? undefined : { mode };
@@ -557,7 +557,7 @@ export const openGatewayJob = internalAction({
     }
 
     // Fail closed for the reason given in `openStorageBinding`.
-    let managedEncryption: { mode: "migrating" | "encrypted" } | undefined;
+    let managedEncryption: { mode: "migrating" | "encrypted" | "decrypting" } | undefined;
     try {
       const mode = await ctx.runQuery(internal.functions.managedEncryption.gatewayMode, {
         workspaceId: claimed.workspaceId,

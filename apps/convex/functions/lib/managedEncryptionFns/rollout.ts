@@ -65,17 +65,28 @@ export async function rolloutCandidatesHandler(ctx: QueryCtx): Promise<ManagedWo
 
 const STATE_ORDER: Record<string, number> = {
   failed: 0,
-  encrypting: 1,
-  checking: 2,
-  waiting: 3,
-  encrypted: 4,
+  decrypting: 1,
+  encrypting: 2,
+  checking: 3,
+  waiting: 4,
+  encrypted: 5,
+  decrypted: 6,
 };
 
 export async function rolloutStatusHandler(ctx: QueryCtx) {
   await requireAdmin(ctx);
   const rollout = await rolloutRow(ctx);
   const managed = await managedWorkspaces(ctx);
-  const counts = { waiting: 0, encrypting: 0, checking: 0, encrypted: 0, failed: 0, notStarted: 0 };
+  const counts = {
+    waiting: 0,
+    encrypting: 0,
+    checking: 0,
+    encrypted: 0,
+    failed: 0,
+    decrypting: 0,
+    decrypted: 0,
+    notStarted: 0,
+  };
   let filesDone = 0;
   let filesTotal = 0;
   const workspaces = [];
@@ -137,8 +148,28 @@ async function writeRollout(ctx: MutationCtx, patch: Partial<Rollout> & { state:
   }
 }
 
-async function enroll(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
-  if ((await workspaceEncryptionRow(ctx, workspaceId)) !== null) return false;
+/**
+ * Put a workspace in the rollout. One that staff decrypted stays out unless
+ * `retake` (staff picked it by name): a rollout over "ours" or "all" must not
+ * undo a Decrypt somebody chose on purpose.
+ */
+async function enroll(ctx: MutationCtx, workspaceId: Id<"workspaces">, retake = false): Promise<boolean> {
+  const existing = await workspaceEncryptionRow(ctx, workspaceId);
+  if (existing !== null) {
+    if (!retake || existing.state !== "decrypted") return false;
+    await ctx.db.patch(existing._id, {
+      state: "waiting",
+      phase: undefined,
+      cursor: undefined,
+      filesDone: 0,
+      filesTotal: undefined,
+      errorCode: undefined,
+      completedAt: undefined,
+      runId: existing.runId + 1,
+      updatedAt: Date.now(),
+    });
+    return true;
+  }
   await ctx.db.insert("managedEncryptionWorkspaces", {
     workspaceId,
     state: "waiting",
@@ -173,7 +204,8 @@ export async function startRolloutHandler(
     }
   }
   let added = 0;
-  for (const target of targets) if (await enroll(ctx, target.workspaceId)) added += 1;
+  const retake = args.scope === "picked";
+  for (const target of targets) if (await enroll(ctx, target.workspaceId, retake)) added += 1;
   await writeRollout(ctx, {
     state: "running",
     scope: args.scope,
@@ -238,6 +270,58 @@ export async function retryWorkspaceHandler(
     .withIndex("by_state", (q) => q.eq("state", "failed"))
     .first();
   if (rollout?.state === "failed" && stillFailed === null) {
+    await writeRollout(ctx, { state: "running", changedBy: actor.email });
+    await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.tick, { restartActive: false });
+  }
+  return null;
+}
+
+/**
+ * The way back for one workspace: its bucket is walked from sealed to plain
+ * bytes. Reads accept both kinds from this transaction on, which is also the
+ * immediate undo of encrypted-only reads, and saves land plain. The walk runs
+ * whatever the rollout's state. Pressing it again after a failure resumes.
+ */
+export async function decryptWorkspaceHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<null> {
+  const actor = await requireAdmin(ctx);
+  const binding = await ctx.db
+    .query("storageBindings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  const row = await workspaceEncryptionRow(ctx, args.workspaceId);
+  if (!bindingIsManaged(binding) || row === null || row.state === "decrypted") {
+    throw new ConvexError({ code: "NOT_ENCRYPTED", message: "This workspace has nothing encrypted to take back." });
+  }
+  const runId = row.runId + 1;
+  const now = Date.now();
+  if (row.state === "waiting") {
+    // Nothing is sealed before the walk starts: take it out of the rollout.
+    await ctx.db.patch(row._id, { state: "decrypted", runId, changedBy: actor.email, completedAt: now, updatedAt: now });
+    return null;
+  }
+  await ctx.db.patch(row._id, {
+    state: "decrypting",
+    phase: "unseal",
+    cursor: undefined,
+    filesDone: 0,
+    errorCode: undefined,
+    completedAt: undefined,
+    changedBy: actor.email,
+    runId,
+    updatedAt: now,
+  });
+  await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.runWalk, { workspaceId: args.workspaceId, runId });
+  // A workspace that failed paused the rollout; taking it out lets the rest
+  // carry on once nothing else is failed, the same as a retry.
+  const rollout = await rolloutRow(ctx);
+  const stillFailed = await ctx.db
+    .query("managedEncryptionWorkspaces")
+    .withIndex("by_state", (q) => q.eq("state", "failed"))
+    .first();
+  if (row.state === "failed" && rollout?.state === "failed" && stillFailed === null) {
     await writeRollout(ctx, { state: "running", changedBy: actor.email });
     await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.tick, { restartActive: false });
   }
@@ -338,7 +422,22 @@ export async function managedBucketBound(ctx: MutationCtx, workspaceId: Id<"work
     await enrollNewManagedWorkspace(ctx, workspaceId);
     return;
   }
+  // Staff took it back to plain, and the kept bucket was walked back with it.
+  if (row.state === "decrypted") return;
   const runId = row.runId + 1;
+  if (row.state === "decrypting") {
+    // Still on the way back: carry on from the start, reading both kinds.
+    await ctx.db.patch(row._id, {
+      phase: "unseal",
+      cursor: undefined,
+      filesDone: 0,
+      errorCode: undefined,
+      runId,
+      updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.runWalk, { workspaceId, runId });
+    return;
+  }
   await ctx.db.patch(row._id, {
     state: "encrypting",
     phase: "count",

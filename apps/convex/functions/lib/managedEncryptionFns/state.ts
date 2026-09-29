@@ -14,19 +14,24 @@ import { managedBucketName } from "../managedStorage";
 
 export type WorkspaceEncryptionState = Doc<"managedEncryptionWorkspaces">["state"];
 
-/** The gateway's two modes (`apps/mcp/src/store/managedEncryption.js`). */
-export type GatewayEncryptionMode = "migrating" | "encrypted";
+/** The gateway's modes (`apps/mcp/src/store/managedEncryption.js`). */
+export type GatewayEncryptionMode = "migrating" | "encrypted" | "decrypting";
 
 /**
  * `waiting` is plain: the walk has not started, so nothing is sealed and the
  * key may not exist yet. Everything from the first sealed object on accepts
  * both kinds on read, until the check has passed; a failed walk stays mixed.
+ * The way back reads both and writes plain until its own check has passed,
+ * and only then is the workspace plain again.
  */
 export function gatewayModeFor(state: WorkspaceEncryptionState | null): GatewayEncryptionMode | null {
   switch (state) {
     case null:
     case "waiting":
+    case "decrypted":
       return null;
+    case "decrypting":
+      return "decrypting";
     case "encrypting":
     case "checking":
     case "failed":
@@ -75,7 +80,7 @@ export async function gatewayModeForWorkspace(
 /**
  * What an owner or member sees in Settings > Storage. `null` hides the row:
  * not managed, or not reached yet (a promise before the rollout reaches them
- * is a promise we might not keep). A failed walk reads as `paused` to them;
+ * is a promise we might not keep), or taken back to plain by staff. A failed walk reads as `paused` to them;
  * the reason is staff-side.
  */
 export type OwnerEncryptionView = {
@@ -88,7 +93,7 @@ export function ownerViewFor(
   row: Doc<"managedEncryptionWorkspaces"> | null,
   rolloutState: Doc<"managedEncryptionRollout">["state"] | null,
 ): OwnerEncryptionView | null {
-  if (row === null || row.state === "waiting") return null;
+  if (row === null || row.state === "waiting" || row.state === "decrypting" || row.state === "decrypted") return null;
   if (row.state === "encrypted") return { state: "encrypted" };
   const progress = {
     filesDone: row.filesDone,
