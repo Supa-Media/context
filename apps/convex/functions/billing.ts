@@ -79,6 +79,7 @@ import {
 import { billingStatusReturns, readBillingStatus } from "./lib/billing/status";
 import { noteCapForWorkspace, startFreeManagedHandler } from "./lib/billing/freeManaged";
 import { storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
+import { startManagedMoveIfChosen } from "./lib/billing/managedMove";
 
 /**
  * What the Premium section draws.
@@ -267,6 +268,9 @@ export const setEntitlements = mutation({
         internal.functions.fastSearch.syncPremiumSelection,
         { workspaceId: args.workspaceId, actorUserId: userId },
       );
+      // Choosing our storage while already paying starts the move now.
+      const current = await planFor(ctx, args.workspaceId);
+      if (current !== null) await startManagedMoveIfChosen(ctx, current);
     }
 
     /*
