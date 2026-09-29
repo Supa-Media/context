@@ -126,6 +126,11 @@ describe("no public function can reach a storage secret", () => {
         // Builds a real S3Store to probe the bucket a user just connected.
         // Reached only by a schedule edge from bindStorage.
         "functions.provisioning.verifyStorageBinding",
+        // The census half of that probe, for the free plan's note count:
+        // opens the same credential to LIST the bucket and records a number.
+        // Writes nothing to the bucket. Reached only by a schedule edge from
+        // `billing.refreshNoteCount`, which is owner-only.
+        "functions.provisioning.recountNotes",
         // The owner-triggered storage-layout runner first refreshes observed
         // capabilities, then delegates the bounded copy to runFileOperation.
         // Internal and reached only through the scheduler, so neither the
@@ -196,6 +201,13 @@ describe("no public function can reach a storage secret", () => {
         // same two schedule edges, and it cannot widen what the copy it
         // precedes could already do with the identical secret.
         "functions.managedProvisioning.awaitManagedTargetReady",
+        // Managed-storage encryption's walk. Opens the managed bucket's
+        // credential (our own, per workspace) and the workspace's data key to
+        // seal each object in place, one bounded page per run. internalAction,
+        // reached only by schedule edges from the staff rollout's `tick` and
+        // `retryWorkspace` and from itself; it returns nothing, and the page
+        // it records carries a cursor and counts, never a key or a byte.
+        "functions.managedEncryption.runWalk",
         // The passes after a move's switch-over. Opens the *old* bucket's key,
         // carried sealed in its own scheduled arguments, to read files that
         // landed there after the last check; it writes only to the current

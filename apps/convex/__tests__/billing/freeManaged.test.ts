@@ -12,7 +12,7 @@
  *
  * ## Sabotage record (temporary local edits, reverted; failures measured)
  *
- *   `collect.ts` dropping the `freeManaged` argument                      1
+ *   `noteCapForWorkspace` returning null for a lapsed paid plan           1
  *   provisioning standing ignoring the deployment switch                  1
  *   a second press scheduling a second provisioning run                   1
  */
@@ -277,9 +277,83 @@ describe("what the free tier is entitled to", () => {
     }
   });
 
+  test("a paid context on storage we run drops to the cap when it lapses", async () => {
+    // Decided by the owner, 2026-09-29: a lapse puts a context back on the
+    // free plan and never makes it read-only.
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "lapsed-paid");
+    await seedStorageBinding(t, {
+      workspaceId,
+      boundBy: owner,
+      bucket: managedBucketName(workspaceId),
+    });
+    const now = Date.now();
+    const planId = await t.run((ctx) =>
+      ctx.db.insert("workspacePlans", {
+        workspaceId,
+        status: "active" as const,
+        managedStorage: true,
+        fastSearch: false,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    expect(await t.query(internal.functions.billing.noteCap, { workspaceId })).toBeNull();
+
+    await t.run((ctx) => ctx.db.patch(planId, { status: "canceled" as const }));
+    expect(await t.query(internal.functions.billing.noteCap, { workspaceId })).toBe(
+      FREE_MANAGED_NOTE_CAP,
+    );
+    expect(
+      await t.query(internal.functions.collect.collectContextWritable, { workspaceId }),
+    ).toBe(true);
+  });
+
+  test("opening a capped context asks for a fresh count, at most every few minutes", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "recount");
+    const member = await createUser(t, "recount-member@example.invalid");
+    await addMember(t, workspaceId, member, "member", owner);
+    await seedStorageBinding(t, {
+      workspaceId,
+      boundBy: owner,
+      bucket: managedBucketName(workspaceId),
+    });
+    const refresh = (user: typeof owner) =>
+      asUser(t, user).mutation(api.functions.billing.refreshNoteCount, { workspaceId });
+
+    // No plan row: no cap, so nothing to count for.
+    expect(await refresh(owner)).toEqual({ scheduled: false });
+
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("workspacePlans", {
+        workspaceId,
+        status: "canceled" as const,
+        managedStorage: true,
+        fastSearch: false,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    // The count is the owner's; a member cannot start a bucket walk.
+    expect(errorCode(await captureError(() => refresh(member)))).toBe("INSUFFICIENT_ROLE");
+    expect(await refresh(owner)).toEqual({ scheduled: true });
+
+    // Counted a moment ago: a reload is not a second walk.
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, { noteCount: 912, noteCountedAt: Date.now() });
+    });
+    expect(await refresh(owner)).toEqual({ scheduled: false });
+  });
+
   test("a free context never reads as a lapsed paid one", async () => {
-    // `collect.ts` makes a managed context that is not paying read-only. A
-    // free context never paid, so that rule must not reach it.
+    // No plan makes a context read-only; a free one on storage we run is
+    // capped, and it keeps taking writes.
     const t = setupTest();
     freeTierOn();
     try {

@@ -39,7 +39,7 @@ import { vi } from "vitest";
  * structure files and the rest in `1-projects/`, plus plumbing that must not
  * count.
  */
-async function freeContext(notes: number, freeManaged = true): Promise<{
+async function freeContext(notes: number, status: "none" | "active" = "none"): Promise<{
   t: TestConvex;
   owner: Id<"users">;
   workspaceId: Id<"workspaces">;
@@ -82,8 +82,8 @@ async function freeContext(notes: number, freeManaged = true): Promise<{
       workspaceId,
       managedStorage: true,
       fastSearch: false,
-      status: "none",
-      freeManaged,
+      status,
+      freeManaged: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -157,8 +157,8 @@ describe("the console at the free tier's note cap", () => {
     }
   });
 
-  test("a context that is not on the free tier is never capped", async () => {
-    const f = await freeContext(FREE_MANAGED_NOTE_CAP, false);
+  test("a context that is paying is never capped", async () => {
+    const f = await freeContext(FREE_MANAGED_NOTE_CAP, "active");
     try {
       await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
         workspaceId: f.workspaceId,

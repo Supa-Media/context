@@ -378,6 +378,12 @@ export interface FileBrowser extends BesideEditing {
 
   /** The last thing that went wrong, or a confirmation of what just happened. */
   notice: string | null;
+  /**
+   * The selected note, when its read came back as a file that is in storage
+   * and can't be opened (`../unreadable.ts`). The editor is closed for it and
+   * the pane draws that state in its place. Optional: the demo has no bucket.
+   */
+  unreadable?: string | null;
   dismissNotice: () => void;
 
   /**

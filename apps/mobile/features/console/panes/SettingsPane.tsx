@@ -35,6 +35,7 @@ import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageAct
 import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
+import { EncryptionRow } from "../storage/EncryptionRow";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
@@ -661,6 +662,7 @@ function BindingCard({
     <>
     <Card testID="storage-binding">
       <FieldList fields={fields} testIDPrefix="storage-field" />
+      <EncryptionRow storage={storage} />
       {/*
         A binding in `error` is the state this pane exists to get someone out
         of, so it gets the failure, the fix, and the provider's own words —

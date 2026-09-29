@@ -9,6 +9,7 @@ import { withMirrorSegment } from "../../offline/mirrorCopy";
 import { statusSegments } from "../files/status";
 import { describeIndexProgress } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
+import { noteLimitLabel } from "../noteLimit";
 import type { ConsoleData } from "../types";
 
 /**
@@ -70,6 +71,44 @@ export function StorageChip({
       style={styles.storagePress}
       hoverStyle={styles.storagePressHover}
       testID="storage-pill"
+    >
+      {pill}
+    </PressRow>
+  );
+}
+
+/**
+ * The free plan's count, from nine tenths of its cap: "912 of 1,000 notes".
+ *
+ * Quiet until the cap and warn-toned at it, and a way in to Settings ›
+ * Premium, where both ways to more room are. Absent below nine tenths, on a
+ * context with no cap, for a member, and in the demo — `data.noteLimit` is
+ * `null` or absent for all of them. See `noteLimit.ts`.
+ */
+export function NoteLimitChip({
+  data,
+  onOpenPremium,
+}: {
+  data: ConsoleData;
+  onOpenPremium?: () => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const limit = data.noteLimit;
+  if (limit === undefined || limit === null) return null;
+  const pill = (
+    <Pill tone={limit.full ? "warn" : "neutral"} leading={limit.full ? <Dot tone="warn" /> : undefined}>
+      {noteLimitLabel(limit)}
+    </Pill>
+  );
+  if (onOpenPremium === undefined) return pill;
+  return (
+    <PressRow
+      accessibilityLabel={`${noteLimitLabel(limit)} on the free plan. Open Premium settings`}
+      onPress={onOpenPremium}
+      radius={radii.pill}
+      style={styles.storagePress}
+      hoverStyle={styles.storagePressHover}
+      testID="note-limit-pill"
     >
       {pill}
     </PressRow>

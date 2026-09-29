@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { MirrorStatus } from "../offline/mirrorStatus";
+import type { ManagedEncryptionView } from "./storage/encryptionView";
 import type { MeetingDestination } from "../meetings/destination";
 import type { ActivityView } from "./activity/activity";
 import type { AgentActivityView } from "./agents/agentActivity";
@@ -26,6 +27,7 @@ import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
 import type { OrganizerView } from "../organizer/useOrganizer";
 import type { ConnectFormValues } from "./storage/connect";
+import type { NoteLimit } from "./noteLimit";
 
 /**
  * What the console renders.
@@ -328,6 +330,8 @@ export interface ConsoleStorage {
   handoffExistingFiles?: "replace" | "merge";
   /** After a move out, when Context's copy is deleted unless the owner switches back. */
   managedRetainedUntil?: number;
+  /** Context's encryption of a managed bucket, as its owner sees it; see `storage/encryptionView.ts`. */
+  encryption?: ManagedEncryptionView | null;
 }
 
 /**
@@ -511,6 +515,8 @@ export interface ConsoleData {
   storage: ConsoleStorage | null | undefined;
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
+  /** The free plan's count from 900 of 1,000, owner-only; see `noteLimit.ts`. */
+  noteLimit?: NoteLimit | null;
   googleConnections: GoogleConnection[];
   googleActions?: GoogleActions;
   /**

@@ -212,6 +212,39 @@ describe("opening a note the server refused", () => {
   });
 });
 
+describe("opening a note that is in storage but can't be opened", () => {
+  test("no body, no editor, no notice line: the unreadable state, cleared by Try again", async () => {
+    // Board 6: a sealed file that will not open is a refusal like any other,
+    // so the cached copy stays shut and the editor stays closed, and nothing
+    // can be typed or saved over it. It is drawn as its own state rather than
+    // as the notice line, which is what `unreadable` carries.
+    unmount = mount();
+    await settle();
+
+    actions[name("readNote")] = async () => {
+      throw refusal("ENCRYPTED_UNREADABLE", "This note can't be opened right now. It's still in storage.");
+    };
+    await act(async () => {
+      browser.select(NOTE_PATH);
+    });
+    await settle();
+
+    expect(shown()).not.toContain(SECRET);
+    expect(browser.editor.path).toBeNull();
+    expect(browser.notice).toBeNull();
+    expect(browser.unreadable).toBe(NOTE_PATH);
+
+    actions[name("readNote")] = async () => CACHED_NOTE;
+    await act(async () => {
+      browser.select(NOTE_PATH);
+    });
+    await settle();
+
+    expect(browser.unreadable).toBeNull();
+    expect(browser.editor.path).toBe(NOTE_PATH);
+  });
+});
+
 describe("opening a note when the network failed", () => {
   test("the cached body is still served, and still says it is a copy", async () => {
     /*

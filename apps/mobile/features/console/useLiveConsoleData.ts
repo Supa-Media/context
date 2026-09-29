@@ -46,6 +46,7 @@ import {
 import { useContextSurfaces } from "./liveConsole/useContextSurfaces";
 import { useOfflineUpkeep } from "./liveConsole/useOfflineUpkeep";
 import { accountActionsFor } from "./liveConsole/accountActions";
+import { useNoteLimit } from "./noteLimit";
 
 /**
  * The live console.
@@ -406,6 +407,9 @@ export function useLiveConsoleData(): ConsoleData {
   // Auto-organize for this workspace — status, suggestions, and the presses on them.
   const organizer = useOrganizer({ workspaceId: membershipContextId, slug: selected?.slug ?? "" });
 
+  // The free plan's count, from nine tenths of its cap — see `noteLimit.ts`.
+  const noteLimit = useNoteLimit(selectedContextId, isOwner);
+
   const viewerUserId = members.members.find((member) => member.isMe)?.userId;
   useEffect(() => {
     if (viewerUserId === undefined) return;
@@ -429,6 +433,7 @@ export function useLiveConsoleData(): ConsoleData {
     clients,
     storage,
     storageActions,
+    noteLimit,
     googleConnections,
     modelConnected,
     googleActions:

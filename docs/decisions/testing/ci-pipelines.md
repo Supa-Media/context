@@ -35,6 +35,24 @@ an artifact. The groups are:
   offline edits, rename, trash, restart, revocation and stalled connections
   against a local gateway and local R2.
 
+Collaboration Chromium is scoped by file rather than by package, because what
+it runs is a few entry points. These are the root layout, the collaboration
+fixture, the test Worker and its harness. Their `entries` on the scope step are
+followed through imports by `scripts/import-reach.mjs`. A change to a console
+screen the fixture never mounts, or to a Convex function the gateway never
+imports, does not run it. Replayed over the 100 merges before 2026-09-29, 59
+ran it, down from 81.
+
+The scope fails open:
+
+- a workspace package imported by name counts whole;
+- configs, assets and top-level files of a reached app count;
+- the route and switch that lead to the fixture are named in `paths`.
+
+The path guard pins the entries. The scope self-test fails if the editor ever
+falls outside them. Undo this and every app change pays about four and a half
+runner-minutes again.
+
 The WebKit and Collaboration jobs use
 `mcr.microsoft.com/playwright:v1.56.1-noble`, which matches the repository's
 Playwright version. They do not download browser binaries during the run. A

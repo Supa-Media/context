@@ -71,14 +71,20 @@ aimed at, that account is the wall.
 
 3. **Plain files, unchanged layout.** A managed bucket holds exactly what a
    BYO bucket holds: Markdown, PARA folders, `privacy.md`, attachments beside
-   their notes. Nothing about the on-bucket format may become conditional on
-   who is paying.
+   their notes. Nothing about the on-bucket layout may become conditional on
+   who is paying. **Amended 2026-09-29 (owner's decision):** each object's
+   *body* in a managed bucket may be sealed at rest, with the key kept outside
+   the bucket. Paths and layout stay identical, every read through the product
+   is plain, and every exit (hand-off, download) delivers plain files. See
+   [managed-encryption](./managed-encryption.md).
 4. **The exit is free, identical, and outlives the subscription.** Download
    everything, or hand it to a bucket of their own, on both plans and after a
    cancellation. The moment either is gated, "you can always leave" is
    marketing rather than architecture.
-5. **Cancelling never deletes.** Read-only and exportable for a stated window,
-   with the final removal an action the customer takes.
+5. **Cancelling never deletes.** A lapsed context goes back on the free plan
+   (its note cap) and stays writable and exportable, with the final removal an
+   action the customer takes. It was once to be read-only; the owner chose the
+   free plan instead on 2026-09-29 (`docs/decisions/billing.md`).
 
 ### Why R2 specifically
 

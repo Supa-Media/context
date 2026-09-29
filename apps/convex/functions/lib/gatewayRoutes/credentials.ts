@@ -95,6 +95,10 @@ export async function gatewayBindingHandler(
     // Fifth, same terms: absent for every context not on the free managed
     // tier. The gateway refuses a new note past it — `store/noteCap.js`.
     noteCap: opened.noteCap,
+    // Sixth: `{mode}` while a managed bucket is being or has been encrypted,
+    // absent otherwise. A gateway that gets a mode and no usable key refuses
+    // the store rather than serving sealed bytes — `store/managedEncryption.js`.
+    managedEncryption: opened.managedEncryption,
   });
 }
 

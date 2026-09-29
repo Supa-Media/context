@@ -447,7 +447,9 @@ export function runStoreFactoryChecks(check) {
     (() => {
       const source = readFileSync(new URL("../src/session.js", import.meta.url), "utf8");
       return (
-        /storeForBinding\(binding, env\)/.test(source) &&
+        // `env` and then, optionally, the per-request options (the note cap,
+        // managed-storage encryption), never a hand-built adapter.
+        /storeForBinding\(binding, env[,)]/.test(source) &&
         !/new (S3Store|R2Store|DropboxStore)\(/.test(source)
       );
     })()

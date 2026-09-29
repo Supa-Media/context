@@ -17,6 +17,7 @@ import { isServerRefusal, toFileError } from "../browser";
 import { guardLeaving } from "../editor";
 import { isMarkdown, parentPath } from "../paths";
 import { raceTimeout } from "../../storage/timeout";
+import { isUnreadable } from "../unreadable";
 import { restoreFor } from "../../../offline/restore";
 import { NOT_CACHED, cachedNotice } from "../../../offline/copy";
 import { findEntry } from "../tree";
@@ -39,6 +40,7 @@ type OpenNoteDeps =
     | "setNotice"
     | "setOpening"
     | "setSelectedPath"
+    | "setUnreadable"
     | "settleOpening"
   >
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
@@ -47,9 +49,20 @@ type OpenNoteDeps =
 export function useOpenNote(deps: OpenNoteDeps) {
   const {
     autosave, dispatch, editorRef, listings, listingsRef, offlineRef, openRun, readNote, refresh,
-    reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, settleOpening,
-    workspaceId,
+    reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
+    settleOpening, workspaceId,
   } = deps;
+
+  /*
+    A note that is in storage and can't be opened (`../unreadable.ts`) closes
+    the editor like any refusal, so nothing can be typed or saved over it, and
+    is drawn as its own state with a Try again rather than as a notice line.
+  */
+  const refuse = (error: unknown, path: string) => {
+    dispatch({ type: "closed" });
+    if (isUnreadable(error)) setUnreadable(path);
+    else setNotice(toFileError(error).message);
+  };
 
   /**
    * Put a note in the editor, from the bucket if it can be reached and from the
@@ -90,6 +103,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
       openRun.current += 1;
       const mine = openRun.current;
       setOpening(path);
+      setUnreadable(null);
       try {
         /*
           A note created on this device and not yet sent has no copy anywhere
@@ -199,10 +213,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
           } catch (error) {
             if (early !== null) {
               if (openRun.current !== mine) return;
-              if (isServerRefusal(error)) {
-                dispatch({ type: "closed" });
-                setNotice(toFileError(error).message);
-              }
+              if (isServerRefusal(error)) refuse(error, path);
               return;
             }
             const cached = isServerRefusal(error) ? null : await offline.cachedNote(source);
@@ -212,8 +223,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
               // behalf — that state belongs to the open (or close) that came
               // after this one.
               if (openRun.current !== mine) return;
-              dispatch({ type: "closed" });
-              setNotice(toFileError(error).message);
+              refuse(error, path);
               return;
             }
             note = relabel(cached.value);
@@ -319,6 +329,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
       // Past the guard, so a refused navigation is not one. See `navigations`.
       setNavigations((count) => count + 1);
       setNotice(null);
+      setUnreadable(null);
 
       /**
        * A folder has no body. Reading one comes back `FILE_NOT_FOUND`, and the
@@ -416,6 +427,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
     setSelectedPath(null);
     setOpening(null);
     setNotice(null);
+    setUnreadable(null);
     dispatch({ type: "closed" });
     return true;
   }, [autosave]);

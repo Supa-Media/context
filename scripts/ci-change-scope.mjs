@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { matches, workspacePaths } from "./check-ci-path-gates.mjs";
+import { reach, reached } from "./import-reach.mjs";
 
 const ROOT_INPUTS = [
   ".npmrc",
@@ -21,6 +22,7 @@ const ROOT_INPUTS = [
   ".github/actions/ci-scope/**",
   "scripts/ci-change-scope.mjs",
   "scripts/check-ci-path-gates.mjs",
+  "scripts/import-reach.mjs",
 ];
 
 export function parseList(value = "") {
@@ -93,9 +95,16 @@ function writeSummary(lines, env = process.env) {
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
 }
 
-export function decide({ packages = [], paths = [], changed = [], backstop = null, root = process.cwd() }) {
+/**
+ * `entries` scopes by the files those entry points import rather than by whole
+ * packages (see import-reach.mjs); `packages` and `paths` still add to it.
+ */
+export function decide({ packages = [], paths = [], entries = [], changed = [], backstop = null, root = process.cwd() }) {
   const watched = watchedPaths(packages, paths, root);
-  const matched = backstop ? [] : selectChanged(changed, watched);
+  const scope = entries.length ? reach(entries, root) : null;
+  const matched = backstop
+    ? []
+    : changed.filter((file) => watched.some((pattern) => matches(file, pattern)) || (scope && reached(file, scope)));
   const affected = Boolean(backstop || matched.length);
   const reason = backstop
     ? backstop
@@ -115,14 +124,24 @@ export function selfTest() {
   if (!selectChanged(["pnpm-lock.yaml"], scope).length) throw new Error("lockfile did not fan out");
   const fallback = decide({ packages: [], paths: [], changed: [], backstop: "missing base", root });
   if (!fallback.affected) throw new Error("uncertain scope did not fail open");
+  const byEntry = (file) => decide({ entries: ["apps/mcp/src/index.js"], changed: [file], root }).affected;
+  if (!byEntry("apps/mcp/src/index.js")) throw new Error("an entry point did not match itself");
+  if (!byEntry("apps/mcp/wrangler.toml")) throw new Error("a config beside reached code did not fail open");
+  if (byEntry("apps/mcp/test/test.mjs")) throw new Error("a test nothing imports matched an entry scope");
+  // The collaboration run's real scope, through the `@/` alias and relative imports.
+  const collaboration = (file) =>
+    decide({ entries: ["apps/mobile/app/_layout.tsx", "apps/mobile/features/e2e/collaboration/Fixture.tsx"], changed: [file], root }).affected;
+  if (!collaboration("apps/mobile/features/console/files/NoteEditor.tsx")) throw new Error("the editor is outside the collaboration scope");
+  if (collaboration("apps/mobile/__tests__/formBlock.test.ts")) throw new Error("an app unit test matched the collaboration scope");
 }
 
 async function main(env = process.env) {
   const packages = parseList(env.CI_SCOPE_PACKAGES);
   const paths = parseList(env.CI_SCOPE_PATHS);
-  if (!packages.length && !paths.length) throw new Error("ci-scope needs at least one package or path");
+  const entries = parseList(env.CI_SCOPE_ENTRIES);
+  if (!packages.length && !paths.length && !entries.length) throw new Error("ci-scope needs at least one package, path or entry");
   const diff = changedFiles(env);
-  const result = decide({ packages, paths, changed: diff.files, backstop: diff.backstop });
+  const result = decide({ packages, paths, entries, changed: diff.files, backstop: diff.backstop });
   writeOutput("affected", String(result.affected), env);
   writeOutput("reason", result.reason.replaceAll("\n", " "), env);
   console.log(`${result.affected ? "RUN" : "SKIP"}: ${result.reason}`);

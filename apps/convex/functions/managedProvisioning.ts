@@ -10,6 +10,7 @@ import {
 } from "../_generated/server";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import {
   reconcileMigrationPage,
   type MigrationStore,
@@ -110,7 +111,14 @@ async function deleteManagedStorageAfterRetention(
     workspaceId: args.workspaceId,
     retainedUntil: args.retainedUntil,
   });
-  if (!standing.inUse) return await deleteManagedResources(ctx, args);
+  if (!standing.inUse) {
+    await deleteManagedResources(ctx, args);
+    // Only once the bucket is gone: until then its sealed files need the row.
+    await ctx.runMutation(internal.functions.managedEncryption.forgetKeptBucket, {
+      workspaceId: args.workspaceId,
+    });
+    return null;
+  }
   // Switched back inside the week: the bucket stays. The provisioning run that
   // re-adopted it minted a token of its own, so the one from before the move
   // opens nothing anyone holds and is revoked rather than left standing.
@@ -750,7 +758,18 @@ export const runManagedStorageMigration = internalAction({
         requireKeyset(),
         { workspaceId: args.workspaceId },
       );
-      const source = storeForBinding(sourceCredential, undefined, { rawObjects: true });
+      // Leaving managed storage: the source is read through its encryption,
+      // so the customer's bucket gets plain files and the byte comparison in
+      // `reconcileMigrationObject` compares plain with plain. Moving in, the
+      // source is the customer's own bucket and has none.
+      const sourceEncryption =
+        migration.direction === "to_customer"
+          ? await managedEncryptionOption(ctx, args.workspaceId)
+          : null;
+      const source = storeForBinding(sourceCredential, undefined, {
+        rawObjects: true,
+        managedEncryption: sourceEncryption,
+      });
       const target = storeForBinding(
         migrationTargetCredential(migration, secretAccessKey),
         undefined,

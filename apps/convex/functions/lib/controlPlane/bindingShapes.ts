@@ -170,6 +170,12 @@ export interface OpenedGatewayBinding {
    * `docs/decisions/billing.md`, "The free managed tier".
    */
   noteCap?: number;
+  /**
+   * Managed-storage encryption's mode, where the workspace's managed bucket is
+   * being or has been encrypted. Absent for plain, which includes every bucket
+   * a customer owns. `docs/decisions/storage-and-credentials/managed-encryption.md`.
+   */
+  managedEncryption?: { mode: "migrating" | "encrypted" };
 }
 
 /**

@@ -25,6 +25,7 @@ import { internalAction, internalQuery } from "../_generated/server";
 import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { catchUpPage, type CatchUpStore } from "./lib/moveCatchUp";
+import { keptManagedBucketOption, managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import {
   CATCH_UP_PASS_DELAYS_MS,
   MIGRATION_OBJECT_BYTE_CAP,
@@ -127,10 +128,20 @@ export const runMoveCatchUp = internalAction({
           status: "connected" as const,
         },
         undefined,
-        { rawObjects: true },
+        {
+          rawObjects: true,
+          // The managed bucket a workspace just left may hold sealed files.
+          // Its mode comes from the encryption row, not the binding (which is
+          // the customer's now), so late files arrive plain, never sealed.
+          managedEncryption:
+            args.direction === "to_customer" ? await keptManagedBucketOption(ctx, args.workspaceId) : null,
+        },
       ) as unknown as CatchUpStore;
       const target = storeForBinding(targetCredential, undefined, {
         rawObjects: true,
+        // Moving back in, the destination is the managed bucket, which may
+        // already be encrypted again: late files are sealed on the way in.
+        managedEncryption: await managedEncryptionOption(ctx, args.workspaceId),
       }) as unknown as CatchUpStore;
 
       const page = await source.list({ cursor: args.cursor, limit: MIGRATION_PAGE_SIZE });
