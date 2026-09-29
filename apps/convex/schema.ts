@@ -20,6 +20,7 @@ import { jevTables } from "./functions/lib/schema/jev";
 import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
 import { referralTables } from "./functions/lib/schema/referrals";
+import { devlogTables } from "./functions/lib/schema/devlog";
 
 /**
  * Control-plane schema for Context.
@@ -71,6 +72,7 @@ const schema = defineSchema({
   ...faceTables,
   ...waitlistTables,
   ...referralTables,
+  ...devlogTables,
 });
 
 export default schema;
