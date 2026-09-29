@@ -8,9 +8,10 @@
  */
 
 export const MAX_BODY_BYTES = 256_000;
-const MAX_FIELD_LENGTH = 280;
-const ISSUE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,80}$/;
-const SHORT_ID_PATTERN = /^[A-Z0-9][A-Z0-9_-]{0,79}$/;
+const ISSUE_ID_PATTERN = /^\d{1,32}$/;
+const EVENT_ID_PATTERN = /^[a-f0-9]{32}$/i;
+const ENVIRONMENTS = new Set(["development", "preview", "staging", "production"]);
+const LEVELS = new Set(["debug", "info", "warning", "error", "fatal"]);
 
 export default {
   async fetch(request, env) {
@@ -220,27 +221,22 @@ function parseIncident(payload, resource) {
   if (!source) return null;
   const issueId = field(source.issue_id ?? source.issueId ?? source.groupID ?? source.id);
   if (!ISSUE_ID_PATTERN.test(issueId)) return null;
+  const project = field(object(source.project)?.slug ?? object(data?.project)?.slug ?? payload.project_slug ?? payload.project_name).toLowerCase();
   const shortCandidate = field(source.short_id ?? source.shortId ?? source.issue_short_id);
-  const shortId = SHORT_ID_PATTERN.test(shortCandidate) ? shortCandidate : `SENTRY-${issueId}`;
-  const metadata = object(source.metadata);
+  const shortId = safeShortId(shortCandidate, project, issueId);
+  const eventCandidate = field(source.event_id ?? source.eventID);
   return {
     issueId,
-    eventId: field(source.event_id ?? source.eventID),
+    eventId: EVENT_ID_PATTERN.test(eventCandidate) ? eventCandidate.toLowerCase() : "",
     shortId,
-    project: field(object(source.project)?.slug ?? object(data?.project)?.slug ?? payload.project_slug ?? payload.project_name).toLowerCase(),
-    type: safeText(metadata?.type ?? source.type ?? "Error", 80),
-    value: safeText(metadata?.value ?? source.message ?? source.title ?? "An error occurred"),
-    culprit: safeText(source.culprit ?? source.location ?? "", 180),
-    environment: safeText(tagValue(source.tags, "environment"), 80),
-    level: safeText(source.level ?? "error", 40).toLowerCase(),
+    project,
+    environment: allowedValue(tagValue(source.tags, "environment"), ENVIRONMENTS),
+    level: allowedValue(source.level, LEVELS) || "error",
     webUrl: safeSentryUrl(source.web_url ?? source.webUrl ?? payload.url),
   };
 }
 
 function renderIncident(incident, now = new Date()) {
-  const core = incident.value.toLowerCase().startsWith(`${incident.type.toLowerCase()}:`)
-    ? incident.value : `${incident.type}: ${incident.value}`;
-  const sentence = `${core}${incident.culprit ? ` in ${incident.culprit}` : ""}.`;
   const lines = [
     "---",
     `updated: ${now.toISOString().slice(0, 10)}`,
@@ -251,7 +247,7 @@ function renderIncident(incident, now = new Date()) {
     `severity: ${JSON.stringify(incident.level)}`,
   ];
   if (incident.environment) lines.push(`environment: ${JSON.stringify(incident.environment)}`);
-  lines.push("---", "", `# ${incident.shortId}: ${incident.type}`, "", `**What is happening:** ${sentence}`);
+  lines.push("---", "", `# ${incident.shortId}: Sentry issue`, "", "**What is happening:** Sentry reported a new error.");
   if (incident.webUrl) lines.push("", `Sentry: <${incident.webUrl}>`);
   return `${lines.join("\n")}\n`;
 }
@@ -272,14 +268,17 @@ function tagValue(tags, wanted) {
   if (!Array.isArray(tags)) return "";
   return field(object(tags.find((tag) => object(tag)?.key === wanted))?.value);
 }
-function safeText(value, max = MAX_FIELD_LENGTH) {
-  return redact(field(value)).replace(/[\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim().slice(0, max);
+function allowedValue(value, allowed) {
+  const candidate = field(value).toLowerCase();
+  return allowed.has(candidate) ? candidate : "";
 }
-function redact(value) {
-  return value
-    .replace(/\b(?:bearer\s+)?[a-z0-9_-]*(?:token|secret|password|api[_-]?key)[a-z0-9_-]*\s*[:=]\s*[^\s,;]+/gi, "[redacted]")
-    .replace(/\b(?:sk|pk|rk)_[a-zA-Z0-9_-]{16,}\b/g, "[redacted]")
-    .replace(/\bAKIA[A-Z0-9]{16}\b/g, "[redacted]");
+function safeShortId(value, project, issueId) {
+  const prefix = project.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const candidate = field(value);
+  return prefix && candidate.startsWith(`${prefix}-`)
+    && /^\d{1,20}$/.test(candidate.slice(prefix.length + 1))
+    ? candidate
+    : `SENTRY-${issueId}`;
 }
 function safeSentryUrl(value) {
   try {

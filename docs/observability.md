@@ -60,6 +60,29 @@ The design was approved on the private-beta artboard (2026-09-29).
 - Not yet: screenshots and shake-to-report in the native apps (both need a
   native module and a new build).
 
+## Collection audit, 2026-09-29
+
+The current clients collect the following data when their public ingest key is
+present, each governed by a Privacy & feedback switch (above).
+
+| Pipeline | Web | Native |
+| --- | --- | --- |
+| Sentry | Unhandled and reported errors, auto session tracking, sampled traces, sanitized route breadcrumbs, and the internal Convex user id. | The same data, but only in a binary that includes the gated native module. |
+| PostHog | Sanitized screen views, two error-boundary recovery actions, the internal Convex user id, and sampled replay with text and media masking. Autocapture, page views, console capture, and network bodies are off. | Sanitized screen views, the two recovery actions, lifecycle events, and the internal Convex user id. Replay and automatic error tracking are off. |
+| Convex | Backend exceptions through Convex's Sentry integration. | The same control-plane pipeline serves every client. |
+
+The application does not set a retention period. Sentry and PostHog retain data
+according to their project settings, which this repository cannot verify; that
+check is still open. The privacy policy names both, and replay, under
+"Diagnostics and feedback" (`apps/mobile/features/legal/content.ts`).
+
+The quiet incident inbox now derives its note from bounded metadata only: the
+configured project, a restricted issue id, a restricted short id, a closed
+severity and environment value, and an HTTPS `sentry.io` issue link. It does
+not copy the Sentry title, exception type, message, culprit, stack, tags, or
+request fields into the team workspace. Redacting known secret shapes was not
+enough because arbitrary exception text can contain a note body or note path.
+
 ## Configuration
 
 Set these in the EAS environment used by each build/update. The sample rates
@@ -121,10 +144,12 @@ For staging first:
 
 Sentry remains the diagnostic source, but a signed internal-integration webhook
 also files each newly created issue as one compact note under the configured
-Context incident prefix. The note starts with a single `What is happening`
-sentence and links back to Sentry; raw events, stack traces, note content, and
-request payloads are not copied. A stable issue id produces a stable note path,
-so retries and recurrences do not create a stream of duplicate files.
+Context incident prefix. The note contains a generic `What is happening`
+sentence, bounded Sentry identifiers, closed severity and environment values,
+and a link back to Sentry. Vendor-supplied error text, raw events, stack traces,
+note content, and request payloads are not copied. A stable issue id produces a
+stable note path, so retries and recurrences do not create a stream of duplicate
+files.
 
 `infra/sentry-worker` owns this adapter. Its request cannot choose a workspace
 or path, and a foreign Sentry project is ignored. A singleton Durable Object
