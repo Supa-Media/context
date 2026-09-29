@@ -34,6 +34,10 @@ Moved to [One connection reaches every context its person belongs to](./identity
 
 Moved to [One context is pinned for everybody, and the pin is reach rather than membership](./identity-and-access/grants-and-reach.md#one-context-is-pinned-for-everybody-and-the-pin-is-reach-rather-than-membership).
 
+### A routing suggestion is a dry-run, never permission
+
+See [A routing suggestion is a dry-run, never permission](./identity-and-access/routing-suggestions.md).
+
 ### A grant is one person's tooling, and the refusal follows the listing
 
 Moved to [A grant is one person's tooling, and the refusal follows the listing](./identity-and-access/invitations-and-signin.md#a-grant-is-one-persons-tooling-and-the-refusal-follows-the-listing).

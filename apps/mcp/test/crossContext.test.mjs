@@ -46,6 +46,9 @@
  *    proves nothing.)
  * 7. **The fan-out bound is raised to 50** — 2 checks failed: seven contexts
  *    were opened and the tail that says the list is short went missing.
+ * 8. **The routing audit stores the selected context name** — 1 check failed:
+ *    the content-free audit assertion rejected the candidate name. The same
+ *    check also excludes note content, paths, classification and rationale.
  *
  * One thing is asserted structurally rather than behaviourally, and the reason
  * is that sabotaging it changes nothing observable: **the `context` argument is
@@ -61,6 +64,7 @@ import { runCrossContextModernEraChecks } from "./crossContext/modernEra.test.mj
 import { runCrossContextAdvertisingChecks } from "./crossContext/advertising.test.mjs";
 import { runCrossContextStoreIdentityChecks } from "./crossContext/storeIdentity.test.mjs";
 import { runCrossContextChangeReportingChecks } from "./crossContext/changeReporting.test.mjs";
+import { runCrossContextRoutingSuggestionChecks } from "./crossContext/routingSuggestion.test.mjs";
 
 /**
  * The checks themselves live in `crossContext/*.test.mjs`, split by behaviour
@@ -78,6 +82,7 @@ export async function runCrossContextChecks(check) {
   await runCrossContextAdvertisingChecks(check, harness);
   await runCrossContextStoreIdentityChecks(check, harness);
   await runCrossContextChangeReportingChecks(check, harness);
+  await runCrossContextRoutingSuggestionChecks(check, harness);
 
   const { restoreControlPlane, restoreS3 } = harness;
   restoreControlPlane();

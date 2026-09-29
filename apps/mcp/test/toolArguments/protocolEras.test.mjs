@@ -51,10 +51,20 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
     with an argument complaint instead of a denial.
   */
   const FORM_TOOL_NAMES = ["submit_form", "update_submission", "retract_submission", "vote_form"];
+  // This is independently spelled for the same reason as FORM_TOOL_NAMES.
+  // `suggest_destination` is allowed through the source context's role gate
+  // only because its handler re-checks the selected destination and can write
+  // no note. crossContext/routingSuggestion.test.mjs pins that narrower rule.
+  const CROSS_CONTEXT_PLANNING_TOOL_NAMES = ["suggest_destination"];
   const writingToolNames = ((await rpc(env, TOKEN_OWNER, "tools/list", {}))?.result?.tools || [])
     .filter((tool) => tool?.annotations?.readOnlyHint !== true)
     .map((tool) => tool?.name)
-    .filter((name) => typeof name === "string" && !FORM_TOOL_NAMES.includes(name));
+    .filter(
+      (name) =>
+        typeof name === "string" &&
+        !FORM_TOOL_NAMES.includes(name) &&
+        !CROSS_CONTEXT_PLANNING_TOOL_NAMES.includes(name)
+    );
   const memberLeaks = [];
   for (const name of writingToolNames) {
     const refusal = await callTool(env, TOKEN_OWNER, name, { context: "@shared" });

@@ -53,6 +53,7 @@ import { localIngestionStore } from "../ingestion/inbox.js";
 import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js";
 import { searchBudgetFor } from "../search/budget.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
+import { toolSuggestDestination } from "../routing/suggestDestination.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -453,8 +454,10 @@ export async function route(request, env, ctx) {
        *    the addressed context, and `storeForSession` spends the same
        *    two-factor proof — the same user token, for a context the control
        *    plane independently agrees they are a member of.
-       *  - **No chaining.** The store it returns has no `openContext` of its
-       *    own, so one tool call resolves one context and cannot walk.
+       *  - **No general chaining.** The store it returns has no `openContext`
+       *    of its own. The routing dry-run is the single narrow exception: it
+       *    may re-clamp at most six caller-supplied candidate names and opens
+       *    only the selected destination, solely to append its audit event.
        */
       store.openContext = async (name) => {
         const target = sessionForContext(session, name);
@@ -496,8 +499,13 @@ export async function route(request, env, ctx) {
             // A host whose `waitUntil` refuses the work simply does not report.
           }
         };
+        targetStore.suggestDestination = (args) =>
+          toolSuggestDestination(target, args, (candidate) => store.openContext(candidate));
         return { session: target, store: targetStore };
       };
+
+      store.suggestDestination = (args) =>
+        toolSuggestDestination(session, args, (candidate) => store.openContext(candidate));
 
       // After `store.openContext` is attached, deliberately: a turn may address
       // another context by name exactly as a client's tool call can, through

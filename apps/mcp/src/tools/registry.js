@@ -100,6 +100,16 @@ export const EXISTENCE_MASKED_TOOLS = new Set([
  */
 export const FORM_TOOLS = new Set(["submit_form", "update_submission", "retract_submission", "vote_form"]);
 
+/**
+ * A write-planning tool whose authority is the candidate destination's.
+ *
+ * The connection may be read-only in the context it starts from and an editor
+ * elsewhere. The ordinary write gate must therefore ask `writesAnywhere`,
+ * while the handler independently checks the selected destination before it
+ * records even an audit event there.
+ */
+export const ROUTING_PLANNING_TOOLS = new Set(["suggest_destination"]);
+
 /** Is this tool's existence hidden from a caller at this visibility tier? */
 export function toolExistenceMasked(name, scope) {
   return EXISTENCE_MASKED_TOOLS.has(name) && scope !== "private";
