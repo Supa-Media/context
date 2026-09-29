@@ -26,10 +26,38 @@ export const TAKE_IT_WITH_YOU = {
 
 /** The line above the destination form. */
 export const HANDOFF_FORM_LEDE =
-  "Choose a bucket you own. It must be empty, or give a root prefix for an empty folder inside it. " +
-  "Your files arrive as plain Markdown and attachments; Context adds no encryption in your bucket, " +
-  "and notes you locked with a password stay locked. " +
+  "Choose a bucket you own. Context uses the whole bucket, not a folder inside it; if it already " +
+  "has files, you'll choose whether to keep them or start fresh. Your files arrive as plain Markdown " +
+  "and attachments; Context adds no encryption in your bucket, and notes you locked with a password " +
+  "stay locked. " +
   STILL_LIVE;
+
+/** The two answers for a bucket that already has files in it. */
+export const EXISTING = {
+  merge: {
+    title: "Keep them and add this workspace",
+    body:
+      "Your files stay, and they show up in this workspace beside your notes. If one has the same " +
+      'name as a note here, yours is kept next to it as "name (from your bucket)".',
+    button: "Keep and merge",
+  },
+  fresh: {
+    title: "Start fresh",
+    body: (bucket: string) =>
+      `Deletes everything already in ${bucket}, then moves this workspace in. This can't be undone. ` +
+      "Type the bucket's name to confirm.",
+    field: "Bucket name",
+    button: "Delete and start fresh",
+  },
+  other: "Use a different bucket",
+};
+
+/** What the progress card says about a choice already made. */
+export function existingFilesLine(choice: "replace" | "merge" | undefined): string | null {
+  if (choice === "merge") return "Keeping the files already in your bucket.";
+  if (choice === "replace") return "Starting fresh: files already in your bucket are removed before the switch.";
+  return null;
+}
 
 export const STOP = {
   button: "Stop the move",
@@ -60,11 +88,7 @@ export function failureHeadline(code: string | undefined, failedCount: number): 
 export function describeHandoffFailure(code: string | undefined): string {
   switch (code) {
     case "DESTINATION_NOT_EMPTY":
-      return (
-        "Context won't change or delete anything already there. Choose an empty bucket, " +
-        "or add a root prefix to use an empty folder inside it. Nothing has been copied. " +
-        STILL_LIVE
-      );
+      return `Nothing has been copied or deleted yet. Choose what happens to the files already there. ${STILL_LIVE}`;
     case "TARGET_NOT_READY":
       return `Context couldn't reach that bucket with the key you gave. Check the key and its permissions, then retry. ${STILL_LIVE}`;
     case "OBJECT_TOO_LARGE":

@@ -177,6 +177,9 @@ export function useLiveConsoleData(): ConsoleData {
   const cancelManagedStorageHandoff = useMutation(
     api.functions.managedHandoff.cancelManagedStorageHandoff,
   );
+  const chooseExistingFilesForHandoff = useMutation(
+    api.functions.managedHandoff.chooseExistingFilesForHandoff,
+  );
   /*
     The same action `useFileBrowser` holds, taken here too rather than threaded
     up through `FileBrowser`'s interface: `useAction` returns a callable, not a
@@ -360,6 +363,7 @@ export function useLiveConsoleData(): ConsoleData {
     bindStorage,
     startManagedStorageHandoff,
     cancelManagedStorageHandoff,
+    chooseExistingFilesForHandoff,
     disconnectStorage,
     observeStorageLayout,
   });

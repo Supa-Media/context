@@ -447,6 +447,7 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
       connect: async () => ({ status: "unverified" }),
       handoff: async () => ({ started: true }),
       cancelHandoff: async () => ({ cancelled: true }),
+      chooseExistingFiles: async () => ({ resumed: true as const }),
       disconnect: async () => ({ disconnected: true }),
     },
     endpoint: "https://example.invalid/mcp",

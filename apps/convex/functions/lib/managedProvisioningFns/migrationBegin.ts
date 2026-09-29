@@ -164,18 +164,21 @@ export async function beginManagedStorageHandoffHandler(
   // empty keeps that answer: what is there now is this move's own partial
   // copy, and the move carries on from it. Any other destination is asked
   // again, because its contents belong to whoever put them there.
-  const sameClaimedTarget =
+  const sameTarget =
     existing !== null &&
     existing.direction === "to_customer" &&
-    existing.targetClaimed === true &&
     sameEndpoint(existing.targetEndpoint, args.target.endpoint) &&
     existing.targetBucket === args.target.bucket &&
     (existing.targetRootPrefix ?? "") === (args.target.rootPrefix ?? "");
+  const sameClaimedTarget = sameTarget && existing?.targetClaimed === true;
   const fields = {
     workspaceId: args.workspaceId,
     sourceBindingId: current._id,
     direction: "to_customer" as const,
     targetClaimed: sameClaimedTarget,
+    // The owner's answer about files already there, like the claim, belongs
+    // to one destination only.
+    existingFiles: sameTarget ? existing?.existingFiles : undefined,
     failedKeys: undefined,
     targetProvider: args.target.provider,
     targetEndpoint: args.target.endpoint,

@@ -22,6 +22,8 @@ import type { ConsoleStorage } from "../features/console/types";
  * was already switching, failing "a move switching over can no longer be
  * stopped". Reading `managedRetainedUntil` without comparing it to now drew
  * the switch-back offer after the copy was gone, failing the last test.
+ * Enabling "Delete and start fresh" before the name matched sent an answer
+ * for "my-note", failing the existing-files test.
  */
 
 const NOW = Date.UTC(2026, 8, 29, 12);
@@ -65,6 +67,15 @@ function mount(props: Partial<Parameters<typeof HandoffCard>[0]> & { storage: Co
     q,
     get text() {
       return container.textContent ?? "";
+    },
+    type(id: string, value: string) {
+      const element = q(id) as HTMLInputElement | null;
+      if (element === null) throw new Error(`no field called ${id}`);
+      act(() => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        setter?.call(element, value);
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+      });
     },
     click(id: string) {
       const element = q(id);
@@ -136,13 +147,44 @@ describe("the way out of managed storage", () => {
     screen.unmount();
   });
 
-  test("a bucket that already has files is refused in plain words, with a retry", () => {
+  test("a bucket that already has files offers merge, or start fresh after typing its name", async () => {
+    const answers: unknown[] = [];
     const screen = mount({
-      storage: managed({ handoffStatus: "failed", handoffErrorCode: "DESTINATION_NOT_EMPTY" }),
+      storage: managed({
+        handoffStatus: "failed",
+        handoffErrorCode: "DESTINATION_NOT_EMPTY",
+        handoffBucket: "my-notes",
+      }),
+      onChooseExisting: async (answer) => {
+        answers.push(answer);
+      },
     });
     expect(screen.text).toContain("Your bucket already has files in it");
-    expect(screen.text).toContain("won't change or delete anything already there");
-    expect(screen.q("storage-handoff")?.textContent).toBe("Retry");
+    expect(screen.text).toContain("Nothing has been copied or deleted yet");
+    // Never the old advice to hide in a folder of their bucket.
+    expect(screen.text).not.toContain("root prefix");
+
+    const fresh = screen.q("storage-existing-fresh") as HTMLButtonElement;
+    expect(fresh.getAttribute("aria-disabled") === "true" || fresh.disabled).toBe(true);
+    screen.type("storage-existing-confirm", "my-note");
+    await act(async () => screen.q("storage-existing-fresh")!.click());
+    expect(answers).toEqual([]);
+
+    screen.type("storage-existing-confirm", "my-notes");
+    await act(async () => screen.q("storage-existing-fresh")!.click());
+    expect(answers).toEqual([{ choice: "replace", confirmBucket: "my-notes" }]);
+
+    await act(async () => screen.q("storage-existing-merge")!.click());
+    expect(answers[1]).toEqual({ choice: "merge" });
+    expect(screen.q("storage-handoff")?.textContent).toBe("Use a different bucket");
+    screen.unmount();
+  });
+
+  test("a move merging into a bucket says it keeps what is there", () => {
+    const screen = mount({
+      storage: managed({ handoffStatus: "copying", handoffPhase: "copy", handoffExistingFiles: "merge" }),
+    });
+    expect(screen.q("storage-handoff-existing")?.textContent).toContain("Keeping the files");
     screen.unmount();
   });
 

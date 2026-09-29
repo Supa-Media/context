@@ -603,7 +603,8 @@ export const awaitManagedTargetReady = internalAction({
       if (
         ready &&
         migration.direction === "to_customer" &&
-        migration.targetClaimed !== true
+        migration.targetClaimed !== true &&
+        migration.existingFiles === undefined
       ) {
         occupied = await destinationHoldsObjects(migration, secretAccessKey);
       }
@@ -614,7 +615,13 @@ export const awaitManagedTargetReady = internalAction({
       ready = false;
     }
 
-    if (ready && migration.direction === "to_customer" && migration.targetClaimed !== true) {
+    // Merging leaves the destination unclaimed, so nothing of theirs is deleted.
+    if (
+      ready &&
+      migration.direction === "to_customer" &&
+      migration.targetClaimed !== true &&
+      migration.existingFiles !== "merge"
+    ) {
       if (occupied) {
         await ctx.runMutation(
           internal.functions.managedProvisioning.failManagedStorageMigration,
@@ -780,6 +787,10 @@ export const runManagedStorageMigration = internalAction({
           deleteUnmatchedTarget:
             migration.direction !== "to_customer" ||
             migration.targetClaimed === true,
+          // Merging: a file of theirs with a name the workspace also uses is
+          // kept beside it on the first pass, before it is written over.
+          keepTargetConflicts:
+            migration.existingFiles === "merge" && migration.phase === "copy",
           byteCap: MIGRATION_OBJECT_BYTE_CAP,
           maxWidth: MIGRATION_WAVE_WIDTH,
           byteBudget: MIGRATION_WAVE_BYTE_BUDGET,

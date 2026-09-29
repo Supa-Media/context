@@ -222,6 +222,7 @@ export function consoleStorageFrom(
           handoffClaimed: binding.handoffClaimed,
           handoffFailedKeys: binding.handoffFailedKeys,
           handoffReadyToSwitch: binding.handoffReadyToSwitch,
+          handoffExistingFiles: binding.handoffExistingFiles,
           managedRetainedUntil: binding.managedRetainedUntil,
         };
   return storage;
@@ -267,6 +268,9 @@ export interface StorageMutations {
   cancelManagedStorageHandoff: ReactMutation<
     typeof api.functions.managedHandoff.cancelManagedStorageHandoff
   >;
+  chooseExistingFilesForHandoff: ReactMutation<
+    typeof api.functions.managedHandoff.chooseExistingFilesForHandoff
+  >;
   disconnectStorage: ReactMutation<typeof api.functions.storage.disconnectStorage>;
   observeStorageLayout: ReactMutation<typeof api.functions.storage.observeStorageLayout>;
 }
@@ -283,6 +287,7 @@ export function storageActionsFor(
     bindStorage,
     startManagedStorageHandoff,
     cancelManagedStorageHandoff,
+    chooseExistingFilesForHandoff,
     disconnectStorage,
     observeStorageLayout,
   }: StorageMutations,
@@ -310,6 +315,8 @@ export function storageActionsFor(
             });
           },
           cancelHandoff: () => cancelManagedStorageHandoff({ workspaceId: selectedContextId }),
+          chooseExistingFiles: (answer) =>
+            chooseExistingFilesForHandoff({ workspaceId: selectedContextId, ...answer }),
           disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
           /*
             Not a control anybody presses. It is the console asking the bucket

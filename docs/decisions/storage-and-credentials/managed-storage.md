@@ -448,18 +448,27 @@ does.
 
 So the destination is asked once, after the readiness probe and before the
 first write, whether it holds anything under the chosen root prefix. Anything
-at all refuses the move with `DESTINATION_NOT_EMPTY`; the owner picks an empty
-bucket or an empty root prefix. A destination that answers empty is recorded as
+at all parks the move with `DESTINATION_NOT_EMPTY` until the owner answers.
+Context sees the whole bucket, never a folder of it (owner, 2026-09-29), so the
+answer is not "pick an empty bucket or a prefix" but one of two choices
+(`managedHandoff.chooseExistingFilesForHandoff`, recorded as `existingFiles`):
+**start fresh**, which needs the bucket's name typed as consent and then claims
+the destination, so the last pass deletes what was there; or **merge**, which
+never claims it, so nothing of theirs is deleted, their files appear in the
+workspace after the switch, and a file of theirs that shares a key with one of
+the workspace's is kept once as `name (from your bucket).ext` before the copy
+pass writes over it. A destination that answers empty is recorded as
 `targetClaimed` on the migration row, and only a claimed destination may lose
 keys later — everything in it is then this move's own writes. A retry into the
 same endpoint, bucket and prefix keeps the claim and carries on from the partial
 copy; any other destination is asked again. A row started before the check
 existed is unclaimed, and its verify pass deletes nothing.
 
-**What a simplification would cost.** Dropping the check, or letting the claim
-survive a change of destination, puts the deletion back in front of a
-customer's own files. `__tests__/managedHandoffDestination.test.ts` fails on
-either.
+**What a simplification would cost.** Dropping the check, letting the claim
+survive a change of destination, letting a merge claim, or starting fresh
+without the typed name puts the deletion back in front of a customer's own
+files. `__tests__/managedHandoffDestination.test.ts` and
+`managedHandoffExistingFiles.test.ts` fail on each.
 
 ## The managed copy is kept a week after a move out
 

@@ -13,11 +13,13 @@ import {
   STOP,
   TAKE_IT_WITH_YOU,
   describeHandoffFailure,
+  existingFilesLine,
   failureHeadline,
   retainedLine,
   stoppedLine,
 } from "./copy";
 import { handoffSteps, type HandoffStep } from "./steps";
+import { ExistingFilesChoice, type ExistingFilesAnswer } from "./ExistingFilesChoice";
 
 /**
  * The way out of managed storage, in Settings › Storage.
@@ -38,6 +40,7 @@ export function HandoffCard({
   onStop,
   onDownload,
   onSwitchBack,
+  onChooseExisting,
   now = Date.now(),
 }: {
   storage: ConsoleStorage;
@@ -47,6 +50,8 @@ export function HandoffCard({
   onStop?: () => Promise<unknown>;
   onDownload?: () => void;
   onSwitchBack?: () => void;
+  /** Answers a bucket that already has files: merge, or start fresh. */
+  onChooseExisting?: (answer: ExistingFilesAnswer) => Promise<unknown>;
   now?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -109,6 +114,11 @@ export function HandoffCard({
             ? "Moving to your bucket"
             : `Moving to ${storage.handoffBucket}`}
         </Text>
+        {existingFilesLine(storage.handoffExistingFiles) === null ? null : (
+          <Text variant="rowSub" style={styles.line} testID="storage-handoff-existing">
+            {existingFilesLine(storage.handoffExistingFiles)}
+          </Text>
+        )}
         <View style={styles.steps} role="status" testID="storage-handoff-progress">
           {steps.map((step) => (
             <StepRow key={step.key} step={step} styles={styles} />
@@ -137,6 +147,29 @@ export function HandoffCard({
             onConfirm={() => void stop()}
           />
         ) : null}
+      </Card>
+    );
+  }
+
+  if (
+    storage.handoffStatus === "failed" &&
+    storage.handoffErrorCode === "DESTINATION_NOT_EMPTY" &&
+    owner &&
+    onChooseExisting !== undefined &&
+    storage.handoffBucket !== undefined
+  ) {
+    return (
+      <Card testID="storage-handoff-failed" style={styles.card}>
+        <FormError
+          headline={failureHeadline(storage.handoffErrorCode, 0)}
+          next={describeHandoffFailure(storage.handoffErrorCode)}
+        />
+        <ExistingFilesChoice
+          bucket={storage.handoffBucket}
+          onChoose={onChooseExisting}
+          onOther={onMove}
+        />
+        {download === null ? null : <Row style={styles.actions}>{download}</Row>}
       </Card>
     );
   }

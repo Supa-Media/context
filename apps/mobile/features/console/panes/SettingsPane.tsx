@@ -277,6 +277,7 @@ export function SettingsPane({
             owner={actions !== undefined}
             onMove={() => setRebinding(true)}
             onStop={actions?.cancelHandoff}
+            onChooseExisting={actions?.chooseExistingFiles}
             onDownload={data.demo ? undefined : () => data.files.download("", "folder")}
             onSwitchBack={() => setSwitchingBack(true)}
           />

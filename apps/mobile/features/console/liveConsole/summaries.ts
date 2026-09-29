@@ -69,6 +69,7 @@ export interface StorageBinding {
   handoffClaimed?: boolean;
   handoffFailedKeys?: string[];
   handoffReadyToSwitch?: boolean;
+  handoffExistingFiles?: "replace" | "merge";
   managedRetainedUntil?: number;
   /**
    * Optional, because a Dropbox binding has none of them — see the validator
