@@ -1,0 +1,49 @@
+name: Release Communication Evidence
+
+# This follows a successful production promotion and records the exact commit
+# interval it moved. It is intentionally not a publisher: the public devlog,
+# GitHub Releases and community channels all remain human-reviewed outputs.
+on:
+  workflow_run:
+    workflows: ["Deploy to Production"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Deploy to Production run ID to reconstruct
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: Record facts for human review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Build an evidence-only artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.run_id }}
+        run: node scripts/release-communication-evidence.mjs
+
+      - name: Retain the audit input
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-release-evidence-${{ github.run_id }}
+          path: artifacts/release-communication/*.json
+          if-no-files-found: error
+          retention-days: 90

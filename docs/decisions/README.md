@@ -225,6 +225,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
 
+## [Release communication](./release-communication.md)
+
+- The public devlog is canonical; plans and code history are inputs
+- Production evidence is automatic; publication is a review decision
+- GitHub Release synchronization is downstream and remains off
+
 ## [Search and the derived index](./search.md)
 
 - Search answers from a derived index, and the index is budgeted, filtered, and disposable
