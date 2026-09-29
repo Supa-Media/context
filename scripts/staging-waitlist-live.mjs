@@ -12,8 +12,12 @@
  *  - staff is the seeded `alpha@supa.media` persona (docs/staging.md), which
  *    signs in with the staging-only fixed code and must be in staging's
  *    `ADMIN_EMAILS`;
- *  - the stranger, their teammate and their friend are fresh AgentMail inboxes
- *    made for this run, so no run sees another's mail.
+ *  - the stranger, their teammate and their friend are `+tag` addresses on one
+ *    existing AgentMail inbox (`AGENTMAIL_INBOX`), tagged with this run's id,
+ *    so no run reads another's mail. One shared inbox rather than an inbox
+ *    each, because the plan caps inboxes (Dev2 picked this, 2026-09-29).
+ *    Context keeps the `+tag` (`normalizeEmail` only trims and lowercases), so
+ *    to Context they are three different people.
  *
  * One staff action stands in for a step outside this backend: invites unlock
  * once somebody's AI client has connected, and here staff give the new person
@@ -22,7 +26,7 @@
  *
  * Everything it creates is removed at the end, whatever happened: the three
  * accounts delete themselves (and with them their workspaces), the run's
- * community link is deleted, and the inboxes are deleted. The waitlist row
+ * community link is deleted. Its mail stays in the shared inbox. The waitlist row
  * stays, marked removed, because the list keeps one row per address for good.
  */
 
@@ -38,9 +42,11 @@ const MAIL_TIMEOUT_MS = 3 * 60 * 1000;
 
 const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
 const agentmailKey = process.env.AGENTMAIL_API_KEY;
+const sharedInbox = (process.env.AGENTMAIL_INBOX ?? "").trim().toLowerCase();
 assert.equal(process.env.APP_ENV, "staging", "APP_ENV must be staging");
 assert.ok(deployment && /^[a-z0-9-]+$/.test(deployment), "STAGING_CONVEX_DEPLOYMENT is required");
 assert.ok(agentmailKey, "AGENTMAIL_API_KEY is required (GitHub staging environment)");
+assert.ok(/^[^\s@+]+@[^\s@]+$/.test(sharedInbox), "AGENTMAIL_INBOX (the shared test inbox's address) is required");
 
 const CONVEX_URL = `https://${deployment}.convex.cloud`;
 const ref = (name) => makeFunctionReference(name);
@@ -65,15 +71,22 @@ async function agentmail(method, path, body) {
   return response.status === 204 ? null : response.json();
 }
 
-const inboxes = [];
-async function newInbox(role) {
-  const inbox = await agentmail("POST", "/inboxes", {
-    username: `ctx-e2e-${run}-${role}`,
-    display_name: `Context e2e ${role}`,
-    client_id: `ctx-e2e-${run}-${role}`,
-  });
-  inboxes.push(inbox);
-  return { id: inbox.inbox_id, email: inbox.email.toLowerCase() };
+/** One person in this run: a `+tag` address delivered to the shared inbox. */
+function newInbox(role) {
+  const [local, domain] = sharedInbox.split("@");
+  return { id: sharedInbox, email: `${local}+ctx-e2e-${run}-${role}@${domain}` };
+}
+
+/** Which person an address is, for logs: never the shared inbox's own name. */
+function roleOf(who) {
+  const email = typeof who === "string" ? who : who.email;
+  return /\+ctx-e2e-[0-9a-f]+-([a-z]+)@/.exec(email)?.[1] ?? "someone";
+}
+
+/** AgentMail lists recipients as addresses or "Name <address>". */
+function addressedTo(message, email) {
+  const to = Array.isArray(message.to) ? message.to : [message.to];
+  return to.some((entry) => String(entry ?? "").toLowerCase().includes(email));
 }
 
 /** Wait for the first mail whose subject matches and that `seen` has not had yet. */
@@ -81,7 +94,9 @@ async function waitForMail(inbox, subject, seen = new Set()) {
   const deadline = Date.now() + MAIL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const list = await agentmail("GET", `/inboxes/${encodeURIComponent(inbox.id)}/messages?limit=50`);
-    const hit = list.messages.find((m) => subject.test(m.subject ?? "") && !seen.has(m.message_id));
+    const hit = list.messages.find(
+      (m) => addressedTo(m, inbox.email) && subject.test(m.subject ?? "") && !seen.has(m.message_id),
+    );
     if (hit) {
       seen.add(hit.message_id);
       return agentmail(
@@ -91,7 +106,7 @@ async function waitForMail(inbox, subject, seen = new Set()) {
     }
     await new Promise((resolve) => setTimeout(resolve, 4000));
   }
-  throw new Error(`no mail matching ${subject} reached the ${inbox.email.split("@")[0]} inbox`);
+  throw new Error(`no mail matching ${subject} reached the ${roleOf(inbox)} (does the inbox take +tag addresses?)`);
 }
 
 function linkIn(mail, path) {
@@ -112,7 +127,7 @@ async function signInWithMailedCode(inbox, seen) {
   const code = /^(\d{6}) /.exec(mail.subject)?.[1];
   assert.ok(code, "the sign-in mail carries no code in its subject");
   const signed = await convex.action(ref("auth:signIn"), { provider: "email", params: { email: inbox.email, code } });
-  assert.ok(signed.tokens?.token, `sign-in with the mailed code failed for the ${inbox.email.split("@")[0]} inbox`);
+  assert.ok(signed.tokens?.token, `sign-in with the mailed code failed for the ${roleOf(inbox)}`);
   convex.setAuth(signed.tokens.token);
   sessions.push(convex);
   return { convex, userId: userIdOf(signed.tokens.token) };
@@ -127,7 +142,7 @@ function userIdOf(jwt) {
 async function expectRefused(email) {
   await assert.rejects(
     client().action(ref("auth:signIn"), { provider: "email", params: { email } }),
-    `a code was offered to ${email.split("@")[0]}, who is not let in`,
+    `a code was offered to the ${roleOf(email)}, who is not let in`,
   );
 }
 
@@ -151,7 +166,7 @@ try {
   pass("staff signed in and the console knows them");
 
   // 1. Joining from the homepage, with the optional reason.
-  const stranger = await newInbox("stranger");
+  const stranger = newInbox("stranger");
   const strangerSeen = new Set();
   const reason = `E2E run ${run}: client notes my agents can read`;
   assert.deepEqual(await client().mutation(ref("functions/waitlist:enter"), { email: stranger.email, source: "homepage" }), {
@@ -204,7 +219,7 @@ try {
     displayName: `E2E Studio ${run}`,
     kind: "shared",
   });
-  const teammate = await newInbox("teammate");
+  const teammate = newInbox("teammate");
   await expectRefused(teammate.email);
   await member.convex.mutation(ref("functions/invitations:inviteMember"), {
     workspaceId: team.workspaceId,
@@ -231,7 +246,7 @@ try {
   // 5. A friend invited to Context itself.
   assert.equal((await member.convex.query(ref("functions/referrals:mine"), {})).locked, "setup");
   await staff.mutation(ref("functions/admin:grantInvites"), { userId: member.userId, add: 1 });
-  const friend = await newInbox("friend");
+  const friend = newInbox("friend");
   const friendSeen = new Set();
   await expectRefused(friend.email);
   assert.deepEqual(await member.convex.mutation(ref("functions/referrals:send"), { email: friend.email }), { status: "sent" });
@@ -265,13 +280,10 @@ try {
   if (staff !== null) {
     if (linkId !== null) await staff.mutation(ref("functions/admin:deleteCommunityLink"), { id: linkId }).catch(() => {});
     const rows = await staff.query(ref("functions/admin:listWaitlist"), { status: "admitted" }).catch(() => ({ rows: [] }));
-    const ours = rows.rows.filter((r) => r.email.startsWith(`ctx-e2e-${run}-`)).map((r) => r.id);
+    const ours = rows.rows.filter((r) => r.email.includes(`+ctx-e2e-${run}-`)).map((r) => r.id);
     if (ours.length > 0) await staff.mutation(ref("functions/admin:removeFromWaitlist"), { ids: ours }).catch(() => {});
     await staff.action(ref("auth:signOut"), {}).catch(() => {});
   }
   for (const convex of sessions) await convex.action(ref("auth:signOut"), {}).catch(() => {});
-  for (const inbox of inboxes) {
-    await agentmail("DELETE", `/inboxes/${encodeURIComponent(inbox.inbox_id)}`).catch(() => {});
-  }
   console.log(`  cleaned up run ${run}`);
 }
