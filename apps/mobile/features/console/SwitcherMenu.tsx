@@ -78,7 +78,8 @@ export type SwitcherMenuId =
   | "signout"
   | "signin"
   | "signup"
-  | "app";
+  | "app"
+  | "whatsnew";
 
 export function SwitcherMenu({
   data,
@@ -93,6 +94,7 @@ export function SwitcherMenu({
   onSignIn,
   onCreateAccount,
   onOpenApp,
+  whatsNew,
   trigger = "row",
 }: {
   data: ConsoleData;
@@ -117,6 +119,12 @@ export function SwitcherMenu({
   onCreateAccount?: () => void;
   /** …or who is signed in and reading it: the way back to their own. */
   onOpenApp?: () => void;
+  /**
+   * The newest devlog week, when there is one to show: a row after Settings,
+   * with a dot while it is unread (`whatsNew/`). Omitted for the homepage's
+   * visitor, who has the devlog page in the sidebar already.
+   */
+  whatsNew?: { week: number; unread: boolean; onOpen: () => void };
   /**
    * `"phone"`: the top-left account slot, opening a bottom sheet — see the
    * header. A visitor who is not signed in sees a "Sign in" pill there.
@@ -155,6 +163,8 @@ export function SwitcherMenu({
   const elsewhere = group.contexts.some(
     (context) => context.hasNewActivity === true && context.slug !== current?.slug,
   );
+  // The avatar's dot also means an unread week of What's new.
+  const dotted = elsewhere || whatsNew?.unread === true;
 
   const workspaces: AccountCardRow[] = [
     /*
@@ -203,6 +213,17 @@ export function SwitcherMenu({
       : []),
     ...(onOpenSettings
       ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
+      : []),
+    ...(whatsNew
+      ? [{
+          id: "whatsnew",
+          label: "What's new",
+          detail: `week ${whatsNew.week}`,
+          accessibilityLabel: whatsNew.unread ? `What's new, week ${whatsNew.week}, unread` : undefined,
+          badge: whatsNew.unread,
+          leading: <Icon name="sparkle" size={14} />,
+          testID: "switcher-whats-new",
+        }]
       : []),
   ];
 
@@ -261,6 +282,7 @@ export function SwitcherMenu({
     else if (id === "signin") onSignIn?.();
     else if (id === "signup") onCreateAccount?.();
     else if (id === "app") onOpenApp?.();
+    else if (id === "whatsnew") whatsNew?.onOpen();
   };
 
   if (trigger === "phone") {
@@ -277,7 +299,9 @@ export function SwitcherMenu({
           accessibilityLabel={
             signedOut
               ? "Sign in or join the waitlist"
-              : `${data.viewer.name} — account menu${elsewhere ? ", another workspace has changed" : ""}`
+              : `${data.viewer.name} — account menu${elsewhere ? ", another workspace has changed" : ""}${
+                  whatsNew?.unread ? ", what's new is unread" : ""
+                }`
           }
           onPress={() => setSheetOpen(true)}
           radius={radii.pill}
@@ -296,7 +320,7 @@ export function SwitcherMenu({
           ) : (
             <View style={styles.markSlot}>
               <Avatar initial={data.viewer.initial} />
-              {elsewhere ? (
+              {dotted ? (
                 <View style={[styles.newDot, styles.avatarDot]} aria-hidden testID="account-switcher-activity" />
               ) : null}
             </View>
@@ -318,7 +342,7 @@ export function SwitcherMenu({
   const avatar = (
     <View style={styles.markSlot}>
       <Avatar initial={data.viewer.initial} size={trigger === "row" ? 28 : 18} />
-      {elsewhere ? (
+      {dotted ? (
         <View style={[styles.newDot, styles.avatarDot]} aria-hidden testID="account-switcher-activity" />
       ) : null}
     </View>
@@ -330,7 +354,7 @@ export function SwitcherMenu({
         <PressRow
           accessibilityLabel={`${data.viewer.name}, in ${label}: workspaces and account${
             elsewhere ? ", another workspace has changed" : ""
-          }`}
+          }${whatsNew?.unread ? ", what's new is unread" : ""}`}
           onPress={open}
           radius={radii.md}
           style={trigger === "row" ? styles.identity : styles.avatarOnly}
@@ -380,8 +404,11 @@ export function sheetItems(sections: readonly AccountCardSection[]): MenuItem<st
   const items: MenuItem<string>[] = [];
   for (const section of sections) {
     section.rows.forEach((row, index) => {
-      const changed = row.accessibilityLabel !== undefined && row.accessibilityLabel !== row.label;
-      const detail = [row.detail, changed ? "changed" : undefined].filter(Boolean).join(" · ");
+      const changed =
+        row.badge !== true && row.accessibilityLabel !== undefined && row.accessibilityLabel !== row.label;
+      const detail = [row.detail, changed ? "changed" : undefined, row.badge ? "new" : undefined]
+        .filter(Boolean)
+        .join(" · ");
       items.push({
         id: row.id,
         label: row.label,

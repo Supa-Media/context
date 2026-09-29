@@ -37,6 +37,8 @@ export interface AccountCardRow {
   /** A tick at the trailing edge: the workspace you are in. */
   checked?: boolean;
   danger?: boolean;
+  /** A dot at the trailing edge: something here is new to you. */
+  badge?: boolean;
   testID: string;
 }
 
@@ -168,6 +170,7 @@ export function AccountCard({
                         {row.detail}
                       </Text>
                     )}
+                    {row.badge ? <View style={styles.badge} aria-hidden testID={`${row.testID}-dot`} /> : null}
                     {row.checked ? (
                       <View style={styles.check}>
                         <Icon name="check" size={14} color={colors.accentText} />
@@ -229,4 +232,5 @@ const makeStyles = (colors: Colors) =>
     label: { flexShrink: 1 },
     danger: { color: colors.critText },
     check: { marginLeft: "auto" },
+    badge: { marginLeft: "auto", width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
   });
