@@ -1,32 +1,31 @@
 import { openStore } from "../offline/store";
-import { sendFeedbackReport } from "../observability/client";
-import {
-  DAILY_LIMIT,
-  base64ToBytes,
-  dayKey,
-  reportCode,
-  startOfTomorrow,
-  type FeedbackDraft,
-} from "./model";
+import { base64ToBytes, reportCode, type FeedbackDraft } from "./model";
+import { sendFeedbackReport, type SendResult } from "./transport";
 
 /**
  * Sending a report, and keeping it on this device when it cannot go yet.
  *
- * Three reasons a report waits: the device is offline, it is past the day's
- * limit, or the person pressed "Send later" after a failure. All three put it
- * in one queue, which `drainQueue` empties when the app starts and whenever the
- * device comes back online. A queued report is never lost to a failed send: it
- * leaves the queue only once Sentry has taken it.
+ * Three reasons a report waits: the device is offline, the server said it is
+ * past the day's limit, or the person pressed "Send later" after a failure.
+ * All three put it in one queue, which `drainQueue` empties when the app
+ * starts and whenever the device comes back online. A queued report leaves
+ * the queue only once the server has taken it — or refused it for good, which
+ * a report this app built should never be.
+ *
+ * The limit is the server's (`functions/feedback.ts`): it counts across every
+ * device, and this only keeps a report until the time the server named.
  */
 
 const QUEUE_KEY = "context.feedback.queue.v1";
-const SENT_KEY = "context.feedback.sent.v1";
+/** The old per-device count, before the server kept the limit. Removed on sight. */
+const LEGACY_SENT_KEY = "context.feedback.sent.v1";
 
 export type SubmitOutcome =
   | { kind: "sent"; code: string }
   | { kind: "offline" }
   | { kind: "limited" }
-  | { kind: "failed" };
+  | { kind: "failed" }
+  | { kind: "rejected" };
 
 type Listener = (count: number) => void;
 const listeners = new Set<Listener>();
@@ -56,25 +55,6 @@ async function writeQueue(queue: FeedbackDraft[]): Promise<void> {
   for (const listener of listeners) listener(queue.length);
 }
 
-async function sentToday(now: number): Promise<number> {
-  try {
-    const raw = await openStore().get(SENT_KEY);
-    const value = raw === null ? null : (JSON.parse(raw) as { day?: string; count?: number });
-    return value?.day === dayKey(now) && typeof value.count === "number" ? value.count : 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function countSent(now: number): Promise<void> {
-  const count = (await sentToday(now)) + 1;
-  try {
-    await openStore().set(SENT_KEY, JSON.stringify({ day: dayKey(now), count }));
-  } catch {
-    // A limit that could not be recorded lets one more through. Acceptable.
-  }
-}
-
 export async function enqueue(draft: FeedbackDraft): Promise<void> {
   const queue = await readQueue();
   await writeQueue([
@@ -97,8 +77,8 @@ export function onQueueChange(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-async function deliver(draft: FeedbackDraft, now: number): Promise<string | null> {
-  const eventId = await sendFeedbackReport({
+function deliver(draft: FeedbackDraft): Promise<SendResult> {
+  return sendFeedbackReport({
     clientReportId: draft.clientReportId,
     message: draft.message,
     source: draft.source,
@@ -110,39 +90,62 @@ async function deliver(draft: FeedbackDraft, now: number): Promise<string | null
         ? undefined
         : { data: base64ToBytes(draft.screenshot.base64), contentType: draft.screenshot.contentType },
   });
-  if (eventId !== null) await countSent(now);
-  return eventId;
 }
 
-/** Send now if it can go now; otherwise say why and keep it. */
+async function holdUntil(draft: FeedbackDraft, notBefore: number): Promise<void> {
+  const queue = await readQueue();
+  const kept = queue.some((item) => item.clientReportId === draft.clientReportId);
+  await writeQueue(
+    kept
+      ? queue.map((item) => (item.clientReportId === draft.clientReportId ? { ...item, notBefore } : item))
+      : [...queue, { ...draft, notBefore }],
+  );
+}
+
+/** Send now if it can go now; otherwise say why, and keep it if it can go later. */
 export async function submit(
   draft: FeedbackDraft,
   { online, now = Date.now() }: { online: boolean; now?: number },
 ): Promise<SubmitOutcome> {
-  if ((await sentToday(now)) >= DAILY_LIMIT) {
-    await enqueue({ ...draft, notBefore: startOfTomorrow(now) });
-    return { kind: "limited" };
-  }
   if (!online) {
     await enqueue(draft);
     return { kind: "offline" };
   }
-  const eventId = await deliver(draft, now);
-  if (eventId === null) return { kind: "failed" };
-  await discard(draft.clientReportId);
-  return { kind: "sent", code: reportCode(eventId) };
+  const result = await deliver(draft);
+  switch (result.kind) {
+    case "sent":
+      await discard(draft.clientReportId);
+      return { kind: "sent", code: reportCode(result.eventId) };
+    case "limited":
+      await holdUntil(draft, now + result.retryAfterMs);
+      return { kind: "limited" };
+    case "rejected":
+      await discard(draft.clientReportId);
+      return { kind: "rejected" };
+    case "failed":
+      return { kind: "failed" };
+  }
 }
 
 let draining: Promise<void> | null = null;
 
-/** Send what is waiting and due. Stops at the first failure; the rest wait. */
+/**
+ * Send what is waiting and due, oldest first. A failure stops the run — the
+ * rest wait for the next chance; the day's limit holds the report that hit it
+ * until the time the server named, and stops the run too.
+ */
 export function drainQueue(now = Date.now()): Promise<void> {
   if (draining !== null) return draining;
   draining = (async () => {
+    await openStore().remove(LEGACY_SENT_KEY).catch(() => {});
     for (const draft of await readQueue()) {
       if (draft.notBefore !== undefined && draft.notBefore > now) continue;
-      if ((await sentToday(now)) >= DAILY_LIMIT) return;
-      if ((await deliver(draft, now)) === null) return;
+      const result = await deliver(draft);
+      if (result.kind === "failed") return;
+      if (result.kind === "limited") {
+        await holdUntil(draft, now + result.retryAfterMs);
+        return;
+      }
       await discard(draft.clientReportId);
     }
   })().finally(() => {

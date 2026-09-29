@@ -7,11 +7,12 @@
  * linked in the private-beta note `feedback-observability/overview.md`.
  */
 
-export const MESSAGE_MAX = 4000;
-/** Reports one device may send in a day before the rest wait for tomorrow. */
-export const DAILY_LIMIT = 10;
+import { FEEDBACK_LIMITS, type FeedbackSource } from "@context/shared";
 
-export type FeedbackSource = "top_bar" | "menu" | "error" | "settings";
+export type { FeedbackSource } from "@context/shared";
+
+/** The server's own cap (`functions/feedback.ts`), so the two cannot drift. */
+export const MESSAGE_MAX = FEEDBACK_LIMITS.messageChars;
 
 /** What the report screen was opened for. */
 export interface FeedbackRequest {
@@ -33,7 +34,7 @@ export interface FeedbackDraft {
   activity?: string;
   /** Base64, only while queued. On screen the bytes stay bytes. */
   screenshot?: { base64: string; contentType: string };
-  /** Epoch ms before which a queued report is not sent (the daily limit). */
+  /** Epoch ms before which a queued report is not sent: when the server said the day's limit frees up. */
   notBefore?: number;
 }
 
@@ -50,21 +51,6 @@ export function canSubmit(message: string): boolean {
  */
 export function reportCode(eventId: string): string {
   return `FB-${eventId.replace(/[^0-9a-f]/gi, "").slice(0, 6).toUpperCase()}`;
-}
-
-/** Local calendar day, which is what "10 a day" means to the person. */
-export function dayKey(now: number): string {
-  const d = new Date(now);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${mm}-${dd}`;
-}
-
-/** Midnight at the start of tomorrow, local time. */
-export function startOfTomorrow(now: number): number {
-  const d = new Date(now);
-  d.setHours(24, 0, 0, 0);
-  return d.getTime();
 }
 
 export function newClientReportId(): string {

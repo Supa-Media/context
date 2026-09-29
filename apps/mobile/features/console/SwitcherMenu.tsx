@@ -8,7 +8,7 @@ import { Text } from "../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { layout, radii, space } from "../design/tokens";
 import { openFeedback } from "../feedback/request";
-import { canSendFeedback } from "../observability/client";
+import { useCanSendFeedback } from "../feedback/transport";
 import { offerOwnContext } from "../onboarding/route";
 import { Avatar } from "./AccountBlock";
 import {
@@ -154,6 +154,7 @@ export function SwitcherMenu({
   const [anchor, setAnchor] = useState<AccountCardAnchor | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const iconFor = useWorkspaceIcons();
+  const canReport = useCanSendFeedback();
   const current = selectedContext(data) ?? undefined;
 
   /*
@@ -236,7 +237,7 @@ export function SwitcherMenu({
       where this build can send a report at all. The phone's way in, since its
       top bar has no room for the bug button.
     */
-    ...(onSignOut && canSendFeedback()
+    ...(onSignOut && canReport
       ? [{ id: "feedback", label: "Send feedback", leading: <Icon name="bug" size={14} />, testID: "switcher-feedback" }]
       : []),
     ...(onInviteFriends

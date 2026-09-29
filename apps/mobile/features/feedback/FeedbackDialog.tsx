@@ -160,7 +160,7 @@ function Outcome({
       <Text variant="paneTitle" role="heading" aria-level={2}>
         {copy.title}
       </Text>
-      <Text variant="paneSub" style={phase.kind === "failed" ? styles.problem : null}>
+      <Text variant="paneSub" style={phase.kind === "failed" || phase.kind === "rejected" ? styles.problem : null}>
         {phase.kind === "sent"
           ? `Report ${phase.code}. We read every one. If we need more, we'll email you.`
           : copy.body}
@@ -192,7 +192,11 @@ export const OUTCOME_COPY: Record<SubmitOutcome["kind"], { title: string; body: 
   },
   limited: {
     title: "That's a lot of reports today",
-    body: "You can send 10 a day. This one is saved on this device and goes tomorrow.",
+    body: "You can send 10 a day. This one is saved on this device and sends when there's room again.",
+  },
+  rejected: {
+    title: "Couldn't send this report",
+    body: "Something in it wasn't in a shape Context accepts, so nothing was sent.",
   },
   failed: { title: "Couldn't send", body: "Context didn't answer. Your report is still here." },
 };

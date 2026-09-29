@@ -8,7 +8,8 @@ import { StageBackdrop } from "../design/components/StageBackdrop";
 import { leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { canReload, reloadApp } from "./reload";
-import { canSendFeedback, hasObservedUser, reportError, trackEvent } from "../observability/client";
+import { hasObservedUser, reportError, trackEvent } from "../observability/client";
+import { useCanSendFeedback, useFeedbackSubmitter } from "../feedback/transport";
 import { FeedbackDialog } from "../feedback/FeedbackDialog";
 import { openReport, type OpenReport } from "../feedback/request";
 
@@ -117,7 +118,8 @@ export function ErrorScreen({
     signed in, whom we can answer.
   */
   const [report, setReport] = useState<OpenReport | null>(null);
-  const canReport = canSendFeedback() && hasObservedUser();
+  useFeedbackSubmitter();
+  const canReport = useCanSendFeedback() && hasObservedUser();
 
   return (
     <View style={styles.ground} testID="error-boundary">
