@@ -549,6 +549,11 @@ describe("every route is reachable, or says why not", () => {
       "/console/map",
       "/e2e-fixture",
       "/invite/[token]",
+      /*
+        A friend's invite (`/join/<token>`), for the same reason as
+        `/invite/[token]`: the token is in one email and nowhere else.
+      */
+      "/join/[token]",
       "/note/[...address]",
       /*
         Two dev-only design-review routes for the redesigned onboarding

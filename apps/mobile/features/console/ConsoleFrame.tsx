@@ -8,7 +8,6 @@ import {
   type SetStateAction,
 } from "react";
 import { useWindowDimensions } from "react-native";
-import { useConvex } from "convex/react";
 import { ToastHost } from "../design/components/Toast";
 import { AppFrame } from "../app/AppFrame";
 import { densityFor } from "../app/frame";
@@ -134,7 +133,7 @@ export function ConsoleFrame({
   const visitor = data.visitor;
   // Invite friends and Community: only for a signed-in person with a control
   // plane to ask — never the homepage visitor, the demo, or a fixture.
-  const referrals = useReferralMenu(useConvex() !== undefined && visitor === undefined && data.demo !== true);
+  const referrals = useReferralMenu(data.referrals === true && visitor === undefined && data.demo !== true);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   /*

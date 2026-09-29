@@ -11,7 +11,7 @@
 const SECRET_QUERY_VALUE = /([?&](?:code|token|secret|key|note|access_token|refresh_token|id_token)=)[^&#\s]*/gi;
 const AUTH_HEADER = /(authorization["']?\s*[:=]\s*["']?)(?:bearer\s+)?[^\s,"'}]+/gi;
 const AWS_ACCESS_KEY = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
-const CALLBACK_SECRET = /(\/(?:invite|s)\/)[^/?#\s]+/gi;
+const CALLBACK_SECRET = /(\/(?:invite|join|s)\/)[^/?#\s]+/gi;
 const CONTEXT_PATH = /(\/console\/)[^/?#\s]+/gi;
 // `/note/@slug/<path>` — everything after the keyword, not just the handle.
 // This route carries a whole note path, which `CONTEXT_PATH`'s one-segment
@@ -57,6 +57,7 @@ export const ROUTE_SEGMENTS = new Set([
   "e2e-fixture",
   "google",
   "invite",
+  "join",
   "login",
   "map",
   "meetings",
@@ -90,7 +91,7 @@ export function telemetryRoute(pathname: string): string {
   if ((named[0] === "console" || named[0] === "note") && named.length >= 2) {
     named[1] = ":context";
   }
-  if ((named[0] === "invite" || named[0] === "s") && named.length >= 2) {
+  if ((named[0] === "invite" || named[0] === "join" || named[0] === "s") && named.length >= 2) {
     named[1] = ":token";
   }
   const safe = named.map((part, index) =>
