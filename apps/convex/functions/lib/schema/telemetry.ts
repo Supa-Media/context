@@ -18,4 +18,14 @@ export const telemetryTables = {
     recordings: v.boolean(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
+
+  /**
+   * When each person pressed "Got it" on the early-beta notice, so it is
+   * dismissed once per person rather than once per browser. A time and
+   * nothing else; deleted with the account.
+   */
+  betaNoticeReads: defineTable({
+    userId: v.id("users"),
+    seenAt: v.number(),
+  }).index("by_user", ["userId"]),
 };
