@@ -99,6 +99,14 @@ describe("a list write is what the device holds afterwards", () => {
     expect(await afterRefresh("1-projects/app/overview.md")).toBe("planned");
   });
 
+  test("a project's description edited on its page survives a refresh", async () => {
+    expect(await source().setLede!("1-projects/web/overview.md", "Publish a folder as a site.")).toBeNull();
+    expect(bucket.get("1-projects/web/overview.md")?.text).toBe("---\nstatus: active\n---\n# Web\n\nPublish a folder as a site.\n");
+    forgetMirrorLists();
+    const listed = await source().load("1-projects", true);
+    expect(listed?.notes.find((note) => note.path === "1-projects/web/overview.md")?.lede).toBe("Publish a folder as a site.");
+  });
+
   test("the lists reading this workspace are told, once the device holds it", async () => {
     const heard: string[] = [];
     const listening = source();
@@ -124,6 +132,7 @@ describe("a list write is what the device holds afterwards", () => {
   test("a reader who may not write is offered no write", () => {
     const reading = folderListSource({ workspaceId: W, scope: "team", canEdit: false, io, openMirror: async () => store, needed: async () => () => new Set() });
     expect(reading.setProperty).toBeUndefined();
+    expect(reading.setLede).toBeUndefined();
     expect(reading.remember).toBeUndefined();
   });
 

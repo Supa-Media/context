@@ -92,17 +92,25 @@ const PROJECTS = listing("1-projects", [
 
 type Write = [path: string, key: string, value: string | null, options: { create?: boolean } | undefined];
 
-function host(writes: Write[] | null): FolderPageHost {
+function host(writes: Write[] | null, notes: ListNote[] = NOTES): FolderPageHost {
   return {
     workspaceId: "ws_test",
     people: ["John"],
     source: {
-      load: async () => ({ notes: NOTES, complete: true }),
+      load: async () => ({ notes, complete: true }),
+      readBody: async (path: string) =>
+        path === "1-projects/web/overview.md"
+          ? { text: "---\nstatus: active\n---\n# Website folder\n\nPublish a [folder](https://example.invalid) as a site.\n", encrypted: false }
+          : null,
       ...(writes === null
         ? {}
         : {
             setProperty: async (path: string, key: string, value: string | null, options?: { create?: boolean }) => {
               writes.push([path, key, value, options]);
+              return null;
+            },
+            setLede: async (path: string, text: string, options?: { create?: boolean }) => {
+              writes.push([path, "lede", text, options]);
               return null;
             },
           }),
@@ -287,6 +295,65 @@ describe("a project folder's own page", () => {
     expect(strip(one("menu-root").textContent)).not.toContain("Saves to");
     await press(one("menu-item-choice:4"));
     expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
+  });
+});
+
+describe("a project's description", () => {
+  const WEB = listing("1-projects/web", [entry("file", "1-projects/web/overview.md"), entry("file", "1-projects/web/dns.md")]);
+
+  async function type(node: HTMLElement, value: string) {
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      set.call(node, value);
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  test("a writer edits it in place, starting from the paragraph as written, into the front note", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects/web"), WEB, host(writes));
+    await press(one("folder-lede-edit"));
+    await act(async () => {});
+    const field = one("folder-lede-input") as HTMLTextAreaElement;
+    // The link survives: the field holds the source, not the plain words drawn.
+    expect(field.value).toBe("Publish a [folder](https://example.invalid) as a site.");
+    await type(field, "Publish any folder as a site.");
+    await act(async () => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(writes).toEqual([["1-projects/web/overview.md", "lede", "Publish any folder as a site.", undefined]]);
+    // Drawn at once, before the device's copy catches up.
+    expect(all("folder-lede-input")).toHaveLength(0);
+    expect(strip(one("folder-lede").textContent)).toBe("Publish any folder as a site.");
+  });
+
+  test("Escape backs out and writes nothing", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects/web"), WEB, host(writes));
+    await press(one("folder-lede-edit"));
+    const field = one("folder-lede-input");
+    await type(field, "Something else.");
+    await act(async () => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(writes).toEqual([]);
+    expect(strip(one("folder-lede").textContent)).toBe("Publish a folder as a site.");
+  });
+
+  test("a project with none offers a writer Add a description, and a member nothing", async () => {
+    const bare = NOTES.map((note) => (note.path === "1-projects/web/overview.md" ? { ...note, lede: undefined } : note));
+    await mount(entry("folder", "1-projects/web"), WEB, host([], bare));
+    expect(strip(one("folder-lede-edit").textContent)).toBe("Add a description");
+    roots.pop()!();
+    await mount(entry("folder", "1-projects/web"), WEB, host(null, bare));
+    expect(all("folder-lede-edit")).toHaveLength(0);
+    expect(all("folder-lede")).toHaveLength(0);
+  });
+
+  test("a member reads it and cannot edit it", async () => {
+    await mount(entry("folder", "1-projects/web"), WEB, host(null));
+    expect(strip(one("folder-lede").textContent)).toBe("Publish a folder as a site.");
+    expect(all("folder-lede-edit")).toHaveLength(0);
   });
 });
 
