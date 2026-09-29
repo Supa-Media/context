@@ -6,8 +6,10 @@
  * comment on `provisionManagedStorage` for the whole flow this belongs to.
  */
 
+import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
+import { handoffEmailKindFor } from "./handoffEmail";
 
 /**
  * Stop a migration in both places a stopped migration has to be recorded.
@@ -31,6 +33,15 @@ export async function failMigrationRowAndPlan(
       failedKeys,
       updatedAt: Date.now(),
     });
+    // Leaving can run with nobody watching: tell the owner who started it.
+    const kind = row.direction === "to_customer" ? handoffEmailKindFor(errorCode) : null;
+    if (kind !== null) {
+      await ctx.scheduler.runAfter(0, internal.functions.handoffEmail.sendHandoffEmail, {
+        workspaceId,
+        recipientUserId: row.startedBy,
+        kind,
+      });
+    }
   }
   const plan = await ctx.db
     .query("workspacePlans")

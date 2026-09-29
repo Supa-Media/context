@@ -47,6 +47,13 @@ export async function finishManagedStorageMigrationHandler(
         errorCode: "SOURCE_CHANGED",
         updatedAt: Date.now(),
       });
+      if (migration.direction === "to_customer") {
+        await ctx.scheduler.runAfter(0, internal.functions.handoffEmail.sendHandoffEmail, {
+          workspaceId: args.workspaceId,
+          recipientUserId: migration.startedBy,
+          kind: "paused",
+        });
+      }
     }
     return { cutover: false };
   }
@@ -104,6 +111,14 @@ export async function finishManagedStorageMigrationHandler(
         tokenId: current.accessKeyId,
       },
     );
+  }
+  if (toCustomer) {
+    await ctx.scheduler.runAfter(0, internal.functions.handoffEmail.sendHandoffEmail, {
+      workspaceId: args.workspaceId,
+      recipientUserId: migration.startedBy,
+      kind: "finished",
+      retainedUntil,
+    });
   }
   return { cutover: true };
 }
