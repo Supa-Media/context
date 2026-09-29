@@ -122,7 +122,7 @@ function apiHeaders(token) {
   };
 }
 
-async function github(repository, token, path, params = {}) {
+export async function github(repository, token, path, params = {}) {
   const url = new URL(`https://api.github.com/repos/${repository}/${path}`);
   url.search = new URLSearchParams(params).toString();
   const response = await fetch(url, { headers: apiHeaders(token) });
@@ -161,7 +161,7 @@ async function jobsFor(repository, token, runId) {
   return jobs;
 }
 
-function commitsBetween(previousSha, targetSha) {
+export function commitsBetween(previousSha, targetSha) {
   try {
     execFileSync("git", ["merge-base", "--is-ancestor", previousSha, targetSha], { stdio: "ignore" });
   } catch {

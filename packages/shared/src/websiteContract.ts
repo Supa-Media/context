@@ -68,7 +68,8 @@ export type WebsiteRouteAudience = "public" | "members";
 export type WebsiteRoutePublicationStatus = "live" | "draft" | "problem";
 export type WebsiteRouteProblemCode =
   | WebsiteRouteDiagnosticCode
-  | "invalid_metadata";
+  | "invalid_metadata"
+  | "devlog_promise";
 
 export interface WebsiteRouteProblem {
   code: WebsiteRouteProblemCode;

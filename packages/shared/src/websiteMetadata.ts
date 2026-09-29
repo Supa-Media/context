@@ -9,6 +9,7 @@ import {
   type WebsiteRouteOptions,
 } from "./websiteRoutes";
 import { stripComments } from "./comments.cjs";
+import { devlogPromiseProblems } from "./devlog";
 
 /** The route-affecting subset of one ordinary Markdown note. */
 export interface ParsedWebsitePage {
@@ -291,6 +292,11 @@ export function buildWebsiteRouteStatuses(
     const problems = [
       ...pathDiagnostics.map(diagnosticProblem),
       ...page.problems,
+      // An exploring line that reads like a promise holds the release, the
+      // way a broken page does: the devlog is where that rule is kept.
+      ...devlogPromiseProblems(page.body).map(
+        (message): WebsiteRouteProblem => ({ code: "devlog_promise", message }),
+      ),
     ];
     statuses.push({
       objectKey,
