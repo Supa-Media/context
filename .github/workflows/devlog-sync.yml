@@ -24,6 +24,9 @@ jobs:
     name: Copy the published week to a draft release
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # The Discord webhook is synced from 1Password into the production
+    # environment like every other secret; the job reads nothing else there.
+    environment: production
     steps:
       - uses: actions/checkout@v5
 
