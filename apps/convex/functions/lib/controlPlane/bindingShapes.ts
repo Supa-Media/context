@@ -60,6 +60,7 @@ export interface S3GatewayBinding {
    * decide", which is what the gateway's `nativeStore` already passes through.
    */
   forcePathStyle?: boolean;
+  managedEncryption?: "migrating" | "encrypted";
   capabilities: StorageCapabilities;
   status: string;
 }
@@ -205,6 +206,9 @@ export const s3BindingValidator = v.object({
   accessKeyId: v.string(),
   secretAccessKey: v.string(),
   forcePathStyle: v.optional(v.boolean()),
+  managedEncryption: v.optional(
+    v.union(v.literal("migrating"), v.literal("encrypted")),
+  ),
   capabilities: capabilitiesValidator,
   status: v.string(),
 });

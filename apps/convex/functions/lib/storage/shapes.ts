@@ -88,6 +88,9 @@ export interface SealedBinding {
   dropboxAccountId?: string;
   /** Absent means "let the adapter decide". See the schema for why. */
   forcePathStyle?: boolean;
+  managedEncryption?: "migrating" | "encrypted";
+  managedEncryptionCursor?: string;
+  managedEncryptionObjectsProcessed?: number;
   capabilities: StorageCapabilities;
   status: string;
 }
@@ -117,6 +120,7 @@ export interface S3GatewayCredential {
   accessKeyId: string;
   secretAccessKey: string;
   forcePathStyle?: boolean;
+  managedEncryption?: "migrating" | "encrypted";
   capabilities: StorageCapabilities;
   status: string;
 }

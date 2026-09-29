@@ -32,6 +32,11 @@ export const getBindingRowReturns = v.union(
     accessTokenExpiresAt: v.optional(v.number()),
     dropboxAccountId: v.optional(v.string()),
     forcePathStyle: v.optional(v.boolean()),
+    managedEncryption: v.optional(
+      v.union(v.literal("migrating"), v.literal("encrypted")),
+    ),
+    managedEncryptionCursor: v.optional(v.string()),
+    managedEncryptionObjectsProcessed: v.optional(v.number()),
     capabilities: capabilitiesValidator,
     status: v.string(),
   }),
@@ -66,6 +71,9 @@ export async function getBindingRowHandler(
     accessTokenExpiresAt: binding.accessTokenExpiresAt,
     dropboxAccountId: binding.dropboxAccountId,
     forcePathStyle: binding.forcePathStyle,
+    managedEncryption: binding.managedEncryption,
+    managedEncryptionCursor: binding.managedEncryptionCursor,
+    managedEncryptionObjectsProcessed: binding.managedEncryptionObjectsProcessed,
     capabilities: binding.capabilities,
     status: binding.status,
   };

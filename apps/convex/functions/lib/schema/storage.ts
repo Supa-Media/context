@@ -127,6 +127,20 @@ export const storageTables = {
      */
     forcePathStyle: v.optional(v.boolean()),
     /**
+     * Application-layer encryption for Context-managed storage only.
+     *
+     * Absent means plaintext, preserving every row that predates rollout.
+     * `migrating` is a deliberate mixed-format window: gateway writes are
+     * encrypted, reads accept old plaintext, and a resumable CAS sweep closes
+     * the gap. `encrypted` is strict and refuses any plaintext body.
+     */
+    managedEncryption: v.optional(
+      v.union(v.literal("migrating"), v.literal("encrypted")),
+    ),
+    /** Provider cursor for the resumable in-place encryption sweep. */
+    managedEncryptionCursor: v.optional(v.string()),
+    managedEncryptionObjectsProcessed: v.optional(v.number()),
+    /**
      * Probed at connect time, not assumed. R2 and AWS S3 support conditional
      * writes; B2 and Wasabi do not reliably. We degrade honestly rather than
      * silently dropping conflict detection.

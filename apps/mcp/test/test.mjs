@@ -65,6 +65,7 @@ import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
 import { runEncryptionRotationChecks } from "./encryptionRotation.test.mjs";
 import { runRotationCursorAdversarialChecks } from "./encryptionRotationCursor.test.mjs";
+import { runManagedEncryptionStoreChecks } from "./managedEncryptionStore.test.mjs";
 import {
   runStorageLayoutChecks,
   runStorageLayoutReadChecks,
@@ -109,6 +110,8 @@ await suite("runStoreChecks", () => runStoreChecks(check, {
   env,
   ownerToken: accessTokenFor("priv-token"),
 }));
+
+await suite("runManagedEncryptionStoreChecks", () => runManagedEncryptionStoreChecks(check));
 
 // -- the binding → store table, and every way it refuses
 // Synchronous and network-free: it builds adapters and inspects them, so it

@@ -52,6 +52,7 @@ import { storeForBinding, StorageUnavailable } from "../src/store/factory.js";
 import { S3Store } from "../src/store/s3.js";
 import { R2Store } from "../src/store/r2.js";
 import { DropboxStore } from "../src/store/dropbox.js";
+import { generateWorkspaceKey } from "../src/encryption.js";
 
 /** Obviously fake. This repository is public. */
 const S3_BINDING = {
@@ -136,6 +137,47 @@ export function runStoreFactoryChecks(check) {
     check(
       "a dropbox store still claims conditional writes, so the probe can test them",
       store?.capabilities?.conditionalWrite === true
+    );
+  }
+
+  {
+    const encryptionKey = {
+      current: "g1",
+      keys: { g1: generateWorkspaceKey() },
+    };
+    const managed = storeForBinding(
+      { ...S3_BINDING, managedEncryption: "encrypted" },
+      undefined,
+      { workspaceId: S3_BINDING.workspaceId, encryptionKey },
+    );
+    check(
+      "an encrypted managed binding is wrapped at the store seam",
+      managed?.managedEncryption === true && managed instanceof S3Store === false,
+    );
+    check(
+      "a managed binding without its workspace key fails closed",
+      (() => {
+        try {
+          storeForBinding({ ...S3_BINDING, managedEncryption: "encrypted" });
+          return false;
+        } catch (error) {
+          return error instanceof StorageUnavailable &&
+            error.reason === "managed encryption unavailable";
+        }
+      })(),
+    );
+    check(
+      "a provider probe bypasses managed encryption because it carries no customer content",
+      storeForBinding(
+        { ...S3_BINDING, managedEncryption: "encrypted" },
+        undefined,
+        { probeCapabilities: true },
+      ) instanceof S3Store,
+    );
+    check(
+      "an ordinary customer-owned binding stays plaintext",
+      attempt(S3_BINDING).store instanceof S3Store &&
+        attempt(S3_BINDING).store?.managedEncryption !== true,
     );
   }
 

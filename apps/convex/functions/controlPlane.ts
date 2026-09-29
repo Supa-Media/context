@@ -346,7 +346,12 @@ export const openStorageBinding = internalAction({
     try {
       const opened = await ctx.runAction(
         internal.functions.encryptionKeys.openWorkspaceDataKey,
-        { workspaceId },
+        {
+          workspaceId,
+          create:
+            credential.managedEncryption === "migrating" ||
+            credential.managedEncryption === "encrypted",
+        },
       );
       encryptionKey = opened === null ? undefined : opened;
     } catch {
@@ -423,6 +428,7 @@ export const openStorageBinding = internalAction({
         accessKeyId: credential.accessKeyId,
         secretAccessKey: credential.secretAccessKey,
         forcePathStyle: credential.forcePathStyle,
+        managedEncryption: credential.managedEncryption,
         capabilities: credential.capabilities,
         // The contract's vocabulary, not the row's. `connected` is our word for
         // "a probe reached it"; `active` is the gateway's word for "you may
@@ -516,7 +522,12 @@ export const openGatewayJob = internalAction({
     try {
       const opened: GatewayEncryptionKey | null = await ctx.runAction(
         internal.functions.encryptionKeys.openWorkspaceDataKey,
-        { workspaceId: claimed.workspaceId },
+        {
+          workspaceId: claimed.workspaceId,
+          create:
+            credential.managedEncryption === "migrating" ||
+            credential.managedEncryption === "encrypted",
+        },
       );
       encryptionKey = opened === null ? undefined : opened;
     } catch {
@@ -563,6 +574,7 @@ export const openGatewayJob = internalAction({
         accessKeyId: credential.accessKeyId,
         secretAccessKey: credential.secretAccessKey,
         forcePathStyle: credential.forcePathStyle,
+        managedEncryption: credential.managedEncryption,
         capabilities: credential.capabilities,
         status: "active",
       },

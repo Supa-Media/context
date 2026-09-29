@@ -789,7 +789,11 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env, { noteCap });
+  const store = storeForBinding(binding, env, {
+    noteCap,
+    workspaceId: session.workspaceId,
+    encryptionKey: readEncryptionKey(encryptionKey),
+  });
   // The backend's name, for the search trace and nothing else. Latency is a
   // property of which backend this is — a native R2 binding and an S3 endpoint
   // reached over HTTP are not the same round trip — so a timing that does not
@@ -914,7 +918,10 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env);
+  const store = storeForBinding(binding, env, {
+    workspaceId: expectedWorkspaceId,
+    encryptionKey: readEncryptionKey(opened?.encryptionKey),
+  });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   Object.defineProperty(store, "searchIndex", {
     value: readSearchIndexBinding({ searchIndex: opened?.searchIndex }),

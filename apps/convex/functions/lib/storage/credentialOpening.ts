@@ -132,6 +132,7 @@ export const getBindingForGatewayHandler = async (
     accessKeyId: binding.accessKeyId,
     secretAccessKey,
     forcePathStyle: binding.forcePathStyle,
+    managedEncryption: binding.managedEncryption,
     capabilities: binding.capabilities,
     status: binding.status,
   };

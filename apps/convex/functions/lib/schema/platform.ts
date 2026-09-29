@@ -11,6 +11,19 @@ import { v } from "convex/values";
  */
 export const platformTables = {
   /**
+   * Operator rollout gates. A missing row is always off.
+   *
+   * This controls starting managed-storage encryption migrations; it never
+   * disables decryption for a workspace already migrated, because a kill
+   * switch must not turn encrypted customer data into an outage.
+   */
+  platformFeatureFlags: defineTable({
+    name: v.string(),
+    enabled: v.boolean(),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_name", ["name"]),
+  /**
    * Who did what, in which context.
    *
    * `actorUserId` records the acting identity, not just the scope — once
