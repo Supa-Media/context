@@ -77,7 +77,11 @@ import {
   sessionForActionReturns,
 } from "./lib/billing/sessions";
 import { billingStatusReturns, readBillingStatus } from "./lib/billing/status";
-import { noteCapForWorkspace, startFreeManagedHandler } from "./lib/billing/freeManaged";
+import {
+  noteCapForWorkspace,
+  refreshNoteCountHandler,
+  startFreeManagedHandler,
+} from "./lib/billing/freeManaged";
 import { storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
 import { startManagedMoveIfChosen } from "./lib/billing/managedMove";
 
@@ -184,39 +188,13 @@ export const noteCap = internalQuery({
   handler: async (ctx, args) => await noteCapForWorkspace(ctx, args.workspaceId),
 });
 
-/**
- * Ask for a fresh note count on a context the free plan's cap applies to.
- *
- * The console calls this when an owner opens a capped context, so the count
- * behind "912 of 1,000 notes" includes what agents, email and other devices
- * added since. Owner-only, because the count is (`billing.status` returns
- * `notes` to owners alone). A context with no cap, or one counted within
- * `NOTE_RECOUNT_INTERVAL_MS`, schedules nothing: a reload must not become a
- * bucket walk. Scheduling is not calling — the walk runs in an internal
- * action, the only place a credential may be opened.
- */
+/** Ask for a fresh note count on a capped context. See `refreshNoteCountHandler`. */
 export const refreshNoteCount = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ scheduled: v.boolean() }),
-  handler: async (ctx, args) => {
-    const userId = await requireUserId(ctx);
-    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
-    if ((await noteCapForWorkspace(ctx, args.workspaceId)) === null) return { scheduled: false };
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const countedAt = binding?.noteCountedAt ?? 0;
-    if (Date.now() - countedAt < NOTE_RECOUNT_INTERVAL_MS) return { scheduled: false };
-    await ctx.scheduler.runAfter(0, internal.functions.provisioning.recountNotes, {
-      workspaceId: args.workspaceId,
-    });
-    return { scheduled: true };
-  },
+  handler: async (ctx, args) =>
+    await refreshNoteCountHandler(ctx, await requireUserId(ctx), args.workspaceId),
 });
-
-/** How stale a capped context's count may be before opening it asks again. */
-const NOTE_RECOUNT_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Choose what this context is paying for.
