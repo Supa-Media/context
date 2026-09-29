@@ -1,11 +1,5 @@
 import { FrameIconButton } from "../../../app/AppFrame";
-import {
-  browserStorage,
-  castPreviewHref,
-  castPreviewSnapshot,
-  hasCast,
-  stashCastPreview,
-} from "../../../home/castPreview";
+import { castPreviewHref, hasCast } from "../../../home/castPreview";
 import { noteHeading } from "../../files/frontmatter";
 
 /**
@@ -26,8 +20,8 @@ export function castPreviewButton(draft: string, path: string) {
 }
 
 function openCastPreview(draft: string, path: string) {
-  const snapshot = castPreviewSnapshot(draft, noteHeading(draft, path), "Preview");
-  const nonce = stashCastPreview(browserStorage(), snapshot);
-  if (nonce === null) return;
-  window.open(castPreviewHref(nonce), "_blank", "noopener");
+  // Absolute, so the desktop app's hand-off to the person's browser gets a
+  // real address rather than a path.
+  const href = new URL(castPreviewHref(draft, noteHeading(draft, path)), window.location.origin).href;
+  window.open(href, "_blank", "noopener");
 }
