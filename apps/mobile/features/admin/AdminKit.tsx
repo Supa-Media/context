@@ -4,8 +4,8 @@
  * skeleton blocks and the "nothing yet" note. Tables are in `./AdminTable`.
  *
  * Everything is built from the design system's tokens and `Card`; nothing here
- * is a new colour or a new shape. It exists so the four tabs draw a panel and
- * an empty state the same way rather than four times.
+ * is a new colour or a new shape. It exists so the tabs draw a panel and
+ * an empty state the same way rather than once each.
  */
 
 import { Children, useState, type ReactNode } from "react";

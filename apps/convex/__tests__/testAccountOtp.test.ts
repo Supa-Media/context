@@ -38,6 +38,7 @@ const ENV_KEYS = [
   "SITE_URL",
   "CONVEX_SITE_URL",
   "JWT_PRIVATE_KEY",
+  "OPEN_SIGNUP",
 ] as const;
 let previous: Map<string, string | undefined>;
 let realFetch: typeof globalThis.fetch;
@@ -47,6 +48,11 @@ beforeEach(async () => {
   // No RESEND_API_KEY → the provider logs the code instead of mailing it, so
   // nothing here needs a Resend stub.
   delete process.env.RESEND_API_KEY;
+  // These accounts exist wherever they are used (the CUJ account in
+  // production, the personas seeded on staging), and a fresh test database has
+  // none of them. Invite-only admission is `waitlist.test.ts`'s subject; here
+  // sign-up is open so the fixed codes are what is being tested.
+  process.env.OPEN_SIGNUP = "true";
   // Redeeming a code mints a JWT, which needs a signing key and the URLs the
   // token names — same recipe as invitationEmail.test.ts's redemption test.
   const { generateKeyPairSync } = await import("node:crypto");

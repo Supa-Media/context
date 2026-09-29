@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { JoinCard, useHomeJoin } from "../auth/JoinCard";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
@@ -41,6 +42,8 @@ import { useLocalFileBrowser } from "./useLocalFileBrowser";
 import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
 
 const NO_EMOJI: EmojiPictures = {};
+/** Links that mean "let me in": the page's own email field answers them. */
+const JOIN_ROUTES: ReadonlySet<string> = new Set(["/login", "/workspace/new"]);
 const NO_COLORS: ReadonlyMap<string, string> = new Map();
 
 /**
@@ -157,14 +160,26 @@ export function HomeShell() {
     [browser, pathOf, routePath, router],
   );
 
+  /*
+    Invite-only (Dev2, 2026-09-28): signing in and joining the waitlist are one
+    email field, and it lives in the page (`JoinCard`, above the note). The
+    account button's "Sign in or join" and every link to sign-in or a new
+    workspace bring that field into view and focus it, instead of taking the
+    visitor to another page. Somebody already signed in follows the link.
+  */
+  const [joinAsk, setJoinAsk] = useState(0);
+  const askToJoin = useCallback(() => setJoinAsk((n) => n + 1), []);
+  const joinAnswered = useRef(0);
+  const join = useHomeJoin(router as { replace: (href: string) => void });
   const followLink = useCallback(
     (href: string) => {
       const link = homeLink(href);
       if (link === null) return;
-      if (link.kind === "app") router.push(link.href as never);
+      if (link.kind === "app" && !auth.isAuthenticated && JOIN_ROUTES.has(link.href)) askToJoin();
+      else if (link.kind === "app") router.push(link.href as never);
       else openRoute(link.routePath);
     },
-    [openRoute, router],
+    [openRoute, router, auth.isAuthenticated, askToJoin],
   );
 
   /*
@@ -229,9 +244,9 @@ export function HomeShell() {
     files,
     {
       signedIn: auth.isAuthenticated,
-      signIn: () => router.push("/login"),
+      signIn: askToJoin,
       openApp: () => router.push("/console"),
-      createAccount: () => router.push("/login"),
+      join: <JoinCard flow={join} ask={joinAsk} answered={joinAnswered} />,
       linkFor: (path) => {
         const route = routeOf(path);
         if (route === undefined) return null;

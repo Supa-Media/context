@@ -82,6 +82,7 @@ jest.mock("convex/react", () => {
     ...actual,
     useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
     useAction: () => async () => ({ redirectTo: "https://claude.ai/cb" }),
+    useMutation: () => async () => ({ status: "admitted" }),
     useQueries: () => ({
       workspaces: [{ workspaceId: "w1", slug: "testagent1", role: "owner" }],
       request: {
@@ -165,7 +166,7 @@ describe("a screen's controls stay reachable at any viewport height", () => {
   test("the login screen can scroll to its submit button", () => {
     mockParams = {};
     const { container, unmount } = render(createElement(LoginScreen));
-    expect(container.textContent).toContain("Tell one AI once");
+    expect(container.textContent).toContain("Notes for your team and your AI tools");
     expect(container.textContent).toContain("We'll email you a code");
     expectReachable(container, "login-submit");
     unmount();

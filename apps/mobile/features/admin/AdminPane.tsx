@@ -4,8 +4,8 @@
  * ## The screen is not the authorization
  *
  * `amIAdmin` decides what to *render*. It decides nothing else: `usageReport`,
- * `censusReport`, `listSecrets`, `setSecret` and `deleteSecret` each call
- * `requireAdmin` server-side, so a client that forces the boolean gets a page
+ * `censusReport`, `listSecrets`, `setSecret`, `deleteSecret` and the four
+ * waitlist functions each call `requireAdmin` server-side, so a client that forces the boolean gets a page
  * whose every query throws. That is the arrangement to keep — a screen that is
  * the only thing standing between somebody and a credential store is not a
  * security boundary, it is a suggestion.
@@ -41,8 +41,8 @@
  *     personal against shared, paying against free.
  *  3. **A funnel, a nudge list and a roster, because at this size the answer
  *     is a person.**
- *  4. **Four tabs, because there are four errands.** Growth, estate,
- *     activity, credentials.
+ *  4. **A tab per errand.** Growth, estate, activity, credentials, and the
+ *     waitlist — letting people in is a daily chore, not a figure.
  *
  * The arithmetic is in `./report` and `./growth`, the shapes in `./Charts`
  * and `./GrowthArea`, each tab in its own module, and the furniture they
@@ -63,6 +63,7 @@ import { EstateSection } from "./EstateSection";
 import { GrowthSection } from "./GrowthSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SecretsSection } from "./SecretsSection";
+import { WaitlistSection } from "./WaitlistSection";
 
 export function AdminPane() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
@@ -154,6 +155,7 @@ function Console() {
         {tab === "estate" ? <EstateSection days={days} /> : null}
         {tab === "activity" ? <ActivitySection days={days} /> : null}
         {tab === "credentials" ? <SecretsSection secrets={secrets} unset={unset} /> : null}
+        {tab === "waitlist" ? <WaitlistSection /> : null}
       </View>
     </>
   );

@@ -214,7 +214,7 @@ export function SwitcherMenu({
       ? [{ id: "app", label: "Open your workspaces", testID: "switcher-open-app" }]
       : []),
     ...(onSignIn
-      ? [{ id: "signin", label: "Sign in", testID: "switcher-sign-in" }]
+      ? [{ id: "signin", label: "Sign in or join", testID: "switcher-sign-in" }]
       : []),
     /*
       "Create workspace", which is what the homepage's own link says ("create a
@@ -276,7 +276,7 @@ export function SwitcherMenu({
         <PressRow
           accessibilityLabel={
             signedOut
-              ? "Sign in or create a workspace"
+              ? "Sign in or join the waitlist"
               : `${data.viewer.name} — account menu${elsewhere ? ", another workspace has changed" : ""}`
           }
           onPress={() => setSheetOpen(true)}

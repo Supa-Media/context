@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { internal } from "../_generated/api";
 import { setupTest } from "./fixtures.helpers";
 
@@ -79,6 +79,20 @@ async function usersWithEmail(
 }
 
 describe("minting a code for an address nobody has claimed", () => {
+  // Minting a code creates the account, and Context is invite-only
+  // (`functions/lib/waitlist.ts`), so these addresses would be refused before
+  // the linking this file is about is ever reached. Admission has its own
+  // suite, `waitlist.test.ts`; here sign-up is open.
+  let wasOpen: string | undefined;
+  beforeEach(() => {
+    wasOpen = process.env.OPEN_SIGNUP;
+    process.env.OPEN_SIGNUP = "true";
+  });
+  afterEach(() => {
+    if (wasOpen === undefined) delete process.env.OPEN_SIGNUP;
+    else process.env.OPEN_SIGNUP = wasOpen;
+  });
+
   test("creates exactly one account, and marks it verified", () => {
     // The whole F1 chain hangs on this row being *unverified*. It is not:
     // `createOrUpdateUser` stamps `emailVerificationTime` whenever it creates

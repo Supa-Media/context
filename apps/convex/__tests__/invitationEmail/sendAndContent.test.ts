@@ -386,9 +386,14 @@ describe("the magic link", () => {
     //
     // `signIn` builds a redirect against SITE_URL, which nothing else in this
     // suite needs; set for this call and put back, so no other test inherits it.
+    //
+    // OPEN_SIGNUP too: minting creates the account, and on an invite-only
+    // deployment a stranger's mint is refused outright (`waitlist.test.ts`
+    // pins that). The expiry is what this test is about.
     const restoreEnv = withEnv({
       SITE_URL: "https://context.invalid",
       CONVEX_SITE_URL: "https://context.invalid",
+      OPEN_SIGNUP: "true",
     });
     const mintedAt = Date.now();
     try {

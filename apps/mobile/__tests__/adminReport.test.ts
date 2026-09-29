@@ -410,12 +410,14 @@ describe("names for what the census counts", () => {
 });
 
 describe("the tabs", () => {
-  test("the four errands are distinct and growth comes first", () => {
+  test("the errands are distinct and growth comes first", () => {
+    // The waitlist joined as a fifth when sign-up became invite-only.
     expect(ADMIN_TABS.map((tab) => tab.key)).toEqual([
       "growth",
       "estate",
       "activity",
       "credentials",
+      "waitlist",
     ]);
     expect(isAdminTab("growth")).toBe(true);
     expect(isAdminTab("secrets")).toBe(false);

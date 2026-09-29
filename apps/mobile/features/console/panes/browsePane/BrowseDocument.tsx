@@ -348,6 +348,8 @@ export function BrowseDocument({
         onStoreImage={files.storeImage}
         onImageProblem={files.say}
         notices={compact ? notices : null}
+        // A visitor's sign-in-or-join card, above the page they are reading.
+        lead={data.visitor?.join}
         pathBar={pathBar}
         onChange={files.setDraft}
         onSave={files.save}

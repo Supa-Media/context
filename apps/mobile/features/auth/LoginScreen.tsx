@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { densityFor } from "../app/frame";
 import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
@@ -11,12 +9,18 @@ import { fonts, layout, leading, pointerType as t, radii, space, tracking } from
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { landAfterSignIn } from "./landing";
 import { LANDING_ROUTE, safeNextRoute } from "./redirect";
-import { normalizeSignInEmail, signInProviderForEmail } from "./email";
+import { useEmailSignIn } from "./useEmailSignIn";
+import { WaitlistResult } from "./WaitlistResult";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { SignInPreview } from "./SignInPreview";
 
 /**
- * A-01 and A-02 — sign in, then the code.
+ * A-01 and A-02 — sign in, then the code. Or the waitlist.
+ *
+ * Context is invite-only: the address is asked about first, and only one that
+ * has been let in goes on to the code. Anybody else sees "you're on the list"
+ * right here (`useEmailSignIn`, `WaitlistResult`), and the homepage's
+ * `JoinCard` runs the same flow in the page.
  *
  * Two steps against `@convex-dev/auth`'s email provider, configured by
  * `createSupaAuth` in `apps/convex/auth.ts`, which sends a six-digit code that
@@ -35,58 +39,22 @@ import { SignInPreview } from "./SignInPreview";
 export function LoginScreen() {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const { signIn } = useAuthActions();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const params = useLocalSearchParams<{ next?: string | string[] }>();
   const next = safeNextRoute(Array.isArray(params.next) ? params.next[0] : params.next);
 
-  const [step, setStep] = useState<"request" | "verify">("request");
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [resent, setResent] = useState(false);
+  const flow = useEmailSignIn({
+    source: "login",
+    // A real navigation on the web, not a client-side replace — see
+    // `landAfterSignIn` for the URL that hop was measured losing.
+    onSignedIn: () => landAfterSignIn(next, (href) => router.replace(href)),
+  });
+  const { step, email, code, submitting, error, resent, canSubmit } = flow;
 
   const wide = width >= 900;
   const phone = densityFor(width) === "compact";
 
-  async function requestCode(again = false) {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const normalized = normalizeSignInEmail(email);
-      await signIn(signInProviderForEmail(normalized), { email: normalized });
-      setStep("verify");
-      setResent(again);
-      if (again) setCode("");
-    } catch {
-      setError("Couldn't send your code. Check the address and try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function verifyCode(value = code) {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const normalized = normalizeSignInEmail(email);
-      await signIn(signInProviderForEmail(normalized), {
-        email: normalized,
-        code: value.trim(),
-      });
-      // A real navigation on the web, not a client-side replace — see
-      // `landAfterSignIn` for the URL that hop was measured losing.
-      landAfterSignIn(next, (href) => router.replace(href));
-    } catch {
-      setError("That code didn't work. Codes expire after ten minutes — ask for a new one if it's been a while.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const canSubmit = step === "request" ? email.trim().length > 3 : code.trim().length === OTP_LENGTH;
   const spinner = submitting ? <ActivityIndicator color={colors.ink} size="small" /> : null;
 
   const form = (
@@ -105,17 +73,21 @@ export function LoginScreen() {
         </Text>
       </Pressable>
 
-      {step === "request" ? (
+      {step === "joined" || step === "already" ? (
+        <WaitlistResult flow={flow} />
+      ) : step === "request" ? (
         <>
+          <Text variant="eyebrow" style={styles.eyebrow}>
+            Invite only for now
+          </Text>
           <Text role="heading" aria-level={1} style={styles.pitch}>
-            Tell one AI once. Every tool you allow starts already knowing your{" "}
-            <Text style={[styles.pitch, styles.accent]}>projects, decisions, and history</Text>.
+            Notes for your team and your AI tools
           </Text>
           <View style={styles.field}>
             <TextField
               label="Email"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={flow.setEmail}
               placeholder="you@work.com"
               autoCapitalize="none"
               autoCorrect={false}
@@ -123,7 +95,7 @@ export function LoginScreen() {
               autoComplete="email"
               editable={!submitting}
               onSubmitEditing={() => {
-                if (canSubmit && !submitting) void requestCode();
+                if (canSubmit && !submitting) void flow.submitEmail();
               }}
               testID="login-email"
             />
@@ -145,11 +117,10 @@ export function LoginScreen() {
             value={code}
             editable={!submitting}
             onChange={(value) => {
-              setCode(value);
-              setError(null);
+              flow.setCode(value);
               // The sixth digit is the submit: a person who typed the whole
               // code has said everything this screen asks for.
-              if (value.length === OTP_LENGTH && !submitting) void verifyCode(value);
+              if (value.length === OTP_LENGTH && !submitting) void flow.verify(value);
             }}
             testID="login-code"
           />
@@ -167,13 +138,13 @@ export function LoginScreen() {
         </Text>
       ) : null}
 
-      {step === "request" ? (
+      {step === "joined" || step === "already" ? null : step === "request" ? (
         <View style={styles.primaryRow}>
           <Button
-            label="Send a sign-in code"
+            label="Continue"
             variant="accent"
             disabled={submitting || !canSubmit}
-            onPress={() => void requestCode()}
+            onPress={() => void flow.submitEmail()}
             trailing={spinner}
             // The width of the thumb's reach on a phone, as one target.
             style={phone ? styles.submitPhone : undefined}
@@ -187,14 +158,14 @@ export function LoginScreen() {
               label="Resend code"
               variant="decision"
               disabled={submitting}
-              onPress={() => void requestCode(true)}
+              onPress={() => void flow.resend()}
               testID="login-resend"
             />
             <Button
               label="Continue →"
               variant="accent"
               disabled={submitting || !canSubmit}
-              onPress={() => void verifyCode()}
+              onPress={() => void flow.verify()}
               trailing={spinner}
               testID="login-submit"
             />
@@ -203,13 +174,7 @@ export function LoginScreen() {
             variant="foot"
             role="link"
             style={styles.link}
-            onPress={() => {
-              if (submitting) return;
-              setStep("request");
-              setCode("");
-              setError(null);
-              setResent(false);
-            }}
+            onPress={flow.changeEmail}
             testID="login-change-email"
           >
             Change email →
@@ -217,11 +182,13 @@ export function LoginScreen() {
         </>
       )}
 
-      <Text variant="foot" style={styles.foot}>
-        {step === "request"
-          ? "We'll email you a code. There's no password to remember."
-          : "Next: pick the name your notes live under."}
-      </Text>
+      {step === "request" || step === "verify" ? (
+        <Text variant="foot" style={styles.foot}>
+          {step === "request"
+            ? "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."
+            : "Next: pick the name your notes live under."}
+        </Text>
+      ) : null}
     </View>
   );
 
@@ -232,7 +199,7 @@ export function LoginScreen() {
           <View style={[styles.formCol, wide && styles.formColWide]}>{form}</View>
           {wide ? (
             <View style={styles.previewCol}>
-              <SignInPreview kind={step === "request" ? "product" : "email"} email={email.trim()} />
+              <SignInPreview kind={step === "verify" ? "email" : "product"} email={email.trim()} />
             </View>
           ) : null}
         </View>
@@ -266,6 +233,7 @@ const makeStyles = (colors: Colors) =>
     previewCol: { flex: 1, minHeight: 560 },
     form: { maxWidth: 360 },
     mark: { alignSelf: "flex-start", marginBottom: 32 },
+    eyebrow: { marginBottom: space.x2, color: colors.muted },
     markSuffix: { color: colors.accent },
     pitch: {
       fontFamily: fonts.display,
@@ -275,7 +243,6 @@ const makeStyles = (colors: Colors) =>
       fontWeight: "600",
       color: colors.text,
     },
-    accent: { color: colors.accent },
     strong: { fontWeight: "600", color: colors.text },
     sent: { marginTop: space.x3, color: colors.text2, lineHeight: leading(12.5, 1.5) },
     label: { marginTop: space.x5, marginBottom: space.x2, color: colors.muted },

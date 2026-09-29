@@ -82,6 +82,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The sign-in link's life is `SIGNIN_CODE_TTL_MS`, and never `magicLink.maxAge`
 - The two onboarding gates ask two different questions
 - …and a third question nobody was asking: how do you get one?
+- Sign-in is invite-only, and the lock is on the server
 - The hook is a capture-only OAuth client, and that is the whole design
 - A workspace's name can be given back, and only its owner can give it
 - The covered-context set is a reach, not an identity
