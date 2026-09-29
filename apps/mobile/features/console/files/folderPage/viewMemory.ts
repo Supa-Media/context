@@ -98,6 +98,11 @@ export function dismissNudge(workspaceId: string, folder: string): void {
   }
 }
 
+/** Where this device keeps "no" to the track nudge for a whole workspace. */
+export function trackNudgeKey(workspaceId: string): string {
+  return `context.lc.track-nudge.dismissed.v1.${workspaceId}`;
+}
+
 /** For tests: forget everything held in memory. */
 export function forgetViews(): void {
   memory.clear();

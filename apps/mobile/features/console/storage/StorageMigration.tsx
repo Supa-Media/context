@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
@@ -6,6 +6,7 @@ import { Text } from "../../design/components/Text";
 import { useThemedStyles } from "../../design/theme";
 import { Confirm } from "../files/Dialogs";
 import { openStore } from "../../offline/store";
+import { useInAppMessage } from "../../messages/useInAppMessage";
 
 /**
  * The one-time storage-layout update, and the two places it is offered from.
@@ -332,37 +333,15 @@ export function useStorageMigrationOffer(workspaceId: string | null): {
   visible: boolean;
   dismiss: () => void;
 } {
-  const [answered, setAnswered] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(true);
-
-  useEffect(() => {
-    if (workspaceId === null) return;
-    let live = true;
-    void openStore()
-      .get(storageMigrationDismissedKey(workspaceId))
-      .then((stored) => {
-        if (!live) return;
-        setDismissed(stored !== null);
-        setAnswered(workspaceId);
-      })
-      .catch(() => {
-        // A read that failed found nothing we can trust, and the honest branch
-        // is the quiet one: a notice nobody can dismiss durably is worse than
-        // no notice. See `store.web.ts` on why a read never throws upward.
-        if (live) setDismissed(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, [workspaceId]);
-
-  const dismiss = useCallback(() => {
-    setDismissed(true);
-    if (workspaceId === null) return;
-    dismissStorageMigrationOffer(workspaceId);
-  }, [workspaceId]);
-
-  return { visible: workspaceId !== null && answered === workspaceId && !dismissed, dismiss };
+  // Through the app's one message path (`features/messages/`): answered on
+  // the account, with this device's copy kept too, and a tip, so it waits
+  // for a visit where nothing else has been said.
+  return useInAppMessage({
+    id: "storage-layout-offer",
+    workspaceId,
+    eligible: workspaceId !== null,
+    deviceKey: workspaceId === null ? null : storageMigrationDismissedKey(workspaceId),
+  });
 }
 
 /**

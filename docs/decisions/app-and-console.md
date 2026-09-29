@@ -497,3 +497,32 @@ Moved to [An action row is primary first, and the way out sits beside it](./app-
 ### The phone shell is the artboards' five pieces, and a visitor gets the same ones (2026-09-27)
 
 Moved to [The phone shell is the artboards' five pieces, and a visitor gets the same ones](./app-and-console/mobile-navigation-shell.md#the-phone-shell-is-the-artboards-five-pieces-and-a-visitor-gets-the-same-ones-2026-09-27).
+
+## Every unasked message goes through one path, one at a time, answered per account (2026-09-29)
+
+Dev2 had to dismiss the early-beta notice twice, and asked that onboarding and
+every other in-app message hold the same way, through "a central code path to
+make sure we are not bombarding users". So:
+
+- **One list.** `IN_APP_MESSAGES` (`packages/shared/src/inAppMessages.ts`)
+  names every message the app shows without being asked, with its kind
+  (`onboarding` or `tip`), priority, scope and where its answer lives. A new
+  notice, nudge, tip or onboarding prompt is added there, and asks for the
+  screen with `useInAppMessage` or `useMessageSlot`
+  (`apps/mobile/features/messages/`). Status lines that stay until something
+  is fixed (no bucket, a broken `privacy.md`, a meeting that did not save) are
+  facts, not messages, and are not on it.
+- **One at a time.** `MessagesProvider`, mounted once by the signed-in
+  layout, shows at most one; what is up stays up until answered; a message
+  still being looked up holds back less important ones so nothing flashes.
+- **Tips wait for a quiet visit.** Onboarding steps may follow one another; a
+  tip shows only in a visit where nothing else has, and only one.
+- **Answered on the account.** `messageReads` keeps the answer (labels and
+  times only, a closed list of names, capped per person, swept with the
+  account and the workspace); messages whose answer already had a home keep
+  it (`setupRetiredAt`, `organizerSettings`). The device keeps a copy, which
+  is carried up once and decides alone only when the backend cannot answer.
+
+Reversing it means a message that shows per browser again, or two that stack.
+`inAppMessages.test.ts`, `inAppMessagesRender.test.ts` and
+`messageReads.test.ts` fail.

@@ -75,7 +75,7 @@ import {
 } from "./statuses";
 import { StatusesDialog } from "./StatusesDialog";
 import { useStatusEdits } from "./useStatusEdits";
-import { TrackNudge } from "./Nudge";
+import { TrackNudge, TrackNudgeTurn } from "./Nudge";
 import { dismissNudge, nudgeDismissed, rememberFilter, rememberView, rememberedFilter, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 import { PanelBeside } from "./panel/PanelBeside";
@@ -403,16 +403,19 @@ export function FolderPage({
         </Text>
       ) : null}
       {nudge ? (
-        <View style={styles.nudge}>
-          <TrackNudge
-            compact={compact}
-            onShow={() => choose("list")}
-            onDismiss={() => {
-              dismissNudge(host.workspaceId, folder);
-              setDismissals((count) => count + 1);
-            }}
-          />
-        </View>
+        <TrackNudgeTurn workspaceId={host.workspaceId} style={styles.nudge}>
+          {(answer) => (
+            <TrackNudge
+              compact={compact}
+              onShow={() => choose("list")}
+              onDismiss={() => {
+                dismissNudge(host.workspaceId, folder);
+                answer();
+                setDismissals((count) => count + 1);
+              }}
+            />
+          )}
+        </TrackNudgeTurn>
       ) : null}
       {editing && edits.savesTo !== null ? (
         <StatusesDialog

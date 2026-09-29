@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
-import { openStore } from "../offline/store";
+import { useInAppMessage } from "../messages/useInAppMessage";
 import { tierSentence } from "./visibility";
 
 /**
@@ -136,64 +135,35 @@ export function contextIntroDismissedKey(workspaceId: string, kind: string): str
   return `context.lc.context-intro.dismissed.v1.${kind}.${workspaceId}`;
 }
 
-/** Remember that this context's intro has been read, on this device. */
-export function dismissContextIntro(workspaceId: string, kind: string): void {
-  void openStore()
-    .set(contextIntroDismissedKey(workspaceId, kind), "1")
-    .catch(() => {});
-}
-
 /**
  * Whether to draw the intro for this context, and how to answer it.
  *
- * ## Why it starts hidden
+ * Through the app's one message path (`features/messages/`): the answer is
+ * kept on the account, per workspace and per `kind`, with this device's copy
+ * under `contextIntroDismissedKey`; nothing is drawn until both are in, so a
+ * reader who already answered never sees the band flash; and it waits its
+ * turn behind anything else on screen.
  *
- * The device is asked before anything is drawn and `visible` is false until it
- * answers, exactly as `useStorageMigrationOffer` does in this same band. A
- * notice that appears and then vanishes half a frame later is a layout jump on
- * the surface somebody came to read, and it would happen on every load for
- * every reader who has already answered — which is most of them, and is the
- * complaint this module exists for.
- *
- * A read that fails is treated as answered, for that same reason: a band
- * nobody can put away durably is worse than no band, and the fact it states is
- * on the chip either way.
- *
- * `null` for a context with nothing to say, so the caller's guard stays one
- * expression and this hook is still called unconditionally.
+ * `eligible` is false where the band has no control to answer it with (a
+ * phone, the demo — see `useBrowseNotices`), which draws it as a status line
+ * outside this path. `null` ids for a context with nothing to say, so the
+ * caller's guard stays one expression and this hook is still called
+ * unconditionally.
  */
 export function useContextIntro(
   workspaceId: string | null,
   kind: string | null,
+  eligible: boolean,
 ): { visible: boolean; dismiss: () => void } {
-  const key =
-    workspaceId === null || kind === null ? null : contextIntroDismissedKey(workspaceId, kind);
-  const [answered, setAnswered] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(true);
-
-  useEffect(() => {
-    if (key === null) return;
-    let live = true;
-    void openStore()
-      .get(key)
-      .then((stored) => {
-        if (!live) return;
-        setDismissed(stored !== null);
-        setAnswered(key);
-      })
-      .catch(() => {
-        if (live) setDismissed(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, [key]);
-
-  const dismiss = useCallback(() => {
-    setDismissed(true);
-    if (workspaceId === null || kind === null) return;
-    dismissContextIntro(workspaceId, kind);
-  }, [workspaceId, kind]);
-
-  return { visible: key !== null && answered === key && !dismissed, dismiss };
+  const deviceKey =
+    eligible && workspaceId !== null && kind !== null
+      ? contextIntroDismissedKey(workspaceId, kind)
+      : null;
+  return useInAppMessage({
+    id: "context-intro",
+    workspaceId,
+    variant: kind,
+    eligible: deviceKey !== null,
+    deviceKey,
+  });
 }

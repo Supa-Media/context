@@ -352,6 +352,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The room binds to a document it agrees with, and a different note unbinds first
 - Several rows are one operation, and a pick is what the keyboard acts on
 - No UI ships without a design audit first
+- Every unasked message goes through one path, one at a time, answered per account
 
 ## [Meetings](./meetings.md)
 

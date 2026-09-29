@@ -1,29 +1,24 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQueries } from "convex/react";
-import { api } from "@context/convex/_generated/api";
 import { Modal, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Button } from "../design/components/Button";
 import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
-import { openStore } from "../offline/store";
-import { betaNoticeStep } from "./betaNoticeStep";
+import { useInAppMessage } from "../messages/useInAppMessage";
 
 /**
  * "Context is in early beta", once per person.
  *
  * Shown the first time the signed-in app opens after this shipped, which
  * covers people finishing sign-up and people who signed up before it — both
- * are told the same thing once. "Got it" is kept on the account
- * (`functions/telemetry.ts`), so another browser, the desktop app or cleared
- * site data does not ask again; the device keeps a copy too, which decides
- * only while the account cannot answer (`betaNoticeStep.ts`). The same sentences are in Settings → Privacy &
+ * are told the same thing once. "Got it" is kept on the account through the
+ * in-app message path (`features/messages/`), so another browser, the desktop
+ * app or cleared site data does not ask again, and it waits its turn behind
+ * anything already on screen. The same sentences are in Settings → Privacy &
  * feedback, which is where "Change in Settings" goes.
  */
 
 const SEEN_KEY = "context.betaNotice.seen.v1";
-const SEEN_QUERY = { seen: { query: api.functions.telemetry.betaNoticeSeen, args: {} } };
 
 export const BETA_POINTS = [
   "When something breaks, the app sends us a crash report so we can fix it.",
@@ -35,44 +30,12 @@ export const BETA_POINTS = [
 export function BetaNotice() {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
-  const [device, setDevice] = useState<boolean | undefined>(undefined);
-  const [closed, setClosed] = useState(false);
-  // `useQueries` hands back a failure as a value: a backend a deploy behind
-  // falls back to this device's copy instead of taking the app down.
-  const answer: unknown = useQueries(SEEN_QUERY).seen;
-  const account =
-    answer === undefined || answer === null || typeof answer === "boolean" ? answer : ("unavailable" as const);
-  const markSeen = useMutation(api.functions.telemetry.markBetaNoticeSeen);
-  const step = betaNoticeStep({ device, account });
+  const notice = useInAppMessage({ id: "beta-notice", eligible: true, deviceKey: SEEN_KEY });
 
-  useEffect(() => {
-    let live = true;
-    void openStore()
-      .get(SEEN_KEY)
-      .then((seen) => {
-        if (live) setDevice(seen !== null);
-      })
-      .catch(() => {
-        if (live) setDevice(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (step === "carry") void markSeen({}).catch(() => {});
-  }, [step, markSeen]);
-
-  if (step !== "show" || closed) return null;
+  if (!notice.visible) return null;
 
   const close = (then?: () => void) => {
-    setClosed(true);
-    void openStore()
-      .set(SEEN_KEY, new Date().toISOString())
-      .catch(() => {});
-    // A failed save leaves the device copy, which is carried up next time.
-    void markSeen({}).catch(() => {});
+    notice.dismiss();
     then?.();
   };
 

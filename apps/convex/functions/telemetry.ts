@@ -94,7 +94,14 @@ export const betaNoticeSeen = query({
       .query("betaNoticeReads")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
-    return row !== null;
+    if (row !== null) return true;
+    // Answered through the in-app message path (`messages.ts`) by a newer
+    // client: an older one still asking here must hear it too.
+    const reads = await ctx.db
+      .query("messageReads")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(1000);
+    return reads.some((read) => read.message === "beta-notice");
   },
 });
 

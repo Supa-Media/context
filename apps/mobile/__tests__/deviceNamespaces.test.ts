@@ -86,6 +86,7 @@ const KEPT: Record<string, string> = {
   onboarding: "`resume-asked.v1`, one boolean with no workspace and no path: whether the resume prompt has been offered on this device. Keeping it means the next person is not asked; clearing it would be defensible and is not a disclosure either way.",
   "context-intro": "`dismissed.v1.<kind>.<workspaceId>`, the value `\"1\"`: this context's intro has been read here. A dismissal that carries across a sign-out is a UX choice, not a leak.",
   "setup-widget": "`retired.v1.<workspaceId>`, whether the widget has been put away on this device. Its own file notes the widget's states are never stored — each is re-derived from a fact every time — so this flag is all there is.",
+  "track-nudge": "`dismissed.v1.<workspaceId>`, whether \"Track these folders by status?\" has been answered here. The account keeps the answer too (`messageReads`); this is the copy that holds while the backend cannot say.",
   "storage-migration": "`dismissed.v1.<workspaceId>`, whether the migration notice has been waved off here. Whether the migration is *needed* is re-read from the binding every time; this only stops the offer.",
 };
 

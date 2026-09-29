@@ -9,6 +9,8 @@ import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
+import { MessagesProvider } from "../../features/messages/MessagesProvider";
+import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
@@ -185,6 +187,7 @@ export default function AppLayout() {
     return {
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
+      messages: { query: api.functions.messages.myMessageReads, args: {} },
     };
   }, [authed]);
   const results = useQueries(spec);
@@ -196,10 +199,21 @@ export default function AppLayout() {
     answer: a session that came in by the front door, not yet asked since
     sign-in, for somebody who owns a personal workspace.
   */
-  const asked = resumeAsked();
+  const resumeOnAccount = accountAnswer(
+    readsFrom(results.messages),
+    "resume-storage",
+    null,
+    null,
+    Date.now(),
+  );
+  // Asked this sign-in, or on this account within the week (`IN_APP_MESSAGES`).
+  const asked = resumeAsked() || resumeOnAccount === true;
   const entry = authed ? sessionEntry(pathname) : null;
   const ownId = ownPersonalWorkspace(rows)?.workspaceId;
-  const askBinding = entry === "front" && !asked && ownId !== undefined;
+  // Not before the account has said whether it was asked: a gate that cannot
+  // answer renders rather than redirects.
+  const askBinding =
+    entry === "front" && !asked && ownId !== undefined && resumeOnAccount !== undefined;
   const bindingSpec = useMemo<RequestForQueries>(() => {
     if (!askBinding || ownId === undefined) return EMPTY_QUERY_SPEC;
     return {
@@ -235,30 +249,36 @@ export default function AppLayout() {
   */
   if (resume.action === "redirect") return <Redirect href={resume.href} />;
 
+  /*
+    The one place in-app messages are decided (`features/messages/`): every
+    notice, tip and onboarding step below asks it for the screen.
+  */
   return (
-    <View style={[styles.fill, { backgroundColor: colors.ground }]}>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.ground },
-        }}
-      />
-      <RecordingBar bottomInset={insets.bottom} />
-      {/*
-        Mounted beside the recording bar and *after* it, which is what orders
-        them: `zIndex` is only ever an ordering among siblings in
-        react-native-web. They never draw together — `StrandedBar` stands down
-        while anything is live — but the order is the guarantee rather than the
-        condition, for the reason `RecordingBar`'s header gives about two bars
-        in one 66pt of glass.
-      */}
-      <StrandedBar bottomInset={insets.bottom} />
-      {/*
-        Signed in and past onboarding: the only place a feedback report can
-        be opened from, and where the early-beta notice is shown once.
-      */}
-      <FeedbackHost />
-    </View>
+    <MessagesProvider reads={results.messages}>
+      <View style={[styles.fill, { backgroundColor: colors.ground }]}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.ground },
+          }}
+        />
+        <RecordingBar bottomInset={insets.bottom} />
+        {/*
+          Mounted beside the recording bar and *after* it, which is what orders
+          them: `zIndex` is only ever an ordering among siblings in
+          react-native-web. They never draw together — `StrandedBar` stands down
+          while anything is live — but the order is the guarantee rather than the
+          condition, for the reason `RecordingBar`'s header gives about two bars
+          in one 66pt of glass.
+        */}
+        <StrandedBar bottomInset={insets.bottom} />
+        {/*
+          Signed in and past onboarding: the only place a feedback report can
+          be opened from, and where the early-beta notice is shown once.
+        */}
+        <FeedbackHost />
+      </View>
+    </MessagesProvider>
   );
 }
 

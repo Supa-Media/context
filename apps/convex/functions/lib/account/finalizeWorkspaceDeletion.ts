@@ -38,6 +38,13 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const row of organizer) await ctx.db.delete(row._id);
 
+  // Members' answers to this workspace's in-app messages: labels and times.
+  const messageReads = await ctx.db
+    .query("messageReads")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of messageReads) await ctx.db.delete(row._id);
+
   // Where the managed-encryption walk got to. Metadata about a bucket this
   // workspace no longer has; the keys themselves go with `workspaceDataKeys`.
   const encryption = await ctx.db

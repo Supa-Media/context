@@ -16,6 +16,8 @@ import { ForkStep } from "./redesign/ForkStep";
 import { DryRunStep } from "./redesign/DryRunStep";
 import { ResumeNotice } from "./ResumeNotice";
 import { markResumeAsked } from "./resume";
+import { useMessages } from "../messages/MessagesProvider";
+import { useMessageSlot } from "../messages/useInAppMessage";
 
 /**
  * `/welcome` — the thirty seconds between "you're signed in" and "your context
@@ -66,10 +68,23 @@ export function WelcomeScreen() {
           : undefined;
   const resuming = resume !== undefined;
   const controller = useOnboarding({ resume, checkout });
-  // Asked, now that it is on screen — see `resume.ts` and the `(app)` gate.
+  /*
+    Asked, now that it is on screen — see `resume.ts` and the `(app)` gate —
+    on this sign-in and on the account, so another device does not ask again
+    within the week.
+  */
+  const { mark } = useMessages();
   useEffect(() => {
-    if (fromLogin) markResumeAsked();
-  }, [fromLogin]);
+    if (!fromLogin) return;
+    markResumeAsked();
+    mark({ message: "resume-storage" });
+  }, [fromLogin, mark]);
+  /*
+    These steps are a message in their own right: while somebody is in them,
+    nothing else asks for their attention (`features/messages/`). The early-beta
+    notice waits for the console.
+  */
+  useMessageSlot({ id: "first-run", eligible: true, seen: false });
 
   const decision = resolveWelcomeRoute({
     owned: controller.owned,
