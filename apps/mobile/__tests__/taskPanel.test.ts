@@ -124,6 +124,16 @@ describe("the side panel", () => {
     ]);
   });
 
+  test("the estimate is one press too: six sizes with what each means, and No estimate", async () => {
+    const writes: Write[] = [];
+    await openTask("Get the kitchen ready", writes);
+    expect(strip(one("task-panel-estimate").textContent)).toBe("No estimate");
+    await press(one("task-panel-estimate-button"));
+    expect(strip(one("menu-root").textContent)).toMatch(/XS.*An hour or so.*S.*Half a day.*M.*L.*XL.*XXL.*A month or more.*No estimate/);
+    await press(one("menu-item-XL"));
+    expect(writes).toEqual([[`${CAFE}/kitchen/overview.md`, "estimate", "XL", undefined]]);
+  });
+
   test("an owner is taken off by name, and the rest stay", async () => {
     const writes: Write[] = [];
     await openTask("Get the kitchen ready", writes);
@@ -191,7 +201,7 @@ describe("the side panel", () => {
     await openTask("Get the kitchen ready", null);
     expect(value("priority")).toContain("High");
     expect(value("owners")).toMatch(/@sayo.*@seyi/);
-    for (const control of ["task-panel-tick", "task-panel-add-subtask", "task-panel-add-note", "task-panel-priority-button", "task-panel-due-button", "task-panel-tag-remove", "task-panel-owner-remove", "task-panel-status-button"]) {
+    for (const control of ["task-panel-tick", "task-panel-add-subtask", "task-panel-add-note", "task-panel-priority-button", "task-panel-estimate-button", "task-panel-due-button", "task-panel-tag-remove", "task-panel-owner-remove", "task-panel-status-button"]) {
       expect(all(control)).toHaveLength(0);
     }
     expect(all("task-panel-subtask")).toHaveLength(3);

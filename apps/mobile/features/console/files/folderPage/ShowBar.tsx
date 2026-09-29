@@ -1,143 +1,240 @@
 /**
- * "Show": whose tasks a project's List draws — Everyone, Mine, No owner,
- * Urgent, or one owner from "Owner ▾", each with how many tasks it would
- * show. A way of looking, per viewer (`showFilter.ts`): nothing here writes
- * to a note, so a member has the same bar as an owner.
+ * The List's filter bar (the approved artboard, the owner, 2026-09-29): a
+ * search over names, Mine, and a menu for each of Owner, Tag, Priority,
+ * Estimate and Due (`FilterMenu.tsx`). A kind with something ticked becomes
+ * a chip saying what it keeps ("Tag is context or portal") that reopens its
+ * menu, with × to clear it, and Clear clears them all; on the right, how
+ * many are shown ("3 of 7 · match every filter") and the List's primary
+ * "+ Add task" (`end`) for somebody who may write.
  *
- * "Owner ▾" opens a searchable list — No owner, Me, then the people and AI
- * helpers the tasks name, each with a count — as a popover under the button
- * where there is room for one, and a sheet from the bottom on a phone, the
- * rule the owner picker uses.
+ * A way of looking, per viewer (`showFilter.ts`): nothing here writes to a
+ * note, so a member has the same bar as an owner. Mine is the one-press way
+ * to tick Owner's Me, and is pressed whenever Me is ticked.
  *
- * `end` sits at the bar's right: the List's primary "+ Add task", for
- * somebody who may write.
- *
- * On a phone the chips are one line that scrolls sideways (PhoneList
- * artboard) rather than wrapping onto a second and third: the list is what
- * the screen is for, and a chip past the edge is a thumb-flick away.
+ * On a phone the bar is a search button, "Filter · 2" and Mine, and Filter
+ * opens every menu at once as one sheet (`FilterSheet.tsx`): five menus of
+ * small buttons are not something a thumb can use in one line.
  */
 
 import { useRef, useState, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
-import { place } from "../../../design/components/popoverPlacement";
-import { fonts, layout, pointerType, radii, space } from "../../../design/tokens";
+import { fonts, pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
-import type { Shadows } from "../../../design/tokens/shadows";
 import { useFieldFont } from "../../../design/fieldFont";
-import { OwnerFace, type Face } from "./Glyphs";
-import { ANY_AGENT } from "../owners";
-import { ownerOptions, type OwnerWho, type ShowFilter } from "./showFilter";
-import type { FolderItem } from "./model";
+import { FilterMenu } from "./FilterMenu";
+import { FilterSheet } from "./FilterSheet";
+import { chipWords, KIND_LABELS, kindOptions, type OptionsContext } from "./filterOptions";
+import {
+  activeKinds,
+  clearKind,
+  FILTER_KINDS,
+  isFiltered,
+  isPicked,
+  NO_FILTER,
+  OWNER_ME,
+  toggle,
+  type FilterKind,
+  type ShowFilter,
+} from "./showFilter";
 
-const WIDTH = 280;
-const HEIGHT = 380;
+type Anchor = { x: number; y: number } | null;
+
+export interface Noun {
+  readonly one: string;
+  readonly many: string;
+}
+
+/** "7 projects"; under a filter "3 of 7", and how the chips combine once there are two. */
+export function countWords(shown: number, total: number, filter: ShowFilter, noun: Noun): string {
+  if (!isFiltered(filter)) return `${total} ${total === 1 ? noun.one : noun.many}`;
+  return activeKinds(filter).length > 1 ? `${shown} of ${total} · match every filter` : `${shown} of ${total}`;
+}
 
 export function ShowBar({
   filter,
   onChange,
-  tasks,
-  who,
-  me,
-  counts,
-  faceOf,
+  context,
+  shown,
+  total,
+  noun,
   compact,
   end,
 }: {
   filter: ShowFilter;
   onChange: (filter: ShowFilter) => void;
-  /** Every task and subtask on the page: what the owner list counts. */
-  tasks: readonly FolderItem[];
-  who: OwnerWho;
-  /** The viewer's name, for "Me (Seyi)"; null when the page does not know who is looking. */
-  me: string | null;
-  counts: { readonly noOwner: number; readonly urgent: number; readonly mine: number };
-  faceOf: (owner: string) => Face;
+  /** Every task and subtask on the page, and who is who: what the menus offer and count. */
+  context: OptionsContext;
+  /** Top-level tasks drawn, and in the List at all. */
+  shown: number;
+  total: number;
+  noun: Noun;
   compact: boolean;
   end?: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const trigger = useRef<View>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [picking, setPicking] = useState(false);
-  const owner = filter.kind === "owner" ? filter.owner : null;
-  const open = () => {
-    const measure = trigger.current?.measureInWindow;
-    if (measure === undefined) setPicking(true);
-    else
-      trigger.current?.measureInWindow((x, y, _width, height) => {
-        setMenu({ x, y: y + height + 4 });
-        setPicking(true);
-      });
-  };
-  return (
-    <View style={[styles.bar, compact && styles.barPhone]} role="toolbar" accessibilityLabel="Show" testID="folder-show-bar">
-      <Text variant="meta" style={styles.lab}>
-        Show
-      </Text>
-      <Chips compact={compact}>
-        <Chip label="Everyone" on={filter.kind === "everyone"} onPress={() => onChange({ kind: "everyone" })} compact={compact} id="everyone" />
-        {me === null ? null : <Chip label="Mine" on={filter.kind === "mine"} onPress={() => onChange({ kind: "mine" })} compact={compact} id="mine" />}
-        <Chip label={`No owner · ${counts.noOwner}`} on={filter.kind === "no-owner"} onPress={() => onChange({ kind: "no-owner" })} compact={compact} id="no-owner" />
-        <Chip label={`Urgent · ${counts.urgent}`} on={filter.kind === "urgent"} onPress={() => onChange({ kind: "urgent" })} compact={compact} id="urgent" />
-        <View ref={trigger} collapsable={false}>
-          <Chip
-            label={owner === null ? "Owner ▾" : `${ownerName(who, owner)} ▾`}
-            on={owner !== null}
-            onPress={open}
-            compact={compact}
-            id="owner"
-          />
+  const [menu, setMenu] = useState<{ kind: FilterKind; anchor: Anchor } | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const [searching, setSearching] = useState(filter.query !== "");
+  const options = (kind: FilterKind) => kindOptions(kind, context);
+  const active = activeKinds(filter);
+  const filtered = isFiltered(filter);
+  const clearAll = () => onChange(NO_FILTER);
+  const mine =
+    context.me === null ? null : (
+      <Toggle label="Mine" on={isPicked(filter, "owner", OWNER_ME)} compact={compact} onPress={() => onChange(toggle(filter, "owner", OWNER_ME))} />
+    );
+  const search = (
+    <SearchField
+      value={filter.query}
+      placeholder={`Search ${noun.many}`}
+      compact={compact}
+      onChange={(query) => onChange({ ...filter, query })}
+    />
+  );
+
+  if (compact)
+    return (
+      <View style={styles.phone}>
+        <View style={[styles.bar, styles.barPhone]} role="toolbar" accessibilityLabel="Filter" testID="folder-show-bar">
+          <Pressable
+            onPress={() => setSearching((open) => !open)}
+            role="button"
+            aria-expanded={searching}
+            accessibilityLabel={`Search ${noun.many}`}
+            style={[styles.touch, styles.square, searching && styles.on]}
+            testID="folder-filter-search-toggle"
+          >
+            <Icon name="search" size={16} color={styles.icon.color} />
+          </Pressable>
+          <Pressable
+            onPress={() => setSheet(true)}
+            role="button"
+            aria-haspopup="dialog"
+            accessibilityLabel={active.length === 0 ? "Filter" : `Filter, ${active.length} on`}
+            style={[styles.touch, styles.filterButton, active.length > 0 && styles.on]}
+            testID="folder-filter-open"
+          >
+            <Icon name="filter" size={16} color={active.length > 0 ? styles.onText.color : styles.icon.color} />
+            <Text variant="body" style={active.length > 0 ? styles.onText : styles.plain}>
+              {active.length === 0 ? "Filter" : `Filter · ${active.length}`}
+            </Text>
+          </Pressable>
+          {mine}
+          {end === undefined ? null : <View style={styles.end}>{end}</View>}
         </View>
-      </Chips>
-      {picking ? (
-        <OwnerFilterMenu
-          anchor={menu}
-          filter={filter}
-          tasks={tasks}
-          who={who}
-          me={me}
-          faceOf={faceOf}
-          onChoose={(next) => {
-            setPicking(false);
-            setMenu(null);
-            onChange(next);
-          }}
-          onDismiss={() => {
-            setPicking(false);
-            setMenu(null);
-          }}
+        {searching || filter.query !== "" ? <View style={styles.searchLine}>{search}</View> : null}
+        {filtered ? (
+          <Text variant="meta" style={styles.count} testID="folder-filter-count">
+            {countWords(shown, total, filter, noun)}
+          </Text>
+        ) : null}
+        {sheet ? (
+          <FilterSheet
+            options={options}
+            picked={(kind, value) => isPicked(filter, kind, value)}
+            onToggle={(kind, value) => onChange(toggle(filter, kind, value))}
+            onClear={active.length === 0 ? null : () => onChange({ ...NO_FILTER, query: filter.query })}
+            shown={shown}
+            total={total}
+            noun={noun.many}
+            onClose={() => setSheet(false)}
+          />
+        ) : null}
+      </View>
+    );
+
+  return (
+    <View style={styles.bar} role="toolbar" accessibilityLabel="Filter" testID="folder-show-bar">
+      {search}
+      <View style={styles.divider} />
+      {mine}
+      {active.map((kind) => (
+        <ActiveChip
+          key={kind}
+          kind={kind}
+          words={chipWords(filter, kind, context.who)}
+          onOpen={(anchor) => setMenu({ kind, anchor })}
+          onClear={() => onChange(clearKind(filter, kind))}
         />
+      ))}
+      {FILTER_KINDS.filter((kind) => !active.includes(kind) && (kind !== "tag" || options("tag").length > 0)).map((kind) => (
+        <MenuButton key={kind} kind={kind} open={menu?.kind === kind} onOpen={(anchor) => setMenu({ kind, anchor })} />
+      ))}
+      {filtered ? (
+        <Pressable onPress={clearAll} role="button" accessibilityLabel="Clear filters" style={styles.clear} testID="folder-filter-clear">
+          <Text variant="meta" style={styles.clearText}>
+            Clear
+          </Text>
+        </Pressable>
       ) : null}
-      {end === undefined ? null : <View style={styles.end}>{end}</View>}
+      <View style={styles.push} />
+      <Text variant="meta" style={styles.count} testID="folder-filter-count">
+        {countWords(shown, total, filter, noun)}
+      </Text>
+      {end === undefined ? null : end}
+      {menu === null ? null : (
+        <FilterMenu
+          kind={menu.kind}
+          options={options(menu.kind)}
+          picked={(value) => isPicked(filter, menu.kind, value)}
+          noun={noun.many}
+          anchor={menu.anchor}
+          onToggle={(value) => onChange(toggle(filter, menu.kind, value))}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
     </View>
   );
 }
 
-/** The chips: wrapping where there is room, one sideways-scrolling line on a phone. */
-function Chips({ compact, children }: { compact: boolean; children: ReactNode }) {
+/** Measures itself and hands where a menu under it should open. */
+function useAnchor(): [React.RefObject<View | null>, (open: (anchor: Anchor) => void) => void] {
+  const ref = useRef<View>(null);
+  return [
+    ref,
+    (open) => {
+      const node = ref.current;
+      if (node?.measureInWindow === undefined) open(null);
+      else node.measureInWindow((x, y, _width, height) => open({ x, y: y + height + 4 }));
+    },
+  ];
+}
+
+function SearchField({ value, placeholder, compact, onChange }: { value: string; placeholder: string; compact: boolean; onChange: (text: string) => void }) {
+  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  if (!compact) return <>{children}</>;
+  const fieldFont = useFieldFont();
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-      style={styles.chipScroll}
-      contentContainerStyle={styles.chipLine}
-      testID="folder-show-chips"
-    >
-      {children}
-    </ScrollView>
+    <View style={[styles.search, compact && styles.searchTouch]}>
+      <Icon name="search" size={14} color={colors.chromeMuted} />
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={colors.chromeMuted}
+        accessibilityLabel={placeholder}
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoFocus={compact}
+        style={[styles.searchInput, fieldFont]}
+        testID="folder-filter-search"
+        onKeyPress={(event) => {
+          if (event.nativeEvent.key === "Escape" && value !== "") onChange("");
+        }}
+      />
+      {value === "" ? null : (
+        <Pressable onPress={() => onChange("")} role="button" accessibilityLabel="Clear search" hitSlop={6} testID="folder-filter-search-clear">
+          <Icon name="close" size={12} color={colors.chromeMuted} />
+        </Pressable>
+      )}
+    </View>
   );
 }
 
-function ownerName(who: OwnerWho, owner: string): string {
-  return owner.trim().toLowerCase() === ANY_AGENT ? "Any AI helper" : isolateForDisplay(who.label(owner));
-}
-
-function Chip({ label, on, onPress, compact, id }: { label: string; on: boolean; onPress: () => void; compact: boolean; id: string }) {
+function Toggle({ label, on, compact, onPress }: { label: string; on: boolean; compact: boolean; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   return (
@@ -147,194 +244,138 @@ function Chip({ label, on, onPress, compact, id }: { label: string; on: boolean;
       onHoverOut={() => setHovered(false)}
       role="button"
       aria-pressed={on}
-      accessibilityLabel={label.replace(" ▾", "")}
-      hitSlop={compact ? 6 : 2}
-      style={[styles.chip, compact && styles.chipTouch, hovered && styles.chipHover, on && styles.chipOn]}
-      testID={`folder-show-${id}`}
+      accessibilityLabel={label}
+      style={[styles.button, compact && styles.touch, hovered && styles.hover, on && styles.on]}
+      testID="folder-show-mine"
     >
-      <Text variant="meta" numberOfLines={1} style={[styles.chipText, on && styles.chipTextOn]}>
+      <Text variant={compact ? "body" : "meta"} style={on ? styles.onText : styles.plain}>
         {label}
       </Text>
     </Pressable>
   );
 }
 
-type Row =
-  | { readonly kind: "heading"; readonly label: string }
-  | { readonly kind: "choice"; readonly filter: ShowFilter; readonly label: string; readonly count: number; readonly face: Face; readonly on: boolean };
-
-function OwnerFilterMenu({
-  anchor,
-  filter,
-  tasks,
-  who,
-  me,
-  faceOf,
-  onChoose,
-  onDismiss,
-}: {
-  anchor: { x: number; y: number } | null;
-  filter: ShowFilter;
-  tasks: readonly FolderItem[];
-  who: OwnerWho;
-  me: string | null;
-  faceOf: (owner: string) => Face;
-  onChoose: (filter: ShowFilter) => void;
-  onDismiss: () => void;
-}) {
-  const colors = useColors();
+/** A kind with nothing ticked: "+ Tag", dashed, opening its menu. */
+function MenuButton({ kind, open, onOpen }: { kind: FilterKind; open: boolean; onOpen: (anchor: Anchor) => void }) {
   const styles = useThemedStyles(makeStyles);
-  const fieldFont = useFieldFont();
-  const view = useWindowDimensions();
-  const [query, setQuery] = useState("");
-  const options = ownerOptions(tasks, who, query);
-  const q = query.trim().toLowerCase();
-  const meLabel = me === null ? null : `Me (${me})`;
-  const same = (value: string) => filter.kind === "owner" && who.label(filter.owner).toLowerCase() === who.label(value).toLowerCase();
-  const rows: Row[] = [];
-  if ("no owner".includes(q)) rows.push({ kind: "choice", filter: { kind: "no-owner" }, label: "No owner", count: options.none, face: { kind: "nobody" }, on: filter.kind === "no-owner" });
-  if (meLabel !== null && me !== null && (q === "" || meLabel.toLowerCase().includes(q)))
-    rows.push({ kind: "choice", filter: { kind: "mine" }, label: meLabel, count: options.me, face: { kind: "person", name: me }, on: filter.kind === "mine" });
-  if (options.people.length > 0) rows.push({ kind: "heading", label: "PEOPLE" });
-  for (const person of options.people)
-    rows.push({ kind: "choice", filter: { kind: "owner", owner: person.value }, label: person.label, count: person.count, face: faceOf(person.value), on: same(person.value) });
-  if (options.agents.length > 0) rows.push({ kind: "heading", label: "AI HELPERS" });
-  for (const agent of options.agents)
-    rows.push({ kind: "choice", filter: { kind: "owner", owner: agent.value }, label: agent.label, count: agent.count, face: { kind: "agent" }, on: same(agent.value) });
-  const choices = rows.filter((row): row is Extract<Row, { kind: "choice" }> => row.kind === "choice");
-  const [focus, setFocus] = useState(0);
-
-  const sheet = view.width < layout.narrowBreakpoint || anchor === null;
-  const box = sheet ? null : place(anchor.x, anchor.y, { width: WIDTH, height: HEIGHT }, view, { minHeight: 120 });
+  const [ref, measure] = useAnchor();
+  const [hovered, setHovered] = useState(false);
   return (
-    <Modal transparent visible animationType={sheet ? "slide" : "none"} onRequestClose={onDismiss}>
-      <Pressable style={[styles.scrim, sheet && styles.scrimSheet]} accessibilityLabel="Close owner list" onPress={onDismiss}>
-        <Pressable
-          onPress={() => {}}
-          style={sheet ? styles.sheet : [styles.popover, box === null ? null : { left: box.left, top: box.top, width: box.width, maxHeight: box.height }]}
-          accessibilityLabel="Show tasks owned by"
-          testID="folder-owner-filter"
-        >
-          <TextInput
-            autoFocus
-            value={query}
-            onChangeText={(text) => {
-              setQuery(text);
-              setFocus(0);
-            }}
-            placeholder="Search people and AI helpers…"
-            placeholderTextColor={colors.chromeMuted}
-            accessibilityLabel="Search people and AI helpers"
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={[styles.field, fieldFont]}
-            testID="folder-owner-filter-field"
-            onKeyPress={(event) => {
-              const key = event.nativeEvent.key;
-              if (key === "Escape") onDismiss();
-              else if (key === "ArrowDown" || key === "ArrowUp") {
-                (event as unknown as { preventDefault?: () => void }).preventDefault?.();
-                if (choices.length > 0) setFocus((at) => (at + (key === "ArrowDown" ? 1 : choices.length - 1)) % choices.length);
-              }
-            }}
-            onSubmitEditing={() => {
-              const row = choices[focus];
-              if (row !== undefined) onChoose(row.on ? { kind: "everyone" } : row.filter);
-            }}
-          />
-          <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-            {rows.map((row, index) =>
-              row.kind === "heading" ? (
-                <Text key={`h:${row.label}`} variant="treeMeta" style={styles.heading}>
-                  {row.label}
-                </Text>
-              ) : (
-                <Pressable
-                  key={`c:${index}`}
-                  role="radio"
-                  aria-checked={row.on}
-                  accessibilityLabel={`${row.label}, ${row.count}`}
-                  // Pressing the one already chosen goes back to Everyone.
-                  onPress={() => onChoose(row.on ? { kind: "everyone" } : row.filter)}
-                  onHoverIn={() => setFocus(choices.indexOf(row))}
-                  style={[styles.row, sheet && styles.rowTouch, choices[focus] === row && styles.rowLit]}
-                  testID="folder-owner-filter-option"
-                >
-                  <OwnerFace face={row.face} size={20} />
-                  <Text variant="tree" numberOfLines={1} style={styles.label}>
-                    {row.kind === "choice" && row.filter.kind === "owner" ? isolateForDisplay(row.label) : row.label}
-                  </Text>
-                  <Text variant="treeMeta" style={styles.count}>
-                    {row.on ? `✓ ${row.count}` : String(row.count)}
-                  </Text>
-                </Pressable>
-              ),
-            )}
-            {choices.length === 0 ? (
-              <Text variant="treeMeta" style={styles.note} role="status">
-                Nobody here matches.
-              </Text>
-            ) : null}
-          </ScrollView>
-        </Pressable>
+    <View ref={ref} collapsable={false}>
+      <Pressable
+        onPress={() => measure(onOpen)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        role="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        accessibilityLabel={`Filter by ${KIND_LABELS[kind].toLowerCase()}`}
+        style={[styles.button, styles.dashed, hovered && styles.hover, open && styles.on]}
+        testID={`folder-filter-add-${kind}`}
+      >
+        <Icon name="plus" size={12} color={styles.icon.color} />
+        <Text variant="meta" style={styles.plain}>
+          {KIND_LABELS[kind]}
+        </Text>
       </Pressable>
-    </Modal>
+    </View>
   );
 }
 
-const makeStyles = (colors: Colors, shadows: Shadows) =>
+/** A kind that is on: what it keeps, reopening its menu, and × to clear it. */
+function ActiveChip({
+  kind,
+  words,
+  onOpen,
+  onClear,
+}: {
+  kind: FilterKind;
+  words: { kind: string; value: string };
+  onOpen: (anchor: Anchor) => void;
+  onClear: () => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [ref, measure] = useAnchor();
+  return (
+    <View ref={ref} collapsable={false} style={[styles.button, styles.on, styles.chip]} testID={`folder-filter-chip-${kind}`}>
+      <Pressable
+        onPress={() => measure(onOpen)}
+        role="button"
+        aria-haspopup="dialog"
+        accessibilityLabel={`${words.kind} ${words.value}, change`}
+        style={styles.chipOpen}
+        testID="folder-filter-chip-open"
+      >
+        <Text variant="meta" numberOfLines={1} style={styles.onText}>
+          {`${words.kind} `}
+          <Text variant="meta" style={[styles.onText, styles.strong]}>
+            {kind === "owner" || kind === "tag" ? isolateForDisplay(words.value) : words.value}
+          </Text>
+        </Text>
+      </Pressable>
+      <Pressable onPress={onClear} role="button" accessibilityLabel={`Clear ${KIND_LABELS[kind].toLowerCase()}`} hitSlop={4} style={styles.chipClear} testID="folder-filter-chip-clear">
+        <Icon name="close" size={11} color={styles.onText.color} />
+      </Pressable>
+    </View>
+  );
+}
+
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    phone: { marginBottom: space.x2, gap: space.x2 },
     bar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: space.x2 },
-    barPhone: { flexWrap: "nowrap" },
-    lab: { color: colors.chromeMuted, marginRight: 2 },
-    chipScroll: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
-    chipLine: { flexDirection: "row", alignItems: "center", gap: 6 },
+    barPhone: { flexWrap: "nowrap", marginBottom: 0 },
+    divider: { width: 1, height: 18, marginHorizontal: 2, backgroundColor: colors.lineStrong },
+    push: { flexGrow: 1 },
     end: { marginLeft: "auto" },
-    chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.md, backgroundColor: colors.chipFill },
-    chipTouch: { paddingVertical: 8 },
-    chipHover: { backgroundColor: colors.surface3 },
-    chipOn: { backgroundColor: colors.accentDim },
-    chipText: { color: colors.text2 },
-    chipTextOn: { color: colors.accentText },
-    scrim: { flex: 1 },
-    scrimSheet: { backgroundColor: colors.scrim, justifyContent: "flex-end" },
-    popover: {
-      position: "absolute",
-      padding: 6,
+    icon: { color: colors.text2 },
+    plain: { color: colors.text2 },
+    onText: { color: colors.accentText },
+    strong: { fontWeight: "600" },
+    button: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      height: 28,
+      paddingHorizontal: 10,
+      borderRadius: radii.md,
       borderWidth: 1,
       borderColor: colors.lineStrong,
-      borderRadius: radii.xl,
-      backgroundColor: colors.surface3,
-      boxShadow: shadows.floating,
     },
-    sheet: {
-      maxHeight: "80%",
-      padding: space.x3,
-      paddingBottom: space.x6,
-      borderTopLeftRadius: radii.floating,
-      borderTopRightRadius: radii.floating,
-      borderTopWidth: 1,
+    dashed: { borderStyle: "dashed" },
+    hover: { backgroundColor: colors.surface3 },
+    on: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+    touch: { height: 44, paddingHorizontal: 14 },
+    square: { width: 44, paddingHorizontal: 0, justifyContent: "center", alignItems: "center", borderRadius: radii.md, borderWidth: 1, borderColor: colors.lineStrong },
+    filterButton: { flexDirection: "row", alignItems: "center", gap: space.x2, borderRadius: radii.md, borderWidth: 1, borderColor: colors.lineStrong },
+    chip: { paddingHorizontal: 0, gap: 0, maxWidth: 320 },
+    chipOpen: { height: "100%", justifyContent: "center", paddingLeft: 10, paddingRight: 4, flexShrink: 1, minWidth: 0 },
+    chipClear: { height: "100%", width: 24, alignItems: "center", justifyContent: "center" },
+    clear: { height: 28, justifyContent: "center", paddingHorizontal: space.x1 },
+    clearText: { color: colors.text2, textDecorationLine: "underline" },
+    count: { color: colors.chromeMuted, fontVariant: ["tabular-nums"] },
+    search: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      width: 200,
+      height: 28,
+      paddingHorizontal: 8,
+      borderRadius: radii.md,
+      borderWidth: 1,
       borderColor: colors.lineStrong,
-      backgroundColor: colors.surface2,
     },
-    field: {
+    searchTouch: { width: "100%", height: 44 },
+    searchLine: { flexDirection: "row" },
+    searchInput: {
+      flexGrow: 1,
+      flexShrink: 1,
+      minWidth: 0,
       fontFamily: fonts.body,
       fontSize: pointerType.ui,
       color: colors.text,
-      height: 30,
-      paddingHorizontal: 8,
-      marginBottom: 4,
-      borderWidth: 1,
-      borderColor: colors.lineStrong,
-      borderRadius: radii.sm,
+      paddingVertical: 0,
       backgroundColor: "transparent",
-    },
-    list: { flexGrow: 0 },
-    heading: { color: colors.chromeMuted, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 2, letterSpacing: 0.6 },
-    row: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 32, paddingHorizontal: 8, borderRadius: radii.sm },
-    rowTouch: { height: 44 },
-    rowLit: { backgroundColor: colors.accentDim },
-    label: { flexGrow: 1, flexShrink: 1, color: colors.text },
-    count: { color: colors.chromeMuted },
-    note: { color: colors.chromeMuted, paddingHorizontal: 10, paddingVertical: 6 },
+      outlineStyle: "none",
+    } as never,
   });

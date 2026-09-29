@@ -1,7 +1,8 @@
 /**
  * One card on a project's Board (the approved artboard): its priority and
  * first tag, its name, how far along it is — a bar and "2/4" — for a
- * task that holds subtasks, when it is due, and whose it is as a face.
+ * task that holds subtasks, when it is due, its estimate ("M"), and whose it
+ * is as a face.
  *
  * Moving it is its status, two ways that land in the same write: drag it to
  * another column with a pointer (`boardDrag.web.ts`), or press its status
@@ -26,7 +27,8 @@ import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { progressPercent } from "./ProgressMeter";
 import { PropertyValue } from "./PropertyValue";
 import { faceFor } from "./taskFace";
-import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
+import { dueOf, dueWord, estimateOf, ownersOf, tagsOf } from "./taskProps";
+import { estimateLabel } from "./EstimateCell";
 
 export function BoardCard({
   item,
@@ -52,6 +54,7 @@ export function BoardCard({
   const ref = useCardDrag({ path: item.path, enabled: edit !== null, onStart: () => onLift(true), onEnd: () => onLift(false) });
   const tag = tagsOf(item.properties)[0];
   const due = dueOf(item.properties);
+  const estimate = estimateOf(item.properties);
   const owners = ownersOf(item.properties);
   const progress = item.progress;
   const selected = actions.selected === item.path;
@@ -103,6 +106,11 @@ export function BoardCard({
           {due === null ? null : (
             <Text variant="meta" numberOfLines={1} style={styles.meta} testID="folder-card-due">
               {`Due ${dueWord(due, now)}`}
+            </Text>
+          )}
+          {estimate === null ? null : (
+            <Text variant="meta" style={styles.estimate} accessibilityLabel={estimateLabel(estimate)} testID="folder-card-estimate">
+              {estimate}
             </Text>
           )}
           <View style={styles.push} />
@@ -164,4 +172,13 @@ const makeStyles = (colors: Colors) =>
     fill: { height: "100%", backgroundColor: colors.accent },
     meta: { flexShrink: 1, color: colors.muted },
     fraction: { flexShrink: 0, color: colors.muted, fontVariant: ["tabular-nums"] },
+    estimate: {
+      flexShrink: 0,
+      color: colors.text2,
+      fontWeight: "600",
+      borderWidth: 1,
+      borderColor: colors.lineStrong,
+      borderRadius: radii.sm,
+      paddingHorizontal: 5,
+    },
   });

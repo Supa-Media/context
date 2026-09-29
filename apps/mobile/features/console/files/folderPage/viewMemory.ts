@@ -1,6 +1,6 @@
 /**
  * Which view somebody last picked for a folder — Notes, List or Board — and
- * whose tasks its List shows (`showFilter.ts`), kept per viewer, per
+ * what its List's filter bar has ticked (`showFilter.ts`), kept per viewer, per
  * workspace, per folder. Neither is ever written to a note.
  *
  * A convenience and nothing more: it lives in this browser's storage where
@@ -53,7 +53,7 @@ export function rememberView(workspaceId: string, folder: string, view: FolderPa
 
 const filters = new Map<string, ShowFilter>();
 
-/** The List's Show filter this viewer last chose here; null for none (Everyone). */
+/** The List's filter this viewer last ticked here, without its search; null for none. */
 export function rememberedFilter(workspaceId: string, folder: string): ShowFilter | null {
   const key = `${keyOf(workspaceId, folder)}\u001ffilter`;
   const held = filters.get(key);

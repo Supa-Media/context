@@ -289,6 +289,7 @@ describe("the right-click menu", () => {
     kind: "task",
     status: "to do",
     priority: "p1",
+    estimate: "M",
     owners: ["@sayo"],
     tags: ["Setup"],
     hasDue: false,
@@ -312,6 +313,7 @@ describe("the right-click menu", () => {
     expect(labels(items)).toEqual([
       "Status",
       "Priority",
+      "Estimate",
       "Owners",
       "Assign to me",
       "Tags",
@@ -328,7 +330,13 @@ describe("the right-click menu", () => {
     expect(items[1]!.items!.find((each) => each.checked)?.label).toBe("High");
     expect(labels(items[0]!.items!)).toEqual(["Backlog", "To do", "In progress", "Finished"]);
     expect(JSON.stringify(items)).not.toMatch(/"label":"[^"]*\bp[0-3]\b/i);
-    expect(labels(items[4]!.items!)).toEqual(["Setup", "Kitchen", "New tag…"]);
+    expect(labels(items[2]!.items!)).toEqual(["XS", "S", "M", "L", "XL", "XXL", "No estimate"]);
+    expect(items[2]!.items!.find((each) => each.checked)?.label).toBe("M");
+    expect(items[2]!.items![0]!.detail).toBe("An hour or so");
+    expect(labels(items[5]!.items!)).toEqual(["Setup", "Kitchen", "New tag…"]);
+    expect(taskMenuAction("estimate:XL")).toEqual({ kind: "estimate", value: "XL" });
+    expect(taskMenuAction("estimate:none")).toEqual({ kind: "estimate", value: null });
+    expect(taskMenuAction("estimate:huge")).toBeNull();
   });
 
   test("leaves out what cannot apply rather than greying it", () => {

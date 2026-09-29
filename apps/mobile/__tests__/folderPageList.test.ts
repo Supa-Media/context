@@ -73,7 +73,7 @@ const note = (name: string, properties: ListNote["properties"], updatedAt = 1, h
 });
 const NOTES: ListNote[] = [
   note("overview.md", { status: "in progress" }, 1, "Café opening"),
-  note("lease.md", { status: "to do", priority: "p0", owner: "@seyi", tags: ["Setup"], due: "2020-10-02" }, 5, "Sign the lease"),
+  note("lease.md", { status: "to do", priority: "p0", owner: "@seyi", tags: ["Setup"], due: "2020-10-02", estimate: "M" }, 5, "Sign the lease"),
   note("photos.md", { status: "to do", priority: "p2" }, 9, "Take photos for the menu"),
   note("post.md", { status: "to do", priority: "p3", owner: "Claude", tags: ["Writing"] }, 7, "Write the opening-day post"),
   note("later.md", { status: "backlog" }, 3, "Loyalty cards"),
@@ -285,48 +285,143 @@ describe("the list", () => {
     expect(writes).toEqual([[`${CAFE}/kitchen/inspection.md`, "priority", "p0", undefined]]);
   });
 
+  test("a task and a subtask each show their estimate, and a writer picks one of the six sizes", async () => {
+    const writes: Write[] = [];
+    await mount(host(writes));
+    const lease = one("folder-item-estimate", row("Sign the lease"));
+    expect(strip(lease.textContent)).toBe("M");
+    expect(lease.getAttribute("aria-label")).toBe("Change estimate, M");
+    await press(one("folder-expand", row("kitchen")));
+    const inspection = all("folder-subtask").find((node) => strip(node.textContent).includes("Book the health inspection"))!;
+    const unset = one("folder-item-estimate", inspection);
+    expect(unset.getAttribute("aria-label")).toBe("Set an estimate");
+    await press(unset);
+    await appears("menu-item-L");
+    expect(strip(one("menu-detail-L").textContent)).toBe("About a week");
+    expect(all("menu-item-none")).toHaveLength(1);
+    await press(one("menu-item-L"));
+    expect(writes).toEqual([[`${CAFE}/kitchen/inspection.md`, "estimate", "L", undefined]]);
+  });
+
+  test("No estimate clears the line", async () => {
+    const writes: Write[] = [];
+    await mount(host(writes));
+    await press(one("folder-item-estimate", row("Sign the lease")));
+    await press(await appears("menu-item-none"));
+    expect(writes).toEqual([[`${CAFE}/lease.md`, "estimate", null, undefined]]);
+  });
+
   test("a member reads the same list with nothing that would write", async () => {
     const page = await mount(host(null));
     expect(heads()).toEqual(["Backlog1Ideas and later work, out of the way", "To do3", "In progress1", "Finished1"]);
     expect(all("folder-make-task")).toHaveLength(0);
     expect(all("folder-item-status")).toHaveLength(0);
     expect(all("folder-item-owner").every((node) => node.getAttribute("role") !== "button")).toBe(true);
-    // Looking is not writing: the Show bar is theirs too.
+    const estimate = one("folder-item-estimate", row("Sign the lease"));
+    expect([strip(estimate.textContent), estimate.getAttribute("role")]).toEqual(["M", null]);
+    expect(all("folder-item-estimate")).toHaveLength(1);
+    // Looking is not writing: the filter bar is theirs too.
     expect(all("folder-show-bar")).toHaveLength(1);
     expect(strip(page.textContent)).not.toContain("Set status");
   });
 });
 
-describe("Show", () => {
-  test("counts every task, subtasks included, and No owner narrows to them with 'of' counts", async () => {
+async function typeInto(testID: string, text: string) {
+  await act(async () => {
+    const field = one(testID) as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+const FILTER_KEY = ["context.folderView", "ws_test", CAFE, "filter"].join("\u001f");
+const names = () => all("folder-item").map((node) => strip(one("folder-item-label", node).textContent));
+
+describe("the filter bar", () => {
+  test("is a search, Mine, and a menu for each kind, with how many there are", async () => {
+    await mount(host([]));
+    const bar = one("folder-show-bar");
+    expect(one("folder-filter-search", bar).getAttribute("placeholder")).toBe("Search tasks");
+    expect(one("folder-show-mine", bar).getAttribute("aria-pressed")).toBe("false");
+    expect(["owner", "tag", "priority", "estimate", "due"].map((kind) => strip(one(`folder-filter-add-${kind}`, bar).textContent))).toEqual([
+      "Owner",
+      "Tag",
+      "Priority",
+      "Estimate",
+      "Due",
+    ]);
+    expect(strip(one("folder-filter-count").textContent)).toBe("6 tasks");
+    expect(all("folder-filter-clear")).toHaveLength(0);
+  });
+
+  test("No owner, from Owner, narrows to every unowned task with 'of' counts and becomes a chip", async () => {
     const writes: Write[] = [];
     await mount(host(writes));
-    expect(strip(one("folder-show-no-owner").textContent)).toBe("No owner · 4");
-    expect(strip(one("folder-show-urgent").textContent)).toBe("Urgent · 1");
-    await press(one("folder-show-no-owner"));
+    await press(one("folder-filter-add-owner"));
+    const menu = await appears("folder-filter-menu-owner");
+    expect(strip(menu.textContent)).toMatch(/Me2.*PEOPLE.*@sayo2.*AI HELPERS.*Claude1.*@shay's Claude1.*No owner4/);
+    await press(all("folder-filter-option").find((node) => strip(node.textContent).includes("No owner"))!);
     expect(heads()).toEqual(["Backlog1 of 1Ideas and later work, out of the way", "To do1 of 3", "In progress1 of 1", "Finished1 of 1"]);
     // The kitchen stays, dimmed and open, for its one unowned subtask; its notes and the page's notes are not tasks.
     expect(all("folder-subtask").map((node) => strip(node.textContent))).toEqual([expect.stringContaining("Book the health inspection")]);
     expect(all("folder-task-notes-label")).toHaveLength(0);
     expect(all("folder-notes")).toHaveLength(0);
+    expect(strip(one("folder-filter-chip-owner").textContent)).toBe("Owner is no owner");
+    expect(all("folder-filter-add-owner")).toHaveLength(0);
+    expect(strip(one("folder-filter-count").textContent)).toBe("4 of 6");
     expect(writes).toEqual([]);
+  });
+
+  test("Tag lists the tags in use; ticked ones show tasks with any of them, and x clears it", async () => {
+    await mount(host([]));
+    await press(one("folder-filter-add-tag"));
+    const menu = await appears("folder-filter-menu-tag");
+    expect(all("folder-filter-option", menu).map((node) => strip(node.textContent))).toEqual(["Kitchen1", "Setup1", "Writing1"]);
+    await press(all("folder-filter-option", menu)[1]!);
+    await press(all("folder-filter-option", menu)[2]!);
+    expect(names()).toEqual(["Sign the lease", "Write the opening-day post"]);
+    expect(strip(one("folder-filter-chip-tag").textContent)).toBe("Tag is Setup or Writing");
+    // Mine too: a task must match every chip.
+    await press(one("folder-show-mine"));
+    expect(names()).toEqual(["Sign the lease"]);
+    expect(strip(one("folder-filter-count").textContent)).toBe("1 of 6 · match every filter");
+    await press(one("folder-filter-chip-clear", one("folder-filter-chip-tag")));
+    expect(names()).toEqual(["Sign the lease", "Get the kitchen ready"]);
+    await press(one("folder-filter-clear"));
+    expect(names()).toHaveLength(4);
+  });
+
+  test("the search keeps names holding what is typed, and nothing matching offers Clear filters", async () => {
+    await mount(host([]));
+    await typeInto("folder-filter-search", "LEASE");
+    expect(names()).toEqual(["Sign the lease"]);
+    await typeInto("folder-filter-search", "zebra");
+    expect(strip(one("folder-filter-empty").textContent)).toBe("No tasks match. Clear filters");
+    await press(one("folder-filter-empty-clear"));
+    expect(names()).toHaveLength(4);
+    expect((one("folder-filter-search") as HTMLInputElement).value).toBe("");
   });
 
   test("Mine is the viewer's, by the handle their address names, and it is remembered here", async () => {
     await mount(host([]));
     await press(one("folder-show-mine"));
-    expect(all("folder-item").map((node) => strip(node.textContent))).toEqual([
-      expect.stringContaining("Sign the lease"),
-      expect.stringContaining("Get the kitchen ready"),
-    ]);
+    expect(names()).toEqual(["Sign the lease", "Get the kitchen ready"]);
+    expect(strip(one("folder-filter-chip-owner").textContent)).toBe("Owner is me");
     roots.pop()!();
     await mount(host([]));
     expect(one("folder-show-mine").getAttribute("aria-pressed")).toBe("true");
-    expect(localStorage.getItem(["context.folderView", "ws_test", CAFE, "filter"].join("\u001f"))).toBe("mine");
+    expect(JSON.parse(localStorage.getItem(FILTER_KEY)!)).toMatchObject({ v: 2, owner: [":me"] });
+  });
+
+  test("a choice the old Show bar remembered reads as the filter it meant", async () => {
+    localStorage.setItem(FILTER_KEY, "urgent");
+    await mount(host([]));
+    expect(strip(one("folder-filter-chip-priority").textContent)).toBe("Priority is Urgent");
+    expect(names()).toEqual(["Sign the lease"]);
   });
 
   test("a filter remembered from when there were tasks hides nothing once there are none", async () => {
-    localStorage.setItem(["context.folderView", "ws_test", CAFE, "filter"].join("\u001f"), "urgent");
+    localStorage.setItem(FILTER_KEY, "urgent");
     localStorage.setItem(["context.folderView", "ws_test", CAFE].join("\u001f"), "list");
     const page = host([]);
     page.source.load = async () => ({ notes: NOTES.map((each) => ({ ...each, properties: {} })), complete: true });
@@ -336,22 +431,14 @@ describe("Show", () => {
     expect(all("folder-filter-empty")).toHaveLength(0);
   });
 
-  test("Owner opens a searchable list of no owner, me, the people and the AI helpers, with counts", async () => {
+  test("Owner's list is searchable, and Me and No owner stay offered", async () => {
     await mount(host([]));
-    await press(one("folder-show-owner"));
-    // react-native-web measures the button on a later frame before the list opens.
-    const menu = await appears("folder-owner-filter");
-    const text = strip(menu.textContent);
-    expect(text).toMatch(/No owner4.*Me \(Seyi\)2.*PEOPLE.*@sayo2.*AI HELPERS.*Claude1.*@shay's Claude1/);
-    await act(async () => {
-      const field = one("folder-owner-filter-field") as HTMLInputElement;
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      setter.call(field, "sha");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(all("folder-owner-filter-option").map((node) => strip(node.textContent))).toEqual(["@shay's Claude1"]);
-    await press(all("folder-owner-filter-option")[0]);
-    expect(strip(one("folder-show-owner").textContent)).toBe("@shay's Claude ▾");
+    await press(one("folder-filter-add-owner"));
+    await appears("folder-filter-menu-owner");
+    await typeInto("folder-filter-menu-field", "sha");
+    expect(all("folder-filter-option").map((node) => strip(node.textContent))).toEqual(["Me2", "@shay's Claude1", "?No owner4"]);
+    await press(all("folder-filter-option")[1]!);
+    expect(strip(one("folder-filter-chip-owner").textContent)).toBe("Owner is @shay's Claude");
     expect(heads()).toEqual(["In progress1 of 1"]);
   });
 });

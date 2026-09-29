@@ -136,3 +136,26 @@ test("a member reads the side peek and cannot type in it", async ({ page }) => {
   await expect(editor).not.toHaveAttribute("contenteditable", "true");
   await expect(page.getByTestId("folder-item-priority")).toHaveCount(0);
 });
+
+test("the filter bar's Tag menu opens under its button, and a tick narrows the list to a chip", async ({ page }) => {
+  await open(page);
+  const all = await page.getByTestId("folder-item").count();
+  const button = page.getByTestId("folder-filter-add-tag");
+  await button.click();
+  const menu = page.getByTestId("folder-filter-menu-tag");
+  await menu.waitFor();
+  // Under its button, not somewhere else on the page.
+  const at = (await button.boundingBox())!;
+  const box = (await menu.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(at.y + at.height);
+  expect(Math.abs(box.x - at.x)).toBeLessThan(40);
+  await menu.getByTestId("folder-filter-option").filter({ hasText: "context" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("folder-filter-chip-tag")).toContainText("Tag is context");
+  const shown = await page.getByTestId("folder-item").count();
+  expect(shown).toBeGreaterThan(0);
+  expect(shown).toBeLessThan(all);
+  await expect(page.getByTestId("folder-filter-count")).toContainText(" of ");
+  await page.getByTestId("folder-filter-clear").click();
+  await expect(page.getByTestId("folder-item")).toHaveCount(all);
+});

@@ -50,6 +50,7 @@ const context = (over: Partial<TaskMenuContext> = {}): TaskMenuContext => ({
   kind: "task",
   status: "to do",
   priority: "p1",
+  estimate: null,
   owners: [],
   tags: [],
   hasDue: false,
@@ -505,13 +506,27 @@ describe("the page on a phone", () => {
     expect(seen.toasts[0]!.undo).toBeDefined();
   });
 
-  test("the Show chips scroll sideways instead of wrapping", async () => {
+  test("Filter opens every menu as one sheet of 44pt choices, and says what closing will show", async () => {
     const { page, seen } = host();
     await mount(page, seen);
-    const chips = one("folder-show-chips");
-    expect(window.getComputedStyle(chips).overflowX).toBe("auto");
-    expect(one("folder-show-bar").contains(chips)).toBe(true);
-    expect(chips.querySelector('[data-testid="folder-show-owner"]')).not.toBeNull();
+    const open = one("folder-filter-open");
+    expect(strip(open.textContent)).toBe("Filter");
+    expect(px(open, "height")).toBeGreaterThanOrEqual(tokens.minTouchTarget);
+    expect(all("folder-filter-add-owner")).toHaveLength(0);
+    await press(open);
+    const sheet = one("folder-filter-sheet");
+    const priority = one("folder-filter-group-priority", sheet);
+    expect(all("folder-filter-pill", priority).map((pill) => strip(pill.textContent))).toEqual(["Urgent", "High", "Medium", "Low", "No priority"]);
+    expect(all("folder-filter-pill", sheet).every((pill) => px(pill, "min-height") >= tokens.minTouchTarget)).toBe(true);
+    expect(strip(one("folder-filter-sheet-show").textContent)).toBe("Show all 4 tasks");
+    await press(all("folder-filter-pill", priority)[0]!);
+    expect(all("folder-filter-pill", priority)[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(strip(one("folder-filter-sheet-show").textContent)).toBe("Show 1 of 4 tasks");
+    await press(one("folder-filter-sheet-show"));
+    expect(all("folder-filter-sheet")).toHaveLength(0);
+    expect(strip(one("folder-filter-open").textContent)).toBe("Filter · 1");
+    expect(all("folder-item").map((node) => strip(node.textContent))).toEqual([expect.stringContaining("Sign the lease")]);
+    expect(seen.calls).toEqual([]);
   });
 
   test("a member gets no ⋯, no swipe, no hold, and no Add a task", async () => {

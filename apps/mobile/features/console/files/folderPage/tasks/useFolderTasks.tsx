@@ -16,7 +16,8 @@ import { makeItTaskStatus } from "../listLayout";
 import { entriesIn, rowsAreProjects, summarizeFolder, type FolderItem } from "../model";
 import { folderStatuses, governingFolder, statusMenu, type StatusList } from "../statuses";
 import type { FolderNotes } from "../useFolderPage";
-import { ownersPlan, priorityPlan } from "./menuRun";
+import { estimatePlan, ownersPlan, priorityPlan } from "./menuRun";
+import { ESTIMATES, type Estimate } from "../taskProps";
 import { PRIORITIES, type Priority } from "./taskWords";
 import { planSet, statusPlan, type ProjectRef } from "./taskEdits";
 import type { TaskHost } from "./taskHost";
@@ -123,6 +124,9 @@ export function useFolderTasks({
       // The row's priority mark: said in the owner's words ("… is Urgent now"), with an Undo.
       if (key === "priority" && (value === null || (PRIORITIES as readonly string[]).includes(value))) {
         return void controls.perform(priorityPlan(item, value as Priority | null));
+      }
+      if (key === "estimate" && (value === null || (ESTIMATES as readonly string[]).includes(value))) {
+        return void controls.perform(estimatePlan(item, value as Estimate | null));
       }
       void controls.perform(planSet(item, [[key, value]], `Changed “${item.label}”.`, `Nothing changed on “${item.label}”.`));
     },

@@ -112,6 +112,12 @@ describe("priority, status and owner are changed on the row", () => {
     expect(writes.at(-1)).toEqual([`${CAFE}/photos.md`, "priority", "p2", undefined]);
   });
 
+  test("no estimate column until a task here has an estimate: the names keep the room", async () => {
+    await mount(host([], { files: [] }));
+    expect(all("folder-item")).not.toHaveLength(0);
+    expect(all("folder-item-estimate")).toHaveLength(0);
+  });
+
   test("No priority takes it away", async () => {
     const writes: Write[] = [];
     await mount(host(writes, { files: [] }));

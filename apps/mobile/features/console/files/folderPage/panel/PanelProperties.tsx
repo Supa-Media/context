@@ -1,6 +1,6 @@
 /**
  * A task's values in the side panel, each one press from changing: Status,
- * Priority, Owners, Tags and Due, in the owner's words — Urgent to Low, never
+ * Priority, Estimate, Owners, Tags and Due, in the owner's words — Urgent to Low, never
  * `p0`; "Saturday, Oct 3", never `2026-10-03`.
  *
  * Every change is one frontmatter line of the task's own note, the write the
@@ -24,14 +24,15 @@ import { NEW_FRONT_NOTE, type FolderItem } from "../model";
 import { OwnerPicker } from "../OwnerPicker";
 import { PropertyValue } from "../PropertyValue";
 import { faceFor } from "../taskFace";
-import { dueOf, ownersOf, priorityWord, tagsOf } from "../taskProps";
+import { dueOf, estimateOf, ESTIMATE_HINTS, NO_ESTIMATE, ownersOf, priorityWord, tagsOf } from "../taskProps";
+import { estimateChoices } from "../EstimateCell";
 import { DuePanel, TagPanel, type Anchor } from "../tasks/QuickAddParts";
 import { DUE_PRESET_LABELS, PRIORITIES, duePreset, type DuePreset } from "../tasks/taskWords";
 import { dueLong, ownersValue } from "./panelModel";
 
 export type PanelWrite = (key: string, value: string | readonly string[] | null) => void;
 
-type MenuKind = "priority" | "due" | "owner";
+type MenuKind = "priority" | "estimate" | "due" | "owner";
 
 /** Tags are always written as a list, and none clears the line. */
 const tagsValue = (tags: readonly string[]) => (tags.length === 0 ? null : [...tags]);
@@ -60,6 +61,7 @@ export function PanelProperties({
   const owners = ownersOf(item.properties);
   const tags = tagsOf(item.properties);
   const due = dueOf(item.properties);
+  const estimate = estimateOf(item.properties);
   const label = (owner: string) => isolateForDisplay(ownerLabel(actions.owners, owner));
   const open = (kind: MenuKind) => (anchor: Anchor) => setMenu({ kind, anchor });
   const suggest = actions.owners === undefined ? undefined : ownerChoiceFor(actions.owners, target).suggest;
@@ -86,6 +88,18 @@ export function PanelProperties({
           <PriorityGlyph priority={item.priority} />
           <Text variant="tree" style={styles.value}>
             {priorityWord(item.priority)}
+          </Text>
+        </Value>
+      </Row>
+      <Row label="Estimate" testID="task-panel-estimate">
+        <Value
+          editable={write !== null}
+          onOpen={open("estimate")}
+          label={estimate === null ? "Set an estimate" : `Change estimate, ${estimate}`}
+          testID="task-panel-estimate-button"
+        >
+          <Text variant="tree" style={estimate === null ? styles.muted : styles.value}>
+            {estimate === null ? NO_ESTIMATE : `${estimate} · ${ESTIMATE_HINTS[estimate].toLowerCase()}`}
           </Text>
         </Value>
       </Row>
@@ -193,7 +207,9 @@ export function PanelProperties({
       ) : (
         <Menu<string>
           items={
-            menu.kind === "priority"
+            menu.kind === "estimate"
+              ? estimateChoices(estimate)
+              : menu.kind === "priority"
               ? [
                   ...PRIORITIES.map((id, at) => ({ id, label: priorityWord(at as 0 | 1 | 2 | 3), checked: item.priority === at })),
                   { id: "none", label: priorityWord(null), checked: item.priority === null },
@@ -205,12 +221,13 @@ export function PanelProperties({
                 ]
           }
           {...(menu.anchor === null ? {} : { anchor: menu.anchor })}
-          title={menu.kind === "priority" ? "Priority" : "Due date"}
+          title={menu.kind === "priority" ? "Priority" : menu.kind === "estimate" ? "Estimate" : "Due date"}
           onDismiss={() => setMenu(null)}
           onSelect={(id) => {
             const kind = menu.kind;
             setMenu(null);
             if (kind === "priority") write("priority", id === "none" ? null : id);
+            else if (kind === "estimate") write("estimate", id === "none" ? null : id);
             else if (id === "pick") setPanel("due");
             else write("due", id === "clear" ? null : duePreset(id as DuePreset, today));
           }}

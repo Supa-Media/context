@@ -44,6 +44,12 @@ export interface ItemActions {
   selected?: string | null;
   /** Adding, picking, dragging and the right-click menu, for somebody who may write (`tasks/useTaskActions.ts`). */
   tasks?: TaskControls | null;
+  /**
+   * Whether the List draws an estimate column: once any task here has an
+   * estimate. Before then the room goes to the names, and a first estimate is
+   * set from the right-click menu or the side panel (`EstimateCell.tsx`).
+   */
+  sized?: boolean;
   /** A row's menu, for a phone's ⋯, hold and swipe (`tasks/useTaskMenu.tsx`); absent for who may not write. */
   taskMenu?: TaskMenuModel | null;
 }

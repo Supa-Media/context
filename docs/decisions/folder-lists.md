@@ -304,7 +304,7 @@ band does not move the row or its Undo does not move it back.
 
 Decided by the owner on 2026-09-28 ("Projects for everyone"), for the List on
 the web and desktop. An owner or editor adds a task from "+ Add task" (the
-Show bar's, which lands in the first To do group, or a group's own), a
+filter bar's, which lands in the first To do group, or a group's own), a
 subtask from "+ Subtask", and changes, nests, parks or moves tasks from the
 right-click menu, a selection of several, or by dragging a row. A member is
 offered none of it.
@@ -355,8 +355,8 @@ reach a thumb three ways, all for an owner or editor only:
   offers it (`swipeActions` reads the same list). A swipe only reveals;
   nothing is written until a button is pressed, so a full swipe does nothing.
 - **"Add a task" pinned at the bottom** opens the quick add composer in a
-  sheet for the first To do; the Show bar's button makes way for it, and the
-  Show chips scroll sideways rather than wrapping.
+  sheet for the first To do; the filter bar's button makes way for it, and on
+  a phone the filter bar is one Filter button opening a sheet.
 
 Every write is the menu's, so it keeps its toast and Undo. What reverting
 costs: a phone sheet with a list of its own drifts from the desktop menu the
@@ -408,31 +408,77 @@ or if a member can press it; `folderPageList.test.ts` fails if
 `p0` reaches the page, if the robot or the "?" face goes, or if a line of
 several owners is offered as one choice.
 
-## Show: whose tasks, per viewer
+## The filter bar, per viewer
 
-The List has a **Show** bar above its sections: Everyone · Mine · No owner N ·
-Urgent N · Owner ▾, the last a searchable list of No owner, Me, the people and
-the AI helpers the tasks name ("Any AI helper" for `any agent`), each with a
-count. Counts are over every task, subtasks included. Under a filter a
-section says "1 of 12", a group with nothing left is dropped, notes (which
-are not tasks) are left out, and a task that does not match but has a
-subtask that does stays, dimmed and opened on that subtask.
+Decided by the owner on 2026-09-29 (the filter bar artboard, "Build as
+drawn"), replacing the Show bar's Everyone · Mine · No owner · Urgent ·
+Owner ▾. Above the List: a search over names, **Mine**, and a menu for each
+of **Owner** (Me, the people and AI helpers the tasks name, No owner),
+**Tag** (the tags in use, with counts; a tag nothing uses is not offered),
+**Priority** (Urgent to Low, No priority), **Estimate** (XS to XXL, No
+estimate) and **Due** (Overdue, This week, Next week, No due date; weeks run
+Monday to Sunday in the viewer's calendar). Each menu's choices are ticked
+as many as wanted.
 
-- **It is a way of looking, not a record.** It is remembered per viewer, per
-  workspace, per folder in the browser's storage, like the view choice, and
-  never written to a note: two people looking at one project see their own.
-  A member has it too, since looking writes nothing.
-- **Mine is the viewer's handle.** The host hands the page the viewer's own
-  name and address, which the page resolves to their handle the way it
-  resolves any owner word written before handles (`owners.resolveOwners`),
-  only on a projects folder; an owner line is the viewer's when it names
-  them or their own agent (`@seyi's Claude`). Where the page does not know
-  who is looking, Mine is not offered.
+- **Any within a kind, every across kinds.** A task matches a kind when it
+  matches any of its ticks, and is drawn when it matches every kind with a
+  tick. A kind that is on is a chip that says so ("Tag is context or
+  portal"), reopens its menu, and clears with ×; Clear clears them all. The
+  bar says "3 of 7", and "· match every filter" once two kinds are on.
+- **Mine is Owner's Me in one press**, and is pressed whenever Me is ticked.
+  Me is the viewer's handle: the host hands the page the viewer's own name
+  and address, resolved the way any owner word written before handles is
+  (`owners.resolveOwners`), only on a projects folder; an owner line is the
+  viewer's when it names them or their own agent (`@seyi's Claude`). Where
+  the page does not know who is looking, neither Mine nor Me is offered.
+- **Counts are over every task, subtasks included.** Under a filter a
+  section says "1 of 12", a group with nothing left is dropped, notes (which
+  are not tasks) are left out, and a task that does not match but has a
+  subtask that does stays, dimmed and opened on that subtask. The search
+  works the same way: a subtask's name keeps its parent.
+- **It is a way of looking, not a record.** The ticks are remembered per
+  viewer, per workspace, per folder in the browser's storage, like the view
+  choice, and never written to a note; the search is not remembered. What
+  the old Show bar stored (`mine`, `no-owner`, `urgent`, `owner:<name>`)
+  reads back as the ticks it meant. A member has the bar too.
+- **On a phone** the bar is a search button, "Filter · N" and Mine; Filter
+  opens every menu at once as one sheet of 44pt choices, closed by "Show 3
+  of 7 projects".
 
-`folderPageTasks.test.ts` fails if a count stops including subtasks, if a
-parent kept for its subtask is not dimmed or carries the others, or if a
-stored filter does not read back; `folderPageList.test.ts` fails if a filter
-writes, if Mine stops matching by handle, or if it is not remembered.
+`folderPageTasks.test.ts` fails if kinds stop combining as every-of-any, if
+a count stops including subtasks, if a parent kept for its subtask is not
+dimmed or carries the others, if a week stops running Monday to Sunday, or
+if a stored filter (old words included) does not read back;
+`folderPageList.test.ts` fails if a filter writes, if Mine stops matching by
+handle or is not remembered, or if a tag nothing uses is offered;
+`folderPagePhone.test.ts` fails if the sheet's choices are under 44pt.
+
+## Estimates
+
+Decided by the owner on 2026-09-29 ("work estimates XS, S, M, L, XL, XXL",
+"and no estimate as well"). `estimate: M` in a task's front matter, any case
+read, anything but the six sizes read as none. Each size carries a rough
+meaning wherever it is picked: XS an hour or so, S half a day, M a day or
+two, L about a week, XL two weeks, XXL a month or more. A project's estimate
+is set by hand like a subtask's, never summed from its subtasks.
+
+- A row draws it as a small outlined size between its tags and its due day,
+  a button for a writer that opens the six and "No estimate" (which clears
+  the line), written with an Undo ("“Sign the lease” is an M now"). Subtask
+  rows have it too, beside their priority mark. Board cards show it; the
+  side panel has an Estimate row; the right-click menu (and so the phone's
+  sheet) has Estimate › after Priority ›.
+- **The column appears once any task on the page has an estimate.** Before
+  then the room goes to the names: a column of empty "+" on every row took
+  the width a narrow page's names needed, and with the peek open the hover
+  tools covered a name whole. A first estimate is set from the right-click
+  menu or the side panel.
+
+`folderPageTasks.test.ts` fails if anything but the six sizes becomes an
+estimate; `folderPageList.test.ts` fails if a subtask loses its estimate or a
+member can press one; `folderPageTaskWrites.test.ts` fails if the menu's
+Estimate write has no Undo; `projectsListRows.test.ts` fails if an unsized
+page draws the column.
 
 ## The side panel: any row opens beside the list
 

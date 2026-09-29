@@ -3,9 +3,10 @@
  * plain note.
  *
  * A **task** row reads left to right: the chevron that opens it (only when it
- * holds subtasks or notes), its priority, its name with "2 of 4 done", its
- * tags, when it is due, and its first owner's face and name ("+1" when there
- * are more). The name takes the room; the cells after it are compact and give
+ * holds subtasks or notes), its priority, its name with its progress (a bar
+ * and "2/4"), its tags, its estimate (`EstimateCell.tsx`), when it is due,
+ * and its first owner's face and name ("+1" when there are more). A subtask
+ * row has its own priority and estimate too. The name takes the room; the cells after it are compact and give
  * way first (`rowCells.tsx`). For somebody who may write the priority mark is
  * a button with the priority choices, and the status value, Open and
  * "+ Subtask" lie over the end of the name while the row is hovered — the
@@ -39,6 +40,7 @@ import type { TaskEntry } from "./listLayout";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { PeekButton } from "./PeekButton";
 import { ProgressMeter } from "./ProgressMeter";
+import { EstimateCell } from "./EstimateCell";
 import { CompactLine, NAME_MIN, OwnerCell, PriorityCell, RowTools, StatusValue, Tags, useRowHover, useToolsRoom } from "./rowCells";
 import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
 import { isPickPress, PickBox, RowFrame, SubtaskAdder, SubtaskButton } from "./tasks/RowParts";
@@ -124,6 +126,7 @@ export function TaskRow({
             )}
           </View>
           {compact ? null : <Tags tags={tagsOf(item.properties)} />}
+          {compact || actions.sized !== true ? null : <EstimateCell item={item} actions={actions} />}
           {compact ? null : (
             <Text variant="meta" numberOfLines={1} style={styles.due} testID="folder-item-due">
               {due === null ? "" : dueWord(due, now)}
@@ -207,6 +210,7 @@ function SubtaskRow({ item, compact, actions }: { item: FolderItem; compact: boo
             <StatusValue item={item} actions={actions} quiet={false} compact />
           </View>
         ) : null}
+        {compact || actions.sized !== true ? null : <EstimateCell item={item} actions={actions} />}
         {compact ? null : <OwnerCell item={item} actions={actions} />}
         {compact && tasks !== null ? <MoreButton item={item} controls={tasks} /> : null}
       </Pressable>
