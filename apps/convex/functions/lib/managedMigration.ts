@@ -43,10 +43,18 @@ export async function reconcileMigrationObject(options: {
   key: string;
   listedFromTarget: boolean;
   byteCap: number;
+  /**
+   * Whether a destination key the source does not have may be deleted.
+   *
+   * Only when the destination is known to hold nothing but this move's own
+   * writes — see `targetClaimed` on the migration row. A key in somebody's
+   * bucket that Context did not put there is theirs, and is left alone.
+   */
+  deleteUnmatchedTarget?: boolean;
 }): Promise<{ copied: number; changes: number }> {
   const sourceRead = await options.source.get(options.key);
   if (sourceRead === null) {
-    if (options.listedFromTarget) {
+    if (options.listedFromTarget && options.deleteUnmatchedTarget !== false) {
       await options.target.delete(options.key);
       return { copied: 0, changes: 1 };
     }
@@ -178,6 +186,7 @@ export async function reconcileMigrationPage(options: {
   byteCap: number;
   maxWidth: number;
   byteBudget: number;
+  deleteUnmatchedTarget?: boolean;
 }): Promise<{ copied: number; changes: number }> {
   let copied = 0;
   let changes = 0;
@@ -194,6 +203,7 @@ export async function reconcileMigrationPage(options: {
           key: object.key,
           listedFromTarget: options.listedFromTarget,
           byteCap: options.byteCap,
+          deleteUnmatchedTarget: options.deleteUnmatchedTarget,
         }),
       ),
     );

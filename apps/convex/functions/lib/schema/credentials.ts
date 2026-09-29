@@ -93,6 +93,12 @@ export const credentialTables = {
     objectsProcessedInPhase: v.optional(v.number()),
     changesInPass: v.number(),
     readyToCutover: v.optional(v.boolean()),
+    /**
+     * A customer destination this move has checked was empty before writing to
+     * it. Only then may the final pass delete destination keys the managed
+     * source does not have: before it, such a key is the customer's own file.
+     */
+    targetClaimed: v.optional(v.boolean()),
     errorCode: v.optional(v.string()),
     startedBy: v.id("users"),
     createdAt: v.number(),
