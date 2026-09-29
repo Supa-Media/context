@@ -85,3 +85,31 @@ Moved to [OPEN: the local agent and the console agent are two different principa
 ## The covered-context set is a reach, not an identity
 
 Moved to [The covered-context set is a reach, not an identity](./identity-and-access/agents-and-workspace-identity.md#the-covered-context-set-is-a-reach-not-an-identity).
+
+## Friends let friends in, three at a time
+
+Context is invite-only (`apps/convex/functions/lib/waitlist.ts`). Since
+2026-09-29 a live referral is one more thing that lets an address in (Dev2,
+from the referrals artboard): a person whose AI tool has called gets three
+invites, each for one typed address and good for 14 days. Somebody let in by a
+referral waits seven days before inviting, and staff can give anyone more,
+revoke an unused invite, or pause new ones for everyone.
+
+- **An invite admits an address, never a session.** The friend still types
+  the address and is mailed a code; `/join/<token>` only says who invited
+  them. A forwarded link does nothing for anybody else.
+- **Joined and expired are derived** from the account's creation time and the
+  clock (`lib/referrals.ts`, `inviteStatuses`), so nothing needs a sweep and
+  there is no second answer to drift. Several invites to one address credit
+  the oldest; the rest come back to their senders.
+- **Sending never reveals who else invited an address.** `send` asks
+  `isAdmittedWithoutReferral`, so an address somebody else invited reads like
+  any other; `already` is only said for what the waitlist field already says.
+- **The mail carries no text from the inviter.** It goes from our address to
+  any address a person types.
+- **Outside links (the Discord join link first) live in `communityLinks`**,
+  edited in the staff console, never hard-coded. `members` links are only
+  handed to signed-in callers.
+
+Simplifying any of this away costs the waitlist its meaning. Tests:
+`apps/convex/__tests__/referrals.test.ts`.

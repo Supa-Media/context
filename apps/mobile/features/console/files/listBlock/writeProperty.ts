@@ -62,6 +62,33 @@ export async function writeNoteProperties(
 ): Promise<string | null> {
   const refused = changes.find(([key]) => !isWritableProperty(key, path));
   if (refused !== undefined) return whyNotWritable(refused[0], path);
+  return rewriteNote(
+    io,
+    path,
+    (text) => {
+      for (const [key, value] of changes) {
+        const changed = setNoteProperty(text, key, value) as { text: string } | { error: string };
+        if ("error" in changed) return changed;
+        text = changed.text;
+      }
+      return { text };
+    },
+    options,
+  );
+}
+
+/**
+ * The road under every list and folder page write: read the note, apply
+ * `change` to its text, write it back against the version read, and read
+ * again once if it moved on meanwhile — `change` is the same edit on either
+ * version. A folder page's lede (`folderPage/lede.ts`) takes it too.
+ */
+export async function rewriteNote(
+  io: NoteReadWrite,
+  path: string,
+  change: (text: string) => { text: string } | { error: string },
+  options: { create?: boolean } = {},
+): Promise<string | null> {
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let note: { text: string; etag: string | undefined; encrypted?: boolean; readOnly?: boolean };
     try {
@@ -72,12 +99,9 @@ export async function writeNoteProperties(
     }
     if (note.encrypted === true) return "That note is encrypted, so it can only be changed from inside it.";
     if (note.readOnly === true) return "You can read that note but not change it.";
-    let text = note.text;
-    for (const [key, value] of changes) {
-      const changed = setNoteProperty(text, key, value) as { text: string } | { error: string };
-      if ("error" in changed) return `That can’t be saved: ${changed.error}.`;
-      text = changed.text;
-    }
+    const changed = change(note.text);
+    if ("error" in changed) return `That can’t be saved: ${changed.error}.`;
+    const text = changed.text;
     if (text === note.text) return null;
     try {
       await io.write(path, text, note.etag);
@@ -92,4 +116,3 @@ export async function writeNoteProperties(
   }
   return "That change could not be saved.";
 }
-

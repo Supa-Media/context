@@ -19,6 +19,7 @@ import { organizerTables } from "./functions/lib/schema/organizer";
 import { jevTables } from "./functions/lib/schema/jev";
 import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
+import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 
 /**
@@ -70,6 +71,7 @@ const schema = defineSchema({
   ...jevTables,
   ...faceTables,
   ...waitlistTables,
+  ...referralTables,
   ...devlogTables,
 });
 

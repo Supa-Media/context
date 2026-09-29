@@ -76,6 +76,8 @@ export type SwitcherMenuId =
   | "claim"
   | "new"
   | "settings"
+  | "invite"
+  | "community"
   | "leave"
   | "signout"
   | "feedback"
@@ -92,6 +94,9 @@ export function SwitcherMenu({
   onClaimContext,
   onNewWorkspace,
   onOpenSettings,
+  onInviteFriends,
+  inviteDetail,
+  onOpenCommunity,
   onLeaveContext,
   onSignOut,
   onSignIn,
@@ -108,6 +113,15 @@ export function SwitcherMenu({
   onClaimContext?: () => void;
   onNewWorkspace?: () => void;
   onOpenSettings?: () => void;
+  /**
+   * Invite friends past the waitlist, and the community's join link — both
+   * from the referrals artboard (2026-09-29). Offered only where the caller
+   * has somewhere to take them; `inviteDetail` is "2 left" when invites can
+   * be sent, so the count is on the row before the dialog opens.
+   */
+  onInviteFriends?: () => void;
+  inviteDetail?: string;
+  onOpenCommunity?: () => void;
   /**
    * Leave the context you are in. Omitted where there is nothing to leave —
    * `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`), so the caller
@@ -225,6 +239,12 @@ export function SwitcherMenu({
     ...(onSignOut && canSendFeedback()
       ? [{ id: "feedback", label: "Send feedback", leading: <Icon name="bug" size={14} />, testID: "switcher-feedback" }]
       : []),
+    ...(onInviteFriends
+      ? [{ id: "invite", label: "Invite friends", detail: inviteDetail, leading: <Icon name="mail" size={14} />, testID: "switcher-invite" }]
+      : []),
+    ...(onOpenCommunity
+      ? [{ id: "community", label: "Community", leading: <Icon name="chat" size={14} />, testID: "switcher-community" }]
+      : []),
     ...(whatsNew
       ? [{
           id: "whatsnew",
@@ -288,6 +308,8 @@ export function SwitcherMenu({
     else if (id === "claim") onClaimContext?.();
     else if (id === "new") onNewWorkspace?.();
     else if (id === "settings") onOpenSettings?.();
+    else if (id === "invite") onInviteFriends?.();
+    else if (id === "community") onOpenCommunity?.();
     else if (id === "leave") onLeaveContext?.();
     else if (id === "signout") onSignOut?.();
     else if (id === "feedback") openFeedback("menu");

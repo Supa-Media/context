@@ -20,6 +20,7 @@ export function accountActionsFor({
   authActions: ReturnType<typeof useAuthActions> | undefined;
 }) {
   return {
+    referrals: true as const,
     // Walking out of somebody else's context is the member's own move — the
     // server refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only
     // offers it on a row whose role is not `owner`. The subscription drops it from

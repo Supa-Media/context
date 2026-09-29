@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -30,7 +30,11 @@ import {
 import { TextLink } from "../design/components/TextLink";
 import { pointerType } from "../design/tokens";
 import { EmptyNote, NoticeLine, Panel, Skeleton, useCompact } from "./AdminKit";
+import { CommunityLinks } from "./CommunityLinks";
+import { ReferralsView } from "./ReferralsView";
 import { messageFor } from "./SecretDialogs";
+import { Segments } from "./Segments";
+import { totalReferrals } from "./referrals";
 import { WaitlistAdd } from "./WaitlistAdd";
 import { WaitlistRows } from "./WaitlistRows";
 import {
@@ -48,10 +52,21 @@ interface Outcome {
   invalid: readonly string[];
 }
 
+/** The waitlist's own lists, and the referrals beside them. */
+type WaitlistView = WaitlistStatus | "friends";
+
+const VIEWS: readonly { key: WaitlistView; label: string }[] = [
+  ...WAITLIST_FILTERS,
+  { key: "friends", label: "Invited by friends" },
+];
+
 export function WaitlistSection() {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
-  const [status, setStatus] = useState<WaitlistStatus>("waiting");
+  const [view, setView] = useState<WaitlistView>("waiting");
+  // The waitlist's counts stay on the chips while referrals are showing.
+  const status: WaitlistStatus = view === "friends" ? "waiting" : view;
+  const friends = view === "friends";
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,9 +74,10 @@ export function WaitlistSection() {
   const list = useQuery(api.functions.admin.listWaitlist, { status });
   const admit = useMutation(api.functions.admin.admitWaitlist);
   const remove = useMutation(api.functions.admin.removeFromWaitlist);
+  const referrals = useQuery(api.functions.admin.listReferrals, {});
 
   // A selection belongs to the list it was made on.
-  useEffect(() => setSelected(new Set()), [status]);
+  useEffect(() => setSelected(new Set()), [view]);
 
   const rows = useMemo(() => list?.rows ?? [], [list]);
   // Only what is still on screen counts: a row somebody else let in drops
@@ -109,7 +125,7 @@ export function WaitlistSection() {
             People who asked to be let in. Letting someone in sends them an email.
           </Text>
         </View>
-        {adding ? null : (
+        {adding || friends ? null : (
           <Button
             label="Add emails"
             variant="dialogPrimary"
@@ -144,30 +160,26 @@ export function WaitlistSection() {
         </Notice>
       ) : null}
 
-      <View style={styles.filters} role="tablist">
-        {WAITLIST_FILTERS.map((filter) => {
-          const on = filter.key === status;
-          const count =
-            filter.key === "removed" || counts === undefined ? null : counts[filter.key];
-          return (
-            <Pressable
-              key={filter.key}
-              role="tab"
-              aria-selected={on}
-              onPress={() => setStatus(filter.key)}
-              style={[styles.chip, compact && styles.chipCompact, on && styles.chipOn]}
-              testID={`admin-waitlist-filter-${filter.key}`}
-            >
-              <Text style={[styles.chipLabel, compact && styles.chipLabelCompact, on && styles.chipLabelOn]}>
-                {filter.label}
-                {count === null ? "" : ` ${count}`}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <Segments
+        options={VIEWS}
+        value={view}
+        onChange={setView}
+        counts={(key) =>
+          key === "friends"
+            ? referrals === undefined
+              ? null
+              : totalReferrals(referrals.counts)
+            : key === "removed" || counts === undefined
+              ? null
+              : counts[key]
+        }
+        label="Waitlist"
+        testID="admin-waitlist-filter"
+      />
 
-      {picked.length > 0 ? (
+      {friends ? <ReferralsView list={referrals} /> : null}
+
+      {!friends && picked.length > 0 ? (
         <View style={[styles.bulk, compact && styles.bulkCompact]} testID="admin-waitlist-bulk">
           <Text style={styles.bulkCount}>{picked.length} selected</Text>
           <View style={styles.bulkActions}>
@@ -194,7 +206,7 @@ export function WaitlistSection() {
         </View>
       ) : null}
 
-      {list === undefined ? (
+      {friends ? null : list === undefined ? (
         <Card>
           <Skeleton width={120} height={14} />
           <Skeleton width="100%" height={120} style={styles.skGap} />
@@ -230,11 +242,13 @@ export function WaitlistSection() {
         </Panel>
       )}
 
-      {list?.more ? (
+      {!friends && list?.more ? (
         <Text variant="foot" style={compact ? styles.textCompact : null}>
           Showing the newest {rows.length}.
         </Text>
       ) : null}
+
+      <CommunityLinks />
     </View>
   );
 }
@@ -249,31 +263,6 @@ const makeStyles = (colors: Colors) =>
     add: { paddingVertical: 6, paddingHorizontal: 13 },
     addCompact: { alignSelf: "stretch", paddingVertical: 11 },
     textCompact: { fontSize: pointerType.ui, lineHeight: leading(pointerType.ui, 1.55) },
-
-    // The console header's segmented track, a size down.
-    filters: {
-      flexDirection: "row",
-      alignSelf: "flex-start",
-      gap: 2,
-      padding: 2,
-      borderRadius: radii.lg,
-      backgroundColor: colors.chipFill,
-    },
-    chip: { paddingVertical: 3, paddingHorizontal: 10, borderRadius: 5 },
-    chipCompact: { paddingVertical: 5, paddingHorizontal: 14 },
-    chipOn: {
-      backgroundColor: colors.surface,
-      boxShadow: `0 0 0 1px ${colors.line}, 0 1px 2px rgba(0,0,0,.06)`,
-    },
-    chipLabel: {
-      fontSize: pointerType.meta,
-      lineHeight: leading(pointerType.meta, 1.55),
-      fontWeight: "500",
-      color: colors.muted,
-      fontVariant: ["tabular-nums"],
-    },
-    chipLabelCompact: { fontSize: pointerType.ui, lineHeight: leading(pointerType.ui, 1.55) },
-    chipLabelOn: { color: colors.text },
 
     bulk: {
       flexDirection: "row",

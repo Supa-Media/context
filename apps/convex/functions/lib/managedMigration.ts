@@ -51,6 +51,12 @@ export async function reconcileMigrationObject(options: {
    * bucket that Context did not put there is theirs, and is left alone.
    */
   deleteUnmatchedTarget?: boolean;
+  /**
+   * Before writing over a destination file that differs, keep the old one as
+   * `name (from your bucket).ext` — once. For a move merged into a bucket that
+   * already held the customer's files, so a shared name loses neither.
+   */
+  keepTargetConflicts?: boolean;
 }): Promise<{ copied: number; changes: number }> {
   const sourceRead = await options.source.get(options.key);
   if (sourceRead === null) {
@@ -65,10 +71,13 @@ export async function reconcileMigrationObject(options: {
   const marker = sourceRead.contentType === LOGICAL_DELETE_CONTENT_TYPE ||
     (bytes.byteLength < 512 && isLogicalDeleteMarker(new TextDecoder().decode(bytes)));
   const targetRead = await options.target.get(options.key);
+  // Read once: a stored body is a stream, and the conflict copy needs it too.
+  const targetBytes = targetRead === null ? null : await targetRead.arrayBuffer();
   if (
     targetRead !== null &&
+    targetBytes !== null &&
     (!marker || targetRead.contentType === LOGICAL_DELETE_CONTENT_TYPE) &&
-    sameBytes(bytes, await targetRead.arrayBuffer())
+    sameBytes(bytes, targetBytes)
   ) {
     /*
       Already identical, so there is nothing to write and nothing to verify.
@@ -83,6 +92,9 @@ export async function reconcileMigrationObject(options: {
     */
     return { copied: 1, changes: 0 };
   }
+  if (targetRead !== null && targetBytes !== null && options.keepTargetConflicts === true) {
+    await keepConflictingTarget(options.target, options.key, targetBytes, targetRead.contentType);
+  }
   await options.target.put(options.key, bytes, {
     contentType: marker
       ? LOGICAL_DELETE_CONTENT_TYPE
@@ -96,6 +108,32 @@ export async function reconcileMigrationObject(options: {
     throw new Error("VERIFY_FAILED");
   }
   return { copied: 1, changes: 1 };
+}
+
+/** `notes/plan.md` becomes `notes/plan (from your bucket).md`. */
+export function conflictCopyKey(key: string): string {
+  const slash = key.lastIndexOf("/");
+  const dot = key.lastIndexOf(".");
+  const suffix = " (from your bucket)";
+  return dot > slash + 1 ? `${key.slice(0, dot)}${suffix}${key.slice(dot)}` : `${key}${suffix}`;
+}
+
+async function keepConflictingTarget(
+  target: MigrationStore,
+  key: string,
+  bytes: ArrayBuffer,
+  contentType: string | undefined,
+): Promise<void> {
+  if (contentType === LOGICAL_DELETE_CONTENT_TYPE) return;
+  const copyKey = conflictCopyKey(key);
+  if ((await target.get(copyKey)) !== null) return;
+  await target.put(copyKey, bytes, {
+    contentType: copyKey.toLowerCase().endsWith(".md") ? MARKDOWN_CONTENT_TYPE : ATTACHMENT_CONTENT_TYPE,
+  });
+  const verified = await target.get(copyKey);
+  if (verified === null || !sameBytes(bytes, await verified.arrayBuffer())) {
+    throw new Error("VERIFY_FAILED");
+  }
 }
 
 /**
@@ -187,6 +225,7 @@ export async function reconcileMigrationPage(options: {
   maxWidth: number;
   byteBudget: number;
   deleteUnmatchedTarget?: boolean;
+  keepTargetConflicts?: boolean;
 }): Promise<{ copied: number; changes: number }> {
   let copied = 0;
   let changes = 0;
@@ -204,6 +243,7 @@ export async function reconcileMigrationPage(options: {
           listedFromTarget: options.listedFromTarget,
           byteCap: options.byteCap,
           deleteUnmatchedTarget: options.deleteUnmatchedTarget,
+          keepTargetConflicts: options.keepTargetConflicts,
         }),
       ),
     );

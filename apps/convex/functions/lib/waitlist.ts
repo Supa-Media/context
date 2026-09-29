@@ -22,6 +22,8 @@
  *    teammate is letting them in; making them queue as well would break
  *    sharing.
  *  - A waitlist row staff have admitted.
+ *  - A live referral: somebody who is in named this address in the last 14
+ *    days (`lib/referrals.ts`).
  *
  * ## Saying who is on the list is deliberate
  *
@@ -38,6 +40,7 @@ import type { GenericDatabaseReader } from "convex/server";
 import type { DataModel } from "../../_generated/dataModel";
 import { isAdminEmail } from "./admin";
 import { parseInvitee } from "./invitees";
+import { hasLiveInvite } from "./referrals";
 
 type Db = GenericDatabaseReader<DataModel>;
 
@@ -59,6 +62,25 @@ export function signupIsOpen(env: Record<string, string | undefined> = process.e
 
 /** Is this address let in? See the module comment for the whole rule. */
 export async function isAdmitted(
+  db: Db,
+  rawEmail: string,
+  env: Record<string, string | undefined> = process.env,
+  now: number = Date.now(),
+): Promise<boolean> {
+  if (await isAdmittedWithoutReferral(db, rawEmail, env, now)) return true;
+  const email = normalizeEmail(rawEmail);
+  return email.length > 0 && (await hasLiveInvite(db, email, now));
+}
+
+/**
+ * Every clause of `isAdmitted` but a friend's referral.
+ *
+ * For sending one: an address this already admits needs no invite, and the
+ * inviter is told so (the waitlist field says as much to anybody). An address
+ * that only *another* person's referral admits must read like any other, or
+ * sending would reveal who else invited them.
+ */
+export async function isAdmittedWithoutReferral(
   db: Db,
   rawEmail: string,
   env: Record<string, string | undefined> = process.env,

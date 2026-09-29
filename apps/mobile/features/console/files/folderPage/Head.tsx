@@ -221,15 +221,6 @@ export function PropertyLine({
   );
 }
 
-export function Lede({ text }: { text: string }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Text variant="body" numberOfLines={3} style={styles.lede} testID="folder-lede">
-      {isolateForDisplay(text)}
-    </Text>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
@@ -245,5 +236,4 @@ const makeStyles = (colors: Colors) =>
     line: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", rowGap: 2 },
     part: { flexDirection: "row", alignItems: "center" },
     value: { color: colors.text2 },
-    lede: { color: colors.text2 },
   });

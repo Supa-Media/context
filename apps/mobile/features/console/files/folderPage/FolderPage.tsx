@@ -43,7 +43,9 @@ import { listLayout, makeItTaskStatus } from "./listLayout";
 import { ShowBar } from "./ShowBar";
 import { chipCounts, EVERYONE, filterMatch, tasksWithSubtasks, type ShowFilter } from "./showFilter";
 import { useTaskOwners } from "./useTaskOwners";
-import { FolderHead, Lede, PropertyLine, ViewSwitch } from "./Head";
+import { FolderHead, PropertyLine, ViewSwitch } from "./Head";
+import { Lede, type LedeEditing } from "./LedeEditor";
+import { ledeSource } from "./lede";
 import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./items";
 import { localOwnerSearch, ownersInUse } from "../owners";
 import { useOwnerLabels } from "./useOwnerLabels";
@@ -326,6 +328,19 @@ export function FolderPage({
   };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
   const parked = parkedOnBoard(parkedIn, notes ?? [], tasks.controls, writer);
+  const setLede = host.source.setLede;
+  const readBody = host.source.readBody;
+  const ledeEditing: LedeEditing | null =
+    summary === null || setLede === undefined || !loaded.canEdit
+      ? null
+      : {
+          read: async () => {
+            if (summary.creates || readBody === undefined) return summary.lede ?? "";
+            const body = await readBody(summary.target);
+            return body === null || body.encrypted ? summary.lede ?? "" : ledeSource(body.text);
+          },
+          save: (text) => setLede(summary.target, text, summary.creates ? { create: true } : undefined),
+        };
   const problem = loaded.problem ?? tidyProblem ?? tasks.controls?.problem ?? null;
   const peeking = panel.path;
   // Drawn at the width the peek gives it (`PanelBeside`).
@@ -371,7 +386,7 @@ export function FolderPage({
             onChoose={edit === null ? null : (key, value) => void edit(summary.target, key, value, summary.creates)}
           />
         ) : null}
-        {isProject && summary?.lede ? <Lede text={summary.lede} /> : null}
+        {isProject && summary !== null ? <Lede text={summary.lede} editing={ledeEditing} /> : null}
         {isProject ? null : rule}
       </FolderHead>
       {problem !== null ? (

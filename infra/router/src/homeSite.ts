@@ -100,7 +100,7 @@ function parseImages(value: unknown): Record<string, string> {
  * site has it, and the app never draws the homepage at one of these anyway.
  */
 const NOT_PAGES = new Set([
-  "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "login", "meetings",
+  "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "join", "login", "meetings",
   "note", "preview", "privacy", "s", "terms", "welcome", "workspace", "_expo", "api", "og",
 ]);
 

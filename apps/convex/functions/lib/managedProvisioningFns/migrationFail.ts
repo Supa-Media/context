@@ -22,11 +22,13 @@ export async function failMigrationRowAndPlan(
   row: Doc<"managedStorageMigrations"> | null,
   workspaceId: Id<"workspaces">,
   errorCode: string,
+  failedKeys?: string[],
 ): Promise<void> {
   if (row !== null && row.status === "copying") {
     await ctx.db.patch(row._id, {
       status: "failed",
       errorCode,
+      failedKeys,
       updatedAt: Date.now(),
     });
   }
@@ -47,12 +49,57 @@ export async function failMigrationRowAndPlan(
 /** Record a closed error code while keeping the source binding live. */
 export async function failManagedStorageMigrationHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces">; errorCode: string },
+  args: { workspaceId: Id<"workspaces">; errorCode: string; failedKeys?: string[] },
 ): Promise<null> {
   const row = await ctx.db
     .query("managedStorageMigrations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
-  await failMigrationRowAndPlan(ctx, row, args.workspaceId, args.errorCode);
+  await failMigrationRowAndPlan(ctx, row, args.workspaceId, args.errorCode, args.failedKeys);
   return null;
+}
+
+/**
+ * The owner stops a move out of managed storage.
+ *
+ * Nothing is undone because nothing was switched: the managed bucket stayed
+ * live throughout, and the files already copied stay in the customer's bucket,
+ * which is theirs and not ours to empty. A later move into the same
+ * destination carries on from them. Every scheduled page checks the row is
+ * still `copying` before doing anything, so this is also what stops them.
+ */
+export async function cancelManagedStorageHandoffHandler(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<{ cancelled: boolean }> {
+  const row = await ctx.db
+    .query("managedStorageMigrations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (row === null || row.direction !== "to_customer" || row.status !== "copying") {
+    return { cancelled: false };
+  }
+  // Once the final pass has said it is ready to switch, the switch is seconds
+  // away and is the thing that makes the move true; it is not interrupted.
+  if (row.readyToCutover === true) return { cancelled: false };
+  await ctx.db.patch(row._id, {
+    status: "failed",
+    errorCode: "CANCELLED",
+    failedKeys: undefined,
+    updatedAt: Date.now(),
+  });
+  const plan = await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (plan !== null) {
+    // The managed storage the workspace runs on is fine; it is not a failure.
+    await ctx.db.patch(plan._id, {
+      managedProvisioning: "ready",
+      managedProvisioningError: undefined,
+      managedProvisioningAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
+  return { cancelled: true };
 }

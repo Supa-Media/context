@@ -70,6 +70,10 @@ Moved to [The migration's outcome is recorded, because an offer nobody can answe
 
 Moved to [Leaving never deletes a file the customer already had](./storage-and-credentials/managed-storage.md#leaving-never-deletes-a-file-the-customer-already-had).
 
+## The managed copy is kept a week after a move out
+
+Moved to [The managed copy is kept a week after a move out](./storage-and-credentials/managed-storage.md#the-managed-copy-is-kept-a-week-after-a-move-out).
+
 ## Absent meant two things, and the bucket is asked which
 
 Moved to [Absent meant two things, and the bucket is asked which](./storage-and-credentials/migration-and-absence.md#absent-meant-two-things-and-the-bucket-is-asked-which).

@@ -12,6 +12,7 @@ import { ToastHost } from "../design/components/Toast";
 import { AppFrame } from "../app/AppFrame";
 import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
+import { useReferralMenu } from "../referrals/useReferralMenu";
 import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
@@ -131,6 +132,9 @@ export function ConsoleFrame({
   */
   const { requestSignOut, dialog: signOutDialog } = useSignOutFlow(data);
   const visitor = data.visitor;
+  // Invite friends and Community: only for a signed-in person with a control
+  // plane to ask — never the homepage visitor, the demo, or a fixture.
+  const referrals = useReferralMenu(data.referrals === true && visitor === undefined && data.demo !== true);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   /*
@@ -369,6 +373,7 @@ export function ConsoleFrame({
             void data.leaveContext?.(current.id);
             router.replace("/console");
           },
+    ...referrals.props,
     onSignOut: requestSignOut,
     whatsNew:
       whatsNewShown && whatsNewEntry !== null
@@ -544,6 +549,7 @@ export function ConsoleFrame({
         {visitor === undefined ? consoleAgentSetup({ connectAgent, data, router }) : null}
 
         {visitor === undefined ? signOutDialog : null}
+        {referrals.host}
 
         {consoleCloseTabConfirm({ closingTab, tabs, setClosingTab })}
 

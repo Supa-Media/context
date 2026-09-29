@@ -145,6 +145,14 @@ export const getStorageBindingReturns = v.union(
     handoffObjectsTotal: v.optional(v.number()),
     handoffObjectsProcessed: v.optional(v.number()),
     handoffErrorCode: v.optional(v.string()),
+    /** Owner only: where the move is going, and whether it was checked empty. */
+    handoffBucket: v.optional(v.string()),
+    handoffClaimed: v.optional(v.boolean()),
+    handoffFailedKeys: v.optional(v.array(v.string())),
+    handoffReadyToSwitch: v.optional(v.boolean()),
+    handoffExistingFiles: v.optional(v.union(v.literal("replace"), v.literal("merge"))),
+    /** Owner only: until when the old managed bucket is kept after a move out. */
+    managedRetainedUntil: v.optional(v.number()),
   }),
 );
 
@@ -181,6 +189,12 @@ export async function getStorageBindingHandler(
       .unique()
     : null;
   const customerHandoff = handoff?.direction === "to_customer" ? handoff : null;
+  const plan = isOwner
+    ? await ctx.db
+      .query("workspacePlans")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique()
+    : null;
 
   return {
     provider: binding.provider,
@@ -221,5 +235,11 @@ export async function getStorageBindingHandler(
     handoffObjectsTotal: customerHandoff?.objectsTotal,
     handoffObjectsProcessed: customerHandoff?.objectsProcessedInPhase,
     handoffErrorCode: customerHandoff?.errorCode,
+    handoffBucket: customerHandoff?.targetBucket,
+    handoffClaimed: customerHandoff?.targetClaimed,
+    handoffFailedKeys: customerHandoff?.failedKeys,
+    handoffReadyToSwitch: customerHandoff?.readyToCutover,
+    handoffExistingFiles: customerHandoff?.existingFiles,
+    managedRetainedUntil: plan?.managedRetainedUntil,
   };
 }
