@@ -29,6 +29,9 @@ import { useTaskMenu, type TaskMenuModel } from "./useTaskMenu";
 import type { PendingRecord } from "./usePendingNotes";
 import { useTaskActions, type TaskControls } from "./useTaskActions";
 
+/** "+ Add task" at the filter bar's 28pt height, so it reads as one of its controls. */
+const ADD_BUTTON = { height: 28, paddingVertical: 0, justifyContent: "center" } as const;
+
 export interface FolderTasks {
   readonly controls: TaskControls | null;
   /** The primary "+ Add task", for the Show bar's right; null for who may not write. */
@@ -145,8 +148,9 @@ export function useFolderTasks({
     addButton: compact ? null : (
       <Button
         label={controls.addLabel}
-        variant="dialogPrimary"
+        variant="mini"
         onPress={() => controls.openComposer({ kind: "task", section: "not-started", status: controls.firstToDo, at: "top" })}
+        style={ADD_BUTTON}
         testID="folder-add-task-primary"
       />
     ),
