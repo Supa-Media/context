@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { JoinCard, useHomeJoin } from "../auth/JoinCard";
+import { JoinSlotPortal } from "./JoinSlotPortal";
+import { useJoinSlot } from "./useJoinSlot";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
@@ -162,7 +164,8 @@ export function HomeShell() {
 
   /*
     Invite-only (Dev2, 2026-09-28): signing in and joining the waitlist are one
-    email field, and it lives in the page (`JoinCard`, above the note). The
+    email field, and it lives in the page (`JoinCard`): where the page's
+    ```join fence is (`websiteJoin.ts`), else above the note. The
     account button's "Sign in or join" and every link to sign-in or a new
     workspace bring that field into view and focus it, instead of taking the
     visitor to another page. Somebody already signed in follows the link.
@@ -171,6 +174,8 @@ export function HomeShell() {
   const askToJoin = useCallback(() => setJoinAsk((n) => n + 1), []);
   const joinAnswered = useRef(0);
   const join = useHomeJoin(router as { replace: (href: string) => void });
+  const joinSlot = useJoinSlot();
+  const joinCard = <JoinCard flow={join} ask={joinAsk} answered={joinAnswered} />;
   const followLink = useCallback(
     (href: string) => {
       const link = homeLink(href);
@@ -246,7 +251,7 @@ export function HomeShell() {
       signedIn: auth.isAuthenticated,
       signIn: askToJoin,
       openApp: () => router.push("/console"),
-      join: <JoinCard flow={join} ask={joinAsk} answered={joinAnswered} />,
+      join: joinSlot === null ? joinCard : null,
       linkFor: (path) => {
         const route = routeOf(path);
         if (route === undefined) return null;
@@ -286,6 +291,9 @@ export function HomeShell() {
 
   return (
     <View style={styles.ground}>
+      {joinSlot !== null ? (
+        <JoinSlotPortal slot={joinSlot}>{auth.isAuthenticated ? null : joinCard}</JoinSlotPortal>
+      ) : null}
       <ConsoleFrame
         data={data}
         route={HOME_ROUTE}

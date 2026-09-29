@@ -167,6 +167,33 @@ describe("the homepage is the console's frame", () => {
     expect(document.activeElement).toBe(field);
   });
 
+  /*
+    Dev2, 2026-09-29: the field goes where the page says, as the artboard drew
+    it — a ```join fence where the button was — not above the note.
+  */
+  test("a page with a join fence draws the field there, and only there", async () => {
+    const index = mockSite.snapshot.pages[0]!;
+    const before = index.markdown;
+    index.markdown = "# Welcome\n\nit's invite only for now.\n\n```join\n```\n\nthe end";
+    try {
+      const home = mountHome();
+      await act(async () => {});
+      const cards = document.querySelectorAll('[data-testid="join-card"]');
+      expect(cards.length).toBe(1);
+      expect(cards[0]!.closest(".cm-lp-join")).not.toBeNull();
+      expect(home.find("join-email")).not.toBeNull();
+    } finally {
+      index.markdown = before;
+    }
+  });
+
+  test("a page without one keeps the field above the note", () => {
+    mountHome();
+    const card = document.querySelector('[data-testid="join-card"]');
+    expect(card).not.toBeNull();
+    expect(card!.closest(".cm-lp-join")).toBeNull();
+  });
+
   test("somebody signed in has no join card", () => {
     mockAuth.isAuthenticated = true;
     const home = mountHome();

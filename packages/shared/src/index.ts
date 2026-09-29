@@ -189,6 +189,7 @@ export {
   type CastStep,
   type WebsiteCast,
 } from "./websiteCast";
+export { JOIN_OPEN, stripWebsiteJoin } from "./websiteJoin";
 export {
   DEVLOG_EXPLORING_DISCLAIMER,
   DEVLOG_PAGE_FILE,
