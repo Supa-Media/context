@@ -903,7 +903,10 @@ describe("what stops a flood", () => {
     expect(collectCapFrom(2000)).toBe(2000);
   });
 
-  test("a cancelled managed context stops taking answers", async () => {
+  test("a cancelled managed context keeps taking answers", async () => {
+    // A lapse drops a context to the free plan's note cap and never makes it
+    // read-only (decided by the owner, 2026-09-29). The cap, in the store, is
+    // what refuses an answer to a full one.
     const f = await fixture({ managed: true });
     const { token } = await link(f, "collect");
     await f.t.run((ctx) =>
@@ -916,13 +919,13 @@ describe("what stops a flood", () => {
         updatedAt: Date.now(),
       }),
     );
-    expect(errorCode(await captureError(() => answer(f, token)))).toBe("CONTEXT_READ_ONLY");
+    await answer(f, token);
+    expect(await responsesFile(f)).toContain("Jordan");
   });
 
   test("a cancelled context on the customer's OWN bucket keeps taking them", async () => {
-    // Only managed storage can be made read-only by a lapse: a bucket the
-    // customer owns keeps working with their own credentials whatever we think
-    // of their card.
+    // A bucket the customer owns keeps working with their own credentials
+    // whatever we think of their card.
     const f = await fixture();
     const { token } = await link(f, "collect");
     await f.t.run((ctx) =>

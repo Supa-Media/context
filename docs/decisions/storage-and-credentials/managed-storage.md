@@ -77,8 +77,10 @@ aimed at, that account is the wall.
    everything, or hand it to a bucket of their own, on both plans and after a
    cancellation. The moment either is gated, "you can always leave" is
    marketing rather than architecture.
-5. **Cancelling never deletes.** Read-only and exportable for a stated window,
-   with the final removal an action the customer takes.
+5. **Cancelling never deletes.** A lapsed context goes back on the free plan
+   (its note cap) and stays writable and exportable, with the final removal an
+   action the customer takes. It was once to be read-only; the owner chose the
+   free plan instead on 2026-09-29 (`docs/decisions/billing.md`).
 
 ### Why R2 specifically
 

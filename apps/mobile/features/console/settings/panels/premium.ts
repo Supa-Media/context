@@ -233,7 +233,7 @@ export function managedMigrationCopy(status: PremiumStatus): {
  */
 export const EXPORT_PROMISE =
   "Taking your notes with you is free, on both plans, and keeps working after " +
-  "you cancel. Cancelling makes a context read-only and exportable — it never " +
+  "you cancel. Cancelling puts a context back on the free plan — it never " +
   "deletes anything.";
 
 /**
@@ -436,7 +436,7 @@ export function describePremium(
         title: "Premium has ended for this context",
         blurb:
           "What you chose is remembered, so starting again is a payment rather than " +
-          "a set-up. Managed storage is read-only until then.",
+          "a set-up. Until then, storage we run is back on the free plan's note limit.",
       };
     case "unavailable":
       return {

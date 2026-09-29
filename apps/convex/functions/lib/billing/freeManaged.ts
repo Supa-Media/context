@@ -117,7 +117,7 @@ export async function noteCapForWorkspace(
   workspaceId: Id<"workspaces">,
 ): Promise<number | null> {
   const plan = await planFor(ctx, workspaceId);
-  if (plan?.freeManaged !== true) return null;
+  if (plan === null) return null;
   const binding = await ctx.db
     .query("storageBindings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
