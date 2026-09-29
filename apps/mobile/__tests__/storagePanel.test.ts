@@ -145,8 +145,12 @@ describe("the binding is a list of what this binding is", () => {
     expect(find(body, "storage-field-provider")).not.toBeNull();
   });
 
-  test("a value stays copyable, because an endpoint is there to be copied", () => {
+  test("technical details wait behind a toggle, and stay copyable once open", () => {
     const body = storagePane({ endpoint: "https://example.r2.invalid" });
+    expect(find(body, "storage-field-endpoint-value")).toBeNull();
+    act(() => {
+      find(body, "storage-details-toggle")!.click();
+    });
     const value = find(body, "storage-field-endpoint-value");
     expect(value).not.toBeNull();
     expect(value!.textContent).toBe("https://example.r2.invalid");
@@ -190,6 +194,6 @@ describe("the exit is stated, and never mocked up", () => {
   });
 
   test("the exit that is real is still stated in words", () => {
-    expect(storagePane({ provider: "r2" }).textContent).toContain("no export needed");
+    expect(storagePane({ provider: "r2" }).textContent).toContain("loses access right away");
   });
 });

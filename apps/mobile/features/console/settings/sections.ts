@@ -175,9 +175,15 @@ export const SETTINGS_SECTIONS = [
       searches with two answers.
     */
     keywords:
-      "about which role kind name health status workspace context audit history log trail export key keys encryption rotate activity delete remove destroy retire unwanted clutter",
+      "general about which role kind name picture icon health status workspace context delete remove destroy retire unwanted clutter",
     scope: "context",
-    label: "Workspace",
+    /*
+      "General" since the settings cleanup (2026-09-29): the page is this
+      workspace's name, picture and deletion, and the workspace's name is
+      already in the switcher above the list. The key stays `workspace` so
+      old `?settings=workspace` links still land here.
+    */
+    label: "General",
     /*
       First among the context rows: it answers which context this is before
       any of the rows below it are worth reading.
@@ -197,7 +203,7 @@ export const SETTINGS_SECTIONS = [
       here or it lands nowhere.
     */
     keywords:
-      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild",
+      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
     scope: "context",
     label: "Storage",
     group: null,
@@ -361,6 +367,24 @@ export const SETTINGS_SECTIONS = [
     */
     group: null,
     icon: "people",
+    personalOnly: false,
+  },
+  {
+    /*
+      The audit trail, as sentences. It was a block under "Advanced" at the
+      foot of the workspace page, drawn one raw event per row, and a tester
+      called it "actually disgusting" (2026-09-29). Its own row because it is
+      the one thing on that page somebody opens with a question: who moved my
+      note, what did that app do. Right after Sharing: who can get in, then
+      what they did.
+    */
+    key: "activity",
+    keywords:
+      "activity audit trail history log changes changed who did what when edited moved deleted recent events sign in signed agent app",
+    scope: "context",
+    label: "Activity",
+    group: null,
+    icon: "clock",
     personalOnly: false,
   },
   {

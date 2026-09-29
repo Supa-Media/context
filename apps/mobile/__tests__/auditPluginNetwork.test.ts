@@ -12,7 +12,7 @@
  * "exactly one `plugin.network` row naming the plugin, the host, the method and
  * the status". **That was not a thing the shipped console could do.**
  * `recordRuntimeAudit` has stored all four since the egress service landed and
- * `listEvents` hands them to an owner, but `AdvancedPanel` drew action, actor,
+ * `listEvents` hands them to an owner, but the old `AdvancedPanel` drew action, actor,
  * time and paths — and `plugin.network` carries no path by construction,
  * because no note is involved. The row read *"plugin network · you · 2 minutes
  * ago"* and answered none of the three questions somebody opens a trail to ask.

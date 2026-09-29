@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Dot } from "../../../design/components/Dot";
-import { Icon, type IconName } from "../../../design/components/Icon";
+import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { layout, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { atName, relativeTime } from "../../format";
 import { storagePillLabel } from "../../storage/pill";
 import { selectedContext, type ConsoleData } from "../../types";
-import { settingsPreview } from "../previews";
-import { settingsSectionLabel, type SettingsSectionKey } from "../sections";
+import type { SettingsSectionKey } from "../sections";
 import { useWorkspaceIcons } from "../../useWorkspaceIcons";
 import { WorkspaceIconPicker, WorkspaceMonogram } from "./WorkspaceIconPicker";
 import { YourPicture } from "./YourPicture";
@@ -137,63 +136,15 @@ export function OverviewPanel({
       {!shared && current?.role === "owner" && onSelect !== undefined ? <YourPicture /> : null}
 
       {/*
-        One word for both kinds, now that both kinds are workspaces. The
-        heading used to fork — "This workspace" / "This brain" — and the fork
-        was the vocabulary rather than anything about the facts under it.
-      */}
-      <Text variant="listGroup" style={styles.heading}>
-        This workspace
-      </Text>
-      <View style={styles.card}>
-        {FACTS.map((key, index) => {
-          const value = settingsPreview(key, data);
-          return (
-            <View key={key}>
-              {index === 0 ? null : <View style={styles.divider} />}
-              <Fact
-                icon={FACT_ICONS[key]}
-                label={settingsSectionLabel(key)}
-                value={value}
-                onPress={onSelect === undefined ? undefined : () => onSelect(key)}
-                testID={`overview-fact-${key}`}
-              />
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Deliberately not a fourth fact. `settingsPreview` cannot answer for
-          the plan without hoisting Premium's own subscription onto every
-          console load, and a row that navigates and says nothing is the list
-          this section was supposed to be an answer to. */}
-
-      {/*
-        "Delete this workspace" used to be a signpost here, pointing at the
-        Advanced section. Advanced is a block on this same page now, with the
-        deletion card in it and the same sentence about what survives, so the
-        signpost would be a press that goes nowhere and a second copy of the
-        copy it was pointing at.
+        There was a "This workspace" card here linking to Storage and Sharing
+        & Access. The settings list beside this page already has both rows,
+        one line away, so the card was the same two links twice. It went in
+        the settings cleanup (2026-09-29); the health strip above still
+        links to Storage, which is the one link that carries news.
       */}
     </View>
   );
 }
-
-/**
- * The three facts that say what a context *is*.
- *
- * Storage and sharing: where the notes are, and who can see them. Those were
- * three facts — storage, privacy, membership — until privacy and membership
- * became two blocks of one section, and a fact row per block would be this
- * panel deciding the other screen's shape for it. Search and the capture
- * sources are settings *about* a context rather than descriptions of one, and
- * Premium is a question about the account paying for it.
- */
-const FACTS: readonly SettingsSectionKey[] = ["storage", "sharing"];
-
-const FACT_ICONS: Record<string, IconName> = {
-  storage: "drive",
-  sharing: "people",
-};
 
 function HealthStrip({
   data,
@@ -302,56 +253,6 @@ function describeBinding(data: ConsoleData): BindingState {
 function verifiedLine(label: string | null, lastVerifiedAt: number | undefined): string | null {
   const when = lastVerifiedAt === undefined ? null : `checked ${relativeTime(lastVerifiedAt, Date.now())}`;
   return [label, when].filter((part) => part !== null).join(" — ") || null;
-}
-
-function Fact({
-  icon,
-  label,
-  value,
-  onPress,
-  testID,
-}: {
-  icon: IconName;
-  label: string;
-  value: string | null;
-  onPress?: () => void;
-  testID: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const inner = (
-    <>
-      <Icon name={icon} size={19} color={colors.muted} />
-      <Text variant="rowTitle">{label}</Text>
-      <View style={styles.grow} />
-      {value === null ? null : (
-        <Text variant="rowSub" numberOfLines={1} style={styles.factValue}>
-          {value}
-        </Text>
-      )}
-      {onPress === undefined ? null : (
-        <Icon name="chevronRight" size={13} color={colors.muted} />
-      )}
-    </>
-  );
-  if (onPress === undefined) {
-    return (
-      <View style={styles.fact} testID={testID}>
-        {inner}
-      </View>
-    );
-  }
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={styles.fact}
-      testID={testID}
-    >
-      {inner}
-    </Pressable>
-  );
 }
 
 const makeStyles = (colors: Colors) =>

@@ -533,11 +533,16 @@ describe("a Dropbox binding on the settings pane", () => {
     const connected = mountSettings({
       dropboxAccountId: "dbid:AAAAAAAAAAAAAAAAAAAA",
     });
+    // A raw account id is a connection detail: one press away since the
+    // settings cleanup, not on the page by default.
+    expect(connected.text).not.toContain("Connected as");
+    connected.click("storage-details-toggle");
     expect(connected.text).toContain("Connected as");
     expect(connected.text).toContain("dbid:AAAAAAAAAAAAAAAAAAAA");
     connected.unmount();
 
     const stillConnecting = mountSettings({});
+    expect(stillConnecting.q("storage-details-toggle")).toBeNull();
     expect(stillConnecting.text).not.toContain("Connected as");
     stillConnecting.unmount();
   });
@@ -580,7 +585,7 @@ describe("a Dropbox binding on the settings pane", () => {
 
   test("the revocation sentence names Dropbox's own setting, not a provider key", () => {
     const screen = mountSettings({});
-    expect(screen.text).toContain("Unlink Context in your Dropbox account settings");
+    expect(screen.text).toContain("Unlink Context in your Dropbox settings");
     screen.unmount();
   });
 
@@ -634,7 +639,7 @@ describe("a Dropbox binding on the settings pane", () => {
     });
     expect(screen.text).toContain("example-bucket");
     expect(screen.q("storage-rebind")?.textContent).toContain("Rotate key");
-    expect(screen.text).toContain("Revoke the key at your provider");
+    expect(screen.text).toContain("Remove Context's key at your provider");
     screen.unmount();
   });
 
