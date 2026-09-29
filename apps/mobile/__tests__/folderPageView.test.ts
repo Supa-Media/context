@@ -364,6 +364,15 @@ describe("a folder outside projects", () => {
   });
 });
 
+test("a project folder asks for its notes to be current when it opens; a folder outside projects does not", async () => {
+  // Reported by the owner: a phone's List read "In progress 2" where the web read 9, its copy days behind.
+  const freshened: string[] = [];
+  const asking = (): FolderPageHost => ({ ...host([]), source: { load: async () => ({ notes: [], complete: true }), freshen: (at: string) => freshened.push(at) } });
+  await mount(entry("folder", "1-projects"), listing("1-projects", []), asking());
+  await mount(entry("folder", "2-areas"), listing("2-areas", []), asking());
+  expect(freshened).toEqual(["1-projects"]);
+});
+
 describe("a folder of folders nobody has tracked yet", () => {
   const UNTRACKED: ListNote[] = [
     { path: "1-projects/trip/overview.md", updatedAt: 5, properties: {} },

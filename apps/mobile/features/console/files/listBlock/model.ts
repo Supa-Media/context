@@ -124,6 +124,12 @@ export interface FolderListSource {
   load(folder: string, subfolders: boolean): Promise<ListSource | null>;
   subscribe?(listener: () => void): () => void;
   /**
+   * Ask for this folder's notes to be brought up to date on this device now,
+   * ahead of the background sync (`offline/mirrorFolder.ts`); `subscribe`
+   * hears when they land. Absent where the notes are not a device's copy.
+   */
+  freshen?(folder: string): void;
+  /**
    * Change one frontmatter property of one listed note; `null` clears it.
    * Resolves to `null` once written, or to a sentence saying why not. Absent
    * where the reader may not write, and a list then offers no edits.

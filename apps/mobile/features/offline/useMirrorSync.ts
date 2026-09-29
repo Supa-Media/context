@@ -10,7 +10,13 @@ import {
   statusFromIndex,
 } from "./mirrorStatus";
 import { openMirrorStore } from "./mirrorStore";
-import { onMirrorRefreshRequest, publishMirrorListed, publishMirrorNotesChanged } from "./mirrorEvents";
+import {
+  onMirrorFolderRequest,
+  onMirrorRefreshRequest,
+  publishMirrorListed,
+  publishMirrorNotesChanged,
+} from "./mirrorEvents";
+import { freshenFolder } from "./mirrorFolder";
 import {
   refreshMetadata,
   syncAll,
@@ -280,6 +286,41 @@ export function useMirrorSync(options: {
         })()
           .catch(() => {})
           .finally(() => inFlight.delete(workspaceId));
+      }),
+    [engine],
+  );
+
+  /*
+    A project List or Board opened on a folder: that folder's notes now, not
+    whenever the pass reaches them (`mirrorFolder.ts`). Outside the pass's
+    single flight for the same reason a refresh is, and one at a time per
+    folder; a request that lands during one runs once more after it.
+  */
+  const freshening = useRef(new Map<string, boolean>());
+  useEffect(
+    () =>
+      onMirrorFolderRequest((workspaceId, folder) => {
+        if (reachabilityRef.current !== "online") return;
+        if (epochRef.current !== currentEpoch()) return;
+        const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
+        if (target === undefined) return;
+        const key = `${workspaceId}\n${folder}`;
+        const inFlight = freshening.current;
+        if (inFlight.has(key)) {
+          inFlight.set(key, true);
+          return;
+        }
+        inFlight.set(key, false);
+        void (async () => {
+          const store = await openMirrorStore();
+          if (store === null) return;
+          do {
+            inFlight.set(key, false);
+            await freshenFolder(engine(store), target, folder);
+          } while (inFlight.get(key) === true && epochRef.current === currentEpoch());
+        })()
+          .catch(() => {})
+          .finally(() => inFlight.delete(key));
       }),
     [engine],
   );

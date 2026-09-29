@@ -172,7 +172,7 @@ export interface ContextListing {
  * it, `"aborted"` when the session ended part-way, and an empty `listed` with
  * `incomplete` when not one page arrived.
  */
-async function listContext(
+export async function listContext(
   deps: MirrorSyncDeps,
   target: { workspaceId: string; tier: VisibilityTier },
 ): Promise<(ContextListing & { pagesListed: number }) | "aborted" | null> {
@@ -272,7 +272,7 @@ async function listContext(
  * two walks can overlap — a sync's and the console's own refresh — and the
  * older must not undo the newer.
  */
-async function commitListing(
+export async function commitListing(
   deps: MirrorSyncDeps,
   listing: ContextListing,
 ): Promise<{ pruned: number } | null> {
