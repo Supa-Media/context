@@ -38,6 +38,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of devlogReads) await ctx.db.delete(row._id);
 
+  // Their Privacy & feedback switches: three booleans and a time.
+  const telemetryPreferences = await ctx.db
+    .query("telemetryPreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of telemetryPreferences) await ctx.db.delete(row._id);
+
   // The user's own name claims. Nothing writes a `kind: "user"` row today
   // (see functions/invitations.ts), so this is usually a no-op — but the
   // schema supports them and a claimed username must not outlive the person.

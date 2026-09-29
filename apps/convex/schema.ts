@@ -22,6 +22,7 @@ import { waitlistTables } from "./functions/lib/schema/waitlist";
 import { managedEncryptionTables } from "./functions/lib/schema/managedEncryption";
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
+import { telemetryTables } from "./functions/lib/schema/telemetry";
 
 /**
  * Control-plane schema for Context.
@@ -75,6 +76,7 @@ const schema = defineSchema({
   ...managedEncryptionTables,
   ...referralTables,
   ...devlogTables,
+  ...telemetryTables,
 });
 
 export default schema;

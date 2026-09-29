@@ -54,9 +54,14 @@ The design was approved on the private-beta artboard (2026-09-29).
   `__tests__/feedbackSentry.test.ts` fails if either is removed.
 - Offline, past ten a day, or "Send later" after a failure, a report waits in
   the device store and is sent when the app opens or the device reconnects.
-- The switches (crash reports, screen counts, web recordings) are **per
-  device** until the account has a field for them. Crash reports off drops
-  error events in `beforeSend`; reports still go, being an explicit act.
+- The switches (crash reports, screen counts, web recordings) follow the
+  account: `telemetryPreferences` in the control plane holds three booleans
+  and a time per person (`functions/telemetry.ts`), and each device keeps a
+  copy so the choice applies before sign-in and offline. The later change
+  wins; a choice another person made on a shared device never reaches the
+  next person's account (`features/observability/accountPreferences.ts`,
+  `__tests__/telemetryAccountSync.test.ts`). Crash reports off drops error
+  events in `beforeSend`; reports still go, being an explicit act.
 - Not yet: screenshots and shake-to-report in the native apps (both need a
   native module and a new build).
 
