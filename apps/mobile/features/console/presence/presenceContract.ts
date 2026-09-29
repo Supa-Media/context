@@ -28,6 +28,12 @@ export interface Presence {
    * from a real room, whose members' comments arrive as text like any edit.
    */
   commentFocus?: { thread: string; step: number } | null;
+  /**
+   * A face the homepage cast clicked: the pile opens its list of who is here
+   * for a moment, as it would for a visitor's click. `step` changes with every
+   * click. Absent from a real room.
+   */
+  peek?: { member: string; step: number } | null;
   /** Tell the room where this editor's caret is. Safe to call on every change. */
   report: (anchor: number, head: number) => void;
   /**

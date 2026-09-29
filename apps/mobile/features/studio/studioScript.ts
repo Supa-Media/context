@@ -44,6 +44,14 @@ export function describeStep(step: CastStep): string {
       return `replies ${quoted(step.text)}`;
     case "resolve":
       return "resolves the comment";
+    case "join":
+      return "comes in";
+    case "leave":
+      return "leaves";
+    case "click":
+      return `clicks ${step.target}`;
+    case "tick":
+      return `ticks ${quoted(step.quote)}`;
     case "wait":
       return `Wait ${Math.round(step.ms / 100) / 10}s`;
   }
