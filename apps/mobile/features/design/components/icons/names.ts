@@ -361,6 +361,13 @@ export const ICON_NAMES = [
   "cloudCheck",
   "cloudUp",
   "cloudOff",
+  /**
+   * Report a problem: the top bar's feedback button and the account card's
+   * "Send feedback" row. A bug because that is what testers call the thing
+   * they are reporting, and it reads at 16pt where a speech bubble reads as
+   * chat — which this app already has.
+   */
+  "bug",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];

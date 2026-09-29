@@ -7,6 +7,8 @@ import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { layout, radii, space } from "../design/tokens";
+import { openFeedback } from "../feedback/request";
+import { canSendFeedback } from "../observability/client";
 import { offerOwnContext } from "../onboarding/route";
 import { Avatar } from "./AccountBlock";
 import {
@@ -76,6 +78,7 @@ export type SwitcherMenuId =
   | "settings"
   | "leave"
   | "signout"
+  | "feedback"
   | "signin"
   | "signup"
   | "app";
@@ -204,6 +207,14 @@ export function SwitcherMenu({
     ...(onOpenSettings
       ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
       : []),
+    /*
+      Signed in only — `onSignOut` is the card's own word for that — and only
+      where this build can send a report at all. The phone's way in, since its
+      top bar has no room for the bug button.
+    */
+    ...(onSignOut && canSendFeedback()
+      ? [{ id: "feedback", label: "Send feedback", leading: <Icon name="bug" size={14} />, testID: "switcher-feedback" }]
+      : []),
   ];
 
   const exits: AccountCardRow[] = [
@@ -258,6 +269,7 @@ export function SwitcherMenu({
     else if (id === "settings") onOpenSettings?.();
     else if (id === "leave") onLeaveContext?.();
     else if (id === "signout") onSignOut?.();
+    else if (id === "feedback") openFeedback("menu");
     else if (id === "signin") onSignIn?.();
     else if (id === "signup") onCreateAccount?.();
     else if (id === "app") onOpenApp?.();

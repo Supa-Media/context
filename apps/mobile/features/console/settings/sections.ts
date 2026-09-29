@@ -146,6 +146,22 @@ export const SETTINGS_SECTIONS = [
     pendingOnly: true,
   },
   {
+    /*
+      What this app sends us while Context is in early beta, and the way to
+      send a report on purpose. An account section because it is about the
+      person, not a workspace — although the switches are stored per device
+      until the account has a field for them (see `observability/preferences.ts`).
+    */
+    key: "feedback",
+    keywords:
+      "privacy feedback report bug problem crash error telemetry analytics tracking data collect recording replay diagnostics beta opt out",
+    label: "Privacy & feedback",
+    scope: "account",
+    group: "Your account",
+    icon: "bug",
+    personalOnly: false,
+  },
+  {
     key: "workspace",
     /*
       Overview's words and Advanced's, in one haystack.
