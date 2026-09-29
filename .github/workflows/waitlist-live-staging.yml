@@ -5,13 +5,16 @@
 # with a reason, staff (the seeded alpha@supa.media persona) read it and let
 # them in, the "you're in" mail and a mailed code sign them in, they make a
 # business workspace and invite a teammate by email, and invite a friend to
-# Context. Every code and link is read out of a fresh AgentMail inbox, so this
-# also proves staging's mail is sent and its links work. Everything the run
+# Context. The three people are +tag addresses on one AgentMail inbox, and
+# every code and link is read out of it, so this also proves staging's mail is
+# sent and its links work. Everything the run
 # creates is removed at the end. The same journeys run against a fake mailbox
 # on every pull request in apps/convex/__tests__/waitlistJourney.test.ts.
 #
 # Manual only: it creates real accounts and sends real mail. It needs
-# AGENTMAIL_API_KEY in the staging environment, and alpha@supa.media in
+# AGENTMAIL_API_KEY and AGENTMAIL_INBOX (the shared inbox's address, a secret
+# so this public repo's logs mask it) in the staging environment, and
+# alpha@supa.media in
 # staging's ADMIN_EMAILS (1Password, then Sync Secrets, then a staging deploy).
 name: Waitlist Live (staging)
 
@@ -35,6 +38,7 @@ jobs:
       APP_ENV: staging
       STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
       AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
+      AGENTMAIL_INBOX: ${{ secrets.AGENTMAIL_INBOX }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
