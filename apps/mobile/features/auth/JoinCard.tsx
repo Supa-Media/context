@@ -49,7 +49,7 @@ export function JoinCard({
       (box.current as unknown as HTMLElement | null)?.scrollIntoView?.({ behavior: "smooth", block: "center" });
     }
     field.current?.focus();
-  }, [ask]);
+  }, [ask, answered]);
 
   const spinner = submitting ? <ActivityIndicator color={colors.ink} size="small" /> : null;
 

@@ -37,7 +37,7 @@ let mockStatus: "admitted" | "joined" | "already" = "admitted";
 const mockEntered: Array<Record<string, unknown>> = [];
 const mockDescribed: Array<Record<string, unknown>> = [];
 jest.mock("convex/react", () => ({
-  useMutation: (ref: unknown) => async (args: Record<string, unknown>) => {
+  useMutation: () => async (args: Record<string, unknown>) => {
     if ("useFor" in args) {
       mockDescribed.push(args);
       return null;
