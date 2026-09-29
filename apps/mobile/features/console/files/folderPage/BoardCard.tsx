@@ -1,6 +1,6 @@
 /**
  * One card on a project's Board (the approved artboard): its priority and
- * first tag, its name, how far along it is — a bar and "2 of 4 done" — for a
+ * first tag, its name, how far along it is — a bar and "2/4" — for a
  * task that holds subtasks, when it is due, and whose it is as a face.
  *
  * Moving it is its status, two ways that land in the same write: drag it to
@@ -23,6 +23,7 @@ import { useCardDrag } from "./boardDrag";
 import { OwnerFace, PriorityGlyph } from "./Glyphs";
 import type { ItemActions } from "./items";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
+import { progressPercent } from "./ProgressMeter";
 import { PropertyValue } from "./PropertyValue";
 import { faceFor } from "./taskFace";
 import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
@@ -90,13 +91,13 @@ export function BoardCard({
             aria-label={`${progress.done} of ${progress.total} done`}
             testID="folder-card-bar"
           >
-            <View style={[styles.fill, { width: `${Math.round((100 * progress.done) / Math.max(1, progress.total))}%` }]} />
+            <View style={[styles.fill, { width: `${progressPercent(progress.done, progress.total)}%` }]} />
           </View>
         )}
         <View style={styles.line}>
           {progress === null ? null : (
-            <Text variant="meta" numberOfLines={1} style={styles.meta} testID="folder-card-progress">
-              {`${progress.done} of ${progress.total} done`}
+            <Text variant="meta" numberOfLines={1} style={styles.fraction} testID="folder-card-progress">
+              {`${progress.done}/${progress.total}`}
             </Text>
           )}
           {due === null ? null : (
@@ -162,4 +163,5 @@ const makeStyles = (colors: Colors) =>
     bar: { height: 4, borderRadius: 2, backgroundColor: colors.lineStrong, overflow: "hidden" },
     fill: { height: "100%", backgroundColor: colors.accent },
     meta: { flexShrink: 1, color: colors.muted },
+    fraction: { flexShrink: 0, color: colors.muted, fontVariant: ["tabular-nums"] },
   });

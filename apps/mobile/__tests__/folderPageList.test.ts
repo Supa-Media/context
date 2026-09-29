@@ -230,7 +230,11 @@ describe("the list", () => {
   test("a task opens onto its subtasks, then the notes in it; only a task with any has the chevron", async () => {
     await mount(host([]));
     const kitchen = row("kitchen");
-    expect(strip(one("folder-item-progress", kitchen).textContent)).toBe("2 of 3 done");
+    const meter = one("folder-item-progress", kitchen);
+    expect(strip(meter.textContent)).toBe("2/3");
+    expect(meter.getAttribute("aria-label")).toBe("2 of 3 done");
+    expect(meter.getAttribute("aria-valuenow")).toBe("2");
+    expect(one("progress-fill", meter).style.width).toBe("67%");
     expect(all("folder-expand", row("Sign the lease"))).toHaveLength(0);
     expect(all("folder-subtask")).toHaveLength(0);
     await press(one("folder-expand", kitchen));

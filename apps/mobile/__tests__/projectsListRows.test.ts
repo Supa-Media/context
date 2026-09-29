@@ -69,7 +69,8 @@ describe("the row gives its name the room", () => {
     expect(name.flexGrow).toBe("1");
     expect(name.minWidth).toBe(`${NAME_MIN}px`);
     const progress = one("folder-item-progress", row("Get the kitchen ready"));
-    expect(strip(progress.textContent)).toMatch(/of \d+ done/);
+    expect(strip(progress.textContent)).toMatch(/^\d+\/\d+$/);
+    expect(getComputedStyle(one("progress-track", progress)).width).toBe("40px");
     expect(getComputedStyle(progress).flexShrink).toBe("0");
     expect(getComputedStyle(progress).whiteSpace).toBe("nowrap");
   });

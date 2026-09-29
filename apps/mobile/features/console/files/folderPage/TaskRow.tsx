@@ -38,6 +38,7 @@ import { ownerLabel, type ItemActions } from "./items";
 import type { TaskEntry } from "./listLayout";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { PeekButton } from "./PeekButton";
+import { ProgressMeter } from "./ProgressMeter";
 import { CompactLine, NAME_MIN, OwnerCell, PriorityCell, RowTools, StatusValue, Tags, useRowHover, useToolsRoom } from "./rowCells";
 import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
 import { isPickPress, PickBox, RowFrame, SubtaskAdder, SubtaskButton } from "./tasks/RowParts";
@@ -66,7 +67,7 @@ export function TaskRow({
   const opens = entry.subtasks.length > 0 || entry.notes.length > 0;
   const due = dueOf(item.properties);
   const edit = actions.onChoose;
-  const progress = item.progress === null ? null : `${item.progress.done} of ${item.progress.total} done`;
+  const progress = item.progress;
   const tasks = actions.tasks ?? null;
   const picked = tasks?.selected.has(item.path) ?? false;
   return (
@@ -108,9 +109,7 @@ export function TaskRow({
                 {item.label}
               </Text>
               {progress === null ? null : (
-                <Text variant="meta" numberOfLines={1} style={styles.progress} testID="folder-item-progress">
-                  {progress}
-                </Text>
+                <ProgressMeter done={progress.done} total={progress.total} testID="folder-item-progress" />
               )}
             </View>
             {compact ? <CompactLine item={item} due={due === null ? "" : dueWord(due, now)} actions={actions} /> : null}
@@ -348,8 +347,6 @@ const makeStyles = (colors: Colors) =>
     name: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: NAME_MIN, alignSelf: "stretch", justifyContent: "center" },
     nameLine: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
     label: { flexShrink: 1, minWidth: 0, color: colors.text },
-    // "2 of 4 done" is one line beside the name, always whole.
-    progress: { flexShrink: 0, color: colors.chromeMuted, whiteSpace: "nowrap" } as never,
     noteLabel: { color: colors.text2, minWidth: 0 },
     finished: { color: colors.chromeMuted, textDecorationLine: "line-through" },
     meta: { flexShrink: 0, color: colors.chromeMuted },
