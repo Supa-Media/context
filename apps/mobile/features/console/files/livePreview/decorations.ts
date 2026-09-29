@@ -33,6 +33,7 @@ import {
 } from "../imageBlock";
 import { CalloutTitleWidget, callouts } from "./callouts";
 import { CastWidget, castFences } from "./castBlock";
+import { JoinWidget, joinFences } from "./joinBlock";
 import { quietHeadings, revealSelection } from "./engagement";
 import { frontmatterBlock, frontmatterHidden, frontmatterLine, frontmatterRange } from "./frontmatter";
 import { HtmlPreviewWidget, htmlPreviews } from "./htmlPreview";
@@ -223,12 +224,15 @@ export function decorationsFor(state: EditorState): DecorationSet {
     caret is elsewhere, under the frontmatter's rule — see `castFences`.
   */
   const casts = castFences(state, frontEnd);
+  /* A `join` fence — where the homepage's waitlist field goes — see `joinFences`. */
+  const joins = joinFences(state, frontEnd);
   const insidePreview = (pos: number): boolean =>
     previews.some((preview) => pos >= preview.from && pos < preview.to) ||
     forms.some((form) => pos >= form.from && pos < form.to) ||
     lists.some((list) => pos >= list.from && pos < list.to) ||
     rows.some((row) => pos >= row.from && pos < row.to) ||
     casts.some((cast) => pos >= cast.from && pos < cast.to) ||
+    joins.some((join) => pos >= join.from && pos < join.to) ||
     insideGrid(pos);
 
   /*
@@ -343,6 +347,12 @@ export function decorationsFor(state: EditorState): DecorationSet {
         cast.from,
         cast.to,
       ),
+    );
+  }
+
+  for (const join of joins) {
+    hides.push(
+      Decoration.replace({ widget: new JoinWidget(), block: true }).range(join.from, join.to),
     );
   }
 

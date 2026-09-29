@@ -60,6 +60,15 @@ describe("public website resolution", () => {
     expect(page).toMatchObject({ kind: "page", markdown: "# Welcome\n\nBye\n" });
   });
 
+  test("a join block places the homepage's waitlist field and never reaches another site's page", async () => {
+    const f = await fixture();
+    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\n# Welcome\n\n```join\n```\n\nBye\n");
+    await publish(f);
+
+    const page = await f.t.action(api.functions.websites.resolvePage, { handle: "@ATLAS", routePath: "/" });
+    expect(page).toMatchObject({ kind: "page", markdown: "# Welcome\n\nBye\n" });
+  });
+
   test("publishes only live routes and currently readable anyone-shares as links", async () => {
     const f = await fixture();
     f.backend.seed(
