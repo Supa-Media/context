@@ -99,6 +99,15 @@ export const credentialTables = {
      * source does not have: before it, such a key is the customer's own file.
      */
     targetClaimed: v.optional(v.boolean()),
+    /**
+     * What the owner chose for files already in a destination that was not
+     * empty: `replace` deletes them (typed consent, then the destination is
+     * claimed), `merge` keeps them beside the workspace's own. Absent until a
+     * non-empty destination has been answered for.
+     */
+    existingFiles: v.optional(v.union(v.literal("replace"), v.literal("merge"))),
+    /** Up to 50 keys that stopped the move, when it stopped on particular files. */
+    failedKeys: v.optional(v.array(v.string())),
     errorCode: v.optional(v.string()),
     startedBy: v.id("users"),
     createdAt: v.number(),

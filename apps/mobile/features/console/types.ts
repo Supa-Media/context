@@ -316,6 +316,18 @@ export interface ConsoleStorage {
   handoffObjectsTotal?: number;
   handoffObjectsProcessed?: number;
   handoffErrorCode?: string;
+  /** The bucket the move is going to, so its screens can name it. */
+  handoffBucket?: string;
+  /** Whether the destination was checked empty before anything was written. */
+  handoffClaimed?: boolean;
+  /** The files that stopped a move, when particular files did. */
+  handoffFailedKeys?: string[];
+  /** The last pass matched and the move is switching over; too late to stop. */
+  handoffReadyToSwitch?: boolean;
+  /** The owner's answer for files already in the destination. */
+  handoffExistingFiles?: "replace" | "merge";
+  /** After a move out, when Context's copy is deleted unless the owner switches back. */
+  managedRetainedUntil?: number;
 }
 
 /**
@@ -340,6 +352,12 @@ export interface StorageActions {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   /** Starts or retries a verified whole-bucket move out of managed storage. */
   handoff: (values: ConnectFormValues) => Promise<{ started: true }>;
+  /** Stops a move out of managed storage that has not started switching over. */
+  cancelHandoff: () => Promise<{ cancelled: boolean }>;
+  /** Answers a destination that already has files: merge, or start fresh (typed consent). */
+  chooseExistingFiles: (
+    answer: { choice: "merge" } | { choice: "replace"; confirmBucket: string },
+  ) => Promise<{ resumed: true }>;
   disconnect: () => Promise<{ disconnected: boolean }>;
   /**
    * Asks the bucket where the storage-layout migration got to, running none of

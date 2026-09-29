@@ -187,6 +187,12 @@ export const billingTables = {
     /** When the last attempt ended, so a retry can be rate-limited by a human. */
     managedProvisioningAt: v.optional(v.number()),
     /**
+     * After a move to the customer's own bucket: until when the managed bucket
+     * is kept, so the owner can switch back. Cleared once it is deleted, or
+     * once the workspace is back on it.
+     */
+    managedRetainedUntil: v.optional(v.number()),
+    /**
      * This context started on the free managed tier: a bucket we run, no
      * card, a note cap (`lib/premium.ts`, `FREE_MANAGED_NOTE_CAP`).
      *

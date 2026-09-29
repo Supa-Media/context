@@ -32,6 +32,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One managed account per deployment, never shared
 - A migration pass is walked in waves, and an unchanged object is read twice
 - Leaving never deletes a file the customer already had
+- The managed copy is kept a week after a move out
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to

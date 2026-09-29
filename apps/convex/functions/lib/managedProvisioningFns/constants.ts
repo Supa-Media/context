@@ -35,6 +35,14 @@ export const MIGRATION_WAVE_BYTE_BUDGET = 32 * 1024 * 1024;
 export const MANAGED_STORAGE_SETTLE_POLL_MS = 5 * 1000;
 
 /**
+ * How long the managed bucket outlives a move to the customer's own bucket.
+ *
+ * Long enough to notice something is wrong and switch back; short enough that
+ * we are not quietly keeping a copy of somebody's notes they took elsewhere.
+ */
+export const MANAGED_RETENTION_AFTER_HANDOFF_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
  * Failures that mean the same thing however many times they are tried.
  *
  * Everything else — a refused signature, a 404 for a bucket that exists, a
