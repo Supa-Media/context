@@ -278,4 +278,16 @@ crons.interval(
   {},
 );
 
+/**
+ * Feedback receipts past their thirty days. They hold ids and times only, and
+ * are kept that long so a late retry is still recognised as the same report.
+ * Each run takes a batch and queues the next itself while more remain.
+ */
+crons.interval(
+  "purge expired feedback receipts",
+  { hours: 1 },
+  internal.functions.feedback.purgeExpiredFeedbackReceipts,
+  {},
+);
+
 export default crons;

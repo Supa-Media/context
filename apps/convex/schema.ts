@@ -23,6 +23,7 @@ import { managedEncryptionTables } from "./functions/lib/schema/managedEncryptio
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
+import { feedbackTables } from "./functions/lib/schema/feedback";
 
 /**
  * Control-plane schema for Context.
@@ -77,6 +78,7 @@ const schema = defineSchema({
   ...referralTables,
   ...devlogTables,
   ...telemetryTables,
+  ...feedbackTables,
 });
 
 export default schema;

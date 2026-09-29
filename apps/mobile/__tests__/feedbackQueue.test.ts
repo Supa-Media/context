@@ -6,20 +6,35 @@ import { beforeEach, describe, expect, jest, test } from "@jest/globals";
  *
  * The promise on the report screen is that a report is never lost to a bad
  * connection — offline, past the day's limit, or a send that failed and was
- * put off all leave it on the device until Sentry has taken it — and that the
- * daily limit holds. Both are here against an in-memory store and a fake
- * transport, so a regression is a red test rather than a tester's report that
- * vanished.
+ * put off all leave it on the device until the server has taken it. The limit
+ * itself is the server's; here it is only obeyed: a report the server said
+ * must wait is held until the time it named. Against an in-memory store and a
+ * fake transport, so a regression is a red test rather than a tester's report
+ * that vanished.
+ *
+ * ## Sabotage record
+ *
+ * Applied as local edits, suite re-run, failing tests counted.
+ *
+ *   a failed send is discarded from the queue                             1
+ *   a limited report is not held (sent again at once)                     2
+ *   a rejected report blocks the queue instead of leaving it              1
  */
 
-const mockSent: Array<{ clientReportId: string; activity?: string; screenshot?: unknown }> = [];
-let mockTransportUp = true;
+type MockResult =
+  | { kind: "sent"; eventId: string }
+  | { kind: "limited"; retryAfterMs: number }
+  | { kind: "failed" }
+  | { kind: "rejected" };
 
-jest.mock("../features/observability/client", () => ({
+const mockSent: Array<{ clientReportId: string; activity?: string; screenshot?: unknown }> = [];
+let mockAnswer: (id: string) => MockResult = () => ({ kind: "sent", eventId: "7f2c9a1b00112233445566778899aabb" });
+
+jest.mock("../features/feedback/transport", () => ({
   sendFeedbackReport: async (report: { clientReportId: string; activity?: string; screenshot?: unknown }) => {
-    if (!mockTransportUp) return null;
-    mockSent.push(report);
-    return "7f2c9a1b00112233445566778899aabb";
+    const answer = mockAnswer(report.clientReportId);
+    if (answer.kind === "sent") mockSent.push(report);
+    return answer;
   },
 }));
 
@@ -41,9 +56,11 @@ function draft(id: string, over: Partial<import("../features/feedback/model").Fe
 
 const NOON = new Date(2026, 8, 29, 12, 0, 0).getTime();
 
+const SENT = () => ({ kind: "sent" as const, eventId: "7f2c9a1b00112233445566778899aabb" });
+
 beforeEach(async () => {
   mockSent.length = 0;
-  mockTransportUp = true;
+  mockAnswer = SENT;
   for (const key of await storeModule.__store.keys()) await storeModule.__store.remove(key);
 });
 
@@ -58,11 +75,6 @@ describe("the report's own rules", () => {
   test("the code shown after sending is the Sentry event id's first six", () => {
     expect(model.reportCode("7f2c9a1b00112233")).toBe("FB-7F2C9A");
     expect(model.reportCode("abcdef0123456789")).toBe("FB-ABCDEF");
-  });
-
-  test("the limit's day is the person's calendar day, and tomorrow starts at midnight", () => {
-    expect(model.dayKey(NOON)).toBe("2026-09-29");
-    expect(model.startOfTomorrow(NOON)).toBe(new Date(2026, 8, 30, 0, 0, 0).getTime());
   });
 
   test("base64 round-trips the screenshot bytes", () => {
@@ -91,29 +103,68 @@ describe("sending, and keeping what cannot go", () => {
 
   test("a failed send is not counted and not lost from the queue", async () => {
     await queue.enqueue(draft("c"));
-    mockTransportUp = false;
+    mockAnswer = () => ({ kind: "failed" });
     await queue.drainQueue(NOON);
     expect(await queue.queuedCount()).toBe(1);
 
-    mockTransportUp = true;
+    mockAnswer = SENT;
     await queue.drainQueue(NOON);
     expect(await queue.queuedCount()).toBe(0);
   });
 
-  test("the eleventh report of the day waits for tomorrow", async () => {
-    for (let i = 0; i < model.DAILY_LIMIT; i++) {
-      expect((await queue.submit(draft(`r${i}`), { online: true, now: NOON })).kind).toBe("sent");
-    }
+  test("a report the server says is over the limit waits until the time it named", async () => {
+    mockAnswer = () => ({ kind: "limited", retryAfterMs: 3 * 60 * 60 * 1000 });
     expect(await queue.submit(draft("r10"), { online: true, now: NOON })).toEqual({ kind: "limited" });
-    expect(mockSent).toHaveLength(model.DAILY_LIMIT);
+    expect(await queue.queuedCount()).toBe(1);
 
-    // Still today: nothing more goes.
+    // Before then it is not even tried.
+    mockAnswer = SENT;
     await queue.drainQueue(NOON + 60_000);
-    expect(mockSent).toHaveLength(model.DAILY_LIMIT);
+    expect(mockSent).toHaveLength(0);
 
-    // Tomorrow it goes.
-    await queue.drainQueue(model.startOfTomorrow(NOON) + 1);
-    expect(mockSent.at(-1)?.clientReportId).toBe("r10");
+    await queue.drainQueue(NOON + 3 * 60 * 60 * 1000 + 1);
+    expect(mockSent.map((r) => r.clientReportId)).toEqual(["r10"]);
+    expect(await queue.queuedCount()).toBe(0);
+  });
+
+  test("hitting the limit while emptying the queue holds that report and stops", async () => {
+    await queue.enqueue(draft("g"));
+    await queue.enqueue(draft("h"));
+    mockAnswer = (id) => (id === "g" ? { kind: "limited", retryAfterMs: 60_000 } : SENT());
+    await queue.drainQueue(NOON);
+    expect(mockSent).toEqual([]);
+    expect(await queue.queuedCount()).toBe(2);
+
+    mockAnswer = SENT;
+    await queue.drainQueue(NOON + 1_000);
+    expect(mockSent.map((r) => r.clientReportId)).toEqual(["h"]);
+    await queue.drainQueue(NOON + 61_000);
+    expect(mockSent.map((r) => r.clientReportId)).toEqual(["h", "g"]);
+  });
+
+  test("a report the server will never take is not kept, and does not block the rest", async () => {
+    await queue.enqueue(draft("bad"));
+    await queue.enqueue(draft("good"));
+    mockAnswer = (id) => (id === "bad" ? { kind: "rejected" } : SENT());
+    await queue.drainQueue(NOON);
+    expect(mockSent.map((r) => r.clientReportId)).toEqual(["good"]);
+    expect(await queue.queuedCount()).toBe(0);
+
+    mockAnswer = () => ({ kind: "rejected" });
+    expect(await queue.submit(draft("bad2"), { online: true, now: NOON })).toEqual({ kind: "rejected" });
+    expect(await queue.queuedCount()).toBe(0);
+  });
+
+  test("a failed send from the screen is not queued by itself — the person chooses", async () => {
+    mockAnswer = () => ({ kind: "failed" });
+    expect(await queue.submit(draft("i"), { online: true, now: NOON })).toEqual({ kind: "failed" });
+    expect(await queue.queuedCount()).toBe(0);
+  });
+
+  test("the old per-device count is removed", async () => {
+    await storeModule.__store.set("context.feedback.sent.v1", JSON.stringify({ day: "2026-09-29", count: 10 }));
+    await queue.drainQueue(NOON);
+    expect(await storeModule.__store.get("context.feedback.sent.v1")).toBeNull();
   });
 
   test("the queued screenshot travels as the same bytes, and the log as the same text", async () => {

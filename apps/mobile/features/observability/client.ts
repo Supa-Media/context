@@ -81,10 +81,11 @@ function cleanSentryEvent<T>(event: T): T {
 }
 
 async function initSentry(): Promise<void> {
-  if (!canSendFeedback()) return;
-  // Sentry starts even with crash reports switched off, because a feedback
-  // report travels through it. `beforeSend` sees only error events, so the
-  // switch drops every error and leaves an explicit report alone.
+  if (sentryDsn === "" || !hasSentryNativeRuntime()) return;
+  // Sentry starts even with crash reports switched off, so turning them back
+  // on works without a restart; `beforeSend` drops every error while the
+  // switch is off. Feedback reports do not come through here at all: they go
+  // to the control plane (`features/feedback/transport.ts`).
   const prefs = await loadPreferences();
   const sdk = await sentryLoader.load();
   sdk.init({
@@ -100,11 +101,6 @@ async function initSentry(): Promise<void> {
     beforeSend: (event) => (preferences().crashReports ? cleanSentryEvent(event) : null),
     beforeBreadcrumb: (breadcrumb) => cleanSentryEvent(breadcrumb),
   });
-  // Feedback events skip `beforeSend`, and the web SDK still stamps them with
-  // the page URL — which carries the workspace and the note. Same cleaning.
-  sdk.addEventProcessor((event) =>
-    event.type === "feedback" ? cleanSentryEvent(event) : event,
-  );
   sentry = sdk;
   if (currentUserId !== null) sdk.setUser({ id: currentUserId });
   for (const item of pendingErrors.splice(0)) sendErrorToSentry(item.error, item.context);
@@ -236,11 +232,6 @@ export function onObservedUserChange(listener: () => void): () => void {
   return () => userListeners.delete(listener);
 }
 
-/** Whether this build can send a feedback report at all. */
-export function canSendFeedback(): boolean {
-  return sentryDsn !== "" && hasSentryNativeRuntime();
-}
-
 /**
  * Whether somebody is signed in, as far as telemetry knows — the root layout
  * sets the user on sign-in and resets it on sign-out. The broken page sits
@@ -249,70 +240,4 @@ export function canSendFeedback(): boolean {
  */
 export function hasObservedUser(): boolean {
   return currentUserId !== null;
-}
-
-export interface FeedbackReport {
-  message: string;
-  /** Where it was opened from: "top_bar", "menu", "error", "settings". */
-  source: string;
-  /** Cleaned route of the screen behind the report. */
-  screen: string;
-  /** The error the report is about, when it was opened from the broken page. */
-  errorEventId?: string;
-  /** The activity log exactly as the person saw it; absent when unticked. */
-  activity?: string;
-  screenshot?: { data: Uint8Array; contentType: string };
-  /** Made on the device, so a retried report can be told from a second one. */
-  clientReportId: string;
-}
-
-/**
- * Send one report as Sentry user feedback. Answers the event id when Sentry
- * says the envelope went out, and `null` when it did not — offline, blocked,
- * timed out — so the caller can keep the report and offer to try again.
- */
-export async function sendFeedbackReport(report: FeedbackReport): Promise<string | null> {
-  await initObservability();
-  const sdk = sentry;
-  if (sdk === null) return null;
-  const attachments: { filename: string; data: string | Uint8Array; contentType: string }[] = [];
-  if (report.activity !== undefined && report.activity !== "") {
-    attachments.push({ filename: "activity.txt", data: report.activity, contentType: "text/plain" });
-  }
-  if (report.screenshot) {
-    attachments.push({
-      filename: report.screenshot.contentType === "image/png" ? "screenshot.png" : "screenshot.jpg",
-      data: report.screenshot.data,
-      contentType: report.screenshot.contentType,
-    });
-  }
-  let eventId = "";
-  sdk.withScope((scope) => {
-    // What the person saw listed is what goes. The breadcrumb trail is the
-    // same log in another shape, so it travels only as the attachment.
-    scope.addEventProcessor((event) => ({ ...event, breadcrumbs: [] }));
-    scope.setTag("feedback.client_report_id", report.clientReportId);
-    if (posthog !== null) scope.setTag("posthog.session_id", posthog.getSessionId());
-    eventId = sdk.captureFeedback(
-      {
-        message: report.message,
-        url: report.screen,
-        source: report.source,
-        associatedEventId: report.errorEventId,
-        tags: { "feedback.screen": report.screen, "feedback.source": report.source },
-      },
-      { attachments },
-      scope,
-    );
-  });
-  // React Native's `flush` takes no timeout, so the report screen bounds it:
-  // an unanswered send is a failed one, and the report is kept to retry.
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const flushed = await Promise.race([
-    sdk.flush(),
-    new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), 12_000);
-    }),
-  ]).finally(() => clearTimeout(timer));
-  return flushed && eventId !== "" ? eventId : null;
 }

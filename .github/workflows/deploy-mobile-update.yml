@@ -31,6 +31,8 @@ jobs:
       # Inlined into the OTA JS bundle at export time.
       EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
       EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      # The commit, so a feedback report names the build it came from.
+      EXPO_PUBLIC_APP_BUILD: ${{ github.sha }}
       EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
       EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
       EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}

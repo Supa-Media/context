@@ -163,6 +163,13 @@ jobs:
           # in with (`functions/lib/reviewerAccount.ts`). Absent is a working
           # state: no reviewer provider is registered.
           REVIEWER_SIGNIN_CODE: ${{ secrets.REVIEWER_SIGNIN_CODE }}
+          # Where in-app feedback reports go (`functions/feedback.ts`): the
+          # app's own Sentry DSN, now read by the control plane, which checks
+          # a report and counts it against the day's ten before sending it on.
+          # A DSN is a public ingest address, not a credential. Absent is a
+          # working state: the deployment takes no reports and the app hides
+          # its report button.
+          FEEDBACK_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -185,7 +192,7 @@ jobs:
                      STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
                      TURNSTILE_SECRET_KEY \
                      CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
-                     REVIEWER_SIGNIN_CODE; do
+                     REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.
