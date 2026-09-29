@@ -5,11 +5,12 @@ import type {
 } from "./websiteContract";
 import {
   compileWebsiteRoutes,
+  DEFAULT_WEBSITE_ROOT,
   type WebsiteRouteDiagnostic,
   type WebsiteRouteOptions,
 } from "./websiteRoutes";
 import { stripComments } from "./comments.cjs";
-import { devlogPromiseProblems } from "./devlog";
+import { devlogPromiseProblems, isDevlogObjectKey } from "./devlog";
 
 /** The route-affecting subset of one ordinary Markdown note. */
 export interface ParsedWebsitePage {
@@ -293,10 +294,15 @@ export function buildWebsiteRouteStatuses(
       ...pathDiagnostics.map(diagnosticProblem),
       ...page.problems,
       // An exploring line that reads like a promise holds the release, the
-      // way a broken page does: the devlog is where that rule is kept.
-      ...devlogPromiseProblems(page.body).map(
-        (message): WebsiteRouteProblem => ({ code: "devlog_promise", message }),
-      ),
+      // way a broken page does: the devlog is where that rule is kept — and
+      // only there. Every workspace's site compiles through this function, so
+      // the rule is scoped to the devlog page itself rather than to any page
+      // that happens to be written in weeks.
+      ...(isDevlogObjectKey(objectKey, options.root ?? DEFAULT_WEBSITE_ROOT)
+        ? devlogPromiseProblems(page.body).map(
+            (message): WebsiteRouteProblem => ({ code: "devlog_promise", message }),
+          )
+        : []),
     ];
     statuses.push({
       objectKey,

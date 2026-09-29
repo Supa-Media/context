@@ -191,9 +191,11 @@ export {
 } from "./websiteCast";
 export {
   DEVLOG_EXPLORING_DISCLAIMER,
+  DEVLOG_PAGE_FILE,
   DEVLOG_PAGE_PATH,
   DEVLOG_SECTIONS,
   devlogPromiseProblems,
+  isDevlogObjectKey,
   latestDevlogWeek,
   parseDevlog,
   promiseIn,

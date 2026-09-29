@@ -8,7 +8,9 @@
  *     pinned here.
  *  2. **Exploring is never a promise.** A date or a promise word in an
  *     exploring line is a page problem, and a page problem holds the whole
- *     release (`buildWebsiteRouteStatuses`).
+ *     release (`buildWebsiteRouteStatuses`) — on the devlog page, and only
+ *     there: every workspace's website compiles through the same code, so an
+ *     unscoped rule would be our house style holding a customer's release.
  *  3. **The dot clears everywhere, never backwards, and leaves with the
  *     account.**
  *
@@ -18,6 +20,7 @@
  *
  *   promiseIn always null                                          8
  *   devlog problems not added to page statuses                     1
+ *   the promise rule applied to every page, not just the devlog     1
  *   markDevlogSeen lets the week move backwards                    1
  *   drop the devlogReads sweep from personalRows                   1
  */
@@ -146,6 +149,39 @@ describe("exploring is never a promise", () => {
 
   test("the same words outside exploring are fine", () => {
     expect(devlogPromiseProblems("### week 6\n#### in progress\n- the iOS app, coming soon\n")).toEqual([]);
+  });
+
+  test("the rule is the devlog page's, not every page every customer publishes", () => {
+    // A customer's own site, shaped like a week of ours by coincidence: a
+    // `## Week 3` heading and an `#### Exploring` list with a month in it.
+    // Our editorial rule must not hold their whole website release.
+    const theirs = [
+      "# roadmap",
+      "",
+      "## Week 3",
+      "",
+      "#### Exploring",
+      "- a bigger kitchen, by June",
+      "",
+    ].join("\n");
+
+    const [page] = buildWebsiteRouteStatuses([
+      { objectKey: "website/roadmap.md", markdown: theirs },
+    ]);
+    expect(page!.problems).toEqual([]);
+    expect(page!.status).toBe("live");
+
+    // The same words on the devlog page itself still hold the release, and
+    // still do under a site root the owner renamed.
+    const [ours] = buildWebsiteRouteStatuses([
+      { objectKey: "website/devlog.md", markdown: theirs },
+    ]);
+    expect(ours!.status).toBe("problem");
+    const [renamed] = buildWebsiteRouteStatuses(
+      [{ objectKey: "site/devlog.md", markdown: theirs }],
+      { root: "site" },
+    );
+    expect(renamed!.status).toBe("problem");
   });
 
   test("a promise makes the devlog page a problem, which holds the release", () => {
