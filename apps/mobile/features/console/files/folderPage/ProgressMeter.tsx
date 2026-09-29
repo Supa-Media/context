@@ -1,9 +1,9 @@
 /**
  * How far along a task is, as a short bar and a fraction ("2/4"): the List
  * row's progress (the owner, 2026-09-29: "show a loading bar & fraction"
- * instead of "1 of 6 done"). On a pointer layout it has its own column after
- * the name (`PROGRESS_COLUMN`) so the bars line up down the list; on a phone
- * it sits beside the name. It is one line that never shrinks. Screen readers hear "2 of 4 done".
+ * instead of "1 of 6 done"). The bar is a fixed width so the fractions line
+ * up down a list, and the whole meter is one line that never shrinks — the
+ * name beside it gives way first. Screen readers hear "2 of 4 done".
  */
 
 import { StyleSheet, View } from "react-native";
@@ -13,8 +13,6 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 
 /** The bar's width: short enough to sit beside a name, long enough to read a fifth. */
 export const METER_WIDTH = 40;
-/** The List's progress column: the bar and the widest fraction likely ("12/30"). */
-export const PROGRESS_COLUMN = 88;
 
 /** The share done, 0 to 100, whole. */
 export function progressPercent(done: number, total: number): number {
