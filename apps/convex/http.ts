@@ -127,6 +127,7 @@ import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
+import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
 
 const http = httpRouter();
 
@@ -484,7 +485,9 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
       workspaceId: binding.workspaceId,
     })
     .catch(() => null);
-  return json({ binding, ...(noteCap === null ? {} : { noteCap }) });
+  const managed = await ingestEncryptionSiblings(ctx, binding.workspaceId);
+  if (managed === null) return json({ binding: null });
+  return json({ binding, ...(noteCap === null ? {} : { noteCap }), ...managed });
 });
 
 /* -------------------------------------------------------------------------- */

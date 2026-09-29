@@ -75,7 +75,7 @@ export function messageFor(
  * card moves every time a line is added, and the field being typed in jumps
  * with it.
  */
-function DialogShell({
+export function DialogShell({
   title,
   sub,
   children,

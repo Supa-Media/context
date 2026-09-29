@@ -37,7 +37,7 @@
  * it is the single most important property in this file's neighbourhood.
  */
 
-import { StorageUnavailable, storeForBinding } from "./store/factory.js";
+import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { readSearchIndexBinding } from "./search/d1/client.js";
 
@@ -789,7 +789,7 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env, { noteCap });
+  const store = storeForBinding(binding, env, { noteCap, managedEncryption: managedEncryptionForStore(opened, binding) });
   // The backend's name, for the search trace and nothing else. Latency is a
   // property of which backend this is — a native R2 binding and an S3 endpoint
   // reached over HTTP are not the same round trip — so a timing that does not
@@ -914,7 +914,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env);
+  const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding) });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   Object.defineProperty(store, "searchIndex", {
     value: readSearchIndexBinding({ searchIndex: opened?.searchIndex }),

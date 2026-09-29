@@ -92,6 +92,8 @@ export function useBrowserState() {
   const [editor, dispatch] = useReducer(editorReducer, emptyEditor);
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The note whose read came back unreadable (`../unreadable.ts`), or null. */
+  const [unreadable, setUnreadable] = useState<string | null>(null);
   const [toasts, setToasts] = useState<readonly ToastSpec[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -225,7 +227,8 @@ export function useBrowserState() {
     bucketListings, setListings, listedAtRef, drawLocally, indexedPaths, setIndexedPaths, expanded,
     setExpanded, selectedPath, setSelectedPath, navigations, setNavigations, renamed, noteRenamed,
     opening, setOpening,
-    settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, toasts, setToasts,
+    settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, unreadable, setUnreadable, toasts,
+    setToasts,
     busy, setBusy, loading, setLoading, editorRef, collaborationPaths, selectedPathRef,
     nextToastId, dismissToast, say, saveRuns, saveTimers, operationRun, openRun, autosaveNowRef,
     autosave,

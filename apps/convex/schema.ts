@@ -19,6 +19,7 @@ import { organizerTables } from "./functions/lib/schema/organizer";
 import { jevTables } from "./functions/lib/schema/jev";
 import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
+import { managedEncryptionTables } from "./functions/lib/schema/managedEncryption";
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
@@ -73,6 +74,7 @@ const schema = defineSchema({
   ...jevTables,
   ...faceTables,
   ...waitlistTables,
+  ...managedEncryptionTables,
   ...referralTables,
   ...devlogTables,
   ...telemetryTables,

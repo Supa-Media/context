@@ -16,6 +16,7 @@ import { DocumentPage } from "./DocumentPage";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
+import { UnreadableNote } from "./UnreadableNote";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
@@ -175,8 +176,16 @@ export function BrowseDocument({
       })
     : undefined;
 
+  // In storage but can't be opened: drawn with no editor, so nothing saves over it.
+  const unreadable = files.unreadable ?? null;
   const openDocument =
-    selected === null ? (
+    unreadable !== null && unreadable === files.selectedPath ? (
+      <UnreadableNote
+        onRetry={() => files.select(unreadable)}
+        pathBar={pathBar}
+        notices={compact ? notices : null}
+      />
+    ) : selected === null ? (
       /*
         Nothing, rather than "Choose a note", while something is on its way.
 

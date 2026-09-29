@@ -61,6 +61,15 @@ jest.mock("convex/react", () => {
   return {
     useQuery: (reference: never) =>
       mockAnswers.get(getFunctionName(reference)),
+    // The Estate tab's encryption card reads through `useQueries`, so a
+    // failed read is a value. Answered from the same table.
+    useQueries: (spec: Record<string, { query: never }>) =>
+      Object.fromEntries(
+        Object.entries(spec).map(([key, request]) => [
+          key,
+          mockAnswers.get(getFunctionName(request.query)),
+        ]),
+      ),
     useAction: () => async () => {
       throw new Error("not used in this test");
     },

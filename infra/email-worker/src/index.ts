@@ -108,6 +108,7 @@ import type { AttachmentPolicy } from "./note";
 // rootPrefix is applied inside them and invisible here.
 import { storeForBinding } from "../../../apps/mcp/src/store/factory.js";
 import { NoteCapReached } from "../../../apps/mcp/src/store/noteCap.js";
+import { managedEncryptionFor } from "../../../apps/mcp/src/store/managedEncryption.js";
 import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 
 // `REFUSAL` and `DEFAULT_TARGET_FOLDER` used to be re-exported from here for
@@ -248,13 +249,26 @@ interface ContextStore {
  * and the adapters' own validation errors can both quote configuration.
  */
 function storeFor(
-  binding: Record<string, unknown>,
+  opened: {
+    binding: Record<string, unknown>;
+    noteCap: number | null;
+    managedEncryption: unknown;
+    encryptionKey: unknown;
+  },
   env: Env,
-  noteCap: number | null,
 ): ContextStore | null {
+  const { binding, noteCap } = opened;
   if (binding.status !== "active") return null;
   try {
-    return storeForBinding(binding, env, { noteCap }) as unknown as ContextStore;
+    // A managed bucket being or already encrypted gets the wrapper; a mode
+    // with no usable key throws here, and the message is refused rather
+    // than written in the clear.
+    const managedEncryption = managedEncryptionFor(
+      opened,
+      String(binding.workspaceId ?? ""),
+      (why: string) => new Error(why),
+    );
+    return storeForBinding(binding, env, { noteCap, managedEncryption }) as unknown as ContextStore;
   } catch {
     return null;
   }
@@ -496,7 +510,7 @@ export async function handleEmail(
   if (decision.kind === "refuse") return refuse(decision.reason, username);
 
   // ── Credentials, fetched only now: after size, parsing and policy. ────────
-  let opened: { binding: Record<string, unknown>; noteCap: number | null } | null;
+  let opened: Awaited<ReturnType<IngestControlPlane["getBinding"]>>;
   try {
     opened = await controlPlane.getBinding(resolution.ticket);
   } catch {
@@ -506,7 +520,7 @@ export async function handleEmail(
   }
   if (opened === null) return refuse("storage_unavailable", username);
 
-  const store = storeFor(opened.binding, env, opened.noteCap);
+  const store = storeFor(opened, env);
   if (!store) return refuse("storage_unavailable", username);
 
   try {

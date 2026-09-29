@@ -24,6 +24,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { createD1Client } from "../../../../mcp/src/search/d1/client.js";
 import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
+import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
 import { clearanceOf } from "../clearance";
@@ -343,6 +344,15 @@ export async function runFileOperationHandler(
     .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
     .catch(() => null);
 
+  // Managed-storage encryption, or null for plain. A mode with no usable key
+  // is a refusal, never a plain store over sealed bytes.
+  const managedEncryption = await managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
+  if (managedEncryption === undefined) {
+    const refusal = encryptedUnreadable();
+    if (args.operation.kind !== "googleForwardSync") throw refusal;
+    return await failForwardSync(ctx, args.operation.connectionId, refusal.data.code, refusal.data.message);
+  }
+
   // A plaintext secret is in scope from here to the end of this function. It
   // is used to construct one store and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
@@ -373,6 +383,7 @@ export async function runFileOperationHandler(
     store = storeForBinding(credential, undefined, {
       fetchImpl: timeoutFetch,
       noteCap,
+      managedEncryption,
     }) as unknown as FileStore;
   } catch {
     // The constructor's message can quote the endpoint the customer typed.
@@ -450,9 +461,10 @@ export async function runFileOperationHandler(
       dueNotification = material;
     },
   );
-  const result = RELOCATING_OPERATIONS.has(args.operation.kind)
-    ? await asRelocation(store, operate)
-    : await operate();
+  const result = await (RELOCATING_OPERATIONS.has(args.operation.kind)
+    ? asRelocation(store, operate)
+    : operate()
+  ).catch(rethrowUnreadable);
 
   // Website rows are a derivative of bucket bytes. Mark a complete snapshot
   // stale after the canonical write lands; failure here never rewrites the

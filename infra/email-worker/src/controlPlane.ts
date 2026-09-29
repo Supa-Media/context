@@ -522,7 +522,12 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
      */
     async getBinding(
       ticket: string,
-    ): Promise<{ binding: Record<string, unknown>; noteCap: number | null } | null> {
+    ): Promise<{
+      binding: Record<string, unknown>;
+      noteCap: number | null;
+      managedEncryption: unknown;
+      encryptionKey: unknown;
+    } | null> {
       const parsed = await post("/gateway/ingest/binding", { ticket });
       const value = required(parsed, "binding");
       if (value === null) return null;
@@ -533,6 +538,10 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
       return {
         binding: value as Record<string, unknown>,
         noteCap: typeof cap === "number" && Number.isInteger(cap) && cap > 0 ? cap : null,
+        // Managed-storage encryption's mode and the key it needs, siblings of
+        // the binding. Narrowed by the gateway's own reader in `storeFor`.
+        managedEncryption: parsed.managedEncryption ?? null,
+        encryptionKey: parsed.encryptionKey ?? null,
       };
     },
 

@@ -35,6 +35,14 @@ export const openStorageBindingArgs = {
   completeEncryptionRotation: v.optional(v.string()),
 };
 
+/**
+ * Managed-storage encryption's mode for this workspace's store, a sixth
+ * sibling beside the binding. Absent for plain. The key is `encryptionKey`.
+ */
+export const managedEncryptionSiblingValidator = v.object({
+  mode: v.union(v.literal("migrating"), v.literal("encrypted")),
+});
+
 export const openStorageBindingReturns = v.union(
   v.null(),
   v.object({
@@ -43,6 +51,7 @@ export const openStorageBindingReturns = v.union(
     encryptionKey: v.optional(encryptionKeyValidator),
     rotation: v.optional(keyRotationValidator),
     noteCap: v.optional(v.number()),
+    managedEncryption: v.optional(managedEncryptionSiblingValidator),
   }),
 );
 
@@ -63,5 +72,6 @@ export const openGatewayJobReturns = v.union(
     searchIndex: v.optional(searchIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),
     rotation: v.optional(keyRotationValidator),
+    managedEncryption: v.optional(managedEncryptionSiblingValidator),
   }),
 );

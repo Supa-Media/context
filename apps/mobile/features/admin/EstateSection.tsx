@@ -32,6 +32,7 @@ import {
   type Column,
 } from "./AdminTable";
 import { CompositionBar } from "./Charts";
+import { EncryptionCard } from "./EncryptionCard";
 import {
   bindingStatusLabel,
   bindingStatusTone,
@@ -99,6 +100,9 @@ export function EstateSection({ days }: { days: number }) {
   return (
     <View style={styles.section}>
       <TruncatedNotice truncated={census.truncated} />
+
+      {/* Beside the storage it encrypts, rather than a tab of its own. */}
+      <EncryptionCard />
 
       <TwoUp>
         <Panel

@@ -10,6 +10,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { managedBucketName } from "../managedStorage";
+import { managedBucketBound } from "../managedEncryptionFns/rollout";
 import type { StorageCapabilities } from "../storage/shapes";
 import {
   CATCH_UP_CLOCK_MARGIN_MS,
@@ -93,6 +94,10 @@ export async function finishManagedStorageMigrationHandler(
     });
   }
   await ctx.db.delete(migration._id);
+  // Moving out keeps the encryption row: the managed bucket is kept for a
+  // week with its sealed files, and a switch back re-adopts it. Moving in
+  // (back) re-walks whatever the bucket now holds in a mode that reads both.
+  if (!toCustomer) await managedBucketBound(ctx, args.workspaceId);
   const retainedUntil = Date.now() + MANAGED_RETENTION_AFTER_HANDOFF_MS;
   if (plan !== null && toCustomer) {
     await ctx.db.patch(plan._id, {
