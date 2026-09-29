@@ -10,6 +10,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { managedBucketName } from "../managedStorage";
+import { MANAGED_RETENTION_AFTER_HANDOFF_MS } from "./constants";
 
 /** Atomically replace only the exact source binding the copy began from. */
 export async function finishManagedStorageMigrationHandler(
@@ -63,10 +64,12 @@ export async function finishManagedStorageMigrationHandler(
     forcePathStyle: migration.targetForcePathStyle,
   });
   await ctx.db.delete(migration._id);
+  const retainedUntil = Date.now() + MANAGED_RETENTION_AFTER_HANDOFF_MS;
   if (plan !== null && toCustomer) {
     await ctx.db.patch(plan._id, {
       managedStorage: false,
       freeManaged: false,
+      managedRetainedUntil: retainedUntil,
       managedProvisioning: undefined,
       managedProvisioningError: undefined,
       managedProvisioningAt: Date.now(),
@@ -89,11 +92,14 @@ export async function finishManagedStorageMigrationHandler(
     details: { objectsCopied: migration.objectsCopied },
   });
   if (toCustomer && current.accessKeyId !== undefined) {
-    await ctx.scheduler.runAfter(
-      0,
+    // Not now: the owner gets a week to switch back, and the action checks
+    // again at the time whether the workspace has returned to this bucket.
+    await ctx.scheduler.runAt(
+      retainedUntil,
       internal.functions.managedProvisioning.deleteManagedStorageAfterHandoff,
       {
         workspaceId: args.workspaceId,
+        retainedUntil,
         bucket: current.bucket!,
         tokenId: current.accessKeyId,
       },

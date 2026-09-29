@@ -446,6 +446,7 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
       reverify: async () => ({ queued: true, status: "unverified" }),
       connect: async () => ({ status: "unverified" }),
       handoff: async () => ({ started: true }),
+      cancelHandoff: async () => ({ cancelled: true }),
       disconnect: async () => ({ disconnected: true }),
     },
     endpoint: "https://example.invalid/mcp",
@@ -647,11 +648,12 @@ describe("a Dropbox binding on the settings pane", () => {
     expect(screen.text).toContain("Context-managed storage");
     expect(screen.q("storage-rebind")).toBeNull();
     expect(screen.q("storage-disconnect")).toBeNull();
-    expect(screen.q("storage-handoff")?.textContent).toContain("Move to my bucket");
+    expect(screen.q("storage-handoff")?.textContent).toContain("Move to my own bucket");
+    expect(screen.q("storage-download-all")?.textContent).toContain("Download everything");
     screen.unmount();
   });
 
-  test("a move in progress says the managed bucket is still authoritative", () => {
+  test("a move in progress shows its steps and says the workspace still runs from Context", () => {
     const screen = mountSettings({
       provider: "r2",
       managed: true,
@@ -660,14 +662,17 @@ describe("a Dropbox binding on the settings pane", () => {
       region: "auto",
       handoffStatus: "copying",
       handoffPhase: "copy",
+      handoffClaimed: true,
+      handoffBucket: "my-notes",
       handoffObjectsProcessed: 40,
       handoffObjectsTotal: 100,
     });
-    expect(screen.q("storage-handoff-progress")?.textContent).toContain("40 of 100 checked");
-    expect(screen.q("storage-handoff-progress")?.textContent).toContain(
-      "managed bucket remains authoritative",
-    );
-    expect((screen.q("storage-handoff") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.text).toContain("Moving to my-notes");
+    expect(screen.q("storage-handoff-progress")?.textContent).toContain("40 of 100");
+    expect(screen.text).toContain("keeps running from Context's storage");
+    // No second move while one is running; stopping is the only control.
+    expect(screen.q("storage-handoff")).toBeNull();
+    expect(screen.q("storage-handoff-stop")).not.toBeNull();
     screen.unmount();
   });
 });

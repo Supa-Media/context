@@ -40,7 +40,8 @@ import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
 import { StorageMigrationCard } from "../storage/StorageMigration";
-import { describeHandoffFailure, HANDOFF_FORM_LEDE } from "../storage/handoffCopy";
+import { HANDOFF_FORM_LEDE } from "../storage/handoff/copy";
+import { HandoffCard } from "../storage/handoff/HandoffCard";
 import type { SetupAgent } from "../../agentSetup/guides";
 
 /**
@@ -112,6 +113,7 @@ export function SettingsPane({
   const actions = data.storageActions;
   const current = selectedContext(data);
   const [rebinding, setRebinding] = useState(false);
+  const [switchingBack, setSwitchingBack] = useState(false);
 
   /**
    * Whether a block belongs on screen. No `section` is the original pane —
@@ -157,7 +159,7 @@ export function SettingsPane({
       */}
       <PanelHead section="storage" sectioned={section !== undefined} first>
         {storage?.managed === true
-          ? "Context runs this bucket for you. You can move every file to a bucket you control at any time, free — the managed bucket stays live until the copy is verified."
+          ? "Context runs this bucket for you. You can take every file with you at any time, free, on any plan."
           : storage?.provider === "dropbox"
           ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
           : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
@@ -191,6 +193,20 @@ export function SettingsPane({
             </Text>
           </Card>
         )
+      ) : switchingBack && actions ? (
+        // Back to Context's storage while its copy is still kept: the same
+        // choice a new workspace gets, whose managed option adopts that copy.
+        <SettingsStorageChoice
+          workspaceId={actions.workspaceId}
+          contextName={current == null ? "this context" : `@${current.slug}`}
+          connect={async (values) => {
+            const result = await actions.connect(values);
+            setSwitchingBack(false);
+            return result;
+          }}
+          onCancel={() => setSwitchingBack(false)}
+          onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
+        />
       ) : rebinding && actions ? (
         // Two different jobs behind one flag, decided by what is connected now.
         //
@@ -249,12 +265,22 @@ export function SettingsPane({
           />
         )
       ) : (
-        <BindingCard
-          storage={storage}
-          actions={actions}
-          demo={data.demo}
-          onRebind={() => setRebinding(true)}
-        />
+        <>
+          <BindingCard
+            storage={storage}
+            actions={actions}
+            demo={data.demo}
+            onRebind={() => setRebinding(true)}
+          />
+          <HandoffCard
+            storage={storage}
+            owner={actions !== undefined}
+            onMove={() => setRebinding(true)}
+            onStop={actions?.cancelHandoff}
+            onDownload={data.demo ? undefined : () => data.files.download("", "folder")}
+            onSwitchBack={() => setSwitchingBack(true)}
+          />
+        </>
       )}
 
       {storage?.connected === true && actions ? (
@@ -674,21 +700,7 @@ function BindingCard({
           that has never existed for it — the same lie the failure copy avoids
           by not telling a Dropbox owner to paste an access key.
         */}
-        {isManaged ? (
-          <Button
-            label={
-              storage.handoffStatus === "copying"
-                ? "Moving…"
-                : storage.handoffStatus === "failed"
-                  ? "Retry move"
-                  : "Move to my bucket"
-            }
-            accessibilityLabel="Move every file to a bucket I control"
-            disabled={actions === undefined || storage.handoffStatus === "copying"}
-            onPress={onRebind}
-            testID="storage-handoff"
-          />
-        ) : (
+        {isManaged ? null : (
           <Button
             label={isDropbox ? "Reconnect" : "Rotate key"}
             accessibilityLabel={
@@ -728,29 +740,6 @@ function BindingCard({
           />
         )}
       </Row>
-
-      {storage.handoffStatus === "copying" ? (
-        <Hint>
-          <Text variant="hint" role="status" testID="storage-handoff-progress">
-            {storage.handoffPhase === "count"
-              ? "Counting every file before the move starts."
-              : `Copying and verifying every file${
-                storage.handoffObjectsTotal === undefined
-                  ? "."
-                  : ` — ${Math.min(
-                    storage.handoffObjectsProcessed ?? 0,
-                    storage.handoffObjectsTotal,
-                  ).toLocaleString()} of ${storage.handoffObjectsTotal.toLocaleString()} checked.`
-              }`} The managed bucket remains authoritative until the destination matches it.
-          </Text>
-        </Hint>
-      ) : storage.handoffStatus === "failed" ? (
-        <Hint>
-          <Text variant="hint" role="alert" testID="storage-handoff-failed">
-            {describeHandoffFailure(storage.handoffErrorCode)}
-          </Text>
-        </Hint>
-      ) : null}
 
       {/*
         The reversibility the product actually promises, at the moment of the

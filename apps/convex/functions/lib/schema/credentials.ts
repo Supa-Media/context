@@ -99,6 +99,8 @@ export const credentialTables = {
      * source does not have: before it, such a key is the customer's own file.
      */
     targetClaimed: v.optional(v.boolean()),
+    /** Up to 50 keys that stopped the move, when it stopped on particular files. */
+    failedKeys: v.optional(v.array(v.string())),
     errorCode: v.optional(v.string()),
     startedBy: v.id("users"),
     createdAt: v.number(),

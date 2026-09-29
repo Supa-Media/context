@@ -176,6 +176,7 @@ export async function beginManagedStorageHandoffHandler(
     sourceBindingId: current._id,
     direction: "to_customer" as const,
     targetClaimed: sameClaimedTarget,
+    failedKeys: undefined,
     targetProvider: args.target.provider,
     targetEndpoint: args.target.endpoint,
     targetRegion: args.target.region,
@@ -242,6 +243,7 @@ export async function resumeManagedStorageMigrationHandler(
     startedBy: args.actorUserId,
     status: "copying",
     errorCode: undefined,
+    failedKeys: undefined,
     readyToCutover: false,
     ...(sourceChanged
       ? {

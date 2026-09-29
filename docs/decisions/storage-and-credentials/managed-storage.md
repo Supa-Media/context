@@ -460,3 +460,25 @@ existed is unclaimed, and its verify pass deletes nothing.
 survive a change of destination, puts the deletion back in front of a
 customer's own files. `__tests__/managedHandoffDestination.test.ts` fails on
 either.
+
+## The managed copy is kept a week after a move out
+
+A verified move out used to delete the managed bucket the moment the binding
+switched. Since 2026-09-29 (owner's pick on the storage-portability artboard)
+it is kept seven days, and `workspacePlans.managedRetainedUntil` tells the
+owner's screen until when, so it can offer the way back. Switching back is the
+ordinary move into managed storage, which adopts the same deterministic bucket.
+
+The deletion is scheduled for the end of the week and decides at the time, not
+at scheduling: a bound managed bucket, a managed plan, a move into managed
+storage under way, or a *later* move out (whose own week is still running) all
+keep the bucket. The token from before the move is revoked either way, because
+re-adopting the bucket mints a new one. An owner can stop a move out until its
+last pass is ready to switch (`cancelManagedStorageHandoff`, `CANCELLED`), and a
+move stopped by particular files records up to fifty of their keys.
+
+**What a simplification would cost.** Deleting on the spot removes the only way
+back from a mistaken move; deleting on the schedule without asking again deletes
+the bucket a switched-back workspace is running on. `managedHandoff.test.ts`
+fails on either, and `managedHandoffControls.test.ts` on a stop that interrupts
+a switch.
