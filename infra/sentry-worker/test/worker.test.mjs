@@ -20,10 +20,12 @@ const env = {
 };
 
 const writes = [];
+const rpcIds = [];
 globalThis.fetch = async (url, init) => {
   check("the bearer token is sent only in an Authorization header", init.headers.Authorization === "Bearer cat_test_rotated_access_token");
   check("the access token is absent from the request URL", !String(url).includes("cat_test_rotated_access_token"));
   const body = JSON.parse(init.body);
+  rpcIds.push(body.id);
   writes.push(body.params.arguments);
   return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: "written" }] } });
 };
@@ -78,7 +80,7 @@ check("a signed Sentry error is accepted", accepted.status === 202);
 check("one error produces one Context write", writes.length === 1);
 check("the write lands in the configured error folder", writes[0]?.path === "2-products/context/errors/context-mobile-7.md");
 check("the note is explicitly team-visible", writes[0]?.visibility === "team" && writes[0]?.confirm_team_publish === true);
-check("the note leads with one human sentence", writes[0]?.content.includes("**What is happening:** TypeError: Cannot read properties of undefined in saveWorkspace (features/workspace/save.ts)."));
+check("the note leads with one metadata-only sentence", writes[0]?.content.includes("**What is happening:** Sentry reported a new error."));
 check("the note stays short", writes[0]?.content.length < 1_500);
 check("Sentry query strings are discarded", !writes[0]?.content.includes("secret=nope"));
 
@@ -125,7 +127,34 @@ secretPayload.data.error.short_id = "CONTEXT-MOBILE-8";
 secretPayload.data.error.issue_id = "987654322";
 secretPayload.data.error.metadata.value = "API_KEY=definitely-not-a-real-credential failed";
 await worker.fetch(await signedRequest(secretPayload), env);
-check("credential-shaped error text is redacted", writes[2]?.content.includes("[redacted]") && !writes[2]?.content.includes("definitely-not-a-real-credential"));
+check("credential-shaped error text is not copied", !writes[2]?.content.includes("definitely-not-a-real-credential"));
+
+const privateTextPayload = structuredClone(payload);
+privateTextPayload.data.error.short_id = "CONTEXT-MOBILE-10";
+privateTextPayload.data.error.issue_id = "987654329";
+privateTextPayload.data.error.event_id = "PRIVATE_NOTE_BODY_SENTINEL";
+privateTextPayload.data.error.metadata = {
+  type: "PRIVATE_NOTE_BODY_SENTINEL",
+  value: "person@example.com wrote PRIVATE_NOTE_BODY_SENTINEL in 1-projects/private-plan.md",
+};
+privateTextPayload.data.error.culprit = "https://context.lc/s/not-a-real-capability";
+privateTextPayload.data.error.level = "PRIVATE_NOTE_BODY_SENTINEL";
+privateTextPayload.data.error.tags = [
+  { key: "environment", value: "PRIVATE_NOTE_BODY_SENTINEL" },
+];
+await worker.fetch(await signedRequest(privateTextPayload), env);
+const privateTextNote = writeFor("context-mobile-10");
+check("vendor error text is never copied into the team incident note",
+  Boolean(privateTextNote)
+    && !privateTextNote.content.includes("PRIVATE_NOTE_BODY_SENTINEL")
+    && !privateTextNote.content.includes("person@example.com")
+    && !privateTextNote.content.includes("1-projects/private-plan.md")
+    && !privateTextNote.content.includes("not-a-real-capability"));
+check("the incident note is derived only from bounded metadata",
+  privateTextNote?.content.includes("**What is happening:** Sentry reported a new error.")
+    && privateTextNote.content.includes('severity: "error"')
+    && !privateTextNote.content.includes("environment:")
+    && rpcIds.at(-1) === "987654329");
 
 // The README makes six security claims about this adapter. The checks above
 // cover four of them only in the state where the guard has nothing to do: the
@@ -224,6 +253,43 @@ await worker.fetch(await signedRequest(incident({
 const schemeNote = writeFor("context-mobile-14");
 check("a non-https link is not linked",
   Boolean(schemeNote) && !schemeNote.content.includes("javascript:"));
+
+// Claim: a real Sentry short id keeps its name. Sentry counts short ids in
+// base 32 (CONTEXT-MOBILE-4K), so a digits-only rule sent every issue past the
+// ninth to a second note named after its numeric id, beside the one it already
+// had.
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654336",
+  short_id: "CONTEXT-MOBILE-4K",
+})), env);
+check("a base-32 Sentry short id names the note",
+  lastWrite()?.path === `${PREFIX}context-mobile-4k.md`);
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654337",
+  short_id: "OTHER-PROJECT-4K",
+})), env);
+check("a short id from another project's prefix falls back to the issue id",
+  lastWrite()?.path === `${PREFIX}sentry-987654337.md`);
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654338",
+  short_id: "CONTEXT-MOBILE-4k; note",
+})), env);
+check("a short id with anything past the counter falls back to the issue id",
+  lastWrite()?.path === `${PREFIX}sentry-987654338.md`);
+
+// Claim: the link names the issue and nothing else. The host is checked, but a
+// path on a real Sentry host can still carry a search the payload wrote
+// (discover queries put their terms in the path), so the link is rebuilt from
+// the issue id rather than trusted.
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654339",
+  short_id: "CONTEXT-MOBILE-4M",
+  web_url: "https://example-org.sentry.io/organizations/example-org/discover/1-projects-secret-plan/",
+})), env);
+const pathNote = writeFor("context-mobile-4m");
+check("the Sentry link is rebuilt as the issue's own page",
+  Boolean(pathNote) && pathNote.content.includes("Sentry: <https://example-org.sentry.io/issues/987654339/>")
+    && !pathNote.content.includes("secret-plan"));
 
 // Claim: one fixed transformation, reached one way.
 check("only POST reaches the webhook",
