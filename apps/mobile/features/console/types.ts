@@ -27,6 +27,7 @@ import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
 import type { OrganizerView } from "../organizer/useOrganizer";
 import type { ConnectFormValues } from "./storage/connect";
+import type { NoteLimit } from "./noteLimit";
 
 /**
  * What the console renders.
@@ -514,6 +515,8 @@ export interface ConsoleData {
   storage: ConsoleStorage | null | undefined;
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
+  /** The free plan's count from 900 of 1,000, owner-only; see `noteLimit.ts`. */
+  noteLimit?: NoteLimit | null;
   googleConnections: GoogleConnection[];
   googleActions?: GoogleActions;
   /**

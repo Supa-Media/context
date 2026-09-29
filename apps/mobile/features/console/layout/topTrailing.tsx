@@ -8,7 +8,7 @@ import { setReadMode } from "../files/readMode";
 import { settingsHref } from "../nav";
 import { DEFAULT_SETTINGS_SECTION } from "../settings/sections";
 import type { ConsoleContext, ConsoleData } from "../types";
-import { StorageChip } from "./chrome";
+import { NoteLimitChip, StorageChip } from "./chrome";
 import type { ConsoleRouter } from "./types";
 
 /**
@@ -211,6 +211,21 @@ export function consoleTopTrailing({
                 insideContext
                 ? () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
                 : () => router.push(settingsHref(current.slug))
+          }
+        />
+        {/*
+          The free plan's count from nine tenths of its cap, into the
+          context's Premium settings. Only ever for the selected context's
+          owner — `useNoteLimit` asks nothing for anybody else.
+        */}
+        <NoteLimitChip
+          data={data}
+          onOpenPremium={
+            current === null
+              ? undefined
+              : insideContext
+                ? () => router.setParams({ settings: "premium" })
+                : () => router.push(settingsHref(current.slug, "premium"))
           }
         />
         <StagingPill />

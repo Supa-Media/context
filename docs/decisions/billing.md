@@ -387,9 +387,9 @@ the creator, and the first-run return sentence kept out of this flow.
   silently destroy the only copy. The owner first uses Settings → Storage →
   Move to my bucket; after the verified cutover the ordinary customer-owned
   deletion path applies.
-- **Complete enforcement.** Fast Search consumes its paid entitlement and
-  managed storage is provisioned for both new and existing contexts, but no
-  write path is made read-only by a lapse yet. An existing binding is copied
+- **A read-only state.** A lapse never makes a context read-only; it drops
+  to the free plan's note cap (see "A lapse drops a context to the free plan"
+  below). An existing binding is copied
   and verified before an id-pinned cutover; it is never silently replaced.
   The managed-to-customer handoff is now the same plan-blind verified copy in
   the reverse direction.
@@ -464,10 +464,26 @@ in a relocation window the cap admits; a move in from another context is a
 create. The count may overshoot by the number of concurrent creates; closing
 that would put a cross-request lock on every write, for a free allowance.
 
-**A free context never goes read-only.** It has no subscription to lapse, so
-`cancellationMakesReadOnly` leaves it writable and on the cap. Paying lifts the
-cap; a free context that upgraded and then cancelled falls back onto the cap
-rather than going read-only.
+**A lapse drops a context to the free plan (decided by the owner,
+2026-09-29).** No plan makes a context read-only. The cap follows payment, not
+how a context started: any context on storage we run that is not paying —
+free from the start, `past_due`, `canceled`, or a status this build does not
+know — is on the 1,000-note cap (`noteCapFor`). Everybody in it keeps reading,
+editing, moving and exporting; a context already past the cap simply cannot
+add notes until someone pays or moves it to their own bucket. Fast Search is
+still released on a lapse. This replaced the earlier rule, "cancelling makes a
+context read-only", which only form answers ever enforced; one rule for every
+workspace was simpler to explain, and kinder. A managed binding with no plan
+row is not something the product creates and stays uncapped rather than
+guessed at. `premium.test.ts` ("what a lapse does") and
+`billing/freeManaged.test.ts` fail if this is reversed.
+
+**Warn before the cap, not only at it (decided by the owner, 2026-09-29).**
+From 900 notes the console shows a quiet count, which opens Settings ›
+Premium; at the cap, creating a note returns `noteCapMessage`, which says what
+still works and offers Premium or a bucket of their own. Free workspaces keep
+full-text search from the index in their own bucket; Fast Search remains the
+Premium addition.
 
 **Onboarding asks the question first.** After the name, the fork offers the
 free bucket where this deployment offers it and this owner may start it, the

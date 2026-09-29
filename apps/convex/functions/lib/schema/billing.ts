@@ -196,10 +196,10 @@ export const billingTables = {
      * This context started on the free managed tier: a bucket we run, no
      * card, a note cap (`lib/premium.ts`, `FREE_MANAGED_NOTE_CAP`).
      *
-     * A record of how it *started*, not of what it is paying for: paying
-     * lifts the cap, and a free context that upgraded and then cancelled falls
-     * back onto the cap rather than going read-only (`noteCapFor`,
-     * `cancellationMakesReadOnly`). Absent on every other row.
+     * A record of how it *started*, not of what it is paying for. The cap
+     * itself follows payment, not this flag: any context on storage we run
+     * that is not paying is on it, a lapsed paid one included (`noteCapFor`).
+     * Absent on every other row.
      */
     freeManaged: v.optional(v.boolean()),
     createdAt: v.number(),
@@ -292,10 +292,10 @@ export const billingTables = {
      * This context started on the free managed tier: a bucket we run, no
      * card, a note cap (`lib/premium.ts`, `FREE_MANAGED_NOTE_CAP`).
      *
-     * A record of how it *started*, not of what it is paying for: paying
-     * lifts the cap, and a free context that upgraded and then cancelled falls
-     * back onto the cap rather than going read-only (`noteCapFor`,
-     * `cancellationMakesReadOnly`). Absent on every other row.
+     * A record of how it *started*, not of what it is paying for. The cap
+     * itself follows payment, not this flag: any context on storage we run
+     * that is not paying is on it, a lapsed paid one included (`noteCapFor`).
+     * Absent on every other row.
      */
     freeManaged: v.optional(v.boolean()),
     createdAt: v.number(),

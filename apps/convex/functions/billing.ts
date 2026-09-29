@@ -77,7 +77,11 @@ import {
   sessionForActionReturns,
 } from "./lib/billing/sessions";
 import { billingStatusReturns, readBillingStatus } from "./lib/billing/status";
-import { noteCapForWorkspace, startFreeManagedHandler } from "./lib/billing/freeManaged";
+import {
+  noteCapForWorkspace,
+  refreshNoteCountHandler,
+  startFreeManagedHandler,
+} from "./lib/billing/freeManaged";
 import { storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
 import { startManagedMoveIfChosen } from "./lib/billing/managedMove";
 
@@ -182,6 +186,14 @@ export const noteCap = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.number(), v.null()),
   handler: async (ctx, args) => await noteCapForWorkspace(ctx, args.workspaceId),
+});
+
+/** Ask for a fresh note count on a capped context. See `refreshNoteCountHandler`. */
+export const refreshNoteCount = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ scheduled: v.boolean() }),
+  handler: async (ctx, args) =>
+    await refreshNoteCountHandler(ctx, await requireUserId(ctx), args.workspaceId),
 });
 
 /**

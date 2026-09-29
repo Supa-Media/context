@@ -47,7 +47,6 @@ import {
   STRIPE_PRICE_ID_ENV_VAR,
   FREE_MANAGED_NOTE_CAP,
   activeEntitlements,
-  cancellationMakesReadOnly,
   hasAnyEntitlement,
   managedStorageEntitled,
   noteCapFor,
@@ -183,38 +182,30 @@ describe("the free managed tier", () => {
     expect(managedStorageEntitled(lapsed, { freeTierOffered: true })).toBe(false);
   });
 
-  test("the cap applies to a free context on storage we run, and to nothing else", () => {
-    expect(noteCapFor({ status: "none", freeManaged: true }, true)).toBe(FREE_MANAGED_NOTE_CAP);
+  test("the cap applies to storage we run while nobody is paying, and to nothing else", () => {
+    expect(noteCapFor({ status: "none" }, true)).toBe(FREE_MANAGED_NOTE_CAP);
     // Paying lifts it.
-    expect(noteCapFor({ status: "active", freeManaged: true }, true)).toBeNull();
-    // A bucket the customer owns is never capped by us.
-    expect(noteCapFor({ status: "none", freeManaged: true }, false)).toBeNull();
-    // A paid context that lapsed is not a free-tier context.
-    expect(noteCapFor({ status: "canceled", freeManaged: false }, true)).toBeNull();
+    expect(noteCapFor({ status: "active" }, true)).toBeNull();
+    // A bucket the customer owns is never capped by us, lapsed or not.
+    expect(noteCapFor({ status: "none" }, false)).toBeNull();
+    expect(noteCapFor({ status: "canceled" }, false)).toBeNull();
+    // A managed bucket with no plan row is not guessed at.
     expect(noteCapFor(null, true)).toBeNull();
-  });
-
-  test("a free context that upgraded and then cancelled is back on the cap", () => {
-    expect(noteCapFor({ status: "canceled", freeManaged: true }, true)).toBe(FREE_MANAGED_NOTE_CAP);
   });
 });
 
 describe("what a lapse does, and what it may never do", () => {
-  test("only a managed context goes read-only", () => {
-    // A bucket the customer owns keeps working whatever we think of their
-    // card. Our credential is theirs to revoke, not ours to hold over them.
-    expect(cancellationMakesReadOnly("canceled", true)).toBe(true);
-    expect(cancellationMakesReadOnly("canceled", false)).toBe(false);
-    expect(cancellationMakesReadOnly("active", true)).toBe(false);
+  test("a lapsed paid context drops to the free plan's cap", () => {
+    // Decided by the owner, 2026-09-29: a lapse puts a context back on the
+    // free plan and never makes it read-only. However it started.
+    for (const status of ["canceled", "past_due", "unknown"] as const) {
+      expect(noteCapFor({ status }, true)).toBe(FREE_MANAGED_NOTE_CAP);
+    }
   });
 
-  test("a free-tier context is capped, never read-only", () => {
-    // It never paid, so there is nothing to lapse. Treating "none" on a
-    // managed bucket as a cancellation would lock every free context the
-    // moment it was made.
-    expect(cancellationMakesReadOnly("none", true, true)).toBe(false);
-    expect(cancellationMakesReadOnly("canceled", true, true)).toBe(false);
-    expect(cancellationMakesReadOnly("canceled", true, false)).toBe(true);
+  test("nothing in this module makes a context read-only", () => {
+    const names = Object.keys(premium);
+    expect(names.filter((name) => /read.?only|writable/i.test(name))).toEqual([]);
   });
 
   test("nothing in this module answers whether somebody may export", () => {

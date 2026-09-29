@@ -26,8 +26,9 @@ breaking one, stop and say so rather than working around it.
    downloading everything or handing the bucket to storage of their own is
    free, identical on both plans, and still works after they cancel. That exit
    is never gated, never degraded, and never behind a paywall — gate it and
-   this is a different product. Cancelling makes a context read-only and
-   exportable; it never deletes. Credentials never live in Markdown, in the
+   this is a different product. Cancelling puts a context back on the free
+   plan, still writable and exportable; it never deletes (decided by the
+   owner, 2026-09-29). Credentials never live in Markdown, in the
    bucket, in logs, in URLs, or on a device: encrypted at rest, decrypted only
    in the gateway at request time. See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).

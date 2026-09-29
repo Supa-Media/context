@@ -4,6 +4,7 @@
 
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
+import type { NoteLimit } from "../features/console/noteLimit";
 import { createRoot } from "react-dom/client";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -102,6 +103,7 @@ import type { ConsoleContext, ConsoleStorage } from "../features/console/types";
 interface Shape {
   storage?: ConsoleStorage | null;
   contexts?: ConsoleContext[];
+  noteLimit?: NoteLimit | null;
 }
 
 let shape: Shape = {};
@@ -206,6 +208,7 @@ function mockConsoleData(): never {
     stats: [],
     clients: [],
     storage: shape.storage === undefined ? S3_STORAGE : shape.storage,
+    noteLimit: shape.noteLimit ?? null,
     endpoint: "https://example.invalid/mcp",
     ingestionAddress: "seyi@context.lc",
     ingestion: { settings: null, loading: false },
@@ -410,6 +413,37 @@ describe("the storage pill on every other binding", () => {
     expect(app.text()).toContain("no bucket connected");
     app.press(app.find("storage-pill"));
     expect(mockParamsSet).toEqual([{ settings: "workspace" }]);
+    app.unmount();
+  });
+});
+
+/*
+  The free plan's count in the top bar, from 900 of 1,000 notes (owner's pick,
+  2026-09-29). `useNoteLimit` decides whether there is one; this is what the
+  bar does with it.
+
+  SABOTAGE: draw the chip whatever `noteLimit` says and "nothing below nine
+  tenths" fails; route the press to the default section and the press test
+  fails.
+*/
+describe("the free plan's note count", () => {
+  test("nothing is drawn when there is no count to show", () => {
+    const app = mountConsole({ noteLimit: null });
+    expect(app.find("note-limit-pill")).toBeNull();
+    app.unmount();
+  });
+
+  test("from nine tenths it says how many, and opens Premium settings", () => {
+    const app = mountConsole({ noteLimit: { used: 912, cap: 1000, full: false } });
+    expect(app.find("note-limit-pill")?.textContent).toBe("912 of 1,000 notes");
+    app.press(app.find("note-limit-pill"));
+    expect(mockParamsSet).toEqual([{ settings: "premium" }]);
+    app.unmount();
+  });
+
+  test("at the cap it still says only the count", () => {
+    const app = mountConsole({ noteLimit: { used: 1000, cap: 1000, full: true } });
+    expect(app.find("note-limit-pill")?.textContent).toBe("1,000 of 1,000 notes");
     app.unmount();
   });
 });

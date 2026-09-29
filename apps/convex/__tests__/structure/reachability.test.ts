@@ -126,6 +126,11 @@ describe("no public function can reach a storage secret", () => {
         // Builds a real S3Store to probe the bucket a user just connected.
         // Reached only by a schedule edge from bindStorage.
         "functions.provisioning.verifyStorageBinding",
+        // The census half of that probe, for the free plan's note count:
+        // opens the same credential to LIST the bucket and records a number.
+        // Writes nothing to the bucket. Reached only by a schedule edge from
+        // `billing.refreshNoteCount`, which is owner-only.
+        "functions.provisioning.recountNotes",
         // The owner-triggered storage-layout runner first refreshes observed
         // capabilities, then delegates the bounded copy to runFileOperation.
         // Internal and reached only through the scheduler, so neither the

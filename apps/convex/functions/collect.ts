@@ -13,9 +13,9 @@
  * 1. **The link resolves** to a live `anyone` row in `collect` mode over a
  *    **note**. A folder link reaches a subtree; collecting through one would
  *    publish every form beneath it on the strength of one decision.
- * 2. **The context is writable** — not a cancelled managed-storage context.
- *    Cancelling makes a context read-only, and a live collect link is a write
- *    path into one that stopped taking writes.
+ * 2. **The context is writable** — it has storage bound. A cancelled
+ *    context stays writable (it drops to the free plan's note cap), so the
+ *    cap, not this step, is what refuses an answer to a full one.
  * 3. **The challenge verifies**, and refuses when it cannot. See
  *    `lib/turnstile.ts` for why failing closed is the production branch.
  * 4. **The link has room** — its own cap, counted on the row.
@@ -52,10 +52,8 @@ import { ConvexError } from "convex/values";
 
 import { internal } from "../_generated/api";
 import { action, internalMutation, internalQuery } from "../_generated/server";
-import { managedBucketName } from "./lib/managedStorage";
 import { normalizePath } from "./lib/fileOps";
 import { findName } from "./lib/nameClaims";
-import { cancellationMakesReadOnly } from "./lib/premium";
 import { linkStamp } from "./lib/formOps";
 import { shortLinkSlugFrom } from "./lib/shareSlug";
 import { DEFAULT_COLLECT_CAP } from "./lib/collectLimits";
@@ -151,11 +149,11 @@ export const collectTarget = internalQuery({
 /**
  * Whether this context is still taking writes at all. INTERNAL.
  *
- * `cancellationMakesReadOnly` is the rule and it lives in `lib/premium.ts`;
- * this is the first caller to wire it. Only **managed** storage can be made
- * read-only by a lapse — a customer's own bucket keeps working with their own
- * credentials whatever we think of their card, because revoking our access is
- * their lever and not ours.
+ * Only a context with storage bound takes them. A plan never decides this: a
+ * lapse puts a managed context back on the free plan's note cap
+ * (`noteCapFor`, enforced by the store every write crosses) and never makes it
+ * read-only, so a form answer on a full free context is refused by the cap
+ * like any other create, and one on a context with room goes through.
  */
 export const collectContextWritable = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -165,17 +163,7 @@ export const collectContextWritable = internalQuery({
       .query("storageBindings")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
-    if (binding === null) return false;
-    const managed = binding.bucket === managedBucketName(args.workspaceId);
-    const plan = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    return !cancellationMakesReadOnly(
-      plan?.status ?? "none",
-      managed,
-      plan?.freeManaged === true,
-    );
+    return binding !== null;
   },
 });
 

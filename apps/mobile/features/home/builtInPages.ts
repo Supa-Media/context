@@ -115,7 +115,7 @@ Bring your own bucket on Cloudflare R2, AWS S3 or anything compatible, and Conte
 
 ## Leaving is free
 
-Download everything, or hand the bucket to storage of your own. It works the same on both plans, and it still works after you cancel. Cancelling makes a workspace read-only. It never deletes anything.
+Download everything, or hand the bucket to storage of your own. It works the same on both plans, and it still works after you cancel. Cancelling puts a workspace back on the free plan. It never deletes anything.
 
 Search indexes are copies we can rebuild from your files. They are never the only copy of anything.
 `,

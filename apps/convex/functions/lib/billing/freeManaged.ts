@@ -117,10 +117,41 @@ export async function noteCapForWorkspace(
   workspaceId: Id<"workspaces">,
 ): Promise<number | null> {
   const plan = await planFor(ctx, workspaceId);
-  if (plan?.freeManaged !== true) return null;
+  if (plan === null) return null;
   const binding = await ctx.db
     .query("storageBindings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
   return noteCapFor(plan, bindingIsManaged(binding, workspaceId));
+}
+
+/** How stale a capped context's count may be before opening it asks again. */
+const NOTE_RECOUNT_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Ask for a fresh note count on a context the free plan's cap applies to.
+ *
+ * The console calls this when an owner opens a capped context, so the count
+ * behind "912 of 1,000 notes" includes what agents, email and other devices
+ * added since. Owner-only, because the count is (`billing.status` returns
+ * `notes` to owners alone). A context with no cap, or one counted within
+ * `NOTE_RECOUNT_INTERVAL_MS`, schedules nothing: a reload must not become a
+ * bucket walk. Scheduling is not calling — the walk runs in an internal
+ * action, the only place a credential may be opened.
+ */
+export async function refreshNoteCountHandler(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  workspaceId: Id<"workspaces">,
+): Promise<{ scheduled: boolean }> {
+  await requireWorkspaceRole(ctx, workspaceId, userId, "owner");
+  if ((await noteCapForWorkspace(ctx, workspaceId)) === null) return { scheduled: false };
+  const binding = await ctx.db
+    .query("storageBindings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  const countedAt = binding?.noteCountedAt ?? 0;
+  if (Date.now() - countedAt < NOTE_RECOUNT_INTERVAL_MS) return { scheduled: false };
+  await ctx.scheduler.runAfter(0, internal.functions.provisioning.recountNotes, { workspaceId });
+  return { scheduled: true };
 }

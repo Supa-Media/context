@@ -556,6 +556,50 @@ export const verifyStorageBinding = internalAction({
 });
 
 /**
+ * Count a capped context's notes again, and nothing else.
+ *
+ * The free plan's warning ("912 of 1,000 notes") is only as good as the count
+ * behind it, and the binding's count was otherwise taken only when storage was
+ * verified. This is the census half of `verifyStorageBinding` without the
+ * probe: no object is written, and a bucket that will not answer records
+ * nothing rather than a zero. Scheduled by `billing.refreshNoteCount`, which
+ * decides whether a count is due.
+ */
+export const recountNotes = internalAction({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let credential: GatewayCredential | null;
+    try {
+      credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
+        workspaceId: args.workspaceId,
+      });
+    } catch {
+      return null;
+    }
+    if (credential === null) return null;
+    let store: ScaffoldStore;
+    try {
+      store = storeForBinding(credential) as unknown as ScaffoldStore;
+    } catch {
+      return null;
+    }
+    const counted = await countNotes(store);
+    if (counted === null) return null;
+    try {
+      await ctx.runMutation(internal.functions.storage.recordNoteCount, {
+        workspaceId: args.workspaceId,
+        notes: counted.notes,
+        truncated: counted.truncated,
+      });
+    } catch {
+      // Disconnected while we were walking. Same race `record` tolerates.
+    }
+    return null;
+  },
+});
+
+/**
  * Persist the outcome and hand it back.
  *
  * `recordVerification` throws when the binding has vanished — which is a race,

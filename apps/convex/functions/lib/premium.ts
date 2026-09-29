@@ -251,45 +251,27 @@ export function managedStorageEntitled(
 /**
  * The note cap on this context, or `null` for none.
  *
- * Only a context on the free tier, on storage we run, and not currently
- * paying. Paying lifts it; a bucket the customer owns is never capped by us
- * (it is theirs, and they pay the provider). A paid context that lapsed is not
- * thereby a free one — `freeManaged` records that it *started* free, which is
- * also what puts a free context that upgraded and then cancelled back on the
- * cap rather than making it read-only.
+ * Any context on storage we run that is not currently paying: one that started
+ * on the free tier, and one whose subscription lapsed. **A lapse puts a context
+ * back on the free plan; it never makes it read-only** (decided by the owner,
+ * 2026-09-29). Everybody in it keeps reading, editing, moving and exporting;
+ * only creating a note past the cap is refused. Paying lifts the cap, and a
+ * bucket the customer owns is never capped by us (it is theirs, and they pay
+ * the provider).
+ *
+ * A managed bucket with no plan row at all is not something the product
+ * creates, and it is left uncapped rather than guessed at: a billing read that
+ * cannot tell must never cost somebody the ability to write.
+ *
+ * There is deliberately no read-only function beside this one. Nothing about
+ * a plan decides whether a context takes writes, and nothing decides whether
+ * somebody may leave with their notes.
  */
 export function noteCapFor(
-  plan: Pick<PlanFacts, "status" | "freeManaged"> | null,
+  plan: Pick<PlanFacts, "status"> | null,
   storageIsManaged: boolean,
 ): number | null {
-  if (!storageIsManaged || plan?.freeManaged !== true) return null;
+  if (!storageIsManaged || plan === null) return null;
   if (planIsPaying(plan.status ?? "none")) return null;
   return FREE_MANAGED_NOTE_CAP;
-}
-
-/**
- * Whether writing is still allowed after a lapse.
- *
- * Cancelling makes a context **read-only and exportable; it never deletes**
- * (non-negotiable #1). This function is the control plane's statement of the
- * first half. The second half has no function anywhere in this module, and
- * that absence is the design: nothing may consult a plan to decide whether
- * somebody can leave with their notes.
- *
- * Only managed storage can be made read-only by a lapse, and that distinction
- * is the whole of it: a context on a bucket the customer owns keeps working
- * with their own credentials whatever we think of their card, because the
- * bucket is theirs and revoking our access is *their* lever, not ours.
- *
- * A context on the free managed tier never goes read-only here: it has no
- * subscription to lapse, and falling back to free puts it on the note cap
- * (`noteCapFor`) instead.
- */
-export function cancellationMakesReadOnly(
-  status: PlanStatus,
-  storageIsManaged: boolean,
-  freeManaged = false,
-): boolean {
-  if (freeManaged) return false;
-  return storageIsManaged && !planIsPaying(status);
 }
