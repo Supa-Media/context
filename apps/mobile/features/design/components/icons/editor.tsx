@@ -11,7 +11,8 @@ type EditorIconName =
   | "keyboardHide"
   | "eye"
   | "pencil"
-  | "play";
+  | "play"
+  | "pause";
 
 /**
  * The eye's geometry, named rather than inlined, because `icons.test.ts`
@@ -205,6 +206,9 @@ export const editorIcons: Record<EditorIconName, DrawFn> = {
     // centre falls inside the triangle's wide half, which is where a play
     // mark looks centred.
     glyph("play", u, w, c, { paths: ["M 0.3 0.18 L 0.82 0.5 L 0.3 0.82 Z"] }),
+
+  // Play's pair in the cast studio: two uprights as tall as play's triangle.
+  pause: (u, w, c) => glyph("pause", u, w, c, { paths: ["M 0.36 0.2 L 0.36 0.8", "M 0.64 0.2 L 0.64 0.8"] }),
 
   pencil: (u, w, c) => {
     /*

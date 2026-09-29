@@ -75,6 +75,10 @@ export interface CastHost {
   room: (members: PresenceMember[]) => void;
   /** A comment step acted on this thread: a comment, a reply or a resolve. */
   commented?: (thread: string) => void;
+  /** Step `index` of the script is starting: the studio's script follows along. */
+  step?: (index: number) => void;
+  /** The show ran to its end and everybody has left (not stopped by the visitor). */
+  ended?: () => void;
 }
 
 /*
@@ -214,6 +218,7 @@ export function playCast(
     const leave = (index: number) => {
       if (index >= leaving.length) {
         stop();
+        host.ended?.();
         return;
       }
       members.delete(leaving[index]!);
@@ -226,6 +231,7 @@ export function playCast(
   const next = (index: number) => {
     if (index >= steps.length) return finish();
     const step = steps[index]!;
+    host.step?.(index);
     const then = () => later(pace.gapMs, () => next(index + 1));
 
     if (step.kind === "wait") return later(step.ms, () => next(index + 1));

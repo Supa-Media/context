@@ -13,6 +13,7 @@ import {
   type HomeSource,
 } from "./homeSnapshot";
 import { castPreviewFrom } from "./castPreview";
+import { isStudioStage } from "./cast/studioLink";
 
 /** How long a visit with no site in its HTML waits before drawing the copy. */
 const WAIT_MS = 4_000;
@@ -23,7 +24,8 @@ const WAIT_MS = 4_000;
  */
 function previewForThisTab(): HomeSnapshot | null {
   if (Platform.OS !== "web" || typeof window === "undefined") return null;
-  return castPreviewFrom(window.location.hash);
+  // The studio's own stage records the app and nothing else (`studioLink.ts`).
+  return castPreviewFrom(window.location.hash, { banner: !isStudioStage(window) });
 }
 
 /**

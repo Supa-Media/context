@@ -206,6 +206,8 @@ export const ICON_NAMES = [
    * why it is not an eye or a screen.
    */
   "play",
+  /** Play's pair, in the cast studio: the show is running, press to hold it. */
+  "pause",
   /**
    * The file tree's sort order, as Obsidian draws it: an up arrow beside three
    * rules of decreasing length.

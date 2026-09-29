@@ -222,6 +222,9 @@ const RAW_WINDOW_LISTENERS_ALLOWED: Record<string, string> = {
   "features/app/ShellTitleBandView.tsx": "checks `typeof window.addEventListener` itself before listening for full screen",
   "features/console/agents/useAgentActivity.ts": "checks `typeof window.addEventListener` itself before listening",
   "features/console/files/imageBlock/widget.ts": "a CodeMirror widget, bundled into the editor's WebView and never into the app",
+  "features/home/cast/useStudioStage.ts": "listens only once `isStudioStage(window)`, which needs a parent window carrying the studio's flag, never so on a phone",
+  "features/studio/StudioRecord.tsx": "the cast studio, opened only by a button `castPreviewButton` draws on the web; its listener also returns first off the web",
+  "features/studio/useStudioPlayer.ts": "the cast studio, opened only by a button `castPreviewButton` draws on the web",
   "features/home/HomeShell.tsx": "its one listener returns first unless `Platform.OS` is web, and a phone redirects `/` before the shell mounts",
   "features/site/SiteRoot.tsx": "mounted only when `siteHostname()` names a customer's host, which is null off the web",
 };
