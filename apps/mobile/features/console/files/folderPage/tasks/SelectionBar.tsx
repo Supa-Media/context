@@ -1,7 +1,7 @@
 /**
  * "2 selected · Status · Priority · Owner · Move to Backlog · Archive · ✕":
  * what a selection of tasks can be given at once. Each is one change over
- * all of them, sent one after another, said once and taken back by one Undo
+ * all of them, sent together (`runManyPlanned`), said once and taken back by one Undo
  * (`TaskControls.performMany`). Archive is the console's own archive dialog,
  * with its own Undo.
  */
