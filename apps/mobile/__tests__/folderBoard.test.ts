@@ -93,7 +93,7 @@ describe("the board", () => {
     const kitchen = card("Get the kitchen ready");
     // Only the first tag: the rest are the task's to show when it is opened.
     expect(all("folder-card-tag", kitchen).map((node) => strip(node.textContent))).toEqual(["Kitchen"]);
-    expect(strip(one("folder-card-progress", kitchen).textContent)).toBe("2 of 3 done");
+    expect(strip(one("folder-card-progress", kitchen).textContent)).toBe("2/3");
     expect(one("folder-card-bar", kitchen).getAttribute("aria-valuenow")).toBe("2");
     expect(strip(one("folder-card-more-owners", kitchen).textContent)).toBe("+1");
     expect(one("owner-face-agent", card("opening-day post"))).toBeDefined();

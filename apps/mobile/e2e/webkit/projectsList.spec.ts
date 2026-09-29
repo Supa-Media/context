@@ -38,7 +38,7 @@ test("a project's name keeps its room and its progress stays on one line", async
     const progress = row.getByTestId("folder-item-progress");
     if ((await progress.count()) === 0) continue;
     const line = await progress.boundingBox();
-    // One line of the meta face, and all of it: "0 of 4 done" is never cut or wrapped.
+    // One line of the meta face, and all of it: the bar and "0/4" are never cut or wrapped.
     expect(line!.height).toBeLessThan(24);
     expect(await progress.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
   }
