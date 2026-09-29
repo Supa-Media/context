@@ -146,6 +146,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Authority is decided once, never per protocol era
 - An absent `Origin` is allowed; `null` is not
 - Orientation is the front door, and `index.md` is the part we do not generate
+- One note from Context.LC leads every orientation
 - Recency ranks attention, and automated capture is collapsed, not excluded
 - `search` and `fetch` exist because ChatGPT's chats can call nothing else
 - The advertised `inputSchema` is enforced, and it is enforced in one place

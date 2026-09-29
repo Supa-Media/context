@@ -23,6 +23,7 @@ import { normalizePath } from "../notes/paths.js";
 import { ORIENT_OPERATING_CONTRACT } from "../mcp/instructions.js";
 import { PROPOSAL_PENDING_PREFIX } from "../tools/proposals.js";
 import { readFrontPage, readSaveProcedure } from "./frontPage.js";
+import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
 import { surveyContext } from "./survey.js";
@@ -97,7 +98,7 @@ async function surveyOtherContexts(store) {
 }
 
 export async function toolOrient(store, scope, rules, overrides) {
-  const [frontPage, procedure, privateIndex, pendingProposals, survey, reducedRecallNotes] =
+  const [frontPage, procedure, privateIndex, pendingProposals, survey, reducedRecallNotes, globalNote] =
     await Promise.all([
       readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
       readSaveProcedure(store, scope, rules, overrides),
@@ -105,6 +106,11 @@ export async function toolOrient(store, scope, rules, overrides) {
       scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
       surveyContext(store, scope, rules, overrides),
       reducedRecallNotesFor(store, (path) => canSee(path, scope, rules, overrides)),
+      readGlobalOrientNote({
+        contexts: store.contexts,
+        openPinned: store.openPinnedContext,
+        here: { store, scope, rules, overrides },
+      }),
     ]);
 
   const total = `${survey.total}${survey.truncated ? "+" : ""}`;
@@ -113,8 +119,20 @@ export async function toolOrient(store, scope, rules, overrides) {
       `${survey.folders.length} folders. This is the user's own context: their projects, ` +
       "decisions, people and writing. Assume the answer to a question about their work is " +
       "already in here somewhere, and look before you ask them to repeat it.",
-    `## Front page — index.md\n\n${frontPage || NO_FRONT_PAGE}`,
   ];
+  // First, ahead of the person's own front page: it is short by construction
+  // and it is the one thing Context.LC's staff can say to every agent at once.
+  if (globalNote) {
+    parts.push(
+      `## For every workspace — from ${PINNED_CONTEXT_NAME} (\`${GLOBAL_ORIENT_PATH}\`)\n\n` +
+        "Standing rules from Context.LC for every person and agent, in every workspace. " +
+        "Follow them here alongside this context's own front page below.\n\n" +
+        globalNote
+    );
+  }
+  parts.push(
+    `## Front page — index.md\n\n${frontPage || NO_FRONT_PAGE}`
+  );
 
   if (scope === "private" && privateIndex) {
     parts.push(`## Owner's front page — index-private.md\n\n${(await privateIndex.text()).trim()}`);
