@@ -26,6 +26,7 @@ import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
 import type { OrganizerView } from "../organizer/useOrganizer";
 import type { ConnectFormValues } from "./storage/connect";
+import type { NoteLimit } from "./noteLimit";
 
 /**
  * What the console renders.
@@ -511,6 +512,12 @@ export interface ConsoleData {
   storage: ConsoleStorage | null | undefined;
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
+  /**
+   * How full the selected context is on the free plan, once it passes nine
+   * tenths of its cap — `null` or absent otherwise, and absent in the demo and
+   * on the homepage, which have no plan. See `noteLimit.ts`.
+   */
+  noteLimit?: NoteLimit | null;
   googleConnections: GoogleConnection[];
   googleActions?: GoogleActions;
   /**

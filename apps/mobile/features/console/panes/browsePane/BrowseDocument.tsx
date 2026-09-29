@@ -172,6 +172,7 @@ export function BrowseDocument({
         // line at the foot of the context's own page is the only place a
         // number of updates can sit. Opening `activity.md` is how it is read.
         activity: data.activity,
+        noteLimit: data.noteLimit,
       })
     : undefined;
 

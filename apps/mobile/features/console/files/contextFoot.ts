@@ -38,6 +38,7 @@
 import { describeIndexProgress, type FastSearchStatus } from "../search/fastSearch";
 import { footLabel } from "../activity/activity";
 import { storagePillLabel } from "../storage/pill";
+import { noteLimitLabel, type NoteLimit } from "../noteLimit";
 import { isUnlistedFile } from "./paths";
 import type { ConsoleStorage } from "../types";
 import type { FolderListing } from "./types";
@@ -90,6 +91,7 @@ export function contextFootLine({
   fastSearch,
   listings,
   activity,
+  noteLimit,
   now = Date.now(),
 }: {
   /** `undefined` is "the binding has not answered", `null` is "no bucket". */
@@ -113,6 +115,11 @@ export function contextFootLine({
    * line is then exactly what it has always been.
    */
   activity?: { unseen: number; seenAt: number | null };
+  /**
+   * The free plan's count, from nine tenths of its cap — the phone's copy of
+   * the top bar's chip, drawn after the binding. Absent or `null` otherwise.
+   */
+  noteLimit?: NoteLimit | null;
   /** Passed in so every relative time in one render agrees. */
   now?: number;
 }): string {
@@ -122,7 +129,8 @@ export function contextFootLine({
     activity === undefined || activity.unseen <= 0
       ? undefined
       : footLabel({ unseen: activity.unseen, since: activity.seenAt, counts: "", now });
-  return [unseen, binding, describeIndexProgress(fastSearch)?.label, loadedCounts(listings)]
+  const limit = noteLimit === undefined || noteLimit === null ? undefined : noteLimitLabel(noteLimit);
+  return [unseen, binding, limit, describeIndexProgress(fastSearch)?.label, loadedCounts(listings)]
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" · ");
 }
