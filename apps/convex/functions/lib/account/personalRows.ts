@@ -31,6 +31,13 @@ export async function deletePersonalRows(
   // The photo they chose to be drawn with, and its object in file storage.
   await deleteAccountPhoto(ctx, userId);
 
+  // Where they were up to in the devlog: a number about them, nothing more.
+  const devlogReads = await ctx.db
+    .query("devlogReads")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of devlogReads) await ctx.db.delete(row._id);
+
   // The user's own name claims. Nothing writes a `kind: "user"` row today
   // (see functions/invitations.ts), so this is usually a no-op — but the
   // schema supports them and a claimed username must not outlive the person.

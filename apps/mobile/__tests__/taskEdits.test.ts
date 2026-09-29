@@ -139,10 +139,61 @@ describe("several at once", () => {
     ]);
   });
 
-  test("a failure stops the rest; the ones before it stand and it says how far it got", async () => {
-    const { io } = recorder((call) => call.startsWith(`set ${P}/kitchen`));
+  test("a failed property change leaves the others standing and says how far it got", async () => {
+    const { io, calls } = recorder((call) => call.startsWith(`set ${P}/lease`));
     const run = await runManyPlanned(io, [planPark(taskRefOf(LEASE), LIST), planPark(taskRefOf(KITCHEN), LIST)]);
     expect(run).toMatchObject({ ok: true, done: 1, problem: "1 of 2 changed. That change could not be saved." });
+    expect(calls).toContain(`set ${P}/kitchen/overview.md [["status","backlog"]]`);
+  });
+
+  test("property changes on different notes are all sent before any answers", async () => {
+    // Six picked rows marked finished went one by one, each waiting on the last write.
+    const sent: string[] = [];
+    const answers: (() => void)[] = [];
+    const io: TaskWriteIO = {
+      create: async () => undefined,
+      move: async () => undefined,
+      setProperties: (path) =>
+        new Promise((resolve) => {
+          sent.push(path);
+          answers.push(() => resolve(null));
+        }),
+    };
+    const running = runManyPlanned(io, [LEASE, PHOTOS, KITCHEN].map((each) => planPark(taskRefOf(each), LIST)));
+    await Promise.resolve();
+    expect(sent).toEqual([`${P}/lease.md`, `${P}/photos.md`, `${P}/kitchen/overview.md`]);
+    answers.forEach((answer) => answer());
+    expect(await running).toMatchObject({ ok: true, done: 3, problem: null });
+  });
+
+  test("moves go one at a time after the property changes, stop at a failure, and undo newest first", async () => {
+    const { io, calls } = recorder((call) => call.startsWith(`move ${P}/photos`));
+    const menu = { path: "1-projects/menu", label: "Summer menu" };
+    const run = await runManyPlanned(io, [
+      planMoveToProject(taskRefOf(KITCHEN), menu, SNAPSHOT),
+      planPark(taskRefOf(LEASE), LIST),
+      planMoveToProject(taskRefOf(PHOTOS), menu, SNAPSHOT),
+      planMoveToProject(taskRefOf(OVEN), menu, SNAPSHOT),
+    ]);
+    expect(run).toMatchObject({ ok: true, done: 2, problem: "2 of 4 changed. That did not work. Try again." });
+    expect(calls).toEqual([
+      `set ${P}/lease.md [["status","backlog"]]`,
+      `move ${P}/kitchen -> 1-projects/menu/kitchen`,
+      `move ${P}/photos.md -> 1-projects/menu/photos.md`,
+    ]);
+    calls.length = 0;
+    expect(run.ok && (await run.undo!())).toBeNull();
+    expect(calls).toEqual([`move 1-projects/menu/kitchen -> ${P}/kitchen`, `set ${P}/lease.md [["status","to do"]]`]);
+  });
+
+  test("two changes to the same note are not sent at once", async () => {
+    const { io, calls } = recorder();
+    const run = await runManyPlanned(io, [
+      planSet(LEASE, [["priority", "p0"]], "m", "u"),
+      planSet(LEASE, [["tags", wordsValue(["Open"])]], "m", "u"),
+    ]);
+    expect(run).toMatchObject({ ok: true, done: 2 });
+    expect(calls).toEqual([`set ${P}/lease.md [["priority","p0"]]`, `set ${P}/lease.md [["tags","Open"]]`]);
   });
 
   test("when every one is refused, the first reason is the answer and nothing is sent", async () => {

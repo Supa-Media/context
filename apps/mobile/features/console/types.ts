@@ -627,6 +627,13 @@ export interface ConsoleData {
    * nothing else in this console may claim otherwise.
    */
   pluginRuntime: RuntimeView;
+  /**
+   * True when this console reads What's new from the server: only the live,
+   * signed-in console sets it. The demo, the homepage's visitor and every
+   * fixture leave it out, so none of them asks the control plane for the
+   * devlog or a read marker (`whatsNew/WhatsNewHost.tsx`).
+   */
+  whatsNew?: true;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

@@ -48,6 +48,7 @@ import { finishManagedStorageMigrationHandler } from "./lib/managedProvisioningF
 import {
   finishAwaitManagedTargetReady,
   migrationTargetCredential,
+  destinationHoldsObjects,
   probeManagedTarget,
 } from "./lib/managedProvisioningFns/targetReady";
 import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns/complete";
@@ -492,6 +493,7 @@ export const awaitManagedTargetReady = internalAction({
     }
 
     let ready = false;
+    let occupied = false;
     try {
       const secretAccessKey = await decryptSecret(
         migration.encryptedTargetSecretAccessKey,
@@ -499,6 +501,13 @@ export const awaitManagedTargetReady = internalAction({
         { workspaceId: args.workspaceId },
       );
       ready = await probeManagedTarget(migration, secretAccessKey);
+      if (
+        ready &&
+        migration.direction === "to_customer" &&
+        migration.targetClaimed !== true
+      ) {
+        occupied = await destinationHoldsObjects(migration, secretAccessKey);
+      }
     } catch {
       // An envelope that will not open, or a store that cannot be built. Both
       // resolve the same way as an unready bucket: try again until the
@@ -506,7 +515,38 @@ export const awaitManagedTargetReady = internalAction({
       ready = false;
     }
 
+    if (ready && migration.direction === "to_customer" && migration.targetClaimed !== true) {
+      if (occupied) {
+        await ctx.runMutation(
+          internal.functions.managedProvisioning.failManagedStorageMigration,
+          { workspaceId: args.workspaceId, errorCode: "DESTINATION_NOT_EMPTY" },
+        );
+        return { ready: false };
+      }
+      await ctx.runMutation(
+        internal.functions.managedProvisioning.claimManagedStorageTarget,
+        { workspaceId: args.workspaceId },
+      );
+    }
+
     return await finishAwaitManagedTargetReady(ctx, args, migration, ready);
+  },
+});
+
+/** Record that the customer destination was empty when this move first wrote. */
+export const claimManagedStorageTarget = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (row === null || row.status !== "copying" || row.direction !== "to_customer") {
+      return null;
+    }
+    await ctx.db.patch(row._id, { targetClaimed: true, updatedAt: Date.now() });
+    return null;
   },
 });
 
@@ -626,6 +666,12 @@ export const runManagedStorageMigration = internalAction({
           target: target as unknown as MigrationStore,
           objects: page.objects,
           listedFromTarget: migration.phase === "verify_target",
+          // Into a customer's bucket, only a destination checked empty before
+          // the first write may lose keys the source lacks. A row started
+          // before that check existed never had it, so it deletes nothing.
+          deleteUnmatchedTarget:
+            migration.direction !== "to_customer" ||
+            migration.targetClaimed === true,
           byteCap: MIGRATION_OBJECT_BYTE_CAP,
           maxWidth: MIGRATION_WAVE_WIDTH,
           byteBudget: MIGRATION_WAVE_BYTE_BUDGET,

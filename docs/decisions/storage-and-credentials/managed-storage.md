@@ -436,3 +436,27 @@ credential is sealed before it enters the migration row, members cannot see
 progress or errors, and the source bucket is retired only after the verified
 binding cutover. `managedHandoff.test.ts` pins free/cancelled access, exact
 source cutover, credential containment and the no-delete-before-cutover rule.
+
+## Leaving never deletes a file the customer already had
+
+Moving out of managed storage reconciles the destination to match the managed
+source, and the last pass (`verify_target`) deletes destination keys the source
+lacks. Until 2026-09-29 that ran against whatever the owner pasted, so handing
+off into a bucket they already used deleted their own files — the exit path
+destroying data, which is the one thing non-negotiable #1 promises it never
+does.
+
+So the destination is asked once, after the readiness probe and before the
+first write, whether it holds anything under the chosen root prefix. Anything
+at all refuses the move with `DESTINATION_NOT_EMPTY`; the owner picks an empty
+bucket or an empty root prefix. A destination that answers empty is recorded as
+`targetClaimed` on the migration row, and only a claimed destination may lose
+keys later — everything in it is then this move's own writes. A retry into the
+same endpoint, bucket and prefix keeps the claim and carries on from the partial
+copy; any other destination is asked again. A row started before the check
+existed is unclaimed, and its verify pass deletes nothing.
+
+**What a simplification would cost.** Dropping the check, or letting the claim
+survive a change of destination, puts the deletion back in front of a
+customer's own files. `__tests__/managedHandoffDestination.test.ts` fails on
+either.
