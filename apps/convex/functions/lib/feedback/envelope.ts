@@ -74,9 +74,10 @@ export function buildFeedbackEnvelope(input: EnvelopeInput): Uint8Array<ArrayBuf
 
   const contexts: Record<string, Record<string, string>> = { feedback };
   if (report.system !== undefined) {
-    const os: Record<string, string> = { name: report.system.family };
-    if (report.system.version !== undefined) os.version = report.system.version;
-    contexts.os = os;
+    // On the web the family is a browser; in the apps it is the phone's system.
+    const system: Record<string, string> = { name: report.system.family };
+    if (report.system.version !== undefined) system.version = report.system.version;
+    contexts[report.app.platform === "web" ? "browser" : "os"] = system;
   }
 
   const event: Record<string, unknown> = {
@@ -92,9 +93,9 @@ export function buildFeedbackEnvelope(input: EnvelopeInput): Uint8Array<ArrayBuf
       "feedback.client_report_id": report.clientReportId,
       "feedback.source": report.source,
       "feedback.platform": report.app.platform,
+      ...(report.app.build === undefined ? {} : { "feedback.build": report.app.build }),
     },
   };
-  if (report.app.build !== undefined) event.release = report.app.build;
 
   const parts: Uint8Array[] = [
     line({ event_id: input.eventId, sent_at: new Date(input.now).toISOString(), dsn: input.dsn }),

@@ -232,8 +232,13 @@ describe("what reaches Sentry", () => {
           source: "top_bar",
           associated_event_id: "0123456789abcdef0123456789abcdef",
         },
+        browser: { name: "chrome", version: "129" },
       },
+      tags: { "feedback.build": "7677321184be", "feedback.platform": "web" },
     });
+    // A build is a tag, not a Sentry release: releases are the error SDK's.
+    expect(event.release).toBeUndefined();
+    expect(event.contexts.os).toBeUndefined();
     expect(text).toContain('"filename":"activity.txt"');
     expect(text).toContain("14:03  error   TypeError · ref 0123abcd");
     expect(text).toContain('"filename":"screenshot.jpg"');
