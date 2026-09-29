@@ -142,9 +142,16 @@ function errorCodeOf(error: unknown): string {
   return "WALK_FAILED";
 }
 
+/**
+ * Every object in a batch settles before a failure is reported. With
+ * `Promise.all` the first refusal would end the run while its siblings were
+ * still writing, so the workspace would read "failed" with seals in flight.
+ */
 async function inBatches<T>(items: T[], work: (item: T) => Promise<void>) {
   for (let i = 0; i < items.length; i += PARALLEL) {
-    await Promise.all(items.slice(i, i + PARALLEL).map(work));
+    const settled = await Promise.allSettled(items.slice(i, i + PARALLEL).map(work));
+    const refused = settled.find((result) => result.status === "rejected");
+    if (refused) throw (refused as PromiseRejectedResult).reason;
   }
 }
 
