@@ -44,12 +44,16 @@ export function hasCast(source: string): boolean {
   return splitWebsiteCast(stripFrontmatter(source)).steps.length > 0;
 }
 
-/** The draft as a one-page site whose front page it is. */
-export function castPreviewSnapshot(source: string, title: string): HomeSnapshot {
+/**
+ * The draft as a one-page site whose front page it is. `banner: false` only
+ * for the cast studio's stage, which our own studio frames (`studioLink.ts`).
+ */
+export function castPreviewSnapshot(source: string, title: string, options: { banner?: boolean } = {}): HomeSnapshot {
+  const banner = options.banner === false ? "" : CAST_PREVIEW_BANNER;
   return {
     siteName: "Preview",
     revision: null,
-    pages: [{ path: "index.md", routePath: "/", title, markdown: CAST_PREVIEW_BANNER + stripFrontmatter(source) }],
+    pages: [{ path: "index.md", routePath: "/", title, markdown: banner + stripFrontmatter(source) }],
     emoji: {},
     // A draft's own images are the workspace's, which the homepage cannot read.
     images: {},
@@ -58,12 +62,17 @@ export function castPreviewSnapshot(source: string, title: string): HomeSnapshot
 
 /** The address that plays this draft on the homepage. */
 export function castPreviewHref(source: string, title: string): string {
+  return `/#${castPreviewFragment(source, title)}`;
+}
+
+/** `cast-preview=…`: the draft, as the address's fragment carries it. */
+export function castPreviewFragment(source: string, title: string): string {
   const body = JSON.stringify({ title, markdown: stripFrontmatter(source) });
-  return `/#${CAST_PREVIEW_PARAM}=${toBase64Url(new TextEncoder().encode(body))}`;
+  return `${CAST_PREVIEW_PARAM}=${toBase64Url(new TextEncoder().encode(body))}`;
 }
 
 /** The draft an address carries, or `null` for any other visit or junk. */
-export function castPreviewFrom(hash: string | undefined): HomeSnapshot | null {
+export function castPreviewFrom(hash: string | undefined, options: { banner?: boolean } = {}): HomeSnapshot | null {
   if (hash === undefined) return null;
   const prefix = `#${CAST_PREVIEW_PARAM}=`;
   if (!hash.startsWith(prefix)) return null;
@@ -75,7 +84,7 @@ export function castPreviewFrom(hash: string | undefined): HomeSnapshot | null {
     if (typeof body.title !== "string" || typeof body.markdown !== "string") return null;
     // Through the same check as a site from the router, so a crafted address
     // can hand the homepage nothing a real site could not.
-    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title));
+    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title, options));
   } catch {
     return null;
   }

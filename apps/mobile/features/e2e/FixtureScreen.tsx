@@ -8,6 +8,7 @@ import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
 import { ProjectsFixture } from "./projects/ProjectsFixture";
+import { CastStudioFixture } from "./CastStudioFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -63,6 +64,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
   // A projects folder's List, Board and side peek on an in-memory folder. See its own header.
   if (first(params.screen) === "projects") return <ProjectsFixture member={first(params.role) === "member"} />;
+  // The cast studio over a fixed scene; its stage is the real homepage.
+  if (first(params.screen) === "cast-studio") return <CastStudioFixture />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
 
   /*

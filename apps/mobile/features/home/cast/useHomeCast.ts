@@ -8,6 +8,7 @@ import { useReducedMotion } from "../../design/useReducedMotion";
 import type { HomePage } from "../homeSite";
 import { castMemberId, playCast } from "./castRun";
 import { castPresence } from "./castSite";
+import type { StudioStage } from "./useStudioStage";
 
 /**
  * The homepage's cast, for whichever page is open.
@@ -34,8 +35,15 @@ export function useHomeCast(options: {
   pages: ReadonlyMap<string, HomePage>;
   /** Add a note without opening it; its tree path, or `null`. */
   addNote: (folder: string, name: string, text: string) => string | null;
+  /**
+   * The cast studio's stage (`useStudioStage`), or `null` for a visit. A stage
+   * plays on the studio's clock, only once told to start.
+   */
+  stage?: StudioStage | null;
 }): { presence: Presence | undefined; agents: AgentActivityView | undefined } {
   const { enabled, scripts, colors, selectedPath } = options;
+  const stage = options.stage ?? null;
+  const start = stage?.start ?? null;
   const [room, setRoom] = useState<{
     path: string;
     shared: SharedDoc;
@@ -56,7 +64,8 @@ export function useHomeCast(options: {
   useEffect(() => {
     const path = selectedPath;
     const steps = path === null ? undefined : scripts.get(path);
-    if (!enabled || path === null || steps === undefined || played.current.has(path)) {
+    const waiting = stage !== null && start === null;
+    if (!enabled || waiting || path === null || steps === undefined || played.current.has(path)) {
       setRoom((current) => (current !== null && current.path === path ? current : null));
       return;
     }
@@ -67,18 +76,26 @@ export function useHomeCast(options: {
     seen.add(path);
     let begun = false;
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    const clock = start?.clock ?? null;
+    // In the studio, the step it asked to play from, once the rush reaches it.
+    let live = start === null || start.from === 0;
     const run = playCast(
       steps,
       shared,
       {
         schedule: (ms, fn) => {
+          if (clock !== null) {
+            begun = true;
+            return clock.schedule(ms, fn);
+          }
           const timer = setTimeout(() => {
             begun = true;
             fn();
           }, ms);
           return () => clearTimeout(timer);
         },
-        instant: () => reducedRef.current,
+        // Skipped steps land whole; the one asked for plays as it would.
+        instant: () => reducedRef.current || (clock !== null && clock.rushing && !live),
         pageNamed: (name) => pageNamed(name, latest.current.pages, latest.current.notes),
         addNote: (name, text) => latest.current.addNote(folder, name, text),
         agentDid: (actor, kind, at) => setActivity((current) => recordAgent(current, actor, kind, at, colors, Date.now())),
@@ -89,16 +106,24 @@ export function useHomeCast(options: {
               ? { ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } }
               : current,
           ),
+        step: (index) => {
+          if (start !== null && index >= start.from) live = true;
+          stage?.step(index);
+        },
+        ended: () => stage?.ended(),
       },
       { path, colors },
     );
+    if (clock !== null && !live) clock.rush(() => live);
     return () => {
       run.stop();
       // Taken down before it did anything (a remount, the site arriving): it
       // has not been seen, so it still plays.
       if (!begun) seen.delete(path);
     };
-  }, [enabled, selectedPath, scripts, colors]);
+    // `stage` changes identity with `start`, which is what it is read for here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, selectedPath, scripts, colors, start]);
 
   const presence = useMemo(
     () => (room === null || room.path !== selectedPath ? undefined : castPresence(room.shared, room.members, room.focus ?? null)),

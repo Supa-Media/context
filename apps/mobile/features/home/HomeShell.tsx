@@ -35,6 +35,7 @@ import {
 import { HomePage } from "./HomePage";
 import { castSite } from "./cast/castSite";
 import { useHomeCast } from "./cast/useHomeCast";
+import { useStudioStage } from "./cast/useStudioStage";
 import { castPeople, withDemoPeople } from "./cast/demoPeople";
 import { HOME_MEETING_STOPPED, homeMeetingDestination } from "./meeting/homeMeetings";
 import { HomeMeetingHost } from "./meeting/HomeMeetingHost";
@@ -139,7 +140,10 @@ export function HomeShell() {
     () => castPeople([...(cast?.scripts.values() ?? [])].flat(), cast?.colors ?? NO_COLORS),
     [cast],
   );
+  // Inside the cast studio: the show waits for it, and plays on its clock.
+  const stage = useStudioStage();
   const castRoom = useHomeCast({
+    stage,
     enabled: Platform.OS === "web" && cast !== null,
     scripts,
     colors: cast?.colors ?? NO_COLORS,
@@ -176,7 +180,9 @@ export function HomeShell() {
   const askToJoin = useCallback(() => setJoinAsk((n) => n + 1), []);
   const joinAnswered = useRef(0);
   const join = useHomeJoin(router as { replace: (href: string) => void });
+  // A stage is a recording of the app, with no email field in it.
   const joinSlot = useJoinSlot();
+  const showJoin = stage === null;
   const joinCard = <JoinCard flow={join} ask={joinAsk} answered={joinAnswered} />;
   const followLink = useCallback(
     (href: string) => {
@@ -253,7 +259,7 @@ export function HomeShell() {
       signedIn: auth.isAuthenticated,
       signIn: askToJoin,
       openApp: () => router.push("/console"),
-      join: joinSlot === null ? joinCard : null,
+      join: joinSlot === null && showJoin ? joinCard : null,
       linkFor: (path) => {
         const route = routeOf(path);
         if (route === undefined) return null;
@@ -293,7 +299,7 @@ export function HomeShell() {
 
   return (
     <View style={styles.ground}>
-      {joinSlot !== null ? (
+      {joinSlot !== null && showJoin ? (
         <JoinSlotPortal slot={joinSlot}>{joinCard}</JoinSlotPortal>
       ) : null}
       <ConsoleFrame
