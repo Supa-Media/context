@@ -512,11 +512,7 @@ export interface ConsoleData {
   storage: ConsoleStorage | null | undefined;
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
-  /**
-   * How full the selected context is on the free plan, once it passes nine
-   * tenths of its cap — `null` or absent otherwise, and absent in the demo and
-   * on the homepage, which have no plan. See `noteLimit.ts`.
-   */
+  /** The free plan's count from 900 of 1,000, owner-only; see `noteLimit.ts`. */
   noteLimit?: NoteLimit | null;
   googleConnections: GoogleConnection[];
   googleActions?: GoogleActions;
