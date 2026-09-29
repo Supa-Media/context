@@ -246,6 +246,20 @@ export function hiddenMarkRanges(
       if (front !== null && node.from < front.to) return;
       // See `wiki` above: this pass owns every character of a wiki link.
       if (insideWiki(node.from, node.to)) return;
+      /*
+        A backslash escape (`\.`, `\*`) is drawn as the character it escapes,
+        the way CommonMark, Obsidian and every published page read it. Reported
+        as a Bible-verse callout ending "you want\." — the backslash a paste
+        or another app writes so a sentence-final period cannot start a list.
+        The escape is its own reveal unit: the caret on it brings the backslash
+        back, or it could not be deleted on purpose.
+      */
+      if (node.name === "Escape") {
+        if (node.to - node.from < 2) return;
+        if (selectionTouches({ from: node.from, to: node.to }, selection)) return;
+        hidden.push({ from: node.from, to: node.from + 1 });
+        return;
+      }
       const isMark = HIDDEN_MARKS.has(node.name);
       if (!isMark && !isHiddenPlumbing(node.node)) return;
       // `[at]` keeps its brackets: see `isBracketedText`.
