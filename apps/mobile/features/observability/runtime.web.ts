@@ -127,5 +127,10 @@ export async function createAnalyticsClient({
     identify: (userId) => client.identify(userId),
     reset: () => client.reset(),
     getSessionId: () => client.get_session_id(),
+    setCapturing: (enabled) => {
+      if (enabled) client.opt_in_capturing();
+      else client.opt_out_capturing();
+    },
+    stopRecording: () => client.stopSessionRecording(),
   };
 }

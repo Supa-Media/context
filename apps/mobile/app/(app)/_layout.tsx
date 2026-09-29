@@ -8,6 +8,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
+import { FeedbackHost } from "../../features/feedback/FeedbackHost";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
@@ -252,6 +253,11 @@ export default function AppLayout() {
         in one 66pt of glass.
       */}
       <StrandedBar bottomInset={insets.bottom} />
+      {/*
+        Signed in and past onboarding: the only place a feedback report can
+        be opened from, and where the early-beta notice is shown once.
+      */}
+      <FeedbackHost />
     </View>
   );
 }

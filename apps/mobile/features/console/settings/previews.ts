@@ -143,6 +143,7 @@ export function settingsPreview(
       linted the files I had added instead of the ones I had changed.
     */
     case "workspace":
+    case "feedback":
     case "premium":
     case "website":
     case "emoji":

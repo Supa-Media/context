@@ -88,6 +88,7 @@
     "expo-updates": "^29.0.15",
     "expo-video": "~3.0.16",
     "expo-web-browser": "~15.0.11",
+    "html2canvas": "1.4.1",
     "posthog-js": "^1.429.2",
     "posthog-react-native": "^4.68.6",
     "react": "19.1.0",

@@ -56,5 +56,10 @@ export async function createAnalyticsClient({
     identify: (userId) => client.identify(userId),
     reset: () => client.reset(),
     getSessionId: () => client.getSessionId(),
+    setCapturing: (enabled) => {
+      void (enabled ? client.optIn() : client.optOut());
+    },
+    // Native replay is never started (see `postHogNativeOptions`).
+    stopRecording: () => {},
   };
 }

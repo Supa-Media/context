@@ -4,7 +4,7 @@ import { privacyContent } from "../features/legal/content";
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("September 28, 2026");
+    expect(privacyContent.updated).toBe("September 29, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -19,5 +19,19 @@ describe("the privacy policy describes connected AI assistants", () => {
       "Notes reach an assistant only when it asks for them on your behalf. What the assistant's provider does with that content is governed by its own terms and privacy policy, not this one.",
       "We do not use your notes to train AI models, and we do not sell them.",
     ]);
+  });
+});
+
+describe("the privacy policy describes early-beta diagnostics", () => {
+  test("names both vendors, what is never sent, the switches and feedback reports", () => {
+    const diagnostics = privacyContent.sections.find(
+      (section) => section.title === "Diagnostics and feedback",
+    );
+    const text = diagnostics?.body.join(" ") ?? "";
+    expect(text).toContain("Sentry");
+    expect(text).toContain("PostHog");
+    expect(text).toContain("never include your notes, their titles, your folder names, your links");
+    expect(text).toContain("Privacy & feedback");
+    expect(text).toContain("only the attachments you left ticked");
   });
 });
