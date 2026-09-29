@@ -13,6 +13,8 @@ import { stripFrontmatter } from "../share/markdown";
 import { STUDIO_FRAMES, studioFrame, type StudioFrameId } from "./studioFrames";
 import { studioScript } from "./studioScript";
 import { StudioRecord } from "./StudioRecord";
+import { StudioSoundsPanel } from "./sounds/StudioSoundsPanel";
+import { useStudioSounds, type SaveSounds } from "./sounds/useStudioSounds";
 import { StudioScriptRail } from "./StudioScriptRail";
 import { StudioStage } from "./StudioStage";
 import { StudioTransport } from "./StudioTransport";
@@ -32,14 +34,30 @@ const RAIL_MIN_WINDOW = 900;
  * whenever it starts over, drawn from the draft as it is at that moment, so an
  * edit to the script shows on the next play.
  *
+ * Sounds play here, in the studio, at the moments the stage reports; the page
+ * on the stage makes none, so the homepage itself stays silent.
+ *
  * Designed on the cast studio artboard, which Dev2 approved on 2026-09-29.
  */
-export function CastStudio({ draft, title, onClose }: { draft: string; title: string; onClose: () => void }) {
+export function CastStudio({
+  draft,
+  title,
+  onClose,
+  onSaveSounds,
+}: {
+  draft: string;
+  title: string;
+  onClose: () => void;
+  /** Keeps sound choices in the note; absent where the note cannot be changed. */
+  onSaveSounds?: SaveSounds;
+}) {
   const styles = useThemedStyles(makeStyles);
   const wide = useWindowDimensions().width >= RAIL_MIN_WINDOW;
   const [frameId, setFrameId] = useState<StudioFrameId>("desktop");
   const [recording, setRecording] = useState(false);
+  const [soundsOpen, setSoundsOpen] = useState(false);
   const player = useStudioPlayer();
+  const sounds = useStudioSounds(draft, player, onSaveSounds);
   const frame = studioFrame(frameId);
 
   // The draft as it is each time the stage loads; the rail follows every edit.
@@ -90,6 +108,18 @@ export function CastStudio({ draft, title, onClose }: { draft: string; title: st
             })}
           </View>
           <View style={[styles.topSide, styles.topEnd]}>
+            <Pressable
+              onPress={() => setSoundsOpen((open) => !open)}
+              accessibilityRole="button"
+              aria-pressed={soundsOpen}
+              style={[styles.frameButton, styles.soundsButton, soundsOpen ? styles.frameOn : null]}
+              testID="studio-sounds-toggle"
+            >
+              <Icon name="speaker" size={16} />
+              <Text variant="rowSub" style={soundsOpen ? styles.frameTextOn : styles.muted}>
+                Sounds
+              </Text>
+            </Pressable>
             <Button
               label="Record"
               variant="accent"
@@ -116,6 +146,7 @@ export function CastStudio({ draft, title, onClose }: { draft: string; title: st
             )}
             {recording ? null : <StudioTransport player={player} rows={script.rows} total={total} />}
           </View>
+          {soundsOpen && !recording ? <StudioSoundsPanel sounds={sounds} counts={script.timeline.moments} /> : null}
         </View>
 
         {recording ? (
@@ -149,12 +180,13 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.chromeSurface,
     },
     topSide: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.x4, minWidth: 0 },
-    topEnd: { justifyContent: "flex-end" },
+    topEnd: { justifyContent: "flex-end", gap: space.x2 },
     back: { flexDirection: "row", alignItems: "center", gap: space.x1, minHeight: 44, paddingRight: space.x2 },
     titleBox: { minWidth: 0, flexShrink: 1 },
     muted: { color: colors.muted },
     frames: { flexDirection: "row", gap: 2, padding: 3, borderRadius: radii.xl, backgroundColor: colors.chipFill },
     frameButton: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 38, paddingHorizontal: space.x3, borderRadius: radii.lg },
+    soundsButton: { backgroundColor: colors.chipFill },
     frameOn: { backgroundColor: colors.rowSelected },
     frameGlyph: { height: 14, maxWidth: 20, borderWidth: 1.4, borderColor: colors.muted, borderRadius: 2 },
     frameGlyphOn: { borderColor: colors.text },

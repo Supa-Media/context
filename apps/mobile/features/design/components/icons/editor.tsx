@@ -12,7 +12,8 @@ type EditorIconName =
   | "eye"
   | "pencil"
   | "play"
-  | "pause";
+  | "pause"
+  | "speaker";
 
 /**
  * The eye's geometry, named rather than inlined, because `icons.test.ts`
@@ -209,6 +210,15 @@ export const editorIcons: Record<EditorIconName, DrawFn> = {
 
   // Play's pair in the cast studio: two uprights as tall as play's triangle.
   pause: (u, w, c) => glyph("pause", u, w, c, { paths: ["M 0.36 0.2 L 0.36 0.8", "M 0.64 0.2 L 0.64 0.8"] }),
+
+  speaker: (u, w, c) =>
+    glyph("speaker", u, w, c, {
+      paths: [
+        "M 0.14 0.4 L 0.3 0.4 L 0.5 0.22 L 0.5 0.78 L 0.3 0.6 L 0.14 0.6 Z",
+        "M 0.64 0.36 A 0.18 0.18 0 0 1 0.64 0.64",
+        "M 0.76 0.24 A 0.3 0.3 0 0 1 0.76 0.76",
+      ],
+    }),
 
   pencil: (u, w, c) => {
     /*

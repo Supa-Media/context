@@ -1,7 +1,7 @@
 import type { CastStep } from "@context/shared";
 import { createSharedDoc, seedSharedDoc } from "../../console/presence/sharedDoc";
 import { createCastClock, type Wall } from "./castClock";
-import { playCast } from "./castRun";
+import { CAST_MOMENTS, playCast, type CastMoment } from "./castRun";
 
 /** When each step of a show starts, and when the show is over, in ms. */
 export interface CastTimeline {
@@ -9,6 +9,15 @@ export interface CastTimeline {
   starts: (number | null)[];
   /** When the last person has left. */
   total: number;
+  /**
+   * How often each moment happens, for the studio's sound list. Typing counts
+   * once per line typed rather than per key.
+   */
+  moments: Record<CastMoment, number>;
+}
+
+export function noMoments(): Record<CastMoment, number> {
+  return Object.fromEntries(CAST_MOMENTS.map((moment) => [moment, 0])) as Record<CastMoment, number>;
 }
 
 /** A wall that never moves: the clock only advances by rushing. */
@@ -26,6 +35,9 @@ export function castTimeline(markdown: string, steps: readonly CastStep[]): Cast
   const clock = createCastClock(STILL);
   const starts: (number | null)[] = steps.map(() => null);
   let total: number | null = null;
+  const moments = noMoments();
+  let current = -1;
+  let typed = -1;
   const run = playCast(steps, shared, {
     schedule: (ms, fn) => clock.schedule(ms, fn),
     instant: () => false,
@@ -34,17 +46,25 @@ export function castTimeline(markdown: string, steps: readonly CastStep[]): Cast
     agentDid: () => {},
     room: () => {},
     step: (index) => {
+      current = index;
       starts[index] = clock.now();
     },
     ended: () => {
       total = clock.now();
+    },
+    cue: (moment) => {
+      if (moment === "typing") {
+        if (typed === current) return;
+        typed = current;
+      }
+      moments[moment] += 1;
     },
   });
   clock.rush(() => total !== null);
   run.stop();
   clock.stop();
   shared.doc.destroy();
-  return { starts, total: total ?? clock.now() };
+  return { starts, total: total ?? clock.now(), moments };
 }
 
 /** `0:07`, `1:12`: a time on the studio's script and scrubber. */
@@ -54,7 +74,7 @@ export function castTimeLabel(ms: number): string {
 }
 
 /** The step playing at `ms`: the last one that has started. `-1` before the first. */
-export function stepAt(timeline: CastTimeline, ms: number): number {
+export function stepAt(timeline: Pick<CastTimeline, "starts">, ms: number): number {
   let at = -1;
   timeline.starts.forEach((start, index) => {
     if (start !== null && start <= ms) at = index;

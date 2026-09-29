@@ -75,3 +75,37 @@ test("frames change the stage's shape, and Record leaves nothing but the stage",
   await expect(page.getByText("Done. Stop your recorder.")).toHaveCount(0);
   await expect(page.getByTestId("studio-play")).toBeVisible();
 });
+
+test("sounds: chosen in the panel, kept in the note, and only for what plays", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Every cue the stage sends the studio, in order.
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    (window as unknown as { __cues: string[] }).__cues = seen;
+    window.addEventListener("message", (event) => {
+      const data = event.data as { tag?: string; kind?: string; moment?: string };
+      if (window.parent === window && data?.tag === "context-cast-studio" && data.kind === "cue") seen.push(data.moment!);
+    });
+  });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+
+  await page.getByTestId("studio-sounds-toggle").click();
+  await expect(page.getByTestId("studio-sounds")).toContainText("Sounds in this scene");
+  await expect(page.getByTestId("studio-sound-comment")).toContainText("2 times");
+  await expect(page.getByTestId("studio-sound-note")).toContainText("not in this scene");
+  await page.getByTestId("studio-sound-comment").click();
+  await page.getByTestId("studio-sound-comment-bell").click();
+  await expect(page.getByTestId("studio-sound-comment")).toContainText("Bell");
+  await page.getByTestId("studio-sound-typing").click();
+  await page.getByTestId("studio-sound-typing-off").click();
+  const note = () => page.evaluate(() => (window as unknown as { __castStudioNote?: string }).__castStudioNote ?? "");
+  await expect.poll(note).toContain("sounds: [typing off, comment bell]");
+
+  // Played from the resolve: the comment and the reply before it land without a sound.
+  await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
+  await page.getByTestId("studio-step-3").click();
+  const cues = () => page.evaluate(() => (window as unknown as { __cues: string[] }).__cues.slice());
+  await expect.poll(cues, { timeout: 15_000 }).toContain("resolve");
+  expect(await cues()).not.toContain("comment");
+});
