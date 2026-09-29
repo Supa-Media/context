@@ -53,10 +53,23 @@ export const EXISTING = {
 };
 
 /** What the progress card says about a choice already made. */
-export function existingFilesLine(choice: "replace" | "merge" | undefined): string | null {
+/**
+ * A bucket the move has claimed (checked empty, or started fresh) is made to
+ * match the workspace before the switch, so a file somebody adds to it by
+ * hand while the move runs is removed. Said up front rather than discovered.
+ */
+export const HANDS_OFF =
+  "Don't add files to your bucket until the move finishes: anything that isn't from your workspace is removed when the move checks it.";
+
+export function existingFilesLine(
+  choice: "replace" | "merge" | undefined,
+  claimed?: boolean,
+): string | null {
   if (choice === "merge") return "Keeping the files already in your bucket.";
-  if (choice === "replace") return "Starting fresh: files already in your bucket are removed before the switch.";
-  return null;
+  if (choice === "replace") {
+    return `Starting fresh: files already in your bucket are removed before the switch. ${HANDS_OFF}`;
+  }
+  return claimed === true ? HANDS_OFF : null;
 }
 
 export const STOP = {

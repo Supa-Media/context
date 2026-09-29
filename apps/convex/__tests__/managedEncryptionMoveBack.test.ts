@@ -26,104 +26,22 @@
 import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { managedBucketName } from "../functions/lib/managedStorage";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { asUser, createWorkspace, drainScheduled, type TestConvex } from "./fixtures.helpers";
-import { fixture, isSealed, resetAfterEach, row } from "./managedEncryption.helpers";
+import {
+  MANAGED_ENDPOINT,
+  bindingOf,
+  cancelLaterJobs,
+  encryptedThenMovedOut,
+  isSealed,
+  readyMigration,
+  resetAfterEach,
+  row,
+} from "./managedEncryption.helpers";
 import { configured } from "./managedProvisioning/fixtures.helpers";
 
 resetAfterEach();
-
-const MANAGED_ENDPOINT = "https://managed-account.r2.cloudflarestorage.example";
-
-async function bindingOf(t: TestConvex, workspaceId: Id<"workspaces">) {
-  return await t.run((ctx) =>
-    ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-      .unique(),
-  );
-}
-
-/** A copy that has reached its last, quiet pass, ready to switch. */
-async function readyMigration(
-  t: TestConvex,
-  workspaceId: Id<"workspaces">,
-  startedBy: Id<"users">,
-  to: { direction: "to_customer" | "to_managed"; bucket: string; endpoint: string },
-) {
-  const source = await bindingOf(t, workspaceId);
-  const encryptedTargetSecretAccessKey = await encryptSecret("target-secret-not-real", requireKeyset(), {
-    workspaceId,
-  });
-  await t.run((ctx) =>
-    ctx.db.insert("managedStorageMigrations", {
-      workspaceId,
-      sourceBindingId: source!._id,
-      direction: to.direction,
-      targetProvider: "r2",
-      targetEndpoint: to.endpoint,
-      targetRegion: "auto",
-      targetBucket: to.bucket,
-      targetAccessKeyId: "target-key-id",
-      encryptedTargetSecretAccessKey,
-      status: "copying",
-      phase: "verify_target",
-      objectsCopied: 3,
-      changesInPass: 0,
-      readyToCutover: true,
-      startedBy,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }),
-  );
-}
-
-async function managedPlan(t: TestConvex, workspaceId: Id<"workspaces">) {
-  await t.run((ctx) =>
-    ctx.db.insert("workspacePlans", {
-      workspaceId,
-      managedStorage: true,
-      fastSearch: false,
-      status: "active",
-      managedProvisioning: "ready",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }),
-  );
-}
-
-/** The week-later deletion is not what these tests are about; drop it. */
-async function cancelRetentionDeletion(t: TestConvex) {
-  await t.run(async (ctx) => {
-    for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
-      if (job.name.includes("deleteManagedStorageAfterHandoff") && job.state.kind === "pending") {
-        await ctx.scheduler.cancel(job._id);
-      }
-    }
-  });
-}
-
-async function encryptedThenMovedOut() {
-  const f = await fixture();
-  const { t, staff, ours } = f;
-  await managedPlan(t, ours);
-  await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
-  await drainScheduled(t);
-  expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
-
-  await readyMigration(t, ours, staff, {
-    direction: "to_customer",
-    bucket: "customer-owned-context",
-    endpoint: "https://customer.example.invalid",
-  });
-  await expect(
-    t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours }),
-  ).resolves.toEqual({ cutover: true });
-  await cancelRetentionDeletion(t);
-  return f;
-}
 
 describe("moving out keeps what the kept bucket needs", () => {
   test("the row stays, the customer's bucket gets no mode, and nothing walks it", async () => {
@@ -183,6 +101,7 @@ describe("switching back within the week", () => {
     await expect(
       t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours }),
     ).resolves.toEqual({ cutover: true });
+    await cancelLaterJobs(t);
 
     // The same transaction as the cutover: never a moment in plain mode.
     expect(await t.query(internal.functions.managedEncryption.gatewayMode, { workspaceId: ours })).toBe("migrating");
@@ -239,6 +158,7 @@ describe("the kept bucket after a move out", () => {
       endpoint: MANAGED_ENDPOINT,
     });
     await t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours });
+    await cancelLaterJobs(t);
     await t.mutation(internal.functions.managedEncryption.forgetKeptBucket, { workspaceId: ours });
     expect(await row(t, ours)).not.toBeNull();
     await drainScheduled(t);

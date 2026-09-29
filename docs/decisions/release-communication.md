@@ -112,6 +112,13 @@ page problem, and a page problem holds the whole website release, the same
 way a broken page does. The rule is enforced at Publish, not in the prose of
 this file, because the draft and the owner both write the page.
 
+**It is scoped to the devlog page.** Every workspace's website compiles
+through `buildWebsiteRouteStatuses`, so the rule is applied to the page at
+`<root>/devlog.md` (`isDevlogObjectKey`) and to nothing else. A customer's own
+page written in `## Week N` headings with an `#### Exploring` list is not our
+editorial business, and an unscoped rule would refuse their whole release over
+a month name in a sentence we never wrote.
+
 **What a simplification would cost:** checking only the Discord or GitHub
 copy lets the promise go live on the page and in the app, which is where
 early adopters read it. Dropping the "looking at:" rule makes an idea read as

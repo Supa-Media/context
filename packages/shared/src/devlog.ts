@@ -31,8 +31,27 @@ export const DEVLOG_SECTIONS: ReadonlyArray<{ key: DevlogSectionKey; heading: st
 /** The italic line every exploring section carries, as written on the page. */
 export const DEVLOG_EXPLORING_DISCLAIMER = "ideas, not promises. some of these won't happen.";
 
+/** The devlog's file name under a site root. */
+export const DEVLOG_PAGE_FILE = "devlog.md";
+
 /** The site path the pinned workspace publishes its devlog from. */
-export const DEVLOG_PAGE_PATH = "website/devlog.md";
+export const DEVLOG_PAGE_PATH = `website/${DEVLOG_PAGE_FILE}`;
+
+/**
+ * Whether an object key is the devlog page under this site root.
+ *
+ * The promise rule is the editorial rule of *this* page, not a rule about
+ * Markdown that happens to be shaped like a week of it. Every workspace's
+ * website compiles through the same code, so a rule left unscoped is our
+ * house style holding a stranger's whole release: a customer page with a
+ * `## Week 3` heading and an `#### Exploring` list would refuse to publish
+ * because it named a month. Scope is the difference between a rule and an
+ * imposition.
+ */
+export function isDevlogObjectKey(objectKey: string, root: string): boolean {
+  const normalize = (text: string): string => text.normalize("NFC").toLowerCase();
+  return normalize(objectKey) === `${normalize(root)}/${DEVLOG_PAGE_FILE}`;
+}
 
 export interface DevlogWeek {
   /** The N in `### week N`. */

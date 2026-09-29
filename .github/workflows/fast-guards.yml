@@ -85,6 +85,20 @@ jobs:
           node scripts/check-worker-fetch-options.mjs --self-test
           node scripts/check-worker-fetch-options.mjs
 
+      # ── AND THE JOBS THIS REPOSITORY NEVER TURNED ON ─────────────────────
+      #
+      # `ci / Test Shared Package` is gated upstream on an input `ci.yml` does
+      # not pass, so it has never run — a skip indistinguishable from the
+      # change-scoped ones around it. Nothing is unexercised today
+      # (`@context/shared` has no `test` script and its coverage lives in
+      # `apps/convex/__tests__`), and this guard is what keeps that true: the
+      # day that package gains a `test` script, the job that would run it must
+      # be turned on in the same commit.
+      - name: A package's tests and the job that runs them agree
+        run: |
+          node scripts/check-ci-shared-tests.mjs --self-test
+          node scripts/check-ci-shared-tests.mjs
+
       - name: Secrets, identifiers, and export remain safe
         run: |
           node scripts/check-secrets-allowlist.mjs --self-test

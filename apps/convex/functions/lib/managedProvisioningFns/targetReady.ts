@@ -18,6 +18,8 @@ import type { ActionCtx } from "../../../_generated/server";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { probeStore } from "../../../../mcp/src/store/index.js";
 import { MANAGED_STORAGE_SETTLE_POLL_MS } from "./constants";
+import type { StorageCapabilities } from "../storage/shapes";
+import { summarizeProbe, type ProbeResult } from "../verification";
 
 /**
  * `probeStore` is the same probe `verifyStorageBinding` runs against a pasted
@@ -41,6 +43,33 @@ export async function probeManagedTarget(
   // verification `applyBinding` schedules. What the copy needs to start is
   // narrower and is exactly these two.
   return probe.reachable === true && probe.writable === true;
+}
+
+/**
+ * What the destination can do, asked at the switch-over so the new binding
+ * can be `connected` from its first second (see `migrationFinish.ts`).
+ *
+ * Absent when the bucket did not answer, or would not take a write: then the
+ * switch-over leaves the binding for the ordinary verification to decide, as
+ * it always did. Never throws: a failed probe must not fail a finished copy.
+ */
+export async function probeCutoverCapabilities(
+  migration: Doc<"managedStorageMigrations">,
+  secretAccessKey: string,
+): Promise<StorageCapabilities | undefined> {
+  try {
+    const target = storeForBinding(
+      migrationTargetCredential(migration, secretAccessKey),
+      undefined,
+      { probeCapabilities: true },
+    );
+    const summary = summarizeProbe((await probeStore(target)) as unknown as ProbeResult, {
+      bucket: migration.targetBucket,
+    });
+    return summary.ok ? summary.capabilities : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -51,7 +51,9 @@ import {
   migrationTargetCredential,
   destinationHoldsObjects,
   probeManagedTarget,
+  probeCutoverCapabilities,
 } from "./lib/managedProvisioningFns/targetReady";
+import { capabilitiesValidator } from "./lib/storage/shapes";
 import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns/complete";
 import { retryManagedProvisioningHandler } from "./lib/managedProvisioningFns/retry";
 import {
@@ -708,7 +710,10 @@ export const recordMigrationPage = internalMutation({
 
 /** Atomically replace only the exact source binding the copy began from. */
 export const finishManagedStorageMigration = internalMutation({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    capabilities: v.optional(capabilitiesValidator),
+  },
   returns: v.object({ cutover: v.boolean() }),
   handler: async (ctx, args) => finishManagedStorageMigrationHandler(ctx, args),
 });
@@ -830,9 +835,10 @@ export const runManagedStorageMigration = internalAction({
       );
       if (!progress.applied) return { copied: 0, complete: false };
       if (progress.cutover) {
+        const capabilities = await probeCutoverCapabilities(migration, secretAccessKey);
         const result: { cutover: boolean } = await ctx.runMutation(
           internal.functions.managedProvisioning.finishManagedStorageMigration,
-          { workspaceId: args.workspaceId },
+          { workspaceId: args.workspaceId, capabilities },
         );
         return { copied, complete: result.cutover };
       }

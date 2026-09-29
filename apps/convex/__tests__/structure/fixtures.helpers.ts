@@ -221,6 +221,17 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // cutover deletes that row, while failure keeps it solely for resumable
   // retry. No public return or route reaches it.
   "functions/managedProvisioning.ts",
+  // THE NINTH, AND THE SHORTEST-LIVED.
+  //
+  // After a storage move switches over, a writer that opened the old storage
+  // a moment before can still finish into it. `runMoveCatchUp` opens the old
+  // bucket's key for the passes, thirty minutes at most, that bring such a
+  // write across. The envelope rides sealed in the scheduled arguments (the
+  // Dropbox funeral's shape), no table holds it, and the old bucket is only
+  // read. Its own module rather than `managedProvisioning.ts` because it
+  // serves every move, not only managed storage, and that file is at its size
+  // limit. See `functions/lib/moveCatchUp.ts`.
+  "functions/moveCatchUp.ts",
   // THE SEVENTH, THE SAME SHAPE AGAIN — ATTACHING A PRODUCT, NOT A SECOND
   // OAUTH-CONNECT MODULE FOR A SECOND PROVIDER.
   //

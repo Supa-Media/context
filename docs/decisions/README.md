@@ -33,6 +33,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A migration pass is walked in waves, and an unchanged object is read twice
 - Leaving never deletes a file the customer already had
 - The managed copy is kept a week after a move out
+- A move catches up after it switches over, and never overwrites to do it
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to
@@ -117,6 +118,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Premium serves the domain, and a lapse deletes nothing
 - One-click setup is Domain Connect, signed, and never for a root domain
 - A root domain carries Cloudflare's TXT as a third record
+- An incident note is metadata, never a summary of vendor text
 
 ## [Per-note encryption](./encryption.md)
 

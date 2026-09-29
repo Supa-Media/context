@@ -5,9 +5,11 @@ note at a fixed path in Context. Repeated deliveries for the same Sentry issue
 replace that generated note instead of flooding the folder.
 
 The adapter verifies Sentry's HMAC signature before parsing the body, accepts
-only the configured Sentry project, strips URL query strings, redacts
-credential-shaped text, and never stores a raw event or stack trace. The
-request cannot select a Context workspace or destination folder.
+only the configured Sentry project, and never stores vendor-supplied error
+text, a raw event, or a stack trace. The generated note uses bounded issue
+identifiers, closed severity and environment values, and a link rebuilt as the
+issue's own page on the verified `sentry.io` host. The request cannot select a Context
+workspace or destination folder.
 
 ## Authentication
 

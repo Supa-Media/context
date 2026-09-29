@@ -495,3 +495,46 @@ back from a mistaken move; deleting on the schedule without asking again deletes
 the bucket a switched-back workspace is running on. `managedHandoff.test.ts`
 fails on either, and `managedHandoffControls.test.ts` on a stop that interrupts
 a switch.
+
+## A move catches up after it switches over, and never overwrites to do it
+
+A move's last check reads every file, finds nothing different, and the binding
+swaps. A writer that opened the old storage a moment before the swap (an
+agent's turn, a file operation of up to ten minutes, a queued job) can still
+finish into the old bucket after the check read that file, and nothing would
+read it again. Since 2026-09-29 the switch-over schedules catch-up passes at 1,
+5, 15 and 30 minutes (`functions/moveCatchUp.ts`, `lib/moveCatchUp.ts`). They
+read the old bucket for files changed since the last check began, less a
+two-minute clock margin, and bring them across with one rule: a file in the new
+bucket is never overwritten and never deleted. A missing file is created
+create-only. A file that differs is kept beside it as
+`name (saved during the move).ext`, because telling which side is newer means
+trusting two providers' clocks against ours. A deletion in the old bucket is
+not carried. `.context/` plumbing is created when missing and otherwise left.
+
+A write fence was the alternative, and it was turned down: a refused writer
+here loses data. The email worker rejects mail it cannot store for good (it must,
+or it becomes an existence oracle), and queued jobs fail permanently.
+
+The old bucket's key rides sealed in the passes' scheduled arguments, the
+Dropbox funeral's shape. No table holds it, and nothing reschedules the last
+pass. A pass stops when the workspace's binding is no longer the one the move
+switched to. A Dropbox source gets no passes, because the rebind revokes its
+grant.
+
+The new binding is also `connected` from the switch-over, with the capabilities
+the move's own probe just found. For the seconds a binding reads `unverified`,
+the email worker refuses mail for good and the gateway answers 503. The
+verification `applyBinding` queues still runs and has the last word.
+
+**Not yet covered:** a managed source whose objects are encrypted. The passes
+read raw objects, like the move itself, so they must switch to the key-aware
+store in the same change that lets the move read one.
+
+**What a simplification would cost.** Writing the late version over the new
+file loses the edit made after the switch. Dropping the `since` filter
+duplicates files edited only on the new side. Treating an undated listing as
+old skips a late write, and carrying a deletion removes a note on a stale
+writer's say. `__tests__/moveCatchUp.test.ts` fails on each, and
+`moveCatchUpCutover.test.ts` on a binding left `unverified` or a pass that
+outlives its binding.
