@@ -48,9 +48,11 @@ export function castPresence(
   shared: SharedDoc,
   members: PresenceMember[],
   commentFocus: Presence["commentFocus"] = null,
+  peek: Presence["peek"] = null,
 ): Presence {
   return {
     commentFocus,
+    peek,
     members,
     phase: "live",
     summary: members.length === 0 ? "" : members.length === 1 ? "1 here" : `${members.length} here`,

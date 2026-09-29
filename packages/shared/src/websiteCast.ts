@@ -23,6 +23,10 @@
  * @maya's Codex comments on "free, you cheapo": a little unprofessional?
  * @jon replies: eh, I don't really care
  * @jon resolves
+ * @ana joins
+ * @ana clicks @maya
+ * @ana ticks: send the invoice
+ * @ana leaves
  * ```
  * ````
  *
@@ -70,6 +74,14 @@ export type CastStep =
   | { kind: "reply"; actor: CastActor; text: string }
   /** Resolving the last thread this page's cast started. */
   | { kind: "resolve"; actor: CastActor }
+  /** Coming into the note: their face appears, with no caret yet. */
+  | { kind: "join"; actor: CastActor }
+  /** Going: their face and caret leave the note. */
+  | { kind: "leave"; actor: CastActor }
+  /** Clicking somebody's face, which opens the list of who is here. */
+  | { kind: "click"; actor: CastActor; target: string }
+  /** Ticking the first open task (`- [ ]`) whose words include `quote`. */
+  | { kind: "tick"; actor: CastActor; quote: string }
   | { kind: "wait"; ms: number };
 
 export interface WebsiteCast {
@@ -96,6 +108,10 @@ const NOTE = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?note\s*:\s*(
 const COMMENT = new RegExp(String.raw`^${ACTOR}\s+comments on\s+["\u201c](.+?)["\u201d]\s*:\s*(.+)$`, "i");
 const REPLY = new RegExp(String.raw`^${ACTOR}\s+replies\s*:\s*(.+)$`, "i");
 const RESOLVE = new RegExp(String.raw`^${ACTOR}\s+resolves(?:\s+(?:it|the comment))?$`, "i");
+const JOIN = new RegExp(String.raw`^${ACTOR}\s+(?:joins|comes in)$`, "i");
+const LEAVE = new RegExp(String.raw`^${ACTOR}\s+leaves$`, "i");
+const CLICK = new RegExp(String.raw`^${ACTOR}\s+clicks(?: on)?\s+${ACTOR}$`, "i");
+const TICK = new RegExp(String.raw`^${ACTOR}\s+(?:ticks|checks off|completes)\s*:\s*(.+)$`, "i");
 const WAIT = /^wait\s+(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds?)?$/i;
 
 function actor(written: string): CastActor {
@@ -153,6 +169,14 @@ function parseBlock(
       if (!steps.some((step) => step.kind === "comment")) problems.push(`Nothing to reply to or resolve yet: ${text.slice(0, 120)}`);
       else if (match[2] === undefined) steps.push({ kind: "resolve", actor: actor(match[1]!) });
       else steps.push({ kind: "reply", actor: actor(match[1]!), text: clip(match[2]) });
+    } else if ((match = JOIN.exec(text)) !== null) {
+      steps.push({ kind: "join", actor: actor(match[1]!) });
+    } else if ((match = LEAVE.exec(text)) !== null) {
+      steps.push({ kind: "leave", actor: actor(match[1]!) });
+    } else if ((match = CLICK.exec(text)) !== null) {
+      steps.push({ kind: "click", actor: actor(match[1]!), target: actor(match[2]!).name });
+    } else if ((match = TICK.exec(text)) !== null) {
+      steps.push({ kind: "tick", actor: actor(match[1]!), quote: match[2]!.trim().slice(0, 200) });
     } else if ((match = READ.exec(text)) !== null) {
       const page = match[2]?.trim();
       steps.push({ kind: "read", actor: actor(match[1]!), page: page ? page.slice(0, 120) : null });

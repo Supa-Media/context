@@ -79,6 +79,8 @@ export interface CastHost {
   step?: (index: number) => void;
   /** The show ran to its end and everybody has left (not stopped by the visitor). */
   ended?: () => void;
+  /** Somebody clicked `name`'s face: the pile opens its list of who is here. */
+  clicked?: (name: string) => void;
   /** A moment the studio can put a sound to (`castSounds.ts`). */
   cue?: (moment: CastMoment) => void;
 }
@@ -117,6 +119,11 @@ export function castColors(steps: readonly CastStep[]): Map<string, string> {
     used.add(color);
   }
   return colors;
+}
+
+/** The actor a written name means: `@handle` a person, anything else an agent. */
+export function castActorNamed(name: string): CastActor {
+  return { name, kind: name.startsWith("@") && !name.includes("'s ") ? "person" : "agent" };
 }
 
 /** A member id no real member can have: real ids come from the gateway. */
@@ -265,6 +272,37 @@ export function playCast(
       return then();
     }
 
+    if (step.kind === "join") {
+      join(step.actor);
+      publish();
+      return then();
+    }
+
+    if (step.kind === "leave") {
+      if (members.delete(castMemberId(step.actor))) publish();
+      return then();
+    }
+
+    if (step.kind === "click") {
+      join(step.actor);
+      publish();
+      host.cue?.("click");
+      host.clicked?.(step.target);
+      return then();
+    }
+
+    if (step.kind === "tick") {
+      // The first open task whose words include the quote; none, and nothing happens.
+      const box = openTask(text.toString(), step.quote);
+      if (box !== null) {
+        const id = join(step.actor);
+        change([{ from: box, to: box + 1, insert: "x" }]);
+        place(id, at(box + 1, -1), at(box + 1, -1));
+        host.cue?.("click");
+      }
+      return then();
+    }
+
     if (step.kind === "comment" || step.kind === "reply" || step.kind === "resolve") {
       comment(step, then);
       return;
@@ -387,6 +425,17 @@ export function playCast(
 
   later(pace.startMs, () => next(0));
   return { stop };
+}
+
+/** Where the space inside `- [ ]` is, on the first open task mentioning `quote`, or `null`. */
+export function openTask(source: string, quote: string): number | null {
+  const needle = quote.trim().toLowerCase();
+  if (needle === "") return null;
+  const task = /^([ \t]*(?:[-*+]|\d+[.)])[ \t]+\[) (\][^\n]*)$/gm;
+  for (let match = task.exec(source); match !== null; match = task.exec(source)) {
+    if (match[2]!.toLowerCase().includes(needle)) return match.index + match[1]!.length;
+  }
+  return null;
 }
 
 /** Uneven, the way people type: a beat after a word, a longer one after a sentence. */

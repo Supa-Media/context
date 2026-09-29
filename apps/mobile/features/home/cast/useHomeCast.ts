@@ -6,7 +6,7 @@ import { createSharedDoc, seedSharedDoc, type SharedDoc } from "../../console/pr
 import type { Presence } from "../../console/presence/usePresence";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import type { HomePage } from "../homeSite";
-import { castMemberId, playCast } from "./castRun";
+import { castActorNamed, castMemberId, playCast } from "./castRun";
 import { castPresence } from "./castSite";
 import type { StudioStage } from "./useStudioStage";
 
@@ -50,6 +50,8 @@ export function useHomeCast(options: {
     members: PresenceMember[];
     /** The thread the cast last acted on; see `Presence.commentFocus`. */
     focus?: { thread: string; step: number };
+    /** The face a cast member clicked, for the pile to open its list on. */
+    peek?: { member: string; step: number };
   } | null>(null);
   const [activity, setActivity] = useState<AgentActivityView>({ agents: [], marks: [] });
   const played = useRef(new Set<string>());
@@ -106,6 +108,12 @@ export function useHomeCast(options: {
               ? { ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } }
               : current,
           ),
+        clicked: (name) =>
+          setRoom((current) =>
+            current !== null && current.path === path
+              ? { ...current, peek: { member: castMemberId(castActorNamed(name)), step: (current.peek?.step ?? 0) + 1 } }
+              : current,
+          ),
         step: (index) => {
           if (start !== null && index >= start.from) live = true;
           stage?.step(index);
@@ -130,7 +138,7 @@ export function useHomeCast(options: {
   }, [enabled, selectedPath, scripts, colors, start]);
 
   const presence = useMemo(
-    () => (room === null || room.path !== selectedPath ? undefined : castPresence(room.shared, room.members, room.focus ?? null)),
+    () => (room === null || room.path !== selectedPath ? undefined : castPresence(room.shared, room.members, room.focus ?? null, room.peek ?? null)),
     [room, selectedPath],
   );
   return { presence, agents: activity.agents.length === 0 ? undefined : activity };

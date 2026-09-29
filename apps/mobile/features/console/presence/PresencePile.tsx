@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { PressRow } from "../../design/components/Button";
@@ -39,12 +39,28 @@ import type { PresenceMember } from "./protocol";
  * are circles showing their face (`PersonFace`); agents are rounded squares
  * showing a robot, whoever owns them.
  * Never initials (Dev2, 2026-09-28).
+ *
+ * On the homepage a cast member can "click" a face (`presence.peek`): the list
+ * opens as a press would open it, and closes itself after a moment.
  */
 export function PresencePile({ presence, compact }: { presence: Presence; compact: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const triggerRef = useRef<View>(null);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+  const openList = () => {
+    triggerRef.current?.measureInWindow((x, y, _width, height) => {
+      setAnchor({ x, y: y + height + 4 });
+    });
+    setOpen(true);
+  };
+  const peek = presence.peek?.step ?? 0;
+  useEffect(() => {
+    if (peek === 0) return;
+    openList();
+    const timer = setTimeout(() => setOpen(false), PEEK_MS);
+    return () => clearTimeout(timer);
+  }, [peek]);
   if (!presenceShown(presence)) return null;
 
   const reconnecting = presence.phase === "reconnecting";
@@ -75,12 +91,7 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
           disabled={reconnecting || presence.members.length === 0}
           // On the control itself, so a check can read its accessible name.
           testID="presence-pile"
-          onPress={() => {
-            triggerRef.current?.measureInWindow((x, y, _width, height) => {
-              setAnchor({ x, y: y + height + 4 });
-            });
-            setOpen(true);
-          }}
+          onPress={openList}
         >
           <View style={[styles.faces, reconnecting && styles.dim]}>
             {faces.map((member, index) => (
@@ -117,6 +128,9 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
     </>
   );
 }
+
+/** How long a cast member's click keeps the list open. */
+const PEEK_MS = 2_600;
 
 function Face({
   member,
