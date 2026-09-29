@@ -78,7 +78,7 @@ import { S3Store } from "./s3.js";
 import { DropboxStore } from "./dropbox.js";
 import { withLogicalDelete } from "./logicalDelete.js";
 import { withNoteCap } from "./noteCap.js";
-import { withManagedEncryption } from "./managedEncryption.js";
+import { managedEncryptionFor, withManagedEncryption } from "./managedEncryption.js";
 
 /**
  * The gateway could not reach a usable bucket for an otherwise valid session.
@@ -174,6 +174,15 @@ export function storeForBinding(binding, env, options = {}) {
   // escape hatches above never see it: a connect probe writes no notes, and a
   // storage-layout migration only moves what is already there.
   return withNoteCap(withLogicalDelete(probed), options.noteCap);
+}
+
+/**
+ * The `managedEncryption` option for a store built from an opened binding:
+ * absent for plain, and a refusal of the whole store (`StorageUnavailable`)
+ * for a mode that arrived without a usable key.
+ */
+export function managedEncryptionForStore(opened, binding) {
+  return managedEncryptionFor(opened, binding.workspaceId, (why) => new StorageUnavailable(why));
 }
 
 function withEncryption(store, config) {

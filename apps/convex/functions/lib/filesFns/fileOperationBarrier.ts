@@ -24,12 +24,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { createD1Client } from "../../../../mcp/src/search/d1/client.js";
 import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
-import {
-  encryptedUnreadable,
-  managedEncryptionOption,
-  rethrowUnreadable,
-  type ManagedEncryptionOption,
-} from "../managedEncryptionFns/storeOption";
+import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
 import { clearanceOf } from "../clearance";
@@ -349,17 +344,13 @@ export async function runFileOperationHandler(
     .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
     .catch(() => null);
 
-  // Managed-storage encryption's mode and key, or null for plain. A mode with
-  // no key is a refusal, never a plain store over sealed bytes.
-  let managedEncryption: ManagedEncryptionOption | null;
-  try {
-    managedEncryption = await managedEncryptionOption(ctx, args.workspaceId);
-  } catch {
-    if (args.operation.kind === "googleForwardSync") {
-      const refusal = encryptedUnreadable().data;
-      return await failForwardSync(ctx, args.operation.connectionId, refusal.code, refusal.message);
-    }
-    throw encryptedUnreadable();
+  // Managed-storage encryption, or null for plain. A mode with no usable key
+  // is a refusal, never a plain store over sealed bytes.
+  const managedEncryption = await managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
+  if (managedEncryption === undefined) {
+    const refusal = encryptedUnreadable();
+    if (args.operation.kind !== "googleForwardSync") throw refusal;
+    return await failForwardSync(ctx, args.operation.connectionId, refusal.data.code, refusal.data.message);
   }
 
   // A plaintext secret is in scope from here to the end of this function. It

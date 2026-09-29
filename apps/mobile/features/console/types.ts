@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { MirrorStatus } from "../offline/mirrorStatus";
+import type { ManagedEncryptionView } from "./storage/encryptionView";
 import type { MeetingDestination } from "../meetings/destination";
 import type { ActivityView } from "./activity/activity";
 import type { AgentActivityView } from "./agents/agentActivity";
@@ -328,20 +329,8 @@ export interface ConsoleStorage {
   handoffExistingFiles?: "replace" | "merge";
   /** After a move out, when Context's copy is deleted unless the owner switches back. */
   managedRetainedUntil?: number;
-  /**
-   * Context's own encryption of a managed bucket, as its owner sees it.
-   *
-   * Absent or `null` hides the Encryption row: a workspace the rollout has not
-   * reached yet is promised nothing. A failed check is ours to fix, so it
-   * arrives here as `paused`, never as a failure.
-   */
+  /** Context's encryption of a managed bucket, as its owner sees it; see `storage/encryptionView.ts`. */
   encryption?: ManagedEncryptionView | null;
-}
-
-export interface ManagedEncryptionView {
-  state: "encrypting" | "checking" | "encrypted" | "paused";
-  filesDone?: number;
-  filesTotal?: number;
 }
 
 /**
