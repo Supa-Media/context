@@ -18,7 +18,7 @@ import type { PropertyWriteValue } from "../../listBlock/writeProperty";
 import { baseName, parentPath } from "../../paths";
 import type { FolderItem } from "../model";
 import { namesUnder, uniqueEntryName } from "./taskNames";
-import { runTaskPlan, type Planned, type TaskRef, type TaskRun, type TaskSnapshot, type TaskWriteIO } from "./taskWrites";
+import { runTaskPlan, type Planned, type TaskPlan, type TaskRef, type TaskRun, type TaskSnapshot, type TaskWriteIO } from "./taskWrites";
 
 const quote = (label: string) => `“${label}”`;
 const refuse = (problem: string): Planned => ({ ok: false, problem });
@@ -127,11 +127,23 @@ export type ManyRun =
     }
   | { readonly ok: false; readonly problem: string };
 
+/** A plan that only rewrites frontmatter lines: nothing is created or moved. */
+function onlySets(plan: TaskPlan): boolean {
+  return plan.steps.every((step) => step.kind === "set");
+}
+
 /**
- * Plans sent one after another. A plan that fails is taken back by
- * `runTaskPlan` and stops the rest; the ones before it stand, with one undo
- * for all of them, and the result says how far it got — the rule the file
- * browser's own batches keep (`moveMany`). Refused plans are skipped: a
+ * Plans sent as one change. Property changes on different notes go out all
+ * at once — each is its own read and conditional write, so none waits on
+ * another, and a selection of six is as quick as one rather than six times
+ * as slow. Anything that creates or moves goes after, one at a time, because
+ * a move rewrites links in other notes and two at once could race on the
+ * same one; so do two changes that land on the same note.
+ *
+ * A plan that fails is taken back by `runTaskPlan`. The property changes
+ * beside it stand; among the one-at-a-time plans it stops the rest — the rule
+ * the file browser's own batches keep (`moveMany`). The ones that went share
+ * one undo, and the result says how far it got. Refused plans are skipped: a
  * selection is a request about each task that it fits.
  */
 export async function runManyPlanned(io: TaskWriteIO, planned: readonly Planned[]): Promise<ManyRun> {
@@ -140,29 +152,51 @@ export async function runManyPlanned(io: TaskWriteIO, planned: readonly Planned[
     const first = planned.find((each): each is Extract<Planned, { ok: false }> => !each.ok);
     return { ok: false, problem: first?.problem ?? "Nothing to change." };
   }
-  const runs: Extract<TaskRun, { ok: true }>[] = [];
-  let problem: string | null = null;
+  const targets = new Set<string>();
+  const together: TaskPlan[] = [];
+  const inTurn: TaskPlan[] = [];
   for (const plan of plans) {
-    const run = await runTaskPlan(io, plan);
-    if (!run.ok) {
-      problem = run.problem;
-      break;
-    }
-    runs.push(run);
+    const paths = plan.steps.map((step) => (step.kind === "move" ? step.from : step.path));
+    if (onlySets(plan) && paths.every((path) => !targets.has(path))) {
+      paths.forEach((path) => targets.add(path));
+      together.push(plan);
+    } else inTurn.push(plan);
   }
+  const first: Extract<TaskRun, { ok: true }>[] = [];
+  const after: Extract<TaskRun, { ok: true }>[] = [];
+  let problem: string | null = null;
+  for (const run of await Promise.all(together.map((plan) => runTaskPlan(io, plan)))) {
+    if (run.ok) first.push(run);
+    else problem ??= run.problem;
+  }
+  for (const plan of inTurn) {
+    if (problem !== null) break;
+    const run = await runTaskPlan(io, plan);
+    if (!run.ok) problem = run.problem;
+    else after.push(run);
+  }
+  const runs = [...first, ...after];
   if (runs.length === 0) return { ok: false, problem: problem ?? "That didn’t work. Try again." };
-  const undos = runs.map((run) => run.undo);
-  const undo = undos.every((each) => each !== null)
-    ? async () => {
-        for (const each of [...(undos as (() => Promise<string | null>)[])].reverse()) {
-          const failed = await each();
-          if (failed !== null) return failed;
-        }
-        return null;
-      }
+  const undo = runs.every((run) => run.undo !== null)
+    ? () => undoAll(first.map((run) => run.undo!), after.map((run) => run.undo!))
     : null;
   const touched = [...new Set(runs.flatMap((run) => run.touched))];
   return { ok: true, done: runs.length, touched, undo, problem: problem === null ? null : `${runs.length} of ${plans.length} changed. ${problem}` };
+}
+
+type Undo = () => Promise<string | null>;
+
+/**
+ * Everything taken back, newest first: what went one at a time, in reverse,
+ * then the property changes that went together, again all at once.
+ */
+async function undoAll(together: readonly Undo[], inTurn: readonly Undo[]): Promise<string | null> {
+  for (const undo of [...inTurn].reverse()) {
+    const failed = await undo();
+    if (failed !== null) return failed;
+  }
+  const answers = await Promise.all([...together].reverse().map((undo) => undo()));
+  return answers.find((answer) => answer !== null) ?? null;
 }
 
 /** "1 task" / "3 tasks". */
