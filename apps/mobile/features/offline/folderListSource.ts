@@ -1,4 +1,5 @@
-import { writeNoteProperties } from "../console/files/listBlock/writeProperty";
+import { rewriteNote, writeNoteProperties } from "../console/files/listBlock/writeProperty";
+import { setNoteLede } from "../console/files/folderPage/lede";
 import type { FolderListSource } from "../console/files/listBlock/model";
 import type { OpenNote } from "../console/files/types";
 import { currentEpoch } from "./epoch";
@@ -110,6 +111,8 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
             changes: readonly (readonly [string, string | readonly string[] | null])[],
             options?: { create?: boolean },
           ) => write(path, changes, options),
+          setLede: (path: string, text: string, options?: { create?: boolean }) =>
+            rewrite(path, (current) => setNoteLede(current, text), options),
           remember: async (written: readonly string[], gone: readonly string[]) => {
             for (const path of written) await remember(path).catch(() => {});
             if (gone.length > 0) await forget(gone).catch(() => {});
@@ -134,18 +137,29 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
     changes: readonly (readonly [string, string | readonly string[] | null])[],
     options?: { create?: boolean },
   ): Promise<string | null> {
+    return remembering(path, (noteIO) => writeNoteProperties(noteIO, path, changes, options));
+  }
+
+  async function rewrite(
+    path: string,
+    change: (text: string) => { text: string } | { error: string },
+    options?: { create?: boolean },
+  ): Promise<string | null> {
+    return remembering(path, (noteIO) => rewriteNote(noteIO, path, change, options));
+  }
+
+  /** Run one write, then read what it wrote back into this device's copy. */
+  async function remembering(
+    path: string,
+    run: (noteIO: Parameters<typeof rewriteNote>[0]) => Promise<string | null>,
+  ): Promise<string | null> {
     let written = path;
-    const answer = await writeNoteProperties(
-      {
-        read: (at) => io.readNote(at),
-        write: async (at, text, expectedEtag) => {
-          written = (await io.writeNote(at, text, expectedEtag)).path;
-        },
+    const answer = await run({
+      read: (at) => io.readNote(at),
+      write: async (at, text, expectedEtag) => {
+        written = (await io.writeNote(at, text, expectedEtag)).path;
       },
-      path,
-      changes,
-      options,
-    );
+    });
     if (answer === null) await remember(written).catch(() => {});
     return answer;
   }
