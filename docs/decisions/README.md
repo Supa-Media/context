@@ -191,7 +191,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Adding and nesting tasks, every write undoable
 - On a phone, the sheet is the right-click menu
 - Priority, tags, due and several owners
-- Show: whose tasks, per viewer
+- The filter bar, per viewer
+- Estimates
 - The side panel: any row opens beside the list — see below
 - A list write is what this device holds afterwards
 - Status groups

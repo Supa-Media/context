@@ -60,7 +60,8 @@ export function FolderGroups({
       return next;
     });
   const count = (section: { shown: number; total: number }) =>
-    layout.filtered ? `${section.shown} of ${section.total}` : String(section.total);
+    // An empty Backlog kept as somewhere to drop says 0, never "0 of 0".
+    layout.filtered && section.total > 0 ? `${section.shown} of ${section.total}` : String(section.total);
   const tasks = actions.tasks ?? null;
   const composer = tasks?.composer ?? null;
   const writing = composer?.kind === "task" ? composer : null;

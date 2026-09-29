@@ -15,7 +15,7 @@ import { PriorityGlyph } from "../Glyphs";
 import { ownerLabel, type OwnerChoice } from "../items";
 import type { FolderItem } from "../model";
 import type { StatusMenuSection } from "../statuses";
-import { dueOf, ownersOf, tagsOf } from "../taskProps";
+import { dueOf, estimateOf, ownersOf, tagsOf } from "../taskProps";
 import { runMenuAction, writtenPriority, type MenuAsk } from "./menuRun";
 import type { SheetValues } from "./phoneSheet";
 import type { ProjectRef } from "./taskEdits";
@@ -67,6 +67,7 @@ export function useTaskMenu(options: TaskMenuOptions): TaskMenuModel {
         kind: item.status === "" ? "note" : "task",
         status: item.status,
         priority: writtenPriority(item),
+        estimate: estimateOf(item.properties),
         owners: ownersOf(item.properties),
         tags: tagsOf(item.properties),
         hasDue: dueOf(item.properties) !== null,
@@ -111,6 +112,7 @@ export function useTaskMenu(options: TaskMenuOptions): TaskMenuModel {
         status: groupLabel("status", item.status),
         owners: two(ownersOf(item.properties).map((owner) => ownerLabel(owners, owner))),
         tags: two(tagsOf(item.properties)),
+        estimate: estimateOf(item.properties) ?? "",
         ...(due === null ? {} : { due: dueLabel(due, new Date()) }),
       };
     },

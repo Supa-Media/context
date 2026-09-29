@@ -7,6 +7,7 @@
  *     owner: [@sayo, Claude]
  *     tags: [kitchen, setup]
  *     due: 2026-10-03
+ *     estimate: M
  *
  * - **Priority** is a fixed scale, like the three status groups: `p0` to
  *   `p3`, said as Urgent, High, Medium and Low. Anything else is no priority
@@ -17,6 +18,10 @@
  * - **Tags** are free words; kinds of work (bug, feature) are tags.
  * - **Due** is a calendar day, never a time: it is read and shown in the
  *   reader's own calendar, so a task due Friday is due Friday everywhere.
+ * - **Estimate** is how big the work is, a T-shirt size from XS to XXL
+ *   (the owner, 2026-09-29), set by hand on a project and on a subtask
+ *   alike: a project's is never summed from its subtasks'. Anything else is
+ *   no estimate.
  *
  * See "Priority, tags, due and several owners" in
  * `docs/decisions/folder-lists.md`.
@@ -114,3 +119,23 @@ export function dueWord(due: Due, now: number): string {
   return date.getFullYear() === today.getFullYear() ? `${month} ${due.day}` : `${month} ${due.day}, ${due.year}`;
 }
 
+
+export const ESTIMATES = ["XS", "S", "M", "L", "XL", "XXL"] as const;
+export type Estimate = (typeof ESTIMATES)[number];
+export const NO_ESTIMATE = "No estimate";
+
+/** What each size roughly means, said beside it wherever one is picked. */
+export const ESTIMATE_HINTS: Readonly<Record<Estimate, string>> = {
+  XS: "An hour or so",
+  S: "Half a day",
+  M: "A day or two",
+  L: "About a week",
+  XL: "Two weeks",
+  XXL: "A month or more",
+};
+
+/** `estimate: m` in any case; null for none or anything that is not a size. */
+export function estimateOf(properties: Properties): Estimate | null {
+  const word = firstText(properties.estimate).toUpperCase();
+  return ESTIMATES.find((size) => size === word) ?? null;
+}

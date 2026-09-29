@@ -15,7 +15,7 @@
  * with none gets an `overview.md` holding just that. The page itself is one
  * too — a project folder is titled by its front note and says its status,
  * owner and first paragraph under the title (`Head.tsx`). Above the List,
- * "Show" narrows it to whose tasks, per viewer (`ShowBar.tsx`). Somebody who
+ * the filter bar narrows it, per viewer (`ShowBar.tsx`). Somebody who
  * may write adds, nests, moves and changes tasks from the List — "+ Add
  * task", a right-click, a selection, a drag — each write undoable from its
  * toast (`tasks/useFolderTasks.tsx`). On a desktop page any row — a task, a
@@ -36,13 +36,14 @@ import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import type { FileEntry } from "../types";
 import type { ListNote } from "../listBlock/model";
-import { noteColumnWidth } from "../../../app/frame";
-import { BOARD_COLUMN, FolderBoard } from "./Board";
+import { FolderBoard } from "./Board";
+import { boardWidth, dayOf } from "./pageMeasures";
 import { FolderGroups } from "./Groups";
 import { listLayout, makeItTaskStatus } from "./listLayout";
 import { ShowBar } from "./ShowBar";
-import { chipCounts, EVERYONE, filterMatch, tasksWithSubtasks, type ShowFilter } from "./showFilter";
+import { filterMatch, NO_FILTER, tasksWithSubtasks, type ShowFilter } from "./showFilter";
 import { useTaskOwners } from "./useTaskOwners";
+import { estimateOf } from "./taskProps";
 import { FolderHead, PropertyLine, ViewSwitch } from "./Head";
 import { Lede, type LedeEditing } from "./LedeEditor";
 import { ledeSource } from "./lede";
@@ -129,7 +130,7 @@ export function FolderPage({
     host === undefined ? null : rememberedView(host.workspaceId, folder),
   );
   const [filter, setFilter] = useState<ShowFilter>(() =>
-    host === undefined ? EVERYONE : (rememberedFilter(host.workspaceId, folder) ?? EVERYONE),
+    host === undefined ? NO_FILTER : (rememberedFilter(host.workspaceId, folder) ?? NO_FILTER),
   );
   const [pickedFor, setPickedFor] = useState(folder);
   const [, setDismissals] = useState(0);
@@ -137,7 +138,7 @@ export function FolderPage({
   if (pickedFor !== folder) {
     setPickedFor(folder);
     setPicked(host === undefined ? null : rememberedView(host.workspaceId, folder));
-    setFilter(host === undefined ? EVERYONE : (rememberedFilter(host.workspaceId, folder) ?? EVERYONE));
+    setFilter(host === undefined ? NO_FILTER : (rememberedFilter(host.workspaceId, folder) ?? NO_FILTER));
   }
 
   const now = Date.now();
@@ -197,14 +198,15 @@ export function FolderPage({
   );
   const taskOwners = useTaskOwners(me ?? NO_WORDS, label, agents.isAgent, agentList);
   const allTasks = useMemo(() => tasksWithSubtasks(items, notes ?? []), [items, notes]);
-  const counts = useMemo(() => chipCounts(allTasks, taskOwners.who), [allTasks, taskOwners.who]);
   // A filter remembered from when there were tasks narrows nothing once there are none: its bar is gone.
-  const shown = allTasks.length === 0 ? EVERYONE : filter;
+  const shown = allTasks.length === 0 ? NO_FILTER : filter;
   // A writer is always shown somewhere to park; a reader only what is parked.
   const writer = loaded.canEdit && host?.tasks !== undefined;
   const layout = useMemo(
-    () => listLayout(items, list, notes ?? [], filterMatch(shown, taskOwners.who), { folder: parkedIn, always: writer }),
-    [items, list, notes, shown, taskOwners.who, parkedIn, writer],
+    () => listLayout(items, list, notes ?? [], filterMatch(shown, taskOwners.who, now), { folder: parkedIn, always: writer }),
+    // `now` moves every render; the filter reads it only for Due, which is by the day.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, list, notes, shown, taskOwners.who, parkedIn, writer, dayOf(now)],
   );
   const suggestAgents = useMemo(
     () => (suggestFor === undefined ? undefined : (path: string, prefer: readonly string[]) => suggestFor(path, prefer, agentList)),
@@ -325,6 +327,7 @@ export function FolderPage({
     makeTaskLabel,
     tasks: tasks.controls,
     taskMenu: tasks.menu,
+    sized: allTasks.some((task) => estimateOf(task.properties) !== null),
   };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
   const parked = parkedOnBoard(parkedIn, notes ?? [], tasks.controls, writer);
@@ -447,20 +450,22 @@ export function FolderPage({
               <ShowBar
                 filter={filter}
                 onChange={showFilter}
-                tasks={allTasks}
-                who={taskOwners.who}
-                me={taskOwners.myName}
-                counts={counts}
-                faceOf={taskOwners.faceOf}
+                context={{ tasks: allTasks, who: taskOwners.who, me: taskOwners.myName, faceOf: taskOwners.faceOf, now }}
+                shown={layout.shown}
+                total={layout.total}
+                noun={rowsAreProjects(folder) ? { one: "project", many: "projects" } : { one: "task", many: "tasks" }}
                 compact={compact}
                 end={tasks.addButton ?? undefined}
               />
             )}
             <FolderGroups layout={layout} compact={compact} now={now} actions={actions} />
             {tasks.overlays}
-            {layout.filtered && layout.sections.length === 0 ? (
+            {layout.filtered && layout.shown === 0 ? (
               <Text variant="meta" style={styles.aside} testID="folder-filter-empty">
-                No tasks match. Choose Everyone to see them all.
+                {`No ${rowsAreProjects(folder) ? "projects" : "tasks"} match. `}
+                <Text variant="meta" role="link" style={styles.link} onPress={() => showFilter(NO_FILTER)} testID="folder-filter-empty-clear">
+                  Clear filters
+                </Text>
               </Text>
             ) : null}
             {tasks.phoneBar}
@@ -481,20 +486,6 @@ export function FolderPage({
   );
 }
 
-/** What a board leaves either side of itself on a wide page. */
-const BOARD_MARGIN = 48;
-
-/**
- * As wide as its columns want, never narrower than the note's measure (so a
- * two-column board lines up under the title) and never wider than the page
- * less a margin each side, where its columns narrow and then scroll.
- */
-function boardWidth(columns: number, bands: number, pageWidth: number): number {
-  const wanted = columns * BOARD_COLUMN + Math.max(0, columns - bands) * space.x4 + Math.max(0, bands - 1) * space.x6;
-  const room = Math.max(0, pageWidth - 2 * BOARD_MARGIN);
-  return Math.min(room, Math.max(wanted, Math.min(noteColumnWidth, room)));
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     contents: { marginTop: space.x3 },
@@ -505,6 +496,7 @@ const makeStyles = (colors: Colors) =>
     // About a short column of cards, so the page does not collapse and grow back.
     waiting: { minHeight: 240 },
     aside: { paddingVertical: space.x2, color: colors.muted },
+    link: { color: colors.text2, textDecorationLine: "underline" },
     problem: { marginTop: space.x2, color: colors.critText },
     saving: { marginTop: space.x2, color: colors.muted },
   });

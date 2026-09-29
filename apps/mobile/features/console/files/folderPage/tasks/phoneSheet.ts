@@ -30,9 +30,10 @@ export interface SheetValues {
   readonly owners?: string;
   readonly tags?: string;
   readonly due?: string;
+  readonly estimate?: string;
 }
 
-const VALUE_OF: Readonly<Record<string, keyof SheetValues>> = { status: "status", owners: "owners", tags: "tags", due: "due" };
+const VALUE_OF: Readonly<Record<string, keyof SheetValues>> = { status: "status", estimate: "estimate", owners: "owners", tags: "tags", due: "due" };
 
 /** The chip that clears a priority: the menu's "No priority", short enough to sit beside Medium. */
 const NONE_CHIP = "None";

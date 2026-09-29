@@ -1,7 +1,8 @@
 /**
  * The cells a List row is drawn from, beside its name (`TaskRow.tsx`): the
  * priority mark (a button for somebody who may write), the tags, the status
- * value, the owner, the hover tools, and a phone's second line.
+ * value, the owner, the hover tools, and a phone's second line. The
+ * estimate is its own cell (`EstimateCell.tsx`).
  *
  * **The name takes the room** (the owner, 2026-09-28: "the spacing here got
  * all the way messed up, I cant even read the tasks"). A row is a name that
@@ -25,7 +26,7 @@ import { OwnerFace, PriorityGlyph, type Face } from "./Glyphs";
 import { ownerChoiceFor, ownerLabel, type ItemActions } from "./items";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { PropertyValue } from "./PropertyValue";
-import { ownersOf, priorityWord, tagsOf, type Priority } from "./taskProps";
+import { estimateOf, ownersOf, priorityWord, tagsOf, type Priority } from "./taskProps";
 import { PRIORITIES } from "./tasks/taskWords";
 
 /** Tags drawn on a row before the rest are counted. */
@@ -254,7 +255,7 @@ export function CompactLine({ item, due, actions }: { item: FolderItem; due: str
   const owners = ownersOf(item.properties);
   const who = owners.length === 0 ? null : ownerLabel(actions.owners, owners[0]!) + (owners.length > 1 ? ` +${owners.length - 1}` : "");
   const tags = tagsOf(item.properties);
-  const parts = [who, due === "" ? null : due, tags.length === 0 ? null : tags.map((tag) => isolateForDisplay(tag)).join(", ")];
+  const parts = [who, due === "" ? null : due, estimateOf(item.properties), tags.length === 0 ? null : tags.map((tag) => isolateForDisplay(tag)).join(", ")];
   const line = parts.filter((part): part is string => part !== null).join(" · ");
   return line === "" ? null : (
     <Text variant="meta" numberOfLines={1} style={styles.sub}>

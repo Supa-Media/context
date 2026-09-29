@@ -6,7 +6,7 @@
  */
 
 import type { FolderItem } from "../model";
-import { priorityOf, tagsOf, ownersOf } from "../taskProps";
+import { priorityOf, tagsOf, ownersOf, type Estimate } from "../taskProps";
 import { ownerLabel, type OwnerChoice } from "../items";
 import { planMoveToProject, planSet, statusPlan, taskRefOf, wordsValue, type ProjectRef } from "./taskEdits";
 import type { TaskMenuAction } from "./taskMenu";
@@ -30,6 +30,16 @@ export function priorityPlan(item: FolderItem, value: Priority | null): Planned 
     [["priority", value]],
     value === null ? `${quote(item.label)} has no priority now.` : `${quote(item.label)} is ${word} now.`,
     value === null ? `${quote(item.label)} has no priority.` : `${quote(item.label)} is already ${word}.`,
+  );
+}
+
+/** A size, or none: "“Sign the lease” is an M now" (every size is said with "an"). */
+export function estimatePlan(item: FolderItem, value: Estimate | null): Planned {
+  return planSet(
+    item,
+    [["estimate", value]],
+    value === null ? `${quote(item.label)} has no estimate now.` : `${quote(item.label)} is an ${value} now.`,
+    value === null ? `${quote(item.label)} has no estimate.` : `${quote(item.label)} is already an ${value}.`,
   );
 }
 
@@ -82,6 +92,8 @@ export function runMenuAction(action: TaskMenuAction, context: MenuRunContext): 
       return perform(statusPlan(item, action.value));
     case "priority":
       return perform(priorityPlan(item, action.value));
+    case "estimate":
+      return perform(estimatePlan(item, action.value));
     case "owner-remove":
       return perform(ownersPlan(item, owners.filter((owner) => !same(owner, action.value)), context.owners));
     case "me":

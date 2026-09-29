@@ -23,7 +23,8 @@
  * - Under a filter (`showFilter.ts`) a task stays when it or any subtask
  *   matches; one kept only for a subtask is `dim`, and carries only the
  *   subtasks that match. Notes are not tasks and are left out. A section
- *   with nothing left is dropped, and says `shown` of `total` otherwise.
+ *   with nothing left is dropped, and says `shown` of `total` otherwise;
+ *   the layout says the same over every section, for the bar's "3 of 7".
  *
  * See "Tasks and notes" in `docs/decisions/folder-lists.md`.
  */
@@ -81,6 +82,9 @@ export interface ListLayout {
   /** The page's plain notes; none under a filter. */
   readonly notes: readonly FolderItem[];
   readonly filtered: boolean;
+  /** Top-level tasks drawn, and in the List at all, across every section — dropped ones too. */
+  readonly shown: number;
+  readonly total: number;
 }
 
 type Match = (item: FolderItem) => boolean;
@@ -116,6 +120,7 @@ export function listLayout(
   const bands = statusBands(groupFolderItems(tasks, "status", list), list);
   const sections: LayoutSection[] = [];
   const backlog: { value: string; items: readonly FolderItem[] }[] = [];
+  const count = { shown: 0, total: 0 };
 
   const section = (
     key: LayoutSection["key"],
@@ -132,9 +137,11 @@ export function listLayout(
       }))
       .filter((column) => column.rows.length > 0);
     const shown = drawn.reduce((sum, column) => sum + column.rows.length, 0);
+    const total = used.reduce((sum, column) => sum + column.items.length, 0);
+    count.shown += shown;
+    count.total += total;
     if (shown === 0) return null;
     const label = key !== "unplaced" && used.length === 1 ? groupLabel("status", used[0].value) : fallback;
-    const total = used.reduce((sum, column) => sum + column.items.length, 0);
     return { key, group, label, folded: key === "backlog" || key === "done", columns: drawn, shown, total };
   };
 
@@ -170,6 +177,8 @@ export function listLayout(
     sections,
     notes: match === null ? own.filter((item) => item.status === "") : [],
     filtered: match !== null,
+    shown: count.shown,
+    total: count.total,
   };
 }
 

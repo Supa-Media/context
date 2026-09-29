@@ -4,7 +4,7 @@
  * here performs anything). Pure.
  *
  * The approved order (RightClick artboard, 2026-09-28): Status ›, Priority ›,
- * Owners ›, Assign to me, Tags ›, Due date ›; then Add a subtask, Make it a
+ * Estimate › (the filter bar artboard, 2026-09-29), Owners ›, Assign to me, Tags ›, Due date ›; then Add a subtask, Make it a
  * subtask of…, Move to Backlog, Move to another project…; then Open, Copy
  * link, Archive. A plain note's menu is Make it a task, Open, Copy link,
  * Archive.
@@ -25,12 +25,14 @@ import type { MenuItem } from "../../menuItem";
 import type { StatusMenuSection } from "../statuses";
 import { groupLabel } from "../../listBlock/words";
 import { DUE_PRESET_LABELS, PRIORITIES, PRIORITY_LABELS, type DuePreset, type Priority } from "./taskWords";
+import { ESTIMATE_HINTS, ESTIMATES, NO_ESTIMATE, type Estimate } from "../taskProps";
 
 export interface TaskMenuContext {
   /** A task (has a status), or a plain note. */
   readonly kind: "task" | "note";
   readonly status: string;
   readonly priority: Priority | null;
+  readonly estimate: Estimate | null;
   readonly owners: readonly string[];
   readonly tags: readonly string[];
   readonly hasDue: boolean;
@@ -60,6 +62,7 @@ export interface TaskMenuContext {
 export type TaskMenuAction =
   | { readonly kind: "status"; readonly value: string }
   | { readonly kind: "priority"; readonly value: Priority | null }
+  | { readonly kind: "estimate"; readonly value: Estimate | null }
   | { readonly kind: "owner-remove"; readonly value: string }
   | { readonly kind: "owner-add" }
   | { readonly kind: "me" }
@@ -113,6 +116,14 @@ export function taskMenuItems(context: TaskMenuContext): MenuItem<string>[] {
       items: [
         ...PRIORITIES.map((priority) => ({ id: `priority:${priority}`, label: PRIORITY_LABELS[priority], checked: context.priority === priority })),
         { id: "priority:none", label: "No priority", checked: context.priority === null },
+      ],
+    },
+    {
+      id: "estimate",
+      label: "Estimate",
+      items: [
+        ...ESTIMATES.map((size) => ({ id: `estimate:${size}`, label: size, detail: ESTIMATE_HINTS[size], checked: context.estimate === size })),
+        { id: "estimate:none", label: NO_ESTIMATE, checked: context.estimate === null, separatorBefore: true },
       ],
     },
     {
@@ -175,6 +186,9 @@ export function taskMenuAction(id: string): TaskMenuAction | null {
     case "priority":
       if (rest === "none") return { kind: "priority", value: null };
       return rest !== null && (PRIORITIES as readonly string[]).includes(rest) ? { kind: "priority", value: rest as Priority } : null;
+    case "estimate":
+      if (rest === "none") return { kind: "estimate", value: null };
+      return rest !== null && (ESTIMATES as readonly string[]).includes(rest) ? { kind: "estimate", value: rest as Estimate } : null;
     case "owner-remove":
       return rest === null ? null : { kind: "owner-remove", value: rest };
     case "tag":

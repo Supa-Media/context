@@ -326,7 +326,7 @@ describe("the right-click menu", () => {
     const event = await rightClick(frameOf(row("Sign the lease")));
     expect(event.defaultPrevented).toBe(true);
     const labels = strip(one("menu-root").textContent);
-    for (const words of ["Status", "Priority", "Owners", "Tags", "Due date", "Add a subtask", "Make it a subtask of…", "Move to Backlog", "Move to another project…", "Open", "Copy link", "Archive"]) {
+    for (const words of ["Status", "Priority", "Estimate", "Owners", "Tags", "Due date", "Add a subtask", "Make it a subtask of…", "Move to Backlog", "Move to another project…", "Open", "Copy link", "Archive"]) {
       expect(labels).toContain(words);
     }
     // Seyi owns it already: nothing to assign to them.
@@ -344,6 +344,20 @@ describe("the right-click menu", () => {
     await act(async () => undo());
     await settle();
     expect(seen.calls).toHaveLength(before);
+  });
+
+  test("Estimate › S sets a first estimate, said in words, with an Undo", async () => {
+    const { page, seen } = host();
+    await mount(page);
+    await rightClick(frameOf(row("Take photos")));
+    await press(one("menu-item-estimate"));
+    expect(strip(one("menu-detail-estimate:S").textContent)).toBe("Half a day");
+    await press(one("menu-item-estimate:S"));
+    expect(seen.calls).toEqual([`set ${CAFE}/photos.md estimate="S"`]);
+    expect(seen.toasts.at(-1)!.message).toBe("“Take photos for the menu” is an S now.");
+    await act(async () => seen.toasts.at(-1)!.undo!());
+    await settle();
+    expect(seen.calls.at(-1)).toBe(`set ${CAFE}/photos.md estimate=null`);
   });
 
   test("Assign to me writes the viewer's handle; Move to Backlog parks it", async () => {
