@@ -109,3 +109,7 @@ Moved to [Note text is read by a model in flight, and nothing of it is kept](./s
 ## Every use of Jev goes through Jev smarts
 
 Moved to [Every use of Jev goes through Jev smarts](./storage-and-credentials/inference.md#every-use-of-jev-goes-through-jev-smarts).
+
+## A managed bucket holds sealed bodies, and every way out is plain
+
+Moved to [A managed bucket holds sealed bodies, and every way out is plain](./storage-and-credentials/managed-encryption.md#a-managed-bucket-holds-sealed-bodies-and-every-way-out-is-plain).
