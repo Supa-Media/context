@@ -56,7 +56,12 @@ async function agentmail(method, path, body) {
     headers: { Authorization: `Bearer ${agentmailKey}`, "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`AgentMail ${method} ${path}: ${response.status}`);
+  if (!response.ok) {
+    // AgentMail's error body says why (a plan limit, a key scoped to one
+    // inbox); it carries no secret, so it is worth the log line.
+    const why = (await response.text().catch(() => "")).slice(0, 300);
+    throw new Error(`AgentMail ${method} ${path}: ${response.status} ${why}`);
+  }
   return response.status === 204 ? null : response.json();
 }
 
