@@ -29,6 +29,27 @@ jobs:
       # to **true** upstream, so even once the job runs, a lint failure would be
       # reported as a pass. It must block.
       lint-continue-on-error: false
+      # `shared-package` is deliberately NOT passed, and the skip it produces
+      # is the reason this comment exists. Upstream's `Test Shared Package`
+      # job is gated on `inputs.shared-package != ''`, with no fallback — so
+      # without it that check reports `skipped` on every pull request,
+      # including one whose `Detect Changes` step prints `Filter shared =
+      # true`. It looks exactly like the forty legitimate change-scoped skips
+      # beside it. (`Test Convex Backend` is not gated this way: it falls back
+      # to `cd apps/convex && pnpm test`, which is why that one runs.)
+      #
+      # It is unset because `@context/shared` has no `test` script. Its
+      # behaviour is covered from `apps/convex/__tests__` — `websiteMetadata`,
+      # `devlog`, `websiteRoutes` and the rest — and the `convex` filter names
+      # `packages/shared/**`, so a shared change does run those suites.
+      # Passing the input today would run `pnpm --filter @context/shared test`
+      # and go red; a `--passWithNoTests` script to keep it green would turn a
+      # visible skip into an invisible one, which is worse than either.
+      #
+      # `scripts/check-ci-shared-tests.mjs` holds the pair together, so this
+      # is a checked fact rather than a comment: a `test` script in that
+      # package now requires the input, and the input requires a package that
+      # has one.
       # `ci / Architecture check`: no handwritten file over 1,000 lines, and
       # the legacy allowance in `architecture.config.json` only shrinks. On a
       # pull request it compares against the base branch, so a PR cannot pass
