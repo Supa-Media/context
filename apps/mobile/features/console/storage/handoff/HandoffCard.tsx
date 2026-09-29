@@ -107,6 +107,7 @@ export function HandoffCard({
       processed: storage.handoffObjectsProcessed,
       readyToSwitch: storage.handoffReadyToSwitch,
     });
+    const existing = existingFilesLine(storage.handoffExistingFiles, storage.handoffClaimed);
     return (
       <Card testID="storage-handoff-moving" style={styles.card}>
         <Text variant="rowTitle">
@@ -114,9 +115,9 @@ export function HandoffCard({
             ? "Moving to your bucket"
             : `Moving to ${storage.handoffBucket}`}
         </Text>
-        {existingFilesLine(storage.handoffExistingFiles) === null ? null : (
+        {existing === null ? null : (
           <Text variant="rowSub" style={styles.line} testID="storage-handoff-existing">
-            {existingFilesLine(storage.handoffExistingFiles)}
+            {existing}
           </Text>
         )}
         <View style={styles.steps} role="status" testID="storage-handoff-progress">

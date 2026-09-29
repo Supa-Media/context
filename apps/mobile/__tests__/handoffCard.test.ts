@@ -23,7 +23,9 @@ import type { ConsoleStorage } from "../features/console/types";
  * stopped". Reading `managedRetainedUntil` without comparing it to now drew
  * the switch-back offer after the copy was gone, failing the last test.
  * Enabling "Delete and start fresh" before the name matched sent an answer
- * for "my-note", failing the existing-files test.
+ * for "my-note", failing the existing-files test. Dropping the claimed case
+ * from `existingFilesLine` hid the warning not to add files mid-move, failing
+ * "says not to add files meanwhile".
  */
 
 const NOW = Date.UTC(2026, 8, 29, 12);
@@ -182,9 +184,25 @@ describe("the way out of managed storage", () => {
 
   test("a move merging into a bucket says it keeps what is there", () => {
     const screen = mount({
-      storage: managed({ handoffStatus: "copying", handoffPhase: "copy", handoffExistingFiles: "merge" }),
+      storage: managed({
+        handoffStatus: "copying",
+        handoffPhase: "copy",
+        handoffExistingFiles: "merge",
+        handoffClaimed: false,
+      }),
     });
     expect(screen.q("storage-handoff-existing")?.textContent).toContain("Keeping the files");
+    expect(screen.text).not.toContain("Don't add files");
+    screen.unmount();
+  });
+
+  test("a move into a bucket it will make match says not to add files meanwhile", () => {
+    const screen = mount({
+      storage: managed({ handoffStatus: "copying", handoffPhase: "copy", handoffClaimed: true }),
+    });
+    expect(screen.q("storage-handoff-existing")?.textContent).toContain(
+      "Don't add files to your bucket until the move finishes",
+    );
     screen.unmount();
   });
 

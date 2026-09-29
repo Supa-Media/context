@@ -94,6 +94,13 @@ export const credentialTables = {
     changesInPass: v.number(),
     readyToCutover: v.optional(v.boolean()),
     /**
+     * When the current check pass (`verify_source` then `verify_target`)
+     * began. The pass that ends in a switch-over is the last look at the old
+     * bucket, so a file changed there after this may not have been seen; the
+     * catch-up after the switch reads from here (`lib/moveCatchUp.ts`).
+     */
+    passStartedAt: v.optional(v.number()),
+    /**
      * A customer destination this move has checked was empty before writing to
      * it. Only then may the final pass delete destination keys the managed
      * source does not have: before it, such a key is the customer's own file.

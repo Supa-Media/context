@@ -74,6 +74,10 @@ Moved to [Leaving never deletes a file the customer already had](./storage-and-c
 
 Moved to [The managed copy is kept a week after a move out](./storage-and-credentials/managed-storage.md#the-managed-copy-is-kept-a-week-after-a-move-out).
 
+## A move catches up after it switches over, and never overwrites to do it
+
+Moved to [A move catches up after it switches over, and never overwrites to do it](./storage-and-credentials/managed-storage.md#a-move-catches-up-after-it-switches-over-and-never-overwrites-to-do-it).
+
 ## Absent meant two things, and the bucket is asked which
 
 Moved to [Absent meant two things, and the bucket is asked which](./storage-and-credentials/migration-and-absence.md#absent-meant-two-things-and-the-bucket-is-asked-which).
