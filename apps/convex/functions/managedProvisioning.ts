@@ -52,6 +52,9 @@ import {
   destinationHoldsObjects,
   probeManagedTarget,
   probeCutoverCapabilities,
+  clearMigrationTarget,
+  afterUnfinishedClear,
+  type ClearOutcome,
 } from "./lib/managedProvisioningFns/targetReady";
 import { capabilitiesValidator } from "./lib/storage/shapes";
 import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns/complete";
@@ -603,6 +606,7 @@ export const awaitManagedTargetReady = internalAction({
 
     let ready = false;
     let occupied = false;
+    let cleared: ClearOutcome = "empty";
     try {
       const secretAccessKey = await decryptSecret(
         migration.encryptedTargetSecretAccessKey,
@@ -618,11 +622,25 @@ export const awaitManagedTargetReady = internalAction({
       ) {
         occupied = await destinationHoldsObjects(migration, secretAccessKey);
       }
+      // Start fresh: the one deletion of their files, which they typed the
+      // bucket's name to agree to, done before anything is copied.
+      if (
+        ready &&
+        migration.direction === "to_customer" &&
+        migration.targetClaimed !== true &&
+        migration.existingFiles === "replace"
+      ) {
+        cleared = await clearMigrationTarget(migration, secretAccessKey);
+      }
     } catch {
       // An envelope that will not open, or a store that cannot be built. Both
       // resolve the same way as an unready bucket: try again until the
       // deadline, then say so.
       ready = false;
+    }
+
+    if (ready && cleared !== "empty") {
+      return await afterUnfinishedClear(ctx, args.workspaceId, cleared);
     }
 
     // Merging leaves the destination unclaimed, so nothing of theirs is deleted.
@@ -811,6 +829,10 @@ export const runManagedStorageMigration = internalAction({
           deleteUnmatchedTarget:
             migration.direction !== "to_customer" ||
             migration.targetClaimed === true,
+          // And even then only Context's plumbing: the customer's own files
+          // were removed once, up front, if they chose to start fresh.
+          deleteOnlyUnder:
+            migration.direction === "to_customer" ? ".context/" : undefined,
           // Merging: a file of theirs with a name the workspace also uses is
           // kept beside it on the first pass, before it is written over.
           keepTargetConflicts:

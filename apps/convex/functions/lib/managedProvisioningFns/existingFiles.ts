@@ -30,7 +30,8 @@ export async function chooseExistingFilesHandler(
     row === null ||
     row.direction !== "to_customer" ||
     row.status !== "failed" ||
-    row.errorCode !== "DESTINATION_NOT_EMPTY"
+    // A start-fresh that could not delete everything asks the same question.
+    (row.errorCode !== "DESTINATION_NOT_EMPTY" && row.errorCode !== "DESTINATION_NOT_CLEARED")
   ) {
     throw new ConvexError({
       code: "NOT_WAITING_FOR_CHOICE",

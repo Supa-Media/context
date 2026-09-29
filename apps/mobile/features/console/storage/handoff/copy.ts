@@ -53,23 +53,10 @@ export const EXISTING = {
 };
 
 /** What the progress card says about a choice already made. */
-/**
- * A bucket the move has claimed (checked empty, or started fresh) is made to
- * match the workspace before the switch, so a file somebody adds to it by
- * hand while the move runs is removed. Said up front rather than discovered.
- */
-export const HANDS_OFF =
-  "Don't add files to your bucket until the move finishes: anything that isn't from your workspace is removed when the move checks it.";
-
-export function existingFilesLine(
-  choice: "replace" | "merge" | undefined,
-  claimed?: boolean,
-): string | null {
+export function existingFilesLine(choice: "replace" | "merge" | undefined): string | null {
   if (choice === "merge") return "Keeping the files already in your bucket.";
-  if (choice === "replace") {
-    return `Starting fresh: files already in your bucket are removed before the switch. ${HANDS_OFF}`;
-  }
-  return claimed === true ? HANDS_OFF : null;
+  if (choice === "replace") return "Starting fresh: files already in your bucket are deleted before anything is copied.";
+  return null;
 }
 
 export const STOP = {
@@ -91,6 +78,8 @@ export function failureHeadline(code: string | undefined, failedCount: number): 
   switch (code) {
     case "DESTINATION_NOT_EMPTY":
       return "Your bucket already has files in it";
+    case "DESTINATION_NOT_CLEARED":
+      return "Some files in your bucket wouldn't delete";
     case "OBJECT_TOO_LARGE":
       return failedCount === 1 ? "1 file didn't copy" : `${failedCount} files didn't copy`;
     default:
@@ -102,6 +91,8 @@ export function describeHandoffFailure(code: string | undefined): string {
   switch (code) {
     case "DESTINATION_NOT_EMPTY":
       return `Nothing has been copied or deleted yet. Choose what happens to the files already there. ${STILL_LIVE}`;
+    case "DESTINATION_NOT_CLEARED":
+      return `Nothing has been copied yet. A retention rule or the key's permissions can stop a delete: remove the rest yourself and start fresh again, or keep them and add your workspace beside them. ${STILL_LIVE}`;
     case "TARGET_NOT_READY":
       return `Context couldn't reach that bucket with the key you gave. Check the key and its permissions, then retry. ${STILL_LIVE}`;
     case "OBJECT_TOO_LARGE":

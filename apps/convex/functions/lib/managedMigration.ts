@@ -60,6 +60,13 @@ export async function reconcileMigrationObject(options: {
    */
   deleteUnmatchedTarget?: boolean;
   /**
+   * Narrows that deletion to keys under this prefix. A move out of managed
+   * storage passes `.context/`: past a start-fresh bucket's one up-front
+   * emptying, the only files it may remove are Context's own plumbing, so a
+   * file the owner adds to their bucket mid-move is kept.
+   */
+  deleteOnlyUnder?: string;
+  /**
    * Before writing over a destination file that differs, keep the old one as
    * `name (from your bucket).ext` — once. For a move merged into a bucket that
    * already held the customer's files, so a shared name loses neither.
@@ -68,7 +75,11 @@ export async function reconcileMigrationObject(options: {
 }): Promise<{ copied: number; changes: number }> {
   const sourceRead = await options.source.get(options.key);
   if (sourceRead === null) {
-    if (options.listedFromTarget && options.deleteUnmatchedTarget === true) {
+    if (
+      options.listedFromTarget &&
+      options.deleteUnmatchedTarget === true &&
+      (options.deleteOnlyUnder === undefined || options.key.startsWith(options.deleteOnlyUnder))
+    ) {
       await options.target.delete(options.key);
       return { copied: 0, changes: 1 };
     }
@@ -233,6 +244,7 @@ export async function reconcileMigrationPage(options: {
   maxWidth: number;
   byteBudget: number;
   deleteUnmatchedTarget?: boolean;
+  deleteOnlyUnder?: string;
   keepTargetConflicts?: boolean;
 }): Promise<{ copied: number; changes: number }> {
   let copied = 0;
@@ -251,6 +263,7 @@ export async function reconcileMigrationPage(options: {
           listedFromTarget: options.listedFromTarget,
           byteCap: options.byteCap,
           deleteUnmatchedTarget: options.deleteUnmatchedTarget,
+          deleteOnlyUnder: options.deleteOnlyUnder,
           keepTargetConflicts: options.keepTargetConflicts,
         }),
       ),
