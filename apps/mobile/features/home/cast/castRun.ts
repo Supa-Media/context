@@ -79,7 +79,17 @@ export interface CastHost {
   step?: (index: number) => void;
   /** The show ran to its end and everybody has left (not stopped by the visitor). */
   ended?: () => void;
+  /** A moment the studio can put a sound to (`castSounds.ts`). */
+  cue?: (moment: CastMoment) => void;
 }
+
+/**
+ * The moments of a show a sound can go with: somebody arriving, a key, an
+ * agent's words landing, a comment or reply sent, a thread resolved, a note
+ * appearing. `click` is for steps the grammar has yet to learn.
+ */
+export const CAST_MOMENTS = ["join", "agent", "typing", "writes", "click", "comment", "resolve", "note"] as const;
+export type CastMoment = (typeof CAST_MOMENTS)[number];
 
 /*
   The console's presence palette (`PRESENCE_COLORS` in the gateway), so a cast
@@ -165,6 +175,7 @@ export function playCast(
   const join = (actor: CastActor) => {
     const id = castMemberId(actor);
     if (!members.has(id)) {
+      host.cue?.(actor.kind === "agent" ? "agent" : "join");
       members.set(id, {
         id,
         name: actor.name,
@@ -249,6 +260,7 @@ export function playCast(
 
     if (step.kind === "note") {
       const made = host.addNote(step.name, step.text);
+      if (made !== null) host.cue?.("note");
       if (made !== null && step.actor.kind === "agent") host.agentDid(step.actor, "write", made);
       return then();
     }
@@ -280,6 +292,7 @@ export function playCast(
     // An agent's write lands whole, highlighted, the way `agentCarets` draws one.
     if (step.actor.kind === "agent" || host.instant()) {
       write(cursor, step.text);
+      host.cue?.(step.actor.kind === "agent" ? "writes" : "typing");
       place(id, at(cursor, 0), at(cursor + step.text.length, -1));
       if (step.actor.kind === "agent") host.agentDid(step.actor, "write", path);
       const end = at(cursor + step.text.length, -1);
@@ -292,6 +305,7 @@ export function playCast(
     const key = (k: number) => {
       if (k >= keys.length) return then();
       write(cursor, keys[k]!);
+      host.cue?.("typing");
       cursor += keys[k]!.length;
       const here = at(cursor, -1);
       place(id, here, here);
@@ -338,6 +352,7 @@ export function playCast(
       host.commented?.(thread!);
     };
     const done = () => {
+      host.cue?.(step.kind === "resolve" ? "resolve" : "comment");
       if (step.actor.kind === "agent") host.agentDid(step.actor, "write", path);
       const range = words();
       if (range !== null) later(pace.highlightMs, () => place(id, at(range.to, -1), at(range.to, -1)));
@@ -363,6 +378,7 @@ export function playCast(
     const key = (k: number) => {
       if (k >= keys.length) return done();
       write(cursor, keys[k]!);
+      host.cue?.("typing");
       cursor += keys[k]!.length;
       later(keyDelay(keys[k]!, k, pace.keyMs), () => key(k + 1));
     };

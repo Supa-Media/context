@@ -15,6 +15,8 @@
  * preview like any other, and says so.
  */
 
+import { CAST_MOMENTS, type CastMoment } from "./castRun";
+
 /** Set on the studio's window, so the page inside can tell it is a stage. */
 export const STUDIO_FLAG = "__contextCastStudio";
 
@@ -34,6 +36,8 @@ export type StageEvent =
   | { tag: typeof TAG; kind: "step"; index: number }
   /** The show's own time, in ms, every so often while it plays. */
   | { tag: typeof TAG; kind: "time"; ms: number }
+  /** A moment the studio plays a sound for; never sent for a step rushed past. */
+  | { tag: typeof TAG; kind: "cue"; moment: CastMoment }
   | { tag: typeof TAG; kind: "ended" };
 
 type Body<T> = T extends unknown ? Omit<T, "tag"> : never;
@@ -65,6 +69,11 @@ export function asStageEvent(data: unknown): StageEvent | null {
   const message = data as Record<string, unknown>;
   if (message.kind === "ready" || message.kind === "ended") return stageEvent({ kind: message.kind });
   if (message.kind === "step") return whole(message.index) ? stageEvent({ kind: "step", index: message.index }) : null;
+  if (message.kind === "cue") {
+    return (CAST_MOMENTS as readonly unknown[]).includes(message.moment)
+      ? stageEvent({ kind: "cue", moment: message.moment as CastMoment })
+      : null;
+  }
   if (message.kind === "time") {
     return typeof message.ms === "number" && Number.isFinite(message.ms) && message.ms >= 0
       ? stageEvent({ kind: "time", ms: message.ms })

@@ -3,7 +3,12 @@ import { Platform } from "react-native";
 import { FrameIconButton } from "../../../app/AppFrame";
 import { hasCast } from "../../../home/castPreview";
 import { CastStudio } from "../../../studio/CastStudio";
+import type { SaveSounds } from "../../../studio/sounds/useStudioSounds";
+import { setNoteProperty } from "../../../../../mcp/src/lists.js";
+import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
+import type { Presence } from "../../presence/usePresence";
+import { SOUNDS_PROPERTY } from "../../../studio/sounds/castSounds";
 
 /**
  * The play button beside the eye, for a note whose draft holds a cast block,
@@ -14,17 +19,43 @@ import { noteHeading } from "../../files/frontmatter";
  * same player (`features/studio/`). The stage is a web page in a frame, so
  * the button is on the web (and the desktop app) only.
  */
-export function castPreviewButton(draft: string, path: string) {
+export function castPreviewButton(draft: string, path: string, saveSounds?: SaveSounds) {
   if (Platform.OS !== "web" || !hasCast(draft)) return null;
-  return <CastPreviewButton draft={draft} path={path} />;
+  return <CastPreviewButton draft={draft} path={path} saveSounds={saveSounds} />;
 }
 
-function CastPreviewButton({ draft, path }: { draft: string; path: string }) {
+function CastPreviewButton({ draft, path, saveSounds }: { draft: string; path: string; saveSounds?: SaveSounds }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <FrameIconButton icon="play" label="Preview demo" onPress={() => setOpen(true)} testID="browse-cast-preview" />
-      {open ? <CastStudio draft={draft} title={noteHeading(draft, path)} onClose={() => setOpen(false)} /> : null}
+      {open ? <CastStudio
+          draft={draft}
+          title={noteHeading(draft, path)}
+          onClose={() => setOpen(false)}
+          onSaveSounds={saveSounds}
+        /> : null}
     </>
   );
+}
+
+/**
+ * The studio's sound choices, written into the open note's `sounds:` line the
+ * way the Properties panel writes a property: through the editor, against the
+ * text the room holds, so it saves and merges like a keystroke. `undefined`
+ * for somebody who cannot change the note: their studio still plays and
+ * tunes sounds, and keeps nothing.
+ */
+export function soundsWriter(files: FileBrowser, presence: Presence | undefined): SaveSounds | undefined {
+  if (!files.canEdit) return undefined;
+  return (items) => {
+    const shared = presence?.collaboration;
+    const current = shared?.text ?? files.editor.draft;
+    const changed = setNoteProperty(current, SOUNDS_PROPERTY, items);
+    if ("error" in changed) return `That can’t be saved: ${changed.error ?? "it would not read back as written"}.`;
+    if (changed.text === current) return null;
+    if (shared !== undefined) shared.onVersionedChange(changed.text, shared.revision);
+    else files.setDraft(changed.text);
+    return null;
+  };
 }

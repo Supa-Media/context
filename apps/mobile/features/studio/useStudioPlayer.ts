@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import type { CastMoment } from "../home/cast/castRun";
 import { STUDIO_FLAG, asStageEvent, studioCommand, type StudioCommand } from "../home/cast/studioLink";
 
 export type PlayerStatus = "loading" | "ready" | "playing" | "paused" | "ended";
@@ -30,6 +31,8 @@ export interface StudioPlayer {
   attach: (frame: HTMLIFrameElement | null) => void;
   /** Called when the show ends by itself (Record uses it). */
   onEnded: MutableRefObject<(() => void) | null>;
+  /** Called at each moment of the show that has a sound (`useStudioSounds`). */
+  onCue: MutableRefObject<((moment: CastMoment) => void) | null>;
 }
 
 /**
@@ -51,6 +54,7 @@ export function useStudioPlayer(): StudioPlayer {
   // What the next page to load is for: start at once from a step, or wait.
   const next = useRef<{ autoStart: boolean; from: number }>({ autoStart: false, from: 0 });
   const onEnded = useRef<(() => void) | null>(null);
+  const onCue = useRef<((moment: CastMoment) => void) | null>(null);
   const loopRef = useRef(loop);
   loopRef.current = loop;
 
@@ -93,6 +97,8 @@ export function useStudioPlayer(): StudioPlayer {
         setCurrent(event.index);
       } else if (event.kind === "time") {
         setTime(event.ms);
+      } else if (event.kind === "cue") {
+        onCue.current?.(event.moment);
       } else {
         setStatus("ended");
         onEnded.current?.();
@@ -140,5 +146,6 @@ export function useStudioPlayer(): StudioPlayer {
       frame.current = element;
     }, []),
     onEnded,
+    onCue,
   };
 }

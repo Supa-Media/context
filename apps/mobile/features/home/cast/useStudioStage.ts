@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { createCastClock, type CastClock } from "./castClock";
+import type { CastMoment } from "./castRun";
 import { asStudioCommand, isStudioStage, stageEvent, type StageEvent } from "./studioLink";
 
 /** How often a playing stage tells the studio the show's time. */
@@ -12,9 +13,10 @@ export interface StudioStage {
    * show's clock, made then so its time is the show's from its first moment.
    */
   start: { from: number; clock: CastClock } | null;
-  /** `CastHost.step` and `ended`, told to the studio. */
+  /** `CastHost.step`, `ended` and `cue`, told to the studio. */
   step: (index: number) => void;
   ended: () => void;
+  cue: (moment: CastMoment) => void;
 }
 
 /**
@@ -71,6 +73,7 @@ export function useStudioStage(): StudioStage | null {
       start,
       step: (index: number) => window.parent.postMessage(stageEvent({ kind: "step", index }), origin),
       ended: () => window.parent.postMessage(stageEvent({ kind: "ended" }), origin),
+      cue: (moment: CastMoment) => window.parent.postMessage(stageEvent({ kind: "cue", moment }), origin),
     };
   }, [isStage, start]);
 }

@@ -111,6 +111,10 @@ export function useHomeCast(options: {
           stage?.step(index);
         },
         ended: () => stage?.ended(),
+        // Only what plays: a step rushed past makes no sound.
+        cue: (moment) => {
+          if (live) stage?.cue(moment);
+        },
       },
       { path, colors },
     );
