@@ -5,7 +5,7 @@ import { useJoinSlot } from "./useJoinSlot";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
-import type { CastStep } from "@context/shared";
+import type { CastPaceName, CastStep } from "@context/shared";
 import { densityFor } from "../app/frame";
 import { ConsoleFrame } from "../console/ConsoleFrame";
 import type { NoteRename } from "../console/files/browser/contract";
@@ -112,6 +112,14 @@ export function HomeShell() {
     }
     return byPath;
   }, [cast, home]);
+  const paces = useMemo(() => {
+    const byPath = new Map<string, CastPaceName>();
+    for (const [route, pace] of cast?.paces ?? []) {
+      const path = home.paths.get(route);
+      if (path !== undefined) byPath.set(path, pace);
+    }
+    return byPath;
+  }, [cast, home]);
 
   /*
     A note the visitor renamed, for the console's tabs to follow — the live
@@ -160,6 +168,7 @@ export function HomeShell() {
     stage,
     enabled: Platform.OS === "web" && cast !== null,
     scripts,
+    paces,
     colors: cast?.colors ?? NO_COLORS,
     selectedPath: browser.selectedPath,
     notes,

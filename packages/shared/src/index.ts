@@ -181,11 +181,14 @@ export type {
   WebsiteStateView,
 } from "./websiteContract";
 export {
+  CAST_PACES,
   MAX_CAST_STEPS,
+  setCastPace,
   splitWebsiteCast,
   stripWebsiteCast,
   type CastActor,
   type CastActorKind,
+  type CastPaceName,
   type CastStep,
   type WebsiteCast,
 } from "./websiteCast";

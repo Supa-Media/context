@@ -26,7 +26,7 @@
  */
 
 import * as Y from "yjs";
-import type { CastActor, CastStep } from "@context/shared";
+import type { CastActor, CastPaceName, CastStep } from "@context/shared";
 import { addThread, appendEvent, findAnchors, type CommentChange } from "@context/shared/src/comments.cjs";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { agentName } from "../../console/presence/agentName";
@@ -60,6 +60,24 @@ export const LIVELY: CastPace = {
   lingerMs: 8_000,
   leaveGapMs: 1_500,
 };
+
+/** Each `pace:` a scene can ask for (`websiteCast.ts`). Every wait scales together. */
+function scaled(by: number): CastPace {
+  return {
+    startMs: Math.round(LIVELY.startMs * by),
+    gapMs: Math.round(LIVELY.gapMs * by),
+    keyMs: Math.round(LIVELY.keyMs * by),
+    highlightMs: Math.round(LIVELY.highlightMs * by),
+    lingerMs: Math.round(LIVELY.lingerMs * by),
+    leaveGapMs: Math.round(LIVELY.leaveGapMs * by),
+  };
+}
+export const PACES: Record<CastPaceName, CastPace> = { slow: scaled(1.6), lively: LIVELY, fast: scaled(0.6) };
+
+/** The pace a scene asked for, or the homepage's own. */
+export function paceNamed(name: CastPaceName | undefined): CastPace {
+  return name === undefined ? LIVELY : PACES[name];
+}
 
 export interface CastHost {
   schedule: (ms: number, run: () => void) => () => void;

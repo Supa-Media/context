@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CastActor, CastStep } from "@context/shared";
+import type { CastActor, CastPaceName, CastStep } from "@context/shared";
 import type { ActiveAgent, AgentActivityView, AgentMark } from "../../console/agents/agentActivity";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { createSharedDoc, seedSharedDoc, type SharedDoc } from "../../console/presence/sharedDoc";
@@ -7,7 +7,7 @@ import type { Presence } from "../../console/presence/usePresence";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { previewSlug } from "../castPreview";
 import type { HomePage } from "../homeSite";
-import { castActorNamed, castMemberId, playCast } from "./castRun";
+import { castActorNamed, castMemberId, paceNamed, playCast } from "./castRun";
 import { castPresence } from "./castSite";
 import type { StudioStage } from "./useStudioStage";
 
@@ -28,6 +28,8 @@ export function useHomeCast(options: {
   enabled: boolean;
   /** Tree path → steps. */
   scripts: ReadonlyMap<string, readonly CastStep[]>;
+  /** Tree path → the pace its scene asked for; absent plays lively. */
+  paces?: ReadonlyMap<string, CastPaceName>;
   colors: ReadonlyMap<string, string>;
   selectedPath: string | null;
   /** The visitor's copy of every note, which a page's show starts from. */
@@ -150,7 +152,8 @@ export function useHomeCast(options: {
           if (live) stage?.cue(moment);
         },
       },
-      { path, colors },
+      // The page it starts on sets the pace, for the whole scene.
+      { path, colors, pace: paceNamed(latest.current.paces?.get(path)) },
     );
     if (clock !== null && !live) clock.rush(() => live);
     here.end = () => {

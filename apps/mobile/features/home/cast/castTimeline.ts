@@ -1,7 +1,7 @@
 import type { CastStep } from "@context/shared";
 import { createSharedDoc, seedSharedDoc } from "../../console/presence/sharedDoc";
 import { createCastClock, type Wall } from "./castClock";
-import { CAST_MOMENTS, playCast, type CastMoment } from "./castRun";
+import { CAST_MOMENTS, LIVELY, playCast, type CastMoment, type CastPace } from "./castRun";
 
 /** When each step of a show starts, and when the show is over, in ms. */
 export interface CastTimeline {
@@ -34,6 +34,7 @@ export function castTimeline(
   steps: readonly CastStep[],
   /** The pages its `opens:` steps name, by the name written, so steps there are timed against them. */
   pages: Readonly<Record<string, string>> = {},
+  pace: CastPace = LIVELY,
 ): CastTimeline {
   const shared = createSharedDoc({});
   seedSharedDoc(shared, markdown);
@@ -72,7 +73,7 @@ export function castTimeline(
       }
       moments[moment] += 1;
     },
-  });
+  }, { pace });
   clock.rush(() => total !== null);
   run.stop();
   clock.stop();

@@ -112,6 +112,18 @@ export function useStudioSounds(
     };
   }, [player.onCue, sounding]);
 
+  // Any press in the studio (Play, a row, Record's Start) lets its sounds be heard.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const wake = () => speaker().wake();
+    window.addEventListener("pointerdown", wake, true);
+    window.addEventListener("keydown", wake, true);
+    return () => {
+      window.removeEventListener("pointerdown", wake, true);
+      window.removeEventListener("keydown", wake, true);
+    };
+  }, [speaker]);
+
   useEffect(
     () => () => {
       sound.current?.close();

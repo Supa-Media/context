@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { setCastPace } from "@context/shared";
 import { setNoteProperty } from "../../../mcp/src/lists.js";
 import { CastStudio } from "../studio/CastStudio";
 import { SOUNDS_PROPERTY } from "../studio/sounds/castSounds";
@@ -52,6 +53,12 @@ export function CastStudioFixture({ pages = false }: { pages?: boolean }) {
           return { target: "sound-0123456789abcdef.wav" };
         },
         load: async () => null,
+      }}
+      onSavePace={(pace) => {
+        const text = setCastPace(draft, pace);
+        (window as unknown as { __castStudioNote?: string }).__castStudioNote = text;
+        setDraft(text);
+        return null;
       }}
       readPage={async (name) => (pages && name === "team" ? { name, title: "Team", markdown: TEAM } : null)}
     />
