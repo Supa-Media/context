@@ -45,6 +45,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of telemetryPreferences) await ctx.db.delete(row._id);
 
+  // When they dismissed the early-beta notice: a time.
+  const betaNoticeReads = await ctx.db
+    .query("betaNoticeReads")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of betaNoticeReads) await ctx.db.delete(row._id);
+
   // Their feedback receipts: ids and times, never a report's content.
   const feedbackReceipts = await ctx.db
     .query("feedbackReceipts")

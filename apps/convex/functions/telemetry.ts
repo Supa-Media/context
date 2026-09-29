@@ -79,3 +79,36 @@ export const setMyTelemetryPreferences = mutation({
     return updatedAt;
   },
 });
+
+/**
+ * Whether the caller has dismissed the early-beta notice on any device; null
+ * when signed out.
+ */
+export const betaNoticeSeen = query({
+  args: {},
+  returns: v.union(v.boolean(), v.null()),
+  handler: async (ctx) => {
+    const userId = (await getAuthUserId(ctx)) as Id<"users"> | null;
+    if (userId === null) return null;
+    const row = await ctx.db
+      .query("betaNoticeReads")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    return row !== null;
+  },
+});
+
+/** "Got it": remembered on the account. Idempotent, so it needs no limit. */
+export const markBetaNoticeSeen = mutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const row = await ctx.db
+      .query("betaNoticeReads")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    if (row === null) await ctx.db.insert("betaNoticeReads", { userId, seenAt: Date.now() });
+    return null;
+  },
+});
