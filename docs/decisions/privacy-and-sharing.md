@@ -101,3 +101,22 @@ Moved to [The switch that hands out a write sits under the link, and says so](./
 ### Custom domains
 
 Moved to [Custom domains](./privacy-and-sharing/custom-domains.md): a domain is a third locator and never a wider tier; ownership is a TXT record minted for each claim; the host alone decides which workspace is served; and a lapse deletes nothing.
+
+### An incident note is metadata, never a summary of vendor text
+
+The Sentry incident inbox writes to a team-visible Context folder. Sentry's
+issue title, exception message, type, culprit, tags, stack, and request fields
+are untrusted free-form text. They can contain a note body, note path, email,
+capability URL, or credential even when the ordinary client scrubber works.
+Pattern-based redaction cannot prove that arbitrary prose is safe.
+
+The inbox therefore derives a note only from the configured project, restricted
+issue and short ids, closed severity and environment values, and an HTTPS
+`sentry.io` issue link without a query or fragment. The human sentence is
+generic. A reviewer opens Sentry for the diagnostic text.
+
+The cost is one extra click and less detail in the quiet queue. Reversing the
+decision would copy vendor-held customer data into a shared workspace and give
+it a second retention policy. `infra/sentry-worker/test/worker.test.mjs` sends
+an email, note path, capability URL, and private-text marker through the vendor
+fields and fails if any reaches the note.
