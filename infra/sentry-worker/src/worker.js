@@ -232,7 +232,7 @@ function parseIncident(payload, resource) {
     project,
     environment: allowedValue(tagValue(source.tags, "environment"), ENVIRONMENTS),
     level: allowedValue(source.level, LEVELS) || "error",
-    webUrl: safeSentryUrl(source.web_url ?? source.webUrl ?? payload.url),
+    webUrl: issueUrl(source.web_url ?? source.webUrl ?? payload.url, issueId),
   };
 }
 
@@ -276,17 +276,22 @@ function safeShortId(value, project, issueId) {
   const prefix = project.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const candidate = field(value);
   return prefix && candidate.startsWith(`${prefix}-`)
-    && /^\d{1,20}$/.test(candidate.slice(prefix.length + 1))
+    // Sentry counts short ids in base 32 (CONTEXT-MOBILE-4K), uppercase.
+    && /^[0-9A-Z]{1,20}$/.test(candidate.slice(prefix.length + 1))
     ? candidate
     : `SENTRY-${issueId}`;
 }
-function safeSentryUrl(value) {
+/**
+ * The link to the issue, rebuilt rather than trusted. Only the payload's host
+ * is used, and only once it is a Sentry host; the path is always the issue's
+ * own page, because a path on a real Sentry host can still carry words the
+ * payload chose (a discover search puts its terms there).
+ */
+function issueUrl(value, issueId) {
   try {
     const url = new URL(field(value));
     if (url.protocol !== "https:" || !/(^|\.)sentry\.io$/i.test(url.hostname)) return "";
-    url.search = "";
-    url.hash = "";
-    return url.toString();
+    return `${url.origin}/issues/${issueId}/`;
   } catch { return ""; }
 }
 function timingSafeEqual(a, b) {

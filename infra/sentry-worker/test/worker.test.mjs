@@ -254,6 +254,43 @@ const schemeNote = writeFor("context-mobile-14");
 check("a non-https link is not linked",
   Boolean(schemeNote) && !schemeNote.content.includes("javascript:"));
 
+// Claim: a real Sentry short id keeps its name. Sentry counts short ids in
+// base 32 (CONTEXT-MOBILE-4K), so a digits-only rule sent every issue past the
+// ninth to a second note named after its numeric id, beside the one it already
+// had.
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654336",
+  short_id: "CONTEXT-MOBILE-4K",
+})), env);
+check("a base-32 Sentry short id names the note",
+  lastWrite()?.path === `${PREFIX}context-mobile-4k.md`);
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654337",
+  short_id: "OTHER-PROJECT-4K",
+})), env);
+check("a short id from another project's prefix falls back to the issue id",
+  lastWrite()?.path === `${PREFIX}sentry-987654337.md`);
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654338",
+  short_id: "CONTEXT-MOBILE-4k; note",
+})), env);
+check("a short id with anything past the counter falls back to the issue id",
+  lastWrite()?.path === `${PREFIX}sentry-987654338.md`);
+
+// Claim: the link names the issue and nothing else. The host is checked, but a
+// path on a real Sentry host can still carry a search the payload wrote
+// (discover queries put their terms in the path), so the link is rebuilt from
+// the issue id rather than trusted.
+await worker.fetch(await signedRequest(incident({
+  issue_id: "987654339",
+  short_id: "CONTEXT-MOBILE-4M",
+  web_url: "https://example-org.sentry.io/organizations/example-org/discover/1-projects-secret-plan/",
+})), env);
+const pathNote = writeFor("context-mobile-4m");
+check("the Sentry link is rebuilt as the issue's own page",
+  Boolean(pathNote) && pathNote.content.includes("Sentry: <https://example-org.sentry.io/issues/987654339/>")
+    && !pathNote.content.includes("secret-plan"));
+
 // Claim: one fixed transformation, reached one way.
 check("only POST reaches the webhook",
   (await worker.fetch(new Request("https://worker.example.test/sentry"), env)).status === 405);
