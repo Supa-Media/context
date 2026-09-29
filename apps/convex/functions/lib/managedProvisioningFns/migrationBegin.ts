@@ -112,6 +112,12 @@ export async function beginManagedStorageMigrationHandler(
   return null;
 }
 
+/** Two spellings of one endpoint: a trailing slash names the same host. */
+function sameEndpoint(left: string, right: string): boolean {
+  const bare = (endpoint: string) => endpoint.trim().replace(/\/+$/, "").toLowerCase();
+  return bare(left) === bare(right);
+}
+
 /**
  * Park a customer-owned destination while the managed binding remains live.
  *
@@ -154,10 +160,22 @@ export async function beginManagedStorageHandoffHandler(
     .query("managedStorageMigrations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
+  // A retry into the very destination an earlier attempt already checked was
+  // empty keeps that answer: what is there now is this move's own partial
+  // copy, and the move carries on from it. Any other destination is asked
+  // again, because its contents belong to whoever put them there.
+  const sameClaimedTarget =
+    existing !== null &&
+    existing.direction === "to_customer" &&
+    existing.targetClaimed === true &&
+    sameEndpoint(existing.targetEndpoint, args.target.endpoint) &&
+    existing.targetBucket === args.target.bucket &&
+    (existing.targetRootPrefix ?? "") === (args.target.rootPrefix ?? "");
   const fields = {
     workspaceId: args.workspaceId,
     sourceBindingId: current._id,
     direction: "to_customer" as const,
+    targetClaimed: sameClaimedTarget,
     targetProvider: args.target.provider,
     targetEndpoint: args.target.endpoint,
     targetRegion: args.target.region,
