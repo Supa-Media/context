@@ -10,12 +10,21 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { managedBucketName } from "../managedStorage";
-import { MANAGED_RETENTION_AFTER_HANDOFF_MS } from "./constants";
+import type { StorageCapabilities } from "../storage/shapes";
+import {
+  CATCH_UP_CLOCK_MARGIN_MS,
+  CATCH_UP_PASS_DELAYS_MS,
+  MANAGED_RETENTION_AFTER_HANDOFF_MS,
+} from "./constants";
 
 /** Atomically replace only the exact source binding the copy began from. */
 export async function finishManagedStorageMigrationHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces"> },
+  args: {
+    workspaceId: Id<"workspaces">;
+    /** What the move's own probe of the destination found, just before this. */
+    capabilities?: StorageCapabilities;
+  },
 ): Promise<{ cutover: boolean }> {
   const migration = await ctx.db
     .query("managedStorageMigrations")
@@ -58,7 +67,8 @@ export async function finishManagedStorageMigrationHandler(
     return { cutover: false };
   }
 
-  await ctx.runMutation(internal.functions.storage.applyBinding, {
+  const cutoverAt = Date.now();
+  const applied = await ctx.runMutation(internal.functions.storage.applyBinding, {
     workspaceId: args.workspaceId,
     actorUserId: migration.startedBy,
     provider: migration.targetProvider ?? "r2",
@@ -70,6 +80,18 @@ export async function finishManagedStorageMigrationHandler(
     encryptedSecretAccessKey: migration.encryptedTargetSecretAccessKey,
     forcePathStyle: migration.targetForcePathStyle,
   });
+  if (args.capabilities !== undefined) {
+    // Connected now, not after the verification `applyBinding` queued. The
+    // move has just listed, written, read back and probed this bucket, and in
+    // the seconds a binding reads `unverified` the email worker refuses mail
+    // for good and the gateway answers 503. The queued verification still
+    // runs and has the last word.
+    await ctx.db.patch(applied.bindingId, {
+      status: "connected",
+      capabilities: args.capabilities,
+      lastVerifiedAt: cutoverAt,
+    });
+  }
   await ctx.db.delete(migration._id);
   const retainedUntil = Date.now() + MANAGED_RETENTION_AFTER_HANDOFF_MS;
   if (plan !== null && toCustomer) {
@@ -109,6 +131,39 @@ export async function finishManagedStorageMigrationHandler(
         retainedUntil,
         bucket: current.bucket!,
         tokenId: current.accessKeyId,
+      },
+    );
+  }
+  // The old bucket's key, still sealed, for the passes that bring across what
+  // landed there after the last check (`lib/moveCatchUp.ts`). Only an S3-family
+  // key pair: a Dropbox grant is revoked by the rebind above.
+  if (
+    current.provider !== "dropbox" &&
+    current.accessKeyId !== undefined &&
+    current.encryptedSecretAccessKey !== undefined &&
+    current.endpoint !== undefined &&
+    current.bucket !== undefined
+  ) {
+    await ctx.scheduler.runAt(
+      cutoverAt + CATCH_UP_PASS_DELAYS_MS[0],
+      internal.functions.moveCatchUp.runMoveCatchUp,
+      {
+        workspaceId: args.workspaceId,
+        targetBindingId: applied.bindingId,
+        since: (migration.passStartedAt ?? migration.createdAt) - CATCH_UP_CLOCK_MARGIN_MS,
+        cutoverAt,
+        direction: toCustomer ? "to_customer" : "to_managed",
+        pass: 0,
+        source: {
+          provider: current.provider,
+          endpoint: current.endpoint,
+          region: current.region ?? "auto",
+          bucket: current.bucket,
+          rootPrefix: current.rootPrefix,
+          accessKeyId: current.accessKeyId,
+          encryptedSecretAccessKey: current.encryptedSecretAccessKey,
+          forcePathStyle: current.forcePathStyle,
+        },
       },
     );
   }

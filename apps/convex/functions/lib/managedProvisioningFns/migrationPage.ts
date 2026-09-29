@@ -98,6 +98,7 @@ export async function recordMigrationPageHandler(
             : objectsProcessedInPhase,
         objectsProcessedInPhase: 0,
         changesInPass: 0,
+        passStartedAt: Date.now(),
         updatedAt: Date.now(),
       });
       return { applied: true, cutover: false };
@@ -125,6 +126,7 @@ export async function recordMigrationPageHandler(
         objectsProcessedInPhase: 0,
         changesInPass: 0,
         readyToCutover: false,
+        passStartedAt: Date.now(),
         updatedAt: Date.now(),
       });
       return { applied: true, cutover: false };

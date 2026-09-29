@@ -70,3 +70,26 @@ export type ManagedProvisionError =
  * about what a token is allowed to do.
  */
 export const R2_BUCKET_WRITE_PERMISSION_GROUP = "Workers R2 Storage Bucket Item Write";
+
+/**
+ * When the passes after a switch-over run, measured from the switch.
+ *
+ * Sized to the writers that can still hold the old storage: an agent's turn
+ * (minutes), a queued batch, and a file operation, whose ceiling is ten
+ * minutes. The last pass sits well past all of them. See `lib/moveCatchUp.ts`.
+ */
+export const CATCH_UP_PASS_DELAYS_MS = [
+  60_000,
+  5 * 60_000,
+  15 * 60_000,
+  30 * 60_000,
+] as const;
+
+/**
+ * How far before the last check began a catch-up looks.
+ *
+ * The old bucket stamps its files with its provider's clock and the check was
+ * stamped with ours. Looking further back only reads a few more files;
+ * looking too little could skip a late one, so the margin errs wide.
+ */
+export const CATCH_UP_CLOCK_MARGIN_MS = 2 * 60_000;

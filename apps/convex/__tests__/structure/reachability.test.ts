@@ -196,6 +196,13 @@ describe("no public function can reach a storage secret", () => {
         // same two schedule edges, and it cannot widen what the copy it
         // precedes could already do with the identical secret.
         "functions.managedProvisioning.awaitManagedTargetReady",
+        // The passes after a move's switch-over. Opens the *old* bucket's key,
+        // carried sealed in its own scheduled arguments, to read files that
+        // landed there after the last check; it writes only to the current
+        // binding, create-only, and stops when that binding is not the one
+        // the move switched to. Internal-only, reached by one schedule edge
+        // from the switch-over and by its own reschedules.
+        "functions.moveCatchUp.runMoveCatchUp",
         // THE THIRD KIND, AND THE WEAKEST ONE.
         //
         // Opens the parked PKCE verifier so the authorization code can be
