@@ -227,7 +227,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [Release communication](./release-communication.md)
 
-- The public devlog is canonical; plans and code history are inputs
+- The public devlog is the proposed canonical source; plans and code history are inputs
 - Production evidence is automatic; publication is a review decision
 - GitHub Release synchronization is downstream and remains off
 

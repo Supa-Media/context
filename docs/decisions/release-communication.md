@@ -1,17 +1,22 @@
 # Release communication
 
-## The public devlog is canonical; plans and code history are inputs
+## The public devlog is the proposed canonical source; plans and code history are inputs
 
-The user-facing source is the `website/devlog.md` note in the public
-Context.LC workspace. Its version history is the record of what was published.
-The Supa project workspace remains the planning source, and this repository's
-history remains implementation evidence. Neither is another public roadmap.
+The proposed user-facing source is the `website/devlog.md` note in the public
+Context.LC workspace. This matches the existing page and Claude's communication
+artifact, but still needs Seyi's approval. If approved, its version history is
+the record of what was published. The Supa project workspace remains the
+planning source, and this repository's history remains implementation evidence.
+Neither is another public roadmap.
 
 This split matters because all three contain different truths. A project may be
 worth exploring without being scheduled. A pull request may be merged to
 `main` while it is only on staging. A production change may be too small or too
 internal for the weekly update. Turning any one of those inputs directly into
 public prose would make the automation the product owner.
+
+The evidence workflow does not depend on this approval and does not read or
+write the devlog.
 
 **What a simplification would cost:** keeping a second roadmap file in this
 repository creates two pages whose ordering and states drift. Generating the
