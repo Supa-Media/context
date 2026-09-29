@@ -41,11 +41,15 @@ import {
  */
 
 /**
- * How many rows to ask for. `listEvents`' own default is the same number;
- * named explicitly here so a server-side default change is not a silent
- * change to what this console shows.
+ * How many rows to ask for: `listEvents`' own ceiling, named explicitly so a
+ * server-side change is not a silent change to what this console shows.
+ *
+ * The ceiling rather than the default (50) because the panel folds
+ * back-to-back repeats into one row (`auditGroups.ts`). The in-app agent
+ * renews its sign-in on every load, so 50 events could be 50 renewals, which
+ * fold to one row and leave the trail looking empty of real changes.
  */
-const AUDIT_LIMIT = 50;
+const AUDIT_LIMIT = 200;
 
 /**
  * Convex hands back `undefined` while loading and an `Error` when a query

@@ -9,7 +9,6 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import { useCopy } from "../../../design/useCopy";
 import { useArming } from "../../useArming";
 import { DeleteWorkspaceCard } from "../DeleteWorkspaceCard";
-import { relativeTime } from "../../format";
 import {
   auditActionLabel,
   auditActorLabel,
@@ -22,6 +21,7 @@ import {
   type KeyExportDocument,
   type KeyExportFailure,
 } from "../../advanced/advanced";
+import { auditWhenLabel, groupAuditEvents } from "../../advanced/auditGroups";
 import { pointerType as t } from "../../../design/tokens";
 
 /**
@@ -95,9 +95,9 @@ export function AdvancedPanel({
         Audit trail
       </Text>
       <Text variant="rowSub" style={styles.subSub}>
-        Every change to this context, and who made it — including an AI app connected
-        here. Owner-only: a row&apos;s path can name a note nobody else here is meant to
-        see.
+        Who changed what in this workspace, including AI apps you connected. Repeats in a
+        row are shown once with a count. Only owners see this, because a row can name a
+        private note.
       </Text>
       <AuditCard view={view.audit} />
 
@@ -156,33 +156,36 @@ function AuditCard({ view }: { view: AuditView }) {
         </Row>
       ) : null}
 
-      {view.events.map((event) => (
-        <Row key={event.eventId} divided style={styles.wrapRow}>
-          <Grow>
-            <Text variant="rowTitle">{auditActionLabel(event.action)}</Text>
-            <Text variant="rowSub" style={styles.rowSub}>
-              {`${auditActorLabel(event)} · ${relativeTime(event.at, now)}`}
-            </Text>
-            {event.paths.length > 0 ? (
-              <Text variant="rowSub" style={styles.rowSub} numberOfLines={1}>
-                {event.paths.join(", ")}
+      {groupAuditEvents(view.events).map((group) => {
+        const { event } = group;
+        return (
+          <Row key={event.eventId} divided style={styles.wrapRow} testID="audit-row">
+            <Grow>
+              <Text variant="rowTitle">{auditActionLabel(event.action)}</Text>
+              <Text variant="rowSub" style={styles.rowSub}>
+                {`${auditActorLabel(event)} · ${auditWhenLabel(group, now)}`}
               </Text>
-            ) : null}
-            {/*
-              The one row whose subject is not already on it. A plugin's
-              network request has no path by construction, so without this the
-              row said only that *some* plugin reached *somewhere* — see
-              `auditDetailLine` for why it is one action and four named keys
-              rather than "render the details".
+              {event.paths.length > 0 ? (
+                <Text variant="rowSub" style={styles.rowSub} numberOfLines={1}>
+                  {event.paths.join(", ")}
+                </Text>
+              ) : null}
+              {/*
+                The one row whose subject is not already on it. A plugin's
+                network request has no path by construction, so without this the
+                row said only that *some* plugin reached *somewhere* — see
+                `auditDetailLine` for why it is one action and four named keys
+                rather than "render the details".
 
-              `numberOfLines={1}` for the same reason the value is flattened:
-              this is one line of a trail, and third-party text does not get to
-              decide how tall a row is.
-            */}
-            <AuditDetail event={event} styles={styles} />
-          </Grow>
-        </Row>
-      ))}
+                `numberOfLines={1}` for the same reason the value is flattened:
+                this is one line of a trail, and third-party text does not get to
+                decide how tall a row is.
+              */}
+              <AuditDetail event={event} styles={styles} />
+            </Grow>
+          </Row>
+        );
+      })}
     </Card>
   );
 }

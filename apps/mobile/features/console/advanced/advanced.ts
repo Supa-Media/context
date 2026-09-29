@@ -120,6 +120,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "share.link.created": "Made an unlisted link",
   "grant.created": "Connected an AI app",
   "grant.revoked": "Revoked an AI app",
+  "agent.session.opened": "Signed in the in-app agent",
+  "agent.session.renewed": "Renewed the in-app agent's sign-in",
   "oauth.authorized": "Authorised an AI app",
   "privacy.reset": "Reset the privacy manifest",
   "search.fast_enabled": "Turned fast search on",
