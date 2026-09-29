@@ -8,10 +8,12 @@ import {
   type SetStateAction,
 } from "react";
 import { useWindowDimensions } from "react-native";
+import { useConvex } from "convex/react";
 import { ToastHost } from "../design/components/Toast";
 import { AppFrame } from "../app/AppFrame";
 import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
+import { useReferralMenu } from "../referrals/useReferralMenu";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
 import { ConsoleNavProvider } from "./ConsoleNavContext";
@@ -130,6 +132,9 @@ export function ConsoleFrame({
   */
   const { requestSignOut, dialog: signOutDialog } = useSignOutFlow(data);
   const visitor = data.visitor;
+  // Invite friends and Community: only for a signed-in person with a control
+  // plane to ask — never the homepage visitor, the demo, or a fixture.
+  const referrals = useReferralMenu(useConvex() !== undefined && visitor === undefined && data.demo !== true);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   /*
@@ -358,6 +363,7 @@ export function ConsoleFrame({
             void data.leaveContext?.(current.id);
             router.replace("/console");
           },
+    ...referrals.props,
     onSignOut: requestSignOut,
   };
 
@@ -522,6 +528,7 @@ export function ConsoleFrame({
         {visitor === undefined ? consoleAgentSetup({ connectAgent, data, router }) : null}
 
         {visitor === undefined ? signOutDialog : null}
+        {referrals.host}
 
         {consoleCloseTabConfirm({ closingTab, tabs, setClosingTab })}
 

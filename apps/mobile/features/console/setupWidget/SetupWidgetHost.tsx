@@ -8,7 +8,7 @@ import type { SettingsSectionKey } from "../settings/sections";
 import type { SetupAgent } from "../../agentSetup/guides";
 import { selectedContext, type ConsoleData } from "../types";
 import { setupView, showSetupWidget } from "./rules";
-import { SetupDone } from "./SetupDone";
+import { SetupDoneLive } from "./SetupDoneLive";
 import { SetupWidget } from "./SetupWidget";
 import { useSetupWidget } from "./useSetupWidget";
 
@@ -93,7 +93,7 @@ function SetupWidgetLive({
   if (view.complete) {
     return (
       <View style={styles.center} pointerEvents="box-none">
-        <SetupDone
+        <SetupDoneLive
           onClose={retire}
           onCopyBootstrap={copyBootstrap}
           onNewWorkspace={
