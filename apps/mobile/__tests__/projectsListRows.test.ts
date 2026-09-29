@@ -71,6 +71,9 @@ describe("the row gives its name the room", () => {
     const progress = one("folder-item-progress", row("Get the kitchen ready"));
     expect(strip(progress.textContent)).toMatch(/^\d+\/\d+$/);
     expect(getComputedStyle(one("progress-track", progress)).width).toBe("40px");
+    // A column of its own after the name, the same width on every row, so the bars line up.
+    expect(one("folder-item-name", row("Get the kitchen ready")).contains(progress)).toBe(false);
+    expect(getComputedStyle(progress.parentElement!).width).toBe("88px");
     expect(getComputedStyle(progress).flexShrink).toBe("0");
     expect(getComputedStyle(progress).whiteSpace).toBe("nowrap");
   });

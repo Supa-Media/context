@@ -38,7 +38,7 @@ import { ownerLabel, type ItemActions } from "./items";
 import type { TaskEntry } from "./listLayout";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { PeekButton } from "./PeekButton";
-import { ProgressMeter } from "./ProgressMeter";
+import { PROGRESS_COLUMN, ProgressMeter } from "./ProgressMeter";
 import { CompactLine, NAME_MIN, OwnerCell, PriorityCell, RowTools, StatusValue, Tags, useRowHover, useToolsRoom } from "./rowCells";
 import { dueOf, dueWord, ownersOf, tagsOf } from "./taskProps";
 import { isPickPress, PickBox, RowFrame, SubtaskAdder, SubtaskButton } from "./tasks/RowParts";
@@ -108,9 +108,7 @@ export function TaskRow({
               <Text variant={compact ? "treeTouch" : "tree"} numberOfLines={1} style={styles.label} testID="folder-item-label">
                 {item.label}
               </Text>
-              {progress === null ? null : (
-                <ProgressMeter done={progress.done} total={progress.total} testID="folder-item-progress" />
-              )}
+              {compact && progress !== null ? <ProgressMeter done={progress.done} total={progress.total} testID="folder-item-progress" /> : null}
             </View>
             {compact ? <CompactLine item={item} due={due === null ? "" : dueWord(due, now)} actions={actions} /> : null}
             {compact ? null : (
@@ -123,6 +121,12 @@ export function TaskRow({
               </RowTools>
             )}
           </View>
+          {compact ? null : (
+            // Its own column, so the bars line up down the list; empty on a task with no subtasks.
+            <View style={styles.progress}>
+              {progress === null ? null : <ProgressMeter done={progress.done} total={progress.total} testID="folder-item-progress" />}
+            </View>
+          )}
           {compact ? null : <Tags tags={tagsOf(item.properties)} />}
           {compact ? null : (
             <Text variant="meta" numberOfLines={1} style={styles.due} testID="folder-item-due">
@@ -348,6 +352,7 @@ const makeStyles = (colors: Colors) =>
     name: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: NAME_MIN, alignSelf: "stretch", justifyContent: "center" },
     nameLine: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
     label: { flexShrink: 1, minWidth: 0, color: colors.text },
+    progress: { width: PROGRESS_COLUMN, flexShrink: 0 },
     noteLabel: { color: colors.text2, minWidth: 0 },
     finished: { color: colors.chromeMuted, textDecorationLine: "line-through" },
     meta: { flexShrink: 0, color: colors.chromeMuted },

@@ -5,8 +5,8 @@
  *
  * **The name takes the room** (the owner, 2026-09-28: "the spacing here got
  * all the way messed up, I cant even read the tasks"). A row is a name that
- * grows and never goes below `NAME_MIN`, with its progress (a short bar and "0/4")
- * beside it on one line, and after it only compact cells: the first tag or
+ * grows and never goes below `NAME_MIN`, and after it only compact cells: its
+ * progress (a short bar and "0/4", a column of its own so the bars align), the first tag or
  * two, which give way first, the due day, and the owner, whose name gives
  * way to its face. What only matters under the pointer — Open, "+ Subtask",
  * the status value — lies over the end of the name while the row is hovered
