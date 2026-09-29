@@ -45,6 +45,7 @@ import {
   hasExistingContext,
   scaffoldContext,
 } from "./lib/scaffold";
+import { scaffoldStep } from "./lib/scaffold/step";
 import { countNotes } from "./lib/noteCount";
 import { readStorageLayoutState } from "../../mcp/src/storageLayout.js";
 import {
@@ -449,7 +450,7 @@ export const verifyStorageBinding = internalAction({
 
     // Only now — the bucket answered, and it accepted and removed a write.
     let scaffolded = false;
-    let scaffoldReason: ScaffoldState;
+    let scaffoldReason: ScaffoldState = "not-attempted";
     let scaffoldError: string | undefined;
     let scaffoldMissing: string[] | undefined;
     if (args.structure === undefined) {
@@ -462,21 +463,17 @@ export const verifyStorageBinding = internalAction({
         ? "existing-context"
         : "empty";
     } else {
-      const result = await scaffoldContext(store, {
-        structureTemplate: args.structure.template,
-        customFolders: args.structure.folders,
-        kind: args.structure.kind ?? "personal",
+      const step = await scaffoldStep(ctx, {
+        workspaceId: args.workspaceId,
+        credential,
+        structure: args.structure,
         resume: args.resume === true,
+        secrets,
       });
-      scaffolded = result.scaffolded;
-      scaffoldReason = result.reason;
-      if (result.error) scaffoldError = redactSecrets(result.error, secrets);
-      // Recorded only when we actually tried to write. `existing-context` means
-      // the guard refused before the first `get`, so this attempt learned
-      // nothing about what the bucket still owes — and clearing the previous
-      // attempt's list there would strand a half-written bucket exactly the way
-      // issue #22 describes.
-      if (result.reason !== "existing-context") scaffoldMissing = result.missing;
+      scaffolded = step.scaffolded;
+      scaffoldReason = step.reason;
+      scaffoldError = step.error;
+      scaffoldMissing = step.missing;
     }
 
     // The status first, and the census after it. Both orderings record the
