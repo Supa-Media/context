@@ -20,6 +20,23 @@ const CONTEXT_PATH = /(\/console\/)[^/?#\s]+/gi;
 // shape would leave standing from the second segment on.
 const NOTE_ADDRESS = /(\/note\/)[^\s"'`)\]}>]*/gi;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+/*
+  A URL fragment's value, whatever it is named.
+
+  A browser never sends a fragment to a server, which is exactly why one is a
+  good place to carry something — `#cast-preview=` holds a whole unpublished
+  note as base64url (`features/home/castPreview.ts`). Telemetry is the
+  exception to "never sent": Sentry's web SDK reads `location.href` into
+  `request.url` and into history breadcrumbs, so a fragment nobody meant to
+  transmit is transmitted for us, to a vendor.
+
+  The value goes whether or not this file has heard of the name, because the
+  next payload to travel this way will not announce itself — the same reason
+  `ROUTE_SEGMENTS` is an allowlist rather than a list of sensitive prefixes.
+  A heading (`# Title`) and a plain anchor (`#section`) have no `=` and are
+  untouched.
+*/
+const FRAGMENT_VALUE = /(#[A-Za-z0-9_.-]{1,64}=)[^\s"'`)\]}>]*/g;
 
 /** Remove credentials and unguessable URL capabilities from diagnostic text. */
 export function redactTelemetryText(value: string): string {
@@ -30,7 +47,8 @@ export function redactTelemetryText(value: string): string {
     .replace(CALLBACK_SECRET, "$1:token")
     .replace(CONTEXT_PATH, "$1:context")
     .replace(NOTE_ADDRESS, "$1:address")
-    .replace(EMAIL, "[redacted-email]");
+    .replace(EMAIL, "[redacted-email]")
+    .replace(FRAGMENT_VALUE, "$1[redacted]");
 }
 
 /**
