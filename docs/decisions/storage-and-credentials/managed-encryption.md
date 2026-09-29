@@ -196,8 +196,8 @@ Each carries a sabotage record.
 
 ### Plain files stay canonical
 
-Non-negotiable #3 says Markdown stays portable and human-readable. In a
-managed bucket that is now true of what the product reads and of every exit,
-and no longer true of the raw bytes at rest. Whether `CLAUDE.md` #3 and
-[managed-storage](./managed-storage.md) item 3 are amended to say so is the
-owner's call, and the PR that lands this records the answer.
+Non-negotiable #3 said Markdown stays portable and human-readable. In a
+managed bucket that stays true of what the product reads and of every exit,
+and is no longer true of the raw bytes at rest. The owner chose to amend it
+(2026-09-29): `CLAUDE.md` #3 and [managed-storage](./managed-storage.md)
+item 3 now say so.

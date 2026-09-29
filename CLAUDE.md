@@ -58,6 +58,11 @@ breaking one, stop and say so rather than working around it.
    million buckets, and anything low forces prefix tenancy and ends the exit
    promise with it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
+   A Context-managed bucket may hold each object's body sealed at rest (key
+   outside the bucket, paths and layout unchanged), because every read through
+   the product and every exit is plain; a customer's own bucket never is
+   (decided by the owner, 2026-09-29;
+   [managed-encryption](./docs/decisions/storage-and-credentials/managed-encryption.md)).
    Collaboration history under `.context/collaboration/` is customer-owned essential
    data, needed to merge offline edits; it is backed up and exported with the
    notes. Accepted edits may briefly precede their Markdown rendering, and a

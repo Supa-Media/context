@@ -53,7 +53,25 @@ export async function walkPlanHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
   if (!bindingIsManaged(binding)) return null;
+  if (await handOffUnderWay(ctx, args.workspaceId)) return null;
   return { state: row.state, phase: row.phase, cursor: row.cursor };
+}
+
+/**
+ * The walk stands down while the workspace is leaving for its own bucket.
+ *
+ * The hand-off reads the mode once per copy page. A walk sealing objects
+ * after that read would put ciphertext into the customer's bucket, so no
+ * walk runs while a copy (or a failed one that can be resumed) exists. The
+ * row keeps its state: `encrypting` still reads both kinds, cutover deletes
+ * the row, and an abandoned hand-off is picked up again by Resume.
+ */
+async function handOffUnderWay(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  const migrations = await ctx.db
+    .query("managedStorageMigrations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return migrations.some((migration) => migration.direction === "to_customer");
 }
 
 export async function beginWalkHandler(
@@ -62,6 +80,7 @@ export async function beginWalkHandler(
 ): Promise<boolean> {
   const row = await workspaceEncryptionRow(ctx, args.workspaceId);
   if (row === null || row.runId !== args.runId || row.state !== "waiting") return false;
+  if (await handOffUnderWay(ctx, args.workspaceId)) return false;
   await ctx.db.patch(row._id, {
     state: "encrypting",
     phase: "count",

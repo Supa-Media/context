@@ -16,6 +16,8 @@
  *  - `walkPlanHandler` ignoring `bindingIsManaged`: 1 failure (the walk
  *    reaches for the customer's bucket after a hand-off).
  *  - The check phase skipping its re-read: 1 failure.
+ *  - `walkPlanHandler` and `beginWalkHandler` ignoring a hand-off under way:
+ *    1 failure (the bucket is sealed while it is being copied out).
  *  - `WALK_CONCURRENCY` ignored in `tick`: 1 failure.
  *  - `recordPageHandler` keeping the total at the count: 1 failure (the bar
  *    reads more than full).
@@ -180,6 +182,38 @@ describe("runs that should no longer be running", () => {
     // customer's bucket.
     expect(await row(t, ours)).toMatchObject({ state: "encrypting", filesDone: 0 });
     expect(await t.query(internal.functions.managedEncryption.gatewayMode, { workspaceId: ours })).toBeNull();
+  });
+});
+
+describe("a hand-off to the customer's own bucket", () => {
+  test("the walk stands down while one is copying, so no ciphertext is copied out", async () => {
+    const { t, staff, ours, backend } = await fixture();
+    const sourceBindingId = await t.run(async (ctx) =>
+      (await ctx.db.query("storageBindings").withIndex("by_workspace", (q) => q.eq("workspaceId", ours)).unique())!._id,
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("managedStorageMigrations", {
+        workspaceId: ours,
+        sourceBindingId,
+        direction: "to_customer",
+        targetEndpoint: "https://customer.example.invalid",
+        targetBucket: "customer-owned-context",
+        targetAccessKeyId: "target-key",
+        encryptedTargetSecretAccessKey: "sealed-target",
+        status: "copying",
+        phase: "copy",
+        objectsCopied: 0,
+        changesInPass: 0,
+        readyToCutover: false,
+        startedBy: staff,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
+    await drainScheduled(t);
+    for (const [key] of backend.objects) expect(isSealed(backend.bytesOf(key)), key).toBe(false);
+    expect((await row(t, ours))?.state).not.toBe("encrypted");
   });
 });
 
