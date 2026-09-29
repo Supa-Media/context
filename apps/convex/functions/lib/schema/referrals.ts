@@ -45,6 +45,8 @@ export const referralTables = {
     cancelledAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     revokedBy: v.optional(v.id("users")),
+    /** When its one email was claimed for sending. Set once; there is no resend. */
+    mailedAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_inviter", ["inviterUserId", "createdAt"])
