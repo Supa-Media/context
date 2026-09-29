@@ -16,6 +16,7 @@ import { searchAndMoveToolDefinitions } from "./schemas/moves.js";
 import { saveAndLinkToolDefinitions } from "./schemas/links.js";
 import { formToolDefinitions } from "./schemas/forms.js";
 import { activityToolDefinitions } from "./schemas/activity.js";
+import { routingToolDefinitions } from "./schemas/routing.js";
 
 export function baseToolDefinitions() {
   return [
@@ -27,5 +28,6 @@ export function baseToolDefinitions() {
     ...saveAndLinkToolDefinitions(),
     ...formToolDefinitions(),
     ...activityToolDefinitions(),
+    ...routingToolDefinitions(),
   ];
 }

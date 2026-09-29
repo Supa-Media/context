@@ -176,11 +176,15 @@ export async function createCrossContextHarness() {
   const restoreControlPlane = controlPlane.install();
 
   controlPlane.addWorkspace("ws_own", "mine", s3Binding("cross-mine", "AA"));
-  controlPlane.addWorkspace("ws_shared", "theirs", s3Binding("cross-theirs", "BB"));
+  controlPlane.addWorkspace("ws_shared", "theirs", s3Binding("cross-theirs", "BB"), {
+    kind: "shared",
+  });
   controlPlane.addWorkspace("ws_stranger", "stranger", s3Binding("cross-stranger", "CC"));
   // A context this person is a member of whose owner never shared its front
   // page — the common case for a freshly scaffolded workspace.
-  controlPlane.addWorkspace("ws_quiet", "quiet", s3Binding("cross-quiet", "DD"));
+  controlPlane.addWorkspace("ws_quiet", "quiet", s3Binding("cross-quiet", "DD"), {
+    kind: "shared",
+  });
   // Seven more, all pointing at one bucket: this test is about how many
   // contexts orientation opens, not about what is in them.
   for (let n = 1; n <= 7; n += 1) {

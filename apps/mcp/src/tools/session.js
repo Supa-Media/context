@@ -8,7 +8,12 @@
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { callTool } from "./dispatch.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
-import { FORM_TOOLS, isUsableContextName, toolIsWriting } from "./registry.js";
+import {
+  FORM_TOOLS,
+  isUsableContextName,
+  ROUTING_PLANNING_TOOLS,
+  toolIsWriting,
+} from "./registry.js";
 import {
   hasScope,
   participatesInForms,
@@ -232,7 +237,8 @@ export async function callToolForSession(params, store, session) {
   if (
     toolIsWriting(params?.name) &&
     !hasScope(target, SCOPE_WRITE) &&
-    !(FORM_TOOLS.has(params?.name) && participatesInForms(target))
+    !(FORM_TOOLS.has(params?.name) && participatesInForms(target)) &&
+    !(ROUTING_PLANNING_TOOLS.has(params?.name) && writesAnywhere(session))
   ) {
     /*
       Two refusals, because there are two causes and the fix differs. A grant

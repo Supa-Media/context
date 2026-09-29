@@ -64,6 +64,11 @@ export async function callTool(name, args, store, scope) {
       return toolReadNote(store, scope, rules, overrides, args.path);
     case "evaluate_lists":
       return toolEvaluateLists(store, scope, rules, overrides, args.path);
+    case "suggest_destination":
+      if (typeof store.suggestDestination !== "function") {
+        return toolError("routing suggestions are unavailable on this deployment");
+      }
+      return store.suggestDestination(args);
     case "list_meetings":
       return toolListMeetings(store, scope, rules, overrides, args.limit);
     case "read_meeting":
