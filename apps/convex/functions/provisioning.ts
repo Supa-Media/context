@@ -38,6 +38,7 @@ import { internal } from "../_generated/api";
 import { type ActionCtx, internalAction } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import { probeStore } from "../../mcp/src/store/index.js";
 import {
   type CustomFolder,
@@ -449,7 +450,7 @@ export const verifyStorageBinding = internalAction({
 
     // Only now — the bucket answered, and it accepted and removed a write.
     let scaffolded = false;
-    let scaffoldReason: ScaffoldState;
+    let scaffoldReason: ScaffoldState = "not-attempted";
     let scaffoldError: string | undefined;
     let scaffoldMissing: string[] | undefined;
     if (args.structure === undefined) {
@@ -462,21 +463,49 @@ export const verifyStorageBinding = internalAction({
         ? "existing-context"
         : "empty";
     } else {
-      const result = await scaffoldContext(store, {
-        structureTemplate: args.structure.template,
-        customFolders: args.structure.folders,
-        kind: args.structure.kind ?? "personal",
-        resume: args.resume === true,
-      });
-      scaffolded = result.scaffolded;
-      scaffoldReason = result.reason;
-      if (result.error) scaffoldError = redactSecrets(result.error, secrets);
-      // Recorded only when we actually tried to write. `existing-context` means
-      // the guard refused before the first `get`, so this attempt learned
-      // nothing about what the bucket still owes — and clearing the previous
-      // attempt's list there would strand a half-written bucket exactly the way
-      // issue #22 describes.
-      if (result.reason !== "existing-context") scaffoldMissing = result.missing;
+      /*
+        The layout is note surface, so it is written through whatever the
+        workspace's readers use. A managed bucket may already be sealed — a
+        workspace is enrolled when its bucket is bound, and a walk over an
+        empty bucket reaches `encrypted` in one pass, long before anybody
+        picks a layout — and a plain `privacy.md` written into it is refused
+        on every read that follows, with no walk coming back for it.
+
+        The probe above deliberately keeps the bare store: it writes and
+        removes its own object under `.context/probes/` with that same store,
+        and nothing reads a probe object through the gateway.
+
+        A key that will not open is a refusal rather than a plain write: the
+        bucket is still connected, and the layout can be applied again.
+      */
+      let scaffoldStore: ScaffoldStore | null = null;
+      try {
+        scaffoldStore = storeForBinding(credential, undefined, {
+          probeCapabilities: true,
+          managedEncryption: await managedEncryptionOption(ctx, args.workspaceId),
+        }) as unknown as ScaffoldStore;
+      } catch (error) {
+        scaffoldError = redactSecrets(errorMessage(error), secrets);
+      }
+      if (scaffoldStore === null) {
+        scaffoldReason = "not-attempted";
+      } else {
+        const result = await scaffoldContext(scaffoldStore, {
+          structureTemplate: args.structure.template,
+          customFolders: args.structure.folders,
+          kind: args.structure.kind ?? "personal",
+          resume: args.resume === true,
+        });
+        scaffolded = result.scaffolded;
+        scaffoldReason = result.reason;
+        if (result.error) scaffoldError = redactSecrets(result.error, secrets);
+        // Recorded only when we actually tried to write. `existing-context` means
+        // the guard refused before the first `get`, so this attempt learned
+        // nothing about what the bucket still owes — and clearing the previous
+        // attempt's list there would strand a half-written bucket exactly the way
+        // issue #22 describes.
+        if (result.reason !== "existing-context") scaffoldMissing = result.missing;
+      }
     }
 
     // The status first, and the census after it. Both orderings record the

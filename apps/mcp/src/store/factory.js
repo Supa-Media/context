@@ -155,7 +155,12 @@ export function storeForBinding(binding, env, options = {}) {
   // Verification must observe what the provider actually enforces. Applying
   // yesterday's persisted result first would make a false capability
   // impossible to discover as true on reconnect.
-  if (options.probeCapabilities === true) return store;
+  // Encryption first, because a caller that skips the probed capabilities may
+  // still be writing note surface: the scaffolder builds its store this way,
+  // and a plain object it wrote into a sealed bucket is refused on every read
+  // that follows. Absent for every bucket a customer owns, and absent on the
+  // probe itself, which writes and removes its own object with this store.
+  if (options.probeCapabilities === true) return withEncryption(store, options.managedEncryption);
   // The managed-encryption walk's view: probed capabilities, and bytes exactly
   // as stored, sealed or not. Only the walk asks for this; it must see which
   // objects are still plain (`managedEncryptionWalk.js`).
