@@ -142,6 +142,12 @@ export interface FolderListSource {
     options?: { create?: boolean },
   ): Promise<string | null>;
   /**
+   * Replace the first paragraph of one note — what a folder page draws under
+   * a project's title (`folderPage/lede.ts`); empty removes it. Same road and
+   * answers as `setProperty`, and absent where it is.
+   */
+  setLede?(path: string, text: string, options?: { create?: boolean }): Promise<string | null>;
+  /**
    * Who may own a note: the workspace's people and connected agents matching
    * `query`, asked of the server (`owners.searchOwners`). Absent where nobody
    * may write, and where there is no server to ask.

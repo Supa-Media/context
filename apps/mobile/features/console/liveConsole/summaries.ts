@@ -71,6 +71,12 @@ export interface StorageBinding {
     filesDone?: number;
     filesTotal?: number;
   } | null;
+  handoffBucket?: string;
+  handoffClaimed?: boolean;
+  handoffFailedKeys?: string[];
+  handoffReadyToSwitch?: boolean;
+  handoffExistingFiles?: "replace" | "merge";
+  managedRetainedUntil?: number;
   /**
    * Optional, because a Dropbox binding has none of them — see the validator
    * on `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`

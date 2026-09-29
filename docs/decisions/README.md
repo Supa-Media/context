@@ -31,6 +31,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
 - A migration pass is walked in waves, and an unchanged object is read twice
+- Leaving never deletes a file the customer already had
+- The managed copy is kept a week after a move out
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to
@@ -229,9 +231,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [Release communication](./release-communication.md)
 
-- The public devlog is the proposed canonical source; plans and code history are inputs
+- The public devlog is the canonical source; plans and code history are inputs
 - Production evidence is automatic; publication is a review decision
-- GitHub Release synchronization is downstream and remains off
+- GitHub Release synchronization is downstream, draft-only, and off by default
+- Monday draft
+- Each week has four sections, and exploring is never a promise
+- What's new reads the published page and remembers only a number
 
 ## [Search and the derived index](./search.md)
 

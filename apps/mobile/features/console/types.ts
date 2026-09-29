@@ -316,6 +316,18 @@ export interface ConsoleStorage {
   handoffObjectsTotal?: number;
   handoffObjectsProcessed?: number;
   handoffErrorCode?: string;
+  /** The bucket the move is going to, so its screens can name it. */
+  handoffBucket?: string;
+  /** Whether the destination was checked empty before anything was written. */
+  handoffClaimed?: boolean;
+  /** The files that stopped a move, when particular files did. */
+  handoffFailedKeys?: string[];
+  /** The last pass matched and the move is switching over; too late to stop. */
+  handoffReadyToSwitch?: boolean;
+  /** The owner's answer for files already in the destination. */
+  handoffExistingFiles?: "replace" | "merge";
+  /** After a move out, when Context's copy is deleted unless the owner switches back. */
+  managedRetainedUntil?: number;
   /**
    * Context's own encryption of a managed bucket, as its owner sees it.
    *
@@ -354,6 +366,12 @@ export interface StorageActions {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   /** Starts or retries a verified whole-bucket move out of managed storage. */
   handoff: (values: ConnectFormValues) => Promise<{ started: true }>;
+  /** Stops a move out of managed storage that has not started switching over. */
+  cancelHandoff: () => Promise<{ cancelled: boolean }>;
+  /** Answers a destination that already has files: merge, or start fresh (typed consent). */
+  chooseExistingFiles: (
+    answer: { choice: "merge" } | { choice: "replace"; confirmBucket: string },
+  ) => Promise<{ resumed: true }>;
   disconnect: () => Promise<{ disconnected: boolean }>;
   /**
    * Asks the bucket where the storage-layout migration got to, running none of
@@ -472,6 +490,12 @@ export interface ConsoleData {
    * caller has nothing to route — the auth gate does it.
    */
   deleteAccount?: () => Promise<void>;
+  /**
+   * True only on the live console, which has a control plane to ask: the
+   * account menu's Invite friends and Community rows subscribe to it. Absent
+   * in the demo, the homepage visitor and every fixture.
+   */
+  referrals?: true;
   /**
    * How many contexts this viewer can run a blended search over — see
    * `SearchableContextCount` for why `undefined` is not zero.
@@ -641,6 +665,13 @@ export interface ConsoleData {
    * nothing else in this console may claim otherwise.
    */
   pluginRuntime: RuntimeView;
+  /**
+   * True when this console reads What's new from the server: only the live,
+   * signed-in console sets it. The demo, the homepage's visitor and every
+   * fixture leave it out, so none of them asks the control plane for the
+   * devlog or a read marker (`whatsNew/WhatsNewHost.tsx`).
+   */
+  whatsNew?: true;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

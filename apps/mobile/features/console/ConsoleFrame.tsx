@@ -12,6 +12,8 @@ import { ToastHost } from "../design/components/Toast";
 import { AppFrame } from "../app/AppFrame";
 import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
+import { useReferralMenu } from "../referrals/useReferralMenu";
+import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
 import { ConsoleNavProvider } from "./ConsoleNavContext";
@@ -130,6 +132,9 @@ export function ConsoleFrame({
   */
   const { requestSignOut, dialog: signOutDialog } = useSignOutFlow(data);
   const visitor = data.visitor;
+  // Invite friends and Community: only for a signed-in person with a control
+  // plane to ask — never the homepage visitor, the demo, or a fixture.
+  const referrals = useReferralMenu(data.referrals === true && visitor === undefined && data.demo !== true);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   /*
@@ -301,6 +306,16 @@ export function ConsoleFrame({
    */
 
   /*
+    What's new: the newest devlog week, for a signed-in person only. The host
+    mounts below and reports the row it wants; only the live console asks for
+    it, so the homepage's visitor and the demo never mount it
+    (`whatsNew/WhatsNewHost.tsx`).
+  */
+  const whatsNewShown = data.whatsNew === true && visitor === undefined && !data.demo;
+  const [whatsNewEntry, setWhatsNewEntry] = useState<WhatsNewEntry | null>(null);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+
+  /*
     One set of handlers, two triggers.
 
     The account button at the foot of the tree opens this menu and so does the
@@ -358,7 +373,12 @@ export function ConsoleFrame({
             void data.leaveContext?.(current.id);
             router.replace("/console");
           },
+    ...referrals.props,
     onSignOut: requestSignOut,
+    whatsNew:
+      whatsNewShown && whatsNewEntry !== null
+        ? { ...whatsNewEntry, onOpen: () => setWhatsNewOpen(true) }
+        : undefined,
   };
 
   return (
@@ -382,6 +402,13 @@ export function ConsoleFrame({
         that draws it cannot belong to one of them. It renders nothing until a
         plugin actually asks.
       */}
+      {whatsNewShown ? (
+        <WhatsNewHost
+          open={whatsNewOpen}
+          onClose={() => setWhatsNewOpen(false)}
+          onEntry={setWhatsNewEntry}
+        />
+      ) : null}
       <PluginSuggestDialog runtime={data.pluginRuntime} />
       <PluginTextDialog runtime={data.pluginRuntime} />
       <PluginSettingsPane runtime={data.pluginRuntime} />
@@ -522,6 +549,7 @@ export function ConsoleFrame({
         {visitor === undefined ? consoleAgentSetup({ connectAgent, data, router }) : null}
 
         {visitor === undefined ? signOutDialog : null}
+        {referrals.host}
 
         {consoleCloseTabConfirm({ closingTab, tabs, setClosingTab })}
 

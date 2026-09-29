@@ -114,8 +114,19 @@ managed bucket afterwards.
   decrypts as it copies.
 - **Leaving managed storage** decrypts during the copy (the source store is
   built in the workspace's mode). The copy's verification compares plain bytes
-  with plain bytes. At cutover the row is deleted, so a later move back starts
-  plain and is walked again.
+  with plain bytes. At cutover the row is **kept**: the managed bucket is kept
+  for a week with its sealed files ([managed-storage](./managed-storage.md)),
+  and a switch back re-adopts that same bucket and copies plain files into it.
+  So whenever a managed bucket is bound again (`managedBucketBound`), an
+  existing row goes back to `encrypting` in the same transaction. That mode
+  reads both kinds, and the walk seals what arrived plain. A moved-out row
+  holds no walk slot and does not stop the rollout completing.
+  Anything that reads the kept bucket after the switch (a move's catch-up
+  passes) builds its store with `keptManagedBucketOption`, which takes the
+  mode from the row, because the ordinary lookup follows the binding and
+  answers plain once the binding is the customer's. The row is forgotten
+  (`forgetKeptBucket`) only after the week-later deletion has removed the
+  bucket. The keys are never deleted, since per-note encryption shares them.
 - **Key rotation:** new saves seal under the new generation. Objects keep
   opening under the generation they name, because generations are never
   deleted. A walk after a rotation seals remaining plain objects under the

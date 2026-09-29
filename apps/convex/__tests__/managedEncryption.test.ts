@@ -22,12 +22,10 @@
  *  - `gatewayModeForWorkspace` ignoring `bindingIsManaged`: 1 failure.
  *  - `failWalkHandler` not stopping the rollout: 1 failure.
  *  - `encryptionViewFor` returning counts to members: 1 failure.
- *  - `forgetWorkspaceEncryption` a no-op: 1 failure.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { forgetWorkspaceEncryption } from "../functions/lib/managedEncryptionFns/rollout";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import {
   asUser,
@@ -220,21 +218,6 @@ describe("a customer's own bucket", () => {
       }),
     );
     expect(await t.query(internal.functions.managedEncryption.gatewayMode, { workspaceId: plain })).toBeNull();
-  });
-
-  test("leaving managed storage forgets the row", async () => {
-    const { t, ours } = await fixture();
-    await t.run((ctx) =>
-      ctx.db.insert("managedEncryptionWorkspaces", {
-        workspaceId: ours,
-        state: "encrypted",
-        filesDone: 3,
-        runId: 0,
-        updatedAt: Date.now(),
-      }),
-    );
-    await t.run((ctx) => forgetWorkspaceEncryption(ctx, ours));
-    expect(await row(t, ours)).toBeNull();
   });
 });
 

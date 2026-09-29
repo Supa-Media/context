@@ -8,7 +8,9 @@ import { Text } from "../design/components/Text";
 import { fonts, layout, leading, pointerType as t, radii, space, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { landAfterSignIn } from "./landing";
-import { LANDING_ROUTE, safeNextRoute } from "./redirect";
+import { LANDING_ROUTE, LOGIN_ROUTE, safeNextRoute } from "./redirect";
+import { JOIN_HELPER, signInView, WRONG_EMAIL, type JoinVariant } from "./joinInvite";
+import { JoinHeading } from "./JoinHeading";
 import { useEmailSignIn } from "./useEmailSignIn";
 import { WaitlistResult } from "./WaitlistResult";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
@@ -35,8 +37,13 @@ import { SignInPreview } from "./SignInPreview";
  * On a wide window the form sits beside a picture of the product (A-01) or of
  * the email just sent (A-02); on a phone it is the form alone, because the
  * picture is decoration and the keyboard already takes half the screen.
+ *
+ * `/join/<token>` is this screen too, with `join` set: a friend's invite puts
+ * who invited them (or that the link no longer works) above the same field, and
+ * on a working invite an address that is not let in is the wrong address, said
+ * as an error rather than as a place on the waitlist (`joinInvite.ts`).
  */
-export function LoginScreen() {
+export function LoginScreen({ join }: { join?: JoinVariant }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
@@ -51,6 +58,8 @@ export function LoginScreen() {
     onSignedIn: () => landAfterSignIn(next, (href) => router.replace(href)),
   });
   const { step, email, code, submitting, error, resent, canSubmit } = flow;
+  const view = signInView(join, step);
+  const asking = view === "request" || view === "wrongEmail";
 
   const wide = width >= 900;
   const phone = densityFor(width) === "compact";
@@ -73,21 +82,31 @@ export function LoginScreen() {
         </Text>
       </Pressable>
 
-      {step === "joined" || step === "already" ? (
+      {view === "waitlist" ? (
         <WaitlistResult flow={flow} />
-      ) : step === "request" ? (
+      ) : asking ? (
         <>
-          <Text variant="eyebrow" style={styles.eyebrow}>
-            Invite only for now
-          </Text>
-          <Text role="heading" aria-level={1} style={styles.pitch}>
-            Notes for your team and your AI tools
-          </Text>
+          {join ? (
+            <JoinHeading variant={join} />
+          ) : (
+            <>
+              <Text variant="eyebrow" style={styles.eyebrow}>
+                Invite only for now
+              </Text>
+              <Text role="heading" aria-level={1} style={styles.pitch}>
+                Notes for your team and your AI tools
+              </Text>
+            </>
+          )}
           <View style={styles.field}>
             <TextField
               label="Email"
               value={email}
-              onChangeText={flow.setEmail}
+              onChangeText={(value) => {
+                // Editing the address after "wrong email" is the retry.
+                if (view === "wrongEmail") flow.changeEmail();
+                flow.setEmail(value);
+              }}
               placeholder="you@work.com"
               autoCapitalize="none"
               autoCorrect={false}
@@ -138,7 +157,24 @@ export function LoginScreen() {
         </Text>
       ) : null}
 
-      {step === "joined" || step === "already" ? null : step === "request" ? (
+      {view === "wrongEmail" ? (
+        <View style={styles.error} testID="join-wrong-email">
+          <Text variant="error" role="alert">
+            {WRONG_EMAIL}
+          </Text>
+          <Text
+            variant="foot"
+            role="link"
+            style={styles.link}
+            onPress={() => router.replace(LOGIN_ROUTE)}
+            testID="join-waitlist-instead"
+          >
+            Join the waitlist instead
+          </Text>
+        </View>
+      ) : null}
+
+      {view === "waitlist" ? null : asking ? (
         <View style={styles.primaryRow}>
           <Button
             label="Continue"
@@ -182,11 +218,13 @@ export function LoginScreen() {
         </>
       )}
 
-      {step === "request" || step === "verify" ? (
+      {view !== "waitlist" ? (
         <Text variant="foot" style={styles.foot}>
-          {step === "request"
-            ? "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."
-            : "Next: pick the name your notes live under."}
+          {view === "verify"
+            ? "Next: pick the name your notes live under."
+            : join?.kind === "invite"
+              ? JOIN_HELPER
+              : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
         </Text>
       ) : null}
     </View>

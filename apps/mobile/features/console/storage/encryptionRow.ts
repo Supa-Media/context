@@ -38,14 +38,6 @@ export const ENCRYPTED_BODY_SHORT =
 export const OWN_BUCKET_BODY =
   "Context doesn't add its own encryption to a bucket you own. Your files stay plain and open in any app.";
 
-/**
- * Before a managed workspace moves to its own bucket (Board 7). The files
- * arrive plain: the copy decrypts as it goes, so nothing about leaving depends
- * on Context's key.
- */
-export const MANAGED_HANDOFF_LEDE =
-  "Context turns each file back into a plain file as it copies, so your bucket gets Markdown and attachments that any app can open. Nothing arrives encrypted. The managed copy stays live and encrypted until every file is verified.";
-
 /** `null` draws no row. `compact` is the phone's shorter copy (Board 8). */
 export function encryptionRowCopy(
   storage: Pick<ConsoleStorage, "managed" | "provider" | "encryption">,

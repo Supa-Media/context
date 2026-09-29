@@ -43,6 +43,30 @@ export async function probeManagedTarget(
   return probe.reachable === true && probe.writable === true;
 }
 
+/**
+ * Whether a customer destination already holds anything at all.
+ *
+ * Asked once, before the first write of a move out of managed storage: the
+ * move's final pass makes the destination match the source, and in a bucket
+ * that already held the customer's own files that would delete them. So a
+ * destination with anything in it — under the chosen root prefix, which is all
+ * this store can see — is refused rather than reconciled. Raw listing, so
+ * Context's own plumbing under `.context/` counts too; `probeStore` removes its
+ * scratch object before this is asked.
+ */
+export async function destinationHoldsObjects(
+  migration: Doc<"managedStorageMigrations">,
+  secretAccessKey: string,
+): Promise<boolean> {
+  const target = storeForBinding(
+    migrationTargetCredential(migration, secretAccessKey),
+    undefined,
+    { rawObjects: true },
+  );
+  const page = await target.list({ limit: 1 });
+  return page.objects.length > 0;
+}
+
 /** The parked target in the ordinary gateway shape, in either direction. */
 export function migrationTargetCredential(
   migration: Doc<"managedStorageMigrations">,

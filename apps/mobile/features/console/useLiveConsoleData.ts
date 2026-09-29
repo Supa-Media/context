@@ -174,6 +174,12 @@ export function useLiveConsoleData(): ConsoleData {
   const startManagedStorageHandoff = useAction(
     api.functions.storage.startManagedStorageHandoff,
   );
+  const cancelManagedStorageHandoff = useMutation(
+    api.functions.managedHandoff.cancelManagedStorageHandoff,
+  );
+  const chooseExistingFilesForHandoff = useMutation(
+    api.functions.managedHandoff.chooseExistingFilesForHandoff,
+  );
   /*
     The same action `useFileBrowser` holds, taken here too rather than threaded
     up through `FileBrowser`'s interface: `useAction` returns a callable, not a
@@ -356,6 +362,8 @@ export function useLiveConsoleData(): ConsoleData {
     reverifyStorage,
     bindStorage,
     startManagedStorageHandoff,
+    cancelManagedStorageHandoff,
+    chooseExistingFilesForHandoff,
     disconnectStorage,
     observeStorageLayout,
   });
@@ -449,6 +457,7 @@ export function useLiveConsoleData(): ConsoleData {
     pluginGrants,
     pluginBrowse,
     pluginRuntime,
+    whatsNew: true,
     fastSearch,
     mirrors,
     // A query that threw is not "still loading". Leaving the console spinning

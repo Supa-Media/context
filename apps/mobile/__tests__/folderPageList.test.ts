@@ -230,7 +230,11 @@ describe("the list", () => {
   test("a task opens onto its subtasks, then the notes in it; only a task with any has the chevron", async () => {
     await mount(host([]));
     const kitchen = row("kitchen");
-    expect(strip(one("folder-item-progress", kitchen).textContent)).toBe("2 of 3 done");
+    const meter = one("folder-item-progress", kitchen);
+    expect(strip(meter.textContent)).toBe("2/3");
+    expect(meter.getAttribute("aria-label")).toBe("2 of 3 done");
+    expect(meter.getAttribute("aria-valuenow")).toBe("2");
+    expect(one("progress-fill", meter).style.width).toBe("67%");
     expect(all("folder-expand", row("Sign the lease"))).toHaveLength(0);
     expect(all("folder-subtask")).toHaveLength(0);
     await press(one("folder-expand", kitchen));
@@ -267,6 +271,18 @@ describe("the list", () => {
     await press(one("folder-expand", row("kitchen")));
     await press(one("folder-make-task", one("folder-task-open")));
     expect(writes).toEqual([[`${CAFE}/kitchen/layout.md`, "status", "prep", undefined]]);
+  });
+
+  test("a subtask shows its priority and changes it like its parent does", async () => {
+    const writes: Write[] = [];
+    await mount(host(writes));
+    await press(one("folder-expand", row("kitchen")));
+    const inspection = all("folder-subtask").find((node) => strip(node.textContent).includes("Book the health inspection"))!;
+    const mark = one("folder-item-priority", inspection);
+    expect(mark.getAttribute("aria-label")).toBe("Change priority, No priority");
+    await press(mark);
+    await press(await appears("menu-item-p0"));
+    expect(writes).toEqual([[`${CAFE}/kitchen/inspection.md`, "priority", "p0", undefined]]);
   });
 
   test("a member reads the same list with nothing that would write", async () => {

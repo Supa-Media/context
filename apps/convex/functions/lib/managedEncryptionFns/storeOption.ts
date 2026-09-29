@@ -30,6 +30,34 @@ export async function managedEncryptionOption(
     internal.functions.managedEncryption.gatewayMode,
     { workspaceId },
   );
+  return await optionFor(ctx, workspaceId, mode);
+}
+
+/**
+ * The same option for the managed bucket a workspace has just **left**.
+ *
+ * After a move out the binding is the customer's own bucket, so the lookup
+ * above answers plain; but the managed bucket is kept for a week with its
+ * sealed files, and anything that reads it after the switch (the catch-up
+ * passes of a move) must read it in its own mode. The mode comes from the
+ * encryption row alone, which outlives the move for exactly this.
+ */
+export async function keptManagedBucketOption(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<ManagedEncryptionOption | null> {
+  const mode: GatewayEncryptionMode | null = await ctx.runQuery(
+    internal.functions.managedEncryption.keptBucketMode,
+    { workspaceId },
+  );
+  return await optionFor(ctx, workspaceId, mode);
+}
+
+async function optionFor(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  mode: GatewayEncryptionMode | null,
+): Promise<ManagedEncryptionOption | null> {
   if (mode === null) return null;
   const key: { current: string; keys: Record<string, string> } | null = await ctx.runAction(
     internal.functions.encryptionKeys.openWorkspaceDataKey,

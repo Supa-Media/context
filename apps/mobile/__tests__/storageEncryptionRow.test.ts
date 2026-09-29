@@ -2,7 +2,6 @@ import { describe, expect, test } from "@jest/globals";
 import {
   ENCRYPTED_BODY,
   ENCRYPTED_TITLE,
-  MANAGED_HANDOFF_LEDE,
   OWN_BUCKET_BODY,
   encryptionRowCopy,
 } from "../features/console/storage/encryptionRow";
@@ -105,15 +104,6 @@ describe("encryptionRowCopy", () => {
         expect(JSON.stringify(copy)).not.toContain("—");
       }
     }
-    expect(MANAGED_HANDOFF_LEDE).not.toContain("—");
-  });
-});
-
-describe("moving to your own bucket", () => {
-  test("the lede says the files arrive plain", () => {
-    expect(MANAGED_HANDOFF_LEDE).toBe(
-      "Context turns each file back into a plain file as it copies, so your bucket gets Markdown and attachments that any app can open. Nothing arrives encrypted. The managed copy stays live and encrypted until every file is verified.",
-    );
   });
 });
 

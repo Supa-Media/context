@@ -1,4 +1,6 @@
 import { FrameIconButton } from "../../app/AppFrame";
+import { openFeedback } from "../../feedback/request";
+import { canSendFeedback } from "../../observability/client";
 import { StagingPill } from "../../app/StagingNotice";
 import { ConsoleLiveMeeting } from "../ConsoleLiveMeeting";
 import { TierChip } from "../ConsoleShell";
@@ -149,6 +151,21 @@ export function consoleTopTrailing({
       )
     ) : (
       <>
+        {/*
+          Report a problem, first in the group so it sits beside Search (owner,
+          2026-09-29). Signed-in people only: the homepage draws this same
+          shell for visitors, and a visitor's report has nobody to answer.
+          Absent on a phone, whose bar has room for two buttons — there it is
+          the account sheet's "Send feedback" row.
+        */}
+        {data.visitor === undefined && canSendFeedback() ? (
+          <FrameIconButton
+            label="Report a problem"
+            icon="bug"
+            onPress={() => openFeedback("top_bar")}
+            testID="frame-feedback"
+          />
+        ) : null}
         {/*
           A meeting that is running while the panel it lives in is folded
           away. It draws nothing when the panel is open — the card is

@@ -204,6 +204,7 @@ jobs:
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           node --test scripts/release-communication-evidence.test.mjs
+          node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/devlog-draft.test.mjs scripts/devlog-sync.test.mjs
           node scripts/check-convex-deploy-paths.mjs --self-test
           node scripts/check-convex-deploy-paths.mjs
 

@@ -38,3 +38,28 @@ export const syncIcons: Record<SyncIconName, DrawFn> = {
   cloudOff: (u, w, c) =>
     glyph("cloudOff", u, w, c, { paths: [CLOUD, "M 0.14 0.16 L 0.86 0.9"] }),
 };
+
+// Arcs and lines only: `icons.test.ts` reads every path to prove it stays in
+// its box, and that reader knows M, L, A and Z.
+const BUG_BODY =
+  "M 0.34 0.56 A 0.16 0.16 0 0 1 0.66 0.56 L 0.66 0.68 A 0.16 0.18 0 0 1 0.34 0.68 Z";
+
+/** Report a problem. Kept beside the save mark: both sit in the top bar. */
+export const feedbackIcons: Record<"bug", DrawFn> = {
+  bug: (u, w, c) =>
+    glyph("bug", u, w, c, {
+      paths: [
+        BUG_BODY,
+        "M 0.41 0.41 A 0.09 0.09 0 0 1 0.59 0.41",
+        "M 0.44 0.26 L 0.38 0.16",
+        "M 0.56 0.26 L 0.62 0.16",
+        "M 0.5 0.46 L 0.5 0.84",
+        "M 0.34 0.53 L 0.19 0.47",
+        "M 0.66 0.53 L 0.81 0.47",
+        "M 0.34 0.66 L 0.17 0.66",
+        "M 0.66 0.66 L 0.83 0.66",
+        "M 0.36 0.78 L 0.23 0.86",
+        "M 0.64 0.78 L 0.77 0.86",
+      ],
+    }),
+};

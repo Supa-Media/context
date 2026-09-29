@@ -63,8 +63,8 @@ export async function walkPlanHandler(
  * The hand-off reads the mode once per copy page. A walk sealing objects
  * after that read would put ciphertext into the customer's bucket, so no
  * walk runs while a copy (or a failed one that can be resumed) exists. The
- * row keeps its state: `encrypting` still reads both kinds, cutover deletes
- * the row, and an abandoned hand-off is picked up again by Resume.
+ * row keeps its state: `encrypting` still reads both kinds, a switch back
+ * restarts it (`managedBucketBound`), and Resume picks up an abandoned one.
  */
 async function handOffUnderWay(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
   const migrations = await ctx.db

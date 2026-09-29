@@ -15,6 +15,7 @@ import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
 import { MachinesCard } from "./panels/MachinesCard";
+import { FeedbackSettings } from "../../feedback/FeedbackSettings";
 
 /**
  * The settings that belong to the person rather than to one context.
@@ -55,6 +56,8 @@ export function AccountSection({
   const owned = data.contexts.some(
     (context) => context.kind === "personal" && context.role === "owner",
   );
+
+  if (section === "feedback") return <FeedbackSettings />;
 
   if (section === "invitations") {
     const invitations = data.invitations ?? [];

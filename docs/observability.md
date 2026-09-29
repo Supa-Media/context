@@ -34,6 +34,32 @@ Never preserve the event's incoming value, and never exempt nested `token`
 fields from redaction: without the routing key PostHog silently drops the
 event, while a broader exemption could leak a real credential.
 
+## Feedback reports and the Privacy & feedback switches
+
+Signed-in people can send a report from the bug button in the desktop top bar
+(beside Search), the account card's "Send feedback" row (the phone's way in),
+Settings → Privacy & feedback, and "Report this problem" on the broken page.
+The design was approved on the private-beta artboard (2026-09-29).
+
+- A report is Sentry user feedback (`captureFeedback`), so it lands in the same
+  project as the error it is about and links to it by event id. No new backend.
+- It carries only what the report screen lists: the message, the release and
+  device contexts Sentry already adds, and, if left ticked, a log of the last
+  ten minutes (cleaned routes and error class names from
+  `features/observability/activity.ts`) and a web screenshot whose words are
+  covered in html2canvas's copy of the page unless the person pressed Show
+  text. The breadcrumb trail is stripped from the report.
+- Feedback events skip `beforeSend`, so an event processor runs the same
+  cleaning on them — the web SDK stamps the page URL, which names the note.
+  `__tests__/feedbackSentry.test.ts` fails if either is removed.
+- Offline, past ten a day, or "Send later" after a failure, a report waits in
+  the device store and is sent when the app opens or the device reconnects.
+- The switches (crash reports, screen counts, web recordings) are **per
+  device** until the account has a field for them. Crash reports off drops
+  error events in `beforeSend`; reports still go, being an explicit act.
+- Not yet: screenshots and shake-to-report in the native apps (both need a
+  native module and a new build).
+
 ## Configuration
 
 Set these in the EAS environment used by each build/update. The sample rates

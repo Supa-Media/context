@@ -5,7 +5,7 @@
  * Decision: `docs/decisions/storage-and-credentials/managed-encryption.md`.
  * The state row only counts while the workspace's binding is its managed
  * bucket: a customer-owned bucket is never encrypted, whatever a stale row
- * says, and the hand-off cutover deletes the row anyway.
+ * says. The row outlives a move out on purpose (see `managedBucketBound`).
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";

@@ -169,7 +169,7 @@ describe("the side panel", () => {
     await key(one("quick-add-title"), "Enter");
     // The same road as the List's own "+ Subtask": drawn before any reload, and said with an Undo.
     expect(all("task-panel-subtask").map((node) => strip(node.textContent))).toEqual([expect.stringContaining("Read the small print")]);
-    expect(strip(row("Sign the lease").textContent)).toContain("0 of 1 done");
+    expect(strip(row("Sign the lease").textContent)).toContain("0/1");
     expect(toasts.at(-1)?.undo).toBeDefined();
     await act(async () => toasts.at(-1)!.undo!());
     await act(async () => undefined);

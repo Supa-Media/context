@@ -49,6 +49,7 @@ import { finishManagedStorageMigrationHandler } from "./lib/managedProvisioningF
 import {
   finishAwaitManagedTargetReady,
   migrationTargetCredential,
+  destinationHoldsObjects,
   probeManagedTarget,
 } from "./lib/managedProvisioningFns/targetReady";
 import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns/complete";
@@ -79,16 +80,58 @@ export const deleteManagedTestResources = internalAction({
   handler: deleteManagedResources,
 });
 
-/** The production cleanup scheduled only after a verified customer cutover. */
+/**
+ * The production cleanup, scheduled a week after a verified customer cutover.
+ * Deletes nothing if the workspace has switched back to the bucket meanwhile,
+ * or left it again since, which put a later deletion of its own on the clock.
+ */
 export const deleteManagedStorageAfterHandoff = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     bucket: v.string(),
     tokenId: v.string(),
+    /** Absent on jobs scheduled before retention, which ran at once. */
+    retainedUntil: v.optional(v.number()),
   },
   returns: v.null(),
-  handler: deleteManagedResources,
+  handler: (ctx, args) => deleteManagedStorageAfterRetention(ctx, args),
 });
+
+async function deleteManagedStorageAfterRetention(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; bucket: string; tokenId: string; retainedUntil?: number },
+): Promise<null> {
+  const standing: { inUse: boolean; tokenLive: boolean } = await ctx.runQuery(
+    internal.functions.managedProvisioning.managedBucketInUse,
+    { workspaceId: args.workspaceId, tokenId: args.tokenId, retainedUntil: args.retainedUntil },
+  );
+  await ctx.runMutation(internal.functions.managedProvisioning.clearManagedRetention, {
+    workspaceId: args.workspaceId,
+    retainedUntil: args.retainedUntil,
+  });
+  if (!standing.inUse) {
+    await deleteManagedResources(ctx, args);
+    // Only once the bucket is gone: until then its sealed files need the row.
+    await ctx.runMutation(internal.functions.managedEncryption.forgetKeptBucket, {
+      workspaceId: args.workspaceId,
+    });
+    return null;
+  }
+  // Switched back inside the week: the bucket stays. The provisioning run that
+  // re-adopted it minted a token of its own, so the one from before the move
+  // opens nothing anyone holds and is revoked rather than left standing.
+  if (!standing.tokenLive) await revokeRetiredToken(ctx, args.tokenId);
+  return null;
+}
+
+async function revokeRetiredToken(ctx: ActionCtx, tokenId: string): Promise<void> {
+  const accountId = managedAccountId();
+  const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+    name: MANAGED_R2_API_TOKEN_SECRET,
+  });
+  if (accountId === null || typeof apiToken !== "string" || apiToken.length === 0) return;
+  await revokeApiToken({ apiToken, accountId, tokenId });
+}
 
 async function deleteManagedResources(
   ctx: ActionCtx,
@@ -117,6 +160,70 @@ async function deleteManagedResources(
   if (!revoked) throw new Error("Managed bucket was deleted but its scoped token could not be revoked.");
   return null;
 }
+
+/**
+ * Whether a workspace that moved out has come back to its managed bucket.
+ *
+ * The handoff's deletion runs a week after the move, and a switch back in that
+ * week re-adopts the same deterministic bucket. So the action asks at the time,
+ * not at scheduling: a bound managed bucket, a managed plan, or a move into
+ * managed storage under way all mean the bucket is live again and stays.
+ */
+export const managedBucketInUse = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    tokenId: v.optional(v.string()),
+    retainedUntil: v.optional(v.number()),
+  },
+  returns: v.object({ inUse: v.boolean(), tokenLive: v.boolean() }),
+  handler: async (ctx, args) => {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    const tokenLive = args.tokenId !== undefined && binding?.accessKeyId === args.tokenId;
+    const standing = (inUse: boolean) => ({ inUse, tokenLive });
+    if (binding?.bucket === managedBucketName(args.workspaceId)) return standing(true);
+    const plan = await ctx.db
+      .query("workspacePlans")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (plan?.managedStorage === true) return standing(true);
+    // Back and then out again: the later move kept the bucket for a week of
+    // its own, and its own deletion is scheduled for the end of that week.
+    if (
+      args.retainedUntil !== undefined &&
+      plan?.managedRetainedUntil !== undefined &&
+      plan.managedRetainedUntil > args.retainedUntil
+    ) {
+      return standing(true);
+    }
+    const migration = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    return standing(migration !== null && migration.direction !== "to_customer");
+  },
+});
+
+/** This deletion's window is over: the plan stops offering the way back. */
+export const clearManagedRetention = internalMutation({
+  args: { workspaceId: v.id("workspaces"), retainedUntil: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const plan = await ctx.db
+      .query("workspacePlans")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (plan?.managedRetainedUntil === undefined) return null;
+    // A later move's window is that move's to close.
+    if (args.retainedUntil !== undefined && plan.managedRetainedUntil > args.retainedUntil) {
+      return null;
+    }
+    await ctx.db.patch(plan._id, { managedRetainedUntil: undefined, updatedAt: Date.now() });
+    return null;
+  },
+});
 
 /**
  * Creating the bucket a Premium customer paid for.
@@ -493,6 +600,7 @@ export const awaitManagedTargetReady = internalAction({
     }
 
     let ready = false;
+    let occupied = false;
     try {
       const secretAccessKey = await decryptSecret(
         migration.encryptedTargetSecretAccessKey,
@@ -500,6 +608,14 @@ export const awaitManagedTargetReady = internalAction({
         { workspaceId: args.workspaceId },
       );
       ready = await probeManagedTarget(migration, secretAccessKey);
+      if (
+        ready &&
+        migration.direction === "to_customer" &&
+        migration.targetClaimed !== true &&
+        migration.existingFiles === undefined
+      ) {
+        occupied = await destinationHoldsObjects(migration, secretAccessKey);
+      }
     } catch {
       // An envelope that will not open, or a store that cannot be built. Both
       // resolve the same way as an unready bucket: try again until the
@@ -507,7 +623,44 @@ export const awaitManagedTargetReady = internalAction({
       ready = false;
     }
 
+    // Merging leaves the destination unclaimed, so nothing of theirs is deleted.
+    if (
+      ready &&
+      migration.direction === "to_customer" &&
+      migration.targetClaimed !== true &&
+      migration.existingFiles !== "merge"
+    ) {
+      if (occupied) {
+        await ctx.runMutation(
+          internal.functions.managedProvisioning.failManagedStorageMigration,
+          { workspaceId: args.workspaceId, errorCode: "DESTINATION_NOT_EMPTY" },
+        );
+        return { ready: false };
+      }
+      await ctx.runMutation(
+        internal.functions.managedProvisioning.claimManagedStorageTarget,
+        { workspaceId: args.workspaceId },
+      );
+    }
+
     return await finishAwaitManagedTargetReady(ctx, args, migration, ready);
+  },
+});
+
+/** Record that the customer destination was empty when this move first wrote. */
+export const claimManagedStorageTarget = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (row === null || row.status !== "copying" || row.direction !== "to_customer") {
+      return null;
+    }
+    await ctx.db.patch(row._id, { targetClaimed: true, updatedAt: Date.now() });
+    return null;
   },
 });
 
@@ -523,7 +676,11 @@ export const resumeManagedStorageMigration = internalMutation({
 
 /** Record a closed error code while keeping the source binding live. */
 export const failManagedStorageMigration = internalMutation({
-  args: { workspaceId: v.id("workspaces"), errorCode: v.string() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    errorCode: v.string(),
+    failedKeys: v.optional(v.array(v.string())),
+  },
   returns: v.null(),
   handler: async (ctx, args) => failManagedStorageMigrationHandler(ctx, args),
 });
@@ -583,6 +740,7 @@ export const runManagedStorageMigration = internalAction({
     if (migration === null || migration.status !== "copying") {
       return { copied: 0, complete: false };
     }
+    let failedKeys: string[] | undefined;
     try {
       const sourceCredential = await ctx.runAction(
         internal.functions.storage.getBindingForGateway,
@@ -625,19 +783,33 @@ export const runManagedStorageMigration = internalAction({
         // Ahead of the walk rather than inside it, so a page carrying an object
         // too large to move fails before any of that page is reconciled. Inside
         // the waves this would depend on which wave the object landed in.
-        for (const object of page.objects) {
-          if (
-            typeof object.size === "number" &&
-            object.size > MIGRATION_OBJECT_BYTE_CAP
-          ) {
-            throw new Error("OBJECT_TOO_LARGE");
-          }
+        const oversized = page.objects
+          .filter(
+            (object) =>
+              typeof object.size === "number" &&
+              object.size > MIGRATION_OBJECT_BYTE_CAP,
+          )
+          .map((object) => object.key);
+        if (oversized.length > 0) {
+          // Named, so the owner is shown which files and can download them.
+          failedKeys = oversized.slice(0, 50);
+          throw new Error("OBJECT_TOO_LARGE");
         }
         const result = await reconcileMigrationPage({
           source: source as unknown as MigrationStore,
           target: target as unknown as MigrationStore,
           objects: page.objects,
           listedFromTarget: migration.phase === "verify_target",
+          // Into a customer's bucket, only a destination checked empty before
+          // the first write may lose keys the source lacks. A row started
+          // before that check existed never had it, so it deletes nothing.
+          deleteUnmatchedTarget:
+            migration.direction !== "to_customer" ||
+            migration.targetClaimed === true,
+          // Merging: a file of theirs with a name the workspace also uses is
+          // kept beside it on the first pass, before it is written over.
+          keepTargetConflicts:
+            migration.existingFiles === "merge" && migration.phase === "copy",
           byteCap: MIGRATION_OBJECT_BYTE_CAP,
           maxWidth: MIGRATION_WAVE_WIDTH,
           byteBudget: MIGRATION_WAVE_BYTE_BUDGET,
@@ -719,7 +891,7 @@ export const runManagedStorageMigration = internalAction({
       }
       await ctx.runMutation(
         internal.functions.managedProvisioning.failManagedStorageMigration,
-        { workspaceId: args.workspaceId, errorCode },
+        { workspaceId: args.workspaceId, errorCode, failedKeys },
       );
       return { copied: 0, complete: false };
     }

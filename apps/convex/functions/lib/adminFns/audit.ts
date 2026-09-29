@@ -13,6 +13,11 @@ export const ADMIN_ACTIONS = [
   "secret.set",
   "secret.updated",
   "secret.deleted",
+  "referral.revoked",
+  "referral.granted",
+  "referral.switched",
+  "community.link_saved",
+  "community.link_deleted",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

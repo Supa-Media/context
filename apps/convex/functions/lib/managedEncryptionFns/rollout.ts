@@ -255,6 +255,18 @@ export async function stopStartingNewHandler(ctx: MutationCtx): Promise<null> {
   return null;
 }
 
+async function stillManaged(ctx: QueryCtx, rows: Doc<"managedEncryptionWorkspaces">[]) {
+  const out: Doc<"managedEncryptionWorkspaces">[] = [];
+  for (const row of rows) {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
+      .unique();
+    if (bindingIsManaged(binding)) out.push(row);
+  }
+  return out;
+}
+
 /**
  * Start what may start. `restartActive` also reschedules walks that stopped
  * at a pause: their runId is bumped so any run still in flight stops itself.
@@ -263,10 +275,12 @@ export async function tickHandler(ctx: MutationCtx, args: { restartActive: boole
   const rollout = await rolloutRow(ctx);
   const walkable = rollout !== null && (rollout.state === "running" || rollout.state === "off");
   if (!walkable) return null;
-  const active = [
+  // A workspace that moved out keeps its row (its bucket is kept for a week),
+  // but it neither holds a walk slot nor keeps the rollout from completing.
+  const active = await stillManaged(ctx, [
     ...(await ctx.db.query("managedEncryptionWorkspaces").withIndex("by_state", (q) => q.eq("state", "encrypting")).collect()),
     ...(await ctx.db.query("managedEncryptionWorkspaces").withIndex("by_state", (q) => q.eq("state", "checking")).collect()),
-  ];
+  ]);
   const schedule = async (row: Doc<"managedEncryptionWorkspaces">) => {
     const runId = row.runId + 1;
     await ctx.db.patch(row._id, { runId, updatedAt: Date.now() });
@@ -284,11 +298,14 @@ export async function tickHandler(ctx: MutationCtx, args: { restartActive: boole
     .take(slots);
   for (const row of waiting) await schedule(row);
   if (active.length === 0 && waiting.length === 0) {
-    const failed = await ctx.db
-      .query("managedEncryptionWorkspaces")
-      .withIndex("by_state", (q) => q.eq("state", "failed"))
-      .first();
-    if (failed === null) await writeRollout(ctx, { state: "complete", changedBy: "system" });
+    const failed = await stillManaged(
+      ctx,
+      await ctx.db
+        .query("managedEncryptionWorkspaces")
+        .withIndex("by_state", (q) => q.eq("state", "failed"))
+        .collect(),
+    );
+    if (failed.length === 0) await writeRollout(ctx, { state: "complete", changedBy: "system" });
   }
   return null;
 }
@@ -306,11 +323,35 @@ export async function enrollNewManagedWorkspace(ctx: MutationCtx, workspaceId: I
 }
 
 /**
- * The hand-off to the customer's own bucket has cut over: their files are
- * plain there, and nothing about the old managed bucket may follow them if
- * they ever move back.
+ * A workspace's binding has just become its managed bucket: newly provisioned,
+ * or moved back in (a switch back within the week re-adopts the same bucket,
+ * sealed files and all, then copies plain files into it).
+ *
+ * With no row, it joins a rollout that covers every workspace. With a row,
+ * whatever the bucket holds now is unknown, so the row goes back to the start
+ * of the walk: `encrypting` reads both kinds, and the walk seals what is plain.
+ * Never `waiting` or no row, which would build a plain store over sealed files.
  */
-export async function forgetWorkspaceEncryption(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
+export async function managedBucketBound(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
   const row = await workspaceEncryptionRow(ctx, workspaceId);
-  if (row !== null) await ctx.db.delete(row._id);
+  if (row === null || row.state === "waiting") {
+    await enrollNewManagedWorkspace(ctx, workspaceId);
+    return;
+  }
+  const runId = row.runId + 1;
+  await ctx.db.patch(row._id, {
+    state: "encrypting",
+    phase: "count",
+    cursor: undefined,
+    filesDone: 0,
+    filesTotal: undefined,
+    errorCode: undefined,
+    completedAt: undefined,
+    runId,
+    updatedAt: Date.now(),
+  });
+  // Scheduled directly rather than through `tick`, which does nothing once the
+  // rollout reads complete. A paused or failed rollout still stops it at
+  // `walkPlan`, and Resume restarts it.
+  await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.runWalk, { workspaceId, runId });
 }

@@ -20,7 +20,12 @@ import {
   stopStartingNewHandler,
   tickHandler,
 } from "./lib/managedEncryptionFns/rollout";
-import { gatewayModeForWorkspace } from "./lib/managedEncryptionFns/state";
+import {
+  bindingIsManaged,
+  gatewayModeFor,
+  gatewayModeForWorkspace,
+  workspaceEncryptionRow,
+} from "./lib/managedEncryptionFns/state";
 import {
   beginWalkHandler,
   failWalkHandler,
@@ -106,6 +111,36 @@ export const gatewayMode = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.null(), v.literal("migrating"), v.literal("encrypted")),
   handler: async (ctx, args) => await gatewayModeForWorkspace(ctx, args.workspaceId),
+});
+
+/**
+ * The mode of the managed bucket a workspace moved out of, from its row alone.
+ * See `keptManagedBucketOption`.
+ */
+export const keptBucketMode = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), v.literal("migrating"), v.literal("encrypted")),
+  handler: async (ctx, args) => gatewayModeFor((await workspaceEncryptionRow(ctx, args.workspaceId))?.state ?? null),
+});
+
+/**
+ * The kept managed bucket has been deleted. Its row goes with it, unless the
+ * workspace is back on managed storage, where the row is live again. The keys
+ * stay: they are the workspace's, and per-note encryption uses them too.
+ */
+export const forgetKeptBucket = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (bindingIsManaged(binding)) return null;
+    const row = await workspaceEncryptionRow(ctx, args.workspaceId);
+    if (row !== null) await ctx.db.delete(row._id);
+    return null;
+  },
 });
 
 export const tick = internalMutation({

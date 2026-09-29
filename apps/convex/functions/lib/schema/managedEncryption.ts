@@ -52,9 +52,9 @@ export const managedEncryptionTables = {
 
   /**
    * One row per managed workspace the rollout has reached. Only read while
-   * the workspace's binding is its managed bucket; a hand-off to the
-   * customer's own bucket deletes the row at cutover, so a later move back
-   * starts plain rather than inheriting "encrypted".
+   * the workspace's binding is its managed bucket. It outlives a move out:
+   * the kept bucket still holds sealed files, and binding it again sends the
+   * row back to `encrypting` (`managedBucketBound`), never to plain.
    */
   managedEncryptionWorkspaces: defineTable({
     workspaceId: v.id("workspaces"),

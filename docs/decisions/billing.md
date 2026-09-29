@@ -85,6 +85,12 @@ switch is locked on and says to use Manage billing. Reversing this means
 bringing back boxes a person must tick before paying; `onePlan.test.ts` and
 `premiumOnePlan.test.ts` fail if the upgrade asks for anything again.
 
+Moving onto storage we run is the owner's step in Settings › Storage, never a
+side effect of paying. On a workspace already paying, choosing it starts the
+copy at once (`startManagedMoveIfChosen`) rather than waiting for Stripe's next
+event; the copy is verified before anything switches, and the owner's bucket
+stays connected until it matches. `moveToManaged.test.ts` covers it.
+
 ## The $5 is an early-tester price, and it is held for the people already on it
 
 The price is presented as **early tester pricing** rather than as what Premium

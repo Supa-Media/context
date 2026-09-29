@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, useState, type ErrorInfo, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
 import { TextLink } from "../design/components/TextLink";
@@ -8,7 +8,9 @@ import { StageBackdrop } from "../design/components/StageBackdrop";
 import { leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { canReload, reloadApp } from "./reload";
-import { reportError, trackEvent } from "../observability/client";
+import { canSendFeedback, hasObservedUser, reportError, trackEvent } from "../observability/client";
+import { FeedbackDialog } from "../feedback/FeedbackDialog";
+import { openReport, type OpenReport } from "../feedback/request";
 
 /**
  * The one thing standing between a thrown render and a blank dark page.
@@ -56,6 +58,8 @@ interface Props {
 
 interface State {
   error: Error | null;
+  /** Sentry's id for the error, so a report written about it points at it. */
+  eventId?: string;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -66,10 +70,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    reportError(error, {
+    const eventId = reportError(error, {
       componentStack: info.componentStack,
       mechanism: "react.error_boundary",
     });
+    if (eventId !== undefined) this.setState({ eventId });
     this.props.onError?.(error, info);
   }
 
@@ -80,9 +85,10 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <ErrorScreen
         error={error}
+        eventId={this.state.eventId}
         onRetry={() => {
           trackEvent("error_boundary_retried");
-          this.setState({ error: null });
+          this.setState({ error: null, eventId: undefined });
         }}
       />
     );
@@ -93,9 +99,25 @@ export class ErrorBoundary extends Component<Props, State> {
  * Exported so the failure state can be rendered and looked at without arranging
  * for something to throw — the same reason `ConsentBody` is exported.
  */
-export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => void }) {
+export function ErrorScreen({
+  error,
+  eventId,
+  onRetry,
+}: {
+  error: Error;
+  eventId?: string;
+  onRetry: () => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const detail = error.message.trim();
+  /*
+    The third, quieter way out: tell us, with this error attached. This page
+    replaces the whole app, so the report is drawn here rather than by the
+    signed-in layout's host, which is gone — and offered only to somebody
+    signed in, whom we can answer.
+  */
+  const [report, setReport] = useState<OpenReport | null>(null);
+  const canReport = canSendFeedback() && hasObservedUser();
 
   return (
     <View style={styles.ground} testID="error-boundary">
@@ -139,7 +161,18 @@ export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => v
                 testID="error-reload"
               />
             ) : null}
+            {canReport ? (
+              <TextLink
+                label="Report this problem"
+                style={styles.reload}
+                onPress={() => setReport(openReport("error", eventId))}
+                testID="error-report"
+              />
+            ) : null}
           </View>
+          {report === null ? null : (
+            <FeedbackDialog report={report} onClose={() => setReport(null)} />
+          )}
         </View>
       </CenteredScroll>
     </View>

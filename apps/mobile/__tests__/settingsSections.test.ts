@@ -80,13 +80,17 @@ describe("the order and the grouping", () => {
     expect(rank("sharing")).toBeLessThan(rank("website"));
   });
 
-  test("ten rows, and one of them only when it has something to say", () => {
+  test("eleven rows, and one of them only when it has something to say", () => {
     // The whole of the change: twenty rows under four headings became seven
     // under none, Model made it eight, and Emoji (the workspace's own, which
-    // the : menu offers) made it ten. `plugins` is deprecated behind
-    // `shown` and `invitations` appears only while an invitation is pending.
+    // the : menu offers) made it ten. Privacy & feedback (early-beta
+    // telemetry switches and the report, 2026-09-29) made it eleven, beside
+    // Profile because both are about the person. `plugins` is deprecated
+    // behind `shown` and `invitations` appears only while an invitation is
+    // pending.
     expect(settingsSectionsFor("personal").map((section) => section.key)).toEqual([
       "profile",
+      "feedback",
       "workspace",
       "storage",
       "integrations",
@@ -99,7 +103,7 @@ describe("the order and the grouping", () => {
     ]);
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(11);
+    ).toHaveLength(12);
   });
 
   test("every section sits under a heading somebody can answer", () => {

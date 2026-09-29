@@ -440,3 +440,58 @@ credential is sealed before it enters the migration row, members cannot see
 progress or errors, and the source bucket is retired only after the verified
 binding cutover. `managedHandoff.test.ts` pins free/cancelled access, exact
 source cutover, credential containment and the no-delete-before-cutover rule.
+
+## Leaving never deletes a file the customer already had
+
+Moving out of managed storage reconciles the destination to match the managed
+source, and the last pass (`verify_target`) deletes destination keys the source
+lacks. Until 2026-09-29 that ran against whatever the owner pasted, so handing
+off into a bucket they already used deleted their own files — the exit path
+destroying data, which is the one thing non-negotiable #1 promises it never
+does.
+
+So the destination is asked once, after the readiness probe and before the
+first write, whether it holds anything under the chosen root prefix. Anything
+at all parks the move with `DESTINATION_NOT_EMPTY` until the owner answers.
+Context sees the whole bucket, never a folder of it (owner, 2026-09-29), so the
+answer is not "pick an empty bucket or a prefix" but one of two choices
+(`managedHandoff.chooseExistingFilesForHandoff`, recorded as `existingFiles`):
+**start fresh**, which needs the bucket's name typed as consent and then claims
+the destination, so the last pass deletes what was there; or **merge**, which
+never claims it, so nothing of theirs is deleted, their files appear in the
+workspace after the switch, and a file of theirs that shares a key with one of
+the workspace's is kept once as `name (from your bucket).ext` before the copy
+pass writes over it. A destination that answers empty is recorded as
+`targetClaimed` on the migration row, and only a claimed destination may lose
+keys later — everything in it is then this move's own writes. A retry into the
+same endpoint, bucket and prefix keeps the claim and carries on from the partial
+copy; any other destination is asked again. A row started before the check
+existed is unclaimed, and its verify pass deletes nothing.
+
+**What a simplification would cost.** Dropping the check, letting the claim
+survive a change of destination, letting a merge claim, or starting fresh
+without the typed name puts the deletion back in front of a customer's own
+files. `__tests__/managedHandoffDestination.test.ts` and
+`managedHandoffExistingFiles.test.ts` fail on each.
+
+## The managed copy is kept a week after a move out
+
+A verified move out used to delete the managed bucket the moment the binding
+switched. Since 2026-09-29 (owner's pick on the storage-portability artboard)
+it is kept seven days, and `workspacePlans.managedRetainedUntil` tells the
+owner's screen until when, so it can offer the way back. Switching back is the
+ordinary move into managed storage, which adopts the same deterministic bucket.
+
+The deletion is scheduled for the end of the week and decides at the time, not
+at scheduling: a bound managed bucket, a managed plan, a move into managed
+storage under way, or a *later* move out (whose own week is still running) all
+keep the bucket. The token from before the move is revoked either way, because
+re-adopting the bucket mints a new one. An owner can stop a move out until its
+last pass is ready to switch (`cancelManagedStorageHandoff`, `CANCELLED`), and a
+move stopped by particular files records up to fifty of their keys.
+
+**What a simplification would cost.** Deleting on the spot removes the only way
+back from a mistaken move; deleting on the schedule without asking again deletes
+the bucket a switched-back workspace is running on. `managedHandoff.test.ts`
+fails on either, and `managedHandoffControls.test.ts` on a stop that interrupts
+a switch.
