@@ -9,6 +9,7 @@ import { useThemedStyles, type Colors } from "../design/theme";
 import { castTimeLabel } from "../home/cast/castTimeline";
 import { castColors } from "../home/cast/castRun";
 import { castPreviewFragment } from "../home/castPreview";
+import { pagesByName, useScenePages, type ReadScenePage } from "./scenePages";
 import { stripFrontmatter } from "../share/markdown";
 import { STUDIO_FRAMES, studioFrame, type StudioFrameId } from "./studioFrames";
 import { studioScript } from "./studioScript";
@@ -45,6 +46,7 @@ export function CastStudio({
   onClose,
   onSaveSounds,
   soundStorage,
+  readPage,
 }: {
   draft: string;
   title: string;
@@ -53,6 +55,8 @@ export function CastStudio({
   onSaveSounds?: SaveSounds;
   /** Where uploaded sounds are kept and read back: the workspace's asset store. */
   soundStorage?: SoundStorage;
+  /** Reads a page the scene opens (`opens: pricing`), for the stage to go to. */
+  readPage?: ReadScenePage;
 }) {
   const styles = useThemedStyles(makeStyles);
   const wide = useWindowDimensions().width >= RAIL_MIN_WINDOW;
@@ -64,10 +68,11 @@ export function CastStudio({
   const frame = studioFrame(frameId);
 
   // The draft as it is each time the stage loads; the rail follows every edit.
-  const script = useMemo(() => studioScript(draft), [draft]);
+  const pages = useScenePages(draft, readPage);
+  const script = useMemo(() => studioScript(draft, pagesByName(pages)), [draft, pages]);
   const memberColors = useMemo(() => castColors(splitWebsiteCast(stripFrontmatter(draft)).steps), [draft]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new page is what reads a new draft
-  const src = useMemo(() => `/#${castPreviewFragment(draft, title)}`, [player.stageKey, title]);
+  const src = useMemo(() => `/#${castPreviewFragment(draft, title, pages)}`, [player.stageKey, title, pages]);
   const total = script.timeline.total;
 
   return (

@@ -45,15 +45,51 @@ export function hasCast(source: string): boolean {
 }
 
 /**
- * The draft as a one-page site whose front page it is. `banner: false` only
- * for the cast studio's stage, which our own studio frames (`studioLink.ts`).
+ * A page a scene opens (`@maya opens: pricing`), carried beside the draft so
+ * the preview has somewhere to go. `name` is what the script calls it.
  */
-export function castPreviewSnapshot(source: string, title: string, options: { banner?: boolean } = {}): HomeSnapshot {
+export interface PreviewPage {
+  name: string;
+  title: string;
+  markdown: string;
+}
+
+/** How many other pages one preview carries. */
+export const MAX_PREVIEW_PAGES = 8;
+
+/** `Pricing page` → `pricing-page`: the address a carried page gets. */
+export function previewSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\.md$/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * The draft as a site whose front page it is, with the pages its scene opens
+ * beside it. `banner: false` only for the cast studio's stage, which our own
+ * studio frames (`studioLink.ts`); otherwise every page says it, since a
+ * crafted address can carry any page it likes.
+ */
+export function castPreviewSnapshot(
+  source: string,
+  title: string,
+  options: { banner?: boolean; pages?: readonly PreviewPage[] } = {},
+): HomeSnapshot {
   const banner = options.banner === false ? "" : CAST_PREVIEW_BANNER;
+  const pages = [{ path: "index.md", routePath: "/", title, markdown: banner + stripFrontmatter(source) }];
+  const taken = new Set([""]);
+  for (const page of (options.pages ?? []).slice(0, MAX_PREVIEW_PAGES)) {
+    const slug = previewSlug(page.name);
+    if (taken.has(slug)) continue;
+    taken.add(slug);
+    pages.push({ path: `${slug}.md`, routePath: `/${slug}`, title: page.title, markdown: banner + stripFrontmatter(page.markdown) });
+  }
   return {
     siteName: "Preview",
     revision: null,
-    pages: [{ path: "index.md", routePath: "/", title, markdown: banner + stripFrontmatter(source) }],
+    pages,
     emoji: {},
     // A draft's own images are the workspace's, which the homepage cannot read.
     images: {},
@@ -61,13 +97,14 @@ export function castPreviewSnapshot(source: string, title: string, options: { ba
 }
 
 /** The address that plays this draft on the homepage. */
-export function castPreviewHref(source: string, title: string): string {
-  return `/#${castPreviewFragment(source, title)}`;
+export function castPreviewHref(source: string, title: string, pages: readonly PreviewPage[] = []): string {
+  return `/#${castPreviewFragment(source, title, pages)}`;
 }
 
-/** `cast-preview=…`: the draft, as the address's fragment carries it. */
-export function castPreviewFragment(source: string, title: string): string {
-  const body = JSON.stringify({ title, markdown: stripFrontmatter(source) });
+/** `cast-preview=…`: the draft, and the pages its scene opens, as the address's fragment carries them. */
+export function castPreviewFragment(source: string, title: string, pages: readonly PreviewPage[] = []): string {
+  const carried = pages.slice(0, MAX_PREVIEW_PAGES).map((page) => ({ ...page, markdown: stripFrontmatter(page.markdown) }));
+  const body = JSON.stringify(carried.length === 0 ? { title, markdown: stripFrontmatter(source) } : { title, markdown: stripFrontmatter(source), pages: carried });
   return `${CAST_PREVIEW_PARAM}=${toBase64Url(new TextEncoder().encode(body))}`;
 }
 
@@ -80,14 +117,31 @@ export function castPreviewFrom(hash: string | undefined, options: { banner?: bo
     const body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(fromBase64Url(hash.slice(prefix.length)))) as {
       title?: unknown;
       markdown?: unknown;
+      pages?: unknown;
     };
     if (typeof body.title !== "string" || typeof body.markdown !== "string") return null;
+    const pages = body.pages === undefined ? [] : previewPages(body.pages);
+    if (pages === null) return null;
     // Through the same check as a site from the router, so a crafted address
     // can hand the homepage nothing a real site could not.
-    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title, options));
+    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title, { ...options, pages }));
   } catch {
     return null;
   }
+}
+
+/** Carried pages, or `null` when they are not all a name, a title and some text. */
+function previewPages(value: unknown): PreviewPage[] | null {
+  if (!Array.isArray(value) || value.length > MAX_PREVIEW_PAGES) return null;
+  const pages: PreviewPage[] = [];
+  for (const one of value as unknown[]) {
+    if (typeof one !== "object" || one === null) return null;
+    const { name, title, markdown } = one as Record<string, unknown>;
+    if (typeof name !== "string" || typeof title !== "string" || typeof markdown !== "string") return null;
+    if (previewSlug(name) === "") return null;
+    pages.push({ name, title, markdown });
+  }
+  return pages;
 }
 
 function toBase64Url(bytes: Uint8Array): string {

@@ -66,6 +66,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "projects") return <ProjectsFixture member={first(params.role) === "member"} />;
   // The cast studio over a fixed scene; its stage is the real homepage.
   if (first(params.screen) === "cast-studio") return <CastStudioFixture />;
+  if (first(params.screen) === "cast-studio-pages") return <CastStudioFixture pages />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
 
   /*

@@ -52,15 +52,17 @@ export function describeStep(step: CastStep): string {
       return `clicks ${step.target}`;
     case "tick":
       return `ticks ${quoted(step.quote)}`;
+    case "open":
+      return `opens ${step.page}`;
     case "wait":
       return `Wait ${Math.round(step.ms / 100) / 10}s`;
   }
 }
 
-/** A note's script, as the studio's rail and scrubber show it. */
-export function studioScript(source: string): StudioScript {
+/** A note's script, as the studio's rail and scrubber show it; `pages` are the ones it opens, by name. */
+export function studioScript(source: string, pages: Readonly<Record<string, string>> = {}): StudioScript {
   const { markdown, steps, problems } = splitWebsiteCast(stripFrontmatter(source));
-  const timeline = castTimeline(markdown, steps);
+  const timeline = castTimeline(markdown, steps, pages);
   return {
     rows: steps.map((step, index) => ({
       index,

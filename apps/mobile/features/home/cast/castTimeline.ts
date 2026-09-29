@@ -29,7 +29,12 @@ const STILL: Wall = { now: () => 0, setTimeout: () => null, clearTimeout: () => 
  * The typing is the real typing (`instant` is false), so a line's length is
  * the time it takes, and the studio's times match what plays.
  */
-export function castTimeline(markdown: string, steps: readonly CastStep[]): CastTimeline {
+export function castTimeline(
+  markdown: string,
+  steps: readonly CastStep[],
+  /** The pages its `opens:` steps name, by the name written, so steps there are timed against them. */
+  pages: Readonly<Record<string, string>> = {},
+): CastTimeline {
   const shared = createSharedDoc({});
   seedSharedDoc(shared, markdown);
   const clock = createCastClock(STILL);
@@ -38,11 +43,19 @@ export function castTimeline(markdown: string, steps: readonly CastStep[]): Cast
   const moments = noMoments();
   let current = -1;
   let typed = -1;
+  const opened: ReturnType<typeof createSharedDoc>[] = [];
   const run = playCast(steps, shared, {
     schedule: (ms, fn) => clock.schedule(ms, fn),
     instant: () => false,
     pageNamed: () => null,
     addNote: (name) => `${name}.md`,
+    // A page it was not given is timed as an empty one.
+    open: (name) => {
+      const page = createSharedDoc({});
+      seedSharedDoc(page, pages[name] ?? pages[name.toLowerCase()] ?? "");
+      opened.push(page);
+      return { path: name, shared: page };
+    },
     agentDid: () => {},
     room: () => {},
     step: (index) => {
@@ -64,6 +77,7 @@ export function castTimeline(markdown: string, steps: readonly CastStep[]): Cast
   run.stop();
   clock.stop();
   shared.doc.destroy();
+  for (const page of opened) page.doc.destroy();
   return { starts, total: total ?? clock.now(), moments };
 }
 

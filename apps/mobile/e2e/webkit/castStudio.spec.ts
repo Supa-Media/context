@@ -133,3 +133,19 @@ test("sounds: your own sound is uploaded and chosen for its moment", async ({ pa
   const note = await page.evaluate(() => (window as unknown as { __castStudioNote?: string }).__castStudioNote ?? "");
   expect(note).toContain("sounds: [agent sound-0123456789abcdef.wav]");
 });
+
+test("a scene goes on to another page, and the stage follows it there", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/e2e-fixture?screen=cast-studio-pages");
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
+  await expect(page.getByTestId("studio-step-4")).toContainText("opens team");
+
+  // Played from the open: the steps before it land at once, then the stage is on Team.
+  await page.getByTestId("studio-step-4").click();
+  await expect(stage(page)).toContainText("Who builds this.", { timeout: 20_000 });
+  await expect(stage(page)).toContainText("and the team is on it.", { timeout: 20_000 });
+  await expect(stage(page)).not.toContainText("Free is free");
+  await expect(page.getByTestId("studio-step-5")).toHaveAttribute("aria-current", "step", { timeout: 15_000 });
+});

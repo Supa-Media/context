@@ -26,8 +26,12 @@ const SCENE = [
   "",
 ].join("\n");
 
-export function CastStudioFixture() {
-  const [draft, setDraft] = useState(SCENE);
+/** `screen=cast-studio-pages`: the scene goes on to another page (`opens:`). */
+const GOES_ON = "@jon resolves\n@maya opens: team\n@maya types: and the team is on it.";
+const TEAM = "# Team\n\nWho builds this.\n";
+
+export function CastStudioFixture({ pages = false }: { pages?: boolean }) {
+  const [draft, setDraft] = useState(pages ? SCENE.replace("@jon resolves", GOES_ON) : SCENE);
   return (
     <CastStudio
       draft={draft}
@@ -49,6 +53,7 @@ export function CastStudioFixture() {
         },
         load: async () => null,
       }}
+      readPage={async (name) => (pages && name === "team" ? { name, title: "Team", markdown: TEAM } : null)}
     />
   );
 }
