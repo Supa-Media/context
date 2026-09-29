@@ -1,6 +1,5 @@
 import { FrameIconButton } from "../../app/AppFrame";
 import { openFeedback } from "../../feedback/request";
-import { canSendFeedback } from "../../observability/client";
 import { StagingPill } from "../../app/StagingNotice";
 import { ConsoleLiveMeeting } from "../ConsoleLiveMeeting";
 import { TierChip } from "../ConsoleShell";
@@ -29,6 +28,7 @@ export function consoleTopTrailing({
   insideContext,
   current,
   router,
+  canReport,
 }: {
   phone: boolean;
   readable: boolean;
@@ -43,6 +43,8 @@ export function consoleTopTrailing({
   insideContext: boolean;
   current: ConsoleContext | null;
   router: ConsoleRouter;
+  /** Whether the server takes reports (`useCanSendFeedback`). */
+  canReport: boolean;
 }) {
   /*
     Absent on a phone, where both chips have moved to the foot of the
@@ -158,7 +160,7 @@ export function consoleTopTrailing({
           Absent on a phone, whose bar has room for two buttons — there it is
           the account sheet's "Send feedback" row.
         */}
-        {data.visitor === undefined && canSendFeedback() ? (
+        {data.visitor === undefined && canReport ? (
           <FrameIconButton
             label="Report a problem"
             icon="bug"

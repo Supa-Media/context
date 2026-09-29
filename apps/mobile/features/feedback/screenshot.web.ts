@@ -1,3 +1,4 @@
+import { FEEDBACK_LIMITS } from "@context/shared";
 import { base64ToBytes } from "./model";
 import type { Screenshot } from "./screenshot";
 
@@ -82,15 +83,21 @@ export async function captureScreen({ showText }: { showText: boolean }): Promis
       windowHeight: height,
       onclone: (copy) => prepareCopy(copy, { showText }),
     });
-    const previewUri = canvas.toDataURL("image/jpeg", 0.8);
-    const base64 = previewUri.slice(previewUri.indexOf(",") + 1);
-    return {
-      data: base64ToBytes(base64),
-      contentType: "image/jpeg",
-      previewUri,
-      width: canvas.width,
-      height: canvas.height,
-    };
+    // The server takes a picture of at most FEEDBACK_LIMITS.screenshotBytes;
+    // a busy screen is tried at lower quality before it goes without one.
+    for (const quality of [0.8, 0.6, 0.4]) {
+      const previewUri = canvas.toDataURL("image/jpeg", quality);
+      const data = base64ToBytes(previewUri.slice(previewUri.indexOf(",") + 1));
+      if (data.byteLength > FEEDBACK_LIMITS.screenshotBytes) continue;
+      return {
+        data,
+        contentType: "image/jpeg",
+        previewUri,
+        width: canvas.width,
+        height: canvas.height,
+      };
+    }
+    return null;
   } catch {
     // No picture is an honest outcome: the report screen leaves the row out.
     return null;

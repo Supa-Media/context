@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { useReachability } from "../offline/reachability";
-import { canSendFeedback } from "../observability/client";
 import { BetaNotice } from "./BetaNotice";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { drainQueue } from "./queue";
+import { useCanSendFeedback, useFeedbackTransport } from "./transport";
 import { closeFeedback, useOpenFeedback } from "./request";
 import { useAccountTelemetrySync } from "./useAccountTelemetrySync";
 
@@ -17,12 +17,14 @@ import { useAccountTelemetrySync } from "./useAccountTelemetrySync";
  */
 export function FeedbackHost() {
   useAccountTelemetrySync();
+  useFeedbackTransport();
+  const canReport = useCanSendFeedback();
   const report = useOpenFeedback();
   const reachability = useReachability();
 
   useEffect(() => {
-    if (reachability !== "offline" && canSendFeedback()) void drainQueue();
-  }, [reachability]);
+    if (reachability !== "offline" && canReport) void drainQueue();
+  }, [reachability, canReport]);
 
   return (
     <>

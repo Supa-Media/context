@@ -1,5 +1,6 @@
+import { describeForPerson, reportDevice } from "./device";
 import { useState, type ReactNode } from "react";
-import { Image, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../design/components/Button";
 import { Text } from "../design/components/Text";
 import { TextLink } from "../design/components/TextLink";
@@ -26,10 +27,9 @@ export type ShotState =
  * The fixed row's words. The versions themselves are the release Sentry
  * already tags every event with, so this names them rather than reading them.
  */
+/** Exactly what goes, in words: the same values `transport.ts` sends. */
 export function appAndDevice(): string {
-  return Platform.OS === "web"
-    ? "Which version of Context this is, and your browser and system versions"
-    : "Which version of the app this is, and your phone's system version";
+  return describeForPerson(reportDevice());
 }
 
 export function FeedbackForm({

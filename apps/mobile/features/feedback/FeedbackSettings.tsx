@@ -6,7 +6,7 @@ import { Switch } from "../design/components/Switch";
 import { Text } from "../design/components/Text";
 import { space } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
-import { canSendFeedback } from "../observability/client";
+import { useCanSendFeedback } from "./transport";
 import {
   setPreferences,
   useTelemetryPreferences,
@@ -25,6 +25,7 @@ import { openFeedback } from "./request";
 export function FeedbackSettings() {
   const styles = useThemedStyles(makeStyles);
   const prefs = useTelemetryPreferences();
+  const canReport = useCanSendFeedback();
   const [failed, setFailed] = useState(false);
 
   const change = (patch: Partial<TelemetryPreferences>) => {
@@ -95,7 +96,7 @@ export function FeedbackSettings() {
         </Text>
       </View>
 
-      {canSendFeedback() ? (
+      {canReport ? (
         <View style={styles.action}>
           <Button label="Send feedback" onPress={() => openFeedback("settings")} testID="privacy-send-feedback" />
         </View>

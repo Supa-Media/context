@@ -202,3 +202,20 @@ export {
   type DevlogSectionKey,
   type DevlogWeek,
 } from "./devlog";
+export {
+  CLIENT_REPORT_ID_PATTERN,
+  ERROR_NAME_PATTERN,
+  EVENT_ID_PATTERN,
+  FEEDBACK_LIMITS,
+  FEEDBACK_PLATFORMS,
+  FEEDBACK_SOURCES,
+  ROUTE_PLACEHOLDERS,
+  ROUTE_SEGMENTS,
+  SYSTEM_FAMILIES,
+  VERSION_PATTERN,
+  isActivityLine,
+  isCleanRoute,
+  type FeedbackPlatform,
+  type FeedbackSource,
+  type SystemFamily,
+} from "./feedbackReport";

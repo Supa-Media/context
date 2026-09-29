@@ -1,3 +1,5 @@
+import { ROUTE_SEGMENTS } from "@context/shared";
+
 /**
  * Privacy boundary for telemetry.
  *
@@ -42,37 +44,14 @@ export function redactTelemetryText(value: string): string {
  * that is not a route name is a value somebody typed or was handed, so it is
  * replaced whether or not anybody thought about it.
  *
+ * The list itself lives in `@context/shared`, because the control plane
+ * checks a feedback report's routes against the same one.
+ *
  * Kept in step with `app/` by `observabilityPrivacy.test.ts`, which walks the
  * route tree and fails on a static route missing from here — so a new route
  * makes this list wrong loudly rather than making telemetry leak quietly.
  */
-export const ROUTE_SEGMENTS = new Set([
-  "admin",
-  "authorize",
-  "cli",
-  "connect",
-  "connections",
-  "console",
-  "dropbox",
-  "e2e-fixture",
-  "google",
-  "invite",
-  "join",
-  "login",
-  "map",
-  "meetings",
-  "new",
-  "note",
-  "onboarding",
-  "preview",
-  "privacy",
-  "s",
-  "search",
-  "settings",
-  "terms",
-  "welcome",
-  "workspace",
-]);
+export { ROUTE_SEGMENTS };
 
 /** What a segment carrying a value becomes when no rule gives it a better name. */
 const OPAQUE_SEGMENT = ":value";

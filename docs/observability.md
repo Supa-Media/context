@@ -41,19 +41,43 @@ Signed-in people can send a report from the bug button in the desktop top bar
 Settings → Privacy & feedback, and "Report this problem" on the broken page.
 The design was approved on the private-beta artboard (2026-09-29).
 
-- A report is Sentry user feedback (`captureFeedback`), so it lands in the same
-  project as the error it is about and links to it by event id. No new backend.
-- It carries only what the report screen lists: the message, the release and
-  device contexts Sentry already adds, and, if left ticked, a log of the last
-  ten minutes (cleaned routes and error class names from
+- A report goes to the control plane, not straight to Sentry: the app calls
+  `submitFeedback` (`apps/convex/functions/feedback.ts`), which checks it and
+  sends it on as one Sentry user-feedback envelope, in the same project as the
+  error it is about and linked to it by event id. The app holds no Sentry key
+  for feedback; the deployment's `FEEDBACK_SENTRY_DSN` (synced from the app's
+  public DSN) is the only address, and `FEEDBACK_INTAKE=disabled` stops intake
+  without a deploy. With neither, `feedbackAvailable` is false and the app
+  draws no report button.
+- The server checks every limit the report screen promises, whatever client
+  sent it (`lib/feedback/report.ts`, shapes shared with the app in
+  `packages/shared/src/feedbackReport.ts`): signed in; a message of at most
+  4,000 characters; a screen and every log line made only of static route
+  names, placeholders and error class names; an error id of 32 hex; a JPEG or
+  PNG screenshot of at most 2 MiB whose first bytes say so; a platform, a
+  short build and a browser or system family with its major version. A
+  refusal names the field and never repeats its value.
+- Ten reports per person in any 24 hours, counted on the server across every
+  device, reports still being sent included. A retry carries the report's own
+  id, so a report is sent once however often it is retried; a send that died
+  half way is resumed under the same Sentry event id, so Sentry keeps one
+  copy. A failed send does not count.
+- The control plane keeps no report. `feedbackReceipts` holds the account id,
+  the report's id, the Sentry event id, a state and times; it goes with the
+  account and after 30 days (hourly cron). Sentry's user is the account id,
+  never the email.
+- What leaves the app is exactly what the report screen lists: the message,
+  the app's platform and build, the browser or system family and major
+  version (never the user agent), and, if left ticked, a log of the last ten
+  minutes (cleaned routes and error class names from
   `features/observability/activity.ts`) and a web screenshot whose words are
   covered in html2canvas's copy of the page unless the person pressed Show
-  text. The breadcrumb trail is stripped from the report.
-- Feedback events skip `beforeSend`, so an event processor runs the same
-  cleaning on them — the web SDK stamps the page URL, which names the note.
-  `__tests__/feedbackSentry.test.ts` fails if either is removed.
-- Offline, past ten a day, or "Send later" after a failure, a report waits in
-  the device store and is sent when the app opens or the device reconnects.
+  text. `__tests__/feedbackTransport.test.ts` runs what the app sends through
+  the server's own check.
+- Offline, over the day's limit (held until the time the server names), or
+  "Send later" after a failure, a report waits in the device store and is
+  sent when the app opens or the device reconnects. A report the server
+  refuses on shape is not kept: it would fail every time.
 - The switches (crash reports, screen counts, web recordings) follow the
   account: `telemetryPreferences` in the control plane holds three booleans
   and a time per person (`functions/telemetry.ts`), and each device keeps a
@@ -61,7 +85,8 @@ The design was approved on the private-beta artboard (2026-09-29).
   wins; a choice another person made on a shared device never reaches the
   next person's account (`features/observability/accountPreferences.ts`,
   `__tests__/telemetryAccountSync.test.ts`). Crash reports off drops error
-  events in `beforeSend`; reports still go, being an explicit act.
+  events in `beforeSend`; reports still go, being an explicit act that does
+  not pass through the app's Sentry client at all.
 - Not yet: screenshots and shake-to-report in the native apps (both need a
   native module and a new build).
 

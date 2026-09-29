@@ -1,3 +1,4 @@
+import { useCanSendFeedback } from "../feedback/transport";
 import {
   useCallback,
   useEffect,
@@ -137,6 +138,7 @@ export function ConsoleFrame({
   const referrals = useReferralMenu(data.referrals === true && visitor === undefined && data.demo !== true);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const canReport = useCanSendFeedback();
   /*
     The phone's answer to the tab strip: a Recent sheet over `history`, where
     the tab count and its switcher used to be. `RecentSheet.tsx` carries the
@@ -449,7 +451,7 @@ export function ConsoleFrame({
           ) : undefined
         }
         topTrailing={consoleTopTrailing({
-          phone, readable, reading, showMeetings, data, insideContext, current, router,
+          phone, readable, reading, showMeetings, data, insideContext, current, router, canReport,
           onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
