@@ -12,22 +12,18 @@ import {
   type HomeSnapshot,
   type HomeSource,
 } from "./homeSnapshot";
-import { browserStorage, takeCastPreview } from "./castPreview";
+import { castPreviewFrom } from "./castPreview";
 
 /** How long a visit with no site in its HTML waits before drawing the copy. */
 const WAIT_MS = 4_000;
 
 /**
- * Taken once per address: the handoff is deleted when read, and a second read
- * (a remount, React's development double render) must see the same draft.
+ * An owner's "Preview demo" tab: their draft, from the address. The fragment
+ * stays, so reloading the tab plays the show again.
  */
-const taken = new Map<string, HomeSnapshot | null>();
-
 function previewForThisTab(): HomeSnapshot | null {
   if (Platform.OS !== "web" || typeof window === "undefined") return null;
-  const search = window.location.search;
-  if (!taken.has(search)) taken.set(search, takeCastPreview(browserStorage(), search));
-  return taken.get(search) ?? null;
+  return castPreviewFrom(window.location.hash);
 }
 
 /**

@@ -13,20 +13,29 @@ import { parseHomeSnapshot, type HomeSnapshot } from "./homeSnapshot";
  * own player types into a copy that lives in that tab. One player, one shell:
  * what the preview shows is what visitors get once the page is published.
  *
- * The handoff is this browser's storage under a one-time key named in the
- * address (`/?cast-preview=<key>`). The homepage reads it once and deletes it,
- * so a reload or a shared link is the real site again, and nothing about the
- * draft reaches a server or another person.
+ * **The draft travels in the address's fragment** (`/#cast-preview=…`), which
+ * a browser never sends to a server. It first travelled through this
+ * browser's storage under a one-time key, which fails in two ways (Dev2,
+ * 2026-09-29, "the play button for cast does not work"): the desktop app opens
+ * every new window in the person's own browser, whose storage is not the
+ * app's, so the homepage found nothing; and a browser whose storage the
+ * offline note cache has filled throws on the write, so the button did
+ * nothing. The address goes wherever the tab
+ * goes, and reloading the tab plays the show again.
  */
 
 export const CAST_PREVIEW_PARAM = "cast-preview";
-const KEY_PREFIX = "context-cast-preview:";
-/** A handoff older than this is a tab that never opened; it is ignored. */
-const MAX_AGE_MS = 10 * 60 * 1000;
 
-let lastStashed: string | null = null;
-
-type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+/**
+ * Said at the top of every preview, by the homepage rather than the address.
+ *
+ * Anybody can build one of these addresses, so a preview is a page on our
+ * front door whose words somebody else chose. The homepage says so itself,
+ * above whatever the address carries, so a link cannot pass a stranger's
+ * page off as ours.
+ */
+export const CAST_PREVIEW_BANNER =
+  "> [!info] Preview of an unpublished draft\n> This tab plays a page from its address. It is not the live site.\n\n";
 
 /** Whether a note has a cast block worth previewing. */
 export function hasCast(source: string): boolean {
@@ -36,78 +45,52 @@ export function hasCast(source: string): boolean {
 }
 
 /** The draft as a one-page site whose front page it is. */
-export function castPreviewSnapshot(source: string, title: string, siteName: string): HomeSnapshot {
+export function castPreviewSnapshot(source: string, title: string): HomeSnapshot {
   return {
-    siteName,
+    siteName: "Preview",
     revision: null,
-    pages: [{ path: "index.md", routePath: "/", title, markdown: stripFrontmatter(source) }],
+    pages: [{ path: "index.md", routePath: "/", title, markdown: CAST_PREVIEW_BANNER + stripFrontmatter(source) }],
     emoji: {},
     // A draft's own images are the workspace's, which the homepage cannot read.
     images: {},
   };
 }
 
-/** Leave the snapshot for the new tab; the key it is under, or `null`. */
-export function stashCastPreview(
-  store: Store | undefined,
-  snapshot: HomeSnapshot,
-  now: number = Date.now(),
-  nonce: string = randomNonce(),
-): string | null {
-  if (store === undefined) return null;
-  try {
-    // A tab that never opened (a blocked popup) leaves its draft behind; the
-    // next press clears it, so at most one draft sits in storage.
-    if (lastStashed !== null) store.removeItem(KEY_PREFIX + lastStashed);
-    store.setItem(KEY_PREFIX + nonce, JSON.stringify({ at: now, snapshot }));
-    lastStashed = nonce;
-    return nonce;
-  } catch {
-    // Storage full or blocked: there is no preview, and nothing else breaks.
-    return null;
-  }
+/** The address that plays this draft on the homepage. */
+export function castPreviewHref(source: string, title: string): string {
+  const body = JSON.stringify({ title, markdown: stripFrontmatter(source) });
+  return `/#${CAST_PREVIEW_PARAM}=${toBase64Url(new TextEncoder().encode(body))}`;
 }
 
-/** The address that plays it. */
-export function castPreviewHref(nonce: string): string {
-  return `/?${CAST_PREVIEW_PARAM}=${encodeURIComponent(nonce)}`;
-}
-
-/**
- * The snapshot this address was opened for, taken (read and deleted), or
- * `null` for an ordinary visit, an unknown key, or a stale one.
- */
-export function takeCastPreview(
-  store: Store | undefined,
-  search: string | undefined,
-  now: number = Date.now(),
-): HomeSnapshot | null {
-  if (store === undefined || search === undefined) return null;
-  const nonce = new URLSearchParams(search).get(CAST_PREVIEW_PARAM);
-  if (nonce === null || !/^[A-Za-z0-9_-]{8,64}$/.test(nonce)) return null;
+/** The draft an address carries, or `null` for any other visit or junk. */
+export function castPreviewFrom(hash: string | undefined): HomeSnapshot | null {
+  if (hash === undefined) return null;
+  const prefix = `#${CAST_PREVIEW_PARAM}=`;
+  if (!hash.startsWith(prefix)) return null;
   try {
-    const text = store.getItem(KEY_PREFIX + nonce);
-    store.removeItem(KEY_PREFIX + nonce);
-    if (text === null) return null;
-    const body = JSON.parse(text) as { at?: unknown; snapshot?: unknown };
-    if (typeof body.at !== "number" || now - body.at > MAX_AGE_MS || body.at > now + 60_000) return null;
-    return parseHomeSnapshot(body.snapshot);
+    const body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(fromBase64Url(hash.slice(prefix.length)))) as {
+      title?: unknown;
+      markdown?: unknown;
+    };
+    if (typeof body.title !== "string" || typeof body.markdown !== "string") return null;
+    // Through the same check as a site from the router, so a crafted address
+    // can hand the homepage nothing a real site could not.
+    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title));
   } catch {
     return null;
   }
 }
 
-/** This browser's storage, where there is one and it may be touched. */
-export function browserStorage(): Store | undefined {
-  try {
-    return typeof window === "undefined" ? undefined : window.localStorage;
-  } catch {
-    return undefined;
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function randomNonce(): string {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+function fromBase64Url(text: string): Uint8Array {
+  if (!/^[A-Za-z0-9_-]*$/.test(text)) throw new Error("not base64url");
+  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
