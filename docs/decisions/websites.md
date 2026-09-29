@@ -573,10 +573,16 @@ eye, "Preview demo", which opens the homepage in a new tab with that draft,
 unpublished and unsaved, as its only page (`features/home/castPreview.ts`).
 It cannot play in the console's editor: that editor is bound to the real
 note, and a show typed into it would be saved to the bucket as if the cast
-had written it. The handoff is a one-time key in this browser's storage,
-named in the address and deleted when read, so the draft never reaches a
-server, a reload is the real site, and the player is the homepage's own —
-what the preview shows is what visitors get after Publish.
+had written it. The draft travels in the address's fragment
+(`/#cast-preview=…`), which a browser never sends to a server, so the draft
+lives only in that tab's address (and the browser's history of it). It
+first went through a one-time key in browser storage, which broke twice over
+(Dev2, 2026-09-29): the desktop app opens new windows in the person's own
+browser, whose storage is not the app's, and a storage quota the offline note
+cache has filled refuses the write. Anybody can build such an address, so the
+homepage puts its own "Preview of an unpublished draft" callout above whatever
+one carries, and a link cannot pass a stranger's words off as the front page.
+Reloading the tab plays the show again, and what the preview shows is what visitors get after Publish.
 
 **It is the console's presence, not a homepage animation.** Each page's show
 is a local `SharedDoc` the web editor binds exactly as it binds a room
