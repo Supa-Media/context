@@ -233,6 +233,15 @@ const ROUTES: Record<string, Coverage> = {
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*
+    `/join/<token>` is `/login` with the invite on top (`JoinScreen`). Mounted
+    as the loaded invite, because this suite's `useQuery` never answers and the
+    loading row is not the page anybody reads.
+  */
+  "(auth)/join/[token].tsx": {
+    kind: "screen",
+    mount: () => createElement(LoginScreen, { join: { kind: "invite", inviterHandle: "maya" } }),
+  },
+  /*
     `WelcomeChrome`, not `WelcomeScreen`. The screen is a gate over a live
     onboarding controller and renders a blank `View` until it resolves, so
     mounting it here would assert nothing about a page nobody had drawn. The
@@ -335,6 +344,7 @@ const ROUTES: Record<string, Coverage> = {
   "(app)/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/_layout.tsx")) },
   "connect/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("connect/_layout.tsx")) },
   "invite/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("invite/_layout.tsx")) },
+  "(auth)/join/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/join/_layout.tsx")) },
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
   "[handle]/_layout.tsx": {
     kind: "gate",

@@ -24,6 +24,7 @@ describe("observability privacy boundary", () => {
     expect(clean).not.toContain("unguessable");
     expect(clean).toContain("code=[redacted]");
     expect(clean).toContain("/invite/:token");
+    expect(redactTelemetryText("https://context.lc/join/referral-secret")).toBe("https://context.lc/join/:token");
   });
 
   test("redacts sensitive keys recursively without deleting useful diagnostics", () => {
@@ -113,6 +114,7 @@ describe("observability privacy boundary", () => {
     ["/console/@supa", "/console/:context"],
     ["/console/@supa/settings", "/console/:context/settings"],
     ["/invite/a-real-capability", "/invite/:token"],
+    ["/join/a-referral-capability", "/join/:token"],
     ["/s/a-share-capability", "/s/:token"],
     ["/connect/google", "/connect/google"],
   ])("normalizes route %s", (path, expected) => {

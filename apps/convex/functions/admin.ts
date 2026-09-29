@@ -76,6 +76,20 @@ import {
   waitlistRowValidator,
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
+import {
+  communityKindValidator,
+  communityLinkValidator,
+  deleteCommunityLinkHandler,
+  grantInvitesHandler,
+  inviteStatusValidator,
+  listCommunityLinksHandler,
+  listReferralsHandler,
+  referralRowValidator,
+  revokeReferralHandler,
+  saveCommunityLinkHandler,
+  setInvitesOffHandler,
+  traceReferralHandler,
+} from "./lib/adminFns/referrals";
 
 export { COUNT_CEILING, ROSTER_LIMIT };
 export type { AdminSecretRow, CountedTotal, MetricSeries };
@@ -269,6 +283,159 @@ export const addToWaitlist = mutation({
       throw toConvexError(error);
     }
     return await addEmailsHandler(ctx, args.emails, actor);
+  },
+});
+
+// -- invited by friends, and community links -------------------------------
+
+/**
+ * Every referral invite, newest first, with what became of it. See
+ * `lib/referrals.ts` for the rules and `lib/adminFns/referrals.ts` for these.
+ */
+export const listReferrals = query({
+  args: {},
+  returns: v.object({
+    rows: v.array(referralRowValidator),
+    more: v.boolean(),
+    counts: v.object({
+      pending: v.number(),
+      joined: v.number(),
+      expired: v.number(),
+      cancelled: v.number(),
+      revoked: v.number(),
+    }),
+    invitesOff: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await listReferralsHandler(ctx);
+  },
+});
+
+/** One invite's story: sent, used, and who the new person invited next. */
+export const traceReferral = query({
+  args: { inviteId: v.id("referralInvites") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      email: v.string(),
+      status: inviteStatusValidator,
+      inviterHandle: v.union(v.null(), v.string()),
+      sentAt: v.number(),
+      expiresAt: v.number(),
+      cancelledAt: v.union(v.null(), v.number()),
+      revokedAt: v.union(v.null(), v.number()),
+      joinedAt: v.union(v.null(), v.number()),
+      joinedHandle: v.union(v.null(), v.string()),
+      onward: v.array(v.object({ email: v.string(), status: inviteStatusValidator, sentAt: v.number() })),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await traceReferralHandler(ctx, args.inviteId);
+  },
+});
+
+/** Stop an unused invite. It stays used and nobody is told. */
+export const revokeReferral = mutation({
+  args: { inviteId: v.id("referralInvites") },
+  returns: v.object({ changed: v.boolean() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await revokeReferralHandler(ctx, args.inviteId, actor);
+  },
+});
+
+/** Give one person more invites. */
+export const grantInvites = mutation({
+  args: { userId: v.id("users"), add: v.number() },
+  returns: v.object({ extra: v.number() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await grantInvitesHandler(ctx, args.userId, args.add, actor);
+  },
+});
+
+/** Pause or resume new invites for everyone. */
+export const setInvitesOff = mutation({
+  args: { off: v.boolean() },
+  returns: v.object({ invitesOff: v.boolean() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setInvitesOffHandler(ctx, args.off, actor);
+  },
+});
+
+/** The Discord join link and every other outside link, as the app shows them. */
+export const listCommunityLinks = query({
+  args: {},
+  returns: v.array(communityLinkValidator),
+  handler: async (ctx) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await listCommunityLinksHandler(ctx);
+  },
+});
+
+/** Add or change one outside link. */
+export const saveCommunityLink = mutation({
+  args: {
+    id: v.optional(v.id("communityLinks")),
+    kind: communityKindValidator,
+    label: v.string(),
+    url: v.string(),
+    audience: v.union(v.literal("members"), v.literal("everyone")),
+  },
+  returns: v.object({ id: v.id("communityLinks") }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await saveCommunityLinkHandler(ctx, args, actor);
+  },
+});
+
+/** Remove one outside link. */
+export const deleteCommunityLink = mutation({
+  args: { id: v.id("communityLinks") },
+  returns: v.object({ changed: v.boolean() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await deleteCommunityLinkHandler(ctx, args.id, actor);
   },
 });
 

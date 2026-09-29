@@ -23,10 +23,20 @@ export function SetupDone({
   onClose,
   onNewWorkspace,
   onCopyBootstrap,
+  onJoinCommunity,
+  invitesLeft,
+  onInviteFriends,
 }: {
   onClose: () => void;
   onNewWorkspace?: () => void;
   onCopyBootstrap: () => Promise<boolean>;
+  /**
+   * The referrals artboard's end-of-setup rows (2026-09-29): the community's
+   * join link when staff have set one, and the invites this person can send.
+   */
+  onJoinCommunity?: () => void;
+  invitesLeft?: number;
+  onInviteFriends?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [copied, setCopied] = useState<boolean | null>(null);
@@ -73,7 +83,27 @@ export function SetupDone({
             />
           </View>
         ) : null}
-        <View style={[styles.nextRow, onNewWorkspace ? styles.nextRule : null]}>
+        {onJoinCommunity ? (
+          <View style={[styles.nextRow, onNewWorkspace ? styles.nextRule : null]}>
+            <View style={styles.nextText}>
+              <Text style={styles.nextTitle}>Join the community</Text>
+              <Text style={styles.nextBody}>Early users and the Context team talk every day on Discord.</Text>
+            </View>
+            <Button label="Join on Discord" variant="dialog" onPress={onJoinCommunity} testID="setup-done-community" />
+          </View>
+        ) : null}
+        {onInviteFriends && invitesLeft !== undefined && invitesLeft > 0 ? (
+          <View style={[styles.nextRow, onNewWorkspace || onJoinCommunity ? styles.nextRule : null]}>
+            <View style={styles.nextText}>
+              <Text style={styles.nextTitle}>
+                You have {invitesLeft} {invitesLeft === 1 ? "invite" : "invites"}
+              </Text>
+              <Text style={styles.nextBody}>Friends you invite skip the waitlist.</Text>
+            </View>
+            <Button label="Invite" variant="dialog" onPress={onInviteFriends} testID="setup-done-invite" />
+          </View>
+        ) : null}
+        <View style={[styles.nextRow, onNewWorkspace || onJoinCommunity || onInviteFriends ? styles.nextRule : null]}>
           <View style={styles.nextText}>
             <Text style={styles.nextTitle}>Bootstrap what your AI already knows</Text>
             <Text style={styles.nextBody} role={copied === null ? undefined : "status"}>

@@ -459,6 +459,12 @@ export interface ConsoleData {
    */
   deleteAccount?: () => Promise<void>;
   /**
+   * True only on the live console, which has a control plane to ask: the
+   * account menu's Invite friends and Community rows subscribe to it. Absent
+   * in the demo, the homepage visitor and every fixture.
+   */
+  referrals?: true;
+  /**
    * How many contexts this viewer can run a blended search over — see
    * `SearchableContextCount` for why `undefined` is not zero.
    */
