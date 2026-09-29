@@ -59,14 +59,37 @@ export const referralTables = {
   }).index("by_user", ["userId"]),
 
   /**
-   * The deployment's referral switches. At most one row; none means invites
-   * on and no community link.
+   * The deployment's referral switch. At most one row; none means invites on.
    */
   referralSettings: defineTable({
     invitesOff: v.boolean(),
-    /** The community's join link (a Discord invite). Shown only to people who are in. */
-    communityUrl: v.optional(v.string()),
     updatedAt: v.number(),
     updatedBy: v.optional(v.id("users")),
   }),
+
+  /**
+   * Links to places outside the app — the Discord join link first, and
+   * whatever else staff add (GitHub, X, a newsletter). Managed from the staff
+   * console, never hard-coded (Dev2, 2026-09-29), so a rotated Discord invite
+   * is a paste rather than a deploy.
+   *
+   * `audience` decides who is handed the URL: `members` only to somebody
+   * signed in (the private Discord invite), `everyone` to any page, the
+   * signed-out homepage and the weekly update included.
+   */
+  communityLinks: defineTable({
+    kind: v.union(
+      v.literal("discord"),
+      v.literal("github"),
+      v.literal("x"),
+      v.literal("newsletter"),
+      v.literal("other"),
+    ),
+    label: v.string(),
+    url: v.string(),
+    audience: v.union(v.literal("members"), v.literal("everyone")),
+    position: v.number(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("users")),
+  }).index("by_position", ["position"]),
 };
