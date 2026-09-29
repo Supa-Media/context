@@ -103,6 +103,31 @@ describe("observability privacy boundary", () => {
     expect(clean).not.toContain("pay-review");
   });
 
+  test("a draft carried in the address fragment does not reach a vendor", () => {
+    // `castPreviewHref` puts an unpublished note in the fragment as base64url
+    // (#1139). A browser never sends a fragment to a server — but Sentry's web
+    // SDK reads `location.href` into `request.url` and into history
+    // breadcrumbs, and that is a send.
+    const draft = Buffer.from(
+      JSON.stringify({ title: "Runway", markdown: "# Runway\n\nWe have four months of cash." }),
+    )
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const href = `https://context.lc/#cast-preview=${draft}`;
+
+    expect(redactTelemetryText(href)).not.toContain(draft);
+    expect(
+      JSON.stringify(
+        redactTelemetryValue({
+          request: { url: href },
+          breadcrumbs: [{ category: "navigation", data: { from: "/", to: href } }],
+        }),
+      ),
+    ).not.toContain(draft);
+  });
+
   test("an unknown segment is replaced even where no rule names it", () => {
     // A meeting id is an identifier, and the floor has to hold for a route
     // nobody wrote a case for — which is every route added after this one.
