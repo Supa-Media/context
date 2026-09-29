@@ -93,6 +93,7 @@ import type * as functions_provisioning from "../functions/provisioning.js";
 import type * as functions_shareCard from "../functions/shareCard.js";
 import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
+import type * as functions_managedEncryption from "../functions/managedEncryption.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_usage from "../functions/usage.js";
@@ -192,6 +193,7 @@ declare const fullApi: ApiFromModules<{
   "functions/shareCard": typeof functions_shareCard;
   "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
+  "functions/managedEncryption": typeof functions_managedEncryption;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
   "functions/waitlist": typeof functions_waitlist;

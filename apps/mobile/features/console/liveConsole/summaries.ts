@@ -65,6 +65,12 @@ export interface StorageBinding {
   handoffObjectsTotal?: number;
   handoffObjectsProcessed?: number;
   handoffErrorCode?: string;
+  /** Owner view of managed-storage encryption; absent or null hides the row. */
+  encryption?: {
+    state: "encrypting" | "checking" | "encrypted" | "paused";
+    filesDone?: number;
+    filesTotal?: number;
+  } | null;
   /**
    * Optional, because a Dropbox binding has none of them — see the validator
    * on `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`

@@ -384,6 +384,25 @@ export const openStorageBinding = internalAction({
       noteCap = undefined;
     }
 
+    /*
+      MANAGED-STORAGE ENCRYPTION, FOR THE SAME WORKSPACE. A plain query, no
+      decrypt: the key itself is `encryptionKey` above, which the walk created
+      before the first object was sealed.
+
+      Unlike the siblings above, a failed read is NOT answered as absent.
+      Absent means "build a plain store", and a plain store over a sealed
+      bucket serves sealed bytes as note text and lets somebody save over
+      them. So a failure here is no binding at all, the same answer as an
+      unopenable credential.
+    */
+    let managedEncryption: { mode: "migrating" | "encrypted" } | undefined;
+    try {
+      const mode = await ctx.runQuery(internal.functions.managedEncryption.gatewayMode, { workspaceId });
+      managedEncryption = mode === null ? undefined : { mode };
+    } catch {
+      return null;
+    }
+
     // Built per provider, never spread. A workspace rebound from a bucket to
     // Dropbox can still have an `accessKeyId` sitting on its row; spread into
     // this payload it would reach the gateway as a credential for storage this
@@ -409,6 +428,7 @@ export const openStorageBinding = internalAction({
         encryptionKey,
         rotation,
         noteCap,
+        managedEncryption,
       };
     }
 
@@ -433,6 +453,7 @@ export const openStorageBinding = internalAction({
       encryptionKey,
       rotation,
       noteCap,
+      managedEncryption,
     };
   },
 });
@@ -535,6 +556,17 @@ export const openGatewayJob = internalAction({
       rotation = undefined;
     }
 
+    // Fail closed for the reason given in `openStorageBinding`.
+    let managedEncryption: { mode: "migrating" | "encrypted" } | undefined;
+    try {
+      const mode = await ctx.runQuery(internal.functions.managedEncryption.gatewayMode, {
+        workspaceId: claimed.workspaceId,
+      });
+      managedEncryption = mode === null ? undefined : { mode };
+    } catch {
+      return null;
+    }
+
     if (credential.provider === "dropbox") {
       return {
         job: claimed,
@@ -549,6 +581,7 @@ export const openGatewayJob = internalAction({
         searchIndex,
         encryptionKey,
         rotation,
+        managedEncryption,
       };
     }
     return {
@@ -569,6 +602,7 @@ export const openGatewayJob = internalAction({
       searchIndex,
       encryptionKey,
       rotation,
+      managedEncryption,
     };
   },
 });

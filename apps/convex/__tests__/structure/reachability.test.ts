@@ -196,6 +196,13 @@ describe("no public function can reach a storage secret", () => {
         // same two schedule edges, and it cannot widen what the copy it
         // precedes could already do with the identical secret.
         "functions.managedProvisioning.awaitManagedTargetReady",
+        // Managed-storage encryption's walk. Opens the managed bucket's
+        // credential (our own, per workspace) and the workspace's data key to
+        // seal each object in place, one bounded page per run. internalAction,
+        // reached only by schedule edges from the staff rollout's `tick` and
+        // `retryWorkspace` and from itself; it returns nothing, and the page
+        // it records carries a cursor and counts, never a key or a byte.
+        "functions.managedEncryption.runWalk",
         // THE THIRD KIND, AND THE WEAKEST ONE.
         //
         // Opens the parked PKCE verifier so the authorization code can be

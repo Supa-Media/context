@@ -38,6 +38,14 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const row of organizer) await ctx.db.delete(row._id);
 
+  // Where the managed-encryption walk got to. Metadata about a bucket this
+  // workspace no longer has; the keys themselves go with `workspaceDataKeys`.
+  const encryption = await ctx.db
+    .query("managedEncryptionWorkspaces")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of encryption) await ctx.db.delete(row._id);
+
   const events = await ctx.db
     .query("auditEvents")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

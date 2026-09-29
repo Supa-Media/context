@@ -35,6 +35,8 @@ import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageAct
 import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
+import { EncryptionRow } from "../storage/EncryptionRow";
+import { MANAGED_HANDOFF_LEDE } from "../storage/encryptionRow";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
@@ -156,7 +158,7 @@ export function SettingsPane({
       */}
       <PanelHead section="storage" sectioned={section !== undefined} first>
         {storage?.managed === true
-          ? "Context runs this bucket for you. You can move every file to a bucket you control at any time, free — the managed bucket stays live until the copy is verified."
+          ? "Context runs this bucket for you. You can move every file to a bucket you control at any time, free. The managed bucket stays live until the copy is verified."
           : storage?.provider === "dropbox"
           ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
           : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
@@ -200,7 +202,7 @@ export function SettingsPane({
         // instead, which is exactly the pair `StorageChoice` draws.
         storage.managed === true ? (
           <ConnectForm
-            lede="Choose the bucket you want to own. Context keeps the managed bucket live while it copies and verifies every file, then switches over."
+            lede={MANAGED_HANDOFF_LEDE}
             connect={async (values) => {
               await actions.handoff(values);
               setRebinding(false);
@@ -633,6 +635,7 @@ function BindingCard({
     <>
     <Card testID="storage-binding">
       <FieldList fields={fields} testIDPrefix="storage-field" />
+      <EncryptionRow storage={storage} />
       {/*
         A binding in `error` is the state this pane exists to get someone out
         of, so it gets the failure, the fix, and the provider's own words —

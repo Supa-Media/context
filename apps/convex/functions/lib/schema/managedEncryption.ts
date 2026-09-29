@@ -1,0 +1,80 @@
+import { defineTable } from "convex/server";
+import { v } from "convex/values";
+
+/**
+ * Managed-storage encryption: the staff rollout, and where each managed
+ * workspace is in it.
+ *
+ * One slice of the control-plane schema, spread into `defineSchema` by
+ * `apps/convex/schema.ts`. Metadata only: counts, states and error codes.
+ * Keys live in `workspaceDataKeys`; object bytes live in the bucket. See
+ * `docs/decisions/storage-and-credentials/managed-encryption.md`.
+ */
+
+export const managedEncryptionWorkspaceState = v.union(
+  /** In the rollout's scope; the walk has not started. Objects are plain. */
+  v.literal("waiting"),
+  /** Sealing plain objects page by page. Reads accept both. */
+  v.literal("encrypting"),
+  /** Every object reads back sealed and opens. Reads still accept both. */
+  v.literal("checking"),
+  /** Checked. Reads refuse a plain body. New saves are sealed. */
+  v.literal("encrypted"),
+  /** The walk stopped on a problem. Reads accept both; staff retry. */
+  v.literal("failed"),
+);
+
+export const managedEncryptionTables = {
+  /**
+   * At most one row: the rollout. Absent means off and never started.
+   *
+   * `acceptsNew` is whether a workspace joins the rollout when it first gets a
+   * managed bucket. "Stop starting new workspaces" clears it and leaves every
+   * workspace already encrypting or encrypted exactly as it is: turning the
+   * rollout off never makes an encrypted workspace plain.
+   */
+  managedEncryptionRollout: defineTable({
+    state: v.union(
+      v.literal("off"),
+      v.literal("running"),
+      v.literal("paused"),
+      v.literal("failed"),
+      v.literal("complete"),
+    ),
+    scope: v.union(v.literal("ours"), v.literal("picked"), v.literal("all")),
+    acceptsNew: v.boolean(),
+    startedBy: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    changedBy: v.optional(v.string()),
+    pauseReason: v.optional(v.string()),
+    updatedAt: v.number(),
+  }),
+
+  /**
+   * One row per managed workspace the rollout has reached. Only read while
+   * the workspace's binding is its managed bucket; a hand-off to the
+   * customer's own bucket deletes the row at cutover, so a later move back
+   * starts plain rather than inheriting "encrypted".
+   */
+  managedEncryptionWorkspaces: defineTable({
+    workspaceId: v.id("workspaces"),
+    state: managedEncryptionWorkspaceState,
+    /**
+     * Within `encrypting`: `count` lists once for the total, `seal` seals.
+     * `checking` is its own state. Absent before the walk starts.
+     */
+    phase: v.optional(v.union(v.literal("count"), v.literal("seal"), v.literal("check"))),
+    /** The walk's listing cursor within its current phase. */
+    cursor: v.optional(v.string()),
+    filesDone: v.number(),
+    filesTotal: v.optional(v.number()),
+    /** Stable code only, never a message: `VERIFY_FAILED`, `KEY_UNAVAILABLE`… */
+    errorCode: v.optional(v.string()),
+    /** Bumped on every run the walk schedules, so a stale run stops itself. */
+    runId: v.number(),
+    completedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_state", ["state"]),
+};

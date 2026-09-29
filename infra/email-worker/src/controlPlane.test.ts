@@ -176,12 +176,26 @@ describe("the request cannot name a context", () => {
 
   it("reads the free tier's note cap beside the binding, and nothing else as one", async () => {
     const capped = client({ binding: { status: "active" }, noteCap: 1000 });
-    expect(await capped.plane.getBinding("ticket-1")).toEqual({ binding: { status: "active" }, noteCap: 1000 });
+    expect(await capped.plane.getBinding("ticket-1")).toEqual({
+      binding: { status: "active" },
+      noteCap: 1000,
+      managedEncryption: null,
+      encryptionKey: null,
+    });
     for (const noteCap of [undefined, 0, -1, 1.5, "1000", null]) {
       const { plane } = client({ binding: { status: "active" }, noteCap });
       expect((await plane.getBinding("ticket-1"))?.noteCap, String(noteCap)).toBeNull();
     }
     expect(await client({ binding: null }).plane.getBinding("ticket-1")).toBeNull();
+  });
+
+  it("carries managed-storage encryption's mode and key beside the binding, never inside it", async () => {
+    const key = { current: "k1", keys: { k1: "AAAA" } };
+    const { plane } = client({ binding: { status: "active" }, managedEncryption: { mode: "encrypted" }, encryptionKey: key });
+    const opened = await plane.getBinding("ticket-1");
+    expect(opened?.managedEncryption).toEqual({ mode: "encrypted" });
+    expect(opened?.encryptionKey).toEqual(key);
+    expect(opened?.binding).toEqual({ status: "active" });
   });
 
   it("carries its own secret, not the gateway's", async () => {

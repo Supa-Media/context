@@ -10,6 +10,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { R2_CREDENTIAL_SETTLE_MS } from "../cloudflare";
+import { enrollNewManagedWorkspace } from "../managedEncryptionFns/rollout";
 
 /**
  * Bind the bucket, then let verification mark the plan ready.
@@ -62,6 +63,9 @@ export async function completeManagedProvisioningHandler(
       // endpoint, and nothing about what is in it.
       details: { bucket: args.bucket },
     });
+    // Joins the encryption rollout when staff set it to cover every managed
+    // workspace; a no-op otherwise.
+    await enrollNewManagedWorkspace(ctx, args.workspaceId);
   }
   return null;
 }

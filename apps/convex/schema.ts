@@ -19,6 +19,7 @@ import { organizerTables } from "./functions/lib/schema/organizer";
 import { jevTables } from "./functions/lib/schema/jev";
 import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
+import { managedEncryptionTables } from "./functions/lib/schema/managedEncryption";
 
 /**
  * Control-plane schema for Context.
@@ -69,6 +70,7 @@ const schema = defineSchema({
   ...jevTables,
   ...faceTables,
   ...waitlistTables,
+  ...managedEncryptionTables,
 });
 
 export default schema;

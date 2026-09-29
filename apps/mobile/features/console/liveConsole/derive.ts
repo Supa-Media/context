@@ -218,6 +218,7 @@ export function consoleStorageFrom(
           handoffObjectsTotal: binding.handoffObjectsTotal,
           handoffObjectsProcessed: binding.handoffObjectsProcessed,
           handoffErrorCode: binding.handoffErrorCode,
+          encryption: binding.encryption ?? undefined,
         };
   return storage;
 }

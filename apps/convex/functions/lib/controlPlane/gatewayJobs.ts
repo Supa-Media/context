@@ -47,6 +47,8 @@ export interface OpenedGatewayJob {
   searchIndex?: GatewaySearchIndex;
   encryptionKey?: GatewayEncryptionKey;
   rotation?: GatewayKeyRotation;
+  /** Managed-storage encryption mode, as on `OpenedGatewayBinding`. */
+  managedEncryption?: { mode: "migrating" | "encrypted" };
 }
 
 export function gatewayJobError(message: string | undefined): string | undefined {

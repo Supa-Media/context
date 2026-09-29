@@ -10,12 +10,18 @@ import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import type { QueryCtx } from "../../../_generated/server";
-import type { Id } from "../../../_generated/dataModel";
+import type { Doc, Id } from "../../../_generated/dataModel";
 import { maskAccessKeyId } from "../crypto";
 import { managedBucketName } from "../managedStorage";
 import { requireWorkspaceAccess } from "../workspaceAuth";
 import { storageLayoutStateValidator } from "../storageLayout";
 import { capabilitiesValidator } from "./shapes";
+import {
+  bindingIsManaged,
+  ownerViewFor,
+  workspaceEncryptionRow,
+  type OwnerEncryptionView,
+} from "../managedEncryptionFns/state";
 
 export const getStorageBindingArgs = { workspaceId: v.id("workspaces") };
 
@@ -145,6 +151,21 @@ export const getStorageBindingReturns = v.union(
     handoffObjectsTotal: v.optional(v.number()),
     handoffObjectsProcessed: v.optional(v.number()),
     handoffErrorCode: v.optional(v.string()),
+    encryption: v.optional(
+      v.union(
+        v.null(),
+        v.object({
+          state: v.union(
+            v.literal("encrypting"),
+            v.literal("checking"),
+            v.literal("encrypted"),
+            v.literal("paused"),
+          ),
+          filesDone: v.optional(v.number()),
+          filesTotal: v.optional(v.number()),
+        }),
+      ),
+    ),
   }),
 );
 
@@ -221,5 +242,25 @@ export async function getStorageBindingHandler(
     handoffObjectsTotal: customerHandoff?.objectsTotal,
     handoffObjectsProcessed: customerHandoff?.objectsProcessedInPhase,
     handoffErrorCode: customerHandoff?.errorCode,
+    encryption: await encryptionViewFor(ctx, binding, isOwner),
   };
+}
+
+/**
+ * Managed-storage encryption, as Settings > Storage shows it. `null` hides
+ * the row: a customer-owned bucket, or a managed one the rollout has not
+ * reached. File counts are owner-only for the same reason `noteCount` is:
+ * they are a number about notes a member may not be able to read.
+ */
+async function encryptionViewFor(
+  ctx: QueryCtx,
+  binding: Doc<"storageBindings">,
+  isOwner: boolean,
+): Promise<OwnerEncryptionView | null> {
+  if (!bindingIsManaged(binding)) return null;
+  const row = await workspaceEncryptionRow(ctx, binding.workspaceId);
+  const rollout = await ctx.db.query("managedEncryptionRollout").first();
+  const view = ownerViewFor(row, rollout?.state ?? null);
+  if (view === null || isOwner) return view;
+  return { state: view.state };
 }

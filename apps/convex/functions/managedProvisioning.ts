@@ -10,6 +10,7 @@ import {
 } from "../_generated/server";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import {
   reconcileMigrationPage,
   type MigrationStore,
@@ -594,7 +595,18 @@ export const runManagedStorageMigration = internalAction({
         requireKeyset(),
         { workspaceId: args.workspaceId },
       );
-      const source = storeForBinding(sourceCredential, undefined, { rawObjects: true });
+      // Leaving managed storage: the source is read through its encryption,
+      // so the customer's bucket gets plain files and the byte comparison in
+      // `reconcileMigrationObject` compares plain with plain. Moving in, the
+      // source is the customer's own bucket and has none.
+      const sourceEncryption =
+        migration.direction === "to_customer"
+          ? await managedEncryptionOption(ctx, args.workspaceId)
+          : null;
+      const source = storeForBinding(sourceCredential, undefined, {
+        rawObjects: true,
+        managedEncryption: sourceEncryption,
+      });
       const target = storeForBinding(
         migrationTargetCredential(migration, secretAccessKey),
         undefined,

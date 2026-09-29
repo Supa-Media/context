@@ -10,6 +10,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { managedBucketName } from "../managedStorage";
+import { enrollNewManagedWorkspace, forgetWorkspaceEncryption } from "../managedEncryptionFns/rollout";
 
 /** Atomically replace only the exact source binding the copy began from. */
 export async function finishManagedStorageMigrationHandler(
@@ -63,6 +64,10 @@ export async function finishManagedStorageMigrationHandler(
     forcePathStyle: migration.targetForcePathStyle,
   });
   await ctx.db.delete(migration._id);
+  // Their files are plain in their own bucket now. Nothing about the managed
+  // bucket's encryption may follow them if they ever move back.
+  if (toCustomer) await forgetWorkspaceEncryption(ctx, args.workspaceId);
+  else await enrollNewManagedWorkspace(ctx, args.workspaceId);
   if (plan !== null && toCustomer) {
     await ctx.db.patch(plan._id, {
       managedStorage: false,
