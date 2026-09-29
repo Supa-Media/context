@@ -19,6 +19,10 @@
  *    Context keeps the `+tag` (`normalizeEmail` only trims and lowercases), so
  *    to Context they are three different people.
  *
+ * The new workspace is taken to Premium with staging's no-card upgrade
+ * (`billing.activateTestPremium`, refused outside staging). It has no storage
+ * yet, so the upgrade selects fast search only and no managed bucket is made.
+ *
  * One staff action stands in for a step outside this backend: invites unlock
  * once somebody's AI client has connected, and here staff give the new person
  * an invite instead (the console's "give more invites", which also unlocks).
@@ -219,6 +223,16 @@ try {
     displayName: `E2E Studio ${run}`,
     kind: "shared",
   });
+  const plan = await member.convex.query(ref("functions/billing:status"), { workspaceId: team.workspaceId });
+  assert.equal(plan.status, "none", "a new workspace does not start on the free plan");
+  assert.deepEqual(
+    await member.convex.mutation(ref("functions/billing:activateTestPremium"), { workspaceId: team.workspaceId }),
+    { active: true },
+  );
+  const upgraded = await member.convex.query(ref("functions/billing:status"), { workspaceId: team.workspaceId });
+  assert.equal(upgraded.status, "active", "staging's Premium upgrade did not take");
+  pass("premium: the workspace starts free and staging's upgrade turns Premium on without a card");
+
   const teammate = newInbox("teammate");
   await expectRefused(teammate.email);
   await member.convex.mutation(ref("functions/invitations:inviteMember"), {
@@ -269,7 +283,8 @@ try {
   const traced = referrals.rows.find((r) => r.email === friend.email);
   assert.equal(traced?.status, "joined");
   assert.equal(traced?.inviterHandle, handle);
-  console.log(`  staff counts: waitlist ${JSON.stringify(waiting.counts)}, referrals ${JSON.stringify(referrals.counts)}`);
+  const counts = (await staff.query(ref("functions/admin:listWaitlist"), { status: "waiting" })).counts;
+  console.log(`  staff counts: waitlist ${JSON.stringify(counts)}, referrals ${JSON.stringify(referrals.counts)}`);
   pass("staff see the referral as joined, credited to the person who sent it");
 } finally {
   for (const convex of accounts.reverse()) {

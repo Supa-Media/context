@@ -7,8 +7,8 @@
  * step green but breaks the hand-off between two of them fails here: somebody
  * joins from the homepage, staff read why and let them in, the "you're in" mail
  * brings them back, they sign in with the code from their mail, make a
- * workspace, and bring in a teammate and a friend, each of whom gets in the
- * same way. Staff's counts are checked at the end.
+ * workspace, take Premium, and bring in a teammate and a friend, each of whom
+ * gets in the same way. Staff's counts are checked at the end.
  *
  * Nothing here is seeded that the product could not reach itself, with two
  * named exceptions: the staff account (an `ADMIN_EMAILS` address, which is how
@@ -31,6 +31,7 @@
  *   `communityLinks` returning members-only links when signed out     1
  *   pending workspace invitation no longer admitting its invitee      1
  *   referral clause removed from `isAdmitted`                         2
+ *   `activateTestPremium` no longer limited to staging                1
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -51,6 +52,9 @@ const ENV_KEYS = [
   "SITE_URL",
   "CONVEX_SITE_URL",
   "JWT_PRIVATE_KEY",
+  "APP_ENV",
+  "STAGING_CONVEX_DEPLOYMENT",
+  "CONVEX_CLOUD_URL",
 ] as const;
 
 interface Mail {
@@ -327,6 +331,30 @@ describe("off the waitlist: an account, a workspace, and bringing people in", ()
     const members = await asUser(t, maya).query(api.functions.workspaces.listMembers, { workspaceId: acme });
     expect(members.map((member) => member.role).sort()).toEqual(["editor", "owner"]);
     expect(await t.run(async (ctx) => ctx.db.query("waitlist").collect())).toHaveLength(1);
+  });
+
+  test("somebody let in starts free and can take Premium, which staging gives without a card", async () => {
+    const t = setupTest();
+    const { userId: maya } = await joinAndGetLetIn(t, "maya@acme.test", "Agency client notes");
+    const acme = await createWorkspace(t, maya, "acme-studio", { kind: "shared", displayName: "Acme Studio" });
+    const owner = asUser(t, maya);
+    expect(await owner.query(api.functions.billing.status, { workspaceId: acme })).toMatchObject({ status: "none" });
+
+    // Outside staging the only way to Premium is checkout: the free upgrade is
+    // refused however the account got in.
+    await expect(owner.mutation(api.functions.billing.activateTestPremium, { workspaceId: acme })).rejects.toMatchObject({
+      data: expect.objectContaining({ code: "FORBIDDEN" }),
+    });
+
+    process.env.APP_ENV = "staging";
+    process.env.APP_ORIGIN = "https://staging.context.lc";
+    process.env.STAGING_CONVEX_DEPLOYMENT = "example-deployment";
+    process.env.CONVEX_CLOUD_URL = "https://example-deployment.convex.cloud";
+    expect(await owner.mutation(api.functions.billing.activateTestPremium, { workspaceId: acme })).toEqual({ active: true });
+    expect(await owner.query(api.functions.billing.status, { workspaceId: acme })).toMatchObject({
+      status: "active",
+      active: { fastSearch: true },
+    });
   });
 
   test("a friend invited to Context gets in, and staff can trace who brought whom", async () => {

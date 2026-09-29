@@ -162,8 +162,8 @@ Ordinary registration and production reservation rules stay in effect.
 **Actions → Waitlist Live (staging)** walks invite-only sign-in end to end with
 real mail: a stranger joins from the homepage with a reason, staff (the alpha
 persona, which must be in staging's `ADMIN_EMAILS`) let them in, the mailed
-code signs them in, and they invite a teammate into a new workspace and a
-friend to Context. The three people are `+tag` addresses on one AgentMail
+code signs them in, they take a new workspace to Premium with staging's
+no-card upgrade, and they invite a teammate into it and a friend to Context. The three people are `+tag` addresses on one AgentMail
 inbox (`AGENTMAIL_INBOX`, read with `AGENTMAIL_API_KEY`), codes and links are
 read from it, and the run deletes the accounts and link it made. The same journeys run on every pull request against a fake mailbox in
 `apps/convex/__tests__/waitlistJourney.test.ts`.
