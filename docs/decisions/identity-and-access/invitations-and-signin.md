@@ -245,3 +245,33 @@ the person it is for arrived through somebody else's invitation and has no
 reason to suspect the product does anything else. It is a callback rather than
 a `ConsoleRoute`: `/welcome` is not under `/console`, and putting it in that
 union would have `routeForPath` pretending to parse a URL it never sees.
+
+### Sign-in is invite-only, and the lock is on the server
+
+Decided by the owner (Dev2, 2026-09-28): Context is closed to early adopters.
+Anybody can put their address on the waitlist; only an **admitted** address is
+mailed a sign-in code or given an account. The waitlist and sign-in are one
+email field, on the homepage (in the page, above the note, never a redirect)
+and on `/login`, and the page says "you're on the list" right away rather than
+only by email (2026-09-29) — so whether an address is let in is knowable by
+anybody who types it. That was chosen knowingly: it is an early-access list,
+and a removed row reads exactly like a waiting one.
+
+What admits an address is one function, `isAdmitted` in
+`functions/lib/waitlist.ts`: `OPEN_SIGNUP=true`, an existing account, the staff
+allowlist, a pending unexpired invitation to a workspace, or a waitlist row
+staff admitted. **Existing accounts are never asked**, so turning the gate on
+locks nobody out, and a member inviting a teammate is letting them in.
+
+The page asks `waitlist.enter` and draws the answer; that is the explanation,
+not the lock. The lock is `createSupaAuth`'s `admission` hooks in
+`apps/convex/auth.ts`: `canCreateUser` refuses a new account for every provider
+(it runs when `@convex-dev/auth` mints a code, so a stranger's email OTP or
+public magic-link request writes nothing), and `canReceiveEmailCode` refuses the
+mail. A "simplification" that gates only the UI would let anybody call
+`signIn("email")` directly. `__tests__/waitlist.test.ts` fails if either hook is
+unwired, and its sabotage record says by how much.
+
+Self-hosters get the same gate; their `ADMIN_EMAILS` are admitted, and
+`OPEN_SIGNUP=true`, set by hand, reopens sign-up. A deploy never sets it
+(`deployEnv.test.ts`).

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { MirrorStatus } from "../offline/mirrorStatus";
 import type { MeetingDestination } from "../meetings/destination";
 import type { ActivityView } from "./activity/activity";
@@ -368,6 +369,11 @@ export interface VisitorActions {
   /** For somebody not signed in. */
   signIn?: () => void;
   createAccount?: () => void;
+  /**
+   * The homepage's one email field (`JoinCard`): sign in if you're let in,
+   * join the waitlist if not. Drawn above the note being read.
+   */
+  join?: ReactNode;
   /** For somebody signed in who came to the homepage: back to their console. */
   openApp?: () => void;
   /** Share, for somebody with no workspace: copy the page's public link. */

@@ -62,6 +62,10 @@ Moved to [The two onboarding gates ask two different questions](./identity-and-a
 
 Moved to […and a third question nobody was asking: how do you get one?](./identity-and-access/invitations-and-signin.md#and-a-third-question-nobody-was-asking-how-do-you-get-one).
 
+### Sign-in is invite-only, and the lock is on the server
+
+Moved to [Sign-in is invite-only, and the lock is on the server](./identity-and-access/invitations-and-signin.md#sign-in-is-invite-only-and-the-lock-is-on-the-server).
+
 ### The hook is a capture-only OAuth client, and that is the whole design
 
 Moved to [The hook is a capture-only OAuth client, and that is the whole design](./identity-and-access/agents-and-workspace-identity.md#the-hook-is-a-capture-only-oauth-client-and-that-is-the-whole-design).

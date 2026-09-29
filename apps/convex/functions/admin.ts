@@ -68,6 +68,14 @@ import {
   setSecretHandler,
   type AdminSecretRow,
 } from "./lib/adminFns/secrets";
+import {
+  addEmailsHandler,
+  admitHandler,
+  listWaitlistHandler,
+  removeHandler,
+  waitlistRowValidator,
+  waitlistStatusValidator,
+} from "./lib/adminFns/waitlist";
 
 export { COUNT_CEILING, ROSTER_LIMIT };
 export type { AdminSecretRow, CountedTotal, MetricSeries };
@@ -194,6 +202,73 @@ export const setJevSwitch = mutation({
     const result = await setJevSwitchHandler(ctx, args);
     console.log(JSON.stringify({ event: "jev_switch", feature: result.feature, off: result.off, by: actor.userId }));
     return result;
+  },
+});
+
+// -- the waitlist ---------------------------------------------------------
+
+/**
+ * Who is waiting to be let in. See `lib/waitlist.ts` for what admits an
+ * address and `lib/adminFns/waitlist.ts` for the handlers.
+ */
+export const listWaitlist = query({
+  args: { status: waitlistStatusValidator },
+  returns: v.object({
+    rows: v.array(waitlistRowValidator),
+    more: v.boolean(),
+    counts: v.object({ waiting: v.number(), admitted: v.number() }),
+  }),
+  handler: async (ctx, args) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await listWaitlistHandler(ctx, args.status);
+  },
+});
+
+/** Let people in. Each is mailed "you're in" once. */
+export const admitWaitlist = mutation({
+  args: { ids: v.array(v.id("waitlist")) },
+  returns: v.object({ changed: v.number() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await admitHandler(ctx, args.ids, actor);
+  },
+});
+
+/** Take people off the list. They are not told. */
+export const removeFromWaitlist = mutation({
+  args: { ids: v.array(v.id("waitlist")) },
+  returns: v.object({ changed: v.number() }),
+  handler: async (ctx, args) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await removeHandler(ctx, args.ids);
+  },
+});
+
+/** Let pasted addresses in before they ask. */
+export const addToWaitlist = mutation({
+  args: { emails: v.string() },
+  returns: v.object({ changed: v.number(), invalid: v.array(v.string()) }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await addEmailsHandler(ctx, args.emails, actor);
   },
 });
 

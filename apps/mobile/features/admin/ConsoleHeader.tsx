@@ -1,5 +1,5 @@
 /**
- * The top of the staff console: its name, the four tabs, and the window.
+ * The top of the staff console: its name, the tabs, and the window.
  *
  * The tabs and the window picker used to be `Button`s, with the chosen one
  * drawn as the hero call to action — twice the padding of its siblings and a

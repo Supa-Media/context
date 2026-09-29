@@ -31,6 +31,22 @@ jest.mock("@convex-dev/auth/react", () => ({
   }),
 }));
 
+// `waitlist.enter` decides whether the address goes on to a code. Each test
+// sets the answer; `mockEntered` records what was asked.
+let mockStatus: "admitted" | "joined" | "already" = "admitted";
+const mockEntered: Array<Record<string, unknown>> = [];
+const mockDescribed: Array<Record<string, unknown>> = [];
+jest.mock("convex/react", () => ({
+  useMutation: (ref: unknown) => async (args: Record<string, unknown>) => {
+    if ("useFor" in args) {
+      mockDescribed.push(args);
+      return null;
+    }
+    mockEntered.push(args);
+    return { status: mockStatus };
+  },
+}));
+
 jest.mock("../features/auth/landing", () => ({
   landAfterSignIn: jest.fn(),
 }));
@@ -87,10 +103,13 @@ describe("the code field", () => {
 describe("signing in", () => {
   test("an address asks for a code, and the code screen says what the backend really sends", async () => {
     mockCalls.length = 0;
+    mockEntered.length = 0;
+    mockStatus = "admitted";
     const view = mount();
-    expect(view.text()).toContain("Tell one AI once");
+    expect(view.text()).toContain("Invite only for now");
     await view.type("login-email", "Seyi@Example.com ");
     await view.press("login-submit");
+    expect(mockEntered).toEqual([{ email: "seyi@example.com", source: "login" }]);
     expect(mockCalls).toEqual([{ email: "seyi@example.com" }]);
     // Six digits and ten minutes are `@supa-media/convex`'s, not ours to change.
     expect(view.text()).toContain("six-digit code");
@@ -123,6 +142,17 @@ describe("signing in", () => {
     view.unmount();
   });
 
+  test("the fixed-code test account is not asked about the waitlist", async () => {
+    mockCalls.length = 0;
+    mockEntered.length = 0;
+    const view = mount();
+    await view.type("login-email", "agentseyi@agentmail.to");
+    await view.press("login-submit");
+    expect(mockEntered).toEqual([]);
+    expect(mockCalls).toEqual([{ email: "agentseyi@agentmail.to" }]);
+    view.unmount();
+  });
+
   test("the illustration never shows a code somebody could type", () => {
     // Rendered directly: on the screen it is only drawn on a wide window, and a
     // test that skipped itself when it was not drawn would check nothing.
@@ -136,6 +166,42 @@ describe("signing in", () => {
     expect(container.textContent).not.toMatch(/\d{6}/);
     act(() => root.unmount());
     container.remove();
+  });
+});
+
+/*
+  Invite-only (2026-09-28): an address nobody has let in is put on the list
+  right here, and never asks for a code.
+*/
+describe("somebody not let in yet", () => {
+  test("joins the list in place, and can say what they'd use it for once", async () => {
+    mockCalls.length = 0;
+    mockDescribed.length = 0;
+    mockStatus = "joined";
+    const view = mount();
+    await view.type("login-email", "jon@studio.test");
+    await view.press("login-submit");
+    expect(mockCalls).toEqual([]);
+    expect(view.text()).toContain("You're on the list");
+    expect(view.text()).toContain("jon@studio.test");
+    await view.type("waitlist-use-for", "agency notes");
+    await view.press("waitlist-use-for-send");
+    expect(mockDescribed).toEqual([{ email: "jon@studio.test", useFor: "agency notes" }]);
+    expect(view.byId("waitlist-use-for")).toBeNull();
+    view.unmount();
+  });
+
+  test("is told they are already on the list, and can use another address", async () => {
+    mockCalls.length = 0;
+    mockStatus = "already";
+    const view = mount();
+    await view.type("login-email", "jon@studio.test");
+    await view.press("login-submit");
+    expect(mockCalls).toEqual([]);
+    expect(view.text()).toContain("You're already on the list");
+    await view.press("waitlist-change-email");
+    expect(view.byId("login-email")).not.toBeNull();
+    view.unmount();
   });
 });
 
@@ -156,7 +222,7 @@ describe("the request screen on a phone", () => {
   test("says what happens in plain words", () => {
     atWidth(390);
     const view = mount();
-    expect(view.text()).toContain("We'll email you a code. There's no password to remember.");
+    expect(view.text()).toContain("Already in? We'll email you a code. Not yet? We'll add you to the waitlist.");
     expect(view.text()).not.toContain("control plane");
     view.unmount();
   });

@@ -63,6 +63,9 @@ const SET_ELSEWHERE: Record<string, string> = {
   FREE_MANAGED_STORAGE:
     "an emergency brake set by hand to exactly `disabled`; normal production is on when " +
     "the managed account is configured, and a deploy must not silently disable existing signup",
+  OPEN_SIGNUP:
+    "a self-host's switch back to open sign-up, set by hand; our deployments are invite-only " +
+    "and a deploy must never be able to open them",
   HOME_SITE_HANDLE:
     "a self-host's own homepage handle; our deployments leave it unset and get the " +
     "default, `context-lc`, which is also the router's default",

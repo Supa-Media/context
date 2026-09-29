@@ -1,6 +1,8 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
 import { reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { mayCreateUser } from "./functions/lib/waitlist";
+import { internal } from "./_generated/api";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -18,6 +20,16 @@ sealDevOtpBypass();
 export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth({
   appName: "Context",
   methods: ["email"],
+  // Invite-only (Dev2, 2026-09-28). A stranger is not mailed a code and not
+  // given an account until their address is let in: an existing account, a
+  // pending invitation, the staff allowlist or an admitted waitlist row. The
+  // page asks `waitlist.enter` first and draws "you're on the list"; these two
+  // are what make that answer binding. See `functions/lib/waitlist.ts`.
+  admission: {
+    canReceiveEmailCode: (ctx, email) =>
+      ctx.runQuery(internal.functions.waitlist.admitted, { email }),
+    canCreateUser: (ctx, who) => mayCreateUser(ctx.db as never, who),
+  },
   resend: {
     fromAddress: process.env.AUTH_EMAIL_FROM ?? "auth@context.com",
     emailSubject: (code) => `${code} is your Context code`,

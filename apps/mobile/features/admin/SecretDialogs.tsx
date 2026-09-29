@@ -55,13 +55,16 @@ import { KNOWN_SECRETS, type KnownSecret } from "./report";
  *
  * Never `String(error)`: see the header.
  */
-export function messageFor(error: unknown): string {
+export function messageFor(
+  error: unknown,
+  fallback = "That did not work. Check the name and try again.",
+): string {
   const data = (error as { data?: unknown })?.data;
   if (data !== null && typeof data === "object" && "message" in data) {
     const message = (data as { message?: unknown }).message;
     if (typeof message === "string" && message.length > 0) return message;
   }
-  return "That did not work. Check the name and try again.";
+  return fallback;
 }
 
 // -- the shell ------------------------------------------------------------

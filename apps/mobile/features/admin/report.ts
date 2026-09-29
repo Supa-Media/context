@@ -237,7 +237,7 @@ export function formatTotal(total: CountedTotal): string {
 // -- the census -----------------------------------------------------------
 
 /**
- * The four jobs the staff console does, as tabs.
+ * The jobs the staff console does, as tabs.
  *
  * They were one scroll: eleven identical tiles, then a credential form. The
  * problem was not length, it was that "how is the product doing" and "set a
@@ -251,6 +251,7 @@ export const ADMIN_TABS = [
   { key: "estate", label: "Estate" },
   { key: "activity", label: "Activity" },
   { key: "credentials", label: "Credentials" },
+  { key: "waitlist", label: "Waitlist" },
 ] as const;
 
 export type AdminTab = (typeof ADMIN_TABS)[number]["key"];

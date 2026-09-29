@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -42,6 +42,8 @@ export interface TextFieldProps extends TextInputProps {
   labelHidden?: boolean;
   testID?: string;
   containerStyle?: ViewStyle;
+  /** Reaches the `TextInput` (React 19 passes `ref` as a prop), to focus it. */
+  ref?: Ref<TextInput>;
 }
 
 export function TextField({

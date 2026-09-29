@@ -21,7 +21,7 @@ nav: 0
 
 Context is a notes app your team writes in, and so do Claude, ChatGPT, Cursor and any other AI tool that speaks MCP. Every note is a plain Markdown file in storage you own.
 
-[<kbd>Create your workspace</kbd>](/login)
+[<kbd>Join the waitlist</kbd>](/login)
 
 You're reading a workspace in Context right now. The pages in the sidebar are notes, and this site is built from them. Open a few, or press <kbd>⌘K</kbd> to search.
 
@@ -94,7 +94,7 @@ It finds the tools you have installed, connects each one, and adds the Context s
 - Catch up on what changed since it last looked
 - Save the important parts of a conversation before it ends
 
-[<kbd>Create your workspace</kbd>](/login)
+[<kbd>Join the waitlist</kbd>](/login)
 `,
   "your-files": `---
 title: Your files
@@ -166,7 +166,7 @@ We create the bucket and pay for it. Early tester price, held for as long as you
 - Up to 50 GB of storage, with nothing to set up
 - Fast Search, which keeps a rebuildable copy of your text in a database we run
 
-[<kbd>Create your workspace</kbd>](/login)
+[<kbd>Join the waitlist</kbd>](/login)
 `,
   "open-source": `---
 title: Open source

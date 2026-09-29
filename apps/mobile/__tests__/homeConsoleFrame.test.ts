@@ -146,16 +146,31 @@ describe("the homepage is the console's frame", () => {
     expect(home.find("account-switcher")!.getAttribute("aria-label")).toMatch(/^Visitor, in @context/);
   });
 
-  test("the account button offers a way in, and nothing an account has", () => {
+  /*
+    Invite-only (Dev2, 2026-09-28): one way in, "Sign in or join", and it
+    answers on this page. The email field is drawn above the note being read,
+    and the menu row focuses it rather than opening /login.
+  */
+  test("the account button offers one way in, and it stays on the page", () => {
     const home = mountHome();
+    expect(home.find("join-card")).not.toBeNull();
     home.press(home.find("account-switcher"));
     expect(home.find("switcher-sign-in")).not.toBeNull();
-    expect(home.find("switcher-create-account")).not.toBeNull();
+    expect(home.find("switcher-create-account")).toBeNull();
     for (const absent of ["switcher-sign-out", "switcher-settings", "switcher-meetings", "switcher-new"]) {
       expect({ absent, drawn: home.find(absent) !== null }).toEqual({ absent, drawn: false });
     }
     home.press(home.find("switcher-sign-in"));
-    expect(mockPushed).toContain("/login");
+    expect(mockPushed).not.toContain("/login");
+    const field = home.find("join-email");
+    expect(field).not.toBeNull();
+    expect(document.activeElement).toBe(field);
+  });
+
+  test("somebody signed in has no join card", () => {
+    mockAuth.isAuthenticated = true;
+    const home = mountHome();
+    expect(home.find("join-card")).toBeNull();
   });
 
   test("somebody signed in is not called a visitor, and is offered their workspaces", () => {
@@ -281,8 +296,9 @@ describe("the homepage is the console's frame", () => {
     expect(pill!.textContent).toContain("Sign in");
     home.press(home.find("account-menu"));
     expect(home.find("menu-sheet")).not.toBeNull();
-    expect(home.find("switcher-sign-in")).not.toBeNull();
-    expect(home.find("switcher-create-account")!.textContent).toContain("Create workspace");
+    // Invite-only: one row, "Sign in or join", and no "Create workspace".
+    expect(home.find("switcher-sign-in")!.textContent).toContain("Sign in or join");
+    expect(home.find("switcher-create-account")).toBeNull();
     expect(home.find("switcher-sign-out")).toBeNull();
   });
 
