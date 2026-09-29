@@ -41,64 +41,65 @@ jobs:
 
       # The Playwright container runs as a different user from the checkout's
       # owner, and `actions/checkout` marks it safe only in a temporary HOME.
-      # On push events paths-filter runs git locally, which then refuses the
-      # repository ("dubious ownership") before any test starts.
+      # The scope step runs git locally, which then refuses the repository
+      # ("dubious ownership") before any test starts.
       - name: Trust the checkout inside the container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # Required checks still have to report on unrelated pull requests. Keep
-      # the trigger broad, detect changes inside the job, and skip only the
-      # expensive setup and browser work.
-      - name: Does this touch collaboration or what the browser build uses?
-        uses: dorny/paths-filter@v3
-        id: changes
+      # Required checks still have to report on unrelated pull requests, so the
+      # job always starts and only the expensive steps skip. The scope is the
+      # files this run executes: the root layout and the collaboration fixture
+      # the harness opens (/e2e-fixture?screen=collaboration, through the two
+      # routing files under paths), the test Worker and harness, and
+      # everything they import (scripts/import-reach.mjs). An app change
+      # outside that graph, such as another console screen or most of the
+      # Convex backend, cannot change what this run proves.
+      - name: Does this touch what the collaboration run executes?
+        uses: ./.github/actions/ci-scope
+        id: scope
         with:
-          filters: |
-            browser:
-              - "apps/convex/**"
-              - "apps/mcp/**"
-              - "apps/mobile/**"
-              - "packages/collaboration/**"
-              - "packages/communications/**"
-              - "packages/desktop-bridge/**"
-              - "packages/drawings/**"
-              - "packages/meetings/**"
-              - "packages/obsidian-runtime/**"
-              - "packages/shared/**"
-              - ".npmrc"
-              - "package.json"
-              - "pnpm-lock.yaml"
-              - "pnpm-workspace.yaml"
-              - "patches/**"
-              - ".github/workflows/collaboration.yml"
+          packages: "@context/collaboration"
+          entries: |
+            apps/mobile/app/_layout.tsx
+            apps/mobile/features/e2e/collaboration/Fixture.tsx
+            apps/mobile/e2e/webkit/static-server.mjs
+            apps/mcp/test/browser/verifyEditor.mjs
+            apps/mcp/test/browser/editor-worker.ts
+            apps/mcp/test/localControlPlane.mjs
+          paths: |
+            apps/mobile/app/e2e-fixture.tsx
+            apps/mobile/features/e2e/FixtureScreen.tsx
+            apps/mcp/test/browser/**
+            apps/mcp/wrangler.editor-verify.toml
+            .github/workflows/collaboration.yml
 
       - uses: pnpm/action-setup@v4
-        if: steps.changes.outputs.browser == 'true'
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
-        if: steps.changes.outputs.browser == 'true'
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
-        if: steps.changes.outputs.browser == 'true'
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Verify durable history and interrupted storage operations
-        if: steps.changes.outputs.browser == 'true'
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm --filter @context/collaboration test
 
       - name: Build the actual app with its local-only test screen
-        if: steps.changes.outputs.browser == 'true'
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm --filter @context/mobile exec expo export --platform web --output-dir web-build
 
       - name: Exercise production editor and gateway against local R2
-        if: steps.changes.outputs.browser == 'true'
+        if: steps.scope.outputs.affected == 'true'
         run: node apps/mcp/test/browser/verifyEditor.mjs
 
       - name: Keep evidence for failures and passes
-        if: always() && steps.changes.outputs.browser == 'true'
+        if: always() && steps.scope.outputs.affected == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: collaboration-results

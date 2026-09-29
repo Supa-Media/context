@@ -10,6 +10,10 @@ inputs:
     description: Newline-separated additional repository paths or prefix/** patterns
     required: false
     default: ""
+  entries:
+    description: Newline-separated entry files; the job is affected only by the repository files they import (scripts/import-reach.mjs)
+    required: false
+    default: ""
 
 outputs:
   affected:
@@ -27,4 +31,5 @@ runs:
       env:
         CI_SCOPE_PACKAGES: ${{ inputs.packages }}
         CI_SCOPE_PATHS: ${{ inputs.paths }}
+        CI_SCOPE_ENTRIES: ${{ inputs.entries }}
       run: node scripts/ci-change-scope.mjs

@@ -17,6 +17,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const INFRA_PATHS = [".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**"];
 
+/** What the collaboration browser run mounts and drives; see collaboration.yml. */
+const COLLABORATION_ENTRIES = [
+  "apps/mobile/app/_layout.tsx",
+  "apps/mobile/features/e2e/collaboration/Fixture.tsx",
+  "apps/mcp/test/browser/verifyEditor.mjs",
+  "apps/mcp/test/browser/editor-worker.ts",
+];
+
 /** Where the editor bundle records the sources it was built from. */
 const BUNDLE = "apps/mobile/features/console/files/webview/bundle.generated.ts";
 
@@ -126,14 +134,14 @@ function stepBlocks(job) {
  * reindented file — which reads as "this job watches nothing" and would be
  * believed.
  */
-export function scopePaths(yaml, job) {
+export function scopePaths(yaml, job, key = "paths") {
   const scope = stepBlocks(jobBlock(yaml, job)).find((step) =>
     step.includes("uses: ./.github/actions/ci-scope"),
   );
   if (scope === undefined) throw new Error(`${job} has no shared CI scope step`);
   const lines = scope.split("\n");
-  const at = lines.findIndex((line) => /^\s+paths: \|\s*$/.test(line));
-  if (at === -1) throw new Error(`${job}'s scope step has no paths: | block`);
+  const at = lines.findIndex((line) => new RegExp(`^\\s+${key}: \\|\\s*$`).test(line));
+  if (at === -1) throw new Error(`${job}'s scope step has no ${key}: | block`);
   const depth = lines[at].search(/\S/);
   const paths = [];
   for (const line of lines.slice(at + 1)) {
@@ -141,7 +149,7 @@ export function scopePaths(yaml, job) {
     if (line.search(/\S/) <= depth) break;
     paths.push(line.trim());
   }
-  if (paths.length === 0) throw new Error(`${job}'s paths: | block is empty`);
+  if (paths.length === 0) throw new Error(`${job}'s ${key}: | block is empty`);
   return new Set(paths);
 }
 
@@ -372,17 +380,23 @@ export function check(root = ROOT) {
     throw new Error("WebKit summary does not retain one merged report");
   }
 
-  const collaborationBrowser = requiredPaths(
-    ["@context/mobile", "@context/mcp"],
-    ".github/workflows/collaboration.yml",
-    root,
-  );
-  assertPaths(
-    filterPaths(collaboration, "browser", "browser"),
-    collaborationBrowser,
-    "collaboration browser",
-  );
-  assertExpensiveStepsAreGated(collaboration, "browser", "browser");
+  // Scoped by what the run executes: the screen and Worker it mounts, and the
+  // harness that drives them. Losing one of these entries would shrink the
+  // scope to whatever the rest import, and skip runs that matter.
+  assertScopedJob(collaboration, "browser", ".github/workflows/collaboration.yml", ["@context/collaboration"]);
+  const collaborationEntries = scopePaths(collaboration, "browser", "entries");
+  for (const entry of COLLABORATION_ENTRIES) {
+    if (!collaborationEntries.has(entry)) throw new Error(`collaboration browser scope is missing entry ${entry}`);
+  }
+  for (const entry of collaborationEntries) {
+    if (!existsSync(join(root, entry))) throw new Error(`collaboration browser scope entry ${entry} does not exist`);
+  }
+  // The route and the switch that lead the harness to that fixture are not
+  // imported by it, so they are watched by name.
+  const collaborationPaths = scopePaths(collaboration, "browser");
+  for (const path of ["apps/mobile/app/e2e-fixture.tsx", "apps/mobile/features/e2e/FixtureScreen.tsx", "apps/mcp/test/browser/**"]) {
+    if (!collaborationPaths.has(path)) throw new Error(`collaboration browser scope does not watch ${path}`);
+  }
   const collaborationJob = jobBlock(collaboration, "browser");
   if (!collaborationJob.includes("image: mcr.microsoft.com/playwright:v1.56.1-noble")) {
     throw new Error("collaboration browser does not use the pinned browser image");
