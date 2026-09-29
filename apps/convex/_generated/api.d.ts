@@ -46,6 +46,7 @@ import type * as functions_ingestionGateway from "../functions/ingestionGateway.
 import type * as functions_invitationEmail from "../functions/invitationEmail.js";
 import type * as functions_invitations from "../functions/invitations.js";
 import type * as functions_managedHandoff from "../functions/managedHandoff.js";
+import type * as functions_handoffEmail from "../functions/handoffEmail.js";
 import type * as functions_managedProvisioning from "../functions/managedProvisioning.js";
 import type * as functions_lib_admin from "../functions/lib/admin.js";
 import type * as functions_lib_appSecrets from "../functions/lib/appSecrets.js";
@@ -121,6 +122,7 @@ declare const fullApi: ApiFromModules<{
   "functions/jev": typeof functions_jev;
   "functions/billingStripe": typeof functions_billingStripe;
   "functions/managedHandoff": typeof functions_managedHandoff;
+  "functions/handoffEmail": typeof functions_handoffEmail;
   "functions/managedProvisioning": typeof functions_managedProvisioning;
   "functions/authorizations": typeof functions_authorizations;
   "functions/cardAssets": typeof functions_cardAssets;

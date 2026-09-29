@@ -251,6 +251,8 @@ describe("managed-storage handoff", () => {
       workspaceId,
     });
     expect(ownerView?.managedRetainedUntil).toBe(plan?.managedRetainedUntil);
+    const finishedMail = jobs.find((job) => job.name.includes("sendHandoffEmail"));
+    expect(finishedMail?.args[0]).toMatchObject({ kind: "finished", recipientUserId: owner });
   });
 
   test("a workspace that switched back inside the week keeps its managed bucket", async () => {
