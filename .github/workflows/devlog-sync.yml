@@ -1,0 +1,41 @@
+name: Devlog Sync
+
+# Copy the published devlog's newest week to a draft GitHub Release and, if
+# switched on, one Discord message. Off until the owner sets the repository
+# variable DEVLOG_SYNC to "on"; Discord additionally needs DEVLOG_DISCORD set
+# to "on" and the DEVLOG_DISCORD_WEBHOOK secret. The release is only ever a
+# draft: publishing it is the owner's act. A promise in exploring stops the
+# run before anything is written. See docs/decisions/release-communication.md.
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: devlog-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: ${{ vars.DEVLOG_SYNC == 'on' }}
+    name: Copy the published week to a draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Keep the draft release in step with the page
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVLOG_CONVEX_URL: ${{ vars.DEVLOG_CONVEX_URL }}
+          DEVLOG_DISCORD: ${{ vars.DEVLOG_DISCORD }}
+          DEVLOG_DISCORD_WEBHOOK: ${{ vars.DEVLOG_DISCORD == 'on' && secrets.DEVLOG_DISCORD_WEBHOOK || '' }}
+        run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/devlog-sync.mjs

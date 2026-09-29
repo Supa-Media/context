@@ -1,0 +1,49 @@
+name: Devlog Draft
+
+# Every Monday, draft the coming devlog week from what production shipped in
+# the past seven days, for the owner to edit. It reads only: the week lands
+# in the job summary and an artifact, and nothing is written to the devlog,
+# released, or posted. See docs/decisions/release-communication.md.
+on:
+  schedule:
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+    inputs:
+      window_end:
+        description: Optional end of the seven-day window (ISO date), to redraft a past week
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  draft:
+    name: Draft the week for the owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Draft the week
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVLOG_CONVEX_URL: ${{ vars.DEVLOG_CONVEX_URL }}
+          DEVLOG_WINDOW_END: ${{ inputs.window_end }}
+        run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/devlog-draft.mjs
+
+      - name: Keep the draft
+        uses: actions/upload-artifact@v4
+        with:
+          name: devlog-draft-${{ github.run_id }}
+          path: artifacts/devlog/draft-week.md
+          if-no-files-found: error
+          retention-days: 30
