@@ -159,3 +159,18 @@ test("the filter bar's Tag menu opens under its button, and a tick narrows the l
   await page.getByTestId("folder-filter-clear").click();
   await expect(page.getByTestId("folder-item")).toHaveCount(all);
 });
+
+test("+ Add project sits at the filter row's right end, as tall as the filters", async ({ page }) => {
+  // Reported by the owner on 2026-09-29: a dialog-sized button that wrapped under the filters looked lost.
+  await open(page);
+  const add = (await page.getByTestId("folder-add-task-primary").boundingBox())!;
+  const mine = (await page.getByTestId("folder-show-mine").boundingBox())!;
+  const bar = (await page.getByTestId("folder-show-bar").boundingBox())!;
+  expect(add.height).toBeLessThanOrEqual(mine.height + 2);
+  expect(Math.abs(add.y + add.height / 2 - (mine.y + mine.height / 2))).toBeLessThan(3);
+  expect(bar.x + bar.width - (add.x + add.width)).toBeLessThan(2);
+  await page.setViewportSize({ width: 900, height: 900 });
+  const narrow = (await page.getByTestId("folder-add-task-primary").boundingBox())!;
+  const narrowMine = (await page.getByTestId("folder-show-mine").boundingBox())!;
+  expect(Math.abs(narrow.y + narrow.height / 2 - (narrowMine.y + narrowMine.height / 2))).toBeLessThan(3);
+});

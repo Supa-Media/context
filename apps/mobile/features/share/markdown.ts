@@ -170,6 +170,15 @@ export function parseInline(source: string): Inline[] {
       continue;
     }
 
+    // A backslash before ASCII punctuation is CommonMark's escape: the mark
+    // itself, never the backslash, and never the markup it would have opened.
+    const escaped = /^\\([!-/:-@[-`{-~])/.exec(rest);
+    if (escaped) {
+      plain += escaped[1];
+      i += 2;
+      continue;
+    }
+
     // An image renders as its alt text and fetches nothing. See the module
     // comment: a remote image in somebody else's note is a read receipt.
     const image = matchLink(rest, true);
