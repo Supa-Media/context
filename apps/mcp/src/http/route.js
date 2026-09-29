@@ -54,6 +54,7 @@ import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js
 import { searchBudgetFor } from "../search/budget.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
+import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -501,8 +502,12 @@ export async function route(request, env, ctx) {
         };
         targetStore.suggestDestination = (args) =>
           toolSuggestDestination(target, args, (candidate) => store.openContext(candidate));
+        // The one other name an addressed store may open, and only to read the
+        // Context.LC-wide note orient shows first. See `orient/globalNote.js`.
+        targetStore.openPinnedContext = store.openPinnedContext;
         return { session: target, store: targetStore };
       };
+      store.openPinnedContext = () => store.openContext(PINNED_CONTEXT_NAME);
 
       store.suggestDestination = (args) =>
         toolSuggestDestination(session, args, (candidate) => store.openContext(candidate));
