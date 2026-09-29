@@ -40,7 +40,7 @@ export const openStorageBindingArgs = {
  * sibling beside the binding. Absent for plain. The key is `encryptionKey`.
  */
 export const managedEncryptionSiblingValidator = v.object({
-  mode: v.union(v.literal("migrating"), v.literal("encrypted")),
+  mode: v.union(v.literal("migrating"), v.literal("encrypted"), v.literal("decrypting")),
 });
 
 export const openStorageBindingReturns = v.union(

@@ -24,7 +24,7 @@ export function EncryptionWorkspaces({ workspaces }: { workspaces: readonly Roll
     return (
       <View testID="admin-encryption-workspaces">
         {workspaces.map((workspace, index) => {
-          const pill = workspaceStatePill(workspace.state);
+          const pill = workspaceStatePill(workspace.state, workspace.errorCode);
           return (
             <ListRow
               key={workspace.workspaceId}
@@ -44,7 +44,7 @@ export function EncryptionWorkspaces({ workspaces }: { workspaces: readonly Roll
     <View testID="admin-encryption-workspaces">
       <TableHead columns={COLUMNS} />
       {workspaces.map((workspace, index) => {
-        const pill = workspaceStatePill(workspace.state);
+        const pill = workspaceStatePill(workspace.state, workspace.errorCode);
         return (
           <TableRow
             key={workspace.workspaceId}

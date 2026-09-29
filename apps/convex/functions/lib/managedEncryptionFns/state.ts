@@ -14,19 +14,27 @@ import { managedBucketName } from "../managedStorage";
 
 export type WorkspaceEncryptionState = Doc<"managedEncryptionWorkspaces">["state"];
 
-/** The gateway's two modes (`apps/mcp/src/store/managedEncryption.js`). */
-export type GatewayEncryptionMode = "migrating" | "encrypted";
+/** The gateway's modes (`apps/mcp/src/store/managedEncryption.js`). */
+export type GatewayEncryptionMode = "migrating" | "encrypted" | "decrypting";
 
 /**
  * `waiting` is plain: the walk has not started, so nothing is sealed and the
  * key may not exist yet. Everything from the first sealed object on accepts
  * both kinds on read, until the check has passed; a failed walk stays mixed.
+ * The way back reads both and writes plain, and keeps doing so once it is
+ * done: a store built before Decrypt (a long-lived editing room, a request in
+ * flight) can still land a sealed object after the last check, and in plain
+ * mode that object would be served as ciphertext. Reading both costs only
+ * needing the key, which is never deleted, and it fails closed without it.
  */
 export function gatewayModeFor(state: WorkspaceEncryptionState | null): GatewayEncryptionMode | null {
   switch (state) {
     case null:
     case "waiting":
       return null;
+    case "decrypting":
+    case "decrypted":
+      return "decrypting";
     case "encrypting":
     case "checking":
     case "failed":
@@ -75,7 +83,7 @@ export async function gatewayModeForWorkspace(
 /**
  * What an owner or member sees in Settings > Storage. `null` hides the row:
  * not managed, or not reached yet (a promise before the rollout reaches them
- * is a promise we might not keep). A failed walk reads as `paused` to them;
+ * is a promise we might not keep), or taken back to plain by staff. A failed walk reads as `paused` to them;
  * the reason is staff-side.
  */
 export type OwnerEncryptionView = {
@@ -88,7 +96,7 @@ export function ownerViewFor(
   row: Doc<"managedEncryptionWorkspaces"> | null,
   rolloutState: Doc<"managedEncryptionRollout">["state"] | null,
 ): OwnerEncryptionView | null {
-  if (row === null || row.state === "waiting") return null;
+  if (row === null || row.state === "waiting" || row.state === "decrypting" || row.state === "decrypted") return null;
   if (row.state === "encrypted") return { state: "encrypted" };
   const progress = {
     filesDone: row.filesDone,

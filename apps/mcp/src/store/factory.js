@@ -133,7 +133,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,

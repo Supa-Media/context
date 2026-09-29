@@ -1,5 +1,6 @@
 /**
- * One step of moving a managed bucket from plain to encrypted, per object.
+ * One step of moving a managed bucket from plain to encrypted, or back, per
+ * object.
  *
  * The control plane drives the walk (a cursor over `list`, a page per run, the
  * same shape as the managed hand-off); this file is what it does to each key.
@@ -53,9 +54,73 @@ export async function sealObject(bare, cipher, key) {
   // A save that landed after our write is newer than what we sealed; it was
   // written through the wrapper, so it is sealed already.
   if (back.etag !== written.etag) return "raced";
-  const opened = await cipher.open(new Uint8Array(await back.arrayBuffer()));
-  if (!equalBytes(opened, bytes)) throw new ManagedEncryptionError("VERIFY_FAILED", key);
+  let opened = null;
+  try {
+    opened = await cipher.open(new Uint8Array(await back.arrayBuffer()));
+  } catch {
+    // Falls through to the restore below: a sealed copy that will not open
+    // is exactly the bad write the read-back exists to catch.
+  }
+  if (opened === null || !equalBytes(opened, bytes)) {
+    await restore(bare, key, bytes, object.contentType, written.etag);
+    throw new ManagedEncryptionError("VERIFY_FAILED", key);
+  }
   return "sealed";
+}
+
+/**
+ * One step of the way back: open a sealed object and write its plain bytes
+ * in place. The mirror of `sealObject`, with the same guards: a conditional
+ * write on the etag it read, then a read-back that must be exactly the plain
+ * bytes. A sealed object that will not open stops the walk and is left as it
+ * is; it is never replaced with anything.
+ *
+ * @returns {Promise<"unsealed"|"already"|"gone"|"raced">}
+ */
+export async function unsealObject(bare, cipher, key) {
+  const object = await bare.get(key);
+  if (!object) return "gone";
+  const sealed = new Uint8Array(await object.arrayBuffer());
+  if (!isManagedEnvelope(sealed)) return "already";
+  const plain = await cipher.open(sealed);
+  if (!object.etag) throw new ManagedEncryptionError("NO_ETAG", key);
+  const written = await bare.put(key, plain, {
+    contentType: writableType(object.contentType),
+    onlyIf: { etagMatches: object.etag },
+  });
+  if (written === null) return "raced";
+  const back = await bare.get(key);
+  if (!back) return "gone";
+  if (back.etag !== written.etag) return "raced";
+  if (!equalBytes(new Uint8Array(await back.arrayBuffer()), plain)) {
+    await restore(bare, key, sealed, object.contentType, written.etag);
+    throw new ManagedEncryptionError("VERIFY_FAILED", key);
+  }
+  return "unsealed";
+}
+
+/**
+ * The check before a walked-back workspace goes plain: is this object plain?
+ *
+ * @returns {Promise<"ok"|"sealed"|"gone">}
+ */
+export async function checkPlainObject(bare, key) {
+  const object = await bare.get(key);
+  if (!object) return "gone";
+  return isManagedEnvelope(new Uint8Array(await object.arrayBuffer())) ? "sealed" : "ok";
+}
+
+/**
+ * A read-back did not match: put back the bytes that were there before our
+ * write, so a failed verify never leaves a bad copy as the only one. Only
+ * over our own write: if somebody saved after it, theirs is newer and stays.
+ * The original bytes are still in memory, which is why this can be exact.
+ */
+async function restore(bare, key, bytes, contentType, ourEtag) {
+  await bare.put(key, bytes, {
+    contentType: writableType(contentType),
+    onlyIf: { etagMatches: ourEtag },
+  });
 }
 
 /**

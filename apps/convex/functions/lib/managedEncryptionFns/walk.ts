@@ -5,6 +5,11 @@
  *   waiting ──key exists──▶ encrypting/count ──▶ encrypting/seal ──▶ checking ──▶ encrypted
  *                                   any failure ──▶ failed (the rollout pauses itself)
  *
+ * And the way back, run per workspace from production access (`decryptWorkspace`):
+ *
+ *   any ──Decrypt──▶ decrypting/unseal ──▶ decrypting/confirm ──▶ decrypted
+ *                  a failure stops here, still `decrypting`, rollout untouched
+ *
  * The per-object work is the gateway's (`apps/mcp/src/store/managedEncryptionWalk.js`):
  * conditional seal, read back, verify. Every run carries a `runId`; a run
  * whose id is no longer the row's stops without writing, which is how a
@@ -22,7 +27,12 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/server";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { ManagedCipher } from "../../../../mcp/src/store/managedEncryption.js";
-import { checkObject, sealObject } from "../../../../mcp/src/store/managedEncryptionWalk.js";
+import {
+  checkObject,
+  checkPlainObject,
+  sealObject,
+  unsealObject,
+} from "../../../../mcp/src/store/managedEncryptionWalk.js";
 import type { GatewayCredential } from "../storage/shapes";
 import { rolloutRow } from "./rollout";
 import { bindingIsManaged, workspaceEncryptionRow } from "./state";
@@ -41,20 +51,33 @@ export async function walkPlanHandler(
 ): Promise<WalkPlan | null> {
   const row = await workspaceEncryptionRow(ctx, args.workspaceId);
   if (row === null || row.runId !== args.runId) return null;
-  if (row.state === "encrypted" || row.state === "failed") return null;
+  if (row.state === "encrypted" || row.state === "failed" || row.state === "decrypted") return null;
+  if (row.state === "decrypting") {
+    // The way back is a rescue: it runs whatever the rollout's state, since a
+    // paused or failed rollout is exactly when staff reach for it. A failure
+    // stops it (`errorCode`) until Decrypt is run again.
+    if (row.errorCode !== undefined) return null;
+    if (!(await stillOnManagedBucket(ctx, args.workspaceId))) return null;
+    if (await handOffUnderWay(ctx, args.workspaceId)) return null;
+    return { state: row.state, phase: row.phase, cursor: row.cursor };
+  }
   const rollout = await rolloutRow(ctx);
   if (rollout === null) return null;
   // Paused and failed stop every walk. `off` lets a started walk finish, and
   // lets nothing new start (`tick` never schedules a waiting row then).
   if (rollout.state === "paused" || rollout.state === "failed") return null;
   if (row.state === "waiting" && rollout.state !== "running") return null;
-  const binding = await ctx.db
-    .query("storageBindings")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-    .unique();
-  if (!bindingIsManaged(binding)) return null;
+  if (!(await stillOnManagedBucket(ctx, args.workspaceId))) return null;
   if (await handOffUnderWay(ctx, args.workspaceId)) return null;
   return { state: row.state, phase: row.phase, cursor: row.cursor };
+}
+
+async function stillOnManagedBucket(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  const binding = await ctx.db
+    .query("storageBindings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return bindingIsManaged(binding);
 }
 
 /**
@@ -95,7 +118,7 @@ export async function beginWalkHandler(
 export type PageResult = {
   workspaceId: Id<"workspaces">;
   runId: number;
-  phase: "count" | "seal" | "check";
+  phase: "count" | "seal" | "check" | "unseal" | "confirm";
   nextCursor: string | null;
   counted: number;
   done: number;
@@ -126,6 +149,22 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
     await ctx.db.patch(row._id, { state: "checking", phase: "check", cursor: undefined, filesDone, filesTotal, updatedAt: now });
     return true;
   }
+  if (args.phase === "unseal") {
+    await ctx.db.patch(row._id, { phase: "confirm", cursor: undefined, filesDone, filesTotal, updatedAt: now });
+    return true;
+  }
+  if (args.phase === "confirm") {
+    await ctx.db.patch(row._id, {
+      state: "decrypted",
+      phase: undefined,
+      cursor: undefined,
+      filesDone,
+      filesTotal,
+      completedAt: now,
+      updatedAt: now,
+    });
+    return false;
+  }
   await ctx.db.patch(row._id, {
     state: "encrypted",
     phase: undefined,
@@ -145,6 +184,13 @@ export async function failWalkHandler(
 ): Promise<void> {
   const row = await workspaceEncryptionRow(ctx, args.workspaceId);
   if (row === null || row.runId !== args.runId) return;
+  if (row.state === "decrypting") {
+    // Stays `decrypting`: reads accept both and saves stay plain. `failed`
+    // would read as mid-encryption and seal new saves. The rollout is left
+    // alone; this workspace was taken out of it.
+    await ctx.db.patch(row._id, { errorCode: args.errorCode, updatedAt: Date.now() });
+    return;
+  }
   await ctx.db.patch(row._id, { state: "failed", errorCode: args.errorCode, updatedAt: Date.now() });
   const rollout = await rolloutRow(ctx);
   if (rollout !== null && rollout.state === "running") {
@@ -191,7 +237,8 @@ export async function runWalkHandler(
     // managed workspace needs a key. The same key opens its encrypted notes.
     key = await ctx.runAction(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId: args.workspaceId,
-      create: true,
+      // The way back never mints a key: one that is missing is a failure.
+      create: plan.state !== "decrypting",
     });
     credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
       workspaceId: args.workspaceId,
@@ -212,7 +259,7 @@ export async function runWalkHandler(
     // The bare adapter: the walk must see which bytes are still plain.
     const bare = storeForBinding(credential, undefined, { sealedObjects: true });
     const cipher = new ManagedCipher(String(args.workspaceId), key);
-    const phase = plan.phase ?? "count";
+    const phase = plan.phase ?? (plan.state === "decrypting" ? "unseal" : "count");
     const page = await bare.list({ cursor: plan.cursor, limit: phase === "count" ? COUNT_PAGE : SEAL_PAGE });
     const keys: string[] = page.objects.map((object: { key: string }) => object.key);
     let done = 0;
@@ -226,13 +273,24 @@ export async function runWalkHandler(
         if ((await checkObject(bare, cipher, key)) === "plain") await sealObject(bare, cipher, key);
         done += 1;
       });
+    } else if (phase === "unseal") {
+      await inBatches(keys, async (key) => {
+        await unsealObject(bare, cipher, key);
+        done += 1;
+      });
+    } else if (phase === "confirm") {
+      // An object sealed after the unseal pass passed it (a request built
+      // before the switch) is opened here rather than left behind.
+      await inBatches(keys, async (key) => {
+        if ((await checkPlainObject(bare, key)) === "sealed") await unsealObject(bare, cipher, key);
+      });
     }
     result = {
       ...args,
       phase,
       nextCursor: page.truncated && page.cursor ? page.cursor : null,
       counted: phase === "count" ? keys.length : 0,
-      done: phase === "check" ? 0 : done,
+      done: phase === "check" || phase === "confirm" ? 0 : done,
     };
   } catch (error) {
     return await fail(error);

@@ -175,7 +175,7 @@ export interface OpenedGatewayBinding {
    * being or has been encrypted. Absent for plain, which includes every bucket
    * a customer owns. `docs/decisions/storage-and-credentials/managed-encryption.md`.
    */
-  managedEncryption?: { mode: "migrating" | "encrypted" };
+  managedEncryption?: { mode: "migrating" | "encrypted" | "decrypting" };
 }
 
 /**

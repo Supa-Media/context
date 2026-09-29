@@ -22,6 +22,18 @@ export const managedEncryptionWorkspaceState = v.union(
   v.literal("encrypted"),
   /** The walk stopped on a problem. Reads accept both; staff retry. */
   v.literal("failed"),
+  /**
+   * Decrypt was run (production access only): the walk back is opening sealed objects in place.
+   * Reads accept both; new saves are plain. A failure keeps this state (with
+   * an `errorCode`), never `failed`, which would seal new saves again.
+   */
+  v.literal("decrypting"),
+  /**
+   * Walked back and checked: every object is plain. The store still reads
+   * both kinds (and writes plain), so a late sealed save is never served as
+   * ciphertext.
+   */
+  v.literal("decrypted"),
 );
 
 export const managedEncryptionTables = {
@@ -61,9 +73,12 @@ export const managedEncryptionTables = {
     state: managedEncryptionWorkspaceState,
     /**
      * Within `encrypting`: `count` lists once for the total, `seal` seals.
-     * `checking` is its own state. Absent before the walk starts.
+     * `checking` is its own state. Within `decrypting`: `unseal`, then
+     * `confirm`, which re-reads everything. Absent before the walk starts.
      */
-    phase: v.optional(v.union(v.literal("count"), v.literal("seal"), v.literal("check"))),
+    phase: v.optional(
+      v.union(v.literal("count"), v.literal("seal"), v.literal("check"), v.literal("unseal"), v.literal("confirm")),
+    ),
     /** The walk's listing cursor within its current phase. */
     cursor: v.optional(v.string()),
     filesDone: v.number(),
@@ -73,6 +88,8 @@ export const managedEncryptionTables = {
     /** Bumped on every run the walk schedules, so a stale run stops itself. */
     runId: v.number(),
     completedAt: v.optional(v.number()),
+    /** The staff member who last chose Decrypt for this workspace. */
+    changedBy: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])

@@ -11,6 +11,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import {
+  decryptWorkspaceHandler,
   pauseRolloutHandler,
   resumeRolloutHandler,
   retryWorkspaceHandler,
@@ -41,7 +42,10 @@ const rowState = v.union(
   v.literal("checking"),
   v.literal("encrypted"),
   v.literal("failed"),
+  v.literal("decrypting"),
+  v.literal("decrypted"),
 );
+const gatewayModeReturns = v.union(v.null(), v.literal("migrating"), v.literal("encrypted"), v.literal("decrypting"));
 const candidate = v.object({ workspaceId: v.id("workspaces"), slug: v.string(), ours: v.boolean() });
 const statusReturns = v.object({
   state: v.union(v.literal("off"), v.literal("running"), v.literal("paused"), v.literal("failed"), v.literal("complete")),
@@ -59,6 +63,8 @@ const statusReturns = v.object({
     checking: v.number(),
     encrypted: v.number(),
     failed: v.number(),
+    decrypting: v.number(),
+    decrypted: v.number(),
     notStarted: v.number(),
   }),
   files: v.object({ done: v.number(), total: v.number() }),
@@ -109,7 +115,7 @@ export const stopStartingNew = mutation({ args: {}, returns: v.null(), handler: 
 /** The mode a store for this workspace is built in; null for plain. */
 export const gatewayMode = internalQuery({
   args: { workspaceId: v.id("workspaces") },
-  returns: v.union(v.null(), v.literal("migrating"), v.literal("encrypted")),
+  returns: gatewayModeReturns,
   handler: async (ctx, args) => await gatewayModeForWorkspace(ctx, args.workspaceId),
 });
 
@@ -119,7 +125,7 @@ export const gatewayMode = internalQuery({
  */
 export const keptBucketMode = internalQuery({
   args: { workspaceId: v.id("workspaces") },
-  returns: v.union(v.null(), v.literal("migrating"), v.literal("encrypted")),
+  returns: gatewayModeReturns,
   handler: async (ctx, args) => gatewayModeFor((await workspaceEncryptionRow(ctx, args.workspaceId))?.state ?? null),
 });
 
@@ -143,6 +149,19 @@ export const forgetKeptBucket = internalMutation({
   },
 });
 
+/**
+ * The way back: walk one workspace's bucket from sealed to plain bytes. Run
+ * from the Convex dashboard or CLI, never the console; see the handler.
+ *
+ *   npx convex run --prod functions/managedEncryption:decryptWorkspace \
+ *     '{"workspaceId":"…","operator":"you@example.com"}'
+ */
+export const decryptWorkspace = internalMutation({
+  args: { workspaceId: v.id("workspaces"), operator: v.string() },
+  returns: v.null(),
+  handler: decryptWorkspaceHandler,
+});
+
 export const tick = internalMutation({
   args: { restartActive: v.boolean() },
   handler: tickHandler,
@@ -155,7 +174,7 @@ export const beginWalk = internalMutation({ args: walkArgs, handler: beginWalkHa
 export const recordPage = internalMutation({
   args: {
     ...walkArgs,
-    phase: v.union(v.literal("count"), v.literal("seal"), v.literal("check")),
+    phase: v.union(v.literal("count"), v.literal("seal"), v.literal("check"), v.literal("unseal"), v.literal("confirm")),
     nextCursor: v.union(v.string(), v.null()),
     counted: v.number(),
     done: v.number(),
