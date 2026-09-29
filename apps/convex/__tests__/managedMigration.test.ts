@@ -67,7 +67,7 @@ describe("one managed-storage migration object", () => {
     );
   });
 
-  test("removes a target-only key without touching the source", async () => {
+  test("removes a target-only key without touching the source, when told it may", async () => {
     const source = memoryStore();
     const target = memoryStore({ "deleted.md": [1] });
     expect(
@@ -76,11 +76,39 @@ describe("one managed-storage migration object", () => {
         target: target.store,
         key: "deleted.md",
         listedFromTarget: true,
+        deleteUnmatchedTarget: true,
         byteCap: 1024,
       }),
     ).toEqual({ copied: 0, changes: 1 });
     expect(target.values.has("deleted.md")).toBe(false);
     expect(source.values.size).toBe(0);
+  });
+
+  /*
+    THE DEFAULT IS KEEP, NOT DELETE.
+
+    `deleteUnmatchedTarget` decides whether a key the source lacks may be
+    removed from the destination, and the destination of a move out of managed
+    storage is somebody's own bucket. An absent flag means nobody has
+    established that the destination holds only this move's writes — which is
+    the same reasoning `storageBindings` states for its capability fields:
+    absent is not `false`, it is "nobody has asked yet", so it must fail
+    closed. Today one call site passes the answer explicitly; the default is
+    what a second one would inherit.
+  */
+  test("keeps a target-only key when nobody said the destination may lose keys", async () => {
+    const source = memoryStore();
+    const target = memoryStore({ "theirs.md": [1] });
+    expect(
+      await reconcileMigrationObject({
+        source: source.store,
+        target: target.store,
+        key: "theirs.md",
+        listedFromTarget: true,
+        byteCap: 1024,
+      }),
+    ).toEqual({ copied: 0, changes: 0 });
+    expect(target.values.has("theirs.md")).toBe(true);
   });
 
   test("fails instead of advancing when the destination changes the bytes", async () => {
@@ -332,7 +360,7 @@ describe("reconciling a page in waves", () => {
     expect(source.live()).toBe(0);
   });
 
-  test("removes target-only keys when the destination is what was listed", async () => {
+  test("removes target-only keys when the destination is what was listed, and may lose them", async () => {
     const source = instrumentedStore({ "kept.md": [1] });
     const target = instrumentedStore({ "kept.md": [1], "gone.md": [2] });
     const result = await reconcileMigrationPage({
@@ -343,6 +371,7 @@ describe("reconciling a page in waves", () => {
         { key: "gone.md", size: 1 },
       ],
       listedFromTarget: true,
+      deleteUnmatchedTarget: true,
       byteCap: 1024,
       maxWidth: 4,
       byteBudget: 1_000_000,
@@ -350,5 +379,25 @@ describe("reconciling a page in waves", () => {
     expect(result).toEqual({ copied: 1, changes: 1 });
     expect(target.values.has("gone.md")).toBe(false);
     expect(source.values.has("kept.md")).toBe(true);
+  });
+
+  /* The page carries the flag down, so the default is keep here too. */
+  test("keeps target-only keys when nobody said the destination may lose them", async () => {
+    const source = instrumentedStore({ "kept.md": [1] });
+    const target = instrumentedStore({ "kept.md": [1], "theirs.md": [2] });
+    const result = await reconcileMigrationPage({
+      source: source.store,
+      target: target.store,
+      objects: [
+        { key: "kept.md", size: 1 },
+        { key: "theirs.md", size: 1 },
+      ],
+      listedFromTarget: true,
+      byteCap: 1024,
+      maxWidth: 4,
+      byteBudget: 1_000_000,
+    });
+    expect(result).toEqual({ copied: 1, changes: 0 });
+    expect(target.values.has("theirs.md")).toBe(true);
   });
 });

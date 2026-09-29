@@ -49,6 +49,14 @@ export async function reconcileMigrationObject(options: {
    * Only when the destination is known to hold nothing but this move's own
    * writes — see `targetClaimed` on the migration row. A key in somebody's
    * bucket that Context did not put there is theirs, and is left alone.
+   *
+   * **Absent means keep.** The destination of a move out of managed storage is
+   * a customer's own bucket, and the deletion this flag governs is not
+   * recoverable. Absent is not `false` here any more than it is on
+   * `storageBindings`' capability fields: it means nobody established that the
+   * destination holds only this move's writes, and the honest answer to that
+   * is to delete nothing. One call site passes it explicitly today; the
+   * default is what the second one inherits.
    */
   deleteUnmatchedTarget?: boolean;
   /**
@@ -60,7 +68,7 @@ export async function reconcileMigrationObject(options: {
 }): Promise<{ copied: number; changes: number }> {
   const sourceRead = await options.source.get(options.key);
   if (sourceRead === null) {
-    if (options.listedFromTarget && options.deleteUnmatchedTarget !== false) {
+    if (options.listedFromTarget && options.deleteUnmatchedTarget === true) {
       await options.target.delete(options.key);
       return { copied: 0, changes: 1 };
     }
