@@ -108,13 +108,18 @@ export function CastStudio({
             })}
           </View>
           <View style={[styles.topSide, styles.topEnd]}>
-            <Button
-              label="Sounds"
-              variant="ghost"
+            <Pressable
               onPress={() => setSoundsOpen((open) => !open)}
-              leading={<Icon name="speaker" size={16} />}
+              accessibilityRole="button"
+              aria-pressed={soundsOpen}
+              style={[styles.frameButton, styles.soundsButton, soundsOpen ? styles.frameOn : null]}
               testID="studio-sounds-toggle"
-            />
+            >
+              <Icon name="speaker" size={16} />
+              <Text variant="rowSub" style={soundsOpen ? styles.frameTextOn : styles.muted}>
+                Sounds
+              </Text>
+            </Pressable>
             <Button
               label="Record"
               variant="accent"
@@ -181,6 +186,7 @@ const makeStyles = (colors: Colors) =>
     muted: { color: colors.muted },
     frames: { flexDirection: "row", gap: 2, padding: 3, borderRadius: radii.xl, backgroundColor: colors.chipFill },
     frameButton: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 38, paddingHorizontal: space.x3, borderRadius: radii.lg },
+    soundsButton: { backgroundColor: colors.chipFill },
     frameOn: { backgroundColor: colors.rowSelected },
     frameGlyph: { height: 14, maxWidth: 20, borderWidth: 1.4, borderColor: colors.muted, borderRadius: 2 },
     frameGlyphOn: { borderColor: colors.text },
