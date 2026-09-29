@@ -96,6 +96,9 @@ export function createSessionMethods({ post, required }) {
         // The free managed tier's note cap, a fifth sibling and absent for
         // every context without one. Only a positive integer means a cap.
         noteCap: Number.isInteger(parsed.noteCap) && parsed.noteCap > 0 ? parsed.noteCap : null,
+        // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
+        // bucket being encrypted or already encrypted, absent otherwise.
+        managedEncryption: parsed.managedEncryption ?? null,
       };
     },
 

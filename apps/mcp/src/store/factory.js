@@ -78,6 +78,7 @@ import { S3Store } from "./s3.js";
 import { DropboxStore } from "./dropbox.js";
 import { withLogicalDelete } from "./logicalDelete.js";
 import { withNoteCap } from "./noteCap.js";
+import { withManagedEncryption } from "./managedEncryption.js";
 
 /**
  * The gateway could not reach a usable bucket for an otherwise valid session.
@@ -132,7 +133,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, noteCap?: number|null}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, noteCap?: number|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -155,7 +156,11 @@ export function storeForBinding(binding, env, options = {}) {
   // yesterday's persisted result first would make a false capability
   // impossible to discover as true on reconnect.
   if (options.probeCapabilities === true) return store;
-  const probed = withProbedCapabilities(store, binding);
+  // Managed-storage encryption sits directly on the adapter, so every caller
+  // above — the logical-delete view, the note cap, a hand-off copy reading
+  // `rawObjects` — sees plain bytes and nothing above can write around it.
+  // `managedEncryption.js`; absent for every bucket a customer owns.
+  const probed = withEncryption(withProbedCapabilities(store, binding), options.managedEncryption);
   // Managed storage-layout migration explicitly needs the hidden marker
   // objects themselves. Ordinary gateway callers always receive the logical
   // view, so this escape hatch is intentionally opt-in.
@@ -165,6 +170,11 @@ export function storeForBinding(binding, env, options = {}) {
   // escape hatches above never see it: a connect probe writes no notes, and a
   // storage-layout migration only moves what is already there.
   return withNoteCap(withLogicalDelete(probed), options.noteCap);
+}
+
+function withEncryption(store, config) {
+  if (config === null || config === undefined) return store;
+  return withManagedEncryption(store, config);
 }
 
 /**
