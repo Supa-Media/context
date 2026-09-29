@@ -7,12 +7,39 @@
  * closed per viewer with the `×`.
  */
 
-import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { useState, type ReactNode } from "react";
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import { useInAppMessage } from "../../../messages/useInAppMessage";
+import { trackNudgeKey } from "./viewMemory";
+
+/**
+ * Whether it is the nudge's turn: a tip on the app's one message path
+ * (`features/messages/`), answered once per workspace on the account, and
+ * shown only in a visit where nothing else has spoken. Mounted only where the
+ * folder page says the nudge fits; `children` gets the answer to call.
+ */
+export function TrackNudgeTurn({
+  workspaceId,
+  style,
+  children,
+}: {
+  workspaceId: string;
+  style: StyleProp<ViewStyle>;
+  children: (answer: () => void) => ReactNode;
+}) {
+  const turn = useInAppMessage({
+    id: "track-by-status",
+    workspaceId,
+    eligible: true,
+    deviceKey: trackNudgeKey(workspaceId),
+  });
+  if (!turn.visible) return null;
+  return <View style={style}>{children(turn.dismiss)}</View>;
+}
 
 export function TrackNudge({
   onShow,

@@ -8,6 +8,7 @@ import { existingCopy, phoneLine, reviewCopy } from "./copy";
 import { useOrganizerView } from "./OrganizerContext";
 import { existingNoticeVisible, phoneEntryCount } from "./rules";
 import type { OrganizerView } from "./useOrganizer";
+import { useMessageSlot } from "../messages/useInAppMessage";
 
 /** Where the band is being drawn, which decides whether the phone's entry line belongs in it. */
 export interface NoticePlace {
@@ -19,13 +20,35 @@ export interface NoticePlace {
 /** Whether auto-organize has a line for the notices band here — `useBrowseNotices`'s `hasNotice`. */
 export function useOrganizerHasNotice(place: NoticePlace): boolean {
   const organizer = useOrganizerView();
-  return organizerNotices(organizer, place).length > 0;
+  const existing = useExistingNoticeTurn(organizer);
+  return organizerNotices(organizer, place, existing).length > 0;
 }
 
-function organizerNotices(organizer: OrganizerView | undefined, place: NoticePlace): ("existing" | "entry")[] {
+/**
+ * The one-time notice is a tip on the app's one message path
+ * (`features/messages/`): its answer stays on auto-organize's settings, and it
+ * waits for a visit where nothing else has been said. The phone's entry line
+ * is a way in to a list, not a message, and is not arbitrated.
+ */
+function useExistingNoticeTurn(organizer: OrganizerView | undefined): boolean {
+  const status = organizer?.status ?? null;
+  const eligible = status !== null && status.available && status.isOwner;
+  const { visible } = useMessageSlot({
+    id: "organizer-notice",
+    eligible,
+    seen: status === null ? undefined : !status.noticeNeeded,
+  });
+  return visible && existingNoticeVisible(status);
+}
+
+function organizerNotices(
+  organizer: OrganizerView | undefined,
+  place: NoticePlace,
+  existing: boolean,
+): ("existing" | "entry")[] {
   const status = organizer?.status ?? null;
   const lines: ("existing" | "entry")[] = [];
-  if (existingNoticeVisible(status)) lines.push("existing");
+  if (existing) lines.push("existing");
   if (phoneEntryCount(status, place) !== null) lines.push("entry");
   return lines;
 }
@@ -39,8 +62,9 @@ export function OrganizerNotices(place: NoticePlace) {
   const organizer = useOrganizerView();
   const styles = useThemedStyles(browseStyles);
   const colors = useColors();
+  const existing = useExistingNoticeTurn(organizer);
   if (organizer === undefined) return null;
-  const lines = organizerNotices(organizer, place);
+  const lines = organizerNotices(organizer, place, existing);
   const count = phoneEntryCount(organizer.status, place);
   return (
     <>

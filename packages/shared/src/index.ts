@@ -219,3 +219,14 @@ export {
   type FeedbackSource,
   type SystemFamily,
 } from "./feedbackReport";
+export {
+  IN_APP_MESSAGES,
+  MESSAGE_VARIANT_PATTERN,
+  STORED_MESSAGE_IDS,
+  isInAppMessageId,
+  messageAnswered,
+  type InAppMessageId,
+  type InAppMessageKind,
+  type InAppMessageScope,
+  type InAppMessageSpec,
+} from "./inAppMessages";

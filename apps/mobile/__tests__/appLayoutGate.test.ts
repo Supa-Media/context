@@ -396,6 +396,7 @@ describe("an unfinished setup, at sign-in", () => {
     const client = routedClient({
       listMyWorkspaces: OWNER,
       listMyInvitations: [],
+      myMessageReads: [],
       getStorageBinding: null,
     });
     // Held across re-renders: a subscription tick before the navigation runs
@@ -405,6 +406,34 @@ describe("an unfinished setup, at sign-in", () => {
     // `/welcome` records it once shown; "I'll do this later" lands back here.
     markResumeAsked();
     expect(render(client).html).toContain('data-testid="stack"');
+  });
+
+  test("asked on another device this week: not asked again here", () => {
+    resetResumeAsked();
+    mockAuthState = { isLoading: false, isAuthenticated: true };
+    mockPathname = "/console";
+    const html = render(
+      routedClient({
+        listMyWorkspaces: OWNER,
+        listMyInvitations: [],
+        myMessageReads: [
+          { message: "resume-storage", workspaceId: null, variant: null, seenAt: Date.now() - 60_000 },
+        ],
+        getStorageBinding: null,
+      }),
+    ).html;
+    expect(html).toContain('data-testid="stack"');
+    expect(html).not.toContain("resume=storage");
+  });
+
+  test("not sent anywhere before the account has said whether it was asked", () => {
+    resetResumeAsked();
+    mockAuthState = { isLoading: false, isAuthenticated: true };
+    mockPathname = "/console";
+    const html = render(
+      routedClient({ listMyWorkspaces: OWNER, listMyInvitations: [], getStorageBinding: null }),
+    ).html;
+    expect(html).not.toContain("resume=storage");
   });
 
   test("an owner with storage is left alone", () => {

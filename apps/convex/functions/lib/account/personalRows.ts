@@ -52,6 +52,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of betaNoticeReads) await ctx.db.delete(row._id);
 
+  // Which in-app messages they answered, and when: labels and times.
+  const messageReads = await ctx.db
+    .query("messageReads")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of messageReads) await ctx.db.delete(row._id);
+
   // Their feedback receipts: ids and times, never a report's content.
   const feedbackReceipts = await ctx.db
     .query("feedbackReceipts")

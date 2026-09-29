@@ -185,7 +185,11 @@ export function useBrowseNotices({
     canEdit: files.canEdit,
     readOnlyReason: files.readOnlyReason,
   });
-  const introAnswer = useContextIntro(current?.id ?? null, intro === null ? null : intro.kind);
+  const introAnswer = useContextIntro(
+    current?.id ?? null,
+    intro === null ? null : intro.kind,
+    data.demo !== true && !compact,
+  );
   /*
     The demo keeps its line permanently, and it is the one case where that is
     right: on the landing page this band reads "This is a demo. Sign in to edit

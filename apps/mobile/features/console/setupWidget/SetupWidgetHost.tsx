@@ -11,6 +11,7 @@ import { setupView, showSetupWidget } from "./rules";
 import { SetupDoneLive } from "./SetupDoneLive";
 import { SetupWidget } from "./SetupWidget";
 import { useSetupWidget } from "./useSetupWidget";
+import { useMessageSlot } from "../../messages/useInAppMessage";
 
 /**
  * Where the first run carries on after the fork: the setup widget over the
@@ -85,7 +86,15 @@ function SetupWidgetLive({
   onConnectAgent?: (agent: SetupAgent) => void;
 }) {
   const { grants, retired, retire } = useSetupWidget(workspaceId, true, setupRetired);
-  if (!showSetupWidget({ demo: data.demo === true, compact, kind, role, retired })) return null;
+  const shown = showSetupWidget({ demo: data.demo === true, compact, kind, role, retired });
+  // Its turn, among everything else the app has to say (`features/messages/`).
+  const slot = useMessageSlot({
+    id: "setup-checklist",
+    workspaceId,
+    eligible: retired !== true,
+    seen: retired,
+  });
+  if (!shown || !slot.visible) return null;
 
   const view = setupView({ slug, storage: data.storage, grants });
   const copyBootstrap = () => writeClipboard(BOOTSTRAP_PROMPT);
