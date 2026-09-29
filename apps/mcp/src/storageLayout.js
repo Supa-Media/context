@@ -21,6 +21,10 @@ const PRESERVED_CONTENT_TYPES = new Set([
   "image/webp",
   "image/heic",
   "image/heif",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/ogg",
+  "audio/mp4",
   "application/octet-stream",
 ]);
 

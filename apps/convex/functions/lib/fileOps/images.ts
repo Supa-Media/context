@@ -7,6 +7,11 @@
 
 import { WORKSPACE_ICON_EXTENSIONS } from "@context/shared/src/workspaceIcon";
 import { IMAGE_PREFIX, legacyStorageKey } from "@context/shared/src/storageLayout.cjs";
+import {
+  MAX_SCENE_SOUND_BYTES,
+  SOUND_EXTENSIONS,
+  sniffSoundType,
+} from "@context/shared/src/sceneSounds";
 import type { FileStore } from "./store";
 import { FileOpError, notFound } from "./errors";
 
@@ -56,6 +61,14 @@ export const STORABLE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
   "heic",
   "heif",
 ]);
+
+/**
+ * The sound extensions the store keeps beside images: a cast scene's uploaded
+ * sounds (`@context/shared/src/sceneSounds`). Not `read_image`'s to serve, so
+ * not in the set above, which must equal the gateway's image types; they are
+ * read back only through the console's note-gated read.
+ */
+export const STORABLE_SOUND_EXTENSIONS: ReadonlySet<string> = new Set(SOUND_EXTENSIONS);
 
 /**
  * Write bytes into the opaque store.
@@ -135,7 +148,9 @@ export async function writeImage(
   // name — `png`, `jpeg` — passes the set lookup and writes `.images/png`,
   // which `imageRefFor` refuses because it finds no dot at all.
   const dot = leaf.lastIndexOf(".");
-  if (dot <= 0 || !STORABLE_IMAGE_EXTENSIONS.has(leaf.slice(dot + 1).toLowerCase())) {
+  const extension = dot <= 0 ? "" : leaf.slice(dot + 1).toLowerCase();
+  const sound = STORABLE_SOUND_EXTENSIONS.has(extension);
+  if (dot <= 0 || !(STORABLE_IMAGE_EXTENSIONS.has(extension) || sound)) {
     throw new FileOpError(
       "PATH_INVALID",
       "A stored object must end in an image extension the gateway can serve.",
@@ -149,6 +164,19 @@ export async function writeImage(
       "CONTENT_TOO_LARGE",
       `A stored image must be at most ${MAX_STORED_IMAGE_BYTES} bytes.`,
     );
+  }
+  if (sound) {
+    // A sound is what its bytes say, or it is not stored: the name and the
+    // declared type are the caller's, the bytes are the file.
+    if (sniffSoundType(options.bytes) !== extension) {
+      throw new FileOpError("PATH_INVALID", "That file is not the kind of sound its name says.");
+    }
+    if (options.bytes.byteLength > MAX_SCENE_SOUND_BYTES) {
+      throw new FileOpError(
+        "CONTENT_TOO_LARGE",
+        `A sound must be at most ${MAX_SCENE_SOUND_BYTES / 1_000_000} MB.`,
+      );
+    }
   }
 
   const key = `${IMAGE_PREFIX}${leaf}`;

@@ -10,6 +10,12 @@
 import { WORKSPACE_ICON_CONTENT_TYPES, WORKSPACE_ICON_MAX_BYTES } from "@context/shared";
 import { ConvexError } from "convex/values";
 import { fetchRemoteImage } from "@context/shared/src/remoteImage.cjs";
+import {
+  SOUND_CONTENT_TYPES,
+  isSoundUpload,
+  sceneSoundLeaf,
+  sniffSoundType,
+} from "@context/shared/src/sceneSounds";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -40,6 +46,10 @@ async function contentHash(bytes: ArrayBuffer): Promise<string> {
  * the bytes. `writeImage` still applies the gateway's own leaf rule to whatever
  * comes out, so a careless change to the derivation is refused rather than
  * writing a key `read_image` could never name.
+ *
+ * A declared `audio/*` type is a cast scene's uploaded sound instead
+ * (`sceneSounds.ts`): the bytes name its format, it is stored as `sound-…`,
+ * and a file whose bytes are none of the four formats is refused.
  */
 export async function storeNoteImageHandler(
   ctx: ActionCtx,
@@ -54,10 +64,21 @@ export async function storeNoteImageHandler(
     internal.functions.files.authorizeFileAccess,
     { actorUserId, workspaceId: args.workspaceId, minimum: "editor" },
   );
-  const leaf = pasteImageLeaf({
-    hash: await contentHash(args.bytes),
-    contentType: args.contentType,
-  });
+  let leaf: string;
+  let contentType = args.contentType;
+  if (isSoundUpload(args.contentType)) {
+    const format = sniffSoundType(args.bytes);
+    if (format === null) {
+      throw new ConvexError({
+        code: "PATH_INVALID",
+        message: "That file is not a sound this can keep. Use an MP3, WAV, OGG or M4A file.",
+      });
+    }
+    leaf = sceneSoundLeaf(await contentHash(args.bytes), format);
+    contentType = SOUND_CONTENT_TYPES[format];
+  } else {
+    leaf = pasteImageLeaf({ hash: await contentHash(args.bytes), contentType: args.contentType });
+  }
   await ctx.runAction(internal.functions.files.runFileOperation, {
     workspaceId: args.workspaceId,
     scope,
@@ -66,7 +87,7 @@ export async function storeNoteImageHandler(
       kind: "writeImage",
       leaf,
       bytes: args.bytes,
-      contentType: args.contentType,
+      contentType,
     },
   });
   return { leaf };
@@ -191,9 +212,11 @@ export async function readNoteImageHandler(
     here is one of the set.
   */
   const extension = args.leaf.slice(args.leaf.lastIndexOf(".") + 1).toLowerCase();
+  const sound = (SOUND_CONTENT_TYPES as Record<string, string | undefined>)[extension];
   return {
     bytes: result.bytes,
-    contentType: extension === "jpg" || extension === "jpeg" ? "image/jpeg" : `image/${extension}`,
+    contentType:
+      sound ?? (extension === "jpg" || extension === "jpeg" ? "image/jpeg" : `image/${extension}`),
   };
 }
 

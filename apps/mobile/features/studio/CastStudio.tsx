@@ -14,7 +14,7 @@ import { STUDIO_FRAMES, studioFrame, type StudioFrameId } from "./studioFrames";
 import { studioScript } from "./studioScript";
 import { StudioRecord } from "./StudioRecord";
 import { StudioSoundsPanel } from "./sounds/StudioSoundsPanel";
-import { useStudioSounds, type SaveSounds } from "./sounds/useStudioSounds";
+import { useStudioSounds, type SaveSounds, type SoundStorage } from "./sounds/useStudioSounds";
 import { StudioScriptRail } from "./StudioScriptRail";
 import { StudioStage } from "./StudioStage";
 import { StudioTransport } from "./StudioTransport";
@@ -44,12 +44,15 @@ export function CastStudio({
   title,
   onClose,
   onSaveSounds,
+  soundStorage,
 }: {
   draft: string;
   title: string;
   onClose: () => void;
   /** Keeps sound choices in the note; absent where the note cannot be changed. */
   onSaveSounds?: SaveSounds;
+  /** Where uploaded sounds are kept and read back: the workspace's asset store. */
+  soundStorage?: SoundStorage;
 }) {
   const styles = useThemedStyles(makeStyles);
   const wide = useWindowDimensions().width >= RAIL_MIN_WINDOW;
@@ -57,7 +60,7 @@ export function CastStudio({
   const [recording, setRecording] = useState(false);
   const [soundsOpen, setSoundsOpen] = useState(false);
   const player = useStudioPlayer();
-  const sounds = useStudioSounds(draft, player, onSaveSounds);
+  const sounds = useStudioSounds(draft, player, onSaveSounds, soundStorage);
   const frame = studioFrame(frameId);
 
   // The draft as it is each time the stage loads; the rail follows every edit.

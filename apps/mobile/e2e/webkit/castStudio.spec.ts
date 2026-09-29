@@ -109,3 +109,27 @@ test("sounds: chosen in the panel, kept in the note, and only for what plays", a
   await expect.poll(cues, { timeout: 15_000 }).toContain("resolve");
   expect(await cues()).not.toContain("comment");
 });
+
+test("sounds: your own sound is uploaded and chosen for its moment", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("studio-sounds-toggle").click();
+  await page.getByTestId("studio-sound-agent").click();
+
+  // A tiny WAV: a header and a few silent samples.
+  const wav = Buffer.concat([
+    Buffer.from("RIFF"), Buffer.from([44, 0, 0, 0]), Buffer.from("WAVEfmt "),
+    Buffer.from([16, 0, 0, 0, 1, 0, 1, 0, 0x40, 0x1f, 0, 0, 0x80, 0x3e, 0, 0, 2, 0, 16, 0]),
+    Buffer.from("data"), Buffer.from([8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  ]);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByTestId("studio-sound-agent-upload").click();
+  await (await chooser).setFiles({ name: "whoosh.wav", mimeType: "audio/wav", buffer: wav });
+
+  await expect(page.getByTestId("studio-sound-agent")).toContainText("Your sound");
+  const sent = await page.evaluate(() => (window as unknown as { __castStudioUpload?: unknown }).__castStudioUpload);
+  expect(sent).toEqual({ size: wav.length, contentType: "audio/wav" });
+  const note = await page.evaluate(() => (window as unknown as { __castStudioNote?: string }).__castStudioNote ?? "");
+  expect(note).toContain("sounds: [agent sound-0123456789abcdef.wav]");
+});

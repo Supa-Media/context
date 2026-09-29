@@ -1,3 +1,4 @@
+import { SCENE_SOUND_LEAF } from "@context/shared/src/sceneSounds";
 import { noteProperties } from "../../../../mcp/src/lists.js";
 import { CAST_MOMENTS, type CastMoment } from "../../home/cast/castRun";
 import { BUILT_IN_SOUNDS, type BuiltInSound } from "./synth";
@@ -7,7 +8,9 @@ import { BUILT_IN_SOUNDS, type BuiltInSound } from "./synth";
  *
  * Dev2's picks (2026-09-29): a built-in set to choose from for every moment,
  * with Off and a volume, one sound per kind of moment for the whole scene, kept
- * in the note's front matter so it travels with the scene. Uploads come later.
+ * in the note's front matter so it travels with the scene. A sound somebody
+ * uploaded is named by its stored leaf (`sound-<hash>.wav`), which is also what
+ * lets the note vouch for reading it back.
  *
  * The front matter is one line, a list the Properties panel and a folder list
  * already read and write (`setNoteProperty`), and it names only what differs
@@ -26,7 +29,7 @@ export const SOUNDS_PROPERTY = "sounds";
 export const DEFAULT_VOLUME = 80;
 
 export interface SoundChoice {
-  /** A built-in sound's id, or `"off"`. */
+  /** A built-in sound's id, an uploaded sound's leaf, or `"off"`. */
   sound: string;
   /** 0 to 100. */
   volume: number;
@@ -70,12 +73,18 @@ export function defaultPlan(): SoundPlan {
   };
 }
 
+/** Whether a choice is a sound somebody uploaded (its stored leaf). */
+export function isUploadedSound(id: string): boolean {
+  return SCENE_SOUND_LEAF.test(id);
+}
+
 export function soundLabel(id: string): string {
   if (id === "off") return "Off";
+  if (isUploadedSound(id)) return "Your sound";
   return (BUILT_IN_SOUNDS as Record<string, BuiltInSound | undefined>)[id]?.label ?? id;
 }
 
-const ITEM = /^([a-z]+)\s+([a-z][a-z-]*)(?:\s+(\d{1,3})%)?$/;
+const ITEM = /^([a-z]+)\s+([a-z][a-z0-9.-]*)(?:\s+(\d{1,3})%)?$/;
 
 /** The scene's sounds, from the whole note (front matter and all). */
 export function soundPlan(note: string): SoundPlan {
@@ -92,7 +101,7 @@ export function soundPlan(note: string): SoundPlan {
     }
     if (!(CAST_MOMENTS as readonly string[]).includes(name!)) continue;
     const moment = name as CastMoment;
-    if (sound !== "off" && !(sound! in BUILT_IN_SOUNDS)) continue;
+    if (sound !== "off" && !(sound! in BUILT_IN_SOUNDS) && !isUploadedSound(sound!)) continue;
     plan.moments[moment] = {
       sound: sound!,
       volume: volume === undefined ? DEFAULT_VOLUME : Math.min(100, Number(volume)),
