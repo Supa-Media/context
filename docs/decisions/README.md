@@ -146,7 +146,6 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Authority is decided once, never per protocol era
 - An absent `Origin` is allowed; `null` is not
 - Orientation is the front door, and `index.md` is the part we do not generate
-- One note from Context.LC leads every orientation
 - Recency ranks attention, and automated capture is collapsed, not excluded
 - `search` and `fetch` exist because ChatGPT's chats can call nothing else
 - The advertised `inputSchema` is enforced, and it is enforced in one place
@@ -158,6 +157,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
+- [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 
 ## [Markdown forms](./forms.md)
