@@ -7,8 +7,8 @@ replace that generated note instead of flooding the folder.
 The adapter verifies Sentry's HMAC signature before parsing the body, accepts
 only the configured Sentry project, and never stores vendor-supplied error
 text, a raw event, or a stack trace. The generated note uses bounded issue
-identifiers, closed severity and environment values, and an HTTPS `sentry.io`
-link with its query and fragment removed. The request cannot select a Context
+identifiers, closed severity and environment values, and a link rebuilt as the
+issue's own page on the verified `sentry.io` host. The request cannot select a Context
 workspace or destination folder.
 
 ## Authentication

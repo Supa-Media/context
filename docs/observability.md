@@ -78,7 +78,8 @@ check is still open. The privacy policy names both, and replay, under
 
 The quiet incident inbox now derives its note from bounded metadata only: the
 configured project, a restricted issue id, a restricted short id, a closed
-severity and environment value, and an HTTPS `sentry.io` issue link. It does
+severity and environment value, and the issue's own page on the verified
+`sentry.io` host. It does
 not copy the Sentry title, exception type, message, culprit, stack, tags, or
 request fields into the team workspace. Redacting known secret shapes was not
 enough because arbitrary exception text can contain a note body or note path.

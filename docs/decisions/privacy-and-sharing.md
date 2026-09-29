@@ -111,8 +111,9 @@ capability URL, or credential even when the ordinary client scrubber works.
 Pattern-based redaction cannot prove that arbitrary prose is safe.
 
 The inbox therefore derives a note only from the configured project, restricted
-issue and short ids, closed severity and environment values, and an HTTPS
-`sentry.io` issue link without a query or fragment. The human sentence is
+issue and short ids, closed severity and environment values, and a link rebuilt
+as the issue's own page on the verified `sentry.io` host (never the payload's
+path, which can carry a search's terms). The human sentence is
 generic. A reviewer opens Sentry for the diagnostic text.
 
 The cost is one extra click and less detail in the quiet queue. Reversing the
