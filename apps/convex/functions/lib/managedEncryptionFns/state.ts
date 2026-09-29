@@ -21,16 +21,19 @@ export type GatewayEncryptionMode = "migrating" | "encrypted" | "decrypting";
  * `waiting` is plain: the walk has not started, so nothing is sealed and the
  * key may not exist yet. Everything from the first sealed object on accepts
  * both kinds on read, until the check has passed; a failed walk stays mixed.
- * The way back reads both and writes plain until its own check has passed,
- * and only then is the workspace plain again.
+ * The way back reads both and writes plain, and keeps doing so once it is
+ * done: a store built before Decrypt (a long-lived editing room, a request in
+ * flight) can still land a sealed object after the last check, and in plain
+ * mode that object would be served as ciphertext. Reading both costs only
+ * needing the key, which is never deleted, and it fails closed without it.
  */
 export function gatewayModeFor(state: WorkspaceEncryptionState | null): GatewayEncryptionMode | null {
   switch (state) {
     case null:
     case "waiting":
-    case "decrypted":
       return null;
     case "decrypting":
+    case "decrypted":
       return "decrypting";
     case "encrypting":
     case "checking":

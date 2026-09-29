@@ -23,12 +23,16 @@ export const managedEncryptionWorkspaceState = v.union(
   /** The walk stopped on a problem. Reads accept both; staff retry. */
   v.literal("failed"),
   /**
-   * Staff chose Decrypt: the walk back is opening sealed objects in place.
+   * Decrypt was run (production access only): the walk back is opening sealed objects in place.
    * Reads accept both; new saves are plain. A failure keeps this state (with
    * an `errorCode`), never `failed`, which would seal new saves again.
    */
   v.literal("decrypting"),
-  /** Walked back and checked: every object is plain, and the store is plain. */
+  /**
+   * Walked back and checked: every object is plain. The store still reads
+   * both kinds (and writes plain), so a late sealed save is never served as
+   * ciphertext.
+   */
   v.literal("decrypted"),
 );
 

@@ -5,7 +5,7 @@
  *   waiting ──key exists──▶ encrypting/count ──▶ encrypting/seal ──▶ checking ──▶ encrypted
  *                                   any failure ──▶ failed (the rollout pauses itself)
  *
- * And the way back, which staff start per workspace (`decryptWorkspace`):
+ * And the way back, run per workspace from production access (`decryptWorkspace`):
  *
  *   any ──Decrypt──▶ decrypting/unseal ──▶ decrypting/confirm ──▶ decrypted
  *                  a failure stops here, still `decrypting`, rollout untouched
@@ -55,7 +55,7 @@ export async function walkPlanHandler(
   if (row.state === "decrypting") {
     // The way back is a rescue: it runs whatever the rollout's state, since a
     // paused or failed rollout is exactly when staff reach for it. A failure
-    // stops it (`errorCode`) until staff press Decrypt again.
+    // stops it (`errorCode`) until Decrypt is run again.
     if (row.errorCode !== undefined) return null;
     if (!(await stillOnManagedBucket(ctx, args.workspaceId))) return null;
     if (await handOffUnderWay(ctx, args.workspaceId)) return null;

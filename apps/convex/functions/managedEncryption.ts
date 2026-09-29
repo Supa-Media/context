@@ -110,13 +110,6 @@ export const retryWorkspace = mutation({
 
 export const stopStartingNew = mutation({ args: {}, returns: v.null(), handler: stopStartingNewHandler });
 
-/** The way back: walk one workspace's bucket from sealed to plain bytes. */
-export const decryptWorkspace = mutation({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.null(),
-  handler: decryptWorkspaceHandler,
-});
-
 /* ------------------------------ internal -------------------------------- */
 
 /** The mode a store for this workspace is built in; null for plain. */
@@ -154,6 +147,19 @@ export const forgetKeptBucket = internalMutation({
     if (row !== null) await ctx.db.delete(row._id);
     return null;
   },
+});
+
+/**
+ * The way back: walk one workspace's bucket from sealed to plain bytes. Run
+ * from the Convex dashboard or CLI, never the console; see the handler.
+ *
+ *   npx convex run --prod functions/managedEncryption:decryptWorkspace \
+ *     '{"workspaceId":"…","operator":"you@example.com"}'
+ */
+export const decryptWorkspace = internalMutation({
+  args: { workspaceId: v.id("workspaces"), operator: v.string() },
+  returns: v.null(),
+  handler: decryptWorkspaceHandler,
 });
 
 export const tick = internalMutation({

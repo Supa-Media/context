@@ -14,6 +14,8 @@
  *     saying how many; pressing it sends that scope.
  *  3. **Pause asks for a reason** and sends nothing without one.
  *  4. **A failed workspace has its own Retry**, which retries that workspace.
+ *  5. **A workspace taken back to plain says so**, and the console offers
+ *     no way to do it: that is production access only.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -197,5 +199,24 @@ describe("the encryption card", () => {
     expect(find("admin-encryption-stop-confirm")).not.toBeNull();
     await click("admin-encryption-stop");
     expect(mockCalls).toEqual([{ name: "functions/managedEncryption:stopStartingNew", args: {} }]);
+  });
+
+  test("decrypted workspaces read as plain again, with no Decrypt anywhere", async () => {
+    mockAnswers.set(
+      STATUS,
+      status({
+        state: "complete",
+        counts: { waiting: 0, encrypting: 0, checking: 0, encrypted: 1, failed: 0, decrypting: 1, decrypted: 1, notStarted: 1 },
+        workspaces: [
+          { workspaceId: "w-north", slug: "northwind", state: "encrypted", filesDone: 9, filesTotal: 9, updatedAt: 0 },
+          { workspaceId: "w-east", slug: "eastwind", state: "decrypting", filesDone: 2, filesTotal: 6, errorCode: "VERIFY_FAILED", updatedAt: 0 },
+          { workspaceId: "w-south", slug: "southwind", state: "decrypted", filesDone: 4, filesTotal: 4, updatedAt: 0 },
+        ],
+      }),
+    );
+    mount();
+    expect(text("admin-encryption-row-southwind")).toContain("Plain again");
+    expect(text("admin-encryption-row-eastwind")).toContain("Decrypt stopped");
+    expect(document.querySelector('[data-testid^="admin-encryption-decrypt"]')).toBeNull();
   });
 });

@@ -280,13 +280,21 @@ export async function retryWorkspaceHandler(
  * The way back for one workspace: its bucket is walked from sealed to plain
  * bytes. Reads accept both kinds from this transaction on, which is also the
  * immediate undo of encrypted-only reads, and saves land plain. The walk runs
- * whatever the rollout's state. Pressing it again after a failure resumes.
+ * whatever the rollout's state. Running it again after a failure resumes.
+ *
+ * Internal on purpose, never a console button (the owner's call,
+ * 2026-09-29): plain bytes in our R2 account are readable by anyone with that
+ * account, which is what encryption protects against. So it is run from the
+ * Convex dashboard or CLI by someone with production access, who can already
+ * reach the keys, and names themselves as `operator`.
  */
 export async function decryptWorkspaceHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces"> },
+  args: { workspaceId: Id<"workspaces">; operator: string },
 ): Promise<null> {
-  const actor = await requireAdmin(ctx);
+  const operator = args.operator.trim().slice(0, 200);
+  if (!operator) throw new ConvexError({ code: "OPERATOR_REQUIRED", message: "Say who is running this." });
+  const actor = { email: operator };
   const binding = await ctx.db
     .query("storageBindings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -295,6 +303,16 @@ export async function decryptWorkspaceHandler(
   if (!bindingIsManaged(binding) || row === null || row.state === "decrypted") {
     throw new ConvexError({ code: "NOT_ENCRYPTED", message: "This workspace has nothing encrypted to take back." });
   }
+  // The record of who took which workspace back. Ids and a staff address
+  // only; nothing from the bucket.
+  console.log(
+    JSON.stringify({
+      event: "managed_encryption.decrypt",
+      workspaceId: args.workspaceId,
+      operator,
+      from: row.state,
+    }),
+  );
   const runId = row.runId + 1;
   const now = Date.now();
   if (row.state === "waiting") {
@@ -422,7 +440,7 @@ export async function managedBucketBound(ctx: MutationCtx, workspaceId: Id<"work
     await enrollNewManagedWorkspace(ctx, workspaceId);
     return;
   }
-  // Staff took it back to plain, and the kept bucket was walked back with it.
+  // It was taken back to plain, and the kept bucket was walked back with it.
   if (row.state === "decrypted") return;
   const runId = row.runId + 1;
   if (row.state === "decrypting") {

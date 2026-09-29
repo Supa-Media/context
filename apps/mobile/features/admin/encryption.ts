@@ -15,7 +15,14 @@ import { formatCount, type CompositionPart } from "./report";
 
 export type RolloutState = "off" | "running" | "paused" | "failed" | "complete";
 export type RolloutScope = "ours" | "picked" | "all";
-export type WorkspaceEncryptionState = "waiting" | "encrypting" | "checking" | "encrypted" | "failed";
+export type WorkspaceEncryptionState =
+  | "waiting"
+  | "encrypting"
+  | "checking"
+  | "encrypted"
+  | "failed"
+  | "decrypting"
+  | "decrypted";
 
 export interface RolloutWorkspace {
   workspaceId: string;
@@ -44,6 +51,8 @@ export interface RolloutStatus {
     checking: number;
     encrypted: number;
     failed: number;
+    decrypting?: number;
+    decrypted?: number;
     notStarted: number;
   };
   files: { done: number; total: number };
@@ -272,8 +281,17 @@ export function encryptionCardView(status: RolloutStatus, now: number = Date.now
 }
 
 /** A workspace's state, as its pill says it. */
-export function workspaceStatePill(state: WorkspaceEncryptionState): { label: string; tone: PillTone } {
+export function workspaceStatePill(
+  state: WorkspaceEncryptionState,
+  errorCode?: string,
+): { label: string; tone: PillTone } {
   switch (state) {
+    case "decrypting":
+      return errorCode === undefined
+        ? { label: "Decrypting", tone: "neutral" }
+        : { label: "Decrypt stopped", tone: "crit" };
+    case "decrypted":
+      return { label: "Plain again", tone: "neutral" };
     case "encrypted":
       return { label: "Encrypted", tone: "ok" };
     case "encrypting":

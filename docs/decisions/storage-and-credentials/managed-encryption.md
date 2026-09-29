@@ -55,6 +55,8 @@ all build their store from that one lookup.
 | no row, or `waiting` | plain | plain | plain |
 | `encrypting`, `checking`, `failed` | `migrating` | both kinds | sealed |
 | `encrypted` | `encrypted` | refuses a plain body | sealed |
+| `decrypting` (Decrypt was run) | `decrypting` | both kinds | plain |
+| `decrypted` | `decrypting` | both kinds | plain |
 
 **Fail closed, in both directions.**
 
@@ -74,7 +76,11 @@ then seal (100 objects a page, 8 at a time), then check (every object is read
 again). Only then does the workspace become `encrypted`.
 
 - **Every seal is a conditional write** on the etag it read, then a read-back
-  that must open to exactly the original bytes. A save that lands first wins
+  that must open to exactly the original bytes. If it does not, the walk puts
+  the original bytes back (they are still in memory; the restore is
+  conditional on its own write, so a newer save is never overwritten) and
+  only then fails with `VERIFY_FAILED`. A failed verify never leaves a bad
+  copy as the only one. A save that lands first wins
   the write, and the walk counts that object as `raced` and moves on. People
   write sealed in `migrating` mode, so nothing is lost and nothing older
   overwrites anything newer.
@@ -105,13 +111,35 @@ managed bucket afterwards.
 
 ### Rollback, restore, rotation, deletion
 
-- **Rollback is to `migrating`, not to plain bytes.** Setting a workspace's
-  row back to `checking` (a row edit in the Convex dashboard; see the runbook
-  below) makes reads accept both kinds again, which undoes
-  every behaviour the rollout introduced except the bytes themselves. We do not
-  build a walk that decrypts in place. The only reason to want plain bytes in a
-  managed bucket is to hand them to somebody, and the hand-off already
-  decrypts as it copies.
+- **Rollback is Decrypt, per workspace, from production access only.**
+  `managedEncryption:decryptWorkspace` is an internal mutation, run from the
+  Convex dashboard or CLI with an `operator` naming who ran it; each run logs
+  `managed_encryption.decrypt` with the workspace id and operator. It is
+  deliberately not a console button (the owner's call, 2026-09-29): plain
+  bytes in our R2 account are readable by anyone with that account, which is
+  what encryption protects against, so taking a workspace back is limited to
+  people who can already reach the keys. It switches the workspace
+  to `decrypting` in one transaction, so reads accept both kinds and saves
+  land plain from that moment, which is also the immediate undo of
+  encrypted-only reads. The walk back then opens every sealed object in place
+  (conditional write, read-back that must equal the plain bytes, restore on a
+  mismatch), re-reads everything, and only then marks the workspace
+  `decrypted`. Its store keeps reading both kinds and writing plain: a store
+  built before Decrypt (a long-lived editing room, a request in flight) can
+  still land one sealed object after the last check, and a plain store would
+  serve it as ciphertext. The cost is needing the key, which is never
+  deleted, and it fails closed without it.
+  - It runs whatever the rollout's state, because a paused or failed rollout
+    is when it is needed.
+  - A failure stops only that workspace. It stays `decrypting` (never
+    `failed`, which would seal new saves) with its code, the rollout is left
+    alone, and running Decrypt again resumes.
+  - A decrypted workspace stays out of later rollouts over "ours" or "all";
+    picking it by name encrypts it again. Binding its managed bucket again
+    (a switch back) leaves it plain.
+  - This was added on 2026-09-29 after the owner asked whether a bad rollout
+    could be reverted. Before it, the only undo was a row edit that left the
+    bytes sealed.
 - **Leaving managed storage** decrypts during the copy (the source store is
   built in the workspace's mode). The copy's verification compares plain bytes
   with plain bytes. At cutover the row is **kept**: the managed bucket is kept
@@ -140,6 +168,19 @@ managed bucket afterwards.
   with versioning on, the versions from before the walk are plain, and this
   section has to change.
 
+### What would make sealed files unrecoverable
+
+Only losing the key. Each workspace's data key is a row in the production
+Convex database (`workspaceDataKeys`), sealed under
+`STORAGE_SECRET_ENCRYPTION_KEY` (and `_PREVIOUS` after a rotation), which
+lives in the Convex deployment's environment and in the GitHub `production`
+environment's secrets, pushed by `deploy-convex.yml`. Losing that database,
+or every copy of that secret, makes every sealed object unreadable, where
+before encryption the same loss only broke bucket connections. So before the
+rollout reaches anything that matters: a copy of the secret outside GitHub
+and Convex (GitHub does not show a secret back), and scheduled Convex
+backups. Neither is something this repository can do.
+
 ### Runbook
 
 - **Something looks wrong mid-rollout:** Pause, with a reason. Every walk
@@ -155,9 +196,13 @@ managed bucket afterwards.
 
   Retry it once the cause is fixed. The rollout resumes by itself when no
   workspace is left failed.
-- **Encrypted reads are refusing something they should not:** set that
-  workspace's row to `checking` so reads accept both kinds again, then find
-  the object.
+- **Encrypted reads are refusing something they should not, or anything
+  about a workspace looks wrong:** someone with production Convex access runs
+  `npx convex run --prod functions/managedEncryption:decryptWorkspace
+  '{"workspaceId":"…","operator":"<their address>"}'`. Reads accept both
+  kinds at once, and the bucket walks back to plain; the staff card shows it
+  as Decrypting, then Plain again. If it stops ("Decrypt stopped"), read its
+  code and run it again once the cause is fixed.
 - **Stop for good:** "Stop starting new workspaces". Encrypted workspaces stay
   encrypted and readable.
 
@@ -187,6 +232,8 @@ crafted upload hits this, and it can only stop its own workspace.
   copy, including renames and moves.
 - **Putting the wrapper above the logical-delete view** lets a deletion
   marker or a raw-object copy bypass it.
+- **Marking a failed walk back `failed`** seals new saves in a workspace
+  staff are trying to take back to plain.
 - **Letting reads fall back to plain in `encrypted` mode** turns a tampered
   or truncated object into a silently served one.
 - **Deriving the key with `deriveKey`** trips the gateway's passphrase guard.
@@ -196,6 +243,11 @@ crafted upload hits this, and it can only stop its own workspace.
 
 - `apps/mcp/test/managedEncryption.test.mjs` (format, tamper, cross-workspace,
   modes, walk)
+- `apps/mcp/test/managedDecryption.test.mjs` (the `decrypting` mode, unseal,
+  restore on a failed verify)
+- `apps/convex/__tests__/managedEncryptionDecrypt.test.ts` (Decrypt end to
+  end, a late sealed save, failure and resume, paused rollout, re-enrolment,
+  switch back, internal-only)
 - `apps/convex/__tests__/managedEncryption.test.ts` (staff-only, end to end,
   fail closed, owner view)
 - `apps/convex/__tests__/managedEncryptionEdges.test.ts` (partial failure and
