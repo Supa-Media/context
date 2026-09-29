@@ -76,7 +76,7 @@ describe("editing a note's lede", () => {
   });
 
   test("keeps Windows line endings and a byte-order mark", () => {
-    expect(setNoteLede("﻿# P\r\n\r\nOld.\r\n", "New.")).toEqual({ text: "﻿# P\r\n\r\nNew.\r\n" });
+    expect(setNoteLede("\uFEFF# P\r\n\r\nOld.\r\n", "New.")).toEqual({ text: "\uFEFF# P\r\n\r\nNew.\r\n" });
   });
 
   test("refuses a note whose frontmatter never closes", () => {
