@@ -7,7 +7,6 @@ import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
 import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
-import { useFolderLists } from "../../../offline/useFolderLists";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
@@ -26,6 +25,8 @@ import { folderCounts } from "../../home/folderHead";
 import { phoneRows } from "../../home/folderRows";
 import { PhoneFolderHead } from "../../home/PhoneFolderHead";
 import { PhoneHome } from "../../home/PhoneHome";
+import { folderTagTarget } from "../../home/folderTags";
+import { showTagOnHome } from "../../home/homeTag";
 import type { HomeSource } from "../../home/useHomeSource";
 import { useRecordOpen } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
@@ -56,6 +57,9 @@ export function BrowseDocument({
   places,
   homeSource,
   openFolderActions,
+  folderLists,
+  selectAsked,
+  takeSelect,
   setFolderDialog,
   noteEncryption,
   notices,
@@ -85,6 +89,11 @@ export function BrowseDocument({
   homeSource: HomeSource;
   /** The ••• on a phone's folder page. */
   openFolderActions: FolderListingState["openFolderActions"];
+  /** This device's copy, where folder pages and lists read and write notes. */
+  folderLists: FolderListingState["folderLists"];
+  /** "Select notes" asked from a folder page's ••• (board 16). */
+  selectAsked: FolderListingState["selectAsked"];
+  takeSelect: FolderListingState["takeSelect"];
   /** The pane's dialogs — a List's Archive opens the console's own. */
   setFolderDialog: FolderListingState["setFolderDialog"];
   noteEncryption: BrowseEncryption["noteEncryption"];
@@ -96,8 +105,6 @@ export function BrowseDocument({
   // Where a folder list in the open note reads its notes: this device's copy.
   // The homepage brings its own (the visitor's copy of the site), and asks nothing of a device or the server.
   const local = data.folderLists;
-  const device = useFolderLists(local === undefined ? current?.id : undefined, current?.role);
-  const folderLists = local ?? device;
   /*
     The same source, handed to a folder page: its List and Board views and a
     project's property line read and change properties exactly as a list block
@@ -237,6 +244,11 @@ export function BrowseDocument({
         onOpen={files.select}
         onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder }) : undefined}
         onActions={(at) => void openFolderActions(folder, at)}
+        tags={folderTagTarget(folder, homeSource.notes)?.tags}
+        onTag={(tag) => {
+          showTagOnHome(tag);
+          files.deselect();
+        }}
       />
     );
   // Count this arrival for You open most: the folder on screen, or a note's folder.
@@ -336,6 +348,8 @@ export function BrowseDocument({
         showAudience={data.visitor === undefined}
         phoneHead={phoneHead(selected.path)}
         phoneRows={phoneRowsFor}
+        askSelect={selectAsked === selected.path}
+        onAskTaken={takeSelect}
       />
     ) : files.conflict?.path === selected.path ? (
       /*

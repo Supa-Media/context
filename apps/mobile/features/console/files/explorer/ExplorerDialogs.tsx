@@ -7,6 +7,16 @@ import {
   NamePrompt,
 } from "../Dialogs";
 import { NewFolderForm } from "../NewFolderForm";
+import { TagsSheet } from "../TagsSheet";
+import {
+  bulkTagTargets,
+  folderTagTarget,
+  listedIn,
+  retagAll,
+  sharedTags,
+  tagTargetName,
+  workspaceTags,
+} from "../../home/folderTags";
 import { densityFor } from "../../../app/frame";
 import { useWindowDimensions } from "react-native";
 import { ShareDialog } from "../ShareDialog";
@@ -39,7 +49,14 @@ export function ExplorerDialogs({
    * a phone's copy of the whole workspace (`useHomeSource`), and what the top
    * of it is called. Absent, it lists what the console has listed.
    */
-  places?: { folders?: readonly string[]; rootLabel?: string };
+  places?: {
+    folders?: readonly string[];
+    rootLabel?: string;
+    /** Every note's tags, for a folder's Tags sheet (its own, and the workspace's to suggest). */
+    notes?: readonly { path: string; tags: readonly string[]; lede?: string | null }[];
+    /** Write a note's `tags:`; `create` makes the note. Absent where nobody may. */
+    saveTags?: (path: string, tags: readonly string[], create: boolean) => Promise<string | null>;
+  };
   dialog: Dialog;
   onClose: () => void;
   /**
@@ -153,6 +170,49 @@ export function ExplorerDialogs({
           }}
         />
       );
+    case "tags":
+    case "tagsMany": {
+      const notes = places?.notes ?? [];
+      const save = places?.saveTags;
+      const targets =
+        dialog.kind === "tags"
+          ? [folderTagTarget(dialog.folder, notes, listedIn(files.listings, dialog.folder))].filter(
+              (target) => target !== null,
+            )
+          : bulkTagTargets(dialog.paths, notes, places?.folders ?? [], (folder) => listedIn(files.listings, folder));
+      if (targets.length === 0 || save === undefined) return null;
+      const name =
+        dialog.kind === "tags"
+          ? folderLabel(baseName(dialog.folder))
+          : targets.length === 1
+            ? tagTargetName(targets[0]!.path)
+            : `${targets.length} items`;
+      return (
+        <TagsSheet
+          name={name}
+          initial={sharedTags(targets)}
+          known={workspaceTags(notes)}
+          workspaceLabel={rootLabel}
+          onCancel={onClose}
+          onSave={async (tags) => {
+            const { problem, changed } = await retagAll({ targets, after: tags, save });
+            if (changed.length > 0) {
+              files.say(
+                `Changed the tags on ${changed.length === 1 && targets.length === 1 ? name : `${changed.length} items`}.`,
+                () =>
+                  void (async () => {
+                    for (const one of changed) {
+                      const undone = await save(one.path, one.from, false);
+                      if (undone !== null) return files.say(undone);
+                    }
+                  })(),
+              );
+            }
+            return problem;
+          }}
+        />
+      );
+    }
     case "rename":
       return (
         <NamePrompt

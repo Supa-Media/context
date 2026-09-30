@@ -29,6 +29,8 @@ export function PhoneFolderHead({
   onOpen,
   onNewFolder,
   onActions,
+  tags = [],
+  onTag,
 }: {
   folder: string;
   counts: { notes: number; folders: number };
@@ -37,6 +39,10 @@ export function PhoneFolderHead({
   onOpen: (path: string) => void;
   onNewFolder?: () => void;
   onActions?: (anchor: { x: number; y: number }) => void;
+  /** The folder's own tags, from its front note (`home/folderTags.ts`, board 14). */
+  tags?: readonly string[];
+  /** Open Home filtered to a tag. */
+  onTag?: (tag: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -85,6 +91,26 @@ export function PhoneFolderHead({
           </Pressable>
         )}
       </View>
+      {tags.length === 0 ? null : (
+        <View style={styles.tags} testID="phone-folder-tags">
+          {tags.map((tag) => (
+            <Pressable
+              key={tag}
+              onPress={onTag === undefined ? undefined : () => onTag(tag)}
+              disabled={onTag === undefined}
+              accessibilityRole="button"
+              accessibilityLabel={`Tagged ${tag}. Show on Home`}
+              style={({ pressed }) => [styles.tag, pressed ? styles.pressed : null]}
+              testID="phone-folder-tag"
+            >
+              <Icon name="tag" size={13} color={colors.text2} />
+              <Text variant="meta" style={styles.tagText}>
+                {tag}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
       {latest === null ? null : (
         <Pressable
           onPress={latest.path === null ? undefined : () => onOpen(latest.path as string)}
@@ -150,6 +176,19 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     },
     faceOverlap: { marginLeft: -6 },
     agent: { borderRadius: 7, backgroundColor: colors.surface2 },
+    tags: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
+    tag: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x1,
+      minHeight: 30,
+      paddingHorizontal: space.x3,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.pageSurface,
+    },
+    tagText: { color: colors.text2 },
     latest: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 44 },
     latestText: { flex: 1, color: colors.text2 },
   });

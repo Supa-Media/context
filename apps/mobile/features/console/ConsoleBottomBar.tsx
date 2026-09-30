@@ -4,6 +4,8 @@ import { Text } from "../design/components/Text";
 import { fonts, layout, radii, space, touchType } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { targetFolder } from "./files/tree";
+import { SelectActionsBar } from "./files/SelectActionsBar";
+import { useSelectBar } from "./files/selectActions";
 import { scopeLabel } from "./layout/SearchScope";
 import type { ConsoleData } from "./types";
 
@@ -62,6 +64,8 @@ export function ConsoleBottomBar({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  // Rows picked on a folder page: their actions take the bar until the page leaves select mode (board 16).
+  const picking = useSelectBar();
   const folder = quickNoteFolder(data);
   // On a folder's page the field reads "Search in Clients" (board 07b); on Home, "Search".
   const inside = targetFolder(data.files.listings, data.files.selectedPath);
@@ -70,6 +74,7 @@ export function ConsoleBottomBar({
   // A reader cannot write a note; the round button is then only the sheet, if that has rows.
   const canNote = data.files.canEdit;
 
+  if (picking !== null) return <SelectActionsBar bar={picking} />;
   return (
     <View style={styles.bar} testID="notes-bar" role="toolbar" aria-label="Search and new note">
       <View style={styles.field}>

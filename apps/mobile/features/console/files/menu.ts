@@ -103,6 +103,10 @@ export type MenuActionId =
   /** Put a note or folder on the phone's Home, for this person only (`functions/places.ts`). */
   | "pin"
   | "unpin"
+  /** A folder's tags, on its front note (`TagsSheet`, board 14). */
+  | "tags"
+  /** Pick several rows of the folder page (board 16). */
+  | "selectNotes"
   | "archive"
   | "restore"
   | "delete";
@@ -200,6 +204,13 @@ export interface MenuContext {
    * (a signed-in phone); a pin is personal, so a reader may pin too.
    */
   pinned?: (path: string) => boolean;
+  /**
+   * A folder's tags as they are now, for "Tags  client, retainer ›" on a
+   * phone's folder page. Present only where they can be changed from here.
+   */
+  tagsOf?: (path: string) => readonly string[] | null;
+  /** The page can pick several rows: a phone's folder page (`folderSelect.tsx`). */
+  selectable?: boolean;
 }
 
 /**
@@ -368,10 +379,16 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       makeItem(context, "newFolder", "New folder inside"),
       ...pasteGroup(context, row.path),
     ],
-    [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…"), ...pinGroup(context, row)],
+    [
+      makeItem(context, "rename", "Rename…"),
+      makeItem(context, "moveTo", "Move to…"),
+      ...pinGroup(context, row),
+      ...tagsGroup(context, row),
+    ],
     context.canSetVisibility
       ? visibilityGroup(context, true, 1, row).map((item) => ({ ...item, label: "Share" }))
       : [],
+    context.selectable === true ? [makeItem(context, "selectNotes", "Select notes")] : [],
     downloadGroup(context, row),
     [
       archived
@@ -428,6 +445,14 @@ function pinGroup(context: MenuContext, single: TreeRow | null): MenuItem[] {
   return context.pinned(single.path)
     ? [makeItem(context, "unpin", "Unpin from Home")]
     : [makeItem(context, "pin", "Pin to Home")];
+}
+
+/** "Tags", with the folder's tags beside it, where they can be changed from here. */
+function tagsGroup(context: MenuContext, row: TreeRow): MenuItem[] {
+  const tags = context.tagsOf?.(row.path);
+  if (tags == null) return [];
+  const item = makeItem(context, "tags", "Tags");
+  return [tags.length === 0 ? item : { ...item, value: tags.join(", ") }];
 }
 
 /** "Paste foo.md", or nothing. The label names the thing so it is not a guess. */

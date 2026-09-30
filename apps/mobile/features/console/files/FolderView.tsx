@@ -82,7 +82,7 @@
  * binding or a backfill is — the same split `Explorer` made for the same line.
  */
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
@@ -94,6 +94,7 @@ import { FolderPage, type FolderPageHost } from "./folderPage/FolderPage";
 import { phoneSections, type PhoneRows } from "../home/folderRows";
 import { FolderRow } from "./FolderRow";
 import { FolderSelectBar, useFolderSelection } from "./folderSelect";
+import { showSelectBar, type BulkActions } from "./selectActions";
 import { useListingOrder } from "./listingOrder";
 import { baseName, folderLabel } from "./paths";
 import type { SyncMark } from "./pendingMarks";
@@ -139,6 +140,13 @@ export interface FolderMenu {
    * then draws no Select button.
    */
   onSelection?: (entries: readonly FileEntry[], anchor: { x: number; y: number }) => boolean;
+  /**
+   * Board 16's bottom bar for the picked rows: Move, Tags, Pin, Archive and
+   * More (`selectActions.ts`). With it, select mode is entered from the
+   * folder's ••• or a long press, and the line over the listing is Cancel,
+   * the count and Select all.
+   */
+  bulk?: (entries: readonly FileEntry[]) => BulkActions;
 }
 
 /**
@@ -186,6 +194,8 @@ export function FolderView({
   showAudience = true,
   phoneHead,
   phoneRows,
+  askSelect = false,
+  onAskTaken,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -240,6 +250,9 @@ export function FolderView({
   phoneHead?: ReactNode;
   /** What a phone row says beside its name; with it, Folders and Notes are drawn apart. */
   phoneRows?: PhoneRows;
+  /** "Select notes" was chosen from this folder's ••• (board 16): enter select mode, then say so. */
+  askSelect?: boolean;
+  onAskTaken?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -282,6 +295,24 @@ export function FolderView({
   const onSelection = menu?.onSelection;
   const canSelect = compact && onSelection !== undefined && rows.length > 0;
   const selecting = canSelect && selection.selecting;
+  const bulk = compact ? menu?.bulk : undefined;
+  const start = selection.start;
+  useEffect(() => {
+    if (!askSelect) return;
+    if (canSelect) start();
+    onAskTaken?.();
+  }, [askSelect, canSelect, start, onAskTaken]);
+  /*
+    Board 16: while rows are picked, their actions are the bottom bar's. The
+    bar is another region, so it is left in `selectActions.ts` and taken
+    back when the mode ends or this page goes.
+  */
+  const picked = selection.picked;
+  useEffect(() => {
+    if (!selecting || bulk === undefined) return;
+    showSelectBar({ count: picked.length, actions: bulk(picked) });
+    return () => showSelectBar(null);
+  }, [selecting, bulk, picked]);
 
   /*
     The background gesture is on the **whole view**, not on a filler strip under
@@ -419,6 +450,7 @@ export function FolderView({
                 {canSelect ? (
                   <FolderSelectBar
                     selection={selection}
+                    actionsBelow={bulk !== undefined}
                     onActions={(picked) => void onSelection!(picked, { x: 0, y: 0 })}
                   />
                 ) : null}
