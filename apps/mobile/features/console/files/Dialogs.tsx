@@ -270,6 +270,7 @@ export function NamePrompt({
   const styles = useThemedStyles(makeStyles);
   const fieldFont = useFieldFont();
   const [value, setValue] = useState(initialValue);
+  const [focused, setFocused] = useState(false);
   const problem = value.trim() === "" ? null : describeNameProblem(value);
   const ready = value.trim() !== "" && problem === null;
   // A phone asks from the bottom of the glass, as its + sheet does (boards 05 and 11).
@@ -282,7 +283,9 @@ export function NamePrompt({
         value={value}
         onChangeText={setValue}
         autoFocus
-        style={[styles.input, fieldFont]}
+        style={[styles.input, focused && styles.inputFocused, fieldFont]}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         placeholderTextColor={colors.muted}
         accessibilityLabel={title}
@@ -551,7 +554,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.lineStrong,
     borderRadius: radii.lg,
     backgroundColor: colors.well,
+    // Its own petrol border when focused, not the browser's orange outline (board 05).
+    outlineWidth: 0,
   },
+  inputFocused: { borderColor: colors.accent },
   /**
    * The action row, and the one rule about what goes in it: `dialog` for the
    * quiet half, `dialogPrimary` for the default action, and nothing else.
