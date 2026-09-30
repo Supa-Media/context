@@ -483,10 +483,11 @@ export function useListings(deps: ListingsDeps) {
    * palette that asked rather than to the console's notice bar.
    */
   const search = useCallback(
-    async (query: string) => {
+    async (query: string, prefix?: string) => {
       const found = await searchContext({
         workspaceId: workspaceId as Id<"workspaces">,
         query,
+        ...(prefix === undefined ? {} : { prefix }),
       });
       return {
         hits: found.hits,

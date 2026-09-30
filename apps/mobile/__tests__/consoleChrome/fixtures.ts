@@ -49,9 +49,14 @@ export const mockConsoleState: {
    * `undefined` for the moment before it answers at all.
    */
   modelConnected: boolean | undefined;
+  /** The page on screen, as `ConsoleData.files.selectedPath`: `null` is Home. */
+  selectedPath: string | null;
+  /** The bucket's search, where a test wants one; none by default, as before. */
+  search?: (query: string, prefix?: string) => Promise<never>;
 } = {
   pathname: "/console/@seyi",
   modelConnected: true,
+  selectedPath: null,
 };
 
 /** What the `+` sheet asked the browser to make, as `<kind>:<folder>`. */
@@ -156,7 +161,8 @@ function mockConsoleData(): never {
     },
     expanded: new Set<string>(),
     toggleFolder: () => {},
-    selectedPath: null,
+    selectedPath: mockConsoleState.selectedPath,
+    ...(mockConsoleState.search === undefined ? {} : { search: mockConsoleState.search }),
     select: () => {},
     deselect: () => true,
     editor: emptyEditor,
@@ -282,6 +288,8 @@ afterEach(() => {
   */
   mockConsoleState.pathname = "/console/@seyi";
   mockConsoleState.modelConnected = true;
+  mockConsoleState.selectedPath = null;
+  delete mockConsoleState.search;
 });
 
 export function mountConsole(width = 1440) {

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -236,6 +236,8 @@ export interface PaletteProps {
   onAsk?: (query: string) => void;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
+  /** Under the field: what the search is narrowed to, and the way to widen it. */
+  scopeBar?: ReactNode;
 }
 
 /**
@@ -311,6 +313,7 @@ export function Palette({
   onAsk,
   onChoose,
   onDismiss,
+  scopeBar,
 }: PaletteProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -663,6 +666,7 @@ export function Palette({
               style={styles.cancel}
             />
           </View>
+          {scopeBar}
           {heading}
           {sourceNotice}
           {reducedRecallNotice}
@@ -698,6 +702,7 @@ export function Palette({
             <Icon name="search" size={16} color={colors.muted} />
             {field}
           </View>
+          {scopeBar}
           {heading}
           {sourceNotice}
           {reducedRecallNotice}
