@@ -192,3 +192,24 @@ test("pace: chosen in the studio, kept in the note, and the scene's times follow
   await page.getByTestId("studio-play").click();
   await expect(stage(page)).toContainText("this page is live", { timeout: 20_000 });
 });
+
+test("the stage draws the workspace's emoji, and a comment card on the last line stays in view", async ({ page }) => {
+  // A short window, so the note ends near the bottom of the stage.
+  await page.setViewportSize({ width: 1440, height: 640 });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  const frame = page.frameLocator('[data-testid="studio-stage"] iframe');
+  await expect(frame.locator(".cm-content").first()).toContainText("Free is free", { timeout: 20_000 });
+  await expect(frame.locator('img.cm-emoji[alt=":annoyed:"]').first()).toBeVisible({ timeout: 15_000 });
+
+  // Played from the reply: the comment is on the page with its thread open.
+  await page.getByTestId("studio-step-2").click();
+  const card = frame.locator(".cm-cmt-card").first();
+  await expect(card).toContainText("I don't really care", { timeout: 20_000 });
+  await page.waitForTimeout(800);
+  const box = await card.boundingBox();
+  const scroller = await frame.locator(".cm-scroller").first().boundingBox();
+  expect(box).not.toBeNull();
+  expect(scroller).not.toBeNull();
+  expect(box!.y + box!.height).toBeLessThanOrEqual(scroller!.y + scroller!.height + 1);
+});

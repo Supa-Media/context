@@ -12,7 +12,7 @@ import { SOUNDS_PROPERTY } from "../studio/sounds/castSounds";
  * line they make is on the window for the spec to read.
  */
 const SCENE = [
-  "# Pricing",
+  "# Pricing :annoyed:",
   "",
   "Premium is $5 a month, everything included.",
   "",
@@ -26,6 +26,8 @@ const SCENE = [
   "```",
   "",
 ].join("\n");
+
+const ANNOYED = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
 
 /** `screen=cast-studio-pages`: the scene goes on to another page (`opens:`). */
 const GOES_ON = "@jon resolves\n@maya opens: team\n@maya types: and the team is on it.";
@@ -60,6 +62,8 @@ export function CastStudioFixture({ pages = false }: { pages?: boolean }) {
         setDraft(text);
         return null;
       }}
+      // A one-pixel picture for `:annoyed:`, as the workspace's emoji would answer.
+      loadEmoji={async (name) => (name === "annoyed" ? ANNOYED : null)}
       readPage={async (name) => (pages && name === "team" ? { name, title: "Team", markdown: TEAM } : null)}
     />
   );

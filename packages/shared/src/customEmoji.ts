@@ -103,10 +103,14 @@ export function findShortcodes(text: string): Array<{ from: number; to: number; 
  * The workspace emoji a published page shows: every `:name:` outside code
  * that could name one, once each, in order. Code is skipped for the reason
  * the renderers skip it: `:name:` there is text, so its picture is not part
- * of what the page publishes.
+ * of what the page publishes. A cast block is the exception: what it scripts
+ * ends up on the page.
  */
 export function publishedEmojiNames(markdown: string): string[] {
   const prose = markdown
+    // A cast block is a fence, but its words are typed onto the page as the
+    // show plays (`websiteCast.ts`), so its emoji are the page's too.
+    .replace(/^ {0,3}(`{3,})[ \t]*cast[ \t]*\n([\s\S]*?)^ {0,3}\1[ \t]*$/gim, "$2")
     .replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "")
     .replace(/`[^`\n]*`/g, "");
   const names = new Set<string>();

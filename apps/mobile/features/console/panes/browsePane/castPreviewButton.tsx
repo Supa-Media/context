@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { setCastPace, type CastPaceName } from "@context/shared";
+import { useCustomEmoji } from "../../emoji/context";
 import { Platform } from "react-native";
 import { FrameIconButton } from "../../../app/AppFrame";
 import { hasCast } from "../../../home/castPreview";
@@ -59,6 +60,8 @@ function CastPreviewButton({
   savePace?: (pace: CastPaceName) => string | null;
 }) {
   const [open, setOpen] = useState(false);
+  // The workspace's own emoji, when the console has them to hand.
+  const emoji = useCustomEmoji();
   return (
     <>
       <FrameIconButton icon="play" label="Preview demo" onPress={() => setOpen(true)} testID="browse-cast-preview" />
@@ -70,6 +73,7 @@ function CastPreviewButton({
           soundStorage={soundStorage}
           readPage={readPage}
           onSavePace={savePace}
+          loadEmoji={emoji === null ? undefined : (name) => emoji.load(name)}
         /> : null}
     </>
   );

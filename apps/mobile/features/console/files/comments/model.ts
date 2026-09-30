@@ -165,3 +165,35 @@ export function stackCards(
   }
   return sorted.map((card) => ({ id: card.id, top: tops.get(card.id)! }));
 }
+
+/**
+ * Lift cards that would run past the bottom of what is on screen, so a
+ * thread on one of the last lines is read whole instead of cut off (Dev2,
+ * 2026-09-30, in the cast studio). Only cards whose line is on screen move,
+ * and only up: the lowest takes the space it needs, and any above it that it
+ * would now touch go up with it, so none ever overlap. A card whose line is
+ * further down keeps its place, to be met when the note is scrolled there.
+ */
+export function keepInView(
+  placed: readonly Placed[],
+  cards: readonly { id: string; want: number; height: number }[],
+  view: { top: number; bottom: number },
+  gap = 8,
+): Placed[] {
+  const byId = new Map(cards.map((card) => [card.id, card]));
+  const tops = new Map(placed.map((card) => [card.id, card.top]));
+  const onScreen = placed
+    .filter((card) => {
+      const want = byId.get(card.id)?.want;
+      return want !== undefined && want >= view.top && want < view.bottom;
+    })
+    .sort((a, b) => b.top - a.top);
+  let ceiling = view.bottom;
+  for (const card of onScreen) {
+    const height = byId.get(card.id)!.height;
+    const top = Math.min(tops.get(card.id)!, ceiling - height);
+    tops.set(card.id, top);
+    ceiling = top - gap;
+  }
+  return placed.map((card) => ({ id: card.id, top: tops.get(card.id)! }));
+}

@@ -23,7 +23,7 @@ import {
   setDraft,
   setShowResolved,
 } from "../features/console/files/comments/extension";
-import { commenterFor, eventsKey, isPerson, mayDelete, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
+import { commenterFor, eventsKey, isPerson, keepInView, mayDelete, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
 import { shiftFor } from "../features/console/files/comments/rail";
 
 const NOTE = [
@@ -104,6 +104,32 @@ group("the margin's rules", () => {
       { id: "a", top: -68 },
       { id: "b", top: 40 },
     ]);
+  });
+
+  test("a card on one of the last lines is lifted to fit on screen, and never onto another", () => {
+    const cards = [
+      { id: "a", want: 100, height: 60 },
+      { id: "b", want: 500, height: 200 },
+      { id: "far", want: 2000, height: 50 },
+    ];
+    const placed = stackCards(cards, null, 8);
+    // The pane shows 0–600: b's line is on screen but its card runs to 700.
+    expect(keepInView(placed, cards, { top: 0, bottom: 600 }, 8)).toEqual([
+      { id: "a", top: 100 },
+      { id: "b", top: 400 },
+      { id: "far", top: 2000 },
+    ]);
+    // Lifted far enough to touch a, a goes up too.
+    const tall = [
+      { id: "a", want: 100, height: 200 },
+      { id: "b", want: 320, height: 250 },
+    ];
+    expect(keepInView(stackCards(tall, null, 8), tall, { top: 0, bottom: 500 }, 8)).toEqual([
+      { id: "a", top: 42 },
+      { id: "b", top: 250 },
+    ]);
+    // Everything already fits: nothing moves.
+    expect(keepInView(placed, cards, { top: 0, bottom: 3000 }, 8)).toEqual(placed);
   });
 });
 
