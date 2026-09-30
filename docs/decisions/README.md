@@ -361,6 +361,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Several rows are one operation, and a pick is what the keyboard acts on
 - No UI ships without a design audit first
 - Every unasked message goes through one path, one at a time, answered per account
+- [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
 
 ## [Meetings](./meetings.md)
 

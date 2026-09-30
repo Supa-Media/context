@@ -31,96 +31,75 @@ function mergeDays(a: Doc<"placeOpens">["days"], b: Doc<"placeOpens">["days"]) {
   return [...byDay.entries()].sort(([x], [y]) => x - y).map(([day, n]) => ({ day, n }));
 }
 
-/** `path` itself, or anything inside it — never a sibling like `Clients2`. */
+/** `path` itself, or anything inside it — never a sibling like `Clients-old`. */
 const isAtOrUnder = (path: string, root: string) => path === root || path.startsWith(`${root}/`);
 
 /**
- * Every path in one workspace at `root` or under it. The index range runs
- * from `root` to `root` followed by the character after `/`, which holds the
- * folder, its children and siblings such as `root-old`; the last are dropped.
- */
-async function rowsAtOrUnder(
-  ctx: MutationCtx,
-  table: "placePins",
-  workspaceId: Id<"workspaces">,
-  root: string,
-): Promise<Doc<"placePins">[]>;
-async function rowsAtOrUnder(
-  ctx: MutationCtx,
-  table: "placeOpens",
-  workspaceId: Id<"workspaces">,
-  root: string,
-): Promise<Doc<"placeOpens">[]>;
-async function rowsAtOrUnder(
-  ctx: MutationCtx,
-  table: "placePins" | "placeOpens",
-  workspaceId: Id<"workspaces">,
-  root: string,
-): Promise<(Doc<"placePins"> | Doc<"placeOpens">)[]> {
-  const rows =
-    table === "placePins"
-      ? await ctx.db
-          .query("placePins")
-          .withIndex("by_workspace_path", (q) =>
-            q.eq("workspaceId", workspaceId).gte("path", root).lt("path", `${root}0`),
-          )
-          .collect()
-      : await ctx.db
-          .query("placeOpens")
-          .withIndex("by_workspace_path", (q) =>
-            q.eq("workspaceId", workspaceId).gte("path", root).lt("path", `${root}0`),
-          )
-          .collect();
-  return rows.filter((row) => isAtOrUnder(row.path, root));
-}
-
-/**
- * Move every member's places from `from` to `to` in one workspace, after the
- * app moved, renamed, archived or restored the entry. A place that lands on
- * one the same person already has is merged into it: one pin, summed opens.
+ * Move the mover's own places from `from` to `to` in one workspace, after
+ * they moved, renamed, archived or restored the entry through the app. A
+ * place that lands on one they already have is merged into it: one pin,
+ * summed opens.
+ *
+ * **Only the mover's, never another member's.** The mover could see both
+ * ends of the move; another member may not see where it went — a note moved
+ * into the owner's private folder — and rewriting their pin would hand them
+ * that folder's path, which `privacy.md` keeps from them. A Convex query
+ * cannot ask the bucket's `privacy.md` who may see a path, so the only safe
+ * rewrite is the one whose reader already could. Other members' places stay
+ * where they were: the phone intersects every place with the tree that
+ * person can see, so a stale one simply stops showing, and comes back if the
+ * move is undone.
  *
  * Moves made outside the app (an agent, a sync tool) do not come through
- * here; readers intersect places with the live tree, so those simply stop
- * showing rather than pointing somewhere wrong.
+ * here, and are handled by that same intersection.
  */
 export async function retargetPlaces(
   ctx: MutationCtx,
+  userId: Id<"users">,
   workspaceId: Id<"workspaces">,
   from: string,
   to: string,
 ): Promise<void> {
   // A folder cannot move into itself, so this is never a real move; refusing
-  // it here keeps the loop below from meeting the rows it just wrote.
+  // it here keeps the loops below from meeting the rows they just wrote.
   if (from === to || isAtOrUnder(to, from)) return;
   const rename = (path: string) => to + path.slice(from.length);
 
-  for (const row of await rowsAtOrUnder(ctx, "placePins", workspaceId, from)) {
+  const pins = await ctx.db
+    .query("placePins")
+    .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
+    .collect();
+  const pinned = new Set(pins.map((row) => row.path));
+  for (const row of pins) {
+    if (!isAtOrUnder(row.path, from)) continue;
     const path = rename(row.path);
-    const existing = await ctx.db
-      .query("placePins")
-      .withIndex("by_user_workspace", (q) => q.eq("userId", row.userId).eq("workspaceId", workspaceId))
-      .filter((q) => q.eq(q.field("path"), path))
-      .first();
-    if (existing !== null) await ctx.db.delete(row._id);
-    else await ctx.db.patch(row._id, { path });
+    if (pinned.has(path)) {
+      await ctx.db.delete(row._id);
+    } else {
+      await ctx.db.patch(row._id, { path });
+      pinned.add(path);
+    }
+    pinned.delete(row.path);
   }
 
-  for (const row of await rowsAtOrUnder(ctx, "placeOpens", workspaceId, from)) {
+  const opens = await ctx.db
+    .query("placeOpens")
+    .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
+    .collect();
+  const byPath = new Map(opens.map((row) => [row.path, row]));
+  for (const row of opens) {
+    if (!isAtOrUnder(row.path, from)) continue;
     const path = rename(row.path);
-    const existing = await ctx.db
-      .query("placeOpens")
-      .withIndex("by_user_workspace_path", (q) =>
-        q.eq("userId", row.userId).eq("workspaceId", workspaceId).eq("path", path),
-      )
-      .first();
-    if (existing === null) {
+    const existing = byPath.get(path);
+    byPath.delete(row.path);
+    if (existing === undefined) {
       await ctx.db.patch(row._id, { path });
+      byPath.set(path, { ...row, path });
       continue;
     }
-    await ctx.db.patch(existing._id, {
-      days: mergeDays(existing.days, row.days),
-      lastAt: Math.max(existing.lastAt, row.lastAt),
-    });
+    const merged = { days: mergeDays(existing.days, row.days), lastAt: Math.max(existing.lastAt, row.lastAt) };
+    await ctx.db.patch(existing._id, merged);
+    byPath.set(path, { ...existing, ...merged });
     await ctx.db.delete(row._id);
   }
 }

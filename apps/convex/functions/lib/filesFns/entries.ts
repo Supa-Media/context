@@ -15,17 +15,20 @@ import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 
 /**
- * Carry every member's pins and open counts to where the entry now lives.
+ * Carry the mover's pins and open counts to where the entry now lives (only
+ * theirs: `lib/places.ts` says why).
  * Storage has already moved, so a failure here must not fail the move; the
  * places it missed stop showing, because readers intersect them with the tree.
  */
 async function followMove(
   ctx: ActionCtx,
+  userId: Id<"users">,
   workspaceId: Id<"workspaces">,
   result: { from: string; to: string },
 ): Promise<void> {
   try {
     await ctx.runMutation(internal.functions.places.retargetPlaces, {
+      userId,
       workspaceId,
       from: result.from,
       to: result.to,
@@ -99,7 +102,7 @@ export async function moveEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length },
   });
-  await followMove(ctx, args.workspaceId, result);
+  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 
@@ -203,7 +206,7 @@ export async function archiveEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length, recoverable: true },
   });
-  await followMove(ctx, args.workspaceId, result);
+  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 
@@ -238,7 +241,7 @@ export async function trashEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length, recoverable: true, trash: true },
   });
-  await followMove(ctx, args.workspaceId, result);
+  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 
@@ -269,7 +272,7 @@ export async function restoreTrashEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length, restoredFromTrash: true },
   });
-  await followMove(ctx, args.workspaceId, result);
+  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 

@@ -213,13 +213,13 @@ export const mostOpened = query({
 
 /** Called by the app's moves (`lib/filesFns/entries.ts`) once storage has moved. */
 export const retargetPlaces = internalMutation({
-  args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
+  args: { userId: v.id("users"), workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const from = normalizePath(args.from);
     const to = normalizePath(args.to);
     if (from === null || to === null) return null;
-    await retarget(ctx, args.workspaceId, from, to);
+    await retarget(ctx, args.userId, args.workspaceId, from, to);
     return null;
   },
 });

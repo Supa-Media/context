@@ -17,9 +17,9 @@
  *  5. **Opens are a 14-day window,** counted per day, older days forgotten, a
  *     ceiling of rows per person per workspace with the stalest evicted.
  *  6. **Places follow a move** made through the app, a folder's children with
- *     it, without catching a sibling that merely shares a prefix (`Clients-old`
- *     sorts inside the index range a move reads, so the filter is what holds), and for
- *     every member — and only in that workspace.
+ *     it, without catching a sibling that merely shares a prefix, and only in
+ *     that workspace, but only the mover's own. Another member may not be
+ *     able to see where the entry went, so their places are never rewritten.
  *  7. **They leave** with the account, with the workspace, and with the
  *     person when they leave or are removed.
  *
@@ -35,6 +35,7 @@
  *   recordOpen never drops days outside the window                   1
  *   no ceiling on open rows                                          1
  *   retarget uses startsWith(from) without the slash                 1
+ *   retarget rewrites every member's places                          1
  *   no sweep on leaveWorkspace                                       1
  *   retarget left out of moveEntry                                   1
  *   no sweep on removeMember                                         1
@@ -256,28 +257,39 @@ describe("opens", () => {
 });
 
 describe("places follow a move", () => {
-  test("exact paths and everything under a folder, for every member, in that workspace only", async () => {
-    const { t, seyi, jon, ws } = await world();
+  test("the mover's exact paths and everything under a folder, in that workspace only", async () => {
+    const { t, seyi, ws } = await world();
     const other = await createWorkspace(t, seyi, "elsewhere");
-    await asUser(t, seyi).mutation(pin, { workspaceId: ws, path: "Clients", kind: "folder" });
-    await asUser(t, seyi).mutation(pin, { workspaceId: ws, path: "Clients/Acme/brief.md", kind: "note" });
-    await asUser(t, seyi).mutation(pin, { workspaceId: ws, path: "Clients-old", kind: "folder" });
-    await asUser(t, seyi).mutation(pin, { workspaceId: other, path: "Clients", kind: "folder" });
-    await asUser(t, jon).mutation(recordOpen, { workspaceId: ws, path: "Clients/Acme" });
+    const me = asUser(t, seyi);
+    await me.mutation(pin, { workspaceId: ws, path: "Clients", kind: "folder" });
+    await me.mutation(pin, { workspaceId: ws, path: "Clients/Acme/brief.md", kind: "note" });
+    await me.mutation(pin, { workspaceId: ws, path: "Clients-old", kind: "folder" });
+    await me.mutation(pin, { workspaceId: other, path: "Clients", kind: "folder" });
+    await me.mutation(recordOpen, { workspaceId: ws, path: "Clients/Acme" });
 
-    await t.mutation(retarget, { workspaceId: ws, from: "Clients", to: "Work/Clients" });
+    await t.mutation(retarget, { userId: seyi, workspaceId: ws, from: "Clients", to: "Work/Clients" });
 
-    expect((await asUser(t, seyi).query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
+    expect((await me.query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
       "Work/Clients",
       "Work/Clients/Acme/brief.md",
       "Clients-old",
     ]);
-    expect((await asUser(t, seyi).query(listPins, { workspaceId: other })).map((p) => p.path)).toEqual([
-      "Clients",
+    expect((await me.query(listPins, { workspaceId: other })).map((p) => p.path)).toEqual(["Clients"]);
+    expect((await me.query(mostOpened, { workspaceId: ws })).map((r) => r.path)).toEqual(["Work/Clients/Acme"]);
+  });
+
+  test("another member's places are never rewritten to where the mover put them", async () => {
+    // Seyi can move a note into a folder Jon cannot see. Rewriting Jon's pin
+    // would hand Jon that folder's path; his stays put, and his phone stops
+    // showing it because the old path is gone from the tree he can see.
+    const { t, seyi, jon, ws } = await world();
+    await asUser(t, jon).mutation(pin, { workspaceId: ws, path: "Clients/brief.md", kind: "note" });
+    await asUser(t, jon).mutation(recordOpen, { workspaceId: ws, path: "Clients" });
+    await t.mutation(retarget, { userId: seyi, workspaceId: ws, from: "Clients", to: "2-areas/hr/Clients" });
+    expect((await asUser(t, jon).query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
+      "Clients/brief.md",
     ]);
-    expect((await asUser(t, jon).query(mostOpened, { workspaceId: ws })).map((r) => r.path)).toEqual([
-      "Work/Clients/Acme",
-    ]);
+    expect((await asUser(t, jon).query(mostOpened, { workspaceId: ws })).map((r) => r.path)).toEqual(["Clients"]);
   });
 
   test("landing on a place already there merges rather than duplicating", async () => {
@@ -287,7 +299,7 @@ describe("places follow a move", () => {
     await me.mutation(pin, { workspaceId: ws, path: "B", kind: "folder" });
     await me.mutation(recordOpen, { workspaceId: ws, path: "A" });
     await me.mutation(recordOpen, { workspaceId: ws, path: "B" });
-    await t.mutation(retarget, { workspaceId: ws, from: "A", to: "B" });
+    await t.mutation(retarget, { userId: seyi, workspaceId: ws, from: "A", to: "B" });
     expect((await me.query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual(["B"]);
     expect((await me.query(mostOpened, { workspaceId: ws })).map((r) => [r.path, r.opens])).toEqual([["B", 2]]);
   });
