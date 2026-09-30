@@ -138,6 +138,13 @@ export const D1_PASS_NOTE_CAP = 20;
  */
 export const VERSION_PROBE_CAP = 100;
 
+/**
+ * Statements held before they are sent. A window of a hundred typical notes is
+ * about five hundred statements, so a pass usually sends once; the client
+ * splits whatever it is handed by size.
+ */
+const D1_HELD_STATEMENTS = 500;
+
 /** Ops a pass always keeps back, so it can record where it got to. */
 const CURSOR_WRITE_RESERVE = 1;
 
@@ -337,6 +344,35 @@ export async function projectPass(
 
     const done = new Set();
 
+    /*
+     * NOTES GO OUT TOGETHER, NOT ONE REQUEST EACH.
+     *
+     * A note's statements are held here and sent with the next ones, so a
+     * window of notes is a request or two rather than one per note. What
+     * bounds a group is `D1_GROUP_BYTES` in the client, which splits it; this
+     * only decides when to send. Everything held is sent before the cursor
+     * moves: `flush` runs before the cursor write below, and a failed flush
+     * throws past it, so the cursor never claims a note the database lacks.
+     */
+    const held = [];
+    let heldNotes = 0;
+    let heldLost = false;
+    const flush = async () => {
+      if (held.length === 0) return true;
+      const group = held.splice(0);
+      const notes = heldNotes;
+      heldNotes = 0;
+      const { applied, skipped } = await client.runAll(group, { budget, reserve: floor });
+      if (skipped || applied < group.length) {
+        // Budget planning below makes this unreachable; if it is reached, the
+        // notes that were counted are taken back and the cursor stays put.
+        result.projected -= notes;
+        heldLost = true;
+        return false;
+      }
+      return true;
+    };
+
     /**
      * Project one note, or say why not.
      *
@@ -346,7 +382,9 @@ export async function projectPass(
      */
     const projectOne = async (path) => {
       if (result.projected >= cap) return "budget";
-      if (!afford(1)) return "budget";
+      // Room for this note's read AND everything already held, which has not
+      // been charged yet: a held note is spent budget.
+      if (!afford(1 + held.length)) return "budget";
       const visibility = visibilityOf(path);
       // A group rule (`@supa-leads`) is projected like any other note and
       // `upsertStatements` decides its table. Skipping it here — which is what
@@ -371,9 +409,11 @@ export async function projectPass(
         return "skip";
       }
       if (!object) {
+        const removal = deleteStatements(path);
+        if (!afford(removal.length + held.length)) return "budget";
         // Gone between the R2 listing and now. Asked for by name and absent,
         // which is the one ground this pass has for removing a row.
-        const gone = await client.runAll(deleteStatements(path), { budget, reserve: floor });
+        const gone = await client.runAll(removal, { budget, reserve: floor });
         if (gone.applied > 0) result.deleted += 1;
         return "done";
       }
@@ -391,10 +431,13 @@ export async function projectPass(
           content,
         })
       );
-      if (!afford(statements.length)) return "budget";
-      const { applied, skipped } = await client.runAll(statements, { budget, reserve: floor });
-      if (skipped || applied < statements.length) return "budget";
+      if (!afford(statements.length + held.length)) return "budget";
+      held.push(...statements);
+      heldNotes += 1;
       result.projected += 1;
+      if (held.length >= D1_HELD_STATEMENTS) {
+        if (!(await flush())) return "budget";
+      }
       return "done";
     };
 
@@ -426,6 +469,15 @@ export async function projectPass(
       }
       done.add(path);
       settled = index;
+    }
+
+    // Everything held lands before the cursor may move past it, and a group
+    // that did not land keeps the cursor where it was: the next pass redoes
+    // the window, which is idempotent because every note begins by deleting.
+    await flush();
+    if (heldLost) {
+      stopped = true;
+      settled = -1;
     }
 
     let nextCursor = settled >= 0 ? window[settled] : cursor;
