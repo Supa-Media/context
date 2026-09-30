@@ -14,6 +14,7 @@ import {
   type HomePin,
 } from "./homeModel";
 import type { HomeSource } from "./useHomeSource";
+import { useHomeTag } from "./homeTag";
 
 /**
  * The phone's Home: the workspace's own page, Apple Notes style.
@@ -58,7 +59,8 @@ export function PhoneHome({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const [tag, setTag] = useState<string | null>(null);
+  // A tag pressed in search lands here with its chip on (`homeTag.ts`).
+  const [tag, setTag] = useHomeTag();
   const [now] = useState(() => Date.now());
   const home = useMemo(
     () => buildHome({ ...source, pins, opened, tag, now }),

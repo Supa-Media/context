@@ -196,7 +196,12 @@ export function BrowsePane({
     folderMenuFor,
     folderDrag,
     places,
+    homeSource,
     openFolderActions,
+    folderLists,
+    saveTags,
+    selectAsked,
+    takeSelect,
   } = useFolderListing({ files, contextLabel, settled, current, data });
   /*
     The two bands the floating chrome occupies, spent as content padding at
@@ -315,7 +320,11 @@ export function BrowsePane({
       folderDrag={folderDrag}
       setFolderDialog={setFolderDialog}
       places={places}
+      homeSource={homeSource}
       openFolderActions={openFolderActions}
+      folderLists={folderLists}
+      selectAsked={selectAsked}
+      takeSelect={takeSelect}
       noteEncryption={noteEncryption}
       notices={notices}
       pathBar={pathBar}
@@ -473,6 +482,12 @@ export function BrowsePane({
         files={files}
         dialog={folderDialog}
         onClose={() => setFolderDialog(null)}
+        places={{
+          folders: homeSource.folders,
+          rootLabel: current?.displayName ?? contextLabel,
+          notes: homeSource.notes,
+          ...(saveTags === undefined ? {} : { saveTags }),
+        }}
       />
     </View>
   );

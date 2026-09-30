@@ -13,6 +13,12 @@ export interface HomePlaces {
   opened: readonly HomeOpened[];
   /** `null` where there is no account to pin to: a visitor, or no workspace. */
   togglePin: ((path: string, kind: "note" | "folder") => void) | null;
+  /**
+   * Pin (`on`) or unpin one path, whatever it is now. What several rows and
+   * an Undo need (board 16): a toggle closes over the pins of the render it
+   * came from, so a second one before the next render flips the wrong way.
+   */
+  setPin: ((path: string, kind: "note" | "folder", on: boolean) => void) | null;
 }
 
 /**
@@ -58,25 +64,31 @@ export function useHomePlaces(workspaceId: string | null | undefined, enabled: b
     void load();
   }, [load]);
 
-  const togglePin = useCallback(
-    (path: string, kind: "note" | "folder") => {
+  const setPin = useCallback(
+    (path: string, kind: "note" | "folder", on: boolean) => {
       if (ws === null) return;
-      const pinned = pins.some((row) => row.path === path);
-      setPins(pinned ? pins.filter((row) => row.path !== path) : [...pins, { path, kind }]);
+      setPins((current) => {
+        const without = current.filter((row) => row.path !== path);
+        return on ? [...without, { path, kind }] : without;
+      });
       void (async () => {
         try {
-          if (pinned) await convex.mutation(api.functions.places.unpin, { workspaceId: ws, path });
-          else await convex.mutation(api.functions.places.pin, { workspaceId: ws, path, kind });
+          if (on) await convex.mutation(api.functions.places.pin, { workspaceId: ws, path, kind });
+          else await convex.mutation(api.functions.places.unpin, { workspaceId: ws, path });
         } catch {
           // Refused (the ceiling, a lost membership): the read below puts Home back.
         }
         await load();
       })();
     },
-    [convex, ws, pins, load],
+    [convex, ws, load],
+  );
+  const togglePin = useCallback(
+    (path: string, kind: "note" | "folder") => setPin(path, kind, !pins.some((row) => row.path === path)),
+    [setPin, pins],
   );
 
-  return { pins, opened, togglePin: ws === null ? null : togglePin };
+  return { pins, opened, togglePin: ws === null ? null : togglePin, setPin: ws === null ? null : setPin };
 }
 
 /**

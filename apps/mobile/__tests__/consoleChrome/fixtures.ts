@@ -62,6 +62,9 @@ export const mockConsoleState: {
 /** What the `+` sheet asked the browser to make, as `<kind>:<folder>`. */
 export const created: string[] = [];
 
+/** Where the console was sent: `select:<path>`, or `home` for `deselect`. */
+export const navigated: string[] = [];
+
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));
@@ -163,8 +166,13 @@ function mockConsoleData(): never {
     toggleFolder: () => {},
     selectedPath: mockConsoleState.selectedPath,
     ...(mockConsoleState.search === undefined ? {} : { search: mockConsoleState.search }),
-    select: () => {},
-    deselect: () => true,
+    select: (path: string) => {
+      navigated.push(`select:${path}`);
+    },
+    deselect: () => {
+      navigated.push("home");
+      return true;
+    },
     editor: emptyEditor,
     setDraft: () => {},
     save: () => {},
@@ -290,6 +298,7 @@ afterEach(() => {
   mockConsoleState.modelConnected = true;
   mockConsoleState.selectedPath = null;
   delete mockConsoleState.search;
+  navigated.length = 0;
 });
 
 export function mountConsole(width = 1440) {

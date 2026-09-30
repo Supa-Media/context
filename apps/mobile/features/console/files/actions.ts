@@ -60,6 +60,10 @@ export type Dialog =
   | { kind: "moveMany"; paths: readonly string[] }
   | { kind: "archiveMany"; paths: readonly string[] }
   | { kind: "share"; path: string }
+  /** A folder's tags (`TagsSheet`). */
+  | { kind: "tags"; folder: string }
+  /** Several picked rows' tags, from a phone's select bar (board 16). */
+  | { kind: "tagsMany"; paths: readonly string[] }
   | null;
 
 export interface ActionContext {
@@ -95,6 +99,8 @@ export interface ActionContext {
   inheritedOf: (path: string) => Visibility;
   /** Pin to, or unpin from, this person's Home. Absent where there is no Home to pin to. */
   togglePin?: (path: string, kind: "note" | "folder") => void;
+  /** Start picking rows on the folder page showing `folder`. Absent where the page cannot. */
+  startSelect?: (folder: string) => void;
 }
 
 /**
@@ -235,6 +241,12 @@ export function runMenuAction(
     case "pin":
     case "unpin":
       context.togglePin?.(path, kind === "folder" ? "folder" : "note");
+      return;
+    case "tags":
+      context.setDialog({ kind: "tags", folder: path });
+      return;
+    case "selectNotes":
+      context.startSelect?.(path);
       return;
     case "newNote":
       files.createUntitled(folder, "note");

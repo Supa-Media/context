@@ -237,8 +237,8 @@ export function ConsoleFrame({
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
-  const { search, paletteItems, recent } = usePaletteSearch({
-    data, insideContext, current, paletteOpen, history, scope: searchScope,
+  const { search, paletteItems, recent, places } = usePaletteSearch({
+    data, insideContext, current, paletteOpen, history, scope: searchScope, phone,
   });
   /*
     A panel is not a preference — `frame.ts` states the rule for its own two,
@@ -608,6 +608,7 @@ export function ConsoleFrame({
         {consolePalette({
           paletteOpen, setAsked, paletteItems, recent, search, setPaletteOpen, router, data,
           scope: searchScope, setScope: setSearchScope,
+          places: phone ? { ...places, rootLabel: current?.displayName ?? "Your workspace" } : undefined,
         })}
         {/*
           The meeting sheet, rendered once and inside the frame so it sits over

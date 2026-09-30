@@ -3,7 +3,8 @@ import { useWindowDimensions } from "react-native";
 import { densityFor } from "../../../app/frame";
 import { isApplePlatform } from "../../../design/applePlatform";
 import { writeClipboard } from "../../../design/clipboard";
-import type { ActionContext, Dialog } from "../../files/actions";
+import { runMenuAction, type ActionContext, type Dialog } from "../../files/actions";
+import { bulkActions } from "../../files/bulkActions";
 import type { FileBrowser } from "../../files/browser";
 import { itemsFor, type MenuTarget } from "../../files/menu";
 import { ancestorsOf, baseName, folderLabel, parentPath } from "../../files/paths";
@@ -15,6 +16,9 @@ import type { ConsoleData, selectedContext } from "../../types";
 import type { FolderMenuState } from "./folderMenuState";
 import { useBrowseEncryption } from "./useBrowseEncryption";
 import { useHomePlaces } from "../../home/useHomePlaces";
+import { useHomeSource } from "../../home/useHomeSource";
+import { bulkTagTargets, folderTagTarget, listedIn } from "../../home/folderTags";
+import { useFolderLists } from "../../../offline/useFolderLists";
 
 /**
  * The folder listing's right-click menu, the dialogs it leads to, and dragging
@@ -90,7 +94,36 @@ export function useFolderListing({
     current?.id,
     compact && data.visitor === undefined && current?.role !== undefined,
   );
+  // Every note and folder in this workspace, for Home, a folder page's counts and New folder's picker: a phone only.
+  const homeSource = useHomeSource(compact ? current?.id : null, current?.role, files.listings);
+  // Where a folder page and a folder list read and write notes: this device's copy. The homepage brings its own.
+  const local = data.folderLists;
+  const device = useFolderLists(local === undefined ? current?.id : undefined, current?.role);
+  const folderLists = local ?? device;
+  /**
+   * A folder's Tags sheet writes the folder's front note (board 14). Empty
+   * tags on a note that would have to be made write nothing: there is no
+   * `overview.md` worth creating to say "no tags".
+   */
+  const setProperties = folderLists?.setProperties;
+  const saveTags = useMemo(
+    () =>
+      setProperties === undefined
+        ? undefined
+        : async (path: string, tags: readonly string[], create: boolean) => {
+            if (create && tags.length === 0) return null;
+            return setProperties(path, [["tags", tags.length === 0 ? null : [...tags]]], create ? { create: true } : undefined);
+          },
+    [setProperties],
+  );
+  /**
+   * "Select notes" from a folder page's ••• (board 16): which folder asked,
+   * until its page has entered select mode and taken the ask.
+   */
+  const [selectAsked, setSelectAsked] = useState<string | null>(null);
+  const takeSelect = useCallback(() => setSelectAsked(null), []);
   const togglePin = places.togglePin;
+  const setPin = places.setPin;
   const pinnedPaths = places.pins;
   const isPinned = useCallback(
     (path: string) => pinnedPaths.some((pin) => pin.path === path),
@@ -104,9 +137,13 @@ export function useFolderListing({
    * own menu only on a `true`, so an empty list here leaves the platform menu
    * alone rather than eating the gesture and showing nothing.
    */
-  const openFolderTarget = useCallback(
-    (target: MenuTarget, title: string, anchor: { x: number; y: number }) => {
-      const items = itemsFor({
+  const homeNotes = homeSource.notes;
+  const homeFolders = homeSource.folders;
+  const itemsOf = useCallback(
+    (target: MenuTarget) => {
+      // A phone's own folder page, for someone who may change it: its Tags and Select notes (boards 14 and 16).
+      const pageOnPhone = target.kind === "page" && compact && files.canEdit;
+      return itemsFor({
         target,
         canEdit: files.canEdit,
         canSetVisibility: files.canSetVisibility,
@@ -147,12 +184,23 @@ export function useFolderListing({
         ...(target.kind === "row" || target.kind === "page"
           ? { inherited: findEntry(files.listings, target.row.path)?.inherited }
           : {}),
+        ...(pageOnPhone && saveTags !== undefined
+          ? { tagsOf: (path: string) => folderTagTarget(path, homeNotes, listedIn(files.listings, path))?.tags ?? null }
+          : {}),
+        // Nothing to pick in an empty folder.
+        ...(pageOnPhone && (files.listings[target.row.path]?.entries.length ?? 0) > 0 ? { selectable: true } : {}),
       });
+    },
+    [files, compact, togglePin, isPinned, saveTags, homeNotes],
+  );
+  const openFolderTarget = useCallback(
+    (target: MenuTarget, title: string, anchor: { x: number; y: number }) => {
+      const items = itemsOf(target);
       if (items.length === 0) return false;
       setFolderMenu({ target, title, anchor, items });
       return true;
     },
-    [files, compact, togglePin, isPinned],
+    [itemsOf],
   );
 
   /**
@@ -189,6 +237,7 @@ export function useFolderListing({
       },
       inheritedOf: (path) => findEntry(files.listings, path)?.inherited ?? "private",
       ...(togglePin === null ? {} : { togglePin }),
+      startSelect: setSelectAsked,
     }),
     [files, contextLabel, togglePin],
   );
@@ -231,6 +280,20 @@ export function useFolderListing({
     [openFolderTarget, files.listings],
   );
 
+  /** The tree's multi-selection menu, over rows picked on `folder`'s page. */
+  const selectionMenu = useCallback(
+    (folder: string, entries: readonly FileEntry[], anchor: { x: number; y: number }) => {
+      const folderDefault = files.listings[folder]?.folderDefault ?? "private";
+      const rows = entries.map((entry) => treeRowFor(entry, folderDefault));
+      return openFolderTarget(
+        { kind: "selection", rows },
+        rows.length === 1 ? folderLabel(baseName(entries[0]!.path)) : `${rows.length} items`,
+        anchor,
+      );
+    },
+    [openFolderTarget, files.listings],
+  );
+
   /**
    * The pair of handlers one folder's listing needs.
    *
@@ -265,19 +328,54 @@ export function useFolderListing({
         `menu.ts` target, same `runMenuAction` on the way out, so a phone is
         offered exactly what a pointer's ⌘-click selection is.
       */
-      onSelection: (entries, anchor) => {
-        const folderDefault = files.listings[folder]?.folderDefault ?? "private";
-        const rows = entries.map((entry) => treeRowFor(entry, folderDefault));
-        return openFolderTarget(
-          { kind: "selection", rows },
-          rows.length === 1
-            ? folderLabel(baseName(entries[0]!.path))
-            : `${rows.length} items`,
-          anchor,
-        );
-      },
+      onSelection: (entries, anchor) => selectionMenu(folder, entries, anchor),
+      /*
+        Board 16: the picked rows' Move, Tags, Pin and Archive on the bottom
+        bar, for someone who may change them. The same selection target as
+        More, so neither offers what the other would refuse.
+      */
+      ...(compact && files.canEdit
+        ? {
+            bulk: (entries: readonly FileEntry[]) => {
+              const folderDefault = files.listings[folder]?.folderDefault ?? "private";
+              const target: MenuTarget = {
+                kind: "selection",
+                rows: entries.map((entry) => treeRowFor(entry, folderDefault)),
+              };
+              return bulkActions({
+                entries,
+                offered: new Set(itemsOf(target).map((item) => item.id)),
+                run: (id) => runMenuAction(id, target, menuActions),
+                // Only where one of them has tags this device knows, so the sheet never opens on nothing.
+                ...(saveTags === undefined ||
+                bulkTagTargets(entries.map((entry) => entry.path), homeNotes, homeFolders, (at) =>
+                  listedIn(files.listings, at),
+                ).length === 0
+                  ? {}
+                  : { tags: () => setFolderDialog({ kind: "tagsMany", paths: entries.map((entry) => entry.path) }) }),
+                ...(setPin === null ? {} : { setPin }),
+                isPinned,
+                say: files.say,
+                more: (anchor) => void selectionMenu(folder, entries, anchor),
+              });
+            },
+          }
+        : {}),
     }),
-    [openFolderTarget, files.listings, contextLabel],
+    [
+      files,
+      contextLabel,
+      compact,
+      itemsOf,
+      menuActions,
+      saveTags,
+      setPin,
+      isPinned,
+      selectionMenu,
+      openFolderTarget,
+      homeNotes,
+      homeFolders,
+    ],
   );
 
   /**
@@ -353,7 +451,12 @@ export function useFolderListing({
     folderMenuFor,
     folderDrag,
     places,
+    homeSource,
     openFolderActions,
+    folderLists,
+    saveTags,
+    selectAsked,
+    takeSelect,
   };
 }
 

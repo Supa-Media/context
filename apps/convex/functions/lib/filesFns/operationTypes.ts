@@ -94,6 +94,8 @@ export type FileOperation =
    */
   | { kind: "removeEncryption"; path: string; text: string; expectedEtag?: string }
   | { kind: "createFolder"; path: string }
+  /** Undo of a new folder, only while it holds nothing but its placeholder (`removeNewFolder`). */
+  | { kind: "removeNewFolder"; path: string }
   | { kind: "move"; from: string; to: string; expectedEtag?: string }
   | { kind: "copy"; from: string; to: string }
   | { kind: "folderPaths" }

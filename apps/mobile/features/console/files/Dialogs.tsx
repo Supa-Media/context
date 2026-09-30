@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { useState } from "react";
+import { ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -7,6 +7,8 @@ import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { MoveDestination } from "./browser";
 import { baseName, describeNameProblem, folderLabel } from "./paths";
+import { Shell } from "./DialogShell";
+import { NewFolderForm } from "./NewFolderForm";
 import { createRows, type CreateRow } from "./createSheet";
 import { useFieldFont } from "../../design/fieldFont";
 
@@ -17,62 +19,9 @@ import { useFieldFont } from "../../design/fieldFont";
  * destination picker.
  */
 
-function Shell({
-  title,
-  children,
-  onClose,
-  sheet = false,
-}: {
-  title: string;
-  children: ReactNode;
-  onClose: () => void;
-  /**
-   * Anchored to the bottom edge with only its top corners rounded, rather
-   * than a card in the middle. For the phone's create menu (owner,
-   * 2026-09-27, the phone artboards): its rows are a thumb's, and a thumb is
-   * at the bottom of the glass.
-   */
-  sheet?: boolean;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Modal transparent animationType="fade" onRequestClose={onClose} visible>
-      <Pressable
-        style={[styles.scrim, sheet && styles.sheetScrim]}
-        accessibilityLabel="Close"
-        onPress={onClose}
-      >
-        {/* Swallow presses inside the card so the scrim only closes on the scrim. */}
-        <Pressable
-          style={[styles.card, sheet && styles.sheet]}
-          onPress={() => {}}
-          accessibilityLabel={title}
-          testID={sheet ? "dialog-sheet" : undefined}
-        >
-          <Text variant="paneTitle" role="heading" aria-level={2}>
-            {title}
-          </Text>
-          <View style={styles.body}>{children}</View>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
 /** Where something made in `folder` lands, in words: a folder's name, or the top. */
 export function whereIn(folder: string): string {
   return folder === "" ? "the top of your workspace" : folderLabel(baseName(folder));
-}
-
-/**
- * What New folder says under its title: where the folder goes, and nothing else.
- *
- * It used to explain the `README.md` placeholder a bucket needs for an empty
- * folder. That is storage detail, and the approved phone Home boards (board
- * 05, 2026-09-30) ask only for the name and the place, in plain words.
- */
-export function newFolderHint(folder: string): string {
-  return `It goes in ${whereIn(folder)}.`;
 }
 
 /**
@@ -114,6 +63,8 @@ export function CreatePrompt({
   onCreateNote,
   onCreateDrawing,
   onCreateFolder,
+  folders = [""],
+  rootLabel = "Your workspace",
   onNewMeeting,
   onNewChat,
   onResumeMeeting = null,
@@ -129,7 +80,12 @@ export function CreatePrompt({
   /** Both of these make the thing immediately. Nothing is named here. */
   onCreateNote: () => void;
   onCreateDrawing: () => void;
-  onCreateFolder: (name: string) => void;
+  /** `place` is where the form put it: `folder` unless somebody picked another. */
+  onCreateFolder: (name: string, place: string) => void;
+  /** Every folder the New folder form's place picker offers. */
+  folders?: readonly string[];
+  /** What the top of the workspace is called in the place picker. */
+  rootLabel?: string;
   /**
    * `null` on a surface with no meeting flow behind it — the fixtures and the
    * landing page's demo console. Absent rather than pressable and inert, which
@@ -150,13 +106,12 @@ export function CreatePrompt({
 
   if (naming) {
     return (
-      <NamePrompt
-        title="New folder"
-        description={newFolderHint(folder)}
-        placeholder="Folder name"
-        confirmLabel="Create"
+      <NewFolderForm
+        folder={folder}
+        folders={folders}
+        rootLabel={rootLabel}
         onCancel={onCancel}
-        onConfirm={onCreateFolder}
+        onCreate={(place, name) => onCreateFolder(name, place)}
       />
     );
   }
@@ -512,38 +467,6 @@ export function Confirm({
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  scrim: {
-    flex: 1,
-    backgroundColor: "rgba(3,3,4,.72)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 460,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.card,
-    backgroundColor: colors.surface2,
-    paddingVertical: 22,
-    paddingHorizontal: 24,
-    boxShadow: "0 40px 100px -30px rgba(0,0,0,1)",
-  },
-  /** The scrim under a bottom sheet: the card sits on the bottom edge. */
-  sheetScrim: { justifyContent: "flex-end", padding: 0 },
-  /**
-   * A bottom sheet: full width, flat along the edge it sits on, and paid
-   * enough at the foot to clear a home indicator.
-   */
-  sheet: {
-    maxWidth: "100%",
-    borderBottomWidth: 0,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    paddingBottom: 34,
-  },
-  body: { marginTop: 12, gap: 12 },
   input: {
     fontFamily: fonts.mono,
     fontSize: t.ui,

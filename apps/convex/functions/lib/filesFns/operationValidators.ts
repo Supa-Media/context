@@ -258,6 +258,7 @@ export const operationValidator = v.union(
     expectedEtag: v.optional(v.string()),
   }),
   v.object({ kind: v.literal("createFolder"), path: v.string() }),
+  v.object({ kind: v.literal("removeNewFolder"), path: v.string() }),
   /**
    * Bytes into the opaque store, and back out again.
    *

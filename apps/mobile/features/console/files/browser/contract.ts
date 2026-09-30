@@ -447,7 +447,12 @@ export interface FileBrowser extends BesideEditing {
    * both. Typing `plan.excalidraw` into New note reaches the same file.
    */
   createDrawing: (folder: string, name: string) => void;
-  createFolder: (folder: string, name: string) => void;
+  /**
+   * `open` goes to the new folder once it exists (a phone's New folder, board
+   * 05c). Either way a toast says where it went and offers Undo, which takes
+   * it back while it is still empty.
+   */
+  createFolder: (folder: string, name: string, options?: { open?: boolean }) => void;
   /**
    * Make one **now**, called `untitled-<date>`, and open it.
    *
