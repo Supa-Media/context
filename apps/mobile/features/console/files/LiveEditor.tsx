@@ -125,8 +125,7 @@ export function LiveEditor({
   onPickSuggestion,
   onLoadImage,
   onStoreImage,
-  commenter,
-  commentModerator,
+  commenter, commentModerator,
   folderLists,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
