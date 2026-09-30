@@ -320,6 +320,7 @@ export function Palette({
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [look, setLook] = useState("all");
+  const input = useRef<TextInput | null>(null);
 
   /**
    * Native is always the sheet; the browser decides on width. A desktop
@@ -492,6 +493,7 @@ export function Palette({
 
   const field = (
     <TextInput
+      ref={input}
       value={query}
       onChangeText={(next) => {
         setQuery(next);
@@ -560,7 +562,12 @@ export function Palette({
   ) : null;
 
   // A phone's Look in chips and folder and tag rows (`PaletteLookIn`); `notes` false hides the note rows.
-  const looked = touch && lookIn ? lookIn.render({ query, found, look, setLook }) : null;
+  // A chip keeps the caret in the field, so typing carries on after picking one.
+  const lookAt = (next: string) => {
+    setLook(next);
+    input.current?.focus();
+  };
+  const looked = touch && lookIn ? lookIn.render({ query, found, look, setLook: lookAt }) : null;
   const notes = looked?.notes !== false;
 
   const list = (

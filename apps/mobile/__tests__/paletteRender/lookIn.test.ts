@@ -17,6 +17,7 @@
  *  3. The All chip counting only notes.                  → "typed, the chips count where the matches are, and places come first"
  *  4. A tag row opening the folder handler.              → "a folder opens its page and a tag opens Home on it"
  *  5. `lookIn` drawn on a pointer layout too.            → "a pointer layout keeps ⌘K as it was"
+ *  6. A chip leaving the caret on itself.                → "a chip keeps the caret in the search field"
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -77,6 +78,15 @@ describe("a phone's search looks in notes, folders and tags", () => {
     tap("look-in-folders");
     expect(palette.find("search-places")).toBeNull();
     expect(palette.find("palette-row-0")).not.toBeNull();
+    palette.unmount();
+  });
+
+  test("a chip keeps the caret in the search field", () => {
+    const { palette, tap } = withLookIn(PHONE);
+    const field = palette.find("palette-input")!;
+    act(() => (palette.find("look-in-tags") as HTMLElement).focus());
+    tap("look-in-tags");
+    expect(document.activeElement).toBe(field);
     palette.unmount();
   });
 
