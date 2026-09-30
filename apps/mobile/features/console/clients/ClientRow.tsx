@@ -6,6 +6,7 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { ConsoleClient } from "../types";
+import { useArming } from "../useArming";
 
 /**
  * One connected AI app, and whose it is.
@@ -31,6 +32,12 @@ import type { ConsoleClient } from "../types";
  */
 export function ClientRow({ client }: { client: ConsoleClient }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    Two presses, and the second expires: an app that loses access has to be
+    connected again from scratch, and the button sits in a list of look-alike
+    rows where a mis-tap is easy.
+  */
+  const armed = useArming(() => client.revoke?.());
   return (
     <Row divided>
       <Dot tone={client.status} />
@@ -53,7 +60,7 @@ export function ClientRow({ client }: { client: ConsoleClient }) {
         console must never offer a button that pretends to act.
       */}
       <Button
-        label="Revoke"
+        label={armed.stage === "armed" ? "Press again to revoke" : "Revoke"}
         variant="danger"
         accessibilityLabel={
           client.mine
@@ -61,7 +68,7 @@ export function ClientRow({ client }: { client: ConsoleClient }) {
             : `Revoke another member's ${client.name} access to ${client.context}`
         }
         disabled={client.revoke === undefined}
-        onPress={client.revoke}
+        onPress={armed.press}
       />
     </Row>
   );

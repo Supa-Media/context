@@ -92,9 +92,8 @@ export function GroupsPanel({
         <Row divided>
           <Grow>
             <Text variant="rowSub">
-              A group is a name you can put on a folder. The name goes in privacy.md so it
-              travels with your notes; the people stay here, so removing somebody from this
-              workspace closes every folder at once.
+              Give a folder to a group instead of naming people one by one. Remove
+              somebody from this workspace and every folder closes to them at once.
             </Text>
           </Grow>
         </Row>

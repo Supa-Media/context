@@ -194,7 +194,7 @@ describe("the block is reachable inside Sharing & Access", () => {
     expect(text).toContain("Privacy");
     expect(text).toContain("folder by folder");
     // One section at a time: the neighbouring panels stay shut.
-    expect(text).not.toContain("Your bucket, your credentials");
+    expect(text).not.toContain("plain files in storage you own");
   });
 });
 

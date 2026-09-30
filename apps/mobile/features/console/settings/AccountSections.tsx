@@ -293,7 +293,7 @@ export function ConnectedAppsCard({
             surprises somebody.
           */}
           <Pill tone="neutral">
-            {`${groupClients(data.clients).length} apps · ${data.clients.length} connections`}
+            {countLine(groupClients(data.clients).length, data.clients.length)}
           </Pill>
         </Row>
         {data.clients.length === 0 ? (
@@ -329,3 +329,8 @@ const makeStyles = (_colors: Colors) =>
     rowSub: { marginTop: 2, maxWidth: 520 },
     foot: { marginTop: space.x3 },
   });
+
+/** "1 app · 1 connection", never "1 apps". */
+function countLine(apps: number, connections: number): string {
+  return `${apps} ${apps === 1 ? "app" : "apps"} · ${connections} ${connections === 1 ? "connection" : "connections"}`;
+}

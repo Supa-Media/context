@@ -171,7 +171,10 @@ describe("the signed-in console states no fact it cannot answer", () => {
     expect(text).toContain("Conditional writes verified");
     expect(text).toContain("Cloudflare R2");
     expect(text).toContain("workspace");
-    expect(text).toContain("a1b2…8f3c");
+    // The masked access key is one of the connection details behind a toggle
+    // since the settings cleanup (storagePanel.test.ts opens it); the bucket
+    // is still on the card.
+    expect(text).toContain("notes-bucket");
     expect(text).toContain("Connected");
   });
 
