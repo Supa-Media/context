@@ -255,6 +255,8 @@ export async function retryWorkspaceHandler(
   await ctx.db.patch(row._id, {
     state: row.phase === "check" ? "checking" : "encrypting",
     errorCode: undefined,
+    // A person chose to go again, so the watchdog's count starts over.
+    stalls: undefined,
     runId,
     updatedAt: Date.now(),
   });
@@ -385,7 +387,7 @@ export async function tickHandler(ctx: MutationCtx, args: { restartActive: boole
   ]);
   const schedule = async (row: Doc<"managedEncryptionWorkspaces">) => {
     const runId = row.runId + 1;
-    await ctx.db.patch(row._id, { runId, updatedAt: Date.now() });
+    await ctx.db.patch(row._id, { runId, stalls: undefined, updatedAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.runWalk, {
       workspaceId: row.workspaceId,
       runId,

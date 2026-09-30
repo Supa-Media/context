@@ -232,6 +232,7 @@ describe("the workspaces table", () => {
   test("a failure is told in words, and an unknown code is shown as it is", () => {
     expect(failureLine("KEY_UNAVAILABLE")).toBe("Its key couldn't be opened");
     expect(failureLine("WALK_FAILED")).toBe("Stopped on an error");
+    expect(failureLine("STALLED")).toBe("Kept stopping partway. Retry picks up where it left off");
     expect(failureLine("SOMETHING_NEW")).toBe("Stopped on SOMETHING_NEW");
   });
 });
