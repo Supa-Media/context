@@ -31,7 +31,7 @@ describe("the privacy policy describes early-beta diagnostics", () => {
     expect(text).toContain("Sentry");
     expect(text).toContain("PostHog");
     expect(text).toContain("never include your notes, their titles, your folder names, your links");
-    expect(text).toContain("Privacy & feedback");
+    expect(text).toContain("Feedback & diagnostics");
     expect(text).toContain("only the attachments you left ticked");
   });
 });

@@ -186,6 +186,19 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(text).toContain("nothing here is indexed");
   });
 
+  test("sent invitations sit in the people list, with no second heading", () => {
+    // The demo has one pending invitation (@tomi). It used to be a card of
+    // its own titled "Invitations", beside the account row of the same name.
+    const host = overlay("sharing");
+    const text = host.textContent ?? "";
+    expect(text).toContain("Invited as editor");
+    expect(text).not.toContain("Invitations");
+    expect(text).not.toContain("Nobody is waiting on an invitation.");
+    expect(host.querySelector('[data-testid="members-invited-count"]')?.textContent).toBe(
+      "1 invited",
+    );
+  });
+
   test("and it is still the context's own settings, not an app-level pane", () => {
     const text = overlay("sharing").textContent ?? "";
     expect(text).not.toContain("plain files in storage you own");

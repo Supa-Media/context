@@ -3,14 +3,13 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
-import { Check, FieldList, Hint } from "../../design/components/Field";
+import { FieldList, Hint } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { TextLink } from "../../design/components/TextLink";
-import { leading, space } from "../../design/tokens";
+import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { PanelHead, SubHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
@@ -35,6 +34,7 @@ import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
 import { EncryptionRow } from "../storage/EncryptionRow";
+import { StorageHealth } from "../settings/panels/StorageHealth";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
@@ -604,6 +604,7 @@ function BindingCard({
 
   return (
     <>
+    <StorageHealth storage={storage} failed={failure !== null} />
     <Card testID="storage-binding">
       <FieldList fields={showDetails ? [...fields, ...details] : fields} testIDPrefix="storage-field" />
       {details.length === 0 ? null : (
@@ -720,99 +721,6 @@ function BindingCard({
       ) : null}
       </Card>
 
-      {/*
-        What came back when something looked, in a card of its own.
-
-        These lines used to stack under the fields inside the binding's card,
-        so what you *connected* and what the last probe *found* read as one
-        list of eight facts. They answer different questions, and only the
-        second kind changes without anybody touching this screen.
-      */}
-      <Card testID="storage-capabilities" style={styles.capabilities}>
-        <Text variant="rowTitle">What this store can do</Text>
-        <Text variant="rowSub" style={styles.rowSub}>
-          Probed when this binding was last verified, never assumed from the provider&apos;s name.
-        </Text>
-        <View style={styles.checks}>
-        {/*
-          Every line in this block is a claim about somebody's own bucket, so
-          each one has to come from something that looked.
-
-          Reachability comes from the binding's status, which the verify probe
-          sets by listing the bucket and writing to it. It says "at the last
-          check" because that is the only tense it can honestly use: a key
-          revoked at the provider a minute ago still reads `connected` here
-          until something asks again. An `unverified` binding has never been
-          checked at all, so it gets an amber row pointing at Re-verify rather
-          than a green one — the status pill above already says "Not verified",
-          and a green check disagreeing with it is how a pane loses its
-          credibility.
-
-          The object count is rendered only when something counted. Nothing
-          does today, so on the live console `storage.objectCount` is undefined
-          and the sentence simply ends. See `ConsoleStorage`.
-        */}
-        {failure !== null ? (
-          <Check tone="warn">Last check couldn&apos;t confirm the bucket was usable</Check>
-        ) : storage.connected ? (
-          <Check tone="ok">
-            {storage.objectCount === undefined
-              ? "Reachable at the last check"
-              : `Reachable at the last check — ${storage.objectCount} objects`}
-          </Check>
-        ) : (
-          <Check tone="warn">
-            Not checked since it was connected — Re-verify to confirm it is reachable
-          </Check>
-        )}
-        {storage.conditionalWrite ? (
-          <Check tone="ok">Conditional writes verified — concurrent edits are safe</Check>
-        ) : (
-          <Check tone="warn">
-            Conditional writes unavailable — this provider cannot detect a concurrent edit
-          </Check>
-        )}
-        {/*
-          PARA detection and versioning state: absent, not "unknown". Nothing
-          walks the bucket for PARA folders or reads a versioning setting, and a
-          row saying "we don't know whether versioning is on" is noise on a card
-          somebody opened to check their credentials. An absent row is quiet;
-          the invented ones told a user with versioning already on to go and
-          turn it on.
-        */}
-        {/*
-          The note count, dated from the walk that produced it.
-          `noteCountedAt` is stored apart from `lastVerifiedAt` precisely so
-          this row can say when the number was taken — a months-old count
-          printed bare is the #25 shape again, a plausible figure about
-          somebody's bucket with nothing behind it. A truncated walk is a floor
-          and says so; absent, as ever, is a missing row rather than a zero.
-        */}
-        {storage.noteCount === undefined ? null : (
-          <Check tone="ok">
-            {`${storage.noteCount.toLocaleString("en-US")}${
-              storage.noteCountTruncated ? "+" : ""
-            } notes${
-              storage.noteCountedAt === undefined
-                ? ""
-                : ` — counted ${relativeTime(storage.noteCountedAt, Date.now())}`
-            }`}
-          </Check>
-        )}
-        {storage.paraPresent === undefined ? null : storage.paraPresent ? (
-          <Check tone="ok">PARA structure present</Check>
-        ) : (
-          <Check tone="warn">No PARA folders found — Context works either way</Check>
-        )}
-        {storage.versioningOn === undefined ? null : storage.versioningOn ? (
-          <Check tone="ok">Versioning is on — point-in-time recovery available</Check>
-        ) : (
-          <Check tone="warn">
-            Versioning is off — turn it on at your provider for point-in-time recovery
-          </Check>
-        )}
-        </View>
-      </Card>
     </>
   );
 }
@@ -878,11 +786,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   danger: { marginTop: 36, marginBottom: 10, color: colors.critText },
   rowSub: { marginTop: 2 },
   detailsToggle: { marginTop: 10, alignSelf: "flex-start" },
-  capabilities: { marginTop: space.x3 },
-  checks: {
-    marginTop: 15,
-    gap: 8,
-  },
   failure: { marginTop: 15 },
   notice: { marginTop: 15 },
   /** The same 24pt gap the vault importer above it takes from the card. */

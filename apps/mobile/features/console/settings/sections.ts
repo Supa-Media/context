@@ -155,7 +155,7 @@ export const SETTINGS_SECTIONS = [
     key: "feedback",
     keywords:
       "privacy feedback report bug problem crash error telemetry analytics tracking data collect recording replay diagnostics beta opt out",
-    label: "Privacy & feedback",
+    label: "Feedback & diagnostics",
     scope: "account",
     group: "Your account",
     icon: "bug",
@@ -263,7 +263,7 @@ export const SETTINGS_SECTIONS = [
       integration card.
     */
     group: null,
-    icon: "sparkle",
+    icon: "robot",
     personalOnly: false,
   },
   {

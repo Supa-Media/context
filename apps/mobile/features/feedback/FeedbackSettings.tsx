@@ -16,7 +16,7 @@ import { settingsSectionLabel } from "../console/settings/sections";
 import { openFeedback } from "./request";
 
 /**
- * Settings → Privacy & feedback: the same sentences as the early-beta notice,
+ * Settings → Feedback & diagnostics: the same sentences as the early-beta notice,
  * and a switch for each thing it describes.
  *
  * No shake row: shake-to-report needs a native module this build does not

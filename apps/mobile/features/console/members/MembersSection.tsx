@@ -152,6 +152,11 @@ export function MembersSection({
           <Pill tone="neutral">
             {`${view.members.length} with access`}
           </Pill>
+          {view.invitations.length > 0 ? (
+            <Pill tone="warn" testID="members-invited-count">
+              {`${view.invitations.length} invited`}
+            </Pill>
+          ) : null}
         </Row>
 
         {view.members.length === 0 ? (
@@ -166,6 +171,23 @@ export function MembersSection({
 
         {view.members.map((member) => (
           <MemberRow key={member.userId} member={member} actions={actions} />
+        ))}
+
+        {/*
+          Sent invitations sit in the same list, under the people who already
+          have access (settings cleanup, 2026-09-29). They were a card of their
+          own titled "Invitations", which on an owner's screen stood beside the
+          account-level "Invitations" row about invitations *to* them: one word
+          for two different lists. Each row already says "Invited as editor ·
+          expires in 5 days", so the list does not need a second heading.
+        */}
+        {view.invitations.map((invitation) => (
+          <InvitationRow
+            key={invitation.invitationId}
+            invitation={invitation}
+            now={now}
+            actions={actions}
+          />
         ))}
 
         {reach !== null ? (
@@ -183,36 +205,6 @@ export function MembersSection({
             </Text>
           </Hint>
         ) : null}
-      </Card>
-
-      <Card style={styles.spaced}>
-        <Row style={styles.head}>
-          <Grow>
-            <Text variant="rowTitle">Invitations</Text>
-          </Grow>
-          <Pill tone={view.invitations.length > 0 ? "warn" : "neutral"}>
-            {`${view.invitations.length} pending`}
-          </Pill>
-        </Row>
-
-        {view.invitations.length === 0 ? (
-          <Row divided>
-            <Grow>
-              <Text variant="rowSub">
-                {view.loading ? "Loading…" : "Nobody is waiting on an invitation."}
-              </Text>
-            </Grow>
-          </Row>
-        ) : null}
-
-        {view.invitations.map((invitation) => (
-          <InvitationRow
-            key={invitation.invitationId}
-            invitation={invitation}
-            now={now}
-            actions={actions}
-          />
-        ))}
       </Card>
 
       {actions !== undefined ? (

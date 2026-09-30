@@ -168,7 +168,7 @@ describe("the signed-in console states no fact it cannot answer", () => {
     // The point of removing the fakes is that what is left can be believed, so
     // the true check mark and the real binding fields have to still be there.
     const { text } = renderSettings(useLiveConsoleData);
-    expect(text).toContain("Conditional writes verified");
+    expect(text).toContain("Two people saving at once can't overwrite each other");
     expect(text).toContain("Cloudflare R2");
     expect(text).toContain("workspace");
     // The masked access key is one of the connection details behind a toggle
@@ -270,7 +270,7 @@ describe("the signed-out demo keeps its invented numbers", () => {
   test("the demo storage card still shows the mockup's figures", () => {
     const { data, text } = renderSettings(useDemoConsoleData);
     expect(data.demo).toBe(true);
-    expect(text).toContain("1,284 objects");
+    expect(text).toContain("1,284 files");
     expect(text).toContain("PARA structure present");
     expect(text).toContain("Versioning is off");
   });

@@ -67,6 +67,7 @@ import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
 import type { ConsoleData, ConsoleStorage } from "../features/console/types";
+import { storageVerdict } from "../features/console/settings/panels/StorageHealth";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -162,7 +163,7 @@ describe("what the store can do is its own block", () => {
     const body = storagePane({ connected: true, conditionalWrite: true });
     const capabilities = find(body, "storage-capabilities");
     expect(capabilities).not.toBeNull();
-    expect(capabilities!.textContent).toContain("Conditional writes");
+    expect(capabilities!.textContent).toContain("can't overwrite each other");
 
     const binding = find(body, "storage-binding");
     expect(binding!.contains(capabilities)).toBe(false);
@@ -171,8 +172,25 @@ describe("what the store can do is its own block", () => {
   test("a store that cannot do conditional writes says so rather than going quiet", () => {
     const body = storagePane({ connected: true, conditionalWrite: false });
     expect(find(body, "storage-capabilities")!.textContent).toContain(
-      "Conditional writes unavailable",
+      "This provider can't stop two saves at once",
     );
+  });
+
+  test("the page leads with one word, and says Healthy only when both checks are green", () => {
+    const body = storagePane({ connected: true, conditionalWrite: true });
+    expect(find(body, "storage-verdict")!.textContent).toBe("Healthy");
+    const word = (connected: boolean, conditionalWrite: boolean, failed = false) =>
+      storageVerdict({ connected, conditionalWrite }, failed).title;
+    expect(word(true, false)).toBe("Working, with one limit");
+    expect(word(false, true)).toBe("Not checked yet");
+    expect(word(true, true, true)).toBe("Not working");
+  });
+
+  test("the health card comes before the connection fields", () => {
+    const body = storagePane({ connected: true, conditionalWrite: true });
+    const health = find(body, "storage-capabilities")!;
+    const binding = find(body, "storage-binding")!;
+    expect(health.compareDocumentPosition(binding) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

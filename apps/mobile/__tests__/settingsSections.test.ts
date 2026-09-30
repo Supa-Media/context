@@ -83,7 +83,7 @@ describe("the order and the grouping", () => {
   test("twelve rows, and one of them only when it has something to say", () => {
     // The whole of the change: twenty rows under four headings became seven
     // under none, Model made it eight, and Emoji (the workspace's own, which
-    // the : menu offers) made it ten. Privacy & feedback (early-beta
+    // the : menu offers) made it ten. Feedback & diagnostics (early-beta
     // telemetry switches and the report, 2026-09-29) made it eleven, beside
     // Profile because both are about the person. Activity (the audit trail as
     // sentences, out of Workspace's "Advanced" block, 2026-09-29) made it

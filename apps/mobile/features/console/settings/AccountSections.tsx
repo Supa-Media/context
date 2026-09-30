@@ -143,7 +143,7 @@ export function AccountSection({
           {owned && data.viewer.detail !== undefined ? (
             <Row divided>
               <Grow>
-                <Text variant="rowTitle">Mail sent here</Text>
+                <Text variant="rowTitle">Forwarding address</Text>
               </Grow>
               <Text variant="mono">{data.viewer.detail}</Text>
             </Row>

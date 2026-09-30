@@ -5,7 +5,7 @@ import { observedUserId, onObservedUserChange } from "../observability/client";
 import { startAccountSync, syncWithAccount } from "../observability/accountPreferences";
 
 /**
- * Keeps the Privacy & feedback switches following the account while someone
+ * Keeps the Feedback & diagnostics switches following the account while someone
  * is signed in. Mounted once, by `FeedbackHost` in the signed-in layout.
  *
  * The account id comes from telemetry's own record of who is signed in, the

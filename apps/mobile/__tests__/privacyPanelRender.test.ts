@@ -283,7 +283,7 @@ describe("the control, and who is offered one", () => {
     // disabled — the same rule as Share and the tree's markers.
     const host = panel({ role: "member", kind: "personal" });
     expect(host.querySelector('[data-testid="privacy-set-1-projects"]')).toBeNull();
-    expect(host.textContent ?? "").not.toContain("Share with team");
+    expect(host.textContent ?? "").not.toContain("Open to everyone");
   });
 
   test("an editor is not offered one either — writing is not deciding who reads", () => {
@@ -292,6 +292,18 @@ describe("the control, and who is offered one", () => {
     // refuses them with `minimum: "owner"`.
     const host = panel({ role: "editor", kind: "shared" });
     expect(host.querySelector('[data-testid="privacy-set-1-projects"]')).toBeNull();
+  });
+
+  test("the buttons speak the pills' words, not a second vocabulary", () => {
+    // The pills say Everyone and Restricted; the buttons said "Share with
+    // team" and "Make private", and people asked what the difference was.
+    const host = panel({ role: "owner", kind: "personal", canSetVisibility: true });
+    const label = (id: string) =>
+      host.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
+    expect(label("privacy-set-1-projects")).toBe("Restrict");
+    expect(label("privacy-set-2-areas")).toBe("Open to everyone here");
+    expect(host.textContent ?? "").not.toContain("Make private");
+    expect(host.textContent ?? "").not.toContain("Share with team");
   });
 
   test("publishing a folder takes two presses, and the first writes nothing", () => {
@@ -305,7 +317,7 @@ describe("the control, and who is offered one", () => {
     press(host, "privacy-set-2-areas");
     expect(wrote).toEqual([]);
     // And it says what it is about to do, by name, in between.
-    expect(host.textContent ?? "").toContain("Press again to share 2-areas");
+    expect(host.textContent ?? "").toContain("Press again to open 2-areas");
     press(host, "privacy-set-2-areas");
     expect(wrote).toEqual(["folder 2-areas team"]);
   });
@@ -318,12 +330,12 @@ describe("the control, and who is offered one", () => {
     const host = panel({ role: "owner", kind: "personal", canSetVisibility: true });
     const button = host.querySelector('[data-testid="privacy-set-2-areas"]');
     expect(button?.getAttribute("aria-label")).toBe(
-      "Share 2-areas with everyone on People",
+      "Open 2-areas to everyone on People",
     );
     press(host, "privacy-set-2-areas");
     expect(
       host.querySelector('[data-testid="privacy-set-2-areas"]')?.getAttribute("aria-label"),
-    ).toBe("Press again to share 2-areas with everyone on People");
+    ).toBe("Press again to open 2-areas to everyone on People");
   });
 
   test("closing one back takes one press, because that is the cheap direction", () => {

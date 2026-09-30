@@ -72,7 +72,7 @@ afterEach(() => {
 
 function mount(
   view: PremiumView,
-  extra: { returned?: "done" | "cancelled" | null; slowAfter?: number } = {},
+  extra: { returned?: "done" | "cancelled" | null; slowAfter?: number; onOpenStorage?: () => void } = {},
 ): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -139,8 +139,11 @@ describe("what Premium includes", () => {
     expect(host.querySelectorAll('[data-testid="premium-upgrade"]')).toHaveLength(1);
   });
 
-  test("a paying owner can turn the search index off, and only that changes", async () => {
+  test("a paying owner is pointed at the one search switch, under Storage & search", () => {
+    // Premium had its own search-index switch beside the one under Storage &
+    // search: two controls for one question. Now it only says where it is.
     const choose = jest.fn(async (_next: unknown) => {});
+    const opened: string[] = [];
     const paying = status({
       status: "active",
       hasStripeCustomer: true,
@@ -148,31 +151,35 @@ describe("what Premium includes", () => {
       selected: { managedStorage: true, fastSearch: true },
       active: { managedStorage: true, fastSearch: true },
     });
-    const host = mount(view({ status: paying, choose }));
-    const control = host.querySelector(
-      '[data-testid="premium-search-index-switch"]',
-    ) as HTMLElement | null;
-    expect(control).not.toBeNull();
-    await act(async () => control!.click());
-    expect(choose).toHaveBeenCalledWith({ managedStorage: true, fastSearch: false });
+    const host = mount(view({ status: paying, choose }), {
+      onOpenStorage: () => opened.push("storage"),
+    });
+    expect(host.querySelector('[data-testid="premium-search-index-switch"]')).toBeNull();
+    expect(host.textContent ?? "").toContain("Turn it on or off under Storage & search.");
+    const link = host.querySelector('[data-testid="premium-open-search"]') as HTMLElement | null;
+    expect(link).not.toBeNull();
+    act(() => link!.click());
+    expect(opened).toEqual(["storage"]);
+    expect(choose).not.toHaveBeenCalled();
   });
 
-  test("on the owner's own storage the index is kept on, and the screen says why", () => {
+  test("a plan that left fast search out can put it back, from here", async () => {
+    // The old switch here could drop fast search from the plan, and Storage &
+    // search cannot offer what the plan does not include — so this is the way
+    // back, and the only control Premium still draws for the index.
     const choose = jest.fn(async (_next: unknown) => {});
     const paying = status({
       status: "active",
       hasStripeCustomer: true,
-      keepOneSelected: true,
-      selected: { managedStorage: false, fastSearch: true },
-      active: { managedStorage: false, fastSearch: true },
+      storageIsManaged: true,
+      selected: { managedStorage: true, fastSearch: false },
+      active: { managedStorage: true, fastSearch: false },
     });
     const host = mount(view({ status: paying, choose }));
-    const control = host.querySelector(
-      '[data-testid="premium-search-index-switch"]',
-    ) as HTMLElement | null;
-    act(() => control?.click());
-    expect(choose).not.toHaveBeenCalled();
-    expect(host.textContent ?? "").toContain("Premium keeps the index on");
+    const button = host.querySelector('[data-testid="premium-include-search"]') as HTMLElement | null;
+    expect(button).not.toBeNull();
+    await act(async () => button!.click());
+    expect(choose).toHaveBeenCalledWith({ managedStorage: true, fastSearch: true });
   });
 
   test("a member reads the list and gets no switch", () => {
