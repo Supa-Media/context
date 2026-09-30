@@ -40,6 +40,9 @@ function chainLink(side: 1 | -1): string {
 
 type FilesIconName =
   | "folder"
+  | "folderPlus"
+  | "compose"
+  | "pin"
   | "file"
   | "copy"
   | "clock"
@@ -58,6 +61,27 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
     bar("tab", u, w, c, { cx: 0.28, cy: 0.24, length: 0.26 }),
     rect("body", u, w, c, { x0: 0.12, y0: 0.24, x1: 0.88, y1: 0.8, radius: 0.12 }),
   ],
+
+  folderPlus: (u, w, c) => [
+    bar("tab", u, w, c, { cx: 0.28, cy: 0.24, length: 0.26 }),
+    rect("body", u, w, c, { x0: 0.12, y0: 0.24, x1: 0.88, y1: 0.8, radius: 0.12 }),
+    bar("across", u, w, c, { cx: 0.5, cy: 0.53, length: 0.24 }),
+    bar("down", u, w, c, { cx: 0.5, cy: 0.53, length: 0.24, angle: 90 }),
+  ],
+
+  compose: (u, w, c) =>
+    glyph("compose", u, w, c, {
+      paths: [
+        // The page, open at its top right where the pencil leaves it.
+        "M 0.5 0.16 L 0.27 0.16 A 0.13 0.13 0 0 0 0.14 0.29 L 0.14 0.73 A 0.13 0.13 0 0 0 0.27 0.86 L 0.71 0.86 A 0.13 0.13 0 0 0 0.84 0.73 L 0.84 0.5",
+        "M 0.42 0.58 L 0.44 0.45 L 0.76 0.13 A 0.078 0.078 0 0 1 0.87 0.24 L 0.55 0.56 Z",
+      ],
+    }),
+
+  pin: (u, w, c) =>
+    glyph("pin", u, w, c, {
+      paths: ["M 0.36 0.12 L 0.64 0.12 L 0.6 0.4 L 0.74 0.56 L 0.26 0.56 L 0.4 0.4 Z", "M 0.5 0.56 L 0.5 0.9"],
+    }),
 
   file: (u, w, c) => {
     /*

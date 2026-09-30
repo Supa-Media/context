@@ -14,8 +14,10 @@ export const listStyles = `/*
   --lp-content are the same ink.
 */
 .cm-lp-list {
+  /* flow-root keeps the caption's negative margin inside the measured box. */
+  display: flow-root;
   position: relative;
-  margin: 0 0 10px;
+  padding-bottom: 10px;
 }
 .cm-lp-list-cap {
   display: inline-flex;

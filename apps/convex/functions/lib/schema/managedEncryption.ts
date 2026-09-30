@@ -87,6 +87,11 @@ export const managedEncryptionTables = {
     errorCode: v.optional(v.string()),
     /** Bumped on every run the walk schedules, so a stale run stops itself. */
     runId: v.number(),
+    /**
+     * Restarts by the watchdog since the walk last recorded a page. Cleared
+     * by every recorded page; at the limit the walk fails as `STALLED`.
+     */
+    stalls: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     /** The staff member who last chose Decrypt for this workspace. */
     changedBy: v.optional(v.string()),

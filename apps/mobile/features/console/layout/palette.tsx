@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Palette } from "../../design/components/Palette";
 import { searchHref } from "../nav";
+import { scopeLabel, SearchScopeChips } from "./SearchScope";
 import type { ConsoleData } from "../types";
 import { PaletteWithAsk } from "./frameBridges";
 import type { ConsoleRouter } from "./types";
@@ -24,6 +25,8 @@ export function consolePalette({
   setPaletteOpen,
   router,
   data,
+  scope = null,
+  setScope,
 }: {
   paletteOpen: boolean;
   setAsked: ConsoleAside["setAsked"];
@@ -33,6 +36,9 @@ export function consolePalette({
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   router: ConsoleRouter;
   data: ConsoleData;
+  /** The folder search is narrowed to, from a folder page's bottom bar; `null` for the whole workspace. */
+  scope?: string | null;
+  setScope?: (scope: string | null) => void;
 }) {
   return (
     paletteOpen ? (
@@ -43,7 +49,12 @@ export function consolePalette({
         items={paletteItems}
         recent={recent}
         emptyHeading={recent.length > 0 ? "Recent" : undefined}
-        placeholder="Search this context"
+        placeholder={scope === null ? "Search this context" : `Search in ${scopeLabel(scope)}`}
+        scopeBar={
+          scope === null || setScope === undefined ? undefined : (
+            <SearchScopeChips folder={scope} onWiden={() => setScope(null)} />
+          )
+        }
         /*
           Reached only when the whole-context search is idle too — under
           `MIN_QUERY`, or with no context selected. Once it has run, the

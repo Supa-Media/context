@@ -138,7 +138,7 @@ test("the breadcrumb chip tap closes the note", async ({ page }) => {
 
   // `deselect` — the fixture's stand-in for the real navigation's
   // `router.replace(browseHref(...))`, see `E2EFixtureScreen.tsx` — lands on
-  // the context's own root: a folder listing, no leaf, no open note.
+  // the context's own root — on a phone, Home — with no leaf and no open note.
   await expect(page.getByTestId("breadcrumb-leaf")).toHaveCount(0);
-  await expect(page.getByTestId("folder-row").first()).toBeVisible();
+  await expect(page.getByTestId("phone-home")).toBeVisible();
 });

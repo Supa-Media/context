@@ -97,6 +97,12 @@ export type CastStep =
   | { kind: "open"; actor: CastActor; page: string }
   | { kind: "wait"; ms: number };
 
+/** The lines of a page (split on newlines) one step was written on: `from` up to, not including, `to`. */
+export interface CastStepSource {
+  from: number;
+  to: number;
+}
+
 export interface WebsiteCast {
   /** The page with every cast block taken out. Offsets in `steps` are into this. */
   markdown: string;
@@ -152,8 +158,20 @@ function parseBlock(
   steps: CastStep[],
   problems: string[],
   scene: { pace?: CastPaceName },
+  spans?: { base: number; out: CastStepSource[] },
 ): void {
+  /*
+    Which source lines each step came from, for the studio to edit it in
+    place: a step's lines run from the line that started it to the line the
+    loop reaches next (a note's body is read inside its own iteration).
+  */
+  let started = { line: 0, count: steps.length };
+  const record = (next: number) => {
+    if (spans !== undefined && steps.length > started.count) spans.out.push({ from: spans.base + started.line, to: spans.base + next });
+  };
   for (let i = 0; i < lines.length; i += 1) {
+    record(i);
+    started = { line: i, count: steps.length };
     const raw = lines[i]!;
     const text = raw.trim();
     if (text === "" || text.startsWith("//")) continue;
@@ -211,6 +229,7 @@ function parseBlock(
       problems.push(`Not understood: ${text.slice(0, 120)}`);
     }
   }
+  record(lines.length);
 }
 
 /** Whether `line` closes a fence opened with `fence` (the same character, at least as many). */
@@ -226,6 +245,20 @@ function closes(line: string, fence: string): boolean {
  * wrong, rather than swallowing the rest of the page.
  */
 export function splitWebsiteCast(source: string): WebsiteCast {
+  return splitCast(source);
+}
+
+/**
+ * The source lines each of a page's steps was written on, in step order, so
+ * the studio can change one step without touching the rest of the page.
+ */
+export function castStepSources(source: string): CastStepSource[] {
+  const out: CastStepSource[] = [];
+  splitCast(source, out);
+  return out;
+}
+
+function splitCast(source: string, spans?: CastStepSource[]): WebsiteCast {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const out: string[] = [];
   let length = 0; // characters in out.join("\n") + "\n" so far
@@ -271,6 +304,7 @@ export function splitWebsiteCast(source: string): WebsiteCast {
       steps,
       problems,
       scene,
+      spans === undefined ? undefined : { base: i + 1, out: spans },
     );
     i = end;
     // One blank line around a removed block is enough: drop the one after it

@@ -1,6 +1,7 @@
 import { splitWebsiteCast } from "@context/shared";
 import { stripFrontmatter } from "../share/markdown";
 import { parseHomeSnapshot, type HomeSnapshot } from "./homeSnapshot";
+import { emojiPictures, type EmojiPictures } from "../share/emojiPictures";
 
 /**
  * "Preview demo": an owner's page, as the homepage would play it, before it
@@ -75,7 +76,7 @@ export function previewSlug(name: string): string {
 export function castPreviewSnapshot(
   source: string,
   title: string,
-  options: { banner?: boolean; pages?: readonly PreviewPage[] } = {},
+  options: { banner?: boolean; pages?: readonly PreviewPage[]; emoji?: EmojiPictures } = {},
 ): HomeSnapshot {
   const banner = options.banner === false ? "" : CAST_PREVIEW_BANNER;
   const pages = [{ path: "index.md", routePath: "/", title, markdown: banner + stripFrontmatter(source) }];
@@ -90,21 +91,37 @@ export function castPreviewSnapshot(
     siteName: "Preview",
     revision: null,
     pages,
-    emoji: {},
+    // The workspace emoji the scene uses, which the studio read for it.
+    emoji: options.emoji ?? {},
     // A draft's own images are the workspace's, which the homepage cannot read.
     images: {},
   };
 }
 
 /** The address that plays this draft on the homepage. */
-export function castPreviewHref(source: string, title: string, pages: readonly PreviewPage[] = []): string {
-  return `/#${castPreviewFragment(source, title, pages)}`;
+export function castPreviewHref(
+  source: string,
+  title: string,
+  pages: readonly PreviewPage[] = [],
+  emoji: EmojiPictures = {},
+): string {
+  return `/#${castPreviewFragment(source, title, pages, emoji)}`;
 }
 
 /** `cast-preview=…`: the draft, and the pages its scene opens, as the address's fragment carries them. */
-export function castPreviewFragment(source: string, title: string, pages: readonly PreviewPage[] = []): string {
+export function castPreviewFragment(
+  source: string,
+  title: string,
+  pages: readonly PreviewPage[] = [],
+  emoji: EmojiPictures = {},
+): string {
   const carried = pages.slice(0, MAX_PREVIEW_PAGES).map((page) => ({ ...page, markdown: stripFrontmatter(page.markdown) }));
-  const body = JSON.stringify(carried.length === 0 ? { title, markdown: stripFrontmatter(source) } : { title, markdown: stripFrontmatter(source), pages: carried });
+  const body = JSON.stringify({
+    title,
+    markdown: stripFrontmatter(source),
+    ...(carried.length === 0 ? {} : { pages: carried }),
+    ...(Object.keys(emoji).length === 0 ? {} : { emoji }),
+  });
   return `${CAST_PREVIEW_PARAM}=${toBase64Url(new TextEncoder().encode(body))}`;
 }
 
@@ -118,13 +135,15 @@ export function castPreviewFrom(hash: string | undefined, options: { banner?: bo
       title?: unknown;
       markdown?: unknown;
       pages?: unknown;
+      emoji?: unknown;
     };
     if (typeof body.title !== "string" || typeof body.markdown !== "string") return null;
     const pages = body.pages === undefined ? [] : previewPages(body.pages);
     if (pages === null) return null;
     // Through the same check as a site from the router, so a crafted address
     // can hand the homepage nothing a real site could not.
-    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title, { ...options, pages }));
+    // Pictures are checked by the snapshot's own rules: inline images of four types, nothing an address could fetch.
+    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title, { ...options, pages, emoji: emojiPictures(body.emoji) }));
   } catch {
     return null;
   }

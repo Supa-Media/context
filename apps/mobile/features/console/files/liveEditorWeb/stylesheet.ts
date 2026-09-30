@@ -229,7 +229,7 @@ export function ensureStyles(colors: Colors): void {
   font-family: ${fonts.body};
   font-size: 13px;
   line-height: 20px;
-  margin: 2px 0 6px;
+  padding: 2px 0 6px;
 }
 .cm-lp-root .cm-lp-title-note-problem { color: ${colors.critText}; }
 .cm-lp-root .cm-lp-title-note-held { color: ${colors.warnText}; }

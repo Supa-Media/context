@@ -34,6 +34,7 @@ import {
   runWalkHandler,
   walkPlanHandler,
 } from "./lib/managedEncryptionFns/walk";
+import { restartStalledWalksHandler } from "./lib/managedEncryptionFns/watchdog";
 
 const scope = v.union(v.literal("ours"), v.literal("picked"), v.literal("all"));
 const rowState = v.union(
@@ -165,6 +166,13 @@ export const decryptWorkspace = internalMutation({
 export const tick = internalMutation({
   args: { restartActive: v.boolean() },
   handler: tickHandler,
+});
+
+/** Cron: restart a walk whose run died without recording anything; see `watchdog.ts`. */
+export const restartStalledWalks = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: restartStalledWalksHandler,
 });
 
 export const walkPlan = internalQuery({ args: walkArgs, handler: walkPlanHandler });

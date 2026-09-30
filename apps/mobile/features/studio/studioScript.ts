@@ -1,4 +1,4 @@
-import { splitWebsiteCast, type CastActor, type CastPaceName, type CastStep } from "@context/shared";
+import { castStepWords, splitWebsiteCast, type CastActor, type CastPaceName, type CastStep } from "@context/shared";
 import { stripFrontmatter } from "../share/markdown";
 import { castTimeline, type CastTimeline } from "../home/cast/castTimeline";
 import { paceNamed } from "../home/cast/castRun";
@@ -12,6 +12,12 @@ export interface ScriptRow {
   says: string;
   /** When it starts, in ms; `null` for a step that never runs (a reply to nothing). */
   at: number | null;
+  /** The step itself, for the rail to change. */
+  step: CastStep;
+  /** What they do, without the words: `replies`, `comments on “Free is free”`. */
+  verb: string;
+  /** The words the row lets you type over, or `null` for a step that has none. */
+  words: string | null;
 }
 
 export interface StudioScript {
@@ -62,6 +68,32 @@ export function describeStep(step: CastStep): string {
   }
 }
 
+/** What a step does, as a row says it before the words that can be typed over. */
+export function describeVerb(step: CastStep): string {
+  switch (step.kind) {
+    case "line":
+      return step.actor.kind === "agent" ? "writes" : "types";
+    case "append":
+      return step.below === true ? "adds a line below" : "adds to the line above";
+    case "read":
+      return step.page === null ? "reads this note" : "reads";
+    case "note":
+      return "adds the note";
+    case "reply":
+      return "replies";
+    case "comment":
+      return `comments on ${quoted(step.quote)}`;
+    case "tick":
+      return "ticks";
+    case "open":
+      return "opens";
+    case "wait":
+      return "Pause";
+    default:
+      return describeStep(step);
+  }
+}
+
 /** A note's script, as the studio's rail and scrubber show it; `pages` are the ones it opens, by name. */
 export function studioScript(source: string, pages: Readonly<Record<string, string>> = {}): StudioScript {
   const { markdown, steps, problems, pace } = splitWebsiteCast(stripFrontmatter(source));
@@ -72,6 +104,9 @@ export function studioScript(source: string, pages: Readonly<Record<string, stri
       actor: step.kind === "wait" ? null : step.actor,
       says: describeStep(step),
       at: timeline.starts[index] ?? null,
+      step,
+      verb: describeVerb(step),
+      words: step.kind === "read" && step.page === null ? null : castStepWords(step),
     })),
     timeline,
     problems,

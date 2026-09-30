@@ -140,7 +140,8 @@ test("a scene goes on to another page, and the stage follows it there", async ({
   await page.goto("/e2e-fixture?screen=cast-studio-pages");
   await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
   await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
-  await expect(page.getByTestId("studio-step-4")).toContainText("opens team");
+  await expect(page.getByTestId("studio-edit-4")).toContainText("@maya opens");
+  await expect(page.getByTestId("studio-words-4")).toHaveValue("team");
 
   // Played from the open: the steps before it land at once, then the stage is on Team.
   await page.getByTestId("studio-step-4").click();
@@ -191,4 +192,81 @@ test("pace: chosen in the studio, kept in the note, and the scene's times follow
   await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
   await page.getByTestId("studio-play").click();
   await expect(stage(page)).toContainText("this page is live", { timeout: 20_000 });
+});
+
+test("the stage draws the workspace's emoji, and a comment card on the last line stays in view", async ({ page }) => {
+  // A short window, so the note ends near the bottom of the stage.
+  await page.setViewportSize({ width: 1440, height: 640 });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  const frame = page.frameLocator('[data-testid="studio-stage"] iframe');
+  await expect(frame.locator(".cm-content").first()).toContainText("Free is free", { timeout: 20_000 });
+  await expect(frame.locator('img.cm-emoji[alt=":annoyed:"]').first()).toBeVisible({ timeout: 15_000 });
+
+  // Played from the reply: the comment is on the page with its thread open.
+  await page.getByTestId("studio-step-2").click();
+  const card = frame.locator(".cm-cmt-card").first();
+  await expect(card).toContainText("I don't really care", { timeout: 20_000 });
+  await page.waitForTimeout(800);
+  const box = await card.boundingBox();
+  const scroller = await frame.locator(".cm-scroller").first().boundingBox();
+  expect(box).not.toBeNull();
+  expect(scroller).not.toBeNull();
+  expect(box!.y + box!.height).toBeLessThanOrEqual(scroller!.y + scroller!.height + 1);
+});
+
+test("the script is edited on the rail: words in place, who and what in its editor, names in the cast", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  const note = () => page.evaluate(() => (window as unknown as { __castStudioNote?: string }).__castStudioNote ?? "");
+
+  // Words typed where they stand are kept on Enter, and nothing else in the note moves.
+  const words = page.getByTestId("studio-words-2");
+  await expect(words).toHaveValue("eh, I don't really care");
+  await words.fill("fine, keep it");
+  await words.press("Enter");
+  await expect.poll(note).toContain("@jon replies: fine, keep it\n@jon resolves\n```");
+  expect(await note()).toContain('@maya\'s Codex comments on "you cheapo": a little unprofessional?');
+
+  // Escape puts the words back.
+  await words.fill("never mind");
+  await words.press("Escape");
+  await expect(words).toHaveValue("fine, keep it");
+
+  // Who does a step, from its editor.
+  await page.getByTestId("studio-edit-0").click();
+  await expect(page.getByTestId("studio-step-editor")).toBeVisible();
+  await page.getByTestId("studio-who-@jon").click();
+  await expect.poll(note).toContain("@jon types: p.s. this page is live.");
+
+  // Deleted, then put back where it was.
+  await page.getByTestId("studio-edit-3").click();
+  await page.getByTestId("studio-delete-step").click();
+  await expect.poll(note).not.toContain("@jon resolves");
+  await page.getByTestId("studio-undo-delete").click();
+  await expect.poll(note).toContain("@jon replies: fine, keep it\n@jon resolves\n```");
+
+  // A new name in the cast reaches every step they are in.
+  await page.getByTestId("studio-cast-@jon").click();
+  const name = page.getByTestId("studio-cast-name");
+  await name.fill("@priya");
+  await name.press("Enter");
+  await expect.poll(note).toContain("@priya types: p.s. this page is live.");
+  expect(await note()).toContain("@priya replies: fine, keep it\n@priya resolves");
+  expect(await note()).not.toContain("@jon");
+});
+
+test("an agent's change to the script shows on the rows it touched", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("studio-words-2")).toHaveValue("eh, I don't really care");
+  await page.evaluate(() =>
+    (window as unknown as { __castStudioAgent: (from: string, to: string) => void }).__castStudioAgent("eh, I don't really care", "honestly, it's fine"),
+  );
+  await expect(page.getByTestId("studio-outside-change")).toContainText("@maya's Codex changed 1 step just now");
+  await expect(page.getByTestId("studio-words-2")).toHaveValue("honestly, it's fine");
+  await expect(page.getByTestId("studio-edit-2")).toContainText("@maya's Codex");
+  await expect(page.getByTestId("studio-edit-1")).not.toContainText("@maya's Codex changed");
 });

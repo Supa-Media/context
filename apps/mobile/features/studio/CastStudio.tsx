@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
-import { setCastPace, splitWebsiteCast, type CastPaceName } from "@context/shared";
+import { castActors, setCastPace, splitWebsiteCast, type CastPaceName } from "@context/shared";
+import type { PresenceMember } from "../console/presence/protocol";
 import { Button } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -10,6 +11,7 @@ import { castTimeLabel } from "../home/cast/castTimeline";
 import { castColors } from "../home/cast/castRun";
 import { castPreviewFragment } from "../home/castPreview";
 import { pagesByName, useScenePages, type ReadScenePage } from "./scenePages";
+import { useSceneEmoji, type LoadEmoji } from "./sceneEmoji";
 import { stripFrontmatter } from "../share/markdown";
 import { STUDIO_FRAMES, studioFrame, type StudioFrameId } from "./studioFrames";
 import { studioScript } from "./studioScript";
@@ -17,6 +19,8 @@ import { StudioRecord } from "./StudioRecord";
 import { StudioSoundsPanel } from "./sounds/StudioSoundsPanel";
 import { useStudioSounds, type SaveSounds, type SoundStorage } from "./sounds/useStudioSounds";
 import { StudioScriptRail } from "./StudioScriptRail";
+import { scriptEdits, type WriteScript } from "./scriptEdits";
+import { useMovedStarts, useOutsideChanges } from "./scriptChanges";
 import { StudioPace } from "./StudioPace";
 import { StudioStage } from "./StudioStage";
 import { StudioTransport } from "./StudioTransport";
@@ -49,6 +53,9 @@ export function CastStudio({
   soundStorage,
   readPage,
   onSavePace,
+  loadEmoji,
+  onEditScript,
+  members,
 }: {
   draft: string;
   title: string;
@@ -61,6 +68,12 @@ export function CastStudio({
   readPage?: ReadScenePage;
   /** Writes the scene's `pace:` line into the note; why not, or `null`. Absent where it cannot be changed. */
   onSavePace?: (pace: CastPaceName) => string | null;
+  /** Reads a workspace emoji, so the stage draws `:name:` as the published page will. */
+  loadEmoji?: LoadEmoji;
+  /** Changes the note's script from the rail; absent where the note cannot be changed. */
+  onEditScript?: WriteScript;
+  /** Who is in the note now, to say who changed the script when the studio did not. */
+  members?: readonly PresenceMember[];
 }) {
   const styles = useThemedStyles(makeStyles);
   const wide = useWindowDimensions().width >= RAIL_MIN_WINDOW;
@@ -88,9 +101,32 @@ export function CastStudio({
     player.hold();
   };
   const script = useMemo(() => studioScript(scene, pagesByName(pages)), [scene, pages]);
+  // The text this studio last wrote: a draft equal to it is our own edit.
+  const ours = useRef<string | null>(null);
+  const write = useCallback<WriteScript>(
+    (change) =>
+      onEditScript === undefined
+        ? null
+        : onEditScript((current) => {
+            const next = change(current);
+            ours.current = next;
+            return next;
+          }),
+    [onEditScript],
+  );
+  const edits = useMemo(() => (onEditScript === undefined ? undefined : scriptEdits(write)), [onEditScript, write]);
+  const cast = useMemo(() => castActors(stripFrontmatter(draft)), [draft]);
+  const outside = useOutsideChanges(draft, ours, members ?? []);
+  const moved = useMovedStarts(draft, ours, script.rows);
+  // After an edit here the stage is a fresh page of the new script, waiting for Play.
+  useEffect(() => {
+    if (ours.current !== null && draft === ours.current) player.hold();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per version of the note
+  }, [draft]);
   const memberColors = useMemo(() => castColors(splitWebsiteCast(stripFrontmatter(draft)).steps), [draft]);
+  const emoji = useSceneEmoji([scene, ...pages.map((page) => page.markdown)], loadEmoji);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new page is what reads a new draft
-  const src = useMemo(() => `/#${castPreviewFragment(scene, title, pages)}`, [player.stageKey, title, pages]);
+  const src = useMemo(() => `/#${castPreviewFragment(scene, title, pages, emoji)}`, [player.stageKey, title, pages, emoji]);
   const total = script.timeline.total;
 
   return (
@@ -165,6 +201,10 @@ export function CastStudio({
               colors={memberColors}
               problems={script.problems}
               onJump={player.jump}
+              cast={cast}
+              edits={edits}
+              change={outside}
+              moved={moved}
             />
           ) : null}
           <View style={styles.main}>

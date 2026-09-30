@@ -74,24 +74,15 @@ const DEVICES: ReadonlyArray<{ width: number; what: string }> = [
  *
  * The console built exactly this once — six note verbs, a rule, and a seventh
  * key that opened the microphone — and it is the arrangement the bug was found
- * in, so it stays here as the shape the geometry has to survive. The row the
- * console builds *today* is `CONSOLE_KEYS` below: the microphone key went when
- * the `+` beside it grew a menu, and seven keys are one press away from coming
- * back the next time somebody adds a destination.
+ * in, so it stays here as the shape the geometry has to survive. The console
+ * itself draws no row of keys since 2026-09-30 (Apple Notes' search field and
+ * new-note button, below), but seven keys are one press away from coming back
+ * the next time somebody builds one.
  */
 const KEYS = 7;
 /** One rule, before the seventh key. */
 const RULES = 1;
 
-/**
- * And what the console draws now: back, browse, search, `+`, recent (owner,
- * 2026-09-27). Recent replaced forward; autosave and the sync mark replaced ✓.
- *
- * Asserted separately from `KEYS` on purpose. Pointing the console's own tests
- * at the seven-key probe is how "how many keys does the product draw" stops
- * being a question this file answers.
- */
-const CONSOLE_KEYS = 5;
 
 /* -------------------------------------------------------------------------- */
 
@@ -683,67 +674,37 @@ describe("the rendered row, solved", () => {
 
 describe("the console's own bottom row", () => {
   /**
-   * **Six keys, no rule, and no microphone.**
+   * **Apple Notes' bar: a search field and the round new-note button.**
    *
-   * `expect(toolbar()).toHaveLength(6)` was deleted with no replacement when the
-   * row grew a seventh key, so nothing asserted how many keys are on it or what
-   * they are — and the count is the whole of the width problem, because six fit
-   * at 375 and seven do not.
-   *
-   * The seventh was a microphone that opened the meeting sheet, and it is gone:
-   * *"we no longer need a dedicated mic button on the bottom row, just a plus
-   * button that opens different options"*. Recording a meeting is a row in the
-   * sheet the `+` raises now, so what the row lost is a key rather than a
-   * capability — and the separator went with it, since it existed to mark the
-   * boundary between the verbs and that one destination.
-   *
-   * **The `+` is unconditional, where it used to depend on `canEdit`.** The
-   * sheet it raises offers a reader a meeting and no files, which is where the
-   * read-only rule now lives; dropping the key outright would take meeting
-   * capture off every context somebody was invited into.
-   *
-   * Asserted against the real row rather than a fixture, because `BottomBar`
-   * deliberately does not know what its keys open; the layout does.
+   * Approved by the owner on 2026-09-30 (the mobile Home artboards), replacing
+   * the five keys — back, browse, search, new, recent — of 2026-09-27. Back is
+   * the path bar's and the system's, Browse and Recent are what Home lists,
+   * and the `+` sheet is the round button held. `BottomBar` and its key
+   * geometry stay, probed above, for any row of keys somebody builds again.
    */
-  test("is five keys — back, browse, search, new, recent — with no forward and no save", () => {
+  test("is a search field with a microphone, and the new-note button", () => {
     const container = mountConsole(390);
-    const row = [...need(container, "bottom-bar").children] as HTMLElement[];
+    const bar = need(container, "notes-bar");
+    const labels = [...bar.querySelectorAll("[aria-label]")].map((node) => node.getAttribute("aria-label"));
 
-    expect(row.map((node) => node.dataset.testid)).toEqual([
-      "bottom-bar-back",
-      "bottom-bar-browse",
-      "bottom-bar-search",
-      "bottom-bar-new",
-      "bottom-bar-recent",
-    ]);
-
-    expect(row).toHaveLength(CONSOLE_KEYS);
-    // Icon-only, so the label is the whole of each key's name.
-    expect(row.map((node) => node.getAttribute("aria-label"))).toEqual(
-      ["Go back", "Browse files", "Search notes", "Create", "Recently opened"],
-    );
-    for (const gone of ["forward", "save"]) expect(container.querySelector(`[data-testid="bottom-bar-${gone}"]`)).toBeNull();
+    expect(labels).toEqual(["Search notes", "Search by voice", "New note"]);
+    for (const gone of ["back", "browse", "new", "recent", "forward", "save"]) {
+      expect(container.querySelector(`[data-testid="bottom-bar-${gone}"]`)).toBeNull();
+    }
 
     drop();
   });
 
   /**
-   * The same row, at every width, solved.
-   *
-   * The fixture above proves the mechanism; this proves it against the list the
-   * console actually builds — the one that grew a seventh key and broke three
-   * of these devices.
+   * The field is what gives: the round button is fixed, and at the narrowest
+   * width anybody holds the field still has room for its word and its
+   * microphone beside a full touch target.
    */
-  test.each(DEVICES)("clears the touch floor and stays in the pill at $width", ({ width }) => {
-    const container = mountConsole(width);
-    const solved = solveBar(need(container, "bottom-bar"), width);
-
-    expect(solved.targets).toHaveLength(CONSOLE_KEYS);
-    for (const size of solved.targets) {
-      expect(size).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET - 1e-9);
-    }
-    expect(solved.content).toBeLessThanOrEqual(solved.room + 1e-9);
-
-    drop();
+  test.each(DEVICES)("the field keeps room for its word and its microphone at $width", ({ width }) => {
+    const compose = 52;
+    const field = width - 2 * layout.bottomBarInset - 2 * 4 - 12 - compose;
+    expect(field).toBeGreaterThanOrEqual(160);
+    expect(compose).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 });
+

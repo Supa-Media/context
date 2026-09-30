@@ -12,6 +12,7 @@ import { requireAuthId } from "@supa-media/convex/auth";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
+import { deleteMemberPlaces } from "../places";
 import { getMembership, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { MAX_MEMBERS_RETURNED } from "./constants";
 import { memberNotFound } from "./errors";
@@ -71,6 +72,8 @@ export async function removeMemberHandler(
   }
 
   await ctx.db.delete(target._id);
+  // Their pins and open counts here: nobody else's business, and no longer theirs.
+  await deleteMemberPlaces(ctx, args.workspaceId, args.userId);
 
   await recordAudit(ctx, {
     workspaceId: args.workspaceId,
@@ -100,6 +103,7 @@ export async function leaveWorkspaceHandler(
   }
 
   await ctx.db.delete(membership._id);
+  await deleteMemberPlaces(ctx, args.workspaceId, userId);
 
   await recordAudit(ctx, {
     workspaceId: args.workspaceId,

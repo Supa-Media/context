@@ -16,17 +16,21 @@
 import { describe, expect, test } from "@jest/globals";
 import { dataWith, ENTRY, mountConsole } from "./fixtures";
 
-const AT_ROOT = {
-  selectedPath: "",
+/*
+  A folder rather than the workspace's own page: on a phone that is Home since
+  2026-09-30 (`home/PhoneHome.tsx`), not a listing with a select mode.
+*/
+const IN_FOLDER = {
+  selectedPath: "notes",
   listings: {
-    "": {
-      path: "",
+    notes: {
+      path: "notes",
       folderDefault: "private" as const,
       truncated: false,
       manifestUsable: true,
       entries: [
-        { ...ENTRY, path: "alpha.md", name: "alpha.md" },
-        { ...ENTRY, path: "beta.md", name: "beta.md" },
+        { ...ENTRY, path: "notes/alpha.md", name: "alpha.md" },
+        { ...ENTRY, path: "notes/beta.md", name: "beta.md" },
       ],
     },
   },
@@ -37,7 +41,7 @@ const inBody = (testID: string) =>
 
 describe("a phone's folder page acts on several notes at once", () => {
   test("two picked rows open the tree's selection menu, as a sheet", () => {
-    const app = mountConsole(dataWith(AT_ROOT as never, { kind: "folder", path: "", name: "" }));
+    const app = mountConsole(dataWith(IN_FOLDER as never, { kind: "folder", path: "notes", name: "notes" }));
     app.press(app.find("folder-select"));
     for (const row of app.container.querySelectorAll<HTMLElement>('[data-testid="folder-row"]')) {
       app.press(row);
@@ -54,7 +58,7 @@ describe("a phone's folder page acts on several notes at once", () => {
   });
 
   test("…and Move reaches the batch move dialog", () => {
-    const app = mountConsole(dataWith(AT_ROOT as never, { kind: "folder", path: "", name: "" }));
+    const app = mountConsole(dataWith(IN_FOLDER as never, { kind: "folder", path: "notes", name: "notes" }));
     app.press(app.find("folder-select"));
     for (const row of app.container.querySelectorAll<HTMLElement>('[data-testid="folder-row"]')) {
       app.press(row);

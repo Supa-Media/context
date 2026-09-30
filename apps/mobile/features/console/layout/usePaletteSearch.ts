@@ -4,6 +4,7 @@ import { recentPaths, type HistoryState } from "../files/history";
 import { itemsFromListings, itemsFromPaths, recentItems, type NoteNaming } from "../files/palette";
 import { useContextSearch } from "../files/useContextSearch";
 import type { ConsoleContext, ConsoleData } from "../types";
+import { scopePrefix } from "./SearchScope";
 
 /**
  * What the ⌘K palette searches and lists: the whole context through the
@@ -16,6 +17,7 @@ export function usePaletteSearch({
   current,
   paletteOpen,
   history,
+  scope = null,
 }: {
   data: ConsoleData;
   insideContext: boolean;
@@ -23,6 +25,13 @@ export function usePaletteSearch({
   paletteOpen: boolean;
   /** Where this context has been, for what an untyped search lists. */
   history?: HistoryState;
+  /**
+   * The folder a phone's "Search in <folder>" narrowed this to, or `null` for
+   * the whole workspace. Everything below is narrowed the same way: the
+   * bucket's search by its own prefix, the device's copy and the loaded names
+   * by the same path test.
+   */
+  scope?: string | null;
 }) {
   /*
     Whole-context search, behind the same palette that filters what is loaded.
@@ -35,7 +44,19 @@ export function usePaletteSearch({
     answers when the device is offline or the bucket does not — see
     `useContextSearch` for when, and `mirrorSearch.ts` for what it reads.
   */
-  const deviceSearch = useDeviceSearch(insideContext ? (current?.id ?? null) : null, current?.role);
+  const wholeDeviceSearch = useDeviceSearch(insideContext ? (current?.id ?? null) : null, current?.role);
+  const deviceSearch = useMemo(
+    () =>
+      wholeDeviceSearch === null || scope === null
+        ? wholeDeviceSearch
+        : async (query: string) => {
+            const answer = await wholeDeviceSearch(query);
+            return answer === null
+              ? null
+              : { ...answer, hits: answer.hits.filter((hit) => hit.path.startsWith(scopePrefix(scope))) };
+          },
+    [wholeDeviceSearch, scope],
+  );
   const reachability = data.files.sync?.reachability ?? "unknown";
   const mirrorStatus = data.files.sync?.mirror;
   const device = useMemo(
@@ -45,7 +66,15 @@ export function usePaletteSearch({
         : { reachability, status: mirrorStatus, search: deviceSearch },
     [deviceSearch, reachability, mirrorStatus],
   );
-  const searched = useContextSearch(insideContext ? data.files.search : null, device);
+  const wholeSearch = data.files.search;
+  const scopedSearch = useMemo(
+    () =>
+      wholeSearch === undefined || scope === null
+        ? wholeSearch
+        : (query: string) => wholeSearch(query, scopePrefix(scope)),
+    [wholeSearch, scope],
+  );
+  const searched = useContextSearch(insideContext ? (scopedSearch ?? null) : null, device);
   /*
     Rows named the way the note is: its title from the bodies the browser
     holds, and the workspace's own name for the top of it ("@context" on the
@@ -79,10 +108,13 @@ export function usePaletteSearch({
     paletteOpen && reachability === "offline",
   );
   const listings = data.files.listings;
-  const paletteItems = useMemo(
-    () => (paletteOpen ? itemsFromPaths(mirrorPaths, itemsFromListings(listings, naming), naming) : []),
-    [paletteOpen, mirrorPaths, listings, naming],
-  );
+  const paletteItems = useMemo(() => {
+    if (!paletteOpen) return [];
+    const all = itemsFromPaths(mirrorPaths, itemsFromListings(listings, naming), naming);
+    return scope === null
+      ? all
+      : all.filter((item) => item.kind === "command" || item.id.startsWith(scopePrefix(scope)));
+  }, [paletteOpen, mirrorPaths, listings, naming, scope]);
   /* An untyped search lists the notes somebody was just in. */
   const recent = useMemo(
     () =>

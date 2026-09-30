@@ -90,6 +90,8 @@ import {
 } from "./lib/invitees";
 import { findName } from "./lib/nameClaims";
 import { consumeRateLimit } from "./lib/rateLimit";
+import { purgeExpiredInvitationsHandler } from "./lib/invitations/sweep";
+import { clearGroupNames } from "./lib/workspaces/groupNames";
 import {
   getMembership,
   requireWorkspaceAccess,
@@ -104,18 +106,6 @@ import {
  * and every write, never by the sweep — see `purgeExpiredInvitations`.
  */
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * How long an expired row is kept before the sweep takes it.
- *
- * Not zero, for the reason `oauthAuthorizations` gives: deleting a row the
- * instant it expires races an acceptance already in flight, and the difference
- * between "expired" and "never existed" is nothing a caller can see anyway.
- */
-const INVITATION_RETENTION_MS = 60 * 60 * 1000;
-
-/** One sweep moves at most this many rows, so a backlog cannot blow a limit. */
-const SWEEP_BATCH_SIZE = 200;
 
 /**
  * Caps on how many rows one response carries, and on how many invitations one
@@ -622,6 +612,14 @@ export const acceptInvitation = mutation({
       return { workspaceId: workspace._id, slug: workspace.slug, role: existing.role };
     }
 
+    // `resolveGroupMembers` and `grantedNamesFor` intersect a group row with live
+    // membership, so every group name this person was left in when they were
+    // removed comes back the moment the row below lands. Rejoining starts from
+    // no names; the owner names them again if that is what they meant. Ahead
+    // of the insert for readability only — one mutation is one transaction, so
+    // nothing observes the order. See `lib/workspaces/groupNames.ts`.
+    await clearGroupNames(ctx, workspace._id, userId);
+
     await ctx.db.insert("workspaceMembers", {
       workspaceId: workspace._id,
       userId,
@@ -686,19 +684,5 @@ export const declineInvitation = mutation({
 export const purgeExpiredInvitations = internalMutation({
   args: { limit: v.optional(v.number()) },
   returns: v.object({ deleted: v.number(), moreRemaining: v.boolean() }),
-  handler: async (ctx, args) => {
-    const limit = Math.min(Math.max(args.limit ?? SWEEP_BATCH_SIZE, 1), 1000);
-    const cutoff = Date.now() - INVITATION_RETENTION_MS;
-
-    const expired = await ctx.db
-      .query("workspaceInvitations")
-      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", cutoff))
-      .take(limit);
-
-    for (const row of expired) {
-      await ctx.db.delete(row._id);
-    }
-
-    return { deleted: expired.length, moreRemaining: expired.length === limit };
-  },
+  handler: async (ctx, args) => purgeExpiredInvitationsHandler(ctx, args),
 });

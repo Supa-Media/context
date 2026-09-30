@@ -170,14 +170,14 @@ describe("the phone reaches a destination with nothing opened first", () => {
 
   test("a phone draws no floating + at all, because its bottom row carries one", () => {
     /*
-      The row's own `+` is the phone's create surface — and since the microphone
-      key went, its meeting route too. A second floating control 24pt above that
-      row is the defect `oneMicrophone.test.ts` exists for, arriving again with a
-      different glyph on it.
+      The bar's round button is the phone's create surface — a note on a
+      press, and held, the sheet with everything else, a meeting included. A
+      second floating control above that bar is the defect
+      `oneMicrophone.test.ts` exists for, arriving again with a different glyph.
     */
     const app = mountConsole(390);
     expect(app.find("console-create")).toBeNull();
-    expect(app.find("bottom-bar-new")).not.toBeNull();
+    expect(app.find("notes-bar-compose")).not.toBeNull();
     expect(app.find("bottom-bar-meeting")).toBeNull();
     app.unmount();
   });
@@ -198,7 +198,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
       indicator removed", and the indicator is where it went: the press records
       and lands on the meeting's own screen — a clock, a meter, a transport and
       the note it is becoming. What the phone must keep is a **route**, and this
-      is the route: one press for the `+`, one for Meeting.
+      is the route: the round button held, then Meeting.
 
       So what is asserted is that the two presses reach a recording, and that
       neither raises the retired destination sheet. This fixture's console has no
@@ -209,7 +209,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
     const app = mountConsole(390);
     expect(sheetUp()).toBe(false);
 
-    app.press(app.find("bottom-bar-new"));
+    app.hold(app.find("notes-bar-compose"));
     const meeting = document.body.querySelector<HTMLElement>('[aria-label="New meeting"]');
     expect(meeting).not.toBeNull();
     app.press(meeting);
@@ -226,30 +226,29 @@ describe("the phone reaches a destination with nothing opened first", () => {
   });
 
   /**
-   * AND THE FILES ARE IN THE SAME SHEET, WITH NOTHING ASKING FOR A NAME.
+   * A NOTE IS ONE PRESS, AND FROM HOME IT LANDS IN THE INBOX.
    *
-   * The `+` is the only route to creating anything on a phone, so what it offers
-   * is the whole of that capability — and the note is made on the press rather
-   * than after a text field, which is what the owner asked for: *"for new note,
-   * new drawing etc should not ask you to title it"*.
+   * The round button makes the note on the press, with nothing asking for a
+   * name — the owner's *"for new note, new drawing etc should not ask you to
+   * title it"* — and from Home, the workspace's own page, it goes to the
+   * Inbox (owner, 2026-09-30: *"inbox is the default folder"*). Held, it raises
+   * the sheet with the other files a phone can start.
    */
-  test("the + offers the three files, and Note writes one without asking", () => {
+  test("the round button writes a note in the Inbox without asking, and held offers the other files", () => {
     const app = mountConsole(390);
-    app.press(app.find("bottom-bar-new"));
-
     const labelled = (label: string) =>
       document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`);
-    for (const row of ["New note", "New drawing", "New folder"]) {
-      expect(labelled(row)).not.toBeNull();
-    }
 
     created.length = 0;
-    app.press(labelled("New note"));
-    // It reached the browser as an untitled note in the destination folder —
-    // and no field and no sheet were in the way.
-    expect(created).toEqual(["note:"]);
+    app.press(app.find("notes-bar-compose"));
+    expect(created).toEqual(["note:0-inbox"]);
     expect(document.body.querySelector("input, textarea")).toBeNull();
-    expect(labelled("New note")).toBeNull();
+
+    app.hold(app.find("notes-bar-compose"));
+    // Not "New note": that is the round button's own name, so it proves nothing here.
+    for (const row of ["New drawing", "New folder"]) {
+      expect(labelled(row)).not.toBeNull();
+    }
 
     app.unmount();
   });
@@ -290,7 +289,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
    */
   test("the + offers a chat, and choosing it opens the panel", () => {
     const app = mountConsole(390);
-    app.press(app.find("bottom-bar-new"));
+    app.hold(app.find("notes-bar-compose"));
 
     const chat = document.body.querySelector<HTMLElement>('[aria-label="New chat"]');
     expect(chat).not.toBeNull();
@@ -317,11 +316,11 @@ describe("the phone reaches a destination with nothing opened first", () => {
   test("and no chat row on a phone in a context with no model key", () => {
     mockConsoleState.modelConnected = false;
     const app = mountConsole(390);
-    app.press(app.find("bottom-bar-new"));
+    app.hold(app.find("notes-bar-compose"));
     expect(document.body.querySelector('[aria-label="New chat"]')).toBeNull();
     // The rest of the sheet is untouched, so this cannot pass on a sheet that
     // failed to open at all.
-    expect(document.body.querySelector('[aria-label="New note"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="New drawing"]')).not.toBeNull();
     app.unmount();
   });
 

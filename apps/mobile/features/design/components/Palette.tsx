@@ -1,11 +1,10 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   TextInput,
   View,
   useWindowDimensions,
@@ -17,11 +16,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rank, type PaletteItem } from "../../console/files/palette";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
-import { fonts, layout, pointerType as t, radii, space, touchType } from "../tokens";
-import { useColors, useThemedStyles, type Colors } from "../theme";
+import { layout } from "../tokens";
+import { useColors, useThemedStyles } from "../theme";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
+import { makeStyles } from "./PaletteStyles";
 import { usePaletteKeys } from "./usePaletteKeys";
 
 /**
@@ -108,9 +108,6 @@ import { usePaletteKeys } from "./usePaletteKeys";
 import { POINTER_ROW_HEIGHT, PaletteRow, TOUCH_ROW_HEIGHT } from "./PaletteRow";
 
 export { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns, secondLine } from "./PaletteRow";
-
-/** Roughly nine rows before the pointer panel starts scrolling. */
-const POINTER_LIST_MAX_HEIGHT = POINTER_ROW_HEIGHT * 9;
 
 /** The panel hangs from here, clamped so it neither hugs the chrome nor sinks. */
 const PANEL_TOP_FRACTION = 0.14;
@@ -236,6 +233,8 @@ export interface PaletteProps {
   onAsk?: (query: string) => void;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
+  /** Under the field: what the search is narrowed to, and the way to widen it. */
+  scopeBar?: ReactNode;
 }
 
 /**
@@ -311,6 +310,7 @@ export function Palette({
   onAsk,
   onChoose,
   onDismiss,
+  scopeBar,
 }: PaletteProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -663,6 +663,7 @@ export function Palette({
               style={styles.cancel}
             />
           </View>
+          {scopeBar}
           {heading}
           {sourceNotice}
           {reducedRecallNotice}
@@ -698,6 +699,7 @@ export function Palette({
             <Icon name="search" size={16} color={colors.muted} />
             {field}
           </View>
+          {scopeBar}
           {heading}
           {sourceNotice}
           {reducedRecallNotice}
@@ -707,97 +709,3 @@ export function Palette({
     </Modal>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  /* ------------------------------- pointer ------------------------------- */
-
-  scrim: {
-    flex: 1,
-    backgroundColor: "rgba(3,3,4,.72)",
-    alignItems: "center",
-    paddingHorizontal: space.x6,
-  },
-  panel: {
-    width: "100%",
-    maxWidth: 560,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.card,
-    backgroundColor: colors.surface3,
-    overflow: "hidden",
-    boxShadow: "0 40px 100px -30px rgba(0,0,0,1)",
-  },
-  panelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.x2,
-    paddingHorizontal: space.x4,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-
-  /* -------------------------------- touch -------------------------------- */
-
-  sheet: {
-    flex: 1,
-    backgroundColor: colors.ground,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.x2,
-    paddingHorizontal: space.x3,
-    paddingVertical: space.x2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    backgroundColor: colors.surface2,
-  },
-  cancel: { minHeight: 44, justifyContent: "center" },
-
-  /* -------------------------------- input -------------------------------- */
-
-  input: {
-    flex: 1,
-    fontFamily: fonts.body,
-    color: colors.text,
-  },
-  inputPointer: { fontSize: t.lede, paddingVertical: 13 },
-  /**
-   * 17, not 15. RN-Web renders this as a real `<input>`, and mobile Safari
-   * zooms the whole page when one under 16px takes focus — a zoom the person
-   * then has to pinch their way back out of, on the screen they opened to
-   * find one note.
-   */
-  inputTouch: { fontSize: touchType.lede, paddingVertical: 11, paddingHorizontal: space.x2 },
-
-  /* -------------------------------- list --------------------------------- */
-
-  listPointer: { maxHeight: POINTER_LIST_MAX_HEIGHT },
-  listTouch: { flex: 1 },
-  listContent: { paddingVertical: space.x1 },
-  heading: {
-    paddingHorizontal: space.x4,
-    paddingTop: space.x3,
-    paddingBottom: space.x1,
-  },
-  empty: {
-    paddingHorizontal: space.x4,
-    paddingVertical: space.x5,
-  },
-  /**
-   * Fixed above the scrolling list — see `reducedRecallNotice`'s own
-   * comment for why this cannot live inside it. `lineStrong` on both edges
-   * so it reads as its own strip rather than as part of whichever
-   * neighbour happens to be empty this render.
-   */
-  notice: {
-    paddingHorizontal: space.x4,
-    paddingVertical: space.x2,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.lineStrong,
-    backgroundColor: colors.surface2,
-  },
-});

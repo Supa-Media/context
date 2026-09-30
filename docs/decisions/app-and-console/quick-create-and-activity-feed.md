@@ -73,6 +73,8 @@ The checks are `untitledNames.test.ts` (18) and `untitledTitleAdoption.test.ts`
 
 ### The phone's bottom row is six keys, and the `+` is all of them
 
+> **Superseded 2026-09-30** by [the phone's Home and a bottom bar that is Apple Notes'](./phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30): the row is a search field and a round new-note button, and this sheet is the button held. What follows about the sheet's rows (`createSheet.ts`, unconditional for a reader, hidden when empty) still holds; the row of keys does not.
+
 The row's seventh key was a microphone that opened the meeting flow. It is gone,
 with the separator that marked it off, and recording is a row in the sheet the
 `+` raises — see [meetings](../meetings.md), *The seventh key became a row in the

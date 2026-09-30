@@ -100,4 +100,11 @@ describe("what a page may carry", () => {
       publishedEmojiNames("Hi :parrot: :parrot: :Loud: `:inline:`\n\n```\n:fenced:\n```\n\n:+1: :blob-wave:"),
     ).toEqual(["parrot", "blob-wave"]);
   });
+
+  test("a cast block's words are the page's, so their emoji travel with it", () => {
+    expect(publishedEmojiNames("# Pricing :annoyed:\n\n```cast\n@jon replies: :sob: fine\n```\n\n```\n:fenced:\n```\n")).toEqual([
+      "annoyed",
+      "sob",
+    ]);
+  });
 });

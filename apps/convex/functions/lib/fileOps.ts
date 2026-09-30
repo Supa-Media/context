@@ -66,7 +66,7 @@ export { listFolder } from "./fileOps/listing";
 export type { FileEntry, FolderListing } from "./fileOps/listing";
 export { MANIFEST_PAGE_ENTRIES, MANIFEST_PAGE_FOLDERS, syncManifest } from "./fileOps/syncManifest";
 export type { ManifestEntry, ManifestFolder, SyncManifest } from "./fileOps/syncManifest";
-export { readFile, READ_BATCH_PATHS, READ_BATCH_BYTES, readFiles } from "./fileOps/reading";
+export { readFile, READ_BATCH_PATHS, READ_BATCH_BYTES, READ_CONCURRENCY, readFiles } from "./fileOps/reading";
 export type { FileContents, BatchRead } from "./fileOps/reading";
 export { writeFile, removeNoteEncryption } from "./fileOps/writing";
 export type { WriteResult } from "./fileOps/writing";

@@ -346,6 +346,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A scene's sounds are chosen in the note, and an uploaded one is stored like a pasted image](./app-and-console/scene-sounds.md)
+- [The script is edited on the studio's rail, and the note stays the only copy](./app-and-console/scene-sounds.md)
 - [People and agents working now share one bar, and it counts only who is active](./app-and-console/active-people-bar.md)
 - [People are drawn as faces, never initials](./app-and-console/faces.md)
 - A status wears a chip; a band is for what you have not been told
@@ -360,6 +361,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Several rows are one operation, and a pick is what the keyboard acts on
 - No UI ships without a design audit first
 - Every unasked message goes through one path, one at a time, answered per account
+- [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
+- [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
 
 ## [Meetings](./meetings.md)
 

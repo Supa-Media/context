@@ -34,12 +34,28 @@ import {
   unsealObject,
 } from "../../../../mcp/src/store/managedEncryptionWalk.js";
 import type { GatewayCredential } from "../storage/shapes";
+import { settleInPool } from "./pool";
 import { rolloutRow } from "./rollout";
 import { bindingIsManaged, workspaceEncryptionRow } from "./state";
 
 export const COUNT_PAGE = 1000;
-export const SEAL_PAGE = 100;
-const PARALLEL = 8;
+/**
+ * Objects per run. Each run pays a fixed cost (the plan, the key, the
+ * credential, the page record), so pages are bigger than they were (100).
+ * They stay well inside an action's time limit, because a run that times out
+ * records nothing and schedules nothing: 300 objects at 24 lanes is about a
+ * minute even at six seconds an object, roughly what one lane of the first
+ * production walk averaged.
+ */
+export const SEAL_PAGE = 300;
+/** Objects in flight at once. Each is three R2 calls: read, write, read back. */
+export const WALK_LANES = 24;
+/**
+ * Declared bytes in flight at once. The walk holds each object two or three
+ * times (read, sealed, read back) and actions have a small heap, so a page of
+ * large attachments runs a few at a time rather than 24.
+ */
+export const WALK_BYTE_BUDGET = 12 * 1024 * 1024;
 
 type Row = Doc<"managedEncryptionWorkspaces">;
 export type WalkPlan = Pick<Row, "state" | "phase" | "cursor">;
@@ -72,7 +88,7 @@ export async function walkPlanHandler(
   return { state: row.state, phase: row.phase, cursor: row.cursor };
 }
 
-async function stillOnManagedBucket(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+export async function stillOnManagedBucket(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
   const binding = await ctx.db
     .query("storageBindings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -89,7 +105,7 @@ async function stillOnManagedBucket(ctx: QueryCtx, workspaceId: Id<"workspaces">
  * row keeps its state: `encrypting` still reads both kinds, a switch back
  * restarts it (`managedBucketBound`), and Resume picks up an abandoned one.
  */
-async function handOffUnderWay(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+export async function handOffUnderWay(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
   const migrations = await ctx.db
     .query("managedStorageMigrations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -129,11 +145,13 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
   const row = await workspaceEncryptionRow(ctx, args.workspaceId);
   if (row === null || row.runId !== args.runId || row.phase !== args.phase) return false;
   const now = Date.now();
+  // Every recorded page is progress, so the watchdog's count starts over.
+  const moved = { updatedAt: now, stalls: undefined };
   if (args.phase === "count") {
     const total = (row.filesTotal ?? 0) + args.counted;
     await ctx.db.patch(row._id, args.nextCursor === null
-      ? { phase: "seal", cursor: undefined, filesTotal: total, updatedAt: now }
-      : { cursor: args.nextCursor, filesTotal: total, updatedAt: now });
+      ? { phase: "seal", cursor: undefined, filesTotal: total, ...moved }
+      : { cursor: args.nextCursor, filesTotal: total, ...moved });
     return true;
   }
   const sum = row.filesDone + args.done;
@@ -142,15 +160,15 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
   const filesDone = sum;
   const filesTotal = Math.max(row.filesTotal ?? 0, sum);
   if (args.nextCursor !== null) {
-    await ctx.db.patch(row._id, { cursor: args.nextCursor, filesDone, filesTotal, updatedAt: now });
+    await ctx.db.patch(row._id, { cursor: args.nextCursor, filesDone, filesTotal, ...moved });
     return true;
   }
   if (args.phase === "seal") {
-    await ctx.db.patch(row._id, { state: "checking", phase: "check", cursor: undefined, filesDone, filesTotal, updatedAt: now });
+    await ctx.db.patch(row._id, { state: "checking", phase: "check", cursor: undefined, filesDone, filesTotal, ...moved });
     return true;
   }
   if (args.phase === "unseal") {
-    await ctx.db.patch(row._id, { phase: "confirm", cursor: undefined, filesDone, filesTotal, updatedAt: now });
+    await ctx.db.patch(row._id, { phase: "confirm", cursor: undefined, filesDone, filesTotal, ...moved });
     return true;
   }
   if (args.phase === "confirm") {
@@ -161,7 +179,7 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
       filesDone,
       filesTotal,
       completedAt: now,
-      updatedAt: now,
+      ...moved,
     });
     return false;
   }
@@ -172,7 +190,7 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
     filesDone,
     filesTotal,
     completedAt: now,
-    updatedAt: now,
+    ...moved,
   });
   await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.tick, { restartActive: false });
   return false;
@@ -207,17 +225,13 @@ function errorCodeOf(error: unknown): string {
   return "WALK_FAILED";
 }
 
-/**
- * Every object in a batch settles before a failure is reported. With
- * `Promise.all` the first refusal would end the run while its siblings were
- * still writing, so the workspace would read "failed" with seals in flight.
- */
-async function inBatches<T>(items: T[], work: (item: T) => Promise<void>) {
-  for (let i = 0; i < items.length; i += PARALLEL) {
-    const settled = await Promise.allSettled(items.slice(i, i + PARALLEL).map(work));
-    const refused = settled.find((result) => result.status === "rejected");
-    if (refused) throw (refused as PromiseRejectedResult).reason;
-  }
+/** Every object settles before a failure is reported; see `pool.ts`. */
+function eachObject(objects: { key: string; size?: number }[], work: (key: string) => Promise<void>) {
+  return settleInPool(
+    objects,
+    { lanes: WALK_LANES, byteBudget: WALK_BYTE_BUDGET, sizeOf: (object) => object.size ?? 0 },
+    (object) => work(object.key),
+  );
 }
 
 export async function runWalkHandler(
@@ -261,27 +275,27 @@ export async function runWalkHandler(
     const cipher = new ManagedCipher(String(args.workspaceId), key);
     const phase = plan.phase ?? (plan.state === "decrypting" ? "unseal" : "count");
     const page = await bare.list({ cursor: plan.cursor, limit: phase === "count" ? COUNT_PAGE : SEAL_PAGE });
-    const keys: string[] = page.objects.map((object: { key: string }) => object.key);
+    const objects: { key: string; size?: number }[] = page.objects;
     let done = 0;
     if (phase === "seal") {
-      await inBatches(keys, async (key) => {
+      await eachObject(objects, async (key) => {
         await sealObject(bare, cipher, key);
         done += 1;
       });
     } else if (phase === "check") {
-      await inBatches(keys, async (key) => {
+      await eachObject(objects, async (key) => {
         if ((await checkObject(bare, cipher, key)) === "plain") await sealObject(bare, cipher, key);
         done += 1;
       });
     } else if (phase === "unseal") {
-      await inBatches(keys, async (key) => {
+      await eachObject(objects, async (key) => {
         await unsealObject(bare, cipher, key);
         done += 1;
       });
     } else if (phase === "confirm") {
       // An object sealed after the unseal pass passed it (a request built
       // before the switch) is opened here rather than left behind.
-      await inBatches(keys, async (key) => {
+      await eachObject(objects, async (key) => {
         if ((await checkPlainObject(bare, key)) === "sealed") await unsealObject(bare, cipher, key);
       });
     }
@@ -289,7 +303,7 @@ export async function runWalkHandler(
       ...args,
       phase,
       nextCursor: page.truncated && page.cursor ? page.cursor : null,
-      counted: phase === "count" ? keys.length : 0,
+      counted: phase === "count" ? objects.length : 0,
       done: phase === "check" || phase === "confirm" ? 0 : done,
     };
   } catch (error) {

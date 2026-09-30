@@ -183,6 +183,7 @@ export type {
 export {
   CAST_PACES,
   MAX_CAST_STEPS,
+  castStepSources,
   setCastPace,
   splitWebsiteCast,
   stripWebsiteCast,
@@ -190,8 +191,24 @@ export {
   type CastActorKind,
   type CastPaceName,
   type CastStep,
+  type CastStepSource,
   type WebsiteCast,
 } from "./websiteCast";
+export {
+  CAST_EDIT_KINDS,
+  castActorNamed,
+  castActors,
+  castStepLine,
+  castStepWords,
+  insertCastStep,
+  moveCastStep,
+  renameCastActor,
+  replaceCastStep,
+  withCastActor,
+  withCastKind,
+  withCastWords,
+  type CastEditKind,
+} from "./castEdit";
 export { JOIN_OPEN, stripWebsiteJoin } from "./websiteJoin";
 export {
   DEVLOG_EXPLORING_DISCLAIMER,

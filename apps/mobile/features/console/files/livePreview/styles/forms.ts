@@ -23,6 +23,7 @@ export const formStyles = `
   raised surface would be a second document inside the note, which is what the
   diagram frame beside it is and what a form is not.
 */
+.cm-lp-form-block { padding: 0.6em 0; }
 .cm-lp-form {
   /*
     A real hairline. This was --lp-code-bg, which is the code fence's FILL:
@@ -59,7 +60,6 @@ export const formStyles = `
   /* The padding belongs to the three bands inside, so their rules can run edge
      to edge. */
   overflow: hidden;
-  margin: 0.6em 0;
   font-family: var(--lp-body);
   font-size: 0.94em;
   line-height: 1.45;
