@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -13,15 +12,14 @@ import {
   type NativeSyntheticEvent,
   type Role,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rank, type PaletteItem } from "../../console/files/palette";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
 import { layout } from "../tokens";
 import { useColors, useThemedStyles } from "../theme";
-import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
 import { makeStyles } from "./PaletteStyles";
+import { PaletteSheet } from "./PaletteSheet";
 import { usePaletteKeys } from "./usePaletteKeys";
 
 /**
@@ -82,14 +80,14 @@ import { usePaletteKeys } from "./usePaletteKeys";
  *
  * ## The software keyboard
  *
- * `KeyboardAvoidingView` here is React Native's own, not the one in
+ * `KeyboardAvoidingView` in `PaletteSheet` is React Native's own, not the one in
  * `react-native-keyboard-controller` — even though this app mounts that
  * library's `KeyboardProvider` at the root and its version is the nicer of the
  * two. The library's animated views import `react-native-reanimated`, which is
  * a peer dependency `apps/mobile` does not declare, so reaching for it would
  * add a dependency to get a smoother transition on one overlay. The provider
- * stays where it is and the plain avoider is enough: with the field at the top
- * of the sheet, all the keyboard can cover is the tail of the results.
+ * stays where it is and the plain avoider is enough: it lifts the sheet's foot,
+ * where the field is, by the keyboard's height.
  *
  * ## Keyboard shortcuts
  *
@@ -315,7 +313,6 @@ export function Palette({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
 
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -638,38 +635,13 @@ export function Palette({
 
   if (touch) {
     return (
-      <Modal transparent animationType="slide" visible onRequestClose={onDismiss}>
-        <KeyboardAvoidingView
-          /**
-           * The input is at the top, so the keyboard never covers it — what it
-           * covers is the bottom of the results. `padding` on iOS shortens the
-           * sheet by the keyboard's height so the last rows stay reachable;
-           * Android resizes the window itself, and `height` is the behaviour
-           * that cooperates with that rather than fighting it.
-           */
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={[
-            styles.sheet,
-            { paddingTop: insets.top, paddingBottom: insets.bottom },
-          ]}
-          testID="palette-sheet"
-        >
-          <View style={styles.sheetHeader}>
-            {field}
-            <Button
-              label="Cancel"
-              onPress={onDismiss}
-              testID="palette-cancel"
-              style={styles.cancel}
-            />
-          </View>
-          {scopeBar}
-          {heading}
-          {sourceNotice}
-          {reducedRecallNotice}
-          {list}
-        </KeyboardAvoidingView>
-      </Modal>
+      <PaletteSheet field={field} onDismiss={onDismiss}>
+        {scopeBar}
+        {heading}
+        {sourceNotice}
+        {reducedRecallNotice}
+        {list}
+      </PaletteSheet>
     );
   }
 

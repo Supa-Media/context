@@ -35,24 +35,6 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     borderBottomColor: colors.line,
   },
 
-  /* -------------------------------- touch -------------------------------- */
-
-  sheet: {
-    flex: 1,
-    backgroundColor: colors.ground,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.x2,
-    paddingHorizontal: space.x3,
-    paddingVertical: space.x2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    backgroundColor: colors.surface2,
-  },
-  cancel: { minHeight: 44, justifyContent: "center" },
-
   /* -------------------------------- input -------------------------------- */
 
   input: {
@@ -67,7 +49,13 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * then has to pinch their way back out of, on the screen they opened to
    * find one note.
    */
-  inputTouch: { fontSize: touchType.lede, paddingVertical: 11, paddingHorizontal: space.x2 },
+  inputTouch: {
+    fontSize: touchType.lede,
+    paddingVertical: 11,
+    paddingHorizontal: space.x2,
+    // The pill around it (`PaletteSheet`) is the focus ring; a second one inside it was the orange box.
+    outlineWidth: 0,
+  },
 
   /* -------------------------------- list --------------------------------- */
 
