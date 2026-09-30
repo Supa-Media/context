@@ -28,7 +28,8 @@ import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from 
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
 import { clearanceOf } from "../clearance";
-import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET, messageFor } from "../d1";
+import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET, isRetryableD1Error, messageFor } from "../d1";
+import { PROJECTION_RETRY_MS } from "../fastSearch";
 import {
   type FileStore,
   loadPrivacyState,
@@ -566,7 +567,34 @@ export async function runFileOperationHandler(
    * console already renders, with the owner's own "Try again" on it.
    */
   if (result.kind === "indexProjected") {
+    const passes = Math.floor(args.operation.kind === "projectIndex"
+      ? args.operation.passes ?? 0
+      : 0);
     if (result.failure !== undefined) {
+      /*
+        A BLIP IS A WAIT, NOT A VERDICT.
+
+        This used to record `failed` on any failure, and the row then said
+        "Cloudflare could not be reached. This will retry." while nothing
+        retried: `failed` is outside `backfilling`, so the chain stopped and
+        the sweep did not look at it. A person watched a card promise a retry
+        at 84% and nothing came. A failure waiting can fix spends one link of
+        the chain on a delayed retry instead, and writes nothing, so the card
+        keeps saying "Preparing", which is true. Only a chain that has run out
+        of links records the failure, and the sweep restarts that one too.
+      */
+      if (isRetryableD1Error(result.failure) && passes > 0) {
+        await ctx.scheduler.runAfter(
+          PROJECTION_RETRY_MS,
+          internal.functions.files.runFileOperation,
+          {
+            workspaceId: args.workspaceId,
+            scope: args.scope,
+            operation: { kind: "projectIndex", passes: passes - 1 },
+          },
+        );
+        return result;
+      }
       await ctx.runMutation(
         internal.functions.fastSearch.recordProvisionResult,
         {
@@ -592,9 +620,6 @@ export async function runFileOperationHandler(
     // Same shape, same reasoning and the same place as the maintenance chain
     // below: scheduled from inside the barrier, which propagates no taint,
     // and only by a link that made progress and did not finish.
-    const passes = Math.floor(args.operation.kind === "projectIndex"
-      ? args.operation.passes ?? 0
-      : 0);
     if (result.moved && !result.ready && passes > 0) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,

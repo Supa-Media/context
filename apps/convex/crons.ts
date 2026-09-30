@@ -151,12 +151,15 @@ crons.interval(
  * through the switch: `enable` returns early for a row that is already opted
  * in and not failed.
  *
- * Hourly, and each run only touches rows nothing has written to in fifteen
- * minutes, so a chain that is working is never overtaken by a second one.
+ * It also restarts a `failed` row whose failure is one waiting can fix, since
+ * that row's card tells its owner "Context tries again on its own within the
+ * hour". Every fifteen minutes so that sentence holds with room to spare, and
+ * each run only touches rows nothing has written to in fifteen minutes, so a
+ * chain that is working is never overtaken by a second one.
  */
 crons.interval(
   "restart stalled search backfills",
-  { hours: 1 },
+  { minutes: 15 },
   internal.functions.fastSearch.sweepStalledBackfills,
   {},
 );

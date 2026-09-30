@@ -67,6 +67,8 @@
  *   the sweep restarting a chain that is already working                      1
  *   the sweep starting a context whose owner never asked                      1
  *   an unconfigured deployment left `backfilling` forever                     1
+ *   a Cloudflare blip recorded as `failed` instead of retried by the chain    1
+ *   the sweep restarting a failure waiting cannot fix                         1
  *   the credential opened before the row is asked                         0 → 1
  *   the chain treated as still due for a row that is no longer
  *     `backfilling` (i.e. one that is `ready`)                            0 → 1
@@ -771,6 +773,122 @@ describe("the trigger", () => {
     const after = await row(t, workspaceId);
     expect(after?.status).toBe("failed");
     expect(after?.errorCode).toBe("NOT_CONFIGURED");
+  });
+
+  test("a Cloudflare blip is retried by the chain, not recorded as failed", async () => {
+    /*
+      The screen a person actually saw: "Cloudflare could not be reached. This
+      will retry." at 84%, and nothing retried, because a projection pass
+      recorded `failed` on any failure and a `failed` row is outside
+      everything that restarts work. A failure waiting can fix spends a link on
+      a delayed retry instead, and the row keeps saying it is preparing.
+    */
+    const { t, workspaceId, d1 } = await opted({ notes: 3 });
+    d1.fail = "UNAVAILABLE";
+
+    await project(t, workspaceId, 4);
+
+    const after = await row(t, workspaceId);
+    expect(after?.status).toBe("backfilling");
+    expect(after?.error).toBeUndefined();
+    const retries = await queued(t, "runFileOperation");
+    expect(retries).toHaveLength(1);
+    // Delayed, not immediate: an outage answered at once is answered the same.
+    expect(retries[0]!.scheduledTime).toBeGreaterThan(Date.now() + 10_000);
+    // And it spends a link, which is what keeps an outage from looping forever.
+    expect(retries[0]!.args[0].operation).toEqual({ kind: "projectIndex", passes: 3 });
+  });
+
+  test("a chain that runs out of links on a blip records it, for the sweep", async () => {
+    const { t, workspaceId, d1 } = await opted({ notes: 3 });
+    d1.fail = "RATE_LIMITED";
+
+    await project(t, workspaceId, 0);
+
+    const after = await row(t, workspaceId);
+    expect(after?.status).toBe("failed");
+    expect(after?.errorCode).toBe("RATE_LIMITED");
+    expect(after?.error).toContain("tries again on its own");
+    expect(await queued(t, "runFileOperation")).toHaveLength(0);
+  });
+
+  test("the sweep restarts a row that failed on a blip, counters kept", async () => {
+    const { t, workspaceId } = await opted({ notes: 3 });
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(existing!._id, {
+        status: "failed",
+        errorCode: "UNAVAILABLE",
+        error: "Cloudflare could not be reached.",
+        notesIndexed: 580,
+        notesPending: 110,
+        updatedAt: Date.now() - 86_400_000,
+      });
+    });
+
+    const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
+
+    expect(swept.started).toBe(1);
+    const after = await row(t, workspaceId);
+    expect(after?.status).toBe("backfilling");
+    expect(after?.error).toBeUndefined();
+    expect(after?.errorCode).toBeUndefined();
+    // Resumed, not restarted: the percentage does not drop back to zero.
+    expect(after?.notesIndexed).toBe(580);
+    expect(await queued(t, "runFileOperation")).toHaveLength(1);
+  });
+
+  test("the sweep re-provisions a row that failed on a blip before its schema", async () => {
+    const { t, workspaceId } = await opted({ notes: 3 });
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(existing!._id, {
+        status: "failed",
+        errorCode: "NOT_FOUND",
+        schemaVersion: undefined,
+        updatedAt: Date.now() - 86_400_000,
+      });
+    });
+
+    const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
+
+    expect(swept.started).toBe(1);
+    expect((await row(t, workspaceId))?.status).toBe("provisioning");
+    expect(await queued(t, "provisionIndex")).toHaveLength(1);
+    expect(await queued(t, "runFileOperation")).toHaveLength(0);
+  });
+
+  test("the sweep leaves a terminal failure, a fresh one, and an opted-out one alone", async () => {
+    for (const [patch, label] of [
+      [{ errorCode: "UNAUTHORIZED" }, "refused token"],
+      [{ errorCode: "NOT_CONFIGURED" }, "missing secret"],
+      [{ errorCode: "UNAVAILABLE", updatedAt: Date.now() }, "failed a moment ago"],
+      [{ errorCode: "UNAVAILABLE", optedIn: false }, "opted out"],
+    ] as const) {
+      const { t, workspaceId } = await opted({ notes: 3 });
+      await t.run(async (ctx) => {
+        const existing = await ctx.db
+          .query("searchIndexes")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+          .unique();
+        await ctx.db.patch(existing!._id, {
+          status: "failed",
+          updatedAt: Date.now() - 86_400_000,
+          ...patch,
+        });
+      });
+
+      const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
+
+      expect(swept.started, label).toBe(0);
+      expect((await row(t, workspaceId))?.status, label).toBe("failed");
+    }
   });
 
   test("the sweep starts a context that was left backfilling before any of this existed", async () => {

@@ -45,6 +45,7 @@ import {
   deleteDatabase,
   ensureDatabase,
   exec,
+  isRetryableD1Error,
   messageFor,
   type D1Config,
 } from "./lib/d1";
@@ -53,21 +54,6 @@ import { PROJECTION_CHAIN } from "./lib/fastSearch";
 /** How long a D1 database that has only just been created may take to answer. */
 const D1_SETTLE_MS = 2 * 60 * 1000;
 const D1_SETTLE_POLL_MS = 5 * 1000;
-
-/**
- * D1 failures that will answer the same way however long we wait.
- *
- * `UNAUTHORIZED` is the interesting one, and it is terminal here for a reason
- * that does not hold on the R2 paths: the token this opens is standing
- * deployment configuration, not a key minted moments ago, so a refusal means a
- * staffer has to fix something and waiting two minutes only delays telling
- * them. `REFUSED` is Cloudflare rejecting the request itself — a malformed
- * statement will not become well-formed.
- *
- * Everything else — `NOT_FOUND` for a database that is not routable yet,
- * `RATE_LIMITED`, `UNAVAILABLE` — is a wait.
- */
-const TERMINAL_D1_ERRORS = new Set(["UNAUTHORIZED", "REFUSED"]);
 
 /**
  * Read both halves of the credential, or `null` if either is missing.
@@ -261,7 +247,7 @@ export const provisionIndex = internalAction({
       */
       const deadline = args.retryUntil ?? Date.now() + D1_SETTLE_MS;
       const remaining = deadline - Date.now();
-      if (!TERMINAL_D1_ERRORS.has(code) && remaining > 0) {
+      if (isRetryableD1Error(code) && remaining > 0) {
         const delay = Math.min(D1_SETTLE_POLL_MS, remaining);
         await ctx.scheduler.runAfter(
           delay,
