@@ -35,8 +35,25 @@ const ANNOYED = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
 const GOES_ON = "@jon resolves\n@maya opens: team\n@maya types: and the team is on it.";
 const TEAM = "# Team\n\nWho builds this.\n";
 
-export function CastStudioFixture({ pages = false }: { pages?: boolean }) {
-  const [draft, setDraft] = useState(pages ? SCENE.replace("@jon resolves", GOES_ON) : SCENE);
+/**
+ * `screen=cast-studio-folders`: the scene reads a page in a folder beside it
+ * (`opens: inbox/james`) and comes back.
+ */
+const IN_FOLDER = [
+  "@jon resolves",
+  "@maya's Codex opens: inbox/james",
+  "@maya's Codex reads",
+  "@maya's Codex opens: Pricing",
+  "@maya's Codex comments on \"$5 a month\": you still owe James $700.",
+].join("\n");
+const FOLDER_PAGES: Record<string, { title: string; markdown: string }> = {
+  "inbox/james": { title: "James", markdown: "# James\n\nhey, can you send the $700 for the Cancun Airbnb?\n" },
+};
+
+export function CastStudioFixture({ pages = false, folders = false }: { pages?: boolean; folders?: boolean }) {
+  const [draft, setDraft] = useState(
+    folders ? SCENE.replace("@jon resolves", IN_FOLDER) : pages ? SCENE.replace("@jon resolves", GOES_ON) : SCENE,
+  );
   const [members, setMembers] = useState<PresenceMember[]>([]);
   useEffect(() => {
     (window as unknown as { __castStudioAgent?: (from: string, to: string) => void }).__castStudioAgent = (from, to) => {
@@ -80,7 +97,11 @@ export function CastStudioFixture({ pages = false }: { pages?: boolean }) {
         return null;
       }}
       members={members}
-      readPage={async (name) => (pages && name === "team" ? { name, title: "Team", markdown: TEAM } : null)}
+      readPage={async (name) => {
+        if (pages && name === "team") return { name, title: "Team", markdown: TEAM };
+        const inFolder = folders ? FOLDER_PAGES[name] : undefined;
+        return inFolder === undefined ? null : { name, ...inFolder };
+      }}
     />
   );
 }

@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { splitWebsiteCast } from "@context/shared";
 import { stripFrontmatter } from "../share/markdown";
-import { MAX_PREVIEW_PAGES, previewSlug, type PreviewPage } from "../home/castPreview";
+import { MAX_PREVIEW_PAGES, previewPagePath, type PreviewPage } from "../home/castPreview";
 
 /** Reads the page a scene's `opens:` names, or `null` when there is none. */
 export type ReadScenePage = (name: string) => Promise<PreviewPage | null>;
 
-/** The pages a scene opens, as its script names them, each once. */
+/** The pages a scene opens, as its script names them, each once (`inbox/james` and `inbox-james` are two). */
 export function sceneOpens(draft: string): string[] {
   const names = new Map<string, string>();
   for (const step of splitWebsiteCast(stripFrontmatter(draft)).steps) {
     if (step.kind !== "open") continue;
-    const slug = previewSlug(step.page);
-    if (slug !== "" && !names.has(slug)) names.set(slug, step.page);
+    const at = previewPagePath(step.page);
+    if (at !== null && !names.has(at)) names.set(at, step.page);
   }
   return [...names.values()].slice(0, MAX_PREVIEW_PAGES);
 }

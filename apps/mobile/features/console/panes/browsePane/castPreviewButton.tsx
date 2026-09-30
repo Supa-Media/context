@@ -150,16 +150,20 @@ export function soundStorage(files: FileBrowser): SoundStorage {
 
 /**
  * The page a scene opens, found beside the scene's own note: `opens: pricing`
- * is `pricing.md` (or `02-pricing.md`) in the same folder, or a path from it.
+ * is `pricing.md` (or `02-pricing.md`) in the same folder, and `inbox/james`
+ * is `james.md` in the `inbox` folder beside it.
  * Read as the person reading this note can read it, and nothing else.
  */
 export function scenePageReader(files: FileBrowser, notePath: string): ReadScenePage {
   const folder = notePath.includes("/") ? notePath.slice(0, notePath.lastIndexOf("/")) : "";
   return async (name) => {
-    const wanted = previewSlug(name.slice(name.lastIndexOf("/") + 1));
-    const within = name.includes("/") ? name.slice(0, name.lastIndexOf("/")).replace(/^\/+|\/+$/g, "") : "";
+    // Folders are read as written, from the scene's folder and never above it.
+    const segments = name.split(/[/\\]/).map((segment) => segment.trim()).filter((segment) => segment !== "");
+    if (segments.length === 0 || segments.some((segment) => /^\.+$/.test(segment))) return null;
+    const wanted = previewSlug(segments.pop()!);
+    const within = segments.join("/");
     const where = within === "" ? folder : folder === "" ? within : `${folder}/${within}`;
-    if (wanted === "" || where.split("/").includes("..")) return null;
+    if (wanted === "") return null;
     const listed = (files.listings[where]?.entries ?? [])
       .filter((entry) => entry.kind === "file" && entry.path.endsWith(".md") && entry.path !== notePath)
       .find((entry) => previewSlug(entry.name.replace(/^\d{2}-/, "")) === wanted)?.path;
