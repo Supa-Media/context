@@ -291,6 +291,68 @@ describe("a folder move into another folder", () => {
   });
 });
 
+describe("moving the folder whose page is open", () => {
+  test("the page follows the folder, rather than closing, and follows it back on Undo", async () => {
+    // A phone's folder page offers Move to… for the folder it shows (board 08).
+    unmount = mount();
+    await settle();
+    await openTree();
+    await act(async () => {
+      browser.toggleFolder("2-areas");
+      browser.select("1-projects/foo");
+    });
+    await settle();
+
+    await act(async () => {
+      browser.move("1-projects/foo", "2-areas");
+    });
+    await settle();
+    expect(browser.selectedPath).toBe("2-areas/foo");
+
+    await act(async () => {
+      browser.toasts.at(-1)?.undo?.();
+    });
+    await settle();
+    expect(browser.selectedPath).toBe("1-projects/foo");
+  });
+
+  test("a note open inside a moved folder still closes", async () => {
+    actions[name("readNote")] = async () => ({ path: "1-projects/foo/a.md", text: "# a\n", etag: "e1" });
+    unmount = mount();
+    await settle();
+    await openTree();
+    await act(async () => {
+      browser.toggleFolder("2-areas");
+      browser.select("1-projects/foo/a.md");
+    });
+    await settle();
+    await act(async () => {
+      browser.move("1-projects/foo", "2-areas");
+    });
+    await settle();
+    expect(browser.selectedPath).toBeNull();
+  });
+});
+
+describe("moving the open note itself", () => {
+  test("closes it as before: only a folder's page follows", async () => {
+    actions[name("readNote")] = async () => ({ path: "1-projects/foo/a.md", text: "# a\n", etag: "e1" });
+    unmount = mount();
+    await settle();
+    await openTree();
+    await act(async () => {
+      browser.toggleFolder("2-areas");
+      browser.select("1-projects/foo/a.md");
+    });
+    await settle();
+    await act(async () => {
+      browser.move("1-projects/foo/a.md", "2-areas");
+    });
+    await settle();
+    expect(browser.selectedPath).toBeNull();
+  });
+});
+
 describe("undoing a move", () => {
   test("puts it back and reloads the subtree, which the move's own cascade did", () => {
     /*

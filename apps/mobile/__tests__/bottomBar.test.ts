@@ -202,7 +202,7 @@ function toolbar(): BottomBarAction[] {
   return [
     action({ id: "back", label: "Go back", icon: "arrowLeft" }),
     action({ id: "forward", label: "Go forward", icon: "arrowRight" }),
-    action({ id: "search", label: "Search this context", icon: "search" }),
+    action({ id: "search", label: "Search", icon: "search" }),
     action({ id: "new", label: "New note", icon: "plus" }),
     action({ id: "recent", label: "Recently opened", icon: "clock" }),
     action({ id: "menu", label: "More actions", icon: "more" }),

@@ -131,7 +131,8 @@ export function actionTargetOf(target: MenuTarget): ActionTarget | null {
       return { path: target.folder, folder: target.folder, kind: "folder" };
     case "crumb":
       return { path: target.folder, folder: target.folder, kind: "folder" };
-    case "row": {
+    case "row":
+    case "page": {
       const row = target.row;
       const kind = row.kind === "folder" ? ("folder" as const) : ("file" as const);
       return {

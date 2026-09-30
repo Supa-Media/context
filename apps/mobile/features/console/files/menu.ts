@@ -114,7 +114,9 @@ export type MenuTarget =
   | { kind: "row"; row: TreeRow }
   | { kind: "selection"; rows: readonly TreeRow[] }
   /** A breadcrumb segment. `""` is the context root. */
-  | { kind: "crumb"; folder: string };
+  | { kind: "crumb"; folder: string }
+  /** The folder a phone's page is showing, from its •••. */
+  | { kind: "page"; row: TreeRow };
 
 export interface MenuContext {
   target: MenuTarget;
@@ -342,6 +344,57 @@ function crumbItems(context: MenuContext, folder: string): MenuItem[] {
     addresses,
     download,
     context.canSetVisibility ? visibilityGroup(context, true, 1, null) : [],
+  ]);
+}
+
+/**
+ * The ••• on a phone's folder page (board 08 of the Home artboards, approved
+ * by the owner on 2026-09-30): what you do to the folder you are standing in.
+ *
+ * Not the row menu. Open is where you already are, and Duplicate, Copy, Cut
+ * and the addresses are a row's clipboard verbs. Unlike the breadcrumb, it
+ * renames and moves the folder, because the board asks for both here and the
+ * page follows the folder to its new name. It archives and never trashes:
+ * "hidden, not deleted", with Undo.
+ */
+function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
+  if (row.path === "") return homeItems(context, row);
+  if (row.readOnly) return entryItems(context, [row]);
+  if (!context.canEdit) return joinGroups([pinGroup(context, row), downloadGroup(context, row)]);
+  const archived = restoreTargetFor(row.path) !== null;
+  return joinGroups([
+    [
+      makeItem(context, "newNote", "New note"),
+      makeItem(context, "newFolder", "New folder inside"),
+      ...pasteGroup(context, row.path),
+    ],
+    [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…"), ...pinGroup(context, row)],
+    context.canSetVisibility
+      ? visibilityGroup(context, true, 1, row).map((item) => ({ ...item, label: "Share" }))
+      : [],
+    downloadGroup(context, row),
+    [
+      archived
+        ? makeItem(context, "restore", "Restore folder")
+        : makeItem(context, "archive", "Archive folder"),
+    ],
+  ]);
+}
+
+/**
+ * Home's •••: the workspace itself. It makes things at the top, says who can
+ * see it and downloads all of it, and it cannot be renamed, moved, pinned to
+ * itself or archived, so none of those is offered.
+ */
+function homeItems(context: MenuContext, row: TreeRow): MenuItem[] {
+  const download = downloadGroup(context, row);
+  if (!context.canEdit) return download;
+  return joinGroups([
+    [makeItem(context, "newNote", "New note"), makeItem(context, "newFolder", "New folder"), ...pasteGroup(context, "")],
+    context.canSetVisibility
+      ? visibilityGroup(context, true, 1, row).map((item) => ({ ...item, label: "Share" }))
+      : [],
+    download,
   ]);
 }
 
@@ -580,6 +633,7 @@ export function itemsFor(context: MenuContext): MenuItem[] {
     return backgroundItems(context, context.target.folder);
   }
   if (context.target.kind === "crumb") return crumbItems(context, context.target.folder);
+  if (context.target.kind === "page") return pageItems(context, context.target.row);
   const rows = targetRows(context.target);
   if (rows === null) return [];
   return entryItems(context, rows);

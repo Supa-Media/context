@@ -24,7 +24,7 @@ import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
-import { space } from "../../../design/tokens";
+import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
 import { NEW_FRONT_NOTE, type FolderPageView, type FolderSummary } from "./model";
@@ -94,8 +94,11 @@ export function FolderHead({
   switcher,
   actions,
   children,
+  large = false,
 }: {
   title: string;
+  /** A phone's page: Home's big title, so a folder reads as a place (board 07). */
+  large?: boolean;
   /** Opens the front note; absent when there is none to open. */
   onOpenTitle?: () => void;
   switcher: ReactNode;
@@ -107,7 +110,7 @@ export function FolderHead({
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const heading = (
-    <Text variant="noteTitle" role="heading" aria-level={2} style={[styles.title, hovered && styles.titleHover]}>
+    <Text variant="noteTitle" role="heading" aria-level={2} style={[styles.title, large && styles.titleLarge, hovered && styles.titleHover]}>
       {title}
     </Text>
   );
@@ -226,6 +229,13 @@ const makeStyles = (colors: Colors) =>
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     titleBox: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     title: { flexShrink: 1 },
+    /* `PhoneHome`'s own title, so Home and a folder page have one heading size. */
+    titleLarge: {
+      fontSize: touchType.title,
+      lineHeight: leading(touchType.title, 1.15),
+      fontWeight: "700",
+      letterSpacing: tracking(touchType.title, -0.02),
+    },
     titleHover: { textDecorationLine: "underline" },
     switch: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
     switchItem: { flexDirection: "row", alignItems: "center" },

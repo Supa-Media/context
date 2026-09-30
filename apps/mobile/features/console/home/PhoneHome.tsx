@@ -38,6 +38,7 @@ export function PhoneHome({
   opened,
   onOpen,
   onNewFolder,
+  onActions,
   onTogglePin,
   foot,
 }: {
@@ -48,6 +49,8 @@ export function PhoneHome({
   onOpen: (path: string) => void;
   /** `undefined` for who may not make folders here. */
   onNewFolder?: () => void;
+  /** The workspace's own ••• sheet (New note, New folder, Share, Download). */
+  onActions?: (anchor: { x: number; y: number }) => void;
   /** Held on a tile or row: pin it, or unpin it. `null` without an account. */
   onTogglePin: ((path: string, kind: "note" | "folder") => void) | null;
   /** The workspace's storage line, as the root listing had it. */
@@ -86,6 +89,17 @@ export function PhoneHome({
             testID="phone-home-new-folder"
           >
             <Icon name="folderPlus" size={20} color={colors.text} />
+          </Pressable>
+        )}
+        {onActions === undefined ? null : (
+          <Pressable
+            onPress={(event) => onActions({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })}
+            accessibilityRole="button"
+            accessibilityLabel="Workspace actions"
+            style={({ pressed }) => [styles.roundButton, pressed ? styles.pressed : null]}
+            testID="phone-home-actions"
+          >
+            <Icon name="more" size={20} color={colors.text} />
           </Pressable>
         )}
       </View>

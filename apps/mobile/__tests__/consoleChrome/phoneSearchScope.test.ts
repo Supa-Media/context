@@ -74,7 +74,7 @@ describe("search on a phone follows the folder you are in", () => {
     // One chip widens it, and the field says so.
     app.press(app.find("search-scope-everywhere"));
     expect(app.find("search-scope")).toBeNull();
-    expect((app.find("palette-input") as HTMLInputElement).placeholder).toBe("Search this context");
+    expect((app.find("palette-input") as HTMLInputElement).placeholder).toBe("Search");
     app.unmount();
   });
 

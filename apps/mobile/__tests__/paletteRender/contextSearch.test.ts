@@ -163,7 +163,7 @@ describe("where the answer came from", () => {
 
   test("a device search that found nothing does not say 'keep typing'", () => {
     const palette = mount(DESKTOP, {
-      noMatchMessage: "Nothing loaded matches that. Keep typing to search the rest of this context.",
+      noMatchMessage: "Nothing loaded matches that. Keep typing to search the rest of this workspace.",
       search: {
         onQuery: () => {},
         items: [],

@@ -416,7 +416,16 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
       const from = parentPath(path);
       if (viaQueue(path)) return queueMoveOf(path, to, `Moved to ${folderLabel(destinationFolder)}.`);
       const result = moveResult(path, to);
-      const undoDraw = drawMove(path, to);
+      /*
+        The folder whose page is open follows it rather than closing: a
+        phone's folder page offers Move to… for itself (board 08 of the Home
+        artboards), and landing on Home after moving the folder you were
+        looking at reads as the folder vanishing. A note open *inside* it
+        still closes, for `drawMove`'s reason. `select` waits for the server.
+      */
+      const pageFollows = (from: string) => selectedPathRef.current === from && listings[from] !== undefined;
+      const follows = pageFollows(path);
+      const undoDraw = follows ? drawListingMove(path, to) : drawMove(path, to);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         return {
@@ -429,19 +438,24 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
           undo: () => {
             // Verdict first — see `moveResult`.
             const back = moveResult(to, path);
-            const undoUndo = drawMove(to, path);
+            const followsBack = selectedPathRef.current === to;
+            const undoUndo = followsBack ? drawListingMove(to, path) : drawMove(to, path);
             void run(
               async () => {
                 await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
                 return { ...back, message: `Moved back to ${folderLabel(from)}.` };
               },
               undoUndo,
-            );
+            ).then((ok) => {
+              if (ok && followsBack && selectedPathRef.current === to) select(path);
+            });
           },
         };
-      }, undoDraw);
+      }, undoDraw).then((ok) => {
+        if (ok && follows && selectedPathRef.current === path) select(to);
+      });
     },
-    [drawMove, listings, moveEntry, moveResult, queueMoveOf, run, viaQueue, workspaceId],
+    [drawListingMove, drawMove, listings, moveEntry, moveResult, queueMoveOf, run, select, viaQueue, workspaceId],
   );
 
   return {

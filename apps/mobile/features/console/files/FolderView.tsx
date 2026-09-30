@@ -91,6 +91,7 @@ import { densityFor } from "../../app/frame";
 import { documentMargin } from "../panes/browsePane/DocumentPage";
 import type { DragModifier } from "./dnd";
 import { FolderPage, type FolderPageHost } from "./folderPage/FolderPage";
+import { phoneSections, type PhoneRows } from "../home/folderRows";
 import { FolderRow } from "./FolderRow";
 import { FolderSelectBar, useFolderSelection } from "./folderSelect";
 import { useListingOrder } from "./listingOrder";
@@ -184,6 +185,7 @@ export function FolderView({
   page,
   showAudience = true,
   phoneHead,
+  phoneRows,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -236,6 +238,8 @@ export function FolderView({
   showAudience?: boolean;
   /** On a phone, what goes under the title in place of that sentence (`home/PhoneFolderHead.tsx`). */
   phoneHead?: ReactNode;
+  /** What a phone row says beside its name; with it, Folders and Notes are drawn apart. */
+  phoneRows?: PhoneRows;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -418,8 +422,15 @@ export function FolderView({
                     onActions={(picked) => void onSelection!(picked, { x: 0, y: 0 })}
                   />
                 ) : null}
+                {groupsOf(rows, compact ? phoneRows : undefined).map((group) => (
+                <View key={group.label ?? "all"} style={group.label === null ? undefined : styles.group}>
+                {group.label === null ? null : (
+                  <Text variant="eyebrow" style={styles.groupLabel} accessibilityRole="header">
+                    {group.label}
+                  </Text>
+                )}
                 <View style={compact ? styles.card : undefined}>
-                  {rows.map((row, index) => (
+                  {group.rows.map((row, index) => (
                     <Fragment key={row.path}>
                       {/*
                         The separator is its own element, not a border on the row.
@@ -447,10 +458,13 @@ export function FolderView({
                               ? selection.toggle
                               : selection.start
                         }
+                        phone={compact ? phoneRows?.(row) : undefined}
                       />
                     </Fragment>
                   ))}
                 </View>
+                </View>
+                ))}
                 </>
               )}
               {listing?.truncated ? (
@@ -574,8 +588,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     rounded edge.
   */
   rowRule: { height: 1, marginLeft: space.x4, backgroundColor: colors.line },
+  /** A phone's Folders and Notes, each its own card under Home's eyebrow. */
+  group: { gap: space.x2, marginBottom: space.x4 },
+  groupLabel: { paddingHorizontal: space.x1 },
 
   aside: { paddingVertical: space.x2 },
   /** The caption at the foot of the context's own page. See the file header. */
   foot: { marginTop: space.x4, color: colors.muted },
 });
+
+/** One unlabelled card, or a phone's Folders then Notes (board 07), empty ones left out. */
+function groupsOf(rows: readonly FileEntry[], phoneRows: PhoneRows | undefined) {
+  if (phoneRows === undefined) return [{ label: null, rows }];
+  const { folders, notes } = phoneSections(rows, phoneRows);
+  return [
+    { label: "Folders", rows: folders },
+    { label: "Notes", rows: notes },
+  ].filter((group) => group.rows.length > 0);
+}

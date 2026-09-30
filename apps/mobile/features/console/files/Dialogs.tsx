@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { MoveDestination } from "./browser";
-import { describeNameProblem } from "./paths";
+import { baseName, describeNameProblem, folderLabel } from "./paths";
 import { createRows, type CreateRow } from "./createSheet";
 import { useFieldFont } from "../../design/fieldFont";
 
@@ -58,16 +59,21 @@ function Shell({
   );
 }
 
+/** Where something made in `folder` lands, in words: a folder's name, or the top. */
+export function whereIn(folder: string): string {
+  return folder === "" ? "the top of your workspace" : folderLabel(baseName(folder));
+}
+
 /**
- * Said out loud because the file is real and they will meet it somewhere else.
+ * What New folder says under its title: where the folder goes, and nothing else.
  *
- * The console does not list the placeholder (`isFolderPlaceholder`), so this
- * sentence is the only place it is mentioned before Obsidian shows it — and a
- * README appearing in their vault that the app never mentioned is worse than
- * one line at the moment they make the folder.
+ * It used to explain the `README.md` placeholder a bucket needs for an empty
+ * folder. That is storage detail, and the approved phone Home boards (board
+ * 05, 2026-09-30) ask only for the name and the place, in plain words.
  */
-export const NEW_FOLDER_HINT =
-  "A bucket has no empty folders, so this also writes a README.md placeholder inside it. Context does not list it; Obsidian and anything else that reads your bucket will.";
+export function newFolderHint(folder: string): string {
+  return `It goes in ${whereIn(folder)}.`;
+}
 
 /**
  * `+`, on a surface with room for exactly one of it.
@@ -146,7 +152,8 @@ export function CreatePrompt({
     return (
       <NamePrompt
         title="New folder"
-        description={NEW_FOLDER_HINT}
+        description={newFolderHint(folder)}
+        placeholder="Folder name"
         confirmLabel="Create"
         onCancel={onCancel}
         onConfirm={onCreateFolder}
@@ -157,7 +164,7 @@ export function CreatePrompt({
   return (
     <Shell title="Create" onClose={onCancel} sheet>
       <Text variant="paneSub">
-        {`In ${folder || "the root of your context"}.`}
+        {`In ${whereIn(folder)}.`}
       </Text>
       <View style={styles.choices}>
         {createRows({
@@ -246,11 +253,14 @@ export function NamePrompt({
   description,
   confirmLabel,
   initialValue = "",
+  placeholder = "name",
   onCancel,
   onConfirm,
 }: {
   title: string;
   description?: string;
+  /** What the empty field says to type. */
+  placeholder?: string;
   confirmLabel: string;
   initialValue?: string;
   onCancel: () => void;
@@ -260,18 +270,23 @@ export function NamePrompt({
   const styles = useThemedStyles(makeStyles);
   const fieldFont = useFieldFont();
   const [value, setValue] = useState(initialValue);
+  const [focused, setFocused] = useState(false);
   const problem = value.trim() === "" ? null : describeNameProblem(value);
   const ready = value.trim() !== "" && problem === null;
+  // A phone asks from the bottom of the glass, as its + sheet does (boards 05 and 11).
+  const sheet = densityFor(useWindowDimensions().width) === "compact";
 
   return (
-    <Shell title={title} onClose={onCancel}>
+    <Shell title={title} onClose={onCancel} sheet={sheet}>
       {description ? <Text variant="paneSub">{description}</Text> : null}
       <TextInput
         value={value}
         onChangeText={setValue}
         autoFocus
-        style={[styles.input, fieldFont]}
-        placeholder="name"
+        style={[styles.input, focused && styles.inputFocused, fieldFont]}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
         placeholderTextColor={colors.muted}
         accessibilityLabel={title}
         onSubmitEditing={() => {
@@ -539,7 +554,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.lineStrong,
     borderRadius: radii.lg,
     backgroundColor: colors.well,
+    // Its own petrol border when focused, not the browser's orange outline (board 05).
+    outlineWidth: 0,
   },
+  inputFocused: { borderColor: colors.accent },
   /**
    * The action row, and the one rule about what goes in it: `dialog` for the
    * quiet half, `dialogPrimary` for the default action, and nothing else.

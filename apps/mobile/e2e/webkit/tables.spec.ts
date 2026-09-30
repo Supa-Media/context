@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { tap, tapFolderOnHome } from "./helpers";
+import { tap, tapFolderOnHome, tapRow } from "./helpers";
 
 /**
  * A TABLE THAT WAS ALREADY IN THE NOTE, ON THE CONSOLE'S OWN SCREEN.
@@ -37,8 +37,8 @@ async function openOrgChart(page: import("@playwright/test").Page): Promise<void
   await page.getByTestId("note-scroll").waitFor();
   await tap(page, "@seyi, the context you are in — open its root");
   await tapFolderOnHome(page, "areas");
-  await tap(page, "public-worship, folder");
-  await tap(page, "org-chart");
+  await tapRow(page, "public-worship");
+  await tapRow(page, "org-chart");
   await page.getByTestId("breadcrumb-leaf").waitFor();
 }
 

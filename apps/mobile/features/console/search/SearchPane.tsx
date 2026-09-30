@@ -194,7 +194,7 @@ export function SearchPane({
     <View style={styles.pane} testID="search-pane">
       <PaneHead
         title="Search"
-        description="Every context you can reach, in one list."
+        description="Every workspace you can reach, in one list."
         leading={
           <Button
             label="Close"
