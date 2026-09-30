@@ -10,6 +10,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { voidCapabilitiesAddressedTo } from "./addressedTo";
+import { deleteWorkspacePlaces } from "../places";
 
 export async function finalizeWorkspaceDeletion(
   ctx: MutationCtx,
@@ -44,6 +45,9 @@ export async function finalizeWorkspaceDeletion(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of messageReads) await ctx.db.delete(row._id);
+
+  // Members' pins and open counts in this workspace: paths and counts.
+  await deleteWorkspacePlaces(ctx, workspaceId);
 
   // Where the managed-encryption walk got to. Metadata about a bucket this
   // workspace no longer has; the keys themselves go with `workspaceDataKeys`.

@@ -2,6 +2,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { revokeSharesAddressedTo, voidCapabilitiesAddressedTo } from "./addressedTo";
 import { deleteAccountPhoto } from "../faces/people";
+import { deleteUserPlaces } from "../places";
 
 /**
  * Everything `deleteAccount` removes that is the person's rather than a
@@ -58,6 +59,9 @@ export async function deletePersonalRows(
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const row of messageReads) await ctx.db.delete(row._id);
+
+  // What they pinned to Home and which folders they open: paths and counts.
+  await deleteUserPlaces(ctx, userId);
 
   // Their feedback receipts: ids and times, never a report's content.
   const feedbackReceipts = await ctx.db

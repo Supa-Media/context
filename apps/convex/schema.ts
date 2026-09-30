@@ -24,6 +24,7 @@ import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
 import { messageTables } from "./functions/lib/schema/messages";
+import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 
 /**
@@ -80,6 +81,7 @@ const schema = defineSchema({
   ...devlogTables,
   ...telemetryTables,
   ...messageTables,
+  ...placeTables,
   ...feedbackTables,
 });
 
