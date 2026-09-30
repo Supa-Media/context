@@ -31,7 +31,7 @@ import {
   imageSelection,
   type ImageRow,
 } from "../imageBlock";
-import { CalloutTitleWidget, callouts } from "./callouts";
+import { CalloutArrowWidget, CalloutBadgeWidget, CalloutTitleWidget, callouts } from "./callouts";
 import { CastWidget, castFences } from "./castBlock";
 import { JoinWidget, joinFences } from "./joinBlock";
 import { quietHeadings, revealSelection } from "./engagement";
@@ -149,13 +149,35 @@ export function decorationsFor(state: EditorState): DecorationSet {
     needs the same list and must not read the tree twice.
   */
   const boxes = callouts(state, frontEnd);
+  /*
+    A callout somebody is working in: the caret anywhere from its first line to
+    the end of its last. Its first line is then drawn as the Markdown it is —
+    marker, title and link target — because "the md format doesn't show when I
+    click over it" was the report, and a title that stays a widget under the
+    caret is a title nobody can see to edit. Per callout, not per line, unlike
+    the `>` below: the source line is the callout's own name, and it should not
+    blink in and out as the caret moves down through the text.
+  */
+  const headLine = (box: (typeof boxes)[number]) => state.doc.lineAt(box.lines[0]!);
+  const boxEnd = (box: (typeof boxes)[number]) =>
+    state.doc.lineAt(box.lines[box.lines.length - 1]!).to;
+  const engaged = new Set(
+    boxes.filter((box) => selectionTouches({ from: box.lines[0]!, to: boxEnd(box) }, selection)),
+  );
+  const insideEngagedHead = (pos: number): boolean =>
+    [...engaged].some((box) => {
+      const head = headLine(box);
+      return pos >= head.from && pos <= head.to;
+    });
   for (const box of boxes) {
+    const editing = engaged.has(box);
     box.lines.forEach((from, index) => {
-      lines.push(
-        Decoration.line({
-          class: index === 0 ? "cm-lp-callout cm-lp-callout-head" : "cm-lp-callout",
-        }).range(from),
-      );
+      const classes = ["cm-lp-callout"];
+      if (index === 0) classes.push("cm-lp-callout-head");
+      if (index === box.lines.length - 1) classes.push("cm-lp-callout-tail");
+      if (editing) classes.push("cm-lp-callout-editing");
+      if (editing && index === 0) classes.push("cm-lp-callout-source");
+      lines.push(Decoration.line({ class: classes.join(" ") }).range(from));
     });
   }
 
@@ -260,10 +282,21 @@ export function decorationsFor(state: EditorState): DecorationSet {
     one, so it came back out.
   */
   const hiddenMarkers = boxes
+    .filter((box) => !engaged.has(box))
     .map((box) => box.marker)
     .filter((marker) => !selectionTouches(marker, selection) && !insidePreview(marker.from));
   const insideMarker = (pos: number): boolean =>
     hiddenMarkers.some((marker) => pos >= marker.from && pos < marker.to);
+  /** Where a `[title](url)` that starts a callout's title ends, if one does. */
+  const titleLinkEnd = (from: number, to: number): number | null => {
+    const node = tree.resolveInner(from, 1);
+    for (let at: typeof node | null = node; at !== null; at = at.parent) {
+      if (at.name === "Link" && at.from === from && at.to <= to && at.getChild("URL") !== null) {
+        return at.to;
+      }
+    }
+    return null;
+  };
 
   const styles: Range<Decoration>[] = [];
   tree.iterate({
@@ -288,7 +321,10 @@ export function decorationsFor(state: EditorState): DecorationSet {
   const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc, {
     quietHeadings: quietHeadings(state),
   })
-    .filter((range) => !insidePreview(range.from) && !insideMarker(range.from))
+    .filter(
+      (range) =>
+        !insidePreview(range.from) && !insideMarker(range.from) && !insideEngagedHead(range.from),
+    )
     .map((range) => hideMark.range(range.from, range.to));
 
   /*
@@ -401,11 +437,21 @@ export function decorationsFor(state: EditorState): DecorationSet {
   for (const box of boxes) {
     if (insideMarker(box.marker.from)) {
       hides.push(
-        (box.title === null
-          ? Decoration.replace({ widget: new CalloutTitleWidget(box.type) })
-          : hideMark
-        ).range(box.marker.from, box.marker.to),
+        Decoration.replace({
+          widget:
+            box.title === null
+              ? new CalloutTitleWidget(box.type)
+              : new CalloutBadgeWidget(box.type),
+        }).range(box.marker.from, box.marker.to),
       );
+      /*
+        The ↗ after a title that is a link. The title is drawn in the heading's
+        colour with no underline, so without it nothing says it can be clicked.
+      */
+      const link = box.title === null ? null : titleLinkEnd(box.marker.to, headLine(box).to);
+      if (link !== null) {
+        hides.push(Decoration.widget({ widget: new CalloutArrowWidget(), side: 1 }).range(link));
+      }
     }
     /*
       And the `>` on each line — per line, not per callout, so the caret on one

@@ -61,6 +61,8 @@ export function themeVars(
     // borrow the code fence's fill, which is not one.
     "--lp-line": colors.line,
     "--lp-line-strong": colors.lineStrong,
+    // One step up from the note's ground: a callout card. See `.cm-lp-callout`.
+    "--lp-raised": colors.surface2,
     // The wash behind a focused control. `accentDim` is already that colour;
     // `--lp-selection` is the same value for the same reason.
     "--lp-focus-ring": colors.accentDim,

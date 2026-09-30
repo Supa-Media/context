@@ -57,6 +57,7 @@ export function guestStyles(): string {
   --lp-mark: rgba(255,229,0,0.42);
   --lp-line: rgba(0,0,0,0.09);
   --lp-line-strong: rgba(0,0,0,0.18);
+  --lp-raised: rgba(0,0,0,0.03);
   --lp-focus-ring: rgba(0,0,0,0.08);
   --lp-danger: #B23A2B;
   --lp-caret: #222222;

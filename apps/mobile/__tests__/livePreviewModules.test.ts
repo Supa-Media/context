@@ -32,6 +32,8 @@ const MODULES = join(FILES, "livePreview");
 
 /** The value exports of `livePreview.ts` before it was split, sorted. */
 const PUBLIC_VALUES = [
+  "CalloutArrowWidget",
+  "CalloutBadgeWidget",
   "CalloutTitleWidget",
   "HTML_PREVIEW_TAG",
   "HtmlPreviewWidget",
