@@ -33,6 +33,7 @@ import {
   MANIFEST_PAGE_FOLDERS,
   READ_BATCH_BYTES,
   READ_BATCH_PATHS,
+  READ_CONCURRENCY,
   type SyncManifest,
   readFile,
   readFiles,
@@ -514,6 +515,40 @@ describe("reading a batch of notes", () => {
     // The cap itself is allowed.
     const atCap = await readFiles(store, { paths: paths.slice(0, READ_BATCH_PATHS), clearance: TEAM });
     expect(atCap).toHaveLength(READ_BATCH_PATHS);
+  });
+
+  test("notes are read several at a time, and still answer in request order", async () => {
+    // Fifty notes one after another outlasted the phone's timeout, so every
+    // mirror sync stopped at the same batch and its List never caught up.
+    const store = await bucket();
+    const paths = Array.from({ length: READ_CONCURRENCY * 2 }, (_, index) => `1-projects/p${index}.md`);
+    for (const path of paths) store.seed(path, `# ${path}\n`);
+    let open = 0;
+    let most = 0;
+    const get = store.get.bind(store);
+    store.get = async (key: string) => {
+      if (key === PRIVACY_KEY) return get(key);
+      open += 1;
+      most = Math.max(most, open);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      open -= 1;
+      return get(key);
+    };
+    const results = await readFiles(store, { paths: [...paths].reverse(), clearance: TEAM });
+    expect(most).toBe(READ_CONCURRENCY);
+    expect(results.map((result) => result.path)).toEqual([...paths].reverse());
+    expect(results.every((result) => result.outcome === "read")).toBe(true);
+  });
+
+  test("the same path twice in a batch is fetched once", async () => {
+    const store = await bucket();
+    const gets = countingGets(store);
+    const results = await readFiles(store, {
+      paths: ["1-projects/context-lc.md", "1-projects/context-lc.md"],
+      clearance: TEAM,
+    });
+    expect(results.map((result) => result.outcome)).toEqual(["read", "read"]);
+    expect(gets.filter((key) => key === "1-projects/context-lc.md")).toHaveLength(1);
   });
 
   test("past the byte budget the rest is deferred, and the first note always reads", async () => {
