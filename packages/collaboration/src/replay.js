@@ -55,16 +55,31 @@ function deletedSinceBase(base, current) {
   return deleted;
 }
 
-/** Base text indices (UTF-16) the desired text keeps. */
-function keptByDesired(baseText, desired) {
-  const kept = new Set();
+/**
+ * Whether the desired text still holds any run of base text the document has
+ * since deleted.
+ *
+ * Judged per run, like the gained runs below: a character diff will happily
+ * "keep" scattered letters of a deleted title ("untitled-2026-09-30") by
+ * matching them inside new words, and a title the writer itself retitled is
+ * exactly what a replay carries. Only a run mostly kept in one unchanged
+ * stretch is text the writer still has.
+ */
+function keepsDeletedRun(baseText, desired, deleted) {
+  const stretch = new Int32Array(baseText.length).fill(-1);
   let index = 0;
+  let stretches = 0;
   for (const part of diffChars(baseText, desired)) {
     if (part.added) continue;
-    if (!part.removed) for (let offset = 0; offset < part.value.length; offset += 1) kept.add(index + offset);
+    if (!part.removed) {
+      stretches += 1;
+      stretch.fill(stretches, index, index + part.value.length);
+    }
     index += part.value.length;
   }
-  return kept;
+  const marks = new Uint8Array(baseText.length);
+  for (const at of deleted) marks[at] = 1;
+  return !everyRun(marks, (start, end) => !mostlyInOneStretch(stretch, start, end));
 }
 
 /**
@@ -83,10 +98,7 @@ export function replayResolution(base, current, desired) {
   // to the current text would put that text back; the exact-base merge keeps
   // the peer's deletion, so it keeps deciding.
   const deleted = deletedSinceBase(base, current);
-  if (deleted.size > 0) {
-    const kept = keptByDesired(base.getText("note").toString(), desired);
-    for (const index of deleted) if (kept.has(index)) return null;
-  }
+  if (deleted.size > 0 && keepsDeletedRun(base.getText("note").toString(), desired, deleted)) return null;
 
   const gained = gainedSinceBase(current, Y.decodeStateVector(Y.encodeStateVector(base)), currentText.length);
   // Which unchanged stretch of the diff each current character sits in, or -1
@@ -114,37 +126,40 @@ export function replayResolution(base, current, desired) {
     index += part.value.length;
   }
   if (dropsGained) return !inserts && !dropsOlder ? "unchanged" : null;
-  return gainedRunsRecognized(gained, stretch) ? "rebase" : null;
+  // Each gained run must appear in the desired text as that run, rather than
+  // as letters the diff borrowed from different words. A peer who typed "big "
+  // while an agent rewrote the sentence around it from an older base can have
+  // every one of those letters matched somewhere in the agent's new words;
+  // applying the agent's text as an edit would then drop the peer's word. A
+  // writer replaying its own typing carries each run nearly whole, give or
+  // take a corrected typo.
+  return everyRun(gained, (start, end) => mostlyInOneStretch(stretch, start, end)) ? "rebase" : null;
 }
 
-/**
- * Whether each run the document gained appears in the desired text as that
- * run, rather than as letters the diff borrowed from different words.
- *
- * A peer who typed "big " while an agent rewrote the sentence around it from
- * an older base can have every one of those four letters matched somewhere in
- * the agent's new words. Applying the agent's text as an edit would then drop
- * the peer's word without anything having removed it. A writer replaying its
- * own typing carries each run nearly whole, give or take a corrected typo, so
- * most of every run has to sit in one unchanged stretch.
- */
-function gainedRunsRecognized(gained, stretch) {
+/** Whether `test` holds for every maximal run of marked indices. */
+function everyRun(marks, test) {
   let start = 0;
-  while (start < gained.length) {
-    if (!gained[start]) {
+  while (start < marks.length) {
+    if (!marks[start]) {
       start += 1;
       continue;
     }
     let end = start;
-    while (end < gained.length && gained[end]) end += 1;
-    let longest = 0;
-    let length = 0;
-    for (let at = start; at < end; at += 1) {
-      length = at > start && stretch[at] === stretch[at - 1] ? length + 1 : 1;
-      longest = Math.max(longest, length);
-    }
-    if (longest * 5 < (end - start) * 4) return false;
+    while (end < marks.length && marks[end]) end += 1;
+    if (!test(start, end)) return false;
     start = end;
   }
   return true;
+}
+
+/** At least four fifths of [start, end) sit in one unchanged stretch. */
+function mostlyInOneStretch(stretch, start, end) {
+  let longest = 0;
+  let length = 0;
+  for (let at = start; at < end; at += 1) {
+    if (stretch[at] < 0) length = 0;
+    else length = at > start && stretch[at] === stretch[at - 1] ? length + 1 : 1;
+    longest = Math.max(longest, length);
+  }
+  return longest * 5 >= (end - start) * 4;
 }

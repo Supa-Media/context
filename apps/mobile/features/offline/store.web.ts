@@ -70,8 +70,20 @@ function canWrite(): boolean {
   }
 }
 
+/**
+ * The one in-memory stand-in for this tab, when `localStorage` cannot be
+ * written.
+ *
+ * One, not one per call: every caller opens its own store, and a fresh empty
+ * map each time made every rebuilt collaboration controller start as if this
+ * device had never seen the note. With a full `localStorage` that was every
+ * rebuild, and each one replayed the editor's draft (2026-09-30). Shared, it
+ * behaves like the storage it stands in for, for as long as the tab lives.
+ */
+let fallback: KeyValueStore | null = null;
+
 export function openStore(): KeyValueStore {
-  if (typeof window === "undefined" || !canWrite()) return memoryStore();
+  if (typeof window === "undefined" || !canWrite()) return (fallback ??= memoryStore());
 
   const storage = window.localStorage;
   return {

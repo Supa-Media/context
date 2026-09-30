@@ -240,3 +240,20 @@ test("a replay that also carries the writer's own edit to older text applies bot
   const replayed = await replaceText(store, "kings.md", { documentId: typed.documentId, expectedEtag: typed.etags[2], text: desired });
   assert.equal(replayed.text, desired);
 });
+
+test("a replay after the writer retitled the note keeps one copy", async () => {
+  const store = new MemoryStore();
+  store.seed("kings.md", "# untitled-2026-09-30\n\n");
+  await peerEdit(store, "kings.md", (note) => {
+    note.delete(2, "untitled-2026-09-30".length);
+    note.insert(2, "2-kings-13");
+  });
+  const first = await readDocument(store, "kings.md");
+  const typed = await typeInto(store, "kings.md", SUMMARY, "# 2-kings-13\n\n".length);
+  // The editor's draft still names the note's first version, r0, as its base:
+  // letters of the deleted placeholder title must not count as kept.
+  const created = first.etag.replace(/\.[^.]+$/, ".r0");
+  const desired = `${typed.result.text}\n## Revelations/Learnings\n`;
+  const replayed = await replaceText(store, "kings.md", { documentId: typed.documentId, expectedEtag: created, text: desired });
+  assert.equal(replayed.text, desired);
+});
