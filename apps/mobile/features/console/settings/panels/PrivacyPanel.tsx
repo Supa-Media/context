@@ -397,11 +397,17 @@ function FolderBlock({
           {control === null ? null : (
             <Button
               label={
+                /*
+                  The pill beside this button says "Everyone" or "Restricted",
+                  so the button says the same words as an act. It used to say
+                  "Share with team" and "Make private", a second vocabulary for
+                  one question.
+                */
                 !control.arm
-                  ? "Make private"
+                  ? "Restrict"
                   : arming.stage === "armed"
-                    ? "Press again to share"
-                    : "Share with team"
+                    ? "Press again to open"
+                    : "Open to everyone here"
               }
               /*
                 The armed state is in the spoken label too, and that is not
@@ -412,10 +418,10 @@ function FolderBlock({
               */
               accessibilityLabel={
                 !control.arm
-                  ? `Make ${row.name} private`
+                  ? `Restrict ${row.name}`
                   : arming.stage === "armed"
-                    ? `Press again to share ${row.name} with everyone on People`
-                    : `Share ${row.name} with everyone on People`
+                    ? `Press again to open ${row.name} to everyone on People`
+                    : `Open ${row.name} to everyone on People`
               }
               onPress={control.arm ? arming.press : apply}
               testID={`privacy-set-${row.path}`}

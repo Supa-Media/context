@@ -198,9 +198,9 @@ export function describeFastSearch(state: FastSearchState): {
   switch (state) {
     case "off":
       return {
-        title: "Fast search is off",
+        title: "Fast search",
         blurb:
-          "Search reads the index in your own bucket, which is how this product works today. Turn fast search on and Context also keeps a searchable copy of this context's note text — private notes included — in a database Supa Media runs, and answers your searches from it. Your Markdown stays in your bucket either way.",
+          "Turning this on keeps a searchable copy of every note's text, private notes included, in a database Supa Media runs, and answers your searches from it so results come back instantly. Turn it off and the copy is deleted. Your notes stay in your own bucket either way.",
       };
     case "preparing":
       return {
@@ -210,9 +210,9 @@ export function describeFastSearch(state: FastSearchState): {
       };
     case "on":
       return {
-        title: "Fast search is on",
+        title: "Fast search",
         blurb:
-          "Your searches are answered from a searchable copy of this context's note text, private notes included, held in a database Supa Media runs. Turning it off deletes that database, and search goes back to the index in your own bucket; your Markdown is untouched there either way.",
+          "Your searches are answered from a searchable copy of every note's text, private notes included, in a database Supa Media runs. Turning it off deletes that database, and search goes back to the index in your own bucket; your notes are untouched there either way.",
       };
     case "failed":
       return {

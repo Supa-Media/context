@@ -8,7 +8,7 @@ export interface AnalyticsClient {
   identify(userId: string): void;
   reset(): void;
   getSessionId(): string;
-  /** Settings → Privacy & feedback: stop or resume sending anything at all. */
+  /** Settings → Feedback: stop or resume sending anything at all. */
   setCapturing(enabled: boolean): void;
   /** Stop a session recording in progress. A no-op where there is none. */
   stopRecording(): void;

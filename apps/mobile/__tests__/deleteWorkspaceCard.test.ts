@@ -72,8 +72,11 @@ function mount(deletion: WorkspaceDeletion): HTMLElement {
     container.remove();
   });
   act(() => {
-    root.render(createElement(DeleteWorkspaceCard, { deletion }));
+    root.render(createElement(DeleteWorkspaceCard, { deletion, people: 3 }));
   });
+  // The card opens to the explanation and the typed name on "Delete…".
+  const open = container.querySelector('[data-testid="delete-workspace-open"]') as HTMLElement | null;
+  if (open !== null) act(() => open.click());
   return container;
 }
 
@@ -111,6 +114,26 @@ describe("what the card says before anything is typed", () => {
     const container = mount(deletable);
     const button = container.querySelector('[data-testid="delete-workspace"]');
     expect(button?.getAttribute("aria-disabled")).toBe("true");
+  });
+});
+
+describe("closed, the card is one line", () => {
+  test("what it removes and what stays, and a Delete… that opens the rest", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    act(() => root.render(createElement(DeleteWorkspaceCard, { deletion: deletable, people: 3 })));
+    expect(container.textContent ?? "").toContain(
+      "Removes it for all 3 people. The files stay in your storage.",
+    );
+    expect(container.querySelector('[data-testid="delete-workspace-confirm"]')).toBeNull();
+    expect(container.querySelector('[data-testid="delete-workspace"]')).toBeNull();
+    act(() => (container.querySelector('[data-testid="delete-workspace-open"]') as HTMLElement).click());
+    expect(container.querySelector('[data-testid="delete-workspace-confirm"]')).not.toBeNull();
   });
 });
 
@@ -152,6 +175,7 @@ describe("a workspace this screen must not offer to delete", () => {
     expect(container.textContent ?? "").toContain("storage we run");
     expect(container.querySelector('[data-testid="delete-workspace"]')).toBeNull();
     expect(container.querySelector('[data-testid="delete-workspace-confirm"]')).toBeNull();
+    expect(container.querySelector('[data-testid="delete-workspace-open"]')).toBeNull();
   });
 });
 

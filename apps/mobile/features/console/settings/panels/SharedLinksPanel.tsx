@@ -2,17 +2,16 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
-import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
 import { FormError } from "../../../design/components/Input";
-import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { baseName, displayName } from "../../files/paths";
 import { useArming } from "../../useArming";
 import {
   describeShareFailure,
   shareLifetime,
-  shareTone,
   type ConsoleShare,
   type ShareActions,
   type ShareFailure,
@@ -54,16 +53,12 @@ export function SharedLinksPanel({ view }: { view: SharesView }) {
 
   return (
     <View>
-      <Card>
-        <Row style={styles.head}>
-          <Grow>
-            <Text variant="rowTitle">Shared links</Text>
-          </Grow>
-          <Pill tone="neutral">{`${view.shares.length} live`}</Pill>
-        </Row>
-
+      <Text variant="noteTitle" style={styles.heading}>
+        Links you&apos;ve shared
+      </Text>
+      <Card style={styles.list}>
         {view.shares.length === 0 ? (
-          <Row divided>
+          <Row>
             <Grow>
               <Text variant="rowSub">
                 {view.loading
@@ -74,8 +69,8 @@ export function SharedLinksPanel({ view }: { view: SharesView }) {
           </Row>
         ) : null}
 
-        {view.shares.map((share) => (
-          <ShareRow key={share.shareId} share={share} actions={actions} />
+        {view.shares.map((share, index) => (
+          <ShareRow key={share.shareId} share={share} actions={actions} first={index === 0} />
         ))}
       </Card>
 
@@ -88,7 +83,15 @@ export function SharedLinksPanel({ view }: { view: SharesView }) {
   );
 }
 
-function ShareRow({ share, actions }: { share: ConsoleShare; actions?: ShareActions }) {
+function ShareRow({
+  share,
+  actions,
+  first,
+}: {
+  share: ConsoleShare;
+  actions?: ShareActions;
+  first: boolean;
+}) {
   const styles = useThemedStyles(makeStyles);
   const [failure, setFailure] = useState<ShareFailure | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,27 +117,32 @@ function ShareRow({ share, actions }: { share: ConsoleShare; actions?: ShareActi
     }
   }
 
+  // The note's own title where the share carries it, else its file name.
+  // Both come out of somebody's bucket, so both are contained for display.
+  const title = share.previewTitle?.trim();
+  const name = title ? isolateForDisplay(title) : displayName(baseName(share.entryPath));
+  const lifetime = share.expiresAt === undefined ? null : shareLifetime(share.expiresAt, now);
+
   return (
-    <View>
-      <Row divided style={styles.wrapRow}>
-        <Dot tone={shareTone(share.audience)} />
+    <View style={[styles.item, first ? null : styles.divided]}>
+      <Row style={styles.wrapRow}>
         <Grow>
           <Text variant="rowTitle" numberOfLines={1}>
-            {share.entryPath}
+            {name}
           </Text>
           <Text variant="rowSub" style={styles.rowSub}>
-            {`${share.recipient} · ${shareLifetime(share.expiresAt, now)}`}
+            {[`${share.recipient} can view`, lifetime].filter(Boolean).join(" · ")}
           </Text>
         </Grow>
         {actions !== undefined ? (
           <Button
-            label={revocation.stage === "idle" ? "Revoke" : "Confirm"}
-            variant="danger"
+            label={revocation.stage === "idle" ? "Turn off link" : "Press again to turn off"}
+            variant={revocation.stage === "idle" ? "mini" : "danger"}
             disabled={busy}
             accessibilityLabel={
               revocation.stage === "idle"
-                ? `Revoke the link shared with ${share.recipient} over ${share.entryPath}`
-                : `Confirm revoking the link shared with ${share.recipient}`
+                ? `Turn off the link shared with ${share.recipient} over ${share.entryPath}`
+                : `Confirm turning off the link shared with ${share.recipient}`
             }
             testID={`share-revoke-${share.shareId}`}
             onPress={revocation.press}
@@ -144,7 +152,7 @@ function ShareRow({ share, actions }: { share: ConsoleShare; actions?: ShareActi
       {revocation.stage === "armed" ? (
         <Hint>
           <Text variant="hint">
-            Revoking this link takes it away immediately — anyone still holding the URL
+            Turning this link off takes it away immediately — anyone still holding the URL
             loses access. Sharing this note again mints a brand-new link.
           </Text>
         </Hint>
@@ -156,9 +164,12 @@ function ShareRow({ share, actions }: { share: ConsoleShare; actions?: ShareActi
   );
 }
 
-const makeStyles = (_colors: Colors) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    head: { marginBottom: 13 },
+    heading: { marginBottom: 10 },
+    list: { paddingVertical: 0 },
+    item: { paddingVertical: 12 },
+    divided: { borderTopWidth: 1, borderTopColor: colors.line },
     rowSub: { marginTop: 2 },
     rowError: { marginTop: 8 },
     wrapRow: { flexWrap: "wrap" },

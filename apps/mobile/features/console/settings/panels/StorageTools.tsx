@@ -173,7 +173,7 @@ function KeyExportCard({
       {action === undefined ? (
         <Text variant="foot" style={styles.readOnly}>
           {demo
-            ? "Sign in and open your own context to export its keys."
+            ? "Sign in and open your own workspace to export its keys."
             : "Only an owner of this workspace can export its encryption keys."}
         </Text>
       ) : (

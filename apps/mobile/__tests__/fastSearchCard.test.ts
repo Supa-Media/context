@@ -63,7 +63,8 @@ async function press(label: string): Promise<void> {
 }
 
 function offered(): string[] {
-  return [...document.body.querySelectorAll('[role="button"]')].map(
+  // The switch is a checkbox now (the settings artboard); it counts as offered.
+  return [...document.body.querySelectorAll('[role="button"], [role="checkbox"]')].map(
     (node) => node.textContent ?? "",
   );
 }
@@ -149,7 +150,7 @@ describe("a control nobody may use is not drawn", () => {
   test("the landing page's demo says where the decision is taken instead", () => {
     const body = mount({ status: { state: "off", canChange: false }, loading: false }, true);
     expect(offered()).toEqual([]);
-    expect(body).toContain("open your own context");
+    expect(body).toContain("open your own workspace");
   });
 
   test("an unanswered status offers nothing and claims nothing", () => {

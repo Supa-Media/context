@@ -63,3 +63,25 @@ export const feedbackIcons: Record<"bug", DrawFn> = {
       ],
     }),
 };
+
+/** The Emoji settings row: a face, because that row is where a workspace's faces are kept. */
+export const emojiIcons: Record<"smile" | "home", DrawFn> = {
+  /** The General settings row: the workspace itself, as a house. */
+  home: (u, w, c) =>
+    glyph("home", u, w, c, {
+      paths: [
+        "M 0.18 0.48 L 0.5 0.2 L 0.82 0.48",
+        "M 0.26 0.42 L 0.26 0.82 L 0.74 0.82 L 0.74 0.42",
+        "M 0.43 0.82 L 0.43 0.62 L 0.57 0.62 L 0.57 0.82",
+      ],
+    }),
+  smile: (u, w, c) =>
+    glyph("smile", u, w, c, {
+      paths: [
+        "M 0.5 0.16 A 0.34 0.34 0 0 1 0.5 0.84 A 0.34 0.34 0 0 1 0.5 0.16 Z",
+        "M 0.38 0.4 L 0.38 0.44",
+        "M 0.62 0.4 L 0.62 0.44",
+        "M 0.35 0.58 A 0.17 0.17 0 0 0 0.65 0.58",
+      ],
+    }),
+};

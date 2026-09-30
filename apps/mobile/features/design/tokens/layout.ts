@@ -27,7 +27,7 @@ export const layout = {
    * left, which is not a column, it is an ellipsis. The panel beside it is
    * capped at 940, so the 36 points come out of a body that has them.
    */
-  settingsListWidth: 252,
+  settingsListWidth: 264,
   treeWidth: 246,
   consoleBodyMinHeight: 566,
   mapHeight: 398,

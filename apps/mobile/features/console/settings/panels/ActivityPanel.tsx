@@ -1,10 +1,10 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { layout } from "../../../design/tokens";
 import { Card } from "../../../design/components/Card";
 import { Icon } from "../../../design/components/Icon";
 import { FormError } from "../../../design/components/Input";
-import { Switch } from "../../../design/components/Switch";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { FaceView } from "../../faces/PersonFace";
@@ -18,6 +18,10 @@ import {
 import type { AuditView } from "../../advanced/advanced";
 import type { ConsoleMember } from "../../members/members";
 import { PanelHead } from "./PanelHead";
+import { PickMenu } from "./PickMenu";
+
+/** The menu's key for no filter; not a name anybody can have, being empty. */
+const ANYONE = "";
 
 /**
  * Settings › Activity: who changed what in this workspace.
@@ -36,26 +40,44 @@ export function ActivityPanel({
   members: readonly ConsoleMember[] | undefined;
   sectioned: boolean;
 }) {
+  // A phone gets the shorter subtitle the artboard drew there.
+  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
   const styles = useThemedStyles(makeStyles);
   const names = useMemo(() => {
     const byId = new Map<string, string>();
     for (const member of Array.isArray(members) ? members : []) {
       const name = member.name?.trim();
-      if (name) byId.set(member.userId, name);
+      if (!name) continue;
+      byId.set(member.userId, name);
+      // Some events carry only the address; the name still applies.
+      const email = member.email?.trim().toLowerCase();
+      if (email) byId.set(email, name);
     }
     return byId;
   }, [members]);
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [showRoutine, setShowRoutine] = useState(false);
+  const [who, setWho] = useState<string | null>(null);
   // Not memoised: "4 minutes ago" has to be read against now on every draw,
   // and 200 events are cheap to walk.
-  const page = buildActivity(view.events, { filter, showRoutine, now: Date.now(), names });
+  const page = buildActivity(view.events, {
+    filter,
+    showRoutine,
+    now: Date.now(),
+    names,
+    who,
+    short: compact,
+  });
+  // A person picked under one kind filter may not appear under the next; the
+  // menu still offers them, so "nothing of this kind" is the honest page.
+  const people = who !== null && !page.people.includes(who) ? [...page.people, who] : page.people;
 
   return (
     <View>
       <PanelHead section="activity" sectioned={sectioned}>
-        Who changed what in this workspace, including AI apps. Only owners see this,
-        because it can name private notes.
+        {compact
+          ? "Who changed what here. Only owners see this."
+          : "Who changed what in this workspace, including AI apps. Only owners see this."}
       </PanelHead>
 
       {view.failure ? (
@@ -73,16 +95,29 @@ export function ActivityPanel({
         </Card>
       ) : (
         <>
-          <View style={styles.filters} role="group" aria-label="Show">
-            {ACTIVITY_FILTERS.map((option) => (
-              <Chip
-                key={option.key}
-                label={option.label}
-                on={filter === option.key}
-                onPress={() => setFilter(option.key)}
-                testID={`activity-filter-${option.key}`}
-              />
-            ))}
+          <View style={styles.bar}>
+            <View style={styles.filters} role="group" aria-label="Show">
+              {ACTIVITY_FILTERS.map((option) => (
+                <Chip
+                  key={option.key}
+                  label={option.label}
+                  on={filter === option.key}
+                  onPress={() => setFilter(option.key)}
+                  testID={`activity-filter-${option.key}`}
+                />
+              ))}
+            </View>
+            <PickMenu
+              label={who === null ? "Anyone" : isolateForDisplay(who)}
+              accessibilityLabel="Show changes by"
+              options={[
+                { key: ANYONE, label: "Anyone" },
+                ...people.map((name) => ({ key: name, label: isolateForDisplay(name) })),
+              ]}
+              selected={who ?? ANYONE}
+              onPick={(key) => setWho(key === ANYONE ? null : key)}
+              testID="activity-who"
+            />
           </View>
 
           {page.days.length === 0 ? (
@@ -105,19 +140,25 @@ export function ActivityPanel({
           )}
 
           {page.hiddenRoutine > 0 || showRoutine ? (
-            <View style={styles.routine}>
-              <Switch
-                value={showRoutine}
-                onValueChange={setShowRoutine}
-                label="Show routine sign-ins"
-                testID="activity-show-routine"
-              />
+            <Pressable
+              role="checkbox"
+              aria-checked={showRoutine}
+              accessibilityLabel="Show routine sign-ins"
+              onPress={() => setShowRoutine((was) => !was)}
+              style={styles.routine}
+              testID="activity-show-routine"
+            >
+              <View style={[styles.box, showRoutine ? styles.boxOn : null]}>
+                {showRoutine ? <Icon name="check" size={12} color={styles.boxTick.color} /> : null}
+              </View>
               <Text variant="rowSub" style={styles.routineText}>
                 {showRoutine
-                  ? "Showing routine sign-ins"
-                  : `Show routine sign-ins (${page.hiddenRoutine} hidden)`}
+                  ? "Show routine sign-ins"
+                  : `Show routine sign-ins (hidden: ${page.hiddenRoutine}${
+                      page.hiddenRoutineToday ? " today" : ""
+                    }, all by Context keeping you signed in)`}
               </Text>
-            </View>
+            </Pressable>
           ) : null}
         </>
       )}
@@ -156,6 +197,10 @@ function Chip({
 function ActivityRowView({ row, first }: { row: ActivityRow; first: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const { actor, verb, subject, rest } = row.sentence;
+  const [open, setOpen] = useState(false);
+  // "Claude added 3 notes in 0-inbox" names a count, so the link says "See";
+  // "edited plan and 4 more" names one, so it says "Show all".
+  const counted = subject !== null && /^\d+ notes$/.test(subject);
   return (
     <View style={[styles.row, first ? null : styles.rowDivided]} testID="audit-row">
       <Who name={row.actor.name} isAgent={row.actor.isAgent} />
@@ -186,6 +231,34 @@ function ActivityRowView({ row, first }: { row: ActivityRow; first: boolean }) {
             {isolateForDisplay(row.detail)}
           </Text>
         )}
+        {row.notes.length === 0 ? null : (
+          <>
+            <Pressable
+              role="button"
+              aria-expanded={open}
+              onPress={() => setOpen((was) => !was)}
+              style={styles.more}
+              testID={`audit-more-${row.key}`}
+            >
+              <Text variant="rowSub" style={styles.moreText}>
+                {open
+                  ? "Hide"
+                  : counted
+                    ? `See the ${row.notes.length} notes`
+                    : `Show all ${row.notes.length}`}
+              </Text>
+            </Pressable>
+            {open ? (
+              <View style={styles.noteList} testID={`audit-notes-${row.key}`}>
+                {row.notes.map((name, index) => (
+                  <Text key={`${index}-${name}`} variant="rowSub" numberOfLines={1}>
+                    {isolateForDisplay(name)}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </>
+        )}
       </View>
       <Text variant="rowSub" style={styles.when}>
         {row.when}
@@ -212,7 +285,15 @@ const FACE = 30;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 6 },
+    bar: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 8,
+      marginBottom: 6,
+      zIndex: 10,
+    },
+    filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, flexShrink: 1 },
     chip: {
       paddingHorizontal: 14,
       paddingVertical: 7,
@@ -247,5 +328,19 @@ const makeStyles = (colors: Colors) =>
     },
     robotInk: { color: colors.text2 },
     routine: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 18 },
-    routineText: { color: colors.text2 },
+    routineText: { color: colors.text2, flexShrink: 1 },
+    box: {
+      width: 18,
+      height: 18,
+      borderRadius: 4,
+      borderWidth: 1.5,
+      borderColor: colors.muted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    boxOn: { borderColor: colors.accent, backgroundColor: colors.accent },
+    boxTick: { color: colors.surface },
+    more: { alignSelf: "flex-start", marginTop: 2 },
+    moreText: { color: colors.accent, textDecorationLine: "underline" },
+    noteList: { marginTop: 6, gap: 2 },
   });

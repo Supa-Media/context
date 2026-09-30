@@ -148,7 +148,7 @@ export function IngestionCard({
     <Card>
       <Row>
         <Grow>
-          <Text variant="rowTitle">Ingestion address</Text>
+          <Text variant="rowTitle">Address</Text>
           {receiving ? (
             <Text variant="rowSub" style={styles.rowSub}>
               Forward any email here and it lands in{" "}

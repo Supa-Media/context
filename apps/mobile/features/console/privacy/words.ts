@@ -238,7 +238,7 @@ export function noExceptionsLine(visibility: Visibility): string {
  */
 export function widenWarning(name: string): string {
   return (
-    `Press again to share ${name}. Everything in it follows the new default and becomes ` +
+    `Press again to open ${name} to everyone. Everything in it follows the new default and becomes ` +
     "readable by everyone on People — except a note held back by name, and a subfolder with " +
     "a rule of its own. Notes added to it later follow it too."
   );

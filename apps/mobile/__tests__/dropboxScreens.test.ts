@@ -542,7 +542,7 @@ describe("a Dropbox binding on the settings pane", () => {
     connected.unmount();
 
     const stillConnecting = mountSettings({});
-    expect(stillConnecting.q("storage-details-toggle")).toBeNull();
+    stillConnecting.click("storage-details-toggle");
     expect(stillConnecting.text).not.toContain("Connected as");
     stillConnecting.unmount();
   });
@@ -565,11 +565,14 @@ describe("a Dropbox binding on the settings pane", () => {
    * not your account". An absent row would leave that unanswered.
    */
   test("says which folder, both when there is a prefix and when there is not", () => {
+    // Behind "Connection details" since the settings artboard.
     const plain = mountSettings({});
+    plain.click("storage-details-toggle");
     expect(plain.text).toContain("Context's own app folder");
     plain.unmount();
 
     const nested = mountSettings({ rootPrefix: "second/" });
+    nested.click("storage-details-toggle");
     expect(nested.text).toContain("second/");
     nested.unmount();
   });
@@ -578,6 +581,7 @@ describe("a Dropbox binding on the settings pane", () => {
   // names a credential that has never existed for it.
   test("offers Reconnect rather than Rotate key", () => {
     const screen = mountSettings({});
+    screen.click("storage-details-toggle");
     expect(screen.q("storage-rebind")?.textContent).toContain("Reconnect");
     expect(screen.text).not.toContain("Rotate key");
     screen.unmount();
@@ -621,6 +625,7 @@ describe("a Dropbox binding on the settings pane", () => {
       provider: "s3-compatible",
       bucket: "example-bucket",
     });
+    screen.click("storage-details-toggle");
     screen.click("storage-rebind");
     expect(screen.q("connect-endpoint")).not.toBe(null);
     expect((screen.q("connect-endpoint") as HTMLInputElement).value).toBe("");
@@ -637,9 +642,11 @@ describe("a Dropbox binding on the settings pane", () => {
       region: "auto",
       accessKey: "EXAM…PLE",
     });
+    screen.click("storage-details-toggle");
     expect(screen.text).toContain("example-bucket");
     expect(screen.q("storage-rebind")?.textContent).toContain("Rotate key");
-    expect(screen.text).toContain("Remove Context's key at your provider");
+    // R2 is Cloudflare's, so the sentence names where the key is removed.
+    expect(screen.text).toContain("Remove our key at Cloudflare");
     screen.unmount();
   });
 
@@ -651,6 +658,7 @@ describe("a Dropbox binding on the settings pane", () => {
       endpoint: "https://example.invalid",
       region: "auto",
     });
+    screen.click("storage-details-toggle");
     expect(screen.text).toContain("Context-managed storage");
     expect(screen.q("storage-rebind")).toBeNull();
     expect(screen.q("storage-disconnect")).toBeNull();

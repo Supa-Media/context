@@ -30,16 +30,16 @@
  *
  * ## The exit this pane may claim
  *
- * A whole-bucket handoff now exists for managed storage. A whole-workspace
- * archive still does not, so this pane may offer the former and must not invent
- * the latter. A control that looked live and did less than it said would be
- * worse than the absence: it is the one promise a customer would test before
- * trusting the product with their notes.
+ * A whole-bucket handoff exists for managed storage, and a whole-workspace
+ * download now exists too (`files/download.ts`: every note the person can open,
+ * as a .zip). This file used to forbid a Download button because the archive
+ * did not exist yet; it said to build the capability first, and it was built.
+ * What stays forbidden is a control that does less than it says, so the
+ * button is asserted to call that download, and to be absent where nothing
+ * real is behind it (the landing page's demo).
  *
- * What is true today is already said, in the lede: on a bucket somebody owns,
- * revoking the key at the provider is the exit, and no export is needed. The
- * missing piece is the managed-storage hand-off, and it is filed rather than
- * mocked up.
+ * The lede still says the other exit: on a bucket somebody owns, revoking the
+ * key at the provider ends our access.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -67,6 +67,11 @@ import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
 import type { ConsoleData, ConsoleStorage } from "../features/console/types";
+import {
+  storageCompany,
+  storageLine,
+  storageVerdict,
+} from "../features/console/settings/panels/StorageHealth";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -99,8 +104,11 @@ function demoData(): ConsoleData {
   return data;
 }
 
-function storagePane(over: Partial<ConsoleStorage> = {}): HTMLElement {
-  const base = demoData();
+function storagePane(
+  over: Partial<ConsoleStorage> = {},
+  data: (base: ConsoleData) => ConsoleData = (base) => base,
+): HTMLElement {
+  const base = data(demoData());
   const storage = { ...(base.storage as ConsoleStorage), ...over };
   mount(() =>
     createElement(SettingsOverlay, {
@@ -116,9 +124,17 @@ function storagePane(over: Partial<ConsoleStorage> = {}): HTMLElement {
 const find = (root: HTMLElement, testID: string) =>
   root.querySelector(`[data-testid='${testID}']`) as HTMLElement | null;
 
+/** "Connection details", which the settings artboard keeps closed. */
+function openDetails(body: HTMLElement): HTMLElement {
+  act(() => {
+    find(body, "storage-details-toggle")!.click();
+  });
+  return body;
+}
+
 describe("the binding is a list of what this binding is", () => {
   test("each field is a row carrying its own label and value", () => {
-    const body = storagePane({ provider: "r2", bucket: "seyi-workspace" });
+    const body = openDetails(storagePane({ provider: "r2", bucket: "seyi-workspace" }));
     const binding = find(body, "storage-binding");
     expect(binding).not.toBeNull();
 
@@ -134,12 +150,14 @@ describe("the binding is a list of what this binding is", () => {
     reads as a field somebody failed to fill in.
   */
   test("a backend without a field has no row for it", () => {
-    const body = storagePane({
-      provider: "dropbox",
-      bucket: undefined,
-      endpoint: undefined,
-      accessKey: undefined,
-    });
+    const body = openDetails(
+      storagePane({
+        provider: "dropbox",
+        bucket: undefined,
+        endpoint: undefined,
+        accessKey: undefined,
+      }),
+    );
     expect(find(body, "storage-field-bucket")).toBeNull();
     expect(find(body, "storage-field-access-key")).toBeNull();
     expect(find(body, "storage-field-provider")).not.toBeNull();
@@ -159,10 +177,10 @@ describe("the binding is a list of what this binding is", () => {
 
 describe("what the store can do is its own block", () => {
   test("the probe's findings are not inside the binding", () => {
-    const body = storagePane({ connected: true, conditionalWrite: true });
+    const body = openDetails(storagePane({ connected: true, conditionalWrite: true }));
     const capabilities = find(body, "storage-capabilities");
     expect(capabilities).not.toBeNull();
-    expect(capabilities!.textContent).toContain("Conditional writes");
+    expect(capabilities!.textContent).toContain("can't overwrite each other");
 
     const binding = find(body, "storage-binding");
     expect(binding!.contains(capabilities)).toBe(false);
@@ -171,8 +189,25 @@ describe("what the store can do is its own block", () => {
   test("a store that cannot do conditional writes says so rather than going quiet", () => {
     const body = storagePane({ connected: true, conditionalWrite: false });
     expect(find(body, "storage-capabilities")!.textContent).toContain(
-      "Conditional writes unavailable",
+      "This provider can't stop two saves at once",
     );
+  });
+
+  test("the page leads with one word, and says Healthy only when both checks are green", () => {
+    const body = storagePane({ connected: true, conditionalWrite: true });
+    expect(find(body, "storage-verdict")!.textContent).toBe("Healthy");
+    const word = (connected: boolean, conditionalWrite: boolean, failed = false) =>
+      storageVerdict({ connected, conditionalWrite }, failed).title;
+    expect(word(true, false)).toBe("Working, with one limit");
+    expect(word(false, true)).toBe("Not checked yet");
+    expect(word(true, true, true)).toBe("Not working");
+  });
+
+  test("the health card comes before the connection fields", () => {
+    const body = openDetails(storagePane({ connected: true, conditionalWrite: true }));
+    const health = find(body, "storage-capabilities")!;
+    const binding = find(body, "storage-binding")!;
+    expect(health.compareDocumentPosition(binding) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
@@ -182,7 +217,21 @@ describe("the exit is stated, and never mocked up", () => {
     export card, this fails — and the right answer is to build the capability
     first, not to delete this.
   */
-  test("no control offers an export that does not exist", () => {
+  test("Download everything is the real download, and absent where there is none", () => {
+    const download = jest.fn();
+    const live = storagePane({ connected: true }, (base) => ({
+      ...base,
+      demo: false,
+      files: { ...base.files, download },
+    }));
+    const button = find(live, "storage-download-all");
+    expect(button).not.toBeNull();
+    act(() => button!.click());
+    // The root folder: every note this person can open, as one archive.
+    expect(download).toHaveBeenCalledWith("", "folder");
+  });
+
+  test("the landing page's demo offers no download, because nothing is behind it", () => {
     const body = storagePane({ connected: true });
     const labels = [...body.querySelectorAll<HTMLElement>("[role='button'], button")].map(
       (node) => `${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`.toLowerCase(),
@@ -194,6 +243,31 @@ describe("the exit is stated, and never mocked up", () => {
   });
 
   test("the exit that is real is still stated in words", () => {
-    expect(storagePane({ provider: "r2" }).textContent).toContain("loses access right away");
+    expect(storagePane({ provider: "r2" }).textContent).toContain(
+      "Remove our key at Cloudflare and we lose access right away",
+    );
+  });
+});
+
+describe("the line under the verdict", () => {
+  const binding = (over: Partial<ConsoleStorage>) =>
+    ({ provider: "r2", connected: true, conditionalWrite: true, ...over }) as ConsoleStorage;
+
+  test("names the company, the files and the check, each only when measured", () => {
+    const now = Date.UTC(2026, 8, 30, 12);
+    expect(storageLine(binding({ objectCount: "1,284", lastVerifiedAt: now - 5 * 60_000 }), now)).toBe(
+      "Your own Cloudflare storage · 1,284 files · checked 5 minutes ago",
+    );
+    // Nothing counted and never verified: the kind alone, no "0 files", no 1970.
+    expect(storageLine(binding({ lastVerifiedAt: 0 }), now)).toBe("Your own Cloudflare storage");
+    // An S3-compatible endpoint could be anybody's; it is not guessed at.
+    expect(storageLine(binding({ provider: "s3-compatible" }), now)).toBe("Your own storage");
+    expect(storageLine(binding({ managed: true }), now)).toBe("Storage Context runs for you");
+    expect(storageCompany({ provider: "dropbox" })).toBe("Dropbox");
+  });
+
+  test("Check again is an owner's; nobody else is offered it", () => {
+    // The demo holds no storage actions, which is exactly a member's view.
+    expect(find(storagePane({ connected: true }), "storage-reverify")).toBeNull();
   });
 });

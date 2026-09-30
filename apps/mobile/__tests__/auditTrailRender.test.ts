@@ -88,7 +88,7 @@ describe("the activity panel", () => {
     const text = (row: Element | undefined) => plain(row?.textContent);
     expect(rows()).toHaveLength(1);
     expect(text(rows()[0])).toContain("Sam edited plan");
-    expect(container.textContent).toContain("3 hidden");
+    expect(container.textContent).toContain("hidden: 3 today, all by Context keeping you signed in");
 
     act(() => {
       (container.querySelector('[data-testid="activity-show-routine"]') as HTMLElement).click();
@@ -110,5 +110,36 @@ describe("the activity panel", () => {
     const rows = container.querySelectorAll('[data-testid="audit-row"]');
     expect(rows).toHaveLength(1);
     expect(plain(rows[0]?.textContent)).toContain("Sam invited somebody");
+  });
+
+  test("Anyone opens to the people in the trail, and picking one keeps their rows", () => {
+    const now = Date.now();
+    const container = mountTrail([
+      { eventId: "a", action: "file.write", actorUserId: "u1", paths: ["x.md"], at: now },
+      { eventId: "b", action: "file.write", actorClientId: "Claude", paths: ["y.md"], at: now - 1000 },
+    ]);
+    const rows = () => container.querySelectorAll('[data-testid="audit-row"]');
+    expect(rows()).toHaveLength(2);
+    act(() => {
+      (container.querySelector('[data-testid="activity-who"]') as HTMLElement).click();
+    });
+    act(() => {
+      (container.querySelector('[data-testid="activity-who-option-Claude"]') as HTMLElement).click();
+    });
+    expect(rows()).toHaveLength(1);
+    expect(plain(rows()[0]?.textContent)).toContain("Claude edited y");
+    expect(plain(container.querySelector('[data-testid="activity-who"]')?.textContent)).toContain("Claude");
+  });
+
+  test("a row about several notes lists them when asked", () => {
+    const now = Date.now();
+    const container = mountTrail([
+      { eventId: "m", action: "file.write", actorUserId: "u1", paths: ["0-inbox/a.md", "0-inbox/b.md"], at: now },
+    ]);
+    const more = container.querySelector('[data-testid="audit-more-m"]') as HTMLElement;
+    expect(plain(more.textContent)).toBe("See the 2 notes");
+    expect(container.querySelector('[data-testid="audit-notes-m"]')).toBeNull();
+    act(() => more.click());
+    expect(plain(container.querySelector('[data-testid="audit-notes-m"]')?.textContent)).toBe("ab");
   });
 });

@@ -124,7 +124,7 @@ async function initPostHog(): Promise<void> {
 }
 
 /**
- * Settings → Privacy & feedback, applied without a restart where the vendor
+ * Settings → Feedback, applied without a restart where the vendor
  * allows it. Turning recordings back on waits for the next visit: starting a
  * recording mid-session would skip the sampling the rate exists to apply.
  */

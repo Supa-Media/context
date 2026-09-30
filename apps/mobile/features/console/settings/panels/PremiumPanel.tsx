@@ -32,7 +32,6 @@ import {
   usageLine,
   type PremiumView,
 } from "./premium";
-import { wouldEmptyRequiredSelection } from "./premiumEntitlements";
 import { PremiumIncludes } from "./PremiumIncludes";
 import { usePremium } from "./usePremium";
 import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
@@ -232,14 +231,6 @@ export function PremiumBody({
   const returning = checkoutReturnCopy(returned, state, { slow });
   const migration = status === null ? null : managedMigrationCopy(status);
 
-  // The one switch left after paying: the index, for people who would rather
-  // not have a copy of their notes' text on our servers.
-  const searchIndex = (next: boolean) => {
-    if (status === null || view.choose === undefined) return;
-    if (wouldEmptyRequiredSelection(status, "fastSearch", next)) return;
-    run(() => view.choose!({ ...status.selected, fastSearch: next }));
-  };
-
   return (
     <View>
       {/*
@@ -400,7 +391,12 @@ export function PremiumBody({
       {status === null ? null : (
         <PremiumIncludes
           status={status}
-          onSearchIndex={view.choose === undefined ? undefined : searchIndex}
+          onOpenSearch={onOpenStorage}
+          onIncludeSearch={
+            view.choose === undefined || status === null
+              ? undefined
+              : () => run(() => view.choose!({ ...status.selected, fastSearch: true }))
+          }
           disabled={working}
           extra={autoOrganize?.included}
         />

@@ -5,7 +5,7 @@ import { filesIcons } from "./files";
 import { editorIcons } from "./editor";
 import { statusIcons } from "./status";
 import { brandIcons } from "./brand";
-import { feedbackIcons, syncIcons } from "./sync";
+import { emojiIcons, feedbackIcons, syncIcons } from "./sync";
 
 export { ICON_NAMES, type IconName } from "./names";
 export type { DrawFn } from "./primitives";
@@ -28,4 +28,5 @@ export const drawIcon: Record<IconName, DrawFn> = {
   ...brandIcons,
   ...syncIcons,
   ...feedbackIcons,
+  ...emojiIcons,
 };

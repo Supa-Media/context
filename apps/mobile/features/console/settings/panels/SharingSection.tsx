@@ -27,8 +27,7 @@ export function SharingSection({ data, sectioned }: { data: ConsoleData; section
   return (
     <>
       <PanelHead section="sharing" sectioned={sectioned}>
-        Who can open this workspace and what they can do. Nothing here is public: only
-        people you name can see anything.
+        Who can open this workspace, and what they can do.
       </PanelHead>
 
       <MembersSection
@@ -70,5 +69,5 @@ export function SharingSection({ data, sectioned }: { data: ConsoleData; section
 
 const makeStyles = () =>
   StyleSheet.create({
-    block: { marginTop: 22 },
+    block: { marginTop: 28 },
   });
