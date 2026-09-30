@@ -155,6 +155,8 @@ export const READ_BATCH_PATHS = 50;
  * batch of big notes cannot make a response nothing can carry.
  */
 export const READ_BATCH_BYTES = 2 * MAX_NOTE_BYTES;
+/** Notes one `readFiles` call reads at once; see the loop there. */
+export const READ_CONCURRENCY = 8;
 
 /**
  * One path's answer in a batch.
@@ -184,7 +186,7 @@ export type BatchRead =
  * request order.
  *
  * The budget is spent only by notes that were read, which only a visible note
- * is, and once it is spent nothing further is looked at. So whether a path is
+ * is, and once it is spent nothing further is returned. So whether a path is
  * `deferred` turns on the sizes of notes the caller can read and never on
  * whether a hidden one exists. The first note always reads, whatever its size,
  * so every batch makes progress.
@@ -205,27 +207,58 @@ export async function readFiles(
   const results: BatchRead[] = [];
   let bytes = 0;
   let spent = false;
-  for (const requested of options.paths) {
-    if (spent) {
-      results.push({ path: requested, outcome: "deferred" });
-      continue;
-    }
-    try {
-      const note = await readVisibleFile(store, state, requirePath(requested), options.clearance);
-      const size = byteLength(note.text);
+  /*
+    Read `READ_CONCURRENCY` at a time, then settle them in request order. A
+    collaboration-backed note is several bucket round trips (and four writes
+    the first time its document is made), so fifty in a row outlasted the
+    mirror's timeout on a phone and every sync stopped at the same batch.
+    Reading a few ahead changes no answer: the budget is still applied in
+    request order, a read past it is dropped as `deferred`, and a hidden path
+    is refused by `canSee` before any fetch, as it always was.
+  */
+  const reading = new Map<string, ReturnType<typeof readVisibleFile>>();
+  for (let at = 0; at < options.paths.length; at += READ_CONCURRENCY) {
+    const chunk = options.paths.slice(at, at + READ_CONCURRENCY);
+    const answers = spent
+      ? chunk.map(() => null)
+      : await Promise.all(
+          chunk.map(async (requested): Promise<{ note: FileContents } | { error: FileOpError }> => {
+            try {
+              // The same path twice in a chunk is read once, so two reads never
+              // race to make one note's collaboration document.
+              let pending = reading.get(requested);
+              if (!pending) {
+                pending = readVisibleFile(store, state, requirePath(requested), options.clearance);
+                reading.set(requested, pending);
+              }
+              return { note: await pending };
+            } catch (error) {
+              // A refusal is this path's answer. Anything else is the bucket
+              // failing, which is the whole batch's problem and goes up as one.
+              if (!(error instanceof FileOpError)) throw error;
+              return { error };
+            }
+          }),
+        );
+    chunk.forEach((requested, index) => {
+      const answer = answers[index];
+      if (spent || answer === null) {
+        results.push({ path: requested, outcome: "deferred" });
+        return;
+      }
+      if ("error" in answer) {
+        results.push({ path: requested, outcome: "error", code: answer.error.code, message: answer.error.message });
+        return;
+      }
+      const size = byteLength(answer.note.text);
       if (bytes > 0 && bytes + size > READ_BATCH_BYTES) {
         spent = true;
         results.push({ path: requested, outcome: "deferred" });
-        continue;
+        return;
       }
       bytes += size;
-      results.push({ path: requested, outcome: "read", note });
-    } catch (error) {
-      // A refusal is this path's answer. Anything else is the bucket failing,
-      // which is the whole batch's problem and goes up as one.
-      if (!(error instanceof FileOpError)) throw error;
-      results.push({ path: requested, outcome: "error", code: error.code, message: error.message });
-    }
+      results.push({ path: requested, outcome: "read", note: answer.note });
+    });
   }
   return results;
 }
