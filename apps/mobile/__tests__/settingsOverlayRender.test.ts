@@ -179,10 +179,10 @@ describe("a phone reaches the settings, not just a menu", () => {
     const text = overlay("sharing").textContent ?? "";
     expect(text).toContain("People");
     expect(text).toContain("Groups");
-    expect(text).toContain("Shared links");
+    expect(text).toContain("Links you've shared");
     expect(text).toContain("Privacy");
     // The demo's own shared link, and the privacy block's live reading.
-    expect(text).toContain("1-projects/board-update.md");
+    expect(text).toContain("Board update");
     expect(text).toContain("nothing here is indexed");
   });
 
@@ -787,16 +787,16 @@ describe("a section follows the context it belongs to, not the one beside it", (
   test("a shared link belongs to the context that has it, not the one beside it", () => {
     const { host, data } = liveOverlay("sharing");
     // @seyi is selected first, by `useDemoConsoleData`'s own default.
-    expect(host.textContent ?? "").toContain("1-projects/board-update.md");
-    expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
+    expect(host.textContent ?? "").toContain("Board update");
+    expect(host.textContent ?? "").not.toContain("Roadmap");
 
     act(() => {
       data().selectContext("pw");
     });
 
     const text = host.textContent ?? "";
-    expect(text).toContain("1-projects/roadmap.md");
-    expect(text).not.toContain("1-projects/board-update.md");
+    expect(text).toContain("Roadmap");
+    expect(text).not.toContain("Board update");
   });
 
   test("an audit row belongs to the context that recorded it, not the one beside it", () => {

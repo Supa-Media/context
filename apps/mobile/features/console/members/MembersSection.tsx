@@ -2,10 +2,8 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
-import { Dot } from "../../design/components/Dot";
 import { Hint } from "../../design/components/Field";
 import { ChoiceGroup, FormError, TextField } from "../../design/components/Input";
-import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import {
@@ -16,7 +14,6 @@ import {
   memberDetail,
   inviteOutcomeMessage,
   memberLabel,
-  oppositeRole,
   type AssignableRole,
   type ConsoleInvitation,
   type ConsoleMember,
@@ -25,6 +22,9 @@ import {
   type MembersView,
 } from "./members";
 import { useArming } from "../useArming";
+import { FaceView } from "../faces/PersonFace";
+import { useFace } from "../faces/useFace";
+import { PickMenu } from "../settings/panels/PickMenu";
 import { memberReachSentence, tierExplanation } from "../visibility";
 
 /**
@@ -93,6 +93,7 @@ export function MembersSection({
   const styles = useThemedStyles(makeStyles);
   const { actions } = view;
   const now = Date.now();
+  const [inviting, setInviting] = useState(false);
   /*
     The owner's half of the tier: what inviting these people did and did not
     hand over. `null` for everybody else, because it describes a decision only
@@ -144,33 +145,51 @@ export function MembersSection({
 
   return (
     <View>
-      <Card>
-        <Row style={styles.head}>
-          <Grow>
-            <Text variant="rowTitle">People</Text>
-          </Grow>
-          <Pill tone="neutral">
-            {`${view.members.length} with access`}
-          </Pill>
-          {view.invitations.length > 0 ? (
-            <Pill tone="warn" testID="members-invited-count">
-              {`${view.invitations.length} invited`}
-            </Pill>
-          ) : null}
-        </Row>
+      {/*
+        The settings artboard (2026-09-29): "People" as the block's heading,
+        with the one action an owner comes here for beside it, and the list
+        under it — people first, then who is still invited.
+      */}
+      <View style={styles.headRow}>
+        <Text variant="rowTitle" style={styles.heading}>
+          People
+        </Text>
+        {actions !== undefined ? (
+          <Button
+            label={inviting ? "Close" : "Invite someone"}
+            variant={inviting ? "mini" : "accent"}
+            accessibilityLabel={inviting ? "Close the invite form" : "Invite someone to this workspace"}
+            onPress={() => setInviting((open) => !open)}
+            testID="members-invite-open"
+          />
+        ) : null}
+      </View>
 
+      {actions !== undefined && inviting ? (
+        <InviteForm invite={actions.invite} shareBackWith={shareBackWith ?? []} />
+      ) : null}
+
+      <Card style={styles.list}>
         {view.members.length === 0 ? (
-          <Row divided>
+          <Row>
             <Grow>
               <Text variant="rowSub">
-                {view.loading ? "Loading…" : "Nobody has access to this context yet."}
+                {view.loading ? "Loading…" : "Nobody has access to this workspace yet."}
               </Text>
             </Grow>
           </Row>
         ) : null}
 
-        {view.members.map((member) => (
-          <MemberRow key={member.userId} member={member} actions={actions} />
+        {view.members.map((member, index) => (
+          <MemberRow
+            key={member.userId}
+            member={member}
+            actions={actions}
+            first={index === 0}
+            // Each row above the next, so an open role menu is drawn over the
+            // rows below it rather than under them.
+            layer={view.members.length - index}
+          />
         ))}
 
         {/*
@@ -178,8 +197,7 @@ export function MembersSection({
           have access (settings cleanup, 2026-09-29). They were a card of their
           own titled "Invitations", which on an owner's screen stood beside the
           account-level "Invitations" row about invitations *to* them: one word
-          for two different lists. Each row already says "Invited as editor ·
-          expires in 5 days", so the list does not need a second heading.
+          for two different lists.
         */}
         {view.invitations.map((invitation) => (
           <InvitationRow
@@ -207,9 +225,7 @@ export function MembersSection({
         ) : null}
       </Card>
 
-      {actions !== undefined ? (
-        <InviteForm invite={actions.invite} shareBackWith={shareBackWith ?? []} />
-      ) : view.readOnlyReason !== undefined ? (
+      {actions === undefined && view.readOnlyReason !== undefined ? (
         <Text variant="foot" style={styles.readOnly}>
           {view.readOnlyReason}
         </Text>
@@ -221,28 +237,28 @@ export function MembersSection({
 function MemberRow({
   member,
   actions,
+  first,
+  layer,
 }: {
   member: ConsoleMember;
   actions?: MemberActions;
+  first: boolean;
+  layer: number;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [failure, setFailure] = useState<MembersFailure | null>(null);
   const [busy, setBusy] = useState(false);
+  const face = useFace(member.name ?? member.email ?? null);
   /**
    * Removing somebody is not undoable and takes their AI clients with it, so it
-   * asks once. Two taps rather than a modal: the section has to survive being
-   * mounted anywhere, and a dialog would drag a layer of the app in with it.
-   *
-   * The second tap expires — `useArming`, not a bare flag. Armed and left
-   * armed, this sat beside "Make editor" in a wrapping row, and the next press
-   * anywhere near it removed somebody minutes after the decision to.
+   * asks once: Remove in the role menu arms, and a Confirm button beside the
+   * menu does it. The arming expires — `useArming`, not a bare flag — so a
+   * press minutes later near the same row removes nobody.
    */
   const removal = useArming(() => run(() => actions!.remove(member.userId)));
 
-  const swap = oppositeRole(member.role);
-  // The owner's row never carries controls: an owner cannot be removed and
-  // cannot be demoted, so a disabled pair of buttons there would be two
-  // affordances that can only ever refuse.
+  // The owner's row never carries a menu: an owner cannot be removed and
+  // cannot be demoted, so a menu there would only ever refuse.
   const manageable = actions !== undefined && member.role !== "owner";
 
   async function run(action: () => Promise<void>) {
@@ -260,9 +276,9 @@ function MemberRow({
   const detail = memberDetail(member);
 
   return (
-    <View>
-      <Row divided style={styles.wrapRow}>
-        <Dot tone={member.role === "owner" ? "ok" : "neutral"} />
+    <View style={[styles.rowWrap, first ? null : styles.divided, { zIndex: layer }]}>
+      <View style={styles.row}>
+        <FaceView face={face} name={member.name ?? member.email ?? null} size={30} />
         <Grow>
           <Text variant="rowTitle">
             {member.isMe ? `${memberLabel(member)} · you` : memberLabel(member)}
@@ -271,38 +287,46 @@ function MemberRow({
             {detail ?? describeRole(member.role)}
           </Text>
         </Grow>
-        <Pill tone="neutral">{member.role}</Pill>
-        {manageable && swap !== null ? (
+        {removal.stage === "armed" ? (
           <Button
-            label={`Make ${swap}`}
-            variant="mini"
-            disabled={busy}
-            accessibilityLabel={`Change ${memberLabel(member)} to ${swap}`}
-            testID={`member-role-${member.userId}`}
-            onPress={() => {
-              void run(() => actions!.setRole(member.userId, swap));
-            }}
-          />
-        ) : null}
-        {manageable ? (
-          <Button
-            label={removal.stage === "idle" ? "Remove" : "Confirm"}
+            label="Confirm"
             variant="danger"
             disabled={busy}
-            accessibilityLabel={
-              removal.stage === "idle"
-                ? `Remove ${memberLabel(member)}`
-                : `Confirm removing ${memberLabel(member)}`
-            }
+            accessibilityLabel={`Confirm removing ${memberLabel(member)}`}
             testID={`member-remove-${member.userId}`}
             onPress={removal.press}
           />
         ) : null}
-      </Row>
+        {manageable ? (
+          <PickMenu<AssignableRole | "remove">
+            label={roleLabel(member.role)}
+            accessibilityLabel={`${memberLabel(member)}: ${roleLabel(member.role)}. Change`}
+            options={[
+              { key: "editor", label: roleLabel("editor") },
+              { key: "member", label: roleLabel("member") },
+              { key: "remove", label: "Remove from workspace", danger: true },
+            ]}
+            selected={member.role === "editor" || member.role === "member" ? member.role : null}
+            disabled={busy}
+            onPick={(key) => {
+              if (key === "remove") {
+                removal.press();
+                return;
+              }
+              if (key !== member.role) void run(() => actions!.setRole(member.userId, key));
+            }}
+            testID={`member-role-${member.userId}`}
+          />
+        ) : (
+          <Text variant="rowSub" style={styles.roleWord}>
+            {roleLabel(member.role)}
+          </Text>
+        )}
+      </View>
       {removal.stage === "armed" ? (
         <Hint>
           <Text variant="hint">
-            {`Removing ${memberLabel(member)} cuts off every AI client they have connected to this context, immediately.`}
+            {`Removing ${memberLabel(member)} cuts off every AI client they have connected to this workspace, immediately.`}
           </Text>
         </Hint>
       ) : null}
@@ -327,21 +351,22 @@ function InvitationRow({
   const [busy, setBusy] = useState(false);
 
   return (
-    <View>
-      <Row divided style={styles.wrapRow}>
-        <Dot tone="warn" />
+    <View style={[styles.rowWrap, styles.divided]}>
+      <View style={styles.row}>
+        {/* A dashed ring where a face will be: somebody who has not joined yet. */}
+        <View style={styles.pending} aria-hidden />
         <Grow>
           <Text variant="rowTitle">{invitation.invitee}</Text>
-          <Text variant="rowSub" style={styles.rowSub}>
-            {`Invited as ${invitation.role} · ${expiryLabel(invitation.expiresAt, now)}`}
+          <Text variant="rowSub" style={[styles.rowSub, styles.waiting]}>
+            {`${invitedLine(invitation.role)} · waiting · ${expiryLabel(invitation.expiresAt, now)}`}
           </Text>
         </Grow>
         {actions !== undefined ? (
           <Button
-            label="Withdraw"
-            variant="danger"
+            label={busy ? "Cancelling…" : "Cancel invite"}
+            variant="ghost"
             disabled={busy}
-            accessibilityLabel={`Withdraw the invitation to ${invitation.invitee}`}
+            accessibilityLabel={`Cancel the invitation to ${invitation.invitee}`}
             testID={`invitation-withdraw-${invitation.invitationId}`}
             onPress={() => {
               setBusy(true);
@@ -353,12 +378,33 @@ function InvitationRow({
             }}
           />
         ) : null}
-      </Row>
+      </View>
       {failure !== null ? (
         <FormError headline={failure.headline} next={failure.next} style={styles.rowError} />
       ) : null}
     </View>
   );
+}
+
+/** "Owner", "Can edit", "Can view": the artboard's words for the three roles. */
+export function roleLabel(role: string): string {
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "editor":
+      return "Can edit";
+    case "member":
+      return "Can view";
+    default:
+      return role;
+  }
+}
+
+/** "Invited to edit" / "Invited to view", from the role the invitation carries. */
+export function invitedLine(role: string): string {
+  if (role === "editor") return "Invited to edit";
+  if (role === "member") return "Invited to view";
+  return `Invited as ${role}`;
 }
 
 /**
@@ -402,10 +448,7 @@ function InviteForm({
   }
 
   return (
-    <Card style={styles.spaced}>
-      <Text variant="eyebrow" style={styles.eyebrow}>
-        Invite somebody
-      </Text>
+    <Card style={styles.spaced} testID="members-invite-form">
 
       {/*
         The people who shared with you first. Reciprocity is the highest-
@@ -493,12 +536,31 @@ function InviteForm({
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  head: { marginBottom: 13 },
-  spaced: { marginTop: 11 },
-  eyebrow: { marginBottom: 10 },
+  headRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 10,
+  },
+  heading: { fontSize: 17 },
+  spaced: { marginBottom: 11 },
+  list: { paddingVertical: 0 },
+  rowWrap: { paddingVertical: 10 },
+  divided: { borderTopWidth: 1, borderTopColor: colors.line },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  roleWord: { color: colors.text2 },
+  pending: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.muted,
+  },
+  waiting: { color: colors.warnText },
   rowSub: { marginTop: 2 },
   rowError: { marginTop: 8 },
-  wrapRow: { flexWrap: "wrap" },
   shareBack: { gap: 8, marginBottom: 4 },
   shareBackRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   roles: { marginTop: 13 },

@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Button, PressRow } from "../../../design/components/Button";
 import { Icon } from "../../../design/components/Icon";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { Hint } from "../../../design/components/Field";
 import { FormError, TextField } from "../../../design/components/Input";
-import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { radii } from "../../../design/tokens";
@@ -81,25 +80,21 @@ export function GroupsPanel({
 
   return (
     <View>
-      <Card>
-        <Row style={styles.head}>
-          <Grow>
-            <Text variant="rowTitle">Groups</Text>
-          </Grow>
-          <Pill tone="neutral">{`${view.groups.length}`}</Pill>
-        </Row>
+      {/*
+        The settings artboard (2026-09-29): a heading and one sentence, then a
+        row per group — its name and who is in it — that opens to the names,
+        the additions and Delete.
+      */}
+      <Text variant="rowTitle" style={styles.heading}>
+        Groups
+      </Text>
+      <Text variant="rowSub" style={styles.lede}>
+        Give a folder to a group instead of naming people one by one.
+      </Text>
 
-        <Row divided>
-          <Grow>
-            <Text variant="rowSub">
-              Give a folder to a group instead of naming people one by one. Remove
-              somebody from this workspace and every folder closes to them at once.
-            </Text>
-          </Grow>
-        </Row>
-
+      <Card style={styles.list}>
         {view.groups.length === 0 ? (
-          <Row divided>
+          <Row>
             <Grow>
               <Text variant="rowSub">
                 {view.loading
@@ -110,14 +105,20 @@ export function GroupsPanel({
           </Row>
         ) : null}
 
-        {view.groups.map((group) => (
-          <GroupRow key={group.groupId} group={group} members={members} actions={actions} />
+        {view.groups.map((group, index) => (
+          <GroupRow
+            key={group.groupId}
+            group={group}
+            members={members}
+            actions={actions}
+            first={index === 0}
+          />
         ))}
       </Card>
 
       {actions === undefined ? (
         <Text variant="foot" style={styles.readOnly}>
-          Only an owner of this context can see or change its groups.
+          Only an owner of this workspace can see or change its groups.
         </Text>
       ) : (
         <NewGroup slug={slug} actions={actions} />
@@ -130,12 +131,17 @@ function GroupRow({
   group,
   members,
   actions,
+  first,
 }: {
   group: ConsoleGroup;
   members: readonly ConsoleMember[];
   actions?: GroupActions;
+  first: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [open, setOpen] = useState(false);
+  const live = group.members.filter((member) => member.live).map(memberLabel);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -163,13 +169,28 @@ function GroupRow({
   }
 
   return (
-    <Row divided>
-      <Grow>
-        <Text variant="rowTitle" style={styles.name}>
-          {groupRuleToken(group)}
-        </Text>
-        <Text variant="rowSub">{groupSummary(group)}</Text>
+    <View style={first ? null : styles.divided}>
+      <Pressable
+        role="button"
+        aria-expanded={open}
+        accessibilityLabel={`${group.label}: ${groupSummary(group)}`}
+        onPress={() => setOpen((was) => !was)}
+        style={styles.groupHead}
+        testID={`group-open-${group.groupId}`}
+      >
+        <Grow>
+          <Text variant="rowTitle">{group.label}</Text>
+          <Text variant="rowSub" style={styles.groupSub}>
+            {[live.length === 0 ? "Nobody yet" : live.join(", "), groupRuleToken(group)].join(" · ")}
+          </Text>
+        </Grow>
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} color={colors.muted} />
+      </Pressable>
 
+      {open ? (
+      <Row style={styles.groupBody}>
+      <Grow>
+        <Text variant="rowSub">{groupSummary(group)}</Text>
         <View style={styles.chips}>
           {group.members.map((member) => (
             <MemberChip
@@ -218,7 +239,9 @@ function GroupRow({
           testID={`group-delete-${group.groupId}`}
         />
       )}
-    </Row>
+      </Row>
+      ) : null}
+    </View>
   );
 }
 
@@ -321,8 +344,13 @@ function NewGroup({ slug, actions }: { slug: string; actions: GroupActions }) {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  head: { alignItems: "center" },
-  name: { fontFamily: "JetBrainsMono_400Regular" },
+  heading: { fontSize: 17 },
+  lede: { marginTop: 2, marginBottom: 10 },
+  list: { paddingVertical: 0 },
+  divided: { borderTopWidth: 1, borderTopColor: colors.line },
+  groupHead: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
+  groupSub: { marginTop: 2 },
+  groupBody: { paddingTop: 0, paddingBottom: 12 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   // The chip's close control: a real target around a small mark, not a bare
   // "×" label that read as part of the name.
