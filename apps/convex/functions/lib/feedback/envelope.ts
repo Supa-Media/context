@@ -94,6 +94,7 @@ export function buildFeedbackEnvelope(input: EnvelopeInput): Uint8Array<ArrayBuf
       "feedback.source": report.source,
       "feedback.platform": report.app.platform,
       ...(report.app.build === undefined ? {} : { "feedback.build": report.app.build }),
+      ...(report.agentClient === undefined ? {} : { "feedback.agent_client": report.agentClient }),
     },
   };
 

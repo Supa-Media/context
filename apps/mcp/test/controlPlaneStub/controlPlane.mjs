@@ -86,7 +86,11 @@ export function createControlPlaneStub(options = {}) {
    * Knobs a test flips to model a control plane that is not this one — older
    * than a field, or misbehaving. Read at request time, never at setup.
    */
+  /** Problem reports `/gateway/feedback` accepted, token and message as sent. */
+  const feedback = [];
   const flags = {
+    /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
+    feedbackRefusal: null,
     omitBindingWorkspaceId: false,
     /**
      * Serve this workspace's binding whatever was asked for — a control plane
@@ -653,6 +657,18 @@ export function createControlPlaneStub(options = {}) {
         TOKEN IS NEVER RETURNED — which is the property the gateway tests
         assert against this stub.
       */
+      /*
+        FEEDBACK — the real route resolves the person from the forwarded token
+        and runs the app's intake; this records what arrived, or refuses with
+        the word a test asks for.
+      */
+      case "/gateway/feedback": {
+        if (!(await grantForAccessToken(body.accessToken))) return ok({ report: null });
+        if (flags.feedbackRefusal) return ok({ report: null, refused: flags.feedbackRefusal });
+        feedback.push({ accessToken: body.accessToken, message: body.message });
+        return ok({ report: { eventId: "0".repeat(31) + feedback.length } });
+      }
+
       case "/gateway/links/create": {
         const cleared = await clearedOwner(body);
         if (!cleared) return ok({ link: null, shortRefused: null });
@@ -846,6 +862,7 @@ export function createControlPlaneStub(options = {}) {
     codes,
     bindings,
     flags,
+    feedback,
     accessTokens,
     refreshTokens,
     gatewayJobs,
