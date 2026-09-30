@@ -161,7 +161,7 @@ describe("a block that does not parse", () => {
     const state = stateFor(`# Note\n\n${BROKEN}\n`);
     const [fence] = formFences(state);
     const dom = new FormWidget(fence, null).toDOM();
-    expect(dom.className).toContain("cm-lp-form-broken");
+    expect(dom.querySelector(".cm-lp-form")?.className).toContain("cm-lp-form-broken");
     expect(dom.textContent).toContain("can’t be displayed");
     expect(dom.textContent).toContain("slartibartfast");
     // Line 3 of the note, which is where the fence opens — not line 1 of the

@@ -25,11 +25,11 @@ export const textStyles = `
   is in it. Drawn like the frontmatter it folds like: small, muted, the mono
   face for the count. A press opens it; see castBlock.ts.
 */
+.cm-lp-cast-block { padding: 0.25em 0; }
 .cm-lp-cast {
   display: flex;
   align-items: baseline;
   gap: 0.45em;
-  margin: 0.25em 0;
   padding: 0.35em 0.6em;
   border-radius: 6px;
   background: var(--lp-code-bg);
@@ -50,6 +50,7 @@ export const textStyles = `
   note (every footer link opened the devlog, 2026-09-30).
 */
 .cm-lp-join { display: flow-root; }
+.cm-lp-join > .cm-lp-cast { margin: 0.25em 0; }
 /*
   A dictated phrase the engine has not settled on yet.
 
@@ -122,9 +123,9 @@ export const textStyles = `
   pointer-events: none on the frame is what lets a click reach the editor and
   reveal the source. See the widget's comment.
 */
+.cm-lp-preview-block { padding: 0.5em 0; }
 .cm-lp-preview {
   overflow: hidden;
-  margin: 0.5em 0;
   border: 1px solid var(--lp-code-bg);
   border-radius: 8px;
   background: var(--lp-code-bg);
