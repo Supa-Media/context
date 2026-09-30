@@ -52,7 +52,7 @@ import {
   submitDraft,
 } from "./extension";
 import { button, carryOver, composer, el, message, report, type Deletion } from "./dom";
-import { eventsKey, hasMargin, messages, resolvedBy, stackCards, visibleThreads } from "./model";
+import { eventsKey, hasMargin, keepInView, messages, resolvedBy, stackCards, visibleThreads } from "./model";
 
 /** The margin the note gives up when it has comments: the card width plus air. */
 export const RAIL_RESERVE = 300;
@@ -106,8 +106,16 @@ class Rail implements PluginValue {
     this.dom = el("div", "cm-cmt-rail");
     this.dom.setAttribute("aria-label", "Comments");
     view.scrollDOM.append(this.dom);
+    // A card kept on screen follows the scroll (`keepInView`).
+    view.scrollDOM.addEventListener("scroll", this.onScroll, { passive: true });
     this.sync();
   }
+
+  private readonly onScroll = () => {
+    if (this.wide && this.cards.size > 0) {
+      this.view.requestMeasure({ key: this, read: () => this.measure(), write: (layout) => this.place(layout) });
+    }
+  };
 
   update(update: ViewUpdate) {
     const uiChanged = update.startState.field(commentUi) !== update.state.field(commentUi);
@@ -121,6 +129,7 @@ class Rail implements PluginValue {
 
   destroy() {
     this.destroyed = true;
+    this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
     this.dom.remove();
   }
 
@@ -228,7 +237,9 @@ class Rail implements PluginValue {
       const block = view.lineBlockAt(Math.min(card.pos, length));
       return { id, top: block.top + offset, height: card.node.offsetHeight };
     });
-    return { cards, columnRight, centredRight, offset, gutter };
+    // What is on screen, in the same coordinates as the cards, less a little air.
+    const visible = { top: scroller.scrollTop, bottom: scroller.scrollTop + scroller.clientHeight - CARD_GAP };
+    return { cards, columnRight, centredRight, offset, gutter, visible };
   }
 
   private place(layout: ReturnType<Rail["measure"]>) {
@@ -248,10 +259,8 @@ class Rail implements PluginValue {
       // Against where the column is going, not where it is mid-ease.
       const left = (layout.centredRight === null ? layout.columnRight : layout.centredRight - shift) + CARD_GAP;
       const focus = this.cards.has(DRAFT) ? DRAFT : active;
-      const placed = stackCards(
-        layout.cards.map((card) => ({ id: card.id, want: card.id === HEAD ? layout.offset : card.top, height: card.height })),
-        focus,
-      );
+      const wanted = layout.cards.map((card) => ({ id: card.id, want: card.id === HEAD ? layout.offset : card.top, height: card.height }));
+      const placed = keepInView(stackCards(wanted, focus), wanted, layout.visible);
       for (const { id, top } of placed) {
         const node = this.cards.get(id)?.node;
         if (!node) continue;
