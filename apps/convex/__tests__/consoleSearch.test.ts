@@ -409,6 +409,33 @@ describe("the console's search", () => {
     ).rejects.toThrow();
   });
 
+  /*
+    "Search in Projects" on a phone (2026-09-30) is this prefix. The folder
+    path is normalized without its trailing slash, so it has to be put back
+    before the index compares paths, or `1-projects` also finds every note in
+    a sibling named `1-projects-old` and a root note named `1-projects-notes.md`.
+  */
+  test("a prefix is a folder, never the start of a sibling's name", async () => {
+    const store = bucket();
+    store.seed("1-projects-old/plan.md", "# Old plan\n\nThe quokkaplan was cancelled.\n");
+    store.seed("1-projects-notes.md", "# Notes\n\nA quokkaplan aside.\n");
+
+    for (const prefix of ["1-projects", "1-projects/"]) {
+      const narrowed = await settled(store, { query: "quokkaplan", prefix, clearance: clearanceOf("private") });
+      expect(narrowed.hits.map((hit) => hit.path)).toEqual(["1-projects/shared-plan.md"]);
+    }
+
+    // The projection must mean the same thing.
+    const stub = await projected(store);
+    forgetR2Index(store);
+    const fast = await searchNotes(
+      store,
+      { query: "quokkaplan", prefix: "1-projects/", clearance: clearanceOf("private") },
+      stub.client,
+    );
+    expect(fast.hits.map((hit) => hit.path)).toEqual(["1-projects/shared-plan.md"]);
+  });
+
   test("an empty query is not a search for everything", async () => {
     const store = bucket();
     const found = await searchNotes(store, { query: "   ", clearance: clearanceOf("private") });
