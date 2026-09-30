@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { tap, tapFolderOnHome } from "./helpers";
+import { tap, tapFolderOnHome, tapRow } from "./helpers";
 
 /**
  * The board message's own card, never its thread heading — a thread with one
@@ -54,11 +54,11 @@ test("Inbox is an ordinary folder, listing each channel as a folder row", async 
 
 test("a channel's days, and a day's messages grouped by thread", async ({ page }) => {
   await openInbox(page);
-  await tap(page, "email, folder");
-  await tap(page, "name-at-example-com, folder");
+  await tapRow(page, "email");
+  await tapRow(page, "name-at-example-com");
 
   // The mailbox is an ordinary folder listing its two days.
-  await tap(page, "2026-09-07");
+  await tapRow(page, "2026-09-07");
 
   // The Channel-day view: threads, and a message in each with its sender,
   // subject and body — this is the "day" stop of the walk.
@@ -81,10 +81,10 @@ test("following a contact's activity link scrolls the channel-day to that messag
   page,
 }) => {
   await openInbox(page);
-  await tap(page, "contacts, folder");
+  await tapRow(page, "contacts");
 
   // The generic folder listing, showing the one contact page.
-  await tap(page, "adam-okonkwo");
+  await tapRow(page, "adam-okonkwo");
 
   // The Contact page: identifiers, and one activity link into the day the
   // board message landed on.

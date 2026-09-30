@@ -26,6 +26,19 @@ export async function tapFolderOnHome(page: Page, name: string): Promise<void> {
 }
 
 /**
+ * Tap a row of a phone's folder page by the name it shows, whatever its
+ * count, date or first line says beside it (board 07 puts those in the row's
+ * accessible name too, the way Home's lines carry their counts).
+ */
+export async function tapRow(page: Page, name: string): Promise<void> {
+  const row = page.getByTestId("folder-row").filter({ has: page.getByText(name, { exact: true }) });
+  await row.first().waitFor();
+  const box = await row.first().boundingBox();
+  if (box === null) throw new Error(`no row "${name}" to tap`);
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+/**
  * From the fixture's landing note to `2-areas/weekly-review.md` — the note
  * `placeholderData.ts` carries the wikilink, the two tasks and the long
  * bullet on. Pressing through the real tree is what a person does, and it
