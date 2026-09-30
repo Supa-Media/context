@@ -370,11 +370,11 @@ describe("the search box", () => {
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const text = host.textContent ?? "";
-    // Integrations is where Gmail lives — the mailboxes we read, the
+    // Connected apps is where Gmail lives — the mailboxes we read, the
     // forwarding address, the calendars and the chats, on one screen. What the
     // box has to do is land on it from the word people actually type, which is
     // never our word for the section.
-    expect(text).toContain("Integrations");
+    expect(text).toContain("Connected apps");
     expect(text).not.toContain("Delete account");
   });
 });
@@ -391,9 +391,9 @@ describe("the list is one press away, and it navigates", () => {
     for (const label of [
       "General",
       "Activity",
-      "Sharing & Access",
-      "Storage",
-      "Integrations",
+      "People & sharing",
+      "Storage & search",
+      "Connected apps",
       "Meetings",
     ]) {
       expect(text).toContain(label);
@@ -439,6 +439,9 @@ describe("the list is the context switcher too", () => {
     const host = overlay("workspace", () => {}, () => {}, { onSwitchContext });
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    act(() => {
+      (host.querySelector('[data-testid="settings-workspace-switcher"]') as HTMLElement).click();
     });
     return host;
   }
@@ -491,26 +494,21 @@ describe("the list is the context switcher too", () => {
  *
  *  - `settingsPreview` returning `null` for everything — the rows go back to
  *    being labels, and the reason for the whole change is gone;
- *  - the scope chips moving back below the sections, or the sections nesting
+ *  - the workspace switcher leaving "This workspace", or the sections nesting
  *    inside a context row again;
  *  - `Overlay` rendering `title` on a phone's section screen again;
  *  - a second row lit at the same time as the section, which is what the two
  *    stacked highlight bands were.
  */
 describe("a row says what it is set to", () => {
-  test("Storage carries the bucket it is bound to, in the list", () => {
+  test("Storage carries its verdict, in the list", () => {
     const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
     const row = host.querySelector('[data-testid="settings-section-storage"]');
     expect(row).not.toBeNull();
-    /*
-      The demo binds a bucket, so this is the real label rather than an
-      absence. `storagePillLabel` builds it, and its own tests pin the string
-      — what this pins is that the *row* carries it, which is the difference
-      between a list of destinations and a list of answers.
-    */
+    // The words are `previews.ts`'s to pin; this pins that the row carries them.
     expect(row!.textContent ?? "").toContain("Storage");
     expect((row!.textContent ?? "").replace("Storage", "").trim()).not.toBe("");
   });
@@ -529,7 +527,7 @@ describe("a row says what it is set to", () => {
   });
 });
 
-describe("the contexts are a scope bar above the sections", () => {
+describe("the workspace is one switcher, under This workspace", () => {
   function listed(host: HTMLElement, selector: string): number {
     const node = host.querySelector(selector);
     if (node === null) throw new Error(`no ${selector}`);
@@ -538,15 +536,14 @@ describe("the contexts are a scope bar above the sections", () => {
     return Array.prototype.indexOf.call(host.querySelectorAll("*"), node);
   }
 
-  test("every context comes before the first section row", () => {
+  test("after your account's rows and before the workspace's", () => {
     const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    const firstSection = listed(host, '[data-testid^="settings-section-"]');
-    for (const slug of ["seyi", "lk", "public-worship"]) {
-      expect(listed(host, `[data-testid="settings-context-${slug}"]`)).toBeLessThan(firstSection);
-    }
+    const switcher = listed(host, '[data-testid="settings-workspace-switcher"]');
+    expect(listed(host, '[data-testid="settings-section-feedback"]')).toBeLessThan(switcher);
+    expect(switcher).toBeLessThan(listed(host, '[data-testid="settings-section-workspace"]'));
   });
 
   test("one thing is lit at a time", () => {
@@ -572,6 +569,9 @@ describe("the contexts are a scope bar above the sections", () => {
       reading `aria-selected` here would have passed on a list that announced
       nothing. Checked against the rendered DOM before this was written.
     */
+    act(() => {
+      (host.querySelector('[data-testid="settings-workspace-switcher"]') as HTMLElement).click();
+    });
     const chips = host.querySelectorAll('[data-testid^="settings-context-"][aria-current="true"]');
     expect(chips).toHaveLength(1);
   });
@@ -914,10 +914,10 @@ describe("what a non-owner is told instead of the controls", () => {
       container.querySelector('[data-testid="audit-detail-net-1"]')?.textContent?.replace(/[\u2066-\u2069]/g, ""),
     ).toBe("youversion-linker · www.bible.com · GET · 200");
     // And the row beside it, whose details the server also sent, draws only
-    // the note's folder, never those details.
+    // its sentence (no second line at all), never those details.
     expect(
-      container.querySelector('[data-testid="audit-detail-write-1"]')?.textContent?.replace(/[\u2066-\u2069]/g, ""),
-    ).toBe("1-projects");
+      container.querySelector('[data-testid="audit-detail-write-1"]'),
+    ).toBeNull();
     expect(container.textContent ?? "").not.toContain("conflictCheck");
   });
 

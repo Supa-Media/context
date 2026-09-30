@@ -1,4 +1,5 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useCallback, useState, type ReactNode } from "react";
+import { useConvex } from "convex/react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Dot } from "../../design/components/Dot";
 import { Icon, type IconName } from "../../design/components/Icon";
@@ -8,6 +9,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { atName } from "../format";
 import { selectedContext, type ConsoleContext, type ConsoleData } from "../types";
 import { settingsPreview } from "./previews";
+import { LiveRowValueSource, type LiveRowValues } from "./liveRowValues";
 import {
   matchSettingsSections,
   type SettingsSectionKey,
@@ -36,24 +38,13 @@ import {
  *  - **a trailing value**, from `settingsPreview`, which is a claim and
  *    therefore has its own module and its own tests.
  *
- * ## The contexts are a scope bar, not rows
+ * ## The workspace is one switcher, not rows
  *
- * They used to be a group at the *foot* of the list, with the open one's
- * sections nested inside its row. Three things were wrong with that. A
- * context is a scope selector, not a setting, so it was filed under the thing
- * it governs. The list's depth changed as you switched, because the nesting
- * moved. And the open context and its open section were two highlight bands
- * stacked directly on top of each other — the old `contextOn`/`rowOn` pair,
- * whose comment worried they "read as one selection spanning both". On a
- * phone they did.
- *
- * Lifted to chips under the search field, all of that goes: every context's
- * health dot is in the first screenful rather than three screens down, the
- * list is flat, and there is exactly one selection left to draw.
- *
- * Chips **wrap** rather than scrolling sideways. A horizontal scroller nested
- * in a vertical one is a gesture fight on both platforms, and the whole point
- * of the row is that a broken workspace is visible without one.
+ * Workspaces used to be a group at the foot of the list with the open one's
+ * sections nested inside its row, then a bar of chips above both groups. A
+ * workspace is a scope, not a setting, so it is neither: it is one box under
+ * "This workspace", saying which workspace every row below it is about, and
+ * opening to the others with the health dot each one carries.
  */
 export function SettingsList({
   data,
@@ -85,13 +76,28 @@ export function SettingsList({
   const current = selectedContext(data);
   const shown = matchSettingsSections(sections, query);
   const searching = query.trim() !== "";
+  /*
+    Plan and Website read subscriptions, so they come from a component mounted
+    only where there is a client (see `PremiumPanel` for the same split). The
+    demo console has none, and shows the free plan and no website, which is
+    what its own panels say.
+  */
+  const client = useConvex();
+  const [live, setLive] = useState<LiveRowValues>({});
+  const onValues = useCallback((next: LiveRowValues) => setLive(next), []);
+  const subscribing = !data.demo && client !== undefined && current !== null;
+  const value = (key: SettingsSectionKey): string | null => {
+    if (key === "premium") return data.demo ? "Free" : (live.premium ?? null);
+    if (key === "website") return data.demo ? "Off" : (live.website ?? null);
+    return settingsPreview(key, data);
+  };
 
   const row = (entry: SettingsSectionSpec) => (
     <SettingsRow
       key={entry.key}
       icon={entry.icon}
       label={entry.label}
-      value={settingsPreview(entry.key, data)}
+      value={value(entry.key)}
       selected={entry.key === active}
       compact={compact}
       testID={`settings-section-${entry.key}`}
@@ -156,19 +162,22 @@ export function SettingsList({
   );
 
   /**
-   * The open context's own heading — its name, not a category.
+   * "This workspace", and under it the one switcher that picks which.
    *
-   * "Overview" and "Premium" belong to no group in the catalogue (`group:
-   * null`), and under a bare card they read as more account settings. Naming
-   * the scope here is what says that everything from this heading down is
-   * about @seyi and not about the person.
+   * The settings artboard (2026-09-29, approved): the list is two groups, your
+   * account and then this workspace, and the workspace is chosen from one box
+   * rather than a row of chips above both groups. Chips put three workspaces'
+   * names above the person's own settings, and a dot on each; the box says
+   * which workspace everything below it is about, in the place it applies.
    */
   const contextHeading = current === null ? null : (
-    <View style={styles.contextHeading}>
-      <Dot tone={current.status} />
-      <Text variant="listGroup" style={styles.headingInline}>
-        {`${atName(current.slug)} · ${current.kind === "shared" ? "shared" : "yours"}`}
-      </Text>
+    <View>
+      {heading("This workspace")}
+      <WorkspaceSwitcher
+        contexts={data.contexts}
+        current={current}
+        onSwitchContext={onSwitchContext}
+      />
     </View>
   );
 
@@ -203,6 +212,9 @@ export function SettingsList({
 
   return (
     <View style={styles.wrap}>
+      {subscribing ? (
+        <LiveRowValueSource workspaceId={current.id} onValues={onValues} />
+      ) : null}
       {/*
         The box is here because a list only works when our name for a thing is
         the reader's. Somebody looking for Gmail does not know it is under
@@ -243,11 +255,6 @@ export function SettingsList({
           )
         ) : (
           <>
-            <ScopeBar
-              contexts={data.contexts}
-              currentId={current?.id ?? null}
-              onSwitchContext={onSwitchContext}
-            />
             {group(
               heading("Your account"),
               sections.filter((entry) => entry.scope === "account"),
@@ -262,56 +269,82 @@ export function SettingsList({
 }
 
 /**
- * Every context this person can reach, with the health of each.
+ * The workspace this list is about, and a menu of the others.
  *
- * The dot is why this is a chip and not a menu button: the list is the only
- * surface that says *which* workspace is broken, and a picker you have to
- * open first sends somebody looking one at a time — the argument the old
- * context rows carried, kept.
+ * Closed, it is one box: the workspace's letter, its @name and whether it is
+ * personal or shared. Open, it lists every workspace this person can reach with
+ * the health dot each chip used to carry, so a broken one is still one press
+ * away rather than a workspace-by-workspace search.
  */
-function ScopeBar({
+function WorkspaceSwitcher({
   contexts,
-  currentId,
+  current,
   onSwitchContext,
 }: {
   contexts: readonly ConsoleContext[];
-  currentId: string | null;
+  current: ConsoleContext;
   onSwitchContext?: (slug: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  if (contexts.length === 0) return null;
+  const colors = useColors();
+  const [open, setOpen] = useState(false);
+  const kind = (context: ConsoleContext) => (context.kind === "shared" ? "Shared" : "Personal");
   return (
-    <View style={styles.scopeBar}>
-      {contexts.map((context) => {
-        const open = context.id === currentId;
-        return (
-          <Pressable
-            key={context.id}
-            /*
-              A `button` with a selected state, not a `tab`: ARIA requires a
-              `tab` to be owned by a `tablist`, `aria-selected` is web-only,
-              and iOS maps the role to no trait at all — so an orphan tab
-              announces its label with no position and no state. What
-              `ConsoleRail`'s rows do, for the same reason.
-            */
-            accessibilityRole="button"
-            accessibilityState={{ selected: open }}
-            // See `SettingsRow` for why both, and which platform reads which.
-            aria-current={open ? "true" : undefined}
-            accessibilityLabel={atName(context.slug)}
-            testID={`settings-context-${context.slug}`}
-            onPress={() => {
-              if (!open) onSwitchContext?.(context.slug);
-            }}
-            style={[styles.chip, open ? styles.chipOn : null]}
-          >
-            <Dot tone={context.status} />
-            <Text variant="wsSwitch" style={open ? styles.chipLabelOn : styles.chipLabel}>
-              {atName(context.slug)}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.switcherWrap}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${atName(current.slug)}, ${kind(current)} workspace. Switch workspace`}
+        aria-expanded={open}
+        onPress={() => setOpen((was) => !was)}
+        style={styles.switcher}
+        testID="settings-workspace-switcher"
+      >
+        <View style={styles.tile}>
+          <Text variant="rowSub" style={styles.tileLetter}>
+            {(current.slug[0] ?? "?").toUpperCase()}
+          </Text>
+        </View>
+        <Text variant="rowTitle" numberOfLines={2} style={styles.switcherName}>
+          {atName(current.slug)}
+        </Text>
+        <Text variant="rowSub" style={styles.switcherKind}>
+          {kind(current)}
+        </Text>
+        <Icon name={open ? "chevronUp" : "chevronDown"} size={13} color={colors.muted} />
+      </Pressable>
+      {open ? (
+        <View style={styles.menu} testID="settings-workspace-menu">
+          {contexts.map((context) => {
+            const here = context.id === current.id;
+            return (
+              <Pressable
+                key={context.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: here }}
+                // See `SettingsRow` for why both, and which platform reads which.
+                aria-current={here ? "true" : undefined}
+                accessibilityLabel={atName(context.slug)}
+                testID={`settings-context-${context.slug}`}
+                onPress={() => {
+                  setOpen(false);
+                  if (!here) onSwitchContext?.(context.slug);
+                }}
+                style={[styles.menuRow, here ? styles.rowOn : null]}
+              >
+                <Dot tone={context.status} />
+                <Text variant="rail" numberOfLines={1} style={styles.label}>
+                  {atName(context.slug)}
+                </Text>
+                <View style={styles.spacer} />
+                <Text variant="rowSub" style={styles.value}>
+                  {kind(context)}
+                </Text>
+                {here ? <Icon name="check" size={13} color={colors.accent} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -519,25 +552,44 @@ const makeStyles = (colors: Colors) =>
     // Capped, so a long bucket name truncates instead of squeezing the label
     // it is supposed to be answering.
     value: { flexShrink: 1, maxWidth: "48%", textAlign: "right", color: colors.muted },
-    scopeBar: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: space.x2,
-      marginTop: space.x2,
-      paddingHorizontal: space.x1,
-    },
-    chip: {
+    switcherWrap: { marginBottom: space.x2 },
+    switcher: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 6,
-      minHeight: 32,
+      gap: space.x2,
+      minHeight: 40,
+      paddingVertical: space.x2,
       paddingHorizontal: space.x3,
-      borderRadius: radii.pill,
+      borderRadius: radii.sm,
       borderWidth: 1,
       borderColor: colors.line,
-      backgroundColor: colors.surface2,
+      backgroundColor: colors.surface,
     },
-    chipOn: { backgroundColor: colors.accentDim, borderColor: colors.accent },
-    chipLabel: { color: colors.text2 },
-    chipLabelOn: { color: colors.accentText, fontWeight: "600" },
+    tile: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.accentDim,
+    },
+    tileLetter: { color: colors.accentText, fontWeight: "700" },
+    switcherName: { flexShrink: 1 },
+    switcherKind: { marginLeft: "auto", color: colors.muted },
+    menu: {
+      marginTop: space.x1,
+      paddingVertical: space.x1,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.surface,
+    },
+    menuRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      minHeight: 32,
+      paddingHorizontal: space.x3,
+      borderRadius: radii.xs,
+    },
   });

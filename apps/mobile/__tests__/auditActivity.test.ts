@@ -42,7 +42,9 @@ describe("the activity page", () => {
       verb: "edited",
       subject: "board-update",
     });
-    expect(page.days[0]?.rows[0]?.detail).toBe("1-projects");
+    // One note gets no folder line: the artboard drew the sentence alone.
+    expect(page.days[0]?.rows[0]?.detail).toBeNull();
+    expect(page.hiddenRoutineToday).toBe(true);
   });
 
   test("asked for, routine sign-ins come back and fold into one row", () => {
@@ -131,6 +133,20 @@ describe("the activity page", () => {
       { filter: "all", showRoutine: false, now: NOW, names },
     );
     expect(many.days[0]?.rows[0]?.sentence.subject).toBe("one and 2 more");
+    expect(many.days[0]?.rows[0]?.notes).toEqual(["one", "two", "three"]);
+
+    // All in one folder: a count and the folder, as "added 3 notes to Inbox".
+    const inbox = buildActivity(
+      [event({ paths: ["0-inbox/a.md", "0-inbox/b.md", "0-inbox/c.md"] })],
+      { filter: "all", showRoutine: false, now: NOW, names },
+    );
+    expect(inbox.days[0]?.rows[0]?.sentence).toEqual({
+      actor: "Seyi",
+      verb: "edited",
+      subject: "3 notes",
+      rest: " in 0-inbox",
+    });
+    expect(inbox.days[0]?.rows[0]?.notes).toHaveLength(3);
 
     const moved = buildActivity(
       [event({ action: "file.move", paths: ["0-inbox/plan.md", "1-projects/plan.md"] })],
@@ -154,11 +170,51 @@ describe("the activity page", () => {
     expect(buildActivity([], { filter: "all", showRoutine: false, now: NOW })).toEqual({
       days: [],
       hiddenRoutine: 0,
+      hiddenRoutineToday: false,
+      people: [],
     });
   });
 });
 
+describe("the person filter", () => {
+  test("offers everybody in the trail, and keeps only the one picked", () => {
+    const trail = [
+      event({ at: NOW - MINUTE }),
+      event({ actorUserId: "u2", actorEmail: "lk@example.com", at: NOW - 2 * MINUTE }),
+      event({ actorUserId: undefined, actorEmail: undefined, actorClientId: "Claude", at: NOW - 3 * MINUTE }),
+      renewal(NOW - 4 * MINUTE),
+    ];
+    const everyone = buildActivity(trail, { filter: "all", showRoutine: false, now: NOW, names });
+    expect(everyone.people).toEqual(["Seyi", "lk@example.com", "Claude"]);
+
+    const lk = buildActivity(trail, { filter: "all", showRoutine: false, now: NOW, names, who: "lk@example.com" });
+    expect(lk.days.flatMap((day) => day.rows.map((row) => row.actor.name))).toEqual(["lk@example.com"]);
+    // Seyi's hidden sign-in is not LK's to count.
+    expect(lk.hiddenRoutine).toBe(0);
+    // The menu still lists everybody, so the pick can be changed.
+    expect(lk.people).toEqual(everyone.people);
+  });
+
+  test("an older hidden sign-in stops the line saying today", () => {
+    const page = buildActivity([renewal(NOW - MINUTE), renewal(NOW - 30 * HOUR)], {
+      filter: "all",
+      showRoutine: false,
+      now: NOW,
+      names,
+    });
+    expect(page.hiddenRoutine).toBe(2);
+    expect(page.hiddenRoutineToday).toBe(false);
+  });
+});
+
 describe("who the sentence names", () => {
+  test("an event that carries only an address still gets the member's name", () => {
+    const byEmail = new Map([["seyi@example.com", "Seyi"]]);
+    expect(activityActor(event({ actorUserId: undefined, actorEmail: "Seyi@Example.com" }), byEmail).name).toBe(
+      "Seyi",
+    );
+  });
+
   test("a member's name, then their email, then an AI app, never a raw id", () => {
     expect(activityActor(event({}), names)).toEqual({ name: "Seyi", isAgent: false });
     expect(activityActor(event({ actorUserId: "u9" }), names).name).toBe("seyi@example.com");

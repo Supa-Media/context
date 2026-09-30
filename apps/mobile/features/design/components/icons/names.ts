@@ -372,6 +372,10 @@ export const ICON_NAMES = [
    * chat — which this app already has.
    */
   "bug",
+  /** The Emoji settings row: a smiling face, so it no longer borrows Model's sparkle. */
+  "smile",
+  /** The General settings row: the workspace itself. */
+  "home",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];

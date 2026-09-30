@@ -1,4 +1,4 @@
-import { storagePillLabel } from "../storage/pill";
+import { storageVerdict } from "./panels/StorageHealth";
 import { pluginsPreview } from "../plugins/plugins";
 import type { ConsoleData } from "../types";
 import type { SettingsSectionKey } from "./sections";
@@ -84,7 +84,7 @@ export function settingsPreview(
         that is true on its own.
       */
       if (data.loading) return null;
-      return data.clients.length === 0 ? "None" : `${data.clients.length} active`;
+      return data.clients.length === 0 ? "None" : String(data.clients.length);
     }
 
     case "sharing": {
@@ -105,14 +105,14 @@ export function settingsPreview(
 
     case "storage":
       /*
-        The binding, not the index. `null` in, `null` out, for both of the
-        absences it covers — and the index has no claim on this row even
-        though it is now a block on the screen: "R2 · notes-bucket" answers
-        where the notes are, which is what somebody reading the row wants, and
-        a second clause about the index would be the row trying to be the
-        panel.
+        The verdict, not the address: "Healthy" is the question somebody
+        glancing down the list has, and "R2 · notes-bucket" is the answer to a
+        question they ask once, inside the section. The same word the section
+        leads with (`storageVerdict`), so the row and the card never disagree.
+        `null` and `undefined` are both absences and say nothing.
       */
-      return storagePillLabel(data.storage);
+      if (data.storage === null || data.storage === undefined) return null;
+      return storageVerdict(data.storage, data.storage.status === "error").pill;
 
     case "plugins":
       /*

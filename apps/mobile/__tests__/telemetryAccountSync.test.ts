@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 /**
- * The Feedback & diagnostics switches following the account.
+ * The Feedback switches following the account.
  *
  * What has to hold, because each one is somebody's telemetry going somewhere
  * they said it should not:

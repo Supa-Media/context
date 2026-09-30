@@ -400,30 +400,48 @@ const DEMO_SHARES: Record<string, ConsoleShare[]> = {
  */
 function demoAuditEvents(contextId: string, now: number): ConsoleAuditEvent[] {
   switch (contextId) {
-    case "seyi":
+    case "seyi": {
+      const MIN = 60 * 1000;
+      const HOUR = 60 * MIN;
+      const renewal = (id: string, ago: number): ConsoleAuditEvent => ({
+        eventId: id,
+        actorClientId: "Context",
+        action: "agent.session.renewed",
+        paths: [],
+        at: now - ago,
+      });
+      // The artboard's page: a person, an AI app filing several notes, a
+      // share, and yesterday an invitation, a connection and a batch of edits.
       return [
-        {
-          eventId: "e1",
-          actorEmail: "seyi@example.com",
-          action: "file.write",
-          paths: ["1-projects/board-update.md"],
-          at: now - 4 * 60 * 1000,
-        },
+        { eventId: "e1", actorEmail: "seyi@example.com", action: "file.write", paths: ["1-projects/board-update.md"], at: now - 4 * MIN },
+        renewal("r1", 10 * MIN),
         {
           eventId: "e2",
-          actorEmail: "seyi@example.com",
-          action: "share.created",
-          paths: ["1-projects/board-update.md"],
-          at: now - 2 * 60 * 60 * 1000,
-        },
-        {
-          eventId: "e3",
-          actorClientId: "Claude Desktop",
+          actorClientId: "Claude",
           action: "file.write",
-          paths: ["0-inbox/meeting-notes.md"],
-          at: now - 24 * 60 * 60 * 1000,
+          paths: ["0-inbox/call-with-dayo.md", "0-inbox/receipts.md", "0-inbox/reading-list.md"],
+          at: now - 22 * MIN,
+        },
+        renewal("r2", 40 * MIN),
+        { eventId: "e3", actorEmail: "lk@example.com", action: "share.created", paths: ["1-projects/launch-plan.md"], at: now - 1 * HOUR },
+        renewal("r3", 2 * HOUR),
+        { eventId: "e4", actorEmail: "seyi@example.com", action: "member.invited", paths: [], at: now - 24 * HOUR },
+        { eventId: "e5", actorEmail: "seyi@example.com", action: "grant.created", paths: [], at: now - 27 * HOUR },
+        {
+          eventId: "e6",
+          actorEmail: "ade@example.com",
+          action: "file.write",
+          paths: [
+            "2-areas/worship/sunday-setlist.md",
+            "2-areas/worship/rota.md",
+            "1-projects/board-update.md",
+            "3-resources/chords.md",
+            "0-inbox/ideas.md",
+          ],
+          at: now - 30 * HOUR,
         },
       ];
+    }
     case "pw":
       return [
         {

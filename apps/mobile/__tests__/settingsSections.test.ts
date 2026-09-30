@@ -52,38 +52,39 @@ describe("which sections a context has", () => {
 });
 
 describe("the order and the grouping", () => {
-  test("the list reads in the order somebody asks the questions", () => {
+  test("the list reads in the artboard's order", () => {
     /*
-      Eight rows, and the order is the argument: who you are, which context
-      this is, where its notes are kept, what fills them, what answers in them,
-      what records a meeting into them, what it costs, and who else can see it.
-      Storage moved up when Search became a block on it — it is where notes
-      live, not a footnote — and Premium sits above Sharing because it is about
-      the context as a whole.
-
-      Model sits between Integrations and Meetings deliberately. Everything in
-      Integrations reads *into* this context; Model is the one row that spends
-      money on the person's own account, so it is next to them and not inside
-      them — and it is above Meetings because a meeting is a thing you open on
-      purpose while a model is configured once.
+      The approved settings artboard (2026-09-29) fixes the order: who you
+      are, then this workspace — what it is, who is in it, which apps reach
+      it, what they did, where its notes are kept, what it costs, what it
+      publishes — and then the rows set once and left: meetings, the model,
+      emoji.
     */
     const keys: readonly string[] = SETTINGS_SECTIONS.map((section) => section.key);
     const rank = (key: string) => keys.indexOf(key);
-    expect(rank("profile")).toBeLessThan(rank("workspace"));
-    expect(rank("workspace")).toBeLessThan(rank("storage"));
-    expect(rank("storage")).toBeLessThan(rank("integrations"));
-    expect(rank("integrations")).toBeLessThan(rank("model"));
-    expect(rank("model")).toBeLessThan(rank("meetings"));
-    expect(rank("meetings")).toBeLessThan(rank("premium"));
-    expect(rank("premium")).toBeLessThan(rank("sharing"));
-    // Who can see it, then the address the world types: widening order.
-    expect(rank("sharing")).toBeLessThan(rank("website"));
+    const order = [
+      "profile",
+      "feedback",
+      "workspace",
+      "sharing",
+      "integrations",
+      "activity",
+      "storage",
+      "premium",
+      "website",
+      "meetings",
+      "model",
+      "emoji",
+    ];
+    for (let i = 1; i < order.length; i += 1) {
+      expect(rank(order[i - 1])).toBeLessThan(rank(order[i]));
+    }
   });
 
   test("twelve rows, and one of them only when it has something to say", () => {
     // The whole of the change: twenty rows under four headings became seven
     // under none, Model made it eight, and Emoji (the workspace's own, which
-    // the : menu offers) made it ten. Feedback & diagnostics (early-beta
+    // the : menu offers) made it ten. Feedback (early-beta
     // telemetry switches and the report, 2026-09-29) made it eleven, beside
     // Profile because both are about the person. Activity (the audit trail as
     // sentences, out of Workspace's "Advanced" block, 2026-09-29) made it
@@ -94,14 +95,14 @@ describe("the order and the grouping", () => {
       "profile",
       "feedback",
       "workspace",
-      "storage",
-      "integrations",
-      "model",
-      "meetings",
-      "premium",
       "sharing",
+      "integrations",
       "activity",
+      "storage",
+      "premium",
       "website",
+      "meetings",
+      "model",
       "emoji",
     ]);
     expect(

@@ -22,6 +22,10 @@
  * So most of what follows is the negative half: what the row must NOT say.
  */
 
+import type { WebsiteStateView } from "@context/shared";
+import { planRowValue, websiteRowValue } from "../features/console/settings/liveRowValues";
+import type { PremiumStatus } from "../features/console/settings/panels/premium";
+import { demoPremiumView } from "../features/console/settings/panels/premiumViews";
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 jest.mock("convex/react", () => ({
@@ -78,21 +82,27 @@ describe("a value is never invented out of an absence", () => {
     expect(settingsPreview("storage", { ...base, storage: null })).toBeNull();
   });
 
-  test("a connected bucket says which one, in the words the pill already uses", () => {
+  test("a connected bucket says the verdict the Storage section leads with", () => {
+    // The same word as the section's own card, so the row and the card
+    // cannot disagree; which bucket is a detail inside the section.
     const base = demoData();
-    const preview = settingsPreview(
-      "storage",
-      {
+    const bound = (over: Partial<NonNullable<ConsoleData["storage"]>>) =>
+      settingsPreview("storage", {
         ...base,
         storage: {
           ...(base.storage ?? ({} as NonNullable<ConsoleData["storage"]>)),
           provider: "r2",
           bucket: "notes-bucket",
           connected: true,
+          conditionalWrite: true,
+          status: "connected",
+          ...over,
         },
-      },
-    );
-    expect(preview).toBe("R2 · notes-bucket");
+      });
+    expect(bound({})).toBe("Healthy");
+    // A bucket that cannot stop two saves colliding is working, not healthy.
+    expect(bound({ conditionalWrite: false })).toBe("Working");
+    expect(bound({ status: "error" })).toBe("Needs attention");
   });
 
   test("invitations that have not loaded are not zero invitations", () => {
@@ -205,5 +215,26 @@ describe("the rows that can answer, do", () => {
     // The scope heading names the context one line up. A row repeating it is
     // the same word twice, which is the defect this whole change is about.
     expect(settingsPreview("workspace", demoData())).toBeNull();
+  });
+});
+
+describe("Plan and Website, read from their own subscriptions", () => {
+  const plan = (over: Partial<PremiumStatus>): PremiumStatus =>
+    ({ ...demoPremiumView().status!, canManage: true, ...over }) as PremiumStatus;
+
+  test("Plan says what the section's pill says, and nothing before it lands", () => {
+    expect(planRowValue(null)).toBeNull();
+    expect(planRowValue(plan({ status: "none" }))).toBe("Free");
+    expect(planRowValue(plan({ status: "active" }))).toBe("Premium");
+    // A status this build does not know is never "Free".
+    expect(planRowValue(plan({ status: "someday" }))).toBeNull();
+    // A member is not told the owner's card was declined, here either.
+    expect(planRowValue(plan({ status: "past_due", canManage: false }))).toBe("Not active");
+  });
+
+  test("Website is On or Off once the server has answered", () => {
+    expect(websiteRowValue(undefined)).toBeNull();
+    expect(websiteRowValue({ state: "enabled" } as WebsiteStateView)).toBe("On");
+    expect(websiteRowValue({ state: "disabled" } as WebsiteStateView)).toBe("Off");
   });
 });

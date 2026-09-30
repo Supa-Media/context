@@ -8,7 +8,7 @@ import {
 } from "./preferences";
 
 /**
- * Keeps this device's Feedback & diagnostics switches in step with the account's
+ * Keeps this device's Feedback switches in step with the account's
  * copy (`functions/telemetry.ts`), so a switch turned off anywhere holds
  * everywhere.
  *

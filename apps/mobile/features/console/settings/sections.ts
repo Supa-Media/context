@@ -155,12 +155,18 @@ export const SETTINGS_SECTIONS = [
     key: "feedback",
     keywords:
       "privacy feedback report bug problem crash error telemetry analytics tracking data collect recording replay diagnostics beta opt out",
-    label: "Feedback & diagnostics",
+    label: "Feedback",
     scope: "account",
     group: "Your account",
-    icon: "bug",
+    icon: "chat",
     personalOnly: false,
   },
+  /*
+    From here the order is the settings artboard's (2026-09-29, approved by
+    the owner): the workspace itself, who is in it, what is connected to it,
+    what happened in it, where it is kept, what it pays for, then the smaller
+    things it does.
+  */
   {
     key: "workspace",
     /*
@@ -189,120 +195,7 @@ export const SETTINGS_SECTIONS = [
       any of the rows below it are worth reading.
     */
     group: null,
-    icon: "info",
-    personalOnly: false,
-  },
-  {
-    key: "storage",
-    /*
-      The index's words are here because the index is: Search was the row
-      below this one, asking the same question one level down — where are my
-      notes kept, and where is the thing that finds them. An index is a
-      disposable derivative of the files (`CLAUDE.md` #3), so it is a block on
-      this screen rather than a row beside it, and "rebuild index" has to land
-      here or it lands nowhere.
-    */
-    keywords:
-      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
-    scope: "context",
-    label: "Storage",
-    group: null,
-    icon: "drive",
-    personalOnly: false,
-  },
-  {
-    key: "integrations",
-    /*
-      Five haystacks in one. "AI apps", Email, Calendar and Chats were four
-      rows and a group heading, and the words people type for them are the
-      words for one question: what is plugged into this context.
-
-      The provider names matter more than our nouns here — nobody types
-      "integrations" looking for Gmail — so every brand somebody might arrive
-      with is in the list, and so are the two mechanisms that have no brand at
-      all: the forwarding address, and this Mac.
-    */
-    keywords:
-      /*
-        The brand names matter more than our nouns — nobody types
-        "integrations" looking for Gmail — and the words for controls this page
-        no longer has are deliberately still here: somebody who remembers
-        choosing a folder or a sync schedule types "folder" or "every 15
-        minutes", and landing them on the page that used to ask, which now
-        states the answer, is the only way they find out it is settled.
-      */
-      "integrations integration connect connected sync app apps client claude cursor chatgpt copilot mcp assistant endpoint address revoke disconnect email gmail mailbox inbox forward forwarding capture ingestion sender allowed attachment spam mail google calendar calendars ical events event schedule agenda appointments chat chats imessage messages texts sms spaces dm direct conversation threads mac icloud folder destination lands interval minutes often frequency",
-    scope: "context",
-    label: "Integrations",
-    /*
-      Ungrouped with the other whole-context rows. The "Integrations" *group*
-      is gone: a heading and a single row beneath it reading "Integrations"
-      is the same word twice.
-    */
-    group: null,
-    icon: "grid",
-    personalOnly: false,
-  },
-  {
-    key: "model",
-    /*
-      Nobody types "model" looking for this either. They type the brand they
-      have an account with, or the thing they are trying to do — "ai", "agent",
-      "ask", "chat" — and the API-key words for the person who arrived here
-      from the connect screen with a key already on their clipboard.
-    */
-    keywords:
-      "model models ai agent assistant ask chat claude anthropic openai gpt chatgpt api key apikey token credential provider byok bring your own key llm ollama local",
-    scope: "context",
-    label: "Model",
-    /*
-      Its own row rather than a card under Integrations, and the difference is
-      what the row acts on: everything in Integrations is something reading
-      *into* this context, and this is the one thing that spends money on the
-      person's own account. A credential that bills somebody is not an
-      integration card.
-    */
-    group: null,
-    icon: "robot",
-    personalOnly: false,
-  },
-  {
-    key: "meetings",
-    keywords:
-      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
-    scope: "context",
-    label: "Meetings",
-    /*
-      Its own row, beside Integrations rather than inside it. It is the one
-      capture surface people open on purpose rather than configure once, and
-      the owner asked for it by name (2026-09-18, with Sayo).
-    */
-    group: null,
-    icon: "mic",
-    personalOnly: false,
-  },
-  {
-    key: "premium",
-    /*
-      Nobody types "premium" looking for this. They type the thing they are
-      trying to do — stop paying, change a card, find an invoice, work out why
-      storage is capped — and none of those words are on the row. "storage
-      limit" is here because the 50 GB ceiling is a Premium fact and the
-      Storage section cannot answer it.
-    */
-    keywords:
-      "billing bill upgrade paid pay payment plan price cost subscription subscribe cancel card invoice receipt stripe managed storage limit quota gb ceiling free trial money",
-    scope: "context",
-    label: "Premium",
-    /*
-      Ungrouped, directly after Overview, and above the three questions. It is
-      about this context as a whole rather than about what comes in, who can
-      see it, or where it is kept — and what it changes cuts across all three:
-      the bucket in "Your notes" can be one we run, and the index under it can
-      be the fast one.
-    */
-    group: null,
-    icon: "card",
+    icon: "home",
     personalOnly: false,
   },
   /*
@@ -359,7 +252,7 @@ export const SETTINGS_SECTIONS = [
       */
       "who can see it members people invite team access role owner editor share colleague add remove group groups everyone some set named leads folder link links shared revoke has sent unlisted anyone token url private public visible hide hidden secret permissions default privacy manifest",
     scope: "context",
-    label: "Sharing & Access",
+    label: "People & sharing",
     /*
       Ungrouped, with Overview and Premium. A heading reading "Who can see it"
       over a single row called "Sharing & Access" is the same sentence twice,
@@ -367,6 +260,39 @@ export const SETTINGS_SECTIONS = [
     */
     group: null,
     icon: "people",
+    personalOnly: false,
+  },
+  {
+    key: "integrations",
+    /*
+      Five haystacks in one. "AI apps", Email, Calendar and Chats were four
+      rows and a group heading, and the words people type for them are the
+      words for one question: what is plugged into this context.
+
+      The provider names matter more than our nouns here — nobody types
+      "integrations" looking for Gmail — so every brand somebody might arrive
+      with is in the list, and so are the two mechanisms that have no brand at
+      all: the forwarding address, and this Mac.
+    */
+    keywords:
+      /*
+        The brand names matter more than our nouns — nobody types
+        "integrations" looking for Gmail — and the words for controls this page
+        no longer has are deliberately still here: somebody who remembers
+        choosing a folder or a sync schedule types "folder" or "every 15
+        minutes", and landing them on the page that used to ask, which now
+        states the answer, is the only way they find out it is settled.
+      */
+      "integrations integration connect connected sync app apps client claude cursor chatgpt copilot mcp assistant endpoint address revoke disconnect email gmail mailbox inbox forward forwarding capture ingestion sender allowed attachment spam mail google calendar calendars ical events event schedule agenda appointments chat chats imessage messages texts sms spaces dm direct conversation threads mac icloud folder destination lands interval minutes often frequency",
+    scope: "context",
+    label: "Connected apps",
+    /*
+      Ungrouped with the other whole-context rows. The "Integrations" *group*
+      is gone: a heading and a single row beneath it reading "Integrations"
+      is the same word twice.
+    */
+    group: null,
+    icon: "grid",
     personalOnly: false,
   },
   {
@@ -385,6 +311,48 @@ export const SETTINGS_SECTIONS = [
     label: "Activity",
     group: null,
     icon: "clock",
+    personalOnly: false,
+  },
+  {
+    key: "storage",
+    /*
+      The index's words are here because the index is: Search was the row
+      below this one, asking the same question one level down — where are my
+      notes kept, and where is the thing that finds them. An index is a
+      disposable derivative of the files (`CLAUDE.md` #3), so it is a block on
+      this screen rather than a row beside it, and "rebuild index" has to land
+      here or it lands nowhere.
+    */
+    keywords:
+      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
+    scope: "context",
+    label: "Storage & search",
+    group: null,
+    icon: "drive",
+    personalOnly: false,
+  },
+  {
+    key: "premium",
+    /*
+      Nobody types "premium" looking for this. They type the thing they are
+      trying to do — stop paying, change a card, find an invoice, work out why
+      storage is capped — and none of those words are on the row. "storage
+      limit" is here because the 50 GB ceiling is a Premium fact and the
+      Storage section cannot answer it.
+    */
+    keywords:
+      "billing bill upgrade paid pay payment plan price cost subscription subscribe cancel card invoice receipt stripe managed storage limit quota gb ceiling free trial money",
+    scope: "context",
+    label: "Plan",
+    /*
+      Ungrouped, directly after Overview, and above the three questions. It is
+      about this context as a whole rather than about what comes in, who can
+      see it, or where it is kept — and what it changes cuts across all three:
+      the bucket in "Your notes" can be one we run, and the index under it can
+      be the fast one.
+    */
+    group: null,
+    icon: "card",
     personalOnly: false,
   },
   {
@@ -412,6 +380,44 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    key: "meetings",
+    keywords:
+      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
+    scope: "context",
+    label: "Meetings",
+    /*
+      Its own row, beside Integrations rather than inside it. It is the one
+      capture surface people open on purpose rather than configure once, and
+      the owner asked for it by name (2026-09-18, with Sayo).
+    */
+    group: null,
+    icon: "mic",
+    personalOnly: false,
+  },
+  {
+    key: "model",
+    /*
+      Nobody types "model" looking for this either. They type the brand they
+      have an account with, or the thing they are trying to do — "ai", "agent",
+      "ask", "chat" — and the API-key words for the person who arrived here
+      from the connect screen with a key already on their clipboard.
+    */
+    keywords:
+      "model models ai agent assistant ask chat claude anthropic openai gpt chatgpt api key apikey token credential provider byok bring your own key llm ollama local",
+    scope: "context",
+    label: "AI model",
+    /*
+      Its own row rather than a card under Integrations, and the difference is
+      what the row acts on: everything in Integrations is something reading
+      *into* this context, and this is the one thing that spends money on the
+      person's own account. A credential that bills somebody is not an
+      integration card.
+    */
+    group: null,
+    icon: "sparkle",
+    personalOnly: false,
+  },
+  {
     /*
       A workspace's own emoji: the pictures `:name:` draws as in its notes.
       A context row because the emoji belong to the workspace, like its icon.
@@ -421,7 +427,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Emoji",
     group: null,
-    icon: "sparkle",
+    icon: "smile",
     personalOnly: false,
   },
   {

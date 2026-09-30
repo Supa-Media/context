@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 /**
  * The telemetry half of in-app feedback: the activity log a report may carry,
- * and the Feedback & diagnostics switches.
+ * and the Feedback switches.
  *
  * The log is only what already went to the vendors, already cleaned — never an
  * error's message, which can quote whatever the failing code held. The switches
@@ -62,7 +62,7 @@ describe("the activity log a report can carry", () => {
   });
 });
 
-describe("the Feedback & diagnostics switches", () => {
+describe("the Feedback switches", () => {
   test("everything is on until somebody turns it off", async () => {
     expect(await prefs.loadPreferences()).toEqual({ crashReports: true, screenCounts: true, recordings: true });
   });
