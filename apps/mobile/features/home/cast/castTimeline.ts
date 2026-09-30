@@ -20,6 +20,8 @@ export function noMoments(): Record<CastMoment, number> {
   return Object.fromEntries(CAST_MOMENTS.map((moment) => [moment, 0])) as Record<CastMoment, number>;
 }
 
+const landed = (path: string) => path;
+
 /** A wall that never moves: the clock only advances by rushing. */
 const STILL: Wall = { now: () => 0, setTimeout: () => null, clearTimeout: () => {} };
 
@@ -50,6 +52,10 @@ export function castTimeline(
     instant: () => false,
     pageNamed: () => null,
     addNote: (name) => `${name}.md`,
+    // Every workspace step is timed as if it lands, so its sound is counted.
+    workspace: { addFolder: landed, move: landed, rename: landed, setStatus: landed, addTask: landed },
+    // Chats drawn nowhere, so their beats are timed as the homepage plays them.
+    chat: () => {},
     // A page it was not given is timed as an empty one.
     open: (name) => {
       const page = createSharedDoc({});

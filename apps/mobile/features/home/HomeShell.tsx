@@ -5,7 +5,7 @@ import { useJoinSlot } from "./useJoinSlot";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
-import type { CastPaceName, CastStep } from "@context/shared";
+import type { CastStep } from "@context/shared";
 import { densityFor } from "../app/frame";
 import { ConsoleFrame } from "../console/ConsoleFrame";
 import type { NoteRename } from "../console/files/browser/contract";
@@ -42,12 +42,26 @@ import { HomeMeetingHost } from "./meeting/HomeMeetingHost";
 import { useHomeMeetings } from "./meeting/useHomeMeetings";
 import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
+import { useLocalFolderLists } from "./useLocalFolderLists";
+import { CastChat } from "./cast/CastChat";
+import { space } from "../design/tokens";
+import { findPath } from "./castWorkspace";
 import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
 
 const NO_EMOJI: EmojiPictures = {};
 /** Links that mean "let me in": the page's own email field answers them. */
 const JOIN_ROUTES: ReadonlySet<string> = new Set(["/login", "/workspace/new"]);
 const NO_COLORS: ReadonlyMap<string, string> = new Map();
+
+/** A route-keyed map of the site's scenes, keyed by where each page is in the tree. */
+function byTreePath<T>(byRoute: ReadonlyMap<string, T> | undefined, paths: ReadonlyMap<string, string>): Map<string, T> {
+  const byPath = new Map<string, T>();
+  for (const [route, value] of byRoute ?? []) {
+    const path = paths.get(route);
+    if (path !== undefined) byPath.set(path, value);
+  }
+  return byPath;
+}
 
 /**
  * The homepage, as the app itself: the console's own frame (`ConsoleFrame`)
@@ -112,14 +126,8 @@ export function HomeShell() {
     }
     return byPath;
   }, [cast, home]);
-  const paces = useMemo(() => {
-    const byPath = new Map<string, CastPaceName>();
-    for (const [route, pace] of cast?.paces ?? []) {
-      const path = home.paths.get(route);
-      if (path !== undefined) byPath.set(path, pace);
-    }
-    return byPath;
-  }, [cast, home]);
+  const paces = useMemo(() => byTreePath(cast?.paces, home.paths), [cast, home]);
+  const chatSetups = useMemo(() => byTreePath(cast?.chats, home.paths), [cast, home]);
 
   /*
     A note the visitor renamed, for the console's tabs to follow — the live
@@ -136,6 +144,8 @@ export function HomeShell() {
   }, source.kind === "live" ? source.snapshot.images : NO_PUBLISHED_IMAGES);
   const browser = local.files;
   const { routeOf, pathOf, notes } = local;
+  // The console's folder pages and list blocks, reading the visitor's copy of the site.
+  const folderLists = useLocalFolderLists(notes, local.writeText);
 
   /*
     The people and agents the owner scripted into the site's pages, drawn by
@@ -174,6 +184,10 @@ export function HomeShell() {
     notes,
     pages: home.pages,
     addNote: local.addNote,
+    addNoteIn: local.cast.addNoteIn,
+    workspace: local.cast,
+    folderNamed: (name) => findPath({ listings: browser.listings, notes }, name, "folder"),
+    chatSetups,
     // A scene's `opens:` goes where a click on that page would.
     open: (path) => {
       const route = routeOf(path);
@@ -269,7 +283,7 @@ export function HomeShell() {
     [browser],
   );
 
-  const data = useVisitorConsoleData(
+  const visitorData = useVisitorConsoleData(
     files,
     {
       signedIn: auth.isAuthenticated,
@@ -290,6 +304,19 @@ export function HomeShell() {
     withDemoPeople(castRoom.agents, demoPeople),
     notice === null ? null : { toast: notice, dismiss: () => setNotice(null) },
   );
+  const data = useMemo(() => ({ ...visitorData, folderLists }), [visitorData, folderLists]);
+
+  /*
+    A scene's chats (Dev2, 2026-09-30): beside the workspace, or over it
+    until the scene cuts to it. On a phone "beside" is above, so the chat and
+    the tree it is changing are both in view.
+  */
+  const chat = castRoom.chat;
+  const chatShown = chat !== null && chat.windows.length > 0 && !chat.hidden;
+  const chatPanel = !chatShown ? null : (
+    <CastChat view={chat} colors={cast?.colors ?? NO_COLORS} onClose={stage === null ? castRoom.closeChat : undefined} />
+  );
+  const cut = chat?.setup.layout === "cut";
 
   /*
     The console's navigation, for a page with no console routes behind it.
@@ -318,28 +345,40 @@ export function HomeShell() {
       {joinSlot !== null && showJoin ? (
         <JoinSlotPortal slot={joinSlot}>{joinCard}</JoinSlotPortal>
       ) : null}
-      <ConsoleFrame
-        data={data}
-        route={HOME_ROUTE}
-        pathname="/"
-        router={visitorRouter}
-        params={NO_PARAMS}
-      >
-        {browser.selectedPath === null && missing ? (
-          <HomePage
-            key={routePath}
-            markdown={source.kind === "waiting" ? "" : MISSING_PAGE_MARKDOWN}
-            compact={compact}
-            onLink={followLink}
-          />
-        ) : (
-          // The site's own emoji, over the console's library (which a visitor
-          // has none of), so a published page draws what its author typed.
-          <CustomEmojiContext.Provider value={emoji}>
-            <BrowsePane data={data} presence={castRoom.presence} />
-          </CustomEmojiContext.Provider>
-        )}
-      </ConsoleFrame>
+      <View style={compact ? styles.stacked : styles.beside}>
+        {chatPanel !== null && !cut ? (
+          <View style={compact ? styles.chatAbove : styles.chatBeside}>{chatPanel}</View>
+        ) : null}
+        <View style={styles.workspace}>
+          <ConsoleFrame
+            data={data}
+            route={HOME_ROUTE}
+            pathname="/"
+            router={visitorRouter}
+            params={NO_PARAMS}
+          >
+            {browser.selectedPath === null && missing ? (
+              <HomePage
+                key={routePath}
+                markdown={source.kind === "waiting" ? "" : MISSING_PAGE_MARKDOWN}
+                compact={compact}
+                onLink={followLink}
+              />
+            ) : (
+              // The site's own emoji, over the console's library (which a visitor
+              // has none of), so a published page draws what its author typed.
+              <CustomEmojiContext.Provider value={emoji}>
+                <BrowsePane data={data} presence={castRoom.presence} />
+              </CustomEmojiContext.Provider>
+            )}
+          </ConsoleFrame>
+        </View>
+      </View>
+      {chatPanel !== null && cut ? (
+        <View style={styles.chatOver}>
+          <View style={styles.chatOverColumn}>{chatPanel}</View>
+        </View>
+      ) : null}
       {visitorMeetings === undefined ? null : (
         <HomeMeetingHost
           phone={compact}
@@ -356,4 +395,12 @@ export function HomeShell() {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     ground: { flex: 1, backgroundColor: colors.pageSurface },
+    beside: { flex: 1, flexDirection: "row", minHeight: 0 },
+    stacked: { flex: 1, flexDirection: "column", minHeight: 0 },
+    workspace: { flex: 1, minWidth: 0, minHeight: 0 },
+    chatBeside: { width: "36%", minWidth: 320, maxWidth: 480, padding: space.x3, backgroundColor: colors.chromeSurface },
+    chatAbove: { height: "46%", padding: space.x2, backgroundColor: colors.chromeSurface },
+    chatOver: { ...StyleSheet.absoluteFillObject, alignItems: "center", padding: space.x6, backgroundColor: colors.chromeSurface },
+    // A reading column, the width a chat app gives its words, however wide the frame.
+    chatOverColumn: { flex: 1, width: "100%", maxWidth: 760 },
   });

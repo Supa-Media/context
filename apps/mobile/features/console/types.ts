@@ -558,6 +558,7 @@ export interface ConsoleData {
    * the actual editor without being able to offer a control that would lie.
    */
   files: FileBrowser;
+  folderLists?: import("./files/listBlock/model").FolderListSource; // The homepage's own notes (`home/useLocalFolderLists.ts`); absent in the console.
   /**
    * How the selected context's search is served, and the owner-only switch
    * that decides it.

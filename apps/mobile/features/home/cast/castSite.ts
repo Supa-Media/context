@@ -8,7 +8,7 @@
  * kept per page for `useHomeCast`.
  */
 
-import { splitWebsiteCast, type CastPaceName, type CastStep } from "@context/shared";
+import { splitWebsiteCast, type CastChatSetup, type CastPaceName, type CastStep } from "@context/shared";
 import type { PresenceMember } from "../../console/presence/protocol";
 import type { Presence } from "../../console/presence/usePresence";
 import type { SharedDoc } from "../../console/presence/sharedDoc";
@@ -23,18 +23,22 @@ export interface CastSite {
   colors: ReadonlyMap<string, string>;
   /** Route path → the pace its scene asked for. Pages that asked for none are absent. */
   paces: ReadonlyMap<string, CastPaceName>;
+  /** Route path → how its scene's chats are framed. Pages that said nothing are absent. */
+  chats: ReadonlyMap<string, CastChatSetup>;
 }
 
 export function castSite(site: readonly HomePage[]): CastSite {
   const scripts = new Map<string, readonly CastStep[]>();
   const paces = new Map<string, CastPaceName>();
+  const chats = new Map<string, CastChatSetup>();
   const pages = site.map((page) => {
     const split = splitWebsiteCast(page.markdown);
     if (split.steps.length > 0) scripts.set(page.routePath, split.steps);
     if (split.steps.length > 0 && split.pace !== undefined) paces.set(page.routePath, split.pace);
+    if (split.steps.length > 0 && split.chat !== undefined) chats.set(page.routePath, split.chat);
     return split.markdown === page.markdown ? page : { ...page, markdown: split.markdown };
   });
-  return { pages, scripts, colors: castColors([...scripts.values()].flat()), paces };
+  return { pages, scripts, colors: castColors([...scripts.values()].flat()), paces, chats };
 }
 
 const NOTHING = () => {};

@@ -536,6 +536,51 @@ export const presenceColors = {
 } as const;
 
 /**
+ * The chat windows a cast scene draws beside the workspace
+ * (`features/home/cast/CastChat.tsx`): a stand-in for somebody's assistant, in
+ * a look that is no product's in particular, so none of these are ours to
+ * choose from the palette. `mark` is the round badge beside its name;
+ * `landing` tints a step whose change is landing in the workspace, in the
+ * workspace's own accent, so the eye joins the two.
+ */
+export const castChatLooks = {
+  warm: {
+    ground: "#F6F3EE",
+    ink: "#262320",
+    muted: "#655F56",
+    line: "rgba(38,35,32,0.10)",
+    chip: "rgba(38,35,32,0.05)",
+    bubble: "#EAE4D9",
+    field: "#FFFDF9",
+    ok: "#3E7A4E",
+    landing: "rgba(14,108,105,0.12)",
+  },
+  plain: {
+    ground: "#FFFDF9",
+    ink: "#1F1F1F",
+    muted: "#5E5E5E",
+    line: "rgba(0,0,0,0.09)",
+    chip: "rgba(0,0,0,0.05)",
+    bubble: "#EEF1F6",
+    field: "#FFFDF9",
+    ok: "#3E7A4E",
+    landing: "rgba(14,108,105,0.12)",
+  },
+  dark: {
+    ground: "#1B1D22",
+    ink: "#ECEDEF",
+    muted: "#A2A6AE",
+    line: "rgba(255,255,255,0.10)",
+    chip: "rgba(255,255,255,0.07)",
+    bubble: "#2C3038",
+    field: "#23262C",
+    ok: "#82C98E",
+    landing: "rgba(107,200,193,0.16)",
+  },
+} as const;
+export type CastChatLookColors = (typeof castChatLooks)[keyof typeof castChatLooks];
+
+/**
  * The ground behind the Supa mark, the face everybody has until they choose a
  * picture (Dev2, 2026-09-28: "for the background color, use anything").
  * Which one a person gets is a hash of their handle (`faces/defaultFace.ts`),

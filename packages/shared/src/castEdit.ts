@@ -42,7 +42,8 @@ export function castStepLine(step: CastStep): string {
       return step.page === null ? `${who} reads` : `${who} reads: ${oneLine(step.page)}`;
     case "note": {
       const body = step.text === "" ? [] : step.text.split("\n").map((line) => (line.trim() === "" ? "" : `  ${line}`));
-      return [`${who} adds note: ${oneLine(step.name)}`, ...body].join("\n");
+      const name = step.folder === undefined ? oneLine(step.name) : `${step.folder}/${oneLine(step.name)}`;
+      return [`${who} adds note: ${name}`, ...body].join("\n");
     }
     case "comment":
       return `${who} comments on ${quoted(step.quote)}: ${oneLine(step.text)}`;
@@ -60,6 +61,20 @@ export function castStepLine(step: CastStep): string {
       return `${who} ticks: ${oneLine(step.quote)}`;
     case "open":
       return `${who} opens: ${oneLine(step.page)}`;
+    case "ask":
+      return `${who} asks ${step.agent}: ${oneLine(step.text)}`;
+    case "answer":
+      return `${who} answers: ${oneLine(step.text)}`;
+    case "folder":
+      return `${who} adds folder: ${step.path}`;
+    case "move":
+      return `${who} moves ${step.path} into: ${step.into}`;
+    case "rename":
+      return `${who} renames ${step.path} to: ${oneLine(step.name)}`;
+    case "status":
+      return `${who} marks ${step.path} as: ${oneLine(step.status)}`;
+    case "task":
+      return `${who} adds task to ${step.project}: ${oneLine(step.text)}`;
   }
 }
 
@@ -70,7 +85,18 @@ export function castStepWords(step: CastStep): string | null {
     case "append":
     case "comment":
     case "reply":
+    case "ask":
+    case "answer":
+    case "task":
       return step.text;
+    case "folder":
+      return step.path;
+    case "move":
+      return step.into;
+    case "rename":
+      return step.name;
+    case "status":
+      return step.status;
     case "tick":
       return step.quote;
     case "open":
@@ -94,7 +120,18 @@ export function withCastWords(step: CastStep, words: string): CastStep | null {
     case "append":
     case "comment":
     case "reply":
+    case "ask":
+    case "answer":
+    case "task":
       return text === "" ? null : { ...step, text };
+    case "folder":
+      return text === "" ? null : { ...step, path: text };
+    case "move":
+      return text === "" ? null : { ...step, into: text };
+    case "rename":
+      return text === "" ? null : { ...step, name: text };
+    case "status":
+      return text === "" ? null : { ...step, status: text.toLowerCase() };
     case "tick":
       return text === "" ? null : { ...step, quote: text };
     case "open":
@@ -222,7 +259,7 @@ export function castActors(source: string): CastActor[] {
   return [...seen.values()];
 }
 
-/** The page with `from` renamed `to` in every step that names them, as doer or as the face clicked. */
+/** The page with `from` renamed `to` in every step that names them: as doer, as the face clicked, or as the assistant asked. */
 export function renameCastActor(source: string, from: string, to: CastActor): string {
   const steps = splitWebsiteCast(source).steps;
   let out = source;
@@ -232,9 +269,11 @@ export function renameCastActor(source: string, from: string, to: CastActor): st
     if (step.kind === "wait") continue;
     const doer = step.actor.name === from;
     const clicked = step.kind === "click" && step.target === from;
-    if (!doer && !clicked) continue;
+    const asked = step.kind === "ask" && step.agent === from && to.kind === "agent";
+    if (!doer && !clicked && !asked) continue;
     let renamed: CastStep = doer ? { ...step, actor: to } : step;
     if (renamed.kind === "click" && clicked) renamed = { ...renamed, target: to.name };
+    if (renamed.kind === "ask" && asked) renamed = { ...renamed, agent: to.name };
     out = replaceCastStep(out, index, renamed);
   }
   return out;

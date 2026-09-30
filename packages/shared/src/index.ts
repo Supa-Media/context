@@ -181,6 +181,8 @@ export type {
   WebsiteStateView,
 } from "./websiteContract";
 export {
+  CAST_CHAT_LAYOUTS,
+  CAST_CHAT_LOOKS,
   CAST_PACES,
   MAX_CAST_STEPS,
   castStepSources,
@@ -189,6 +191,9 @@ export {
   stripWebsiteCast,
   type CastActor,
   type CastActorKind,
+  type CastChatLayout,
+  type CastChatLook,
+  type CastChatSetup,
   type CastPaceName,
   type CastStep,
   type CastStepSource,
