@@ -12,6 +12,8 @@ import { setNoteProperty } from "../../../../../mcp/src/lists.js";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
 import type { Presence } from "../../presence/usePresence";
+import type { PresenceMember } from "../../presence/protocol";
+import type { WriteScript } from "../../../studio/scriptEdits";
 import { SOUNDS_PROPERTY } from "../../../studio/sounds/castSounds";
 
 /**
@@ -30,6 +32,8 @@ export function castPreviewButton(
   soundStorage?: SoundStorage,
   readPage?: ReadScenePage,
   savePace?: (pace: CastPaceName) => string | null,
+  editScript?: WriteScript,
+  members?: readonly PresenceMember[],
 ) {
   if (Platform.OS !== "web" || !hasCast(draft)) return null;
   return (
@@ -40,6 +44,8 @@ export function castPreviewButton(
       soundStorage={soundStorage}
       readPage={readPage}
       savePace={savePace}
+      editScript={editScript}
+      members={members}
     />
   );
 }
@@ -51,6 +57,8 @@ function CastPreviewButton({
   soundStorage,
   readPage,
   savePace,
+  editScript,
+  members,
 }: {
   draft: string;
   path: string;
@@ -58,6 +66,8 @@ function CastPreviewButton({
   soundStorage?: SoundStorage;
   readPage?: ReadScenePage;
   savePace?: (pace: CastPaceName) => string | null;
+  editScript?: WriteScript;
+  members?: readonly PresenceMember[];
 }) {
   const [open, setOpen] = useState(false);
   // The workspace's own emoji, when the console has them to hand.
@@ -74,6 +84,8 @@ function CastPreviewButton({
           readPage={readPage}
           onSavePace={savePace}
           loadEmoji={emoji === null ? undefined : (name) => emoji.load(name)}
+          onEditScript={editScript}
+          members={members}
         /> : null}
     </>
   );
@@ -100,6 +112,12 @@ export function soundsWriter(files: FileBrowser, presence: Presence | undefined)
 export function paceWriter(files: FileBrowser, presence: Presence | undefined): ((pace: CastPaceName) => string | null) | undefined {
   const write = noteWriter(files, presence);
   return write === undefined ? undefined : (pace) => write((current) => ({ text: setCastPace(current, pace) }));
+}
+
+/** The studio's script edits, written into the note the same way. */
+export function scriptWriter(files: FileBrowser, presence: Presence | undefined): WriteScript | undefined {
+  const write = noteWriter(files, presence);
+  return write === undefined ? undefined : (change) => write((current) => ({ text: change(current) }));
 }
 
 /** A change to the open note, through the room when there is one; why not, or `null`. */

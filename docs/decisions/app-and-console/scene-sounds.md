@@ -35,3 +35,25 @@ per kind of moment for the whole scene.
 Tests: `apps/convex/__tests__/files/sceneSounds.test.ts` (sniffing, refusals,
 note-gated reads), `apps/mobile/__tests__/castSounds.test.ts`, and
 `e2e/webkit/castStudio.spec.ts`.
+
+## The script is edited on the studio's rail, and the note stays the only copy
+
+Dev2 asked (2026-09-30) to edit a scene's script in the studio: its words, who
+does each step, its timing and its characters, and to see an agent's changes to
+it live.
+
+- **Every edit rewrites only the lines of the step it changed**
+  (`packages/shared/src/castEdit.ts`, spans from `castStepSources`). The rest of
+  the page, comments and blank lines inside the block included, stays exactly as
+  written, and a changed step is written back in the grammar's plainest words.
+  Edits go through the room like the pace and sounds lines, so they merge with
+  anyone typing and with an agent's write.
+- **Words are typed over where they stand**, and the note changes once, when
+  they are kept (Enter or leaving the field), never per letter. Timing is the
+  scene's pace plus its pauses, which are steps like any other.
+- **A change the studio did not make is marked** on the rows it touched for a
+  few seconds, named after the agents in the note at that moment (a tool is in
+  the room only while it writes), else the people in it. A step rewritten counts
+  as changed, not as removed and added.
+- Colours stay derived from the order people appear in; the studio does not
+  store them.
