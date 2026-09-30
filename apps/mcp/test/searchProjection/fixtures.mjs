@@ -213,18 +213,23 @@ export function createD1Backend() {
   }
   const db = dbFor(DATABASE_ID);
   const requests = [];
-  const state = { fail: null };
+  const state = { fail: null, refuseBatch: false };
 
   async function handle(url, init = {}) {
     const body = init.body ? JSON.parse(init.body) : {};
     const databaseId = databaseIdFrom(url);
+    // A batch is one request: recorded once, with every statement's SQL, so a
+    // check reading `sql` still sees what was sent and a count still counts
+    // round trips.
+    const statements = Array.isArray(body.batch) ? body.batch : null;
     requests.push({
       url,
       databaseId,
       authorization: init.headers?.Authorization ?? null,
       redirect: init.redirect ?? null,
-      sql: body.sql,
-      params: body.params,
+      sql: statements ? statements.map((entry) => entry.sql).join(";\n") : body.sql,
+      params: statements ? statements.flatMap((entry) => entry.params ?? []) : body.params,
+      batch: statements ? statements.length : 0,
     });
     if (state.fail) {
       return new Response(
@@ -236,6 +241,37 @@ export function createD1Backend() {
         }),
         { status: state.fail, headers: { "Content-Type": "application/json" } },
       );
+    }
+    if (statements) {
+      if (state.refuseBatch) {
+        return new Response(JSON.stringify({ success: false, errors: [] }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      // D1 runs a batch as one transaction: all of it lands or none does.
+      const target = dbFor(databaseId ?? DATABASE_ID);
+      const result = [];
+      try {
+        target.exec("BEGIN");
+        for (const entry of statements) {
+          result.push({
+            results: target.prepare(entry.sql).all(...(entry.params ?? [])),
+            success: true,
+          });
+        }
+        target.exec("COMMIT");
+      } catch (error) {
+        target.exec("ROLLBACK");
+        return new Response(
+          JSON.stringify({ success: false, errors: [{ message: String(error?.message) }] }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ success: true, result }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
     let results = [];
     try {
