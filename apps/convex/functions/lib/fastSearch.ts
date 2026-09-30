@@ -268,14 +268,20 @@ export function searchProjectionState(
  * itself forever on somebody else's request quota.
  *
  * Larger than the R2 index's twelve because a link copies at most a window's
- * worth of notes and a real workspace is thousands of them, and because what the
- * bound cuts short is picked up by the sweep rather than lost.
+ * worth of notes (100) and a real workspace is thousands of them, and because
+ * what the bound cuts short is picked up by the sweep rather than lost.
+ *
+ * It was 24, which is 2,400 notes a chain. A 17,000-note context therefore
+ * copied 2,400 notes, sat idle until the sweep noticed the row had gone quiet
+ * for fifteen minutes, and did it again, seven times over. 200 covers 20,000
+ * notes in one chain; a context that converges sooner stops sooner, because
+ * `ready` and no-progress still end the chain first.
  *
  * Here rather than in `functions/files.ts` so the two schedulers and the pass
  * share one number without `fastSearch.ts` having to import the module that
  * holds the credential barrier.
  */
-export const PROJECTION_CHAIN = 24;
+export const PROJECTION_CHAIN = 200;
 
 /**
  * How long a projection link waits before retrying a failure that waiting can
