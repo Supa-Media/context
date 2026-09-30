@@ -262,6 +262,11 @@ export async function searchNotes(
   const isVisible = (path: string) =>
     canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names);
 
+  // Both indexes compare `path.startsWith(prefix)`, and `folder` has lost its
+  // trailing slash to normalization — so without it back, `1-projects` also
+  // matches `1-projects-old/` and a root note named `1-projects-notes.md`.
+  const underFolder = folder === "" ? "" : `${folder}/`;
+
   // Clamped once, here, and handed to both index paths — a page depth that the
   // projection honoured and the R2 index did not would make the number of
   // results depend on which derivative answered, which is the one difference
@@ -272,7 +277,7 @@ export async function searchNotes(
     try {
       const fast = await answerFromProjection(projection, {
         query,
-        prefix: folder,
+        prefix: underFolder,
         tier: options.clearance.scope,
         isVisible,
         limit,
@@ -316,7 +321,7 @@ export async function searchNotes(
     isVisible,
     isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
     query,
-    prefix: folder,
+    prefix: underFolder,
     limit,
     budget: createSearchBudget(options.budget ?? CONSOLE_SEARCH_BUDGET),
     // A person typed this and is watching a spinner, which is exactly who the
