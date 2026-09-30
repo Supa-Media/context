@@ -247,7 +247,7 @@ export function FastSearchCard({
       {control === "none" && status.state !== "unavailable" ? (
         <Text variant="foot" style={styles.readOnly}>
           {demo
-            ? "Sign in and open your own context to decide this for it."
+            ? "Sign in and open your own workspace to decide this for it."
             : "Only an owner of this context can change this. An editor may write every note here; deciding where a copy of all of them is kept is a different call."}
         </Text>
       ) : null}

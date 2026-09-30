@@ -150,7 +150,7 @@ describe("a control nobody may use is not drawn", () => {
   test("the landing page's demo says where the decision is taken instead", () => {
     const body = mount({ status: { state: "off", canChange: false }, loading: false }, true);
     expect(offered()).toEqual([]);
-    expect(body).toContain("open your own context");
+    expect(body).toContain("open your own workspace");
   });
 
   test("an unanswered status offers nothing and claims nothing", () => {

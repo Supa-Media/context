@@ -21,7 +21,6 @@
  */
 
 import { baseName } from "../files/paths";
-import { relativeTime } from "../format";
 import { auditActionLabel, auditDetailLine, type ConsoleAuditEvent } from "./advanced";
 import { groupAuditEvents, type AuditGroup } from "./auditGroups";
 
@@ -77,7 +76,7 @@ export interface ActivityRow {
    * can open them in place. Empty for a row about one note or none.
    */
   notes: string[];
-  /** "4 minutes ago", "6:12 PM", or "12 times · 9:03 AM to 6:12 PM". */
+  /** "4 min ago", "6:12 PM", or "12 times · 9:03 AM to 6:12 PM". */
   when: string;
   count: number;
 }
@@ -190,8 +189,9 @@ function sentenceFor(
         : {
             actor: actor.name,
             verb: verb.slice(0, noteAt),
-            subject: `${notes[0]} and ${notes.length - 1} more`,
-            ...rest,
+            // Only the name is bold; the count is part of the sentence.
+            subject: notes[0] ?? "",
+            rest: ` and ${notes.length - 1} more${rest.rest ?? ""}`,
           },
       detail: null,
       notes,
@@ -236,9 +236,17 @@ export function shortAgo(at: number, now: number): string {
   return `${Math.floor(minutes / 60)}h`;
 }
 
+/** "4 min ago", "1 hr ago": today's times beside a sentence, as the artboard drew them. */
+function minutesAgo(at: number, now: number): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  return `${Math.floor(minutes / 60)} hr ago`;
+}
+
 function whenFor(group: AuditGroup, today: boolean, now: number, short: boolean): string {
   const show = (at: number) =>
-    today ? (short ? shortAgo(at, now) : relativeTime(at, now)) : clock(at);
+    today ? (short ? shortAgo(at, now) : minutesAgo(at, now)) : clock(at);
   const latest = show(group.event.at);
   if (group.count === 1) return latest;
   const first = show(group.firstAt);
@@ -253,7 +261,7 @@ export function buildActivity(
     showRoutine: boolean;
     /** One person's rows only, by the name the sentence uses; absent for anyone. */
     who?: string | null;
-    /** Today's times as "4m" rather than "4 minutes ago" (a phone). */
+    /** Today's times as "4m" rather than "4 min ago" (a phone). */
     short?: boolean;
     now: number;
     /** Member names by user id, so a sentence says "Seyi" rather than an email. */

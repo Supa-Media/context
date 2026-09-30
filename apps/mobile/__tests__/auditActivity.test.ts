@@ -58,7 +58,7 @@ describe("the activity page", () => {
     expect(page.hiddenRoutine).toBe(0);
     const row = page.days[0]?.rows[0];
     expect(row?.count).toBe(2);
-    expect(row?.when).toBe("2 times · 2 minutes ago to 1 minute ago");
+    expect(row?.when).toBe("2 times · 2 min ago to 1 min ago");
     expect(row?.sentence.verb).toBe("renewed the in-app agent's sign-in");
   });
 
@@ -133,7 +133,8 @@ describe("the activity page", () => {
       [event({ paths: ["a/one.md", "a/two.md", "b/three.md"] })],
       { filter: "all", showRoutine: false, now: NOW, names },
     );
-    expect(many.days[0]?.rows[0]?.sentence.subject).toBe("one and 2 more");
+    expect(many.days[0]?.rows[0]?.sentence.subject).toBe("one");
+    expect(many.days[0]?.rows[0]?.sentence.rest).toBe(" and 2 more");
     expect(many.days[0]?.rows[0]?.notes).toEqual(["one", "two", "three"]);
 
     // All in one folder: a count and the folder, as "added 3 notes to Inbox".
