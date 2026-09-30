@@ -78,6 +78,13 @@ export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 const D1_TIMEOUT_MS = 8_000;
 
 /**
+ * Statements per batched request. A long note is a few dozen chunk inserts,
+ * and one request per note is the point; the cap keeps a very long note from
+ * becoming one body big enough to hit a request limit of its own.
+ */
+export const D1_BATCH_STATEMENTS = 50;
+
+/**
  * Cap on a D1 response body.
  *
  * Every statement this gateway sends is either a write (a tiny envelope back)
@@ -208,20 +215,18 @@ export function createD1Client(descriptor, options = {}) {
   )}/d1/database/${encodeURIComponent(config.databaseId)}/query`;
 
   /**
-   * Run one statement and return its rows.
+   * One round trip: POST `payload`, and return the parsed envelope's `result`.
    *
-   * `params` are bound, never interpolated — there is deliberately no overload
-   * of this taking a formatted string. The text flowing through here is the
-   * customer's notes, and a note containing `'; DROP TABLE` is an ordinary
-   * Tuesday.
+   * `shapeOf` names the statement for a failure's detail. Everything that can
+   * go wrong becomes a `D1Error` from the closed set, with a cause of ours.
    */
-  async function query(sql, params = []) {
+  async function post(payload, shapeOf) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), D1_TIMEOUT_MS);
     const started = Date.now();
     const detail = (cause) => ({
       cause,
-      statement: statementShape(sql),
+      statement: shapeOf,
       elapsedMs: Date.now() - started,
     });
     let response;
@@ -234,7 +239,7 @@ export function createD1Client(descriptor, options = {}) {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({ sql, params }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
         // "manual", not "error": workerd does not implement `"error"` and
         // rejects before the request is made, which the catch below would
@@ -281,9 +286,70 @@ export function createD1Client(descriptor, options = {}) {
         detail(response.status === 200 ? "envelope" : `http_${response.status}`),
       );
     }
-    const first = Array.isArray(body.result) ? body.result[0] : undefined;
+    return { result: body.result, detail };
+  }
+
+  /**
+   * Run one statement and return its rows.
+   *
+   * `params` are bound, never interpolated — there is deliberately no overload
+   * of this taking a formatted string. The text flowing through here is the
+   * customer's notes, and a note containing `'; DROP TABLE` is an ordinary
+   * Tuesday.
+   */
+  async function query(sql, params = []) {
+    const { result } = await post({ sql, params }, statementShape(sql));
+    const first = Array.isArray(result) ? result[0] : undefined;
     const rows = first && Array.isArray(first.results) ? first.results : [];
     return rows;
+  }
+
+  /**
+   * Set once a batch was refused, so the rest of this client's life goes
+   * statement by statement rather than paying a refused request per group.
+   */
+  let batchRefused = false;
+
+  /**
+   * Several statements in ONE request, or `false` if D1 would not take them
+   * that way.
+   *
+   * THE REASON A LARGE CONTEXT TOOK A DAY TO INDEX. A note is at least five
+   * statements (three deletes, the `notes` row, a row per chunk) and each was
+   * its own HTTPS request, against an API that allows about 1,200 requests per
+   * five minutes per token. A 17,000-note context was ~90,000 requests: hours
+   * of rate limiting before anything else. D1's query endpoint takes a
+   * `{batch: [{sql, params}]}` body and runs it as one transaction, so a note
+   * is one request, and all or none of it lands.
+   *
+   * Trusted only when the answer says so: one result per statement, none
+   * reporting failure. A 400 or an answer of any other shape falls back to one
+   * statement per request, which is what this did before and is always right.
+   */
+  async function batch(statements) {
+    if (batchRefused) return false;
+    let result;
+    try {
+      ({ result } = await post(
+        { batch: statements.map(({ sql, params }) => ({ sql, params: params ?? [] })) },
+        `BATCH ${statements.length}`,
+      ));
+    } catch (error) {
+      if (error instanceof D1Error && error.code === "REFUSED") {
+        batchRefused = true;
+        return false;
+      }
+      throw error;
+    }
+    const answered =
+      Array.isArray(result) &&
+      result.length === statements.length &&
+      result.every((entry) => entry && typeof entry === "object" && entry.success !== false);
+    if (!answered) {
+      batchRefused = true;
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -292,10 +358,15 @@ export function createD1Client(descriptor, options = {}) {
    * The budget is **peeked before the first statement is charged**, so a group
    * is never started that the counter cannot finish — a half-applied note is a
    * `notes` row whose chunks are missing, which reads as an indexed note that
-   * matches nothing. (It is still not a transaction: the provider can fail
-   * mid-group. What makes that survivable is the cursor, which advances only
-   * after a group lands, so the next pass re-projects the note — and every
-   * group begins by deleting the note's rows, so re-projecting is idempotent.)
+   * matches nothing. The budget still counts statements, whatever the
+   * transport: it bounds work, and a batch is the same work in fewer requests.
+   *
+   * Sent as batches of at most `D1_BATCH_STATEMENTS`, each one transaction.
+   * Where D1 refuses a batch it falls back to one statement per request, which
+   * is not a transaction: what makes that survivable is the cursor, which
+   * advances only after a group lands, so the next pass re-projects the note —
+   * and every group begins by deleting the note's rows, so re-projecting is
+   * idempotent.
    *
    * Returns `{applied, skipped}` rather than throwing on a refused budget: out
    * of budget is the ordinary end of a pass, and a throw would make the
@@ -308,10 +379,17 @@ export function createD1Client(descriptor, options = {}) {
       return { applied: 0, skipped: true };
     }
     let applied = 0;
-    for (const statement of list) {
-      if (budget) budget.take(reserve);
-      await query(statement.sql, statement.params ?? []);
-      applied += 1;
+    for (let start = 0; start < list.length; start += D1_BATCH_STATEMENTS) {
+      const group = list.slice(start, start + D1_BATCH_STATEMENTS);
+      if (budget) for (let n = 0; n < group.length; n += 1) budget.take(reserve);
+      if (group.length > 1 && (await batch(group))) {
+        applied += group.length;
+        continue;
+      }
+      for (const statement of group) {
+        await query(statement.sql, statement.params ?? []);
+        applied += 1;
+      }
     }
     return { applied, skipped: false };
   }
