@@ -166,7 +166,12 @@ export class CastWidget extends WidgetType {
       });
       view.focus();
     });
-    return row;
+    // The row's breathing room is the block's padding, not the row's margin:
+    // CodeMirror measures a block widget without its margins (`BLOCK_WIDGET_ROOTS`).
+    const block = document.createElement("div");
+    block.className = "cm-lp-cast-block";
+    block.append(row);
+    return block;
   }
 
   /* The row handles its own press; see the class comment. */

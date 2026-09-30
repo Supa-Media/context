@@ -33,7 +33,7 @@ export const tableStyles = `
 */
 .cm-lp-grid {
   overflow-x: auto;
-  margin: 0.4em 0;
+  padding: 0.4em 0;
 }
 .cm-lp-grid-table {
   border-collapse: collapse;
@@ -118,7 +118,8 @@ export const tableStyles = `
   sentence is worse than a table that sits a line lower while it can be edited,
   so the space is reserved, and only while the grid is live.
 */
-.cm-lp-grid-live { padding-top: 1.7em; }
+/* 1.7em for the chrome, on top of the grid's own 0.4em. */
+.cm-lp-grid-live { padding-top: 2.1em; }
 /*
   AND ROOM ACROSS, for the same reason and found the same way. The frame
   shrinks to the table, an absolutely positioned box cannot be wider than the
