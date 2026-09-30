@@ -41,6 +41,10 @@ export function StudioStage({ frame, src, attach, bare = false }: StudioStagePro
               display: "block",
               width: frame.width,
               height: frame.height,
+              // The window is a flex column already scaled down: without this,
+              // the frame shrinks to that scaled height and the page inside it
+              // lays out short, leaving an empty band under it once scaled.
+              flexShrink: 0,
               transform: `scale(${scale})`,
               transformOrigin: "0 0",
               pointerEvents: "none",

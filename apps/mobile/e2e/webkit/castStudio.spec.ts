@@ -270,3 +270,18 @@ test("an agent's change to the script shows on the rows it touched", async ({ pa
   await expect(page.getByTestId("studio-edit-2")).toContainText("@maya's Codex");
   await expect(page.getByTestId("studio-edit-1")).not.toContainText("@maya's Codex changed");
 });
+
+test("the page on the stage is the whole window of its frame, with no empty band under it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(PAGE);
+  await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
+  const inner = async () => {
+    const frame = page.frames().find((one) => one !== page.mainFrame())!;
+    return frame.evaluate(() => [window.innerWidth, window.innerHeight]);
+  };
+  // Desktop is a 1280×720 window drawn smaller; the page inside must still be 720 tall.
+  expect(await inner()).toEqual([1280, 720]);
+  await page.getByTestId("studio-frame-phone").click();
+  await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
+  await expect.poll(inner).toEqual([405, 720]);
+});
