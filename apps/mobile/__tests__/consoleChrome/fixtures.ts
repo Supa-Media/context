@@ -329,6 +329,28 @@ export function mountConsole(width = 1440) {
         node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
     },
+    /*
+      A long press, as react-native-web recognises one: press in, wait past the
+      threshold on `Pressable`'s own timer, release. Fake timers for the wait
+      only, so the rest of the file keeps the clock it was written against.
+    */
+    hold: (node: HTMLElement | null) => {
+      if (node === null) throw new Error("nothing to hold");
+      jest.useFakeTimers();
+      try {
+        act(() => {
+          node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        });
+        act(() => {
+          jest.advanceTimersByTime(600);
+        });
+        act(() => {
+          node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    },
     byLabel: (label: string) =>
       container.querySelector<HTMLElement>(`[aria-label="${label}"]`),
     container,

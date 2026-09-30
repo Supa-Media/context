@@ -56,6 +56,15 @@ export const ICON_NAMES = [
   "openTab",
   "more",
   "folder",
+  /** New folder: the folder with a plus inside it, on Home and a folder page (2026-09-30). */
+  "folderPlus",
+  /**
+   * Quick note: a page with a pencil leaving its corner, the mark Apple Notes
+   * puts on its round compose button, which is where the owner took it from.
+   */
+  "compose",
+  /** Pinned to Home: a push pin, head up. */
+  "pin",
   "file",
   /**
    * Copy, drawn as the two sheets every platform draws it as.

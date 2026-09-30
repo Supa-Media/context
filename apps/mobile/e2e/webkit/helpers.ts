@@ -16,6 +16,15 @@ export async function tap(page: Page, label: string): Promise<void> {
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 }
 
+/** Tap one of Home's folder lines by the folder's name, whatever it holds. */
+export async function tapFolderOnHome(page: Page, name: string): Promise<void> {
+  const line = page.getByTestId("phone-home-folder").filter({ has: page.getByText(name, { exact: true }) });
+  await line.first().waitFor();
+  const box = await line.first().boundingBox();
+  if (box === null) throw new Error(`no folder "${name}" on Home to tap`);
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 /**
  * From the fixture's landing note to `2-areas/weekly-review.md` — the note
  * `placeholderData.ts` carries the wikilink, the two tasks and the long
@@ -31,8 +40,10 @@ export async function openWeeklyReview(page: Page): Promise<void> {
   // rest of this walk.
   await page.getByTestId("note-scroll").waitFor();
   await tap(page, "@seyi, the context you are in — open its root");
+  // The root on a phone is Home (2026-09-30): every top-level folder is one
+  // line there, named with what it holds.
+  await tapFolderOnHome(page, "areas");
   await page.getByTestId("folder-row").first().waitFor();
-  await tap(page, "areas, folder");
   await tap(page, "weekly-review");
   await page.getByTestId("breadcrumb-leaf").waitFor();
 }

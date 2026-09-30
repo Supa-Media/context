@@ -34,3 +34,30 @@ brings it back.
 
 Reversing it means a pin that leaks a private folder's name to a team member.
 `places.test.ts` ("another member's places are never rewritten") fails.
+
+## The phone's Home, and a bottom bar that is Apple Notes' (2026-09-30)
+
+The owner approved the Apple Notes style Home and asked for "the exact Apple
+Notes nav bar" on every phone screen. So:
+
+- **Home is the workspace's own page on a phone** (`home/PhoneHome.tsx`), in
+  place of the root folder listing: tag chips, Pinned, You open most, the
+  three most recent notes, All folders with what each holds (notes and
+  folders counted all the way down), and then the Notes that sit outside
+  every folder. That last section is not optional: Home replaced the only
+  listing of the root, so without it a root note (`todo.md`, or a website's
+  Pricing page for a visitor) had no way in. A pointer layout keeps the
+  listing, because its tree is on the screen beside it.
+- **The bottom bar is a search field with a microphone, and a round
+  new-note button** (`ConsoleBottomBar`). The five keys it replaced each
+  have a home: Back is the path bar's and the system's; Browse and Recent are
+  what Home lists. The microphone opens search, where the keyboard's own
+  microphone key dictates.
+- **A new note is one press**, in the folder on screen, and from Home in the
+  Inbox (`0-inbox`, created by the note if the workspace has none). **Held**,
+  the button raises the sheet with everything else a `+` starts — a drawing,
+  a folder, a chat, a meeting — so none of those lost their route on a phone.
+
+Reversing it means a bar of keys that duplicates Home, or a create sheet in
+front of every note. `phoneHome.test.ts`, `bottomRowWidth.test.ts` and
+`consoleChrome/phoneDestinations.test.ts` fail.

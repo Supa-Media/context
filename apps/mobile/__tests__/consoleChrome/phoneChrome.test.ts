@@ -31,7 +31,8 @@ describe("on a phone", () => {
    * **And the strip along the top went too** (owner, 2026-09-27, the phone
    * artboards, screen 9): switching workspaces is the account sheet's now, so
    * the top of a phone is the path row with the context you are in at its
-   * head, and the bottom is the five-key capsule.
+   * head. The bottom is Apple Notes' bar since 2026-09-30: a search field and
+   * the round new-note button.
    */
   test("navigation is the path along the top and a row along the bottom", () => {
     const app = mountConsole(390);
@@ -39,16 +40,16 @@ describe("on a phone", () => {
     // The things that replaced the panels.
     expect(app.find("nav-band")).not.toBeNull();
     expect(app.find("context-strip")).toBeNull();
-    expect(app.find("bottom-bar")).not.toBeNull();
+    expect(app.find("notes-bar")).not.toBeNull();
     /*
-      The `+`, which is the row's one way into making anything and — since the
-      microphone key went — into recording a meeting too. It is unconditional,
-      so this holds for a read-only context as well as this one.
+      The round button: a note at once, and held, the sheet with everything
+      else a `+` starts — a drawing, a folder, a meeting.
     */
-    expect(app.find("bottom-bar-new")).not.toBeNull();
-    // And the key it replaced is gone, with the rule that separated it.
-    expect(app.find("bottom-bar-meeting")).toBeNull();
-    expect(app.find("bottom-bar-separator")).toBeNull();
+    expect(app.find("notes-bar-compose")).not.toBeNull();
+    // And the five keys it replaced are gone.
+    for (const key of ["back", "browse", "new", "recent", "meeting", "separator"]) {
+      expect(app.find(`bottom-bar-${key}`)).toBeNull();
+    }
     // And the account, pinned at the leading end of the top row.
     expect(app.find("account-menu")).not.toBeNull();
 
@@ -84,19 +85,18 @@ describe("on a phone", () => {
     );
     expect(labels).toContain("Search notes");
     /*
-      "Create", not "New note" and not "New note or folder". A phone has no
-      explorer, so this one key is the only way to start anything — a note, a
-      drawing, a folder, and now a meeting, since the microphone beside it went.
-      It raises the sheet; see `CreatePrompt`.
+      "New note": the round button makes one at once, in the folder on screen
+      or, from Home, in the Inbox. Held, it raises the sheet with a drawing, a
+      folder and a meeting (`CreatePrompt`), which its hint says.
     */
-    expect(labels).toContain("Create");
+    expect(labels).toContain("New note");
     // The bar is really on the screen, and not merely a set of labels somewhere
     // in the tree. It used to be enough to assert the console had rendered
     // *any* text — and then it was not, because the top bar became a toggle and
     // one group of icons with nothing in the middle. The middle has words again
     // (the context strip), so a text sweep would pass on a screen with no
     // toolbar at all; the testID is what makes this about the bar.
-    expect(app.find("bottom-bar")).not.toBeNull();
+    expect(app.find("notes-bar")).not.toBeNull();
 
     app.unmount();
   });
@@ -134,9 +134,9 @@ describe("on a phone", () => {
     expect(landmarks[0]!.getAttribute("aria-label")).toBe("Path");
 
     // The bottom row stays a toolbar, named, and is not a second landmark.
-    const bar = app.find("bottom-bar")!;
+    const bar = app.find("notes-bar")!;
     expect(bar.getAttribute("role")).toBe("toolbar");
-    expect(bar.getAttribute("aria-label")).toBe("Console actions");
+    expect(bar.getAttribute("aria-label")).toBe("Search and new note");
     expect(bar.closest("nav")).toBeNull();
 
     app.unmount();

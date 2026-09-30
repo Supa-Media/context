@@ -44,7 +44,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { startCompletion, currentCompletions, acceptCompletion } from "@codemirror/autocomplete";
+import { startCompletion, currentCompletions, acceptCompletion, completionStatus } from "@codemirror/autocomplete";
 import {
   MAX_CHOICES,
   noteChoices,
@@ -209,13 +209,22 @@ function mount(doc: string): EditorView {
  * queries its sources, so the state carries no completions on the next
  * microtask however synchronous the source is. Then `acceptCompletion` refuses
  * for `interactionDelay` after the list opens — a deliberate guard against a
- * keystroke in flight accepting something the person has not seen yet. 250ms
- * clears both with room, and a shorter wait fails as "nothing was inserted",
- * which reads exactly like the bug these tests are for.
+ * keystroke in flight accepting something the person has not seen yet.
+ *
+ * So the wait is measured from the list actually opening, not from the ask: a
+ * fixed 250ms from `startCompletion` passed alone and failed as "nothing was
+ * inserted" under a loaded full-suite run (CI, 2026-09-30), where the
+ * debounce timer itself fired late and the list opened inside the last few
+ * milliseconds of the wait.
  */
 async function settle(view: EditorView): Promise<void> {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   startCompletion(view);
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  const deadline = Date.now() + 5_000;
+  // "pending" until the sources have answered: then the list is open, or there is none.
+  while (completionStatus(view.state) === "pending" && Date.now() < deadline) await sleep(10);
+  // Past `interactionDelay` (75ms by default) from the moment the list opened.
+  await sleep(200);
 }
 
 describe("accepting a completion", () => {

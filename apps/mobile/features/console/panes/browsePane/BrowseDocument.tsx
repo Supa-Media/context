@@ -22,6 +22,8 @@ import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
 import type { FolderListingState } from "./useFolderListing";
 import { useTaskHost } from "./useTaskHost";
+import { PhoneHomeHost } from "../../home/PhoneHome";
+import { useRecordOpen } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
 
 /**
@@ -177,6 +179,31 @@ export function BrowseDocument({
       })
     : undefined;
 
+  /*
+    The phone's Home (2026-09-30, Apple Notes style): the workspace's own page
+    at compact, in place of the root folder listing it used to be. Pinned, You
+    open most, Recent and All folders — see `home/PhoneHome.tsx`. A pointer
+    layout keeps the listing: its tree is on the screen beside it.
+  */
+  const phoneHome = (
+    <PhoneHomeHost
+      workspaceId={current?.id}
+      role={current?.role}
+      visitor={data.visitor !== undefined}
+      title={current?.displayName ?? contextLabel}
+      listings={files.listings}
+      onOpen={files.select}
+      onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
+      foot={contextFoot}
+    />
+  );
+  // Count this arrival for You open most: the folder on screen, or a note's folder.
+  useRecordOpen(
+    current?.id,
+    data.visitor === undefined && current?.role !== undefined && settled,
+    selected === null ? null : { path: selected.path, kind: selected.kind },
+  );
+
   // In storage but can't be opened: drawn with no editor, so nothing saves over it.
   const unreadable = files.unreadable ?? null;
   const openDocument =
@@ -225,19 +252,7 @@ export function BrowseDocument({
         ) : !compact ? (
           <Empty contextLabel={contextLabel} />
         ) : landing === null ? null : (
-          <FolderView
-            entry={landing}
-            listing={files.listings[""]}
-            canSetVisibility={files.canSetVisibility}
-            contextLabel={contextLabel}
-            foot={contextFoot}
-            onSelect={files.select}
-            menu={folderMenuFor("")}
-            drag={folderDrag}
-            pendingStateFor={files.pending?.stateFor}
-            page={folderPage}
-            showAudience={data.visitor === undefined}
-          />
+          phoneHome
         )
       ) : null
     ) : commsRoute?.kind === "channel-day" ? (
@@ -260,6 +275,8 @@ export function BrowseDocument({
       <DocumentPage>
         <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
       </DocumentPage>
+    ) : selected.kind === "folder" && atContextRoot ? (
+      phoneHome
     ) : selected.kind === "folder" ? (
       <FolderView
         entry={selected}
