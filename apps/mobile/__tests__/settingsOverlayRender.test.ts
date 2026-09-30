@@ -159,7 +159,7 @@ describe("a phone reaches the settings, not just a menu", () => {
     // Mounted alone: `overlay()` appends to the same body, so a second mount
     // in one test would be asserting against both screens at once.
     const text = overlay("storage").textContent ?? "";
-    expect(text).toContain("How search finds your notes");
+    expect(text).toContain("Search");
     expect(text).toContain("Fast search");
   });
 

@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
-import { Dot } from "../../design/components/Dot";
+import { Icon } from "../../design/components/Icon";
 import { Hint } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
-import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -106,6 +105,16 @@ export function FastSearchCard({
   const indexed = indexedLabel(status);
   const progress = describeIndexProgress(status);
 
+  const on = status.state === "on" || status.state === "preparing";
+  const armed = off.stage === "armed";
+  const stateWord = working
+    ? on
+      ? "Turning off…"
+      : "Turning on…"
+    : armed
+      ? "Press again to turn off"
+      : (pill?.label ?? (on ? "On" : "Off"));
+
   return (
     <Card>
       <View style={styles.head}>
@@ -115,11 +124,39 @@ export function FastSearchCard({
             {copy.blurb}
           </Text>
         </View>
-        {pill === null ? null : (
-          <Pill tone={pill.tone} leading={<Dot tone={pill.tone} />}>
-            {pill.label}
-          </Pill>
-        )}
+        {/*
+          The artboard's control: a box and the state beside it. Checking it is
+          one press; unchecking arms first and the second press deletes, the
+          rule this card's header argues. A member, the demo and a status
+          nobody may change get the state word alone, with nothing to press.
+        */}
+        {control === "enable" || control === "disable" ? (
+          <Pressable
+            role="checkbox"
+            aria-checked={on}
+            accessibilityLabel={
+              control === "disable"
+                ? "Turn fast search off and delete the hosted index"
+                : "Turn fast search on for this context"
+            }
+            disabled={working}
+            onPress={control === "disable" ? off.press : () => run(view.enable)}
+            style={styles.toggle}
+            testID={control === "disable" ? "fast-search-disable" : "fast-search-enable"}
+          >
+            <View style={[styles.box, on ? styles.boxOn : null, armed ? styles.boxArmed : null]}>
+              {on ? <Icon name="check" size={12} color={colors.surface} /> : null}
+            </View>
+            <Text variant="rowSub" style={armed ? styles.armedText : null}>
+              {stateWord}
+            </Text>
+            {working ? <ActivityIndicator color={colors.text2} size="small" /> : null}
+          </Pressable>
+        ) : control === "none" ? (
+          <Text variant="rowSub" style={styles.stateWord} testID="fast-search-state">
+            {stateWord}
+          </Text>
+        ) : null}
       </View>
 
       {/*
@@ -179,54 +216,25 @@ export function FastSearchCard({
 
       {failure === null ? null : <FormError headline={failure} style={styles.notice} />}
 
-      {control === "none" ? null : (
+      {control === "retry" ? (
         <Row style={styles.actions}>
-          {control === "disable" ? (
-            <Button
-              label={
-                working
-                  ? "Turning off…"
-                  : off.stage === "armed"
-                    ? "Press again to turn off"
-                    : "Turn off"
-              }
-              accessibilityLabel="Turn fast search off and delete the hosted index"
-              variant="danger"
-              disabled={working}
-              onPress={off.press}
-              testID="fast-search-disable"
-            />
-          ) : (
-            <Button
-              label={
-                working
-                  ? "Turning on…"
-                  : control === "retry"
-                    ? "Try again"
-                    : "Turn on fast search"
-              }
-              accessibilityLabel={
-                control === "retry"
-                  ? "Try preparing the index again"
-                  : "Turn fast search on for this context"
-              }
-              disabled={working}
-              onPress={() => run(view.enable)}
-              trailing={
-                working ? <ActivityIndicator color={colors.text} size="small" /> : null
-              }
-              testID="fast-search-enable"
-            />
-          )}
+          <Button
+            label={working ? "Turning on…" : "Try again"}
+            accessibilityLabel="Try preparing the index again"
+            disabled={working}
+            onPress={() => run(view.enable)}
+            trailing={working ? <ActivityIndicator color={colors.text} size="small" /> : null}
+            testID="fast-search-enable"
+          />
         </Row>
-      )}
+      ) : null}
 
       {/*
         What the second press does, at the moment of the press rather than in a
         paragraph scrolled off the top — the same treatment Disconnect gets,
         and for the same reason: this is where somebody decides.
       */}
-      {off.stage === "armed" ? (
+      {armed ? (
         <Hint>
           <Text variant="hint">
             The hosted database and everything copied into it are deleted. Your notes
@@ -247,8 +255,22 @@ export function FastSearchCard({
   );
 }
 
-const makeStyles = (_colors: Colors) => StyleSheet.create({
-  head: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+const makeStyles = (colors: Colors) => StyleSheet.create({
+  head: { flexDirection: "row", alignItems: "center", gap: 12 },
+  toggle: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 },
+  box: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.muted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  boxOn: { borderColor: colors.accent, backgroundColor: colors.accent },
+  boxArmed: { borderColor: colors.critText, backgroundColor: colors.critText },
+  armedText: { color: colors.critText },
+  stateWord: { flexShrink: 0 },
   headText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   blurb: { marginTop: 4, maxWidth: 546 },
   notice: { marginTop: 15 },

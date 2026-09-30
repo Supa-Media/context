@@ -63,7 +63,8 @@ async function press(label: string): Promise<void> {
 }
 
 function offered(): string[] {
-  return [...document.body.querySelectorAll('[role="button"]')].map(
+  // The switch is a checkbox now (the settings artboard); it counts as offered.
+  return [...document.body.querySelectorAll('[role="button"], [role="checkbox"]')].map(
     (node) => node.textContent ?? "",
   );
 }

@@ -3,11 +3,8 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
-import { FieldList, Hint } from "../../design/components/Field";
-import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { TextLink } from "../../design/components/TextLink";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { PaneHead } from "../ConsoleShell";
@@ -29,16 +26,11 @@ import { SharingSection } from "../settings/panels/SharingSection";
 import { EncryptionKeysBlock, FolderMovesCard } from "../settings/panels/StorageTools";
 import { DeleteWorkspaceCard } from "../settings/DeleteWorkspaceCard";
 import { PluginsPanel } from "../settings/panels/PluginsPanel";
-import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
+import { selectedContext, type ConsoleData, type ConsoleStorage } from "../types";
 import type { SettingsSectionKey } from "../settings/sections";
-import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
-import { EncryptionRow } from "../storage/EncryptionRow";
-import { StorageHealth } from "../settings/panels/StorageHealth";
-import { forcePathStyleToAddressing } from "../storage/connect";
-import { describeStorageFailure } from "../storage/errors";
-import { useReverify } from "../storage/useReverify";
-import type { ReverifyState } from "../storage/reverify";
+import { StorageCard } from "../settings/panels/StorageCard";
+import { storageCompany } from "../settings/panels/StorageHealth";
 import { StorageMigrationCard } from "../storage/StorageMigration";
 import { HANDOFF_FORM_LEDE } from "../storage/handoff/copy";
 import { HandoffCard } from "../storage/handoff/HandoffCard";
@@ -161,8 +153,10 @@ export function SettingsPane({
         {storage?.managed === true
           ? "Context runs this bucket for you. You can take every file with you at any time, free, on any plan."
           : storage?.provider === "dropbox"
-          ? "Your notes are plain files in your own Dropbox. Unlink Context in your Dropbox settings and it loses access right away; every file stays where it is."
-          : "Your notes are plain files in storage you own. Remove Context's key at your provider and it loses access right away."}
+          ? "Your notes are plain files in your own Dropbox. Unlink Context in your Dropbox settings and we lose access right away; every file stays where it is."
+          : `Your notes are plain files in storage you own. Remove our key at ${
+              (storage && storageCompany(storage)) ?? "your provider"
+            } and we lose access right away.`}
       </PanelHead>
 
       {storage === null || storage === undefined ? (
@@ -266,12 +260,28 @@ export function SettingsPane({
         )
       ) : (
         <>
-          <BindingCard
+          <StorageCard
             storage={storage}
             actions={actions}
             demo={data.demo}
             onRebind={() => setRebinding(true)}
           />
+          {/*
+            Taking everything, under the card rather than inside its details:
+            the exit is never a connection detail (non-negotiable #1). Storage
+            we run has the same button in `HandoffCard`, beside the move, so
+            it is drawn once there rather than twice here.
+          */}
+          {data.demo || storage.managed === true ? null : (
+            <Row style={styles.under}>
+              <Button
+                label="Download everything"
+                accessibilityLabel="Download every note you can open here, as a .zip"
+                onPress={() => data.files.download("", "folder")}
+                testID="storage-download-all"
+              />
+            </Row>
+          )}
           <HandoffCard
             storage={storage}
             owner={actions !== undefined}
@@ -337,10 +347,9 @@ export function SettingsPane({
         different places, and a switch above the context picker would claim
         there is one setting for all of them.
       */}
-      <SubHead title="Search">
-        How search finds your notes. The search index is a copy that can be deleted
-        and rebuilt; your notes never move.
-      </SubHead>
+      <Text variant="rowTitle" style={styles.searchHead}>
+        Search
+      </Text>
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
       <EncryptionKeysBlock action={data.advanced.keyExport} demo={data.demo} />
 
@@ -515,269 +524,6 @@ export function StatusPill({
   );
 }
 
-function BindingCard({
-  storage,
-  actions,
-  demo,
-  onRebind,
-}: {
-  storage: ConsoleStorage;
-  actions: StorageActions | undefined;
-  demo: boolean;
-  onRebind: () => void;
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  // The third argument is which context is being verified. A probe's result
-  // belongs to one workspace and must never be shown for another — see
-  // `useReverify`.
-  const reverify = useReverify(
-    storage,
-    actions ? actions.reverify : null,
-    actions ? actions.workspaceId : null,
-  );
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
-  const disconnect = useArming(() => {
-    if (actions === undefined) return;
-    setDisconnecting(true);
-    void actions.disconnect().finally(() => setDisconnecting(false));
-  });
-
-  const addressing = forcePathStyleToAddressing(storage.forcePathStyle);
-  const isDropbox = storage.provider === "dropbox";
-  const isManaged = storage.managed === true;
-
-  /**
-   * Only the fields this backend actually has.
-   *
-   * Built by pushing what is present rather than by listing four and letting
-   * three of them be `undefined`: a Dropbox binding has no bucket, endpoint,
-   * region or access key, and an empty labelled well reads as a field somebody
-   * failed to fill in rather than one that does not exist here. Same rule the
-   * capability rows below follow — absent, never a placeholder.
-   */
-  const fields: Array<{ label: string; value: string }> = [
-    {
-      label: "Provider",
-      value: isManaged ? "Context-managed storage" : isDropbox ? "Dropbox" : storage.provider,
-    },
-  ];
-  /*
-    The rest sit behind "Connection details" (settings cleanup, 2026-09-29).
-    An endpoint hostname, a masked access key and "bucket in the hostname"
-    answer nothing somebody opening Storage is asking; they are there to be
-    copied into a support thread or checked against the provider's console,
-    so they are one press away rather than the first thing on the page.
-  */
-  const details: Array<{ label: string; value: string }> = [];
-  // Which account, not just which provider: saying whose Dropbox this is,
-  // and noticing a *different* one arriving on a reconnect.
-  if (isDropbox && storage.dropboxAccountId) {
-    details.push({ label: "Connected as", value: storage.dropboxAccountId });
-  }
-  if (storage.bucket) fields.push({ label: "Bucket", value: storage.bucket });
-  if (storage.endpoint) details.push({ label: "Endpoint", value: storage.endpoint });
-  if (storage.accessKey) details.push({ label: "Access key", value: storage.accessKey });
-  if (storage.rootPrefix) {
-    (isDropbox ? fields : details).push({
-      label: isDropbox ? "Folder" : "Root prefix",
-      value: storage.rootPrefix,
-    });
-  } else if (isDropbox) {
-    // "Which folder is this?" is the first question somebody has about a
-    // Dropbox connection, and the answer is the thing the consent screen
-    // promised, so it stays on the page.
-    fields.push({ label: "Folder", value: "Context's own app folder" });
-  }
-  // Shown only when somebody actually had to answer it at connect time.
-  if (addressing !== null) {
-    details.push({
-      label: "Addressing",
-      value: addressing === "path" ? "bucket in the path" : "bucket in the hostname",
-    });
-  }
-
-  const failure =
-    storage.status === "error"
-      ? describeStorageFailure(storage.errorCode, storage.lastError, storage.provider)
-      : null;
-
-  return (
-    <>
-    <StorageHealth storage={storage} failed={failure !== null} />
-    <Card testID="storage-binding">
-      <FieldList fields={showDetails ? [...fields, ...details] : fields} testIDPrefix="storage-field" />
-      {details.length === 0 ? null : (
-        <TextLink
-          label={showDetails ? "Hide connection details" : "Show connection details"}
-          onPress={() => setShowDetails((open) => !open)}
-          style={styles.detailsToggle}
-          testID="storage-details-toggle"
-        />
-      )}
-      <EncryptionRow storage={storage} />
-      {/*
-        A binding in `error` is the state this pane exists to get someone out
-        of, so it gets the failure, the fix, and the provider's own words —
-        not a one-line `Check` buried among four healthy ones.
-      */}
-      {failure ? (
-        <FormError
-          headline={failure.headline}
-          next={joinSentences(failure.next, failure.detail)}
-          style={styles.failure}
-        />
-      ) : null}
-
-      <ReverifyStatus state={reverify.state} />
-
-      <Row style={styles.actions}>
-        {/*
-          Re-verify stays available in every status — including `connected`,
-          which is exactly when someone checks, because the gateway started
-          failing and a credential revoked at the provider still reads
-          `connected` here until something asks.
-        */}
-        <Button
-          label={reverify.state.kind === "running" ? "Checking…" : "Re-verify"}
-          accessibilityLabel="Check this bucket again"
-          disabled={reverify.start === null || reverify.state.kind === "running"}
-          onPress={() => reverify.start?.()}
-          trailing={
-            reverify.state.kind === "running" ? (
-              <ActivityIndicator color={colors.text} size="small" />
-            ) : null
-          }
-          testID="storage-reverify"
-        />
-        {/*
-          One button, two honest labels. A Dropbox binding has no key to
-          rotate, so offering "Rotate key" against one would name a credential
-          that has never existed for it — the same lie the failure copy avoids
-          by not telling a Dropbox owner to paste an access key.
-        */}
-        {isManaged ? null : (
-          <Button
-            label={isDropbox ? "Reconnect" : "Rotate key"}
-            accessibilityLabel={
-              isDropbox
-                ? "Reconnect Dropbox, or connect a bucket instead"
-                : "Paste a new access key and secret"
-            }
-            disabled={actions === undefined || disconnecting}
-            onPress={onRebind}
-            testID="storage-rebind"
-          />
-        )}
-        {/*
-          Two presses, and the second expires.
-
-          This was one tap with no confirmation, sitting in the same row and at
-          the same size as Re-verify and Rotate key — the two buttons people
-          open this pane to use — differing only in border colour. What it does
-          is delete the binding, and the encrypted secret goes with it: this
-          pane says a few lines above that "the secret is never sent back down
-          from the control plane", so reconnecting needs a value R2 or S3 shows
-          exactly once, at creation. There is no undo and no copy of it here.
-        */}
-        {isManaged ? null : (
-          <Button
-            label={
-              disconnecting
-                ? "Disconnecting…"
-                : disconnect.stage === "armed"
-                  ? "Press again to disconnect"
-                  : "Disconnect"
-            }
-            variant="danger"
-            disabled={actions === undefined || disconnecting}
-            onPress={disconnect.press}
-            testID="storage-disconnect"
-          />
-        )}
-      </Row>
-
-      {/*
-        The reversibility the product actually promises, at the moment of the
-        press rather than in a paragraph scrolled off the top of the pane — and
-        beside the one thing that is *not* reversible.
-      */}
-      {!isManaged && disconnect.stage === "armed" ? (
-        <Hint>
-          <Text variant="hint">
-            Your bucket and every file in it are untouched — Context only forgets how
-            to reach them, and you can reconnect by pasting a key. What it cannot give
-            back is this secret: it is never sent down from the control plane, so you
-            will need the one your provider showed you when you created the key.
-          </Text>
-        </Hint>
-      ) : null}
-
-      {!demo && actions === undefined ? (
-        <Text variant="foot" style={styles.readOnly}>
-          You have read-only access to this context&apos;s storage. Only an owner can
-          re-verify, rotate, or disconnect it.
-        </Text>
-      ) : null}
-      </Card>
-
-    </>
-  );
-}
-
-/** What Re-verify is doing, and what came back. */
-function ReverifyStatus({ state }: { state: ReverifyState }) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  switch (state.kind) {
-    case "idle":
-      return null;
-    case "running":
-      return (
-        <Notice style={styles.notice}>
-          <View style={styles.loadingRow}>
-            <ActivityIndicator color={colors.text2} size="small" />
-            <Text variant="check" role="status" style={styles.noticeBody}>
-              Checking your bucket — listing it, writing a probe file, and cleaning up after
-              itself.
-            </Text>
-          </View>
-        </Notice>
-      );
-    case "ok":
-      return (
-        <Notice tone="ok" style={styles.notice}>
-          <Text variant="check" role="status" style={styles.okText}>
-            {state.message}
-          </Text>
-        </Notice>
-      );
-    case "timeout":
-      return (
-        <Notice tone="warn" style={styles.notice}>
-          <Text variant="check" role="status" style={styles.warnText}>
-            {state.message}
-          </Text>
-        </Notice>
-      );
-    case "failed":
-      return (
-        <FormError
-          headline={state.failure.headline}
-          next={joinSentences(state.failure.next, state.failure.detail)}
-          style={styles.notice}
-        />
-      );
-  }
-}
-
-/** "What to do" then "what the provider said", skipping whichever is missing. */
-function joinSentences(...parts: Array<string | undefined>): string | undefined {
-  const kept = parts.filter((part): part is string => part !== undefined && part.length > 0);
-  return kept.length === 0 ? undefined : kept.join(" ");
-}
-
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /** A re-homed pane's row: what it is on the left, the way in on the right. */
   sectionRow: { flexDirection: "row", alignItems: "center", gap: 14 },
@@ -785,6 +531,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   danger: { marginTop: 36, marginBottom: 10, color: colors.critText },
+  under: { marginTop: 12, gap: 9, flexWrap: "wrap" },
+  searchHead: { marginTop: 32, marginBottom: 10, fontSize: 17 },
   rowSub: { marginTop: 2 },
   detailsToggle: { marginTop: 10, alignSelf: "flex-start" },
   failure: { marginTop: 15 },
