@@ -10,6 +10,7 @@ import { castTimeLabel } from "../home/cast/castTimeline";
 import { castColors } from "../home/cast/castRun";
 import { castPreviewFragment } from "../home/castPreview";
 import { pagesByName, useScenePages, type ReadScenePage } from "./scenePages";
+import { useSceneEmoji, type LoadEmoji } from "./sceneEmoji";
 import { stripFrontmatter } from "../share/markdown";
 import { STUDIO_FRAMES, studioFrame, type StudioFrameId } from "./studioFrames";
 import { studioScript } from "./studioScript";
@@ -49,6 +50,7 @@ export function CastStudio({
   soundStorage,
   readPage,
   onSavePace,
+  loadEmoji,
 }: {
   draft: string;
   title: string;
@@ -61,6 +63,8 @@ export function CastStudio({
   readPage?: ReadScenePage;
   /** Writes the scene's `pace:` line into the note; why not, or `null`. Absent where it cannot be changed. */
   onSavePace?: (pace: CastPaceName) => string | null;
+  /** Reads a workspace emoji, so the stage draws `:name:` as the published page will. */
+  loadEmoji?: LoadEmoji;
 }) {
   const styles = useThemedStyles(makeStyles);
   const wide = useWindowDimensions().width >= RAIL_MIN_WINDOW;
@@ -89,8 +93,9 @@ export function CastStudio({
   };
   const script = useMemo(() => studioScript(scene, pagesByName(pages)), [scene, pages]);
   const memberColors = useMemo(() => castColors(splitWebsiteCast(stripFrontmatter(draft)).steps), [draft]);
+  const emoji = useSceneEmoji([scene, ...pages.map((page) => page.markdown)], loadEmoji);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new page is what reads a new draft
-  const src = useMemo(() => `/#${castPreviewFragment(scene, title, pages)}`, [player.stageKey, title, pages]);
+  const src = useMemo(() => `/#${castPreviewFragment(scene, title, pages, emoji)}`, [player.stageKey, title, pages, emoji]);
   const total = script.timeline.total;
 
   return (
