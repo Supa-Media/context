@@ -1,4 +1,3 @@
-import type { FolderListSource } from "./files/listBlock/model";
 import type { ReactNode } from "react";
 import type { MirrorStatus } from "../offline/mirrorStatus";
 import type { ManagedEncryptionView } from "./storage/encryptionView";
@@ -559,12 +558,7 @@ export interface ConsoleData {
    * the actual editor without being able to offer a control that would lie.
    */
   files: FileBrowser;
-  /**
-   * Where folder pages and list blocks read their notes, when it is not this
-   * device's copy of the workspace: the homepage's, which is the visitor's own
-   * copy of the site (`home/useLocalFolderLists.ts`). Absent in the console.
-   */
-  folderLists?: FolderListSource;
+  folderLists?: import("./files/listBlock/model").FolderListSource; // The homepage's own notes (`home/useLocalFolderLists.ts`); absent in the console.
   /**
    * How the selected context's search is served, and the owner-only switch
    * that decides it.
