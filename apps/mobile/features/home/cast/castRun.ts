@@ -26,7 +26,7 @@
  */
 
 import * as Y from "yjs";
-import type { CastActor, CastPaceName, CastStep } from "@context/shared";
+import type { CastActing, CastActor, CastPaceName, CastShown, CastStep } from "@context/shared";
 import { addThread, appendEvent, findAnchors, type CommentChange } from "@context/shared/src/comments.cjs";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { agentName } from "../../console/presence/agentName";
@@ -96,12 +96,20 @@ export interface CastHost {
   workspace?: CastWorkspace;
   /** What happens in the scene's chats (`castChat.ts`). */
   chat?: (event: CastChatEvent) => void;
+  /** A `shows:` cut: which app a phone shows from here. */
+  shows?: (what: CastShown) => void;
   /** An agent read or wrote a note, for the tree's marks and the agents line. */
   agentDid: (actor: CastActor, kind: "read" | "write", path: string) => void;
   /** Who is in this note now. */
   room: (members: PresenceMember[]) => void;
   /** A comment step acted on this thread: a comment, a reply or a resolve. */
   commented?: (thread: string) => void;
+  /**
+   * What a comment step said, once it is all written: the thread's words and
+   * the latest entry in it. A phone's Context window shows it as a card,
+   * since there is no margin there to hold one.
+   */
+  said?: (said: CastSaid) => void;
   /** Step `index` of the script is starting: the studio's script follows along. */
   step?: (index: number) => void;
   /** The show ran to its end and everybody has left (not stopped by the visitor). */
@@ -116,6 +124,15 @@ export interface CastHost {
    * play into. `null` when there is no such page, and the show stays here.
    */
   open?: (name: string) => { path: string; shared: SharedDoc | null } | null;
+}
+
+/** A comment, reply or resolve as a card says it. */
+export interface CastSaid {
+  who: string;
+  quote: string;
+  /** Empty for a resolve. */
+  text: string;
+  resolved: boolean;
 }
 
 export interface CastWorkspace {
@@ -148,7 +165,7 @@ export function castColors(steps: readonly CastStep[]): Map<string, string> {
   const colors = new Map<string, string>();
   const used = new Set<string>();
   for (const step of steps) {
-    if (step.kind === "wait" || colors.has(step.actor.name)) continue;
+    if (!("actor" in step) || colors.has(step.actor.name)) continue;
     // "@jon's Claude" is Claude's colour, unless another Claude has it already.
     const known = KNOWN[agentName(step.actor.name).agent.toLowerCase()];
     const reserved = Object.values(KNOWN);
@@ -263,6 +280,7 @@ export function playCast(
   };
   // The thread this page's cast started last: what "replies" and "resolves" act on.
   let thread: string | null = null;
+  let quote = "";
 
   // The visitor typed: step out of their way, at once and for good.
   const onChange = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
@@ -304,7 +322,7 @@ export function playCast(
    * working, and a beat later happens beside it and shows as done, so the eye
    * goes from the chat to the change; without one it just happens.
    */
-  const act = (step: Exclude<CastStep, { kind: "wait" }>, run: () => void, then: () => void) => {
+  const act = (step: CastActing, run: () => void, then: () => void) => {
     const agent = chatOf(step.actor);
     const tool = chatTool(step);
     if (agent === null || tool === null || host.chat === undefined) {
@@ -320,7 +338,7 @@ export function playCast(
     });
   };
   /** The same, for a step that writes into the page and ends in its own time: it shows as done at once. */
-  const mention = (step: Exclude<CastStep, { kind: "wait" }>) => {
+  const mention = (step: CastActing) => {
     const agent = chatOf(step.actor);
     const tool = chatTool(step);
     if (agent !== null && tool !== null) host.chat?.({ kind: "tool", agent, id: (said += 1), ...tool, done: true });
@@ -333,6 +351,11 @@ export function playCast(
     const then = () => later(pace.gapMs, () => next(index + 1));
 
     if (step.kind === "wait") return later(step.ms, () => next(index + 1));
+    // A cut: the phone shows what the script says from here.
+    if (step.kind === "shows") {
+      host.shows?.(step.what);
+      return then();
+    }
 
     if (step.kind === "ask") return ask(step, then);
     if (step.kind === "answer") return answer(step, then);
@@ -531,6 +554,7 @@ export function playCast(
     if (step.kind === "comment") {
       const made = addThread(source, { quote: step.quote, author: step.actor.name, body: step.text });
       thread = made.error === undefined ? made.id : null;
+      quote = step.quote;
       result = made;
     } else if (thread === null) {
       result = { error: "no thread" };
@@ -556,6 +580,7 @@ export function playCast(
     };
     const done = () => {
       host.cue?.(step.kind === "resolve" ? "resolve" : "comment");
+      host.said?.({ who: step.actor.name, quote, text: step.kind === "resolve" ? "" : step.text, resolved: step.kind === "resolve" });
       if (step.actor.kind === "agent") host.agentDid(step.actor, "write", path);
       const range = words();
       if (range !== null) later(pace.highlightMs, () => place(id, at(range.to, -1), at(range.to, -1)));

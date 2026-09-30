@@ -10,3 +10,13 @@ import { createContext } from "react";
  * footer.
  */
 export const FrameFillsParent = createContext(false);
+
+/**
+ * Whether a phone frame is drawn without its floating chrome: the top row's
+ * buttons and the search bar at the foot. Only a cast playing on a phone sets
+ * it, where Context is one of two small windows in a recording and those
+ * buttons would cover the folders and notes the scene is about (Dev2,
+ * 2026-09-30, the approved artboards). The page, the path and the tree are
+ * the real ones.
+ */
+export const FrameBare = createContext(false);

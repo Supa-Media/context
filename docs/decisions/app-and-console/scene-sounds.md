@@ -97,6 +97,20 @@ in list view all in real time". The artboard was approved first.
   reaching it ("Claude, from chat"). The console frame fills that window
   (`FrameFillsParent`) rather than the screen. `castChat.spec.ts` checks the
   windows are apart and the frame's bottom is on the page.
+- **On a phone the script picks split or one app, and a recording keeps to
+  the Reels safe zone.** Dev2 wanted both apps visible ("show how folders and
+  things are being created as you chat"), then asked that "the cast scripting
+  stuff … decide wether to go split screen, or full screen on a specific app",
+  switching "like on ios". `phone: split` (the default) puts Context above one
+  chat window, with a tab per assistant; `phone: one app` fills the screen
+  with the chat being asked, and with Context when a step starts there, and
+  switches with an app-switcher motion (shrink to a card, slide, grow).
+  `shows: Context|<assistant>|both` is the script's own cut. While Context is
+  on screen each step shows its folder for a moment (`castCamera.tsx`). On the
+  studio's stage, which is recorded for Reels, every resting pane sits inside
+  Instagram's safe zone (250 top, 420 bottom, 70 left, 55 right, 193 right
+  below 1110 on 1080×1920); only the under-a-second switch may pass under the
+  buttons. `castPhone.test.ts` checks the boxes against the zone.
 
-Tests: `apps/mobile/__tests__/castChatGrammar.test.ts`, `castChat.test.ts`,
+Tests: `apps/mobile/__tests__/castChatGrammar.test.ts`, `castPhone.test.ts`, `castCamera.test.ts`, `castChat.test.ts`,
 `castWorkspace.test.ts`, and `e2e/webkit/castChat.spec.ts`.

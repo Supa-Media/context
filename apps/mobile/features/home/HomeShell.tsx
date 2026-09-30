@@ -44,7 +44,11 @@ import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
 import { useLocalFolderLists } from "./useLocalFolderLists";
 import { CastChat, CastWorkspaceBar } from "./cast/CastChat";
-import { FrameFillsParent } from "../app/appFrame/fillParent";
+import { CastCommentCard } from "./cast/CastCommentCard";
+import { followWorkspace, scenePage, useCastPeek } from "./cast/castCamera";
+import { PANE_SCALE, paneMotion, paneZoom, phoneBoxes, phoneView, usePhoneSwitch } from "./cast/PhoneDesk";
+import { useReducedMotion } from "../design/useReducedMotion";
+import { FrameBare, FrameFillsParent } from "../app/appFrame/fillParent";
 import { viewportHeight } from "../design/css";
 import { radii, space } from "../design/tokens";
 import { findPath } from "./castWorkspace";
@@ -107,7 +111,8 @@ export function HomeShell() {
   // Global: this is drawn by `(home)/_layout`, whose own params are not the page.
   const params = useGlobalSearchParams<{ page?: string | string[] }>();
   const routePath = routeFromParam(params.page);
-  const compact = densityFor(useWindowDimensions().width) === "compact";
+  const windowWidth = useWindowDimensions().width;
+  const compact = densityFor(windowWidth) === "compact";
   const source = useHomeSite();
   const live = source.kind === "live" ? source.snapshot.pages : null;
   const emoji = usePublishedEmoji(source.kind === "live" ? source.snapshot.emoji : NO_EMOJI);
@@ -176,18 +181,24 @@ export function HomeShell() {
     [browser, pathOf, routePath, router],
   );
 
+  // On a phone Context shows each change's folder for a moment, since a note
+  // filling it would hide the folders being made.
+  const phoneDesk = useRef(false);
+  const { peek, peeking } = useCastPeek({ enabled: () => phoneDesk.current, selected: browser.selectedPath, select: browser.select });
+  const workspace = useMemo(() => followWorkspace(local.cast, peek), [local.cast, peek]);
   const castRoom = useHomeCast({
     stage,
     enabled: Platform.OS === "web" && cast !== null,
     scripts,
     paces,
     colors: cast?.colors ?? NO_COLORS,
-    selectedPath: browser.selectedPath,
+    // A folder up for a moment is not the scene leaving its page.
+    selectedPath: scenePage(browser.selectedPath, peeking),
     notes,
     pages: home.pages,
     addNote: local.addNote,
-    addNoteIn: local.cast.addNoteIn,
-    workspace: local.cast,
+    addNoteIn: workspace.addNoteIn,
+    workspace,
     folderNamed: (name) => findPath({ listings: browser.listings, notes }, name, "folder"),
     chatSetups,
     // A scene's `opens:` goes where a click on that page would.
@@ -316,12 +327,20 @@ export function HomeShell() {
   const chat = castRoom.chat;
   const chatShown = chat !== null && chat.windows.length > 0 && !chat.hidden;
   const chatPanel = !chatShown ? null : (
-    <CastChat view={chat} colors={cast?.colors ?? NO_COLORS} onClose={stage === null ? castRoom.closeChat : undefined} />
+    <CastChat view={chat} one={compact} colors={cast?.colors ?? NO_COLORS} onClose={stage === null ? castRoom.closeChat : undefined} />
   );
   const cut = chat?.setup.layout === "cut";
   // Beside: two apps on a desk, each its own window (the approved artboard),
   // never a chat panel inside Context's frame.
   const desk = chatPanel !== null && !cut;
+  // A phone shows both apps, or one at a time (`PhoneDesk.ts`); recorded for
+  // Reels on the studio's stage, inside Instagram's safe zone.
+  const phone = desk && compact;
+  const view = phoneView(chat?.shows);
+  const phoneSwitch = usePhoneSwitch(phone ? view : "both", useReducedMotion());
+  const boxes = phoneBoxes(view, stage !== null);
+  // Each change's folder comes up while Context is on screen.
+  phoneDesk.current = phone && view !== "chat";
 
   /*
     The console's navigation, for a page with no console routes behind it.
@@ -350,11 +369,29 @@ export function HomeShell() {
       {joinSlot !== null && showJoin ? (
         <JoinSlotPortal slot={joinSlot}>{joinCard}</JoinSlotPortal>
       ) : null}
-      <View style={[compact ? styles.stacked : styles.beside, desk ? [viewportHeight(), compact ? styles.deskCompact : styles.desk] : null]}>
-        {desk ? <View style={compact ? styles.chatAbove : styles.chatBeside}>{chatPanel}</View> : null}
-        <View style={[styles.workspace, desk ? styles.window : null]}>
+      <View
+        style={[
+          compact ? styles.stacked : styles.beside,
+          desk ? [viewportHeight(), compact ? styles.deskCompact : styles.desk] : null,
+          phone && phoneSwitch.phase !== "rest" ? styles.switching : null,
+        ]}
+      >
+        {desk && !compact ? <View style={styles.chatBeside}>{chatPanel}</View> : null}
+        <View
+          style={[
+            styles.workspace,
+            desk ? styles.window : null,
+            phone ? [styles.pane, boxes.context, paneMotion("context", view, phoneSwitch, windowWidth)] : null,
+          ]}
+          testID={phone ? "cast-phone-context" : undefined}
+        >
           {desk && chat !== null ? <CastWorkspaceBar view={chat} /> : null}
+          {/* Always these two boxes, so the frame is never remounted when a chat appears. */}
+          <View style={phone ? styles.zoomBox : styles.plainBox}>
+          <View style={paneZoom(phone ? PANE_SCALE.context : 1)}>
           <FrameFillsParent.Provider value={desk}>
+            {/* A phone's floating buttons would cover the scene in a small window. */}
+            <FrameBare.Provider value={phone}>
             <ConsoleFrame
               data={data}
               route={HOME_ROUTE}
@@ -377,8 +414,21 @@ export function HomeShell() {
                 </CustomEmojiContext.Provider>
               )}
             </ConsoleFrame>
+            </FrameBare.Provider>
           </FrameFillsParent.Provider>
+          </View>
+          {phone && chat?.said !== undefined ? (
+            <CastCommentCard said={chat.said} badge={cast?.colors.get(chat.said.who)} />
+          ) : null}
+          </View>
         </View>
+        {phone ? (
+          <View style={[styles.pane, boxes.chat, paneMotion("chat", view, phoneSwitch, windowWidth)]} testID="cast-phone-chat">
+            <View style={styles.plainBox}>
+              <View style={paneZoom(PANE_SCALE.chat)}>{chatPanel}</View>
+            </View>
+          </View>
+        ) : null}
       </View>
       {chatPanel !== null && cut ? (
         <View style={styles.chatOver}>
@@ -405,10 +455,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     stacked: { flex: 1, flexDirection: "column", minHeight: 0 },
     workspace: { flex: 1, minWidth: 0, minHeight: 0 },
     desk: { padding: space.x6, gap: space.x6, backgroundColor: colors.castDesk },
-    deskCompact: { padding: space.x2, gap: space.x2, backgroundColor: colors.castDesk },
+    deskCompact: { position: "relative", overflow: "hidden", backgroundColor: colors.castDesk },
+    switching: { backgroundColor: colors.castSwitcher },
+    pane: { position: "absolute" },
+    zoomBox: { flex: 1, minHeight: 0, position: "relative", overflow: "hidden" },
+    plainBox: { flex: 1, minHeight: 0 },
     window: { borderRadius: radii.console, overflow: "hidden", boxShadow: shadows.window, backgroundColor: colors.pageSurface },
     chatBeside: { width: "36%", minWidth: 320, maxWidth: 468 },
-    chatAbove: { height: "46%" },
     chatOver: { ...StyleSheet.absoluteFillObject, alignItems: "center", padding: space.x6, backgroundColor: colors.castDesk },
     // A reading column, the width a chat app gives its words, however wide the frame.
     chatOverColumn: { flex: 1, width: "100%", maxWidth: 760 },

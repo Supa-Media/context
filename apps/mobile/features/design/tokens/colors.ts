@@ -236,6 +236,8 @@ export const darkColors = {
    * Context, each its own window, so neither reads as a panel of the other.
    */
   castDesk: "#0C0B0A",
+  /** Behind the apps while a cast on a phone switches between them, like an iPhone's app switcher. */
+  castSwitcher: "#1F1D1B",
 
   ink: "#100F0E",
   white: "#EDE8E0",
@@ -454,6 +456,7 @@ export const lightColors: Colors = {
   chromeSurface: "#F4F1EA",
   pageSurface: "#FFFDF9",
   castDesk: "#DDD7CC",
+  castSwitcher: "#2B2825",
 
   ink: "#FFFDF9",
   white: "#1A1714",
