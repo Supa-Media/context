@@ -141,6 +141,25 @@ describe("the key/value port", () => {
       Storage.prototype.setItem = real;
     }
   });
+
+  test("every opener in a tab that refuses site data shares one memory", async () => {
+    /*
+      Each caller opens its own store. When each got a fresh empty map, a
+      rebuilt collaboration controller found no record of the note it had
+      just been saving and replayed the editor's whole draft, once per
+      rebuild; with `localStorage` full that was every rebuild (2026-09-30).
+    */
+    const real = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    try {
+      await openStore().set("collaboration:a.md", "record");
+      expect(await openStore().get("collaboration:a.md")).toBe("record");
+    } finally {
+      Storage.prototype.setItem = real;
+    }
+  });
 });
 
 /* -------------------------------------------------------------------------- */

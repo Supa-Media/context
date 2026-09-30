@@ -109,6 +109,17 @@ export interface EditorState {
    * from the queue entry it came out of.
    */
   draftBase?: string | null;
+  /**
+   * The newest revision the durable collaboration controller has had
+   * acknowledged by the bucket for this note.
+   *
+   * `etag` only moves when everything is saved, which during continuous
+   * typing can be never; this one moves on every acknowledgement. It is the
+   * base a restarted controller must replay this draft against: anything
+   * older names a version from before most of the draft had landed, and the
+   * whole draft since then would be sent again (2026-09-30).
+   */
+  collaborationEtag?: string;
   /** How the last successful save checked for conflicts. */
   conflictCheck?: ConflictCheck;
   /**
@@ -354,6 +365,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return {
         ...state,
         draft: action.text,
+        ...(action.etag?.startsWith("c2.") ? { collaborationEtag: action.etag } : {}),
         ...(action.status === "saved" && action.pending === 0
           ? {
               baseline: action.text,

@@ -22,6 +22,7 @@ import { SetupWidgetHost } from "../../../../features/console/setupWidget/SetupW
 import type { SetupAgent } from "../../../../features/agentSetup/guides";
 import { selectedContext } from "../../../../features/console/types";
 import { visibilityTierForRole } from "../../../../features/console/visibility";
+import { legacyDraftFor } from "../../../../features/console/collaboration/legacyDraft";
 
 /**
  * `/console/@:slug` — a context's default view, opened on one note.
@@ -134,10 +135,7 @@ export default function ContextBrowseRoute() {
       socket on every keystroke.
     */
     textForSeed: () => data.files.editor.draft,
-    legacyDraft: () =>
-      data.files.editor.draft !== data.files.editor.baseline
-        ? { baseline: data.files.editor.baseline, desired: data.files.editor.draft, baseEtag: data.files.editor.draftBase ?? data.files.editor.etag }
-        : undefined,
+    legacyDraft: () => legacyDraftFor(data.files.editor),
     /*
       An MCP client wrote this note while it was open. Presence has already
       merged that write into the shared document; what is left is the

@@ -89,7 +89,14 @@ when it only lacks gained text, nothing changes. A peer deletion the writer
 never saw, or any other genuine concurrent edit, keeps the exact-base merge.
 Reversing this fails `packages/collaboration/test/replay.mjs`. The engine
 guard is the backstop, not the fix: a client must still never replay text it
-has already sent.
+has already sent. The browser's replay came from a rebuilt controller (a
+refreshed console grant is enough) that found no local record, because an
+unwritable `localStorage` handed every opener a fresh empty map, and that sent
+the draft against the version the note was opened at. The in-memory fallback is
+now one per tab, and a replay names the newest acknowledged revision
+(`collaborationEtag`); `offlineStore.test.ts` and `fileEditor/replayBase.test.ts`
+fail if either is reversed. Deleted base text is judged per run as well, so
+letters of a title the writer replaced are not read as kept.
 
 ## Permission and identity boundaries
 
