@@ -604,10 +604,38 @@ export const D1_MESSAGES: Readonly<Record<string, string>> = {
   UNAUTHORIZED:
     "The configured Cloudflare token was refused. It needs D1:Edit on the account in SEARCH_D1_ACCOUNT_ID.",
   NOT_FOUND: "The search database could not be found.",
-  RATE_LIMITED: "Cloudflare is rate limiting this account. This will retry.",
-  UNAVAILABLE: "Cloudflare could not be reached. This will retry.",
+  RATE_LIMITED:
+    "Cloudflare is rate limiting this account. Context tries again on its own within the hour.",
+  UNAVAILABLE:
+    "Cloudflare could not be reached. Context tries again on its own within the hour.",
   REFUSED: "Cloudflare refused the search database request.",
 };
+
+/**
+ * D1 failures that will answer the same way however long we wait.
+ *
+ * `UNAUTHORIZED` is terminal because the token is standing deployment
+ * configuration, not a key minted moments ago: a refusal means a staffer has to
+ * fix something. `REFUSED` is Cloudflare rejecting the request itself — a
+ * malformed statement will not become well-formed. `NOT_CONFIGURED` is a
+ * missing secret. Everything else — `NOT_FOUND` for a database not routable
+ * yet, `RATE_LIMITED`, `UNAVAILABLE`, and any code nobody named — is a wait.
+ *
+ * One list, because three places act on it: the provisioner's settling
+ * window, the projection chain's retry, and the sweep that restarts a row that
+ * ran out of both. A sentence that says "tries again on its own" is only true
+ * if all three agree on which failures it covers.
+ */
+const TERMINAL_D1_ERRORS: ReadonlySet<string> = new Set([
+  "UNAUTHORIZED",
+  "REFUSED",
+  "NOT_CONFIGURED",
+]);
+
+/** Will waiting fix this? See `TERMINAL_D1_ERRORS`. */
+export function isRetryableD1Error(code: string | undefined): boolean {
+  return code !== undefined && !TERMINAL_D1_ERRORS.has(code);
+}
 
 /** `REFUSED` for a code from outside the set, which is the least specific truth. */
 export function messageFor(code: string): string {

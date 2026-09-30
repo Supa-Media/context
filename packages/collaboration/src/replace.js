@@ -17,9 +17,10 @@ import {
   requireSupported,
 } from "./storage.js";
 import { applyUpdateTo, assertTextSize, docFromSnapshot } from "./ydoc.js";
-import { readRevision } from "./records.js";
+import { makeResult, readRevision } from "./records.js";
 import { ready } from "./load.js";
 import { commitSnapshot } from "./commit.js";
+import { replayResolution } from "./replay.js";
 
 function diffChars(before, after) {
   const operations = [];
@@ -37,17 +38,21 @@ function diffChars(before, after) {
   return operations;
 }
 
-function replacementUpdate(baseSnapshot, targetText) {
-  const base = docFromSnapshot(baseSnapshot);
-  const text = base.getText("note");
-  const before = text.toString();
-  const beforeVector = Y.encodeStateVector(base);
-  const operations = diffChars(before, targetText);
+/** Edit `doc`'s text into `targetText`, in place. */
+function applyTextDiff(doc, targetText) {
+  const text = doc.getText("note");
+  const operations = diffChars(text.toString(), targetText);
   for (let index = operations.length - 1; index >= 0; index -= 1) {
     const operation = operations[index];
     if (operation.deleteCount) text.delete(operation.index, operation.deleteCount);
     if (operation.insert) text.insert(operation.index, operation.insert);
   }
+}
+
+function replacementUpdate(baseSnapshot, targetText) {
+  const base = docFromSnapshot(baseSnapshot);
+  const beforeVector = Y.encodeStateVector(base);
+  applyTextDiff(base, targetText);
   return { base, update: Y.encodeStateAsUpdate(base, beforeVector) };
 }
 
@@ -119,6 +124,18 @@ export async function replaceText(store, path, input) {
     }
     if (baseRevision.value.generation !== loaded.state.generation) throw fail("GENERATION_MISMATCH", "the requested base belongs to another generation");
     assertTextSize(input.text);
+    const current = docFromSnapshot(loaded.revision.value.snapshot);
+    // The writer's own typing, replayed against a base from before it landed,
+    // must not be inserted a second time. See `replay.js`.
+    const replay = replayResolution(docFromSnapshot(baseRevision.value.snapshot), current, input.text);
+    if (replay === "unchanged") return makeResult(loaded.state, loaded.revision);
+    if (replay === "rebase") {
+      applyTextDiff(current, input.text);
+      const result = await commitSnapshot(store, path, loaded, loaded.state.documentId, current);
+      if (result) return result;
+      loaded = await ready(store, path);
+      continue;
+    }
     const update = await cachedReplacementUpdate(
       store,
       loaded.state.documentId,
@@ -127,7 +144,6 @@ export async function replaceText(store, path, input) {
       input.text,
       baseRevision.value.snapshot,
     );
-    const current = docFromSnapshot(loaded.revision.value.snapshot);
     applyUpdateTo(current, update);
     const result = await commitSnapshot(store, path, loaded, loaded.state.documentId, current);
     if (result) return result;

@@ -571,6 +571,7 @@ export async function executeOperation(
           moved: pass.moved,
           report: pass.report,
           failure: pass.failure ?? undefined,
+          failureDetail: pass.failureDetail ?? null,
         };
       }
       case "maintainIndex": {

@@ -278,6 +278,14 @@ export function searchProjectionState(
 export const PROJECTION_CHAIN = 24;
 
 /**
+ * How long a projection link waits before retrying a failure that waiting can
+ * fix — Cloudflare unreachable or rate limiting. Each retry spends one link of
+ * `PROJECTION_CHAIN`, so a chain rides out a few minutes of outage and then
+ * records the failure for the sweep rather than retrying forever.
+ */
+export const PROJECTION_RETRY_MS = 30 * 1_000;
+
+/**
  * How quiet a `backfilling` row must be before the sweep restarts its chain.
  *
  * Every link that moves anything writes counters onto the row, so `updatedAt`

@@ -266,6 +266,13 @@ export function d1AndBucketFetch(
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
+    if (stub.fail === "UNAVAILABLE" || stub.fail === "RATE_LIMITED") {
+      // The two a wait can fix, answered the way Cloudflare answers them.
+      return new Response(JSON.stringify({ success: false, errors: [] }), {
+        status: stub.fail === "RATE_LIMITED" ? 429 : 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (stub.fail !== null) {
       return new Response(
         JSON.stringify({

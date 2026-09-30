@@ -96,6 +96,7 @@ import {
   CLOUDFLARE_API_BASE,
   D1Error,
   createD1Client,
+  failureDetailOf,
   readSearchIndexBinding,
 } from "../../src/search/d1/client.js";
 import { CURSOR_KEY, projectPass } from "../../src/search/d1/backfill.js";
@@ -115,6 +116,7 @@ export {
   CLOUDFLARE_API_BASE,
   D1Error,
   createD1Client,
+  failureDetailOf,
   readSearchIndexBinding,
   CURSOR_KEY,
   projectPass,
