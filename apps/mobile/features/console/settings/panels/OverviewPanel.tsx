@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { Dot } from "../../../design/components/Dot";
-import { Icon } from "../../../design/components/Icon";
+import { StyleSheet, View } from "react-native";
+import { Button } from "../../../design/components/Button";
+import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
-import { layout, radii, space } from "../../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
-import { atName, relativeTime } from "../../format";
-import { storagePillLabel } from "../../storage/pill";
+import { radii, space } from "../../../design/tokens";
+import { useThemedStyles, type Colors } from "../../../design/theme";
+import { atName } from "../../format";
+import { WorkspaceNameField } from "./WorkspaceNameField";
 import { selectedContext, type ConsoleData } from "../../types";
 import type { SettingsSectionKey } from "../sections";
 import { useWorkspaceIcons } from "../../useWorkspaceIcons";
@@ -14,31 +14,18 @@ import { WorkspaceIconPicker, WorkspaceMonogram } from "./WorkspaceIconPicker";
 import { YourPicture } from "./YourPicture";
 
 /**
- * Which context this is, whether it is working, and the way to each fact.
+ * Settings › General: this workspace's name and picture.
  *
- * ## What this replaced
+ * The approved settings artboard (2026-09-29) draws one card: the picture,
+ * the name in large type, a line saying the address, the kind and your role,
+ * a "Change picture" button, and under a hairline the Name field. The health
+ * strip that used to follow ("Connected — R2 · bucket") is gone from here: the
+ * settings list says "Healthy" beside Storage & search, and that section
+ * leads with the same word, so a third copy was the page repeating itself.
  *
- * Four label/value rows — Name, Kind, You are, Storage — with the values set
- * in mono and right-aligned. It read as a debug dump, and two details are
- * worth naming because they are the difference between a product and a
- * record: `owner` was printed as the enum, lower-cased, straight off the wire;
- * and `Personal workspace` was set in the monospace face, which in this app means
- * "a string you would copy" and a kind is not one. Nothing on the page could
- * be pressed, so somebody who read "R2 · notes-bucket" here and wanted to change it
- * had to go back to the list and find Storage.
- *
- * Now: who this is, whether the bucket is answering, and three facts that are
- * each a way into the section that changes them. The identity carries the
- * role, because being the owner is a fact about *you in this context* rather
- * than a fourth entry in a column of properties.
- *
- * ## The health strip is where "Connected" went
- *
- * It used to be a green pill in the overlay's title bar, which made it the
- * brightest element on the screen and left it saying the least: connected to
- * *what*, and how long ago did anybody check? Here it is the dot, the word,
- * the bucket, and when it was last verified — one line that answers the
- * question people actually open this section with.
+ * What an owner can change and what everybody else sees are the same card:
+ * a member sees the name in a field that does not take typing and no button,
+ * absent rather than disabled, the catalogue's own rule.
  */
 export function OverviewPanel({
   data,
@@ -47,8 +34,9 @@ export function OverviewPanel({
   data: ConsoleData;
   /**
    * Open another section. Absent on the landing page's console and on the
-   * `/settings` fallback, which render every block at once — there the rows
-   * are facts rather than destinations, which is what they already were.
+   * `/settings` fallback, which render every block at once. Its presence is
+   * also how this knows a backend is mounted, so the controls that write to
+   * one are drawn only where they can.
    */
   onSelect?: (key: SettingsSectionKey) => void;
 }) {
@@ -56,293 +44,121 @@ export function OverviewPanel({
   const current = selectedContext(data);
   const shared = current?.kind === "shared";
   const [pickingIcon, setPickingIcon] = useState(false);
-  /*
-    The shared cache, so a photo the rail already fetched is drawn here without
-    a second request.
-  */
+  // The shared cache, so a photo the rail already fetched is drawn here without
+  // a second request.
   const iconFor = useWorkspaceIcons();
   const icon = current === null ? undefined : iconFor(current);
   /*
-    Owner-only, and absent rather than disabled — the catalogue's own rule. The
-    icon shows in every member's rail, so it belongs with the workspace's name
-    and storage rather than with the notes an editor may write.
+    Owner-only, and absent rather than disabled. The icon and the name show in
+    every member's rail, so they belong with the workspace rather than with the
+    notes an editor may write — the server refuses anybody else either way.
   */
   const canChooseIcon = current !== null && current.role === "owner" && onSelect !== undefined;
+  // The name field writes through `useMutation`, which the demo console has no
+  // client for; there it is drawn read-only, like a member's.
+  const canRename = canChooseIcon && !data.demo;
 
   const role =
     current?.role === "owner"
-      ? "you're the owner"
+      ? shared
+        ? "you're an owner"
+        : "you're the owner"
       : current?.role === undefined
         ? null
         : `you're ${current.role === "editor" ? "an editor" : "a member"}`;
+  const name = current?.displayName?.trim() || atName(current?.slug ?? "—");
 
   return (
     <View>
-      <View style={styles.identity} testID="overview-identity">
-        {/*
-          THIS WAS THE INITIAL OF THE NAME, AND THE NOTE HERE SAID SO: "not an
-          avatar. There are no pictures anywhere in this product and inventing
-          one here would be the only place a context had a face."
+      <View style={styles.card}>
+        <View style={styles.identity} testID="overview-identity">
+          {/*
+            A chosen picture, falling back to the first letter — reversed from
+            letters-only deliberately, by the owner: `@seyi` and `@supa` drew the
+            same S in the switcher whose job is telling them apart.
+          */}
+          <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} style={styles.picture} />
+          <View style={styles.who}>
+            <Text variant="noteTitle" numberOfLines={1}>
+              {name}
+            </Text>
+            <Text variant="rowSub" style={styles.whoSub}>
+              {[atName(current?.slug ?? "—"), shared ? "shared workspace" : "personal workspace", role]
+                .filter((part) => part !== null)
+                .join(" · ")}
+            </Text>
+          </View>
+          {canChooseIcon ? (
+            <Button
+              variant="mini"
+              label={pickingIcon ? "Done" : "Change picture"}
+              accessibilityLabel={
+                pickingIcon ? "Close the picture picker" : "Change this workspace’s picture"
+              }
+              onPress={() => setPickingIcon((open) => !open)}
+              testID="overview-icon-trigger"
+            />
+          ) : null}
+        </View>
 
-          Reversed deliberately, by the owner, and the reason is the one the
-          original could not see: a letter is not an identity. Two contexts
-          whose names start alike — `@seyi` and `@supa` — draw the same letter
-          in the same square in the switcher, which is the control that exists
-          to tell them apart. The face is no longer invented; it is chosen, and
-          the letter is what it falls back to.
-        */}
-        {canChooseIcon ? (
-          <Pressable
-            role="button"
-            accessibilityLabel={
-              pickingIcon ? "Close the icon picker" : "Change this workspace’s icon"
-            }
-            accessibilityState={{ expanded: pickingIcon }}
-            onPress={() => setPickingIcon((open) => !open)}
-            testID="overview-icon-trigger"
-          >
-            <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} />
-          </Pressable>
-        ) : (
-          <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} />
-        )}
-        <View style={styles.who}>
-          <Text variant="noteTitle" numberOfLines={1}>
-            {atName(current?.slug ?? "—")}
-          </Text>
-          <Text variant="rowSub" style={styles.whoSub}>
-            {[shared ? "Shared workspace" : "Personal workspace", role]
-              .filter((part) => part !== null)
-              .join(" · ")}
-          </Text>
+        {canChooseIcon && pickingIcon ? (
+          <View style={styles.picker}>
+            <WorkspaceIconPicker
+              workspaceId={current.id}
+              icon={icon}
+              onClose={() => setPickingIcon(false)}
+            />
+          </View>
+        ) : null}
+
+        <View style={styles.nameRow}>
+          {canRename ? (
+            <WorkspaceNameField key={name} workspaceId={current.id} name={name} />
+          ) : (
+            <TextField
+              label="Name"
+              value={name}
+              editable={false}
+              containerStyle={styles.field}
+              testID="overview-name"
+            />
+          )}
         </View>
       </View>
-
-      {canChooseIcon && pickingIcon ? (
-        <WorkspaceIconPicker
-          workspaceId={current.id}
-          icon={icon}
-          onClose={() => setPickingIcon(false)}
-        />
-      ) : null}
-
-      <HealthStrip data={data} onSelect={onSelect} />
 
       {/*
         Your face, on your own workspace: it defaults to this workspace's icon,
         so the two are chosen side by side. Only where a backend is mounted,
-        the rule the icon trigger above follows.
+        the rule the picture button above follows.
       */}
       {!shared && current?.role === "owner" && onSelect !== undefined ? <YourPicture /> : null}
-
-      {/*
-        There was a "This workspace" card here linking to Storage and Sharing
-        & Access. The settings list beside this page already has both rows,
-        one line away, so the card was the same two links twice. It went in
-        the settings cleanup (2026-09-29); the health strip above still
-        links to Storage, which is the one link that carries news.
-      */}
     </View>
   );
-}
-
-function HealthStrip({
-  data,
-  onSelect,
-}: {
-  data: ConsoleData;
-  onSelect?: (key: SettingsSectionKey) => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-
-  /*
-    Three absences and two failures, kept apart. `undefined` is a binding that
-    has not answered — the distinction `ConsoleData.storage` spends a
-    paragraph on — and saying "no bucket connected" for it is the defect that
-    paragraph exists to record.
-
-    Written out per state rather than keyed off the tone. A `styles[\`strip$
-    {tone}\`]` lookup is two characters shorter and is how a palette entry
-    goes missing without anything failing to compile.
-  */
-  const state = describeBinding(data);
-  const strip = {
-    ok: styles.stripOk,
-    warn: styles.stripWarn,
-    crit: styles.stripCrit,
-    neutral: styles.stripNeutral,
-  }[state.tone];
-  const stripText = {
-    ok: styles.stripOkText,
-    warn: styles.stripWarnText,
-    crit: styles.stripCritText,
-    neutral: styles.stripNeutralText,
-  }[state.tone];
-
-  return (
-    <View style={[styles.strip, strip]} testID="overview-health">
-      <Dot tone={state.tone} size={8} />
-      <View style={styles.stripText}>
-        <Text variant="rowTitle" style={stripText}>
-          {state.headline}
-        </Text>
-        {state.detail === null ? null : (
-          <Text variant="rowSub" style={styles.stripDetail}>
-            {state.detail}
-          </Text>
-        )}
-      </View>
-      {state.action === null || onSelect === undefined ? null : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${state.action} storage`}
-          onPress={() => onSelect("storage")}
-          style={styles.stripAction}
-          testID="overview-health-action"
-        >
-          <Text variant="mini" style={styles.stripActionText}>
-            {state.action}
-          </Text>
-          <Icon name="chevronRight" size={12} color={colors.accent} />
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-type BindingTone = "ok" | "warn" | "crit" | "neutral";
-
-interface BindingState {
-  tone: BindingTone;
-  headline: string;
-  detail: string | null;
-  /** The word on the way into Storage, or `null` where there is nothing to do. */
-  action: string | null;
-}
-
-function describeBinding(data: ConsoleData): BindingState {
-  const storage = data.storage;
-  if (storage === undefined) {
-    return { tone: "neutral", headline: "Checking…", detail: null, action: null };
-  }
-  if (storage === null) {
-    return {
-      tone: "warn",
-      headline: "No bucket connected",
-      detail: "Your notes have nowhere to live yet.",
-      action: "Connect",
-    };
-  }
-  const detail = verifiedLine(storagePillLabel(storage), storage.lastVerifiedAt);
-  if (storage.connected) {
-    return { tone: "ok", headline: "Connected", detail, action: "Manage" };
-  }
-  return storage.status === "error"
-    ? { tone: "crit", headline: "Not working", detail, action: "Fix" }
-    : { tone: "warn", headline: "Not verified", detail, action: "Check" };
-}
-
-/**
- * The bucket, and when anybody last checked it was there.
- *
- * The time is the half people are actually asking for: "connected" is a claim
- * about a probe that may have run last week. Omitted where there has never
- * been one rather than guessed at.
- */
-function verifiedLine(label: string | null, lastVerifiedAt: number | undefined): string | null {
-  const when = lastVerifiedAt === undefined ? null : `checked ${relativeTime(lastVerifiedAt, Date.now())}`;
-  return [label, when].filter((part) => part !== null).join(" — ") || null;
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    identity: { flexDirection: "row", alignItems: "center", gap: space.x3 },
-    who: { flex: 1, minWidth: 0 },
-    whoSub: { marginTop: 1 },
-    strip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      marginTop: space.x4,
-      padding: space.x3,
-      borderRadius: radii.card,
-      borderWidth: 1,
-      maxWidth: 560,
-    },
-    stripOk: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
-    stripWarn: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder },
-    /*
-      `crit`, not a second copy of `warn`. "Not working" and "Not verified"
-      are a broken bucket and an unprobed one, and drawing them in the same
-      wash leaves the difference to a hue on four words of text.
-    */
-    stripCrit: { backgroundColor: colors.critWash, borderColor: colors.critBorder },
-    stripNeutral: { backgroundColor: colors.surface2, borderColor: colors.line },
-    stripOkText: { color: colors.okText },
-    stripWarnText: { color: colors.warnText },
-    stripCritText: { color: colors.critText },
-    stripNeutralText: { color: colors.text2 },
-    stripText: { flex: 1, minWidth: 0 },
-    stripDetail: { marginTop: 2 },
-    stripAction: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 1,
-      minHeight: layout.minTouchTarget,
-      paddingLeft: space.x2,
-    },
-    stripActionText: { color: colors.accent },
-    heading: { marginTop: space.x6, marginBottom: space.x2 },
     card: {
       borderWidth: 1,
       borderColor: colors.line,
       borderRadius: radii.card,
       backgroundColor: colors.surface2,
-      overflow: "hidden",
-      maxWidth: 560,
+      marginBottom: space.x4,
     },
-    divider: { height: 1, backgroundColor: colors.line, marginLeft: 47 },
-    fact: {
+    identity: {
       flexDirection: "row",
       alignItems: "center",
       gap: space.x3,
-      minHeight: layout.minTouchTarget,
-      paddingVertical: space.x2,
-      paddingHorizontal: space.x4,
+      padding: space.x4,
     },
-    factValue: { flexShrink: 1, textAlign: "right" },
-    grow: { flexGrow: 1, minWidth: space.x2 },
-    /*
-      Its own outline rather than a fourth row in the card above. The facts are
-      a set of like things and this is not one of them — a destructive
-      destination sitting inside that border, one divider below "People", is
-      exactly the row somebody presses on the way to somewhere else.
-
-      And the *same* outline as that card, not a red wash. The title carries
-      the warning colour and nothing else does, which is the convention every
-      destructive control in this app already follows (`DeleteAccountCard` and
-      `DeleteWorkspaceCard` are both a plain card with one danger-coloured
-      control in them). A permanently tinted box would make the loudest thing
-      on this page a control that is merely *available* — and it would sit
-      inches under a health strip that uses those exact washes to mean a bucket
-      is broken, which is a real state this is not.
-    */
-    wayOut: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      marginTop: space.x5,
-      paddingVertical: space.x2,
-      paddingHorizontal: space.x4,
-      borderRadius: radii.card,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.surface2,
-      minHeight: layout.minTouchTarget,
-      maxWidth: 560,
+    picture: { width: 56, height: 56, borderRadius: 12 },
+    who: { flex: 1, minWidth: 0 },
+    whoSub: { marginTop: 1 },
+    picker: { paddingHorizontal: space.x4, paddingBottom: space.x4 },
+    nameRow: {
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+      padding: space.x4,
     },
-    wayOutText: { flex: 1, minWidth: 0 },
-    wayOutTitle: { color: colors.critText },
-    wayOutSub: { marginTop: 2 },
+    field: { maxWidth: 386 },
   });

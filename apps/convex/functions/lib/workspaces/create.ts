@@ -15,8 +15,8 @@ import { claimName, checkAvailability, nameRejectionError } from "../nameClaims"
 import { seedIngestionSettings } from "../ingestionStore";
 import { consumeRateLimit } from "../rateLimit";
 import { isProductionTestAccount } from "../testAccount";
+import { normalizeDisplayName } from "./rename";
 import {
-  MAX_DISPLAY_NAME_LENGTH,
   MAX_WORKSPACES_PER_USER,
   WORKSPACE_CREATE_LIMIT,
   WORKSPACE_CREATE_WINDOW_MS,
@@ -35,19 +35,7 @@ export async function createWorkspaceHandler(
   const user = await ctx.db.get(userId);
   const isTestAccount = isProductionTestAccount(user);
 
-  const displayName = args.displayName.trim();
-  if (displayName.length === 0) {
-    throw new ConvexError({
-      code: "INVALID_DISPLAY_NAME",
-      message: "A workspace needs a display name.",
-    });
-  }
-  if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
-    throw new ConvexError({
-      code: "INVALID_DISPLAY_NAME",
-      message: `Display names must be at most ${MAX_DISPLAY_NAME_LENGTH} characters.`,
-    });
-  }
+  const displayName = normalizeDisplayName(args.displayName);
 
   // How many contexts this account already owns. Read before the name is
   // even looked at: hitting the cap must not depend on what you asked for.

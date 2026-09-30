@@ -357,9 +357,7 @@ export function SettingsPane({
         and deletion is here under a heading that says what it is.
       */}
       <PanelHead section="workspace" sectioned={section !== undefined}>
-        {current?.kind === "shared"
-          ? "A workspace several people share. Everyone in it sees its name and picture."
-          : "Your own workspace: its name, its picture, and whether it is working."}
+        This workspace&apos;s name and picture, and deleting it.
       </PanelHead>
       <OverviewPanel data={data} onSelect={onSelect} />
       {data.advanced.deletion === undefined || data.demo ? null : (
@@ -367,7 +365,10 @@ export function SettingsPane({
           <Text variant="eyebrow" style={styles.danger}>
             Can&apos;t be undone
           </Text>
-          <DeleteWorkspaceCard deletion={data.advanced.deletion} />
+          <DeleteWorkspaceCard
+            deletion={data.advanced.deletion}
+            people={data.members.loading ? undefined : data.members.members.length}
+          />
         </>
       )}
       </>

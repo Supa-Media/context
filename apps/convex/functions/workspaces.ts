@@ -33,6 +33,7 @@ import {
   setMemberRoleHandler,
 } from "./lib/workspaces/members";
 import { setMeetingsFolderHandler } from "./lib/workspaces/settings";
+import { setWorkspaceDisplayNameHandler } from "./lib/workspaces/rename";
 import { retireSetupWidgetHandler } from "./lib/workspaces/setupRetired";
 import {
   recordWorkspaceIconPhotoHandler,
@@ -483,6 +484,17 @@ export const setWorkspaceIcon = mutation({
   },
   returns: v.null(),
   handler: (ctx, args) => setWorkspaceIconHandler(ctx, args),
+});
+
+/**
+ * Rename a workspace: its display name, never its address. Owner only, for
+ * the icon's reason — it is drawn on every member's screen. See
+ * `lib/workspaces/rename.ts`.
+ */
+export const setWorkspaceDisplayName = mutation({
+  args: { workspaceId: v.id("workspaces"), displayName: v.string() },
+  returns: v.null(),
+  handler: (ctx, args) => setWorkspaceDisplayNameHandler(ctx, args),
 });
 
 /**

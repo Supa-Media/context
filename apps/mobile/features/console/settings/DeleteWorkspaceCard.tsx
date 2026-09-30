@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
-import { Card, Grow, Row } from "../../design/components/Card";
+import { Grow, Row } from "../../design/components/Card";
+import { Icon } from "../../design/components/Icon";
 import { FormError, Notice, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { radii, space } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   deletionConfirmed,
   describeDeleteWorkspaceFailure,
@@ -43,33 +45,66 @@ import {
  * afraid of getting wrong, and because a destructive control that does not
  * say what survives is one nobody presses even when they should.
  */
-export function DeleteWorkspaceCard({ deletion }: { deletion: WorkspaceDeletion }) {
+export function DeleteWorkspaceCard({
+  deletion,
+  people,
+}: {
+  deletion: WorkspaceDeletion;
+  /** How many people are in it, for the one-line summary; absent while loading. */
+  people?: number;
+}) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<KeyExportFailure | null>(null);
   const ready = deletionConfirmed(typed, deletion.slug);
+  const who =
+    people === undefined || people < 2 ? "Removes it" : `Removes it for all ${people} people`;
 
+  /*
+    The artboard's shape: one red-washed line that says what the button does
+    and what survives, and "Delete…" to open the rest. The long explanation and
+    the typed name are what the press opens, so the page is not led by a
+    paragraph about deleting while somebody came to rename it.
+  */
   return (
-    <View>
-      <Text variant="rowTitle" style={styles.subHead}>
-        Delete this workspace
-      </Text>
-      <Card>
-        <Row>
-          <Grow>
-            <Text variant="rowSub" style={styles.sub}>
-              Notes in the bucket behind @{deletion.slug} stay exactly where they are —
-              they are not ours to delete. What goes is everything Context knows about
-              this workspace: its storage connection, its members and their access, its
-              invitations, grants, shared links and audit trail. Its name @
-              {deletion.slug} is released for anybody to claim, and it stops counting
-              against the workspaces you can own. This cannot be undone.
-            </Text>
-          </Grow>
-        </Row>
-        {deletion.blocked === null ? (
-          <Row divided style={styles.confirmRow}>
+    <View style={styles.card} testID="delete-workspace-card">
+      <View style={styles.head}>
+        <Icon name="trash" size={16} color={colors.critText} />
+        <View style={styles.grow}>
+          <Text variant="rowTitle">Delete this workspace</Text>
+          <Text variant="rowSub" style={styles.line}>
+            {`${who}. The files stay in your storage.`}
+          </Text>
+        </View>
+        {deletion.blocked === null && !open ? (
+          <Button
+            variant="mini"
+            label="Delete…"
+            accessibilityLabel={`Delete the workspace @${deletion.slug}…`}
+            onPress={() => setOpen(true)}
+            style={styles.openButton}
+            testID="delete-workspace-open"
+          />
+        ) : null}
+      </View>
+      {deletion.blocked !== null ? (
+        <Notice tone="warn" style={styles.blocked}>
+          <Text variant="rowSub">{deletion.blocked}</Text>
+        </Notice>
+      ) : open ? (
+        <View style={styles.body}>
+          <Text variant="rowSub" style={styles.sub}>
+            Notes in the bucket behind @{deletion.slug} stay exactly where they are —
+            they are not ours to delete. What goes is everything Context knows about
+            this workspace: its storage connection, its members and their access, its
+            invitations, grants, shared links and audit trail. Its name @
+            {deletion.slug} is released for anybody to claim, and it stops counting
+            against the workspaces you can own. This cannot be undone.
+          </Text>
+          <Row style={styles.confirmRow}>
             <Grow>
               <TextField
                 label="Type its name to confirm"
@@ -109,22 +144,29 @@ export function DeleteWorkspaceCard({ deletion }: { deletion: WorkspaceDeletion 
               }}
             />
           </Row>
-        ) : (
-          <Notice tone="warn" style={styles.blocked}>
-            <Text variant="rowSub">{deletion.blocked}</Text>
-          </Notice>
-        )}
-        {failure === null ? null : (
-          <FormError headline={failure.headline} next={failure.next} style={styles.blocked} />
-        )}
-      </Card>
+          {failure === null ? null : (
+            <FormError headline={failure.headline} next={failure.next} style={styles.blocked} />
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
 
-const makeStyles = (_colors: Colors) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    subHead: { marginTop: 28, marginBottom: 6 },
+    card: {
+      borderWidth: 1,
+      borderColor: colors.critBorder,
+      borderRadius: radii.card,
+      backgroundColor: colors.critWash,
+      padding: space.x4,
+    },
+    head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
+    grow: { flex: 1, minWidth: 0 },
+    line: { marginTop: 2 },
+    openButton: { borderColor: colors.critBorder },
+    body: { marginTop: space.x3 },
     sub: { maxWidth: 520 },
     confirmRow: { marginTop: 12, alignItems: "flex-end", gap: 12 },
     blocked: { marginTop: 12 },

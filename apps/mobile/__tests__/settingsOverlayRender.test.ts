@@ -166,7 +166,7 @@ describe("a phone reaches the settings, not just a menu", () => {
   test("the workspace page answers which context this is before anything else", () => {
     const text = overlay("workspace").textContent ?? "";
     expect(text).toContain("General");
-    expect(text).toContain("Personal workspace");
+    expect(text).toContain("personal workspace");
   });
 
   test("one screen answers who can see it, in four blocks", () => {
@@ -610,13 +610,11 @@ describe("the section is named once", () => {
 });
 
 describe("the workspace page answers rather than listing properties", () => {
-  test("the bucket, whether it is working, and when anybody last checked", () => {
+  test("the name, the address, and a Name field; no second health strip", () => {
+    // Storage & search leads with the verdict and the list row says it too.
     const host = overlay("workspace");
-    const strip = host.querySelector('[data-testid="overview-health"]');
-    expect(strip).not.toBeNull();
-    // The word the old title-bar pill carried, now beside the thing it is a
-    // claim about.
-    expect(strip!.textContent ?? "").toContain("Connected");
+    expect(host.querySelector('[data-testid="overview-health"]')).toBeNull();
+    expect(host.querySelector('[data-testid="overview-name"]')).not.toBeNull();
   });
 
   test("it does not repeat the settings list as a card of links", () => {
@@ -631,7 +629,7 @@ describe("the workspace page answers rather than listing properties", () => {
     const identity = host.querySelector('[data-testid="overview-identity"]');
     expect(identity).not.toBeNull();
     const text = identity!.textContent ?? "";
-    expect(text).toContain("Personal workspace");
+    expect(text).toContain("@seyi · personal workspace");
     expect(text).toContain("you're the owner");
     // `owner`, printed straight off the wire, is what this replaced.
     expect(text).not.toMatch(/\bowner\b(?!s)(?<!the owner)/);
