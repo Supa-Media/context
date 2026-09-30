@@ -131,16 +131,6 @@ async function settle() {
 const pathsIn = (listing: FolderListing | undefined): string[] =>
   (listing?.entries ?? []).map((one) => one.path);
 
-/** Open the whole fixture, so there is a subtree to lose. */
-async function openTree() {
-  for (const folder of ["1-projects", "1-projects/foo", "1-projects/foo/deep"]) {
-    await act(async () => {
-      browser.toggleFolder(folder);
-    });
-    await settle();
-  }
-}
-
 let unmount: (() => void) | null = null;
 
 beforeEach(async () => {
