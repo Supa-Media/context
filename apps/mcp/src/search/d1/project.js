@@ -119,6 +119,36 @@ export const FTS_TABLE = {
 };
 
 /**
+ * The FTS table one visibility's chunks belong in, or `undefined`.
+ *
+ * A named function rather than `FTS_TABLE[visibility]`, and the two tiers
+ * compared rather than looked up, because **a JavaScript object literal
+ * answers for names nobody put in it**. `FTS_TABLE["constructor"]` is
+ * `Object`, `FTS_TABLE["__proto__"]` is `Object.prototype`, and both are
+ * truthy — so a `??` fallback never ran for them and `INSERT INTO ${table}`
+ * interpolated `function Object() { [native code] }` into the statement. The
+ * fail-closed rule `upsertStatements` states below was true of every
+ * unknown name except the handful JavaScript supplies for free.
+ *
+ * Nothing could send one: `backfill.js` guards on these same three shapes,
+ * and the write path's visibility comes from `effectiveVisibility`, which the
+ * manifest parser holds to `team`, `private` or `@name` and throws on
+ * anything else. Fixed anyway, because this is the function that decides
+ * which tier's table a body lands in, and a decision point whose stated safe
+ * failure is false for a class of inputs is one caller away from mattering.
+ *
+ * A group rule (`@supa-leads`) is narrower than `team` and wider than
+ * `private`, and there are two tables, so it goes in the PRIVATE one — see
+ * `upsertStatements` for why that is the safe side.
+ */
+export function ftsTableFor(visibility) {
+  if (visibility === "private") return FTS_TABLE.private;
+  if (visibility === "team") return FTS_TABLE.team;
+  if (typeof visibility === "string" && visibility.startsWith("@")) return FTS_TABLE.private;
+  return undefined;
+}
+
+/**
  * The statements that replace one note's rows, in order.
  *
  * **Delete from both tables, always.** A note whose visibility changed from
@@ -159,11 +189,7 @@ export function upsertStatements(path, projected) {
   // fast path over their own notes. The alternative, indexing it nowhere, is
   // what the caller used to do by skipping it entirely, and that left the
   // note's old team-tier rows standing forever.
-  const table =
-    FTS_TABLE[projected.note.visibility] ??
-    (typeof projected.note.visibility === "string" && projected.note.visibility.startsWith("@")
-      ? FTS_TABLE.private
-      : undefined);
+  const table = ftsTableFor(projected.note.visibility);
   // An unknown visibility is still a programming error, and the safe failure is
   // to index nothing rather than to guess a table — guessing `team` publishes a
   // private note's vocabulary to every member of the context. The two DELETEs
