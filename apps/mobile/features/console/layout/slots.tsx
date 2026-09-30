@@ -2,7 +2,6 @@ import type { ComponentProps, Dispatch, SetStateAction } from "react";
 import { AsidePanel } from "../aside/AsidePanel";
 import { ConsoleBottomBar } from "../ConsoleBottomBar";
 import { Explorer, type Dialog } from "../files/Explorer";
-import type { HistoryState } from "../files/history";
 import type { TreePick } from "../files/selection";
 import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
@@ -192,23 +191,13 @@ export function consoleExplorer({
 export function consoleBottomBar({
   browsing,
   data,
-  history,
-  somewhereToGo,
-  step,
   setPaletteOpen,
-  setRecentOpen,
-  setTreeSheetOpen,
   canCreate,
   setBarDialog,
 }: {
   browsing: boolean;
   data: ConsoleData;
-  history: HistoryState;
-  somewhereToGo: boolean;
-  step: (delta: -1 | 1) => void;
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
-  setRecentOpen: Dispatch<SetStateAction<boolean>>;
-  setTreeSheetOpen: Dispatch<SetStateAction<boolean>>;
   canCreate: boolean;
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
 }) {
@@ -216,12 +205,7 @@ export function consoleBottomBar({
     browsing ? (
       <ConsoleBottomBar
         data={data}
-        history={history}
-        hasRecent={somewhereToGo}
-        onStep={step}
         onSearch={() => setPaletteOpen(true)}
-        onOpenRecent={() => setRecentOpen(true)}
-        onBrowse={() => setTreeSheetOpen(true)}
         onCreate={
           canCreate ? (folder) => setBarDialog({ kind: "create", folder }) : null
         }

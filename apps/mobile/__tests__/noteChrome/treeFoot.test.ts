@@ -106,7 +106,9 @@ describe("the tree's foot became the context root page's foot", () => {
     );
 
     expect(app.container.textContent).not.toContain("Choose a note");
-    expect(app.find("folder-row")).not.toBeNull();
+    // That page is Home since 2026-09-30 (`home/PhoneHome.tsx`), and it lists what it holds.
+    expect(app.find("phone-home")).not.toBeNull();
+    expect(app.find("phone-home-totals")!.textContent).toBe("1 note · 1 folder");
     expect(app.find("context-foot")).not.toBeNull();
   });
 

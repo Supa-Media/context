@@ -362,6 +362,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - No UI ships without a design audit first
 - Every unasked message goes through one path, one at a time, answered per account
 - [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
+- [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
 
 ## [Meetings](./meetings.md)
 

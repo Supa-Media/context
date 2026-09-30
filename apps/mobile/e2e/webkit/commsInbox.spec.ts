@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { tap } from "./helpers";
+import { tap, tapFolderOnHome } from "./helpers";
 
 /**
  * The board message's own card, never its thread heading — a thread with one
@@ -34,17 +34,16 @@ function boardMessage(page: Page) {
  * for it.
  */
 
-/** From the fixture's default note to the context's root folder listing. */
-async function openContextRoot(page: import("@playwright/test").Page): Promise<void> {
+/** From the fixture's default note, by way of Home, to the Inbox folder. */
+async function openInbox(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/e2e-fixture");
   await page.getByTestId("note-scroll").waitFor();
   await tap(page, "@seyi, the context you are in — open its root");
-  await page.getByTestId("folder-row").first().waitFor();
+  await tapFolderOnHome(page, "inbox");
 }
 
 test("Inbox is an ordinary folder, listing each channel as a folder row", async ({ page }) => {
-  await openContextRoot(page);
-  await tap(page, "inbox, folder");
+  await openInbox(page);
 
   // The same `FolderView` rows as every other folder — no custom Inbox list.
   await page.getByLabel("email, folder").waitFor();
@@ -54,8 +53,7 @@ test("Inbox is an ordinary folder, listing each channel as a folder row", async 
 });
 
 test("a channel's days, and a day's messages grouped by thread", async ({ page }) => {
-  await openContextRoot(page);
-  await tap(page, "inbox, folder");
+  await openInbox(page);
   await tap(page, "email, folder");
   await tap(page, "name-at-example-com, folder");
 
@@ -82,8 +80,7 @@ test("a channel's days, and a day's messages grouped by thread", async ({ page }
 test("following a contact's activity link scrolls the channel-day to that message", async ({
   page,
 }) => {
-  await openContextRoot(page);
-  await tap(page, "inbox, folder");
+  await openInbox(page);
   await tap(page, "contacts, folder");
 
   // The generic folder listing, showing the one contact page.

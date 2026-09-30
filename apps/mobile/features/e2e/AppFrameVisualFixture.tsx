@@ -17,7 +17,6 @@ import { storagePillLabel } from "../console/storage/pill";
 import { StatusBar } from "../design/components/StatusBar";
 import { BrowsePane } from "../console/panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "../console/ContextStrip";
-import { notePlace } from "../console/files/history";
 import { ShareDialog } from "../console/files/ShareDialog";
 import { NavBandProvider } from "../console/NavBand";
 import { CreateButton } from "../console/CreateButton";
@@ -338,16 +337,7 @@ export function AppFrameVisualFixture({
           dead, which is what a phone actually looks like.
         */
         bottomBar={
-          <ConsoleBottomBar
-            data={data}
-            history={{ entries: [notePlace("1-projects/context-lc.md")], at: 0 }}
-            hasRecent
-            onStep={() => {}}
-            onSearch={() => {}}
-            onOpenRecent={() => {}}
-            onBrowse={() => {}}
-            onCreate={() => {}}
-          />
+          <ConsoleBottomBar data={data} onSearch={() => {}} onCreate={() => {}} />
         }
         /*
           The tab strip in the frame's own slot, which is the point of putting

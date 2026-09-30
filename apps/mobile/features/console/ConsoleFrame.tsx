@@ -483,10 +483,7 @@ export function ConsoleFrame({
           switcherProps,
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
-        bottomBar={consoleBottomBar({
-          browsing, data, history, somewhereToGo, step, setPaletteOpen, setRecentOpen, setTreeSheetOpen, canCreate,
-          setBarDialog,
-        })}
+        bottomBar={consoleBottomBar({ browsing, data, setPaletteOpen, canCreate, setBarDialog })}
       >
         <Shortcuts
           files={data.files}

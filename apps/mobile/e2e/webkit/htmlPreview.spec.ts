@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { tap } from "./helpers";
+import { tap, tapFolderOnHome } from "./helpers";
 
 /**
  * A DIAGRAM THAT LIVES IN A NOTE, DRAWN BY A FRAME THAT CANNOT RUN CODE.
@@ -33,8 +33,7 @@ async function openArchitectureMap(page: import("@playwright/test").Page): Promi
   await page.goto("/e2e-fixture");
   await page.getByTestId("note-scroll").waitFor();
   await tap(page, "@seyi, the context you are in — open its root");
-  await page.getByTestId("folder-row").first().waitFor();
-  await tap(page, "areas, folder");
+  await tapFolderOnHome(page, "areas");
   await tap(page, "architecture-map");
   await page.getByTestId("breadcrumb-leaf").waitFor();
 }
