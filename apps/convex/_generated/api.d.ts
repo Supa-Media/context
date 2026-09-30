@@ -100,6 +100,7 @@ import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
 import type * as functions_feedback from "../functions/feedback.js";
 import type * as functions_messages from "../functions/messages.js";
+import type * as functions_places from "../functions/places.js";
 import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
@@ -208,6 +209,7 @@ declare const fullApi: ApiFromModules<{
   "functions/storage": typeof functions_storage;
   "functions/feedback": typeof functions_feedback;
   "functions/messages": typeof functions_messages;
+  "functions/places": typeof functions_places;
   "functions/telemetry": typeof functions_telemetry;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
