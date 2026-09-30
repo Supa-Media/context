@@ -16,6 +16,7 @@ import {
   publishMirrorListed,
   publishMirrorNotesChanged,
 } from "./mirrorEvents";
+import { folderFreshener } from "./folderFreshener";
 import { freshenFolder } from "./mirrorFolder";
 import {
   refreshMetadata,
@@ -293,42 +294,33 @@ export function useMirrorSync(options: {
   /*
     A project List or Board opened on a folder: that folder's notes now, not
     whenever the pass reaches them (`mirrorFolder.ts`). Outside the pass's
-    single flight for the same reason a refresh is, and one at a time per
-    folder; a request that lands during one runs once more after it.
+    single flight for the same reason a refresh is. Remembered until it can
+    run and run again on every trigger below (`folderFreshener.ts`).
   */
-  const freshening = useRef(new Map<string, boolean>());
-  useEffect(
+  const freshener = useMemo(
     () =>
-      onMirrorFolderRequest((workspaceId, folder) => {
-        if (reachabilityRef.current !== "online") return;
-        if (epochRef.current !== currentEpoch()) return;
-        const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
-        if (target === undefined) return;
-        const key = `${workspaceId}\n${folder}`;
-        const inFlight = freshening.current;
-        if (inFlight.has(key)) {
-          inFlight.set(key, true);
-          return;
-        }
-        inFlight.set(key, false);
-        void (async () => {
+      folderFreshener({
+        ready: (workspaceId) =>
+          reachabilityRef.current === "online" &&
+          epochRef.current === currentEpoch() &&
+          targetsRef.current.some((each) => each.workspaceId === workspaceId),
+        run: async (workspaceId, folder) => {
+          const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
           const store = await openMirrorStore();
-          if (store === null) return;
-          do {
-            inFlight.set(key, false);
-            await freshenFolder(engine(store), target, folder);
-          } while (inFlight.get(key) === true && epochRef.current === currentEpoch());
-        })()
-          .catch(() => {})
-          .finally(() => inFlight.delete(key));
+          if (target === undefined || store === null) return;
+          await freshenFolder(engine(store), target, folder);
+        },
       }),
     [engine],
   );
+  useEffect(() => onMirrorFolderRequest((workspaceId, folder) => freshener.request(workspaceId, folder)), [freshener]);
 
   // Mount, reconnection, and a change in which contexts there are.
   useEffect(() => {
-    if (reachability === "online") sync();
-  }, [reachability, sync, targets]);
+    if (reachability !== "online") return;
+    freshener.retry();
+    sync();
+  }, [reachability, sync, targets, freshener]);
 
   // Back to the foreground, and a modest interval while it stays there.
   useEffect(() => {
@@ -344,6 +336,7 @@ export function useMirrorSync(options: {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         start();
+        freshener.retry();
         sync();
       } else if (state === "background") {
         stop();
@@ -353,5 +346,5 @@ export function useMirrorSync(options: {
       stop();
       subscription.remove();
     };
-  }, [sync]);
+  }, [sync, freshener]);
 }
