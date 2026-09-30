@@ -39,7 +39,7 @@ export function SearchTrigger({ onPress }: { onPress: () => void }) {
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       role="button"
-      accessibilityLabel="Search this context"
+      accessibilityLabel="Search"
       testID="frame-search"
       style={[styles.search, hovered && styles.searchHover]}
     >

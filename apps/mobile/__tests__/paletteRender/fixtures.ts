@@ -178,7 +178,7 @@ export function mount(
         scheme: "dark",
         children: createElement(Palette, {
         items: ITEMS,
-        placeholder: "Search this context",
+        placeholder: "Search",
         emptyHeading: "Recent",
         noMatchMessage: "Nothing here matches. Try fewer letters.",
         onChoose: (item) => chosen.push(item),

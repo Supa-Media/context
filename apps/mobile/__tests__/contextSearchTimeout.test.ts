@@ -22,7 +22,7 @@ import type { SearchAnswer } from "../features/console/files/browser";
  * `searchContext` is a Convex **action**, and `ConvexReactClient.action()` has
  * no client-side timeout: offline, the promise neither resolves nor rejects.
  * The palette's own state machine has nothing else to move it, so
- * "Searching the rest of this context…" is what a person is left looking at,
+ * "Searching the rest of this workspace…" is what a person is left looking at,
  * with no way out but retyping the query — and retyping starts another one.
  *
  * It is the same defect as the note save (`saveTimeout.test.ts`), the storage

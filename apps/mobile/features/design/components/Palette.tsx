@@ -255,7 +255,7 @@ export function seeAllItem(query: string, offered: boolean): PaletteItem | null 
   return {
     id: SEE_ALL_ID,
     label: `See all results for “${trimmed}”`,
-    detail: "Every context you can reach",
+    detail: "Every workspace you can reach",
     kind: "command",
   };
 }
@@ -511,9 +511,9 @@ export function Palette({
    * and "nothing matches" would be worse than what it replaced.
    */
   const emptyText = (() => {
-    if (search?.state === "searching") return "Searching the rest of this context…";
+    if (search?.state === "searching") return "Searching the rest of this workspace…";
     if (search?.state === "indexing") {
-      return "This context is still being indexed. Try again in a moment.";
+      return "This workspace is still being indexed. Try again in a moment.";
     }
     if (search?.state === "failed") {
       return "That search could not be run. Only loaded folders were filtered.";
@@ -620,7 +620,7 @@ export function Palette({
       */}
       {found > 0 && search?.state === "searching" ? (
         <View style={styles.empty} testID="palette-searching">
-          <Text variant="rowSub">Searching the rest of this context…</Text>
+          <Text variant="rowSub">Searching the rest of this workspace…</Text>
         </View>
       ) : null}
     </ScrollView>

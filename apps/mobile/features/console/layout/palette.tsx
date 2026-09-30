@@ -49,7 +49,7 @@ export function consolePalette({
         items={paletteItems}
         recent={recent}
         emptyHeading={recent.length > 0 ? "Recent" : undefined}
-        placeholder={scope === null ? "Search this context" : `Search in ${scopeLabel(scope)}`}
+        placeholder={scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
         scopeBar={
           scope === null || setScope === undefined ? undefined : (
             <SearchScopeChips folder={scope} onWiden={() => setScope(null)} />
@@ -61,7 +61,7 @@ export function consolePalette({
           palette's own states say what happened, and none of them is this.
         */
         noMatchMessage={
-          "Nothing loaded matches that. Keep typing to search the rest of this context."
+          "Nothing loaded matches that. Keep typing to search the rest of this workspace."
         }
         search={search}
         /*
