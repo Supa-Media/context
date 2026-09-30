@@ -4,6 +4,7 @@ import { Text } from "../design/components/Text";
 import { fonts, layout, radii, space, touchType } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { targetFolder } from "./files/tree";
+import { scopeLabel } from "./layout/SearchScope";
 import type { ConsoleData } from "./types";
 
 /** Where a quick note from Home lands (Dev2, 2026-09-30: "inbox is the default folder"). */
@@ -51,7 +52,8 @@ export function ConsoleBottomBar({
   onCreate,
 }: {
   data: ConsoleData;
-  onSearch: () => void;
+  /** Opens search, narrowed to `scope` — a folder's path — or across the workspace when `null`. */
+  onSearch: (scope: string | null) => void;
   /**
    * Raises the create sheet for a destination — see the `new` action. `null`
    * where that sheet would have no rows at all (`files/createSheet.ts`).
@@ -61,6 +63,10 @@ export function ConsoleBottomBar({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const folder = quickNoteFolder(data);
+  // On a folder's page the field reads "Search in Clients" (board 07b); on Home, "Search".
+  const inside = targetFolder(data.files.listings, data.files.selectedPath);
+  const scope = inside === "" ? null : inside;
+  const search = () => onSearch(scope);
   // A reader cannot write a note; the round button is then only the sheet, if that has rows.
   const canNote = data.files.canEdit;
 
@@ -68,19 +74,19 @@ export function ConsoleBottomBar({
     <View style={styles.bar} testID="notes-bar" role="toolbar" aria-label="Search and new note">
       <View style={styles.field}>
         <Pressable
-          onPress={onSearch}
+          onPress={search}
           accessibilityRole="button"
-          accessibilityLabel="Search notes"
+          accessibilityLabel={scope === null ? "Search notes" : `Search in ${scopeLabel(scope)}`}
           style={({ pressed }) => [styles.fieldPress, pressed ? styles.fieldPressed : null]}
           testID="notes-bar-search"
         >
           <Icon name="search" size={18} color={colors.muted} />
           <Text style={styles.placeholder} numberOfLines={1}>
-            Search
+            {scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
           </Text>
         </Pressable>
         <Pressable
-          onPress={onSearch}
+          onPress={search}
           accessibilityRole="button"
           accessibilityLabel="Search by voice"
           accessibilityHint="Opens search; your keyboard's microphone key types what you say"

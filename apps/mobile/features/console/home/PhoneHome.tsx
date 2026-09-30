@@ -13,8 +13,7 @@ import {
   type HomeOpened,
   type HomePin,
 } from "./homeModel";
-import { useHomePlaces } from "./useHomePlaces";
-import { useHomeSource, type HomeSource } from "./useHomeSource";
+import type { HomeSource } from "./useHomeSource";
 
 /**
  * The phone's Home: the workspace's own page, Apple Notes style.
@@ -470,44 +469,3 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     empty: { paddingHorizontal: space.x1 },
     foot: { color: colors.muted },
   });
-
-/**
- * `PhoneHome` with what it reads: the device's copy of the workspace and the
- * person's own places. A component of its own so none of that is read while
- * somebody is anywhere but Home.
- */
-export function PhoneHomeHost({
-  workspaceId,
-  role,
-  visitor,
-  title,
-  listings,
-  onOpen,
-  onNewFolder,
-  foot,
-}: {
-  workspaceId: string | null | undefined;
-  role: string | undefined;
-  /** The homepage's visitor has no account, so no pins and no opens. */
-  visitor: boolean;
-  title: string;
-  listings: Parameters<typeof useHomeSource>[2];
-  onOpen: (path: string) => void;
-  onNewFolder?: () => void;
-  foot?: string;
-}) {
-  const source = useHomeSource(workspaceId, role, listings);
-  const places = useHomePlaces(workspaceId, !visitor && role !== undefined);
-  return (
-    <PhoneHome
-      title={title}
-      source={source}
-      pins={places.pins}
-      opened={places.opened}
-      onOpen={onOpen}
-      onNewFolder={onNewFolder}
-      onTogglePin={places.togglePin}
-      foot={foot}
-    />
-  );
-}

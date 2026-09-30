@@ -138,6 +138,11 @@ export function ConsoleFrame({
   const referrals = useReferralMenu(data.referrals === true && visitor === undefined && data.demo !== true);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // "Search in Clients": set by a folder page's bottom bar, gone when search closes.
+  const [searchScope, setSearchScope] = useState<string | null>(null);
+  useEffect(() => {
+    if (!paletteOpen) setSearchScope(null);
+  }, [paletteOpen]);
   const canReport = useCanSendFeedback();
   /*
     The phone's answer to the tab strip: a Recent sheet over `history`, where
@@ -232,7 +237,9 @@ export function ConsoleFrame({
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
-  const { search, paletteItems, recent } = usePaletteSearch({ data, insideContext, current, paletteOpen, history });
+  const { search, paletteItems, recent } = usePaletteSearch({
+    data, insideContext, current, paletteOpen, history, scope: searchScope,
+  });
   /*
     A panel is not a preference — `frame.ts` states the rule for its own two,
     and this is a third one living outside it. The sheet can only be raised on
@@ -483,7 +490,7 @@ export function ConsoleFrame({
           switcherProps,
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
-        bottomBar={consoleBottomBar({ browsing, data, setPaletteOpen, canCreate, setBarDialog })}
+        bottomBar={consoleBottomBar({ browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog })}
       >
         <Shortcuts
           files={data.files}
@@ -600,6 +607,7 @@ export function ConsoleFrame({
 
         {consolePalette({
           paletteOpen, setAsked, paletteItems, recent, search, setPaletteOpen, router, data,
+          scope: searchScope, setScope: setSearchScope,
         })}
         {/*
           The meeting sheet, rendered once and inside the frame so it sits over

@@ -61,3 +61,25 @@ Notes nav bar" on every phone screen. So:
 Reversing it means a bar of keys that duplicates Home, or a create sheet in
 front of every note. `phoneHome.test.ts`, `bottomRowWidth.test.ts` and
 `consoleChrome/phoneDestinations.test.ts` fail.
+
+## A folder's page, and "Search in <folder>" (2026-09-30)
+
+Boards 07, 07b and 08 of the same artboards.
+
+- **Under a folder's title on a phone** (`home/PhoneFolderHead.tsx`): what
+  it holds, counted all the way down; the faces of whoever changed something
+  in it this week (an agent is a robot); the latest change in one line, which
+  opens that note; and two buttons, New folder inside and ••• for the
+  folder's own menu. It replaces the pointer layout's visibility sentence,
+  which the people mark beside a shared folder's name already carries.
+- **Pin to Home** is a row in a single file or folder's menu, at every
+  density, and it writes the account's pins above.
+- **The bottom bar reads "Search in Clients" on a folder's page**, and the
+  search it opens asks the gateway with `prefix: "clients/"` — the trailing
+  slash so a sibling named `clients-old` never matches. The device's copy and
+  the loaded names are narrowed by the same test. One chip, Everywhere,
+  widens it; closing search forgets the folder, so ⌘K or Home's field always
+  searches the whole workspace.
+
+Reversing the reset means a search from Home that silently skips most of the
+workspace. `consoleChrome/phoneSearchScope.test.ts` fails.

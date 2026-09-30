@@ -192,12 +192,14 @@ export function consoleBottomBar({
   browsing,
   data,
   setPaletteOpen,
+  setSearchScope,
   canCreate,
   setBarDialog,
 }: {
   browsing: boolean;
   data: ConsoleData;
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
+  setSearchScope: (scope: string | null) => void;
   canCreate: boolean;
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
 }) {
@@ -205,7 +207,10 @@ export function consoleBottomBar({
     browsing ? (
       <ConsoleBottomBar
         data={data}
-        onSearch={() => setPaletteOpen(true)}
+        onSearch={(scope) => {
+          setSearchScope(scope);
+          setPaletteOpen(true);
+        }}
         onCreate={
           canCreate ? (folder) => setBarDialog({ kind: "create", folder }) : null
         }

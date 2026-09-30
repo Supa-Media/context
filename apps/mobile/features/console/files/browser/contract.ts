@@ -217,7 +217,8 @@ export interface FileBrowser extends BesideEditing {
    * — "nothing was found" and "nothing was asked" must not arrive as the same
    * value, or a failed round trip reads as an answer about somebody's notes.
    */
-  search: (query: string) => Promise<SearchAnswer>;
+  /** `prefix` narrows to one folder and everything under it ("clients/"). */
+  search: (query: string, prefix?: string) => Promise<SearchAnswer>;
 
   editor: EditorState;
   setDraft: (text: string) => void;

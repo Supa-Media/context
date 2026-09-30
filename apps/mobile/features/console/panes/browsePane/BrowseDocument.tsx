@@ -22,7 +22,10 @@ import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
 import type { FolderListingState } from "./useFolderListing";
 import { useTaskHost } from "./useTaskHost";
-import { PhoneHomeHost } from "../../home/PhoneHome";
+import { folderCounts } from "../../home/folderHead";
+import { PhoneFolderHead } from "../../home/PhoneFolderHead";
+import { PhoneHome } from "../../home/PhoneHome";
+import { useHomeSource } from "../../home/useHomeSource";
 import { useRecordOpen } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
 
@@ -49,6 +52,8 @@ export function BrowseDocument({
   handleOpenComms,
   folderMenuFor,
   folderDrag,
+  places,
+  openFolderActions,
   setFolderDialog,
   noteEncryption,
   notices,
@@ -72,6 +77,10 @@ export function BrowseDocument({
   handleOpenComms: (path: string, anchor?: string) => void;
   folderMenuFor: FolderListingState["folderMenuFor"];
   folderDrag: FolderListingState["folderDrag"];
+  /** This person's pins and opens, for the phone's Home. */
+  places: FolderListingState["places"];
+  /** The ••• on a phone's folder page. */
+  openFolderActions: FolderListingState["openFolderActions"];
   /** The pane's dialogs — a List's Archive opens the console's own. */
   setFolderDialog: FolderListingState["setFolderDialog"];
   noteEncryption: BrowseEncryption["noteEncryption"];
@@ -185,18 +194,36 @@ export function BrowseDocument({
     open most, Recent and All folders — see `home/PhoneHome.tsx`. A pointer
     layout keeps the listing: its tree is on the screen beside it.
   */
+  // Every note and folder in this workspace, for Home and a folder page's counts: a phone only.
+  const homeSource = useHomeSource(compact ? current?.id : null, current?.role, files.listings);
   const phoneHome = (
-    <PhoneHomeHost
-      workspaceId={current?.id}
-      role={current?.role}
-      visitor={data.visitor !== undefined}
+    <PhoneHome
       title={current?.displayName ?? contextLabel}
-      listings={files.listings}
+      source={homeSource}
+      pins={places.pins}
+      opened={places.opened}
       onOpen={files.select}
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
+      onTogglePin={places.togglePin}
       foot={contextFoot}
     />
   );
+  // What a phone draws under a folder's title: counts, faces, the latest change, and its two buttons.
+  const phoneHead = (folder: string) =>
+    !compact ? undefined : (
+      <PhoneFolderHead
+        folder={folder}
+        counts={folderCounts(
+          homeSource.notes.map((note) => note.path),
+          homeSource.folders,
+          folder,
+        )}
+        entries={data.activity?.entries}
+        onOpen={files.select}
+        onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder }) : undefined}
+        onActions={(at) => void openFolderActions(folder, at)}
+      />
+    );
   // Count this arrival for You open most: the folder on screen, or a note's folder.
   useRecordOpen(
     current?.id,
@@ -292,6 +319,7 @@ export function BrowseDocument({
         pendingStateFor={files.pending?.stateFor}
         page={folderPage}
         showAudience={data.visitor === undefined}
+        phoneHead={phoneHead(selected.path)}
       />
     ) : files.conflict?.path === selected.path ? (
       /*

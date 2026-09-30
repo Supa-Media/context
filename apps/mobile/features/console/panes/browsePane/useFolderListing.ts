@@ -13,6 +13,7 @@ import { findEntry, treeRowFor } from "../../files/tree";
 import type { ConsoleData, selectedContext } from "../../types";
 import type { FolderMenuState } from "./folderMenuState";
 import { useBrowseEncryption } from "./useBrowseEncryption";
+import { useHomePlaces } from "../../home/useHomePlaces";
 
 /**
  * The folder listing's right-click menu, the dialogs it leads to, and dragging
@@ -79,6 +80,22 @@ export function useFolderListing({
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
 
+  /*
+    The person's own pins and opens, for the phone's Home and for "Pin to
+    Home" in these menus. A phone only, and never the homepage's visitor, who
+    has no account to keep them on.
+  */
+  const places = useHomePlaces(
+    current?.id,
+    compact && data.visitor === undefined && current?.role !== undefined,
+  );
+  const togglePin = places.togglePin;
+  const pinnedPaths = places.pins;
+  const isPinned = useCallback(
+    (path: string) => pinnedPaths.some((pin) => pin.path === path),
+    [pinnedPaths],
+  );
+
   /**
    * Build the menu for one target, or decline.
    *
@@ -123,6 +140,7 @@ export function useFolderListing({
         */
         platform: compact ? "touch" : "web",
         apple: isApplePlatform(),
+        ...(togglePin === null ? {} : { pinned: isPinned }),
         // What the row would be visible to with no setting of its own, so
         // "use the folder's setting" can say what it means.
         ...(target.kind === "row"
@@ -133,7 +151,7 @@ export function useFolderListing({
       setFolderMenu({ target, title, anchor, items });
       return true;
     },
-    [files, compact],
+    [files, compact, togglePin, isPinned],
   );
 
   /**
@@ -169,8 +187,9 @@ export function useFolderListing({
         files.select(path);
       },
       inheritedOf: (path) => findEntry(files.listings, path)?.inherited ?? "private",
+      ...(togglePin === null ? {} : { togglePin }),
     }),
-    [files, contextLabel],
+    [files, contextLabel, togglePin],
   );
 
   /**
@@ -189,6 +208,20 @@ export function useFolderListing({
         anchor,
       ),
     [openFolderTarget, contextLabel],
+  );
+
+  /**
+   * The ••• on a phone's folder page (board 08): everything this folder's own
+   * row offers in the tree, Pin to Home included, for the folder you stand in.
+   */
+  const openFolderActions = useCallback(
+    (folder: string, anchor: { x: number; y: number }) => {
+      const entry = findEntry(files.listings, folder);
+      if (entry == null || folder === "") return false;
+      const row = treeRowFor(entry, files.listings[parentPath(folder)]?.folderDefault ?? "private");
+      return openFolderTarget({ kind: "row", row }, folderLabel(baseName(folder)), anchor);
+    },
+    [openFolderTarget, files.listings],
   );
 
   /**
@@ -312,6 +345,8 @@ export function useFolderListing({
     openCrumbMenu,
     folderMenuFor,
     folderDrag,
+    places,
+    openFolderActions,
   };
 }
 

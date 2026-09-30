@@ -93,6 +93,8 @@ export interface ActionContext {
    * expressible form of "stop having an opinion".
    */
   inheritedOf: (path: string) => Visibility;
+  /** Pin to, or unpin from, this person's Home. Absent where there is no Home to pin to. */
+  togglePin?: (path: string, kind: "note" | "folder") => void;
 }
 
 /**
@@ -229,6 +231,10 @@ export function runMenuAction(
       anything. The file arrives called `untitled-<date>` and takes its name
       from its own first heading. See `untitled.ts`.
     */
+    case "pin":
+    case "unpin":
+      context.togglePin?.(path, kind === "folder" ? "folder" : "note");
+      return;
     case "newNote":
       files.createUntitled(folder, "note");
       return;
