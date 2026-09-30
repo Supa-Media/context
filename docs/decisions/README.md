@@ -347,6 +347,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A scene's sounds are chosen in the note, and an uploaded one is stored like a pasted image](./app-and-console/scene-sounds.md)
 - [The script is edited on the studio's rail, and the note stays the only copy](./app-and-console/scene-sounds.md)
+- [A scene can be a chat with an assistant, and its workspace steps are real](./app-and-console/scene-sounds.md)
 - [People and agents working now share one bar, and it counts only who is active](./app-and-console/active-people-bar.md)
 - [People are drawn as faces, never initials](./app-and-console/faces.md)
 - A status wears a chip; a band is for what you have not been told

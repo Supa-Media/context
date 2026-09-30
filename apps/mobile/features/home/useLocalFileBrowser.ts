@@ -10,6 +10,8 @@ import { NO_PUBLISHED_IMAGES, type PublishedImages } from "../share/publishedIma
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
 import type { HomeTree } from "./homeSite";
 import { searchLocalNotes } from "./localSearch";
+import type { CastWorkspace } from "./cast/castRun";
+import { addTask, ensureFolder, findPath, setStatus } from "./castWorkspace";
 import {
   addFolder,
   addNote,
@@ -71,6 +73,15 @@ export interface LocalHome {
    * is already there, since the writer is create-only.
    */
   putNote: (path: string, text: string) => boolean;
+  /**
+   * What a scene's assistant does to the workspace (`castRun.ts`), and a
+   * note added into a folder a script names. Every one lands the way the
+   * visitor's own change would, so the tree, the tabs and a folder's List
+   * follow it as it happens.
+   */
+  cast: CastWorkspace & { addNoteIn: (folder: string, name: string, text: string) => string | null };
+  /** A note's whole text replaced, or made (`create`): a folder list changing one line of it. */
+  writeText: (path: string, text: string, create: boolean) => boolean;
 }
 
 /** How long typing rests before the editor calls it kept. */
@@ -405,6 +416,80 @@ export function useLocalFileBrowser(
     [change, reveal],
   );
 
+  const writeText = useCallback(
+    (path: string, text: string, create: boolean) => {
+      if (create) return putQuietly(path, text);
+      if (treeRef.current.notes[path] === undefined) return false;
+      const next = editNote(treeRef.current, path, text);
+      change(next);
+      if (editorRef.current.path === path) open(path, next);
+      return true;
+    },
+    [change, open, putQuietly],
+  );
+
+  const cast = useMemo<LocalHome["cast"]>(() => {
+    /** The folder a script names, made when there is none by that name yet. */
+    const folderFor = (written: string): string | null => {
+      const found = findPath(treeRef.current, written, "folder");
+      if (found !== null) return found;
+      const made = ensureFolder(treeRef.current, written);
+      if (made === null) return null;
+      change(made.tree);
+      return made.path;
+    };
+    return {
+      addFolder: (path) => {
+        const made = ensureFolder(treeRef.current, path);
+        if (made === null) return null;
+        if (made.tree !== treeRef.current) change(made.tree);
+        reveal(`${made.path}/`);
+        return made.path;
+      },
+      move: (path, into) => {
+        const from = findPath(treeRef.current, path);
+        if (from === null) return null;
+        const destination = folderFor(into);
+        if (destination === null) return null;
+        const made = movePath(treeRef.current, from, destination);
+        if (made === null) return null;
+        reshape(from, made);
+        return made.path;
+      },
+      rename: (path, name) => {
+        const from = findPath(treeRef.current, path);
+        if (from === null) return null;
+        const made = renamePath(treeRef.current, from, name);
+        if (made === null) return null;
+        reshape(from, made);
+        return made.path;
+      },
+      setStatus: (path, status) => {
+        const target = findPath(treeRef.current, path);
+        if (target === null) return null;
+        const made = setStatus(treeRef.current, target, status);
+        if (made === null) return null;
+        change(made.tree);
+        // The note open in the editor is the tree's: it takes the new line.
+        if (editorRef.current.path === made.path) open(made.path, made.tree);
+        return made.path;
+      },
+      addTask: (project, text) => {
+        const folder = findPath(treeRef.current, project, "folder");
+        if (folder === null) return null;
+        const made = addTask(treeRef.current, folder, text);
+        if (made === null) return null;
+        change(made.tree);
+        reveal(made.path);
+        return made.path;
+      },
+      addNoteIn: (folder, name, text) => {
+        const at = folderFor(folder);
+        return at === null ? null : addQuietly(at, name, text);
+      },
+    };
+  }, [addQuietly, change, open, reshape, reveal]);
+
   const routeOf = useCallback((path: string) => routes.get(path), [routes]);
-  return { files, notes: tree.notes, routeOf, pathOf, touched, addNote: addQuietly, putNote: putQuietly };
+  return { files, notes: tree.notes, routeOf, pathOf, touched, addNote: addQuietly, putNote: putQuietly, cast, writeText };
 }

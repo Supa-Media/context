@@ -91,7 +91,10 @@ export function BrowseDocument({
   layingOut: BrowseNoticeState["layingOut"];
 }) {
   // Where a folder list in the open note reads its notes: this device's copy.
-  const folderLists = useFolderLists(current?.id, current?.role);
+  // The homepage brings its own (the visitor's copy of the site), and asks nothing of a device or the server.
+  const local = data.folderLists;
+  const device = useFolderLists(local === undefined ? current?.id : undefined, current?.role);
+  const folderLists = local ?? device;
   /*
     The same source, handed to a folder page: its List and Board views and a
     project's property line read and change properties exactly as a list block
@@ -99,7 +102,7 @@ export function BrowseDocument({
   */
   const people = data.members?.members;
   // Adding, nesting and moving a project's tasks, through the console's own writes (undefined for who may not write).
-  const tasks = useTaskHost(files, current?.id, folderLists, setFolderDialog);
+  const tasks = useTaskHost(files, local === undefined ? current?.id : undefined, folderLists, setFolderDialog);
   // The one editor, lent to a folder page's side peek: the note typed in there is the editor's note, in its room.
   const editing = usePeekEditing(files, presence);
   const folderPage = useMemo(
