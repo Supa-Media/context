@@ -197,6 +197,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Estimates
 - The side panel: any row opens beside the list — see below
 - A list write is what this device holds afterwards
+- An open project folder fetches its own notes — see below
 - Status groups
 - An owner is picked, never typed
 - Agents are a list the workspace writes, each optionally somebody's
@@ -204,6 +205,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [The side panel](./side-panel.md)
 
 - Any row opens beside the list (amended: editable, through the same editing session)
+
+## [A project folder fetches its own notes](./project-folder-fetch.md)
+
+- A project folder fetches its own notes
 
 ## [Comments on notes](./comments.md)
 

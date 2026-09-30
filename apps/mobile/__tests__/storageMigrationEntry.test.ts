@@ -305,7 +305,7 @@ describe("Settings → Storage is the permanent home", () => {
     // card beside it — so this cannot pass on a panel that drew nothing.
     const host = await settingsStorage(console_([], { updateStorageLayout: undefined }));
     expect(host.querySelector('[data-testid="settings-storage-migration"]')).toBeNull();
-    expect(host.textContent ?? "").toContain("Your bucket, your credentials");
+    expect(host.textContent ?? "").toContain("plain files in storage you own");
   });
 });
 

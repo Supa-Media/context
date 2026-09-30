@@ -508,6 +508,11 @@ write stands and the next sync brings the note (`offline/folderListSource.ts`).
 `folderListWriteBack.test.ts` fails if a chosen status or a folder's first
 `overview.md` is gone after a reload, or if the sync stops saying it fetched.
 
+## An open project folder fetches its own notes
+
+Its own file: [a project folder fetches its own notes](./project-folder-fetch.md),
+from the owner's 2026-09-29 report of a phone List days behind the web.
+
 ## Status groups
 
 Decided by the owner on 2026-09-26, after a board showed "Active" and "In
