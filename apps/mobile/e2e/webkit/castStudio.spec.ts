@@ -306,7 +306,9 @@ test("a page in a folder beside the scene shows in that folder, and the show com
 
   await page.getByTestId("studio-step-4").click();
   await expect(stage(page)).toContainText("Cancun Airbnb", { timeout: 20_000 });
-  await expect(stage(page)).toContainText("you still owe James $700.", { timeout: 30_000 });
+  // Back on the scene's own page, where the comment lands in its margin.
+  await expect(frame.locator(".cm-cmt-card").first()).toContainText("you still owe James $700.", { timeout: 30_000 });
   await expect(stage(page)).toContainText("Free is free");
+  await expect(stage(page)).not.toContainText("Cancun Airbnb");
   await page.getByTestId("studio-stage").screenshot({ path: test.info().outputPath("folders-back.png") });
 });
