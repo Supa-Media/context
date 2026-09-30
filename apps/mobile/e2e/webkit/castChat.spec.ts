@@ -44,6 +44,8 @@ test.describe("side by side, on a wide screen", () => {
   test.use({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
 
   test("the chat and the workspace change together", async ({ page }) => {
+    // Sixteen steps played at their real pace: longer than the default budget.
+    test.setTimeout(90_000);
     await preview(page, SCENE);
     const claude = page.getByTestId("cast-chat-Claude");
     await expect(claude).toContainText("keep track of the beta", { timeout: 20_000 });
