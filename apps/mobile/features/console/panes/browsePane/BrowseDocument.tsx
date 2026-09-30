@@ -26,7 +26,7 @@ import { folderCounts } from "../../home/folderHead";
 import { phoneRows } from "../../home/folderRows";
 import { PhoneFolderHead } from "../../home/PhoneFolderHead";
 import { PhoneHome } from "../../home/PhoneHome";
-import { useHomeSource } from "../../home/useHomeSource";
+import type { HomeSource } from "../../home/useHomeSource";
 import { useRecordOpen } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
 
@@ -54,6 +54,7 @@ export function BrowseDocument({
   folderMenuFor,
   folderDrag,
   places,
+  homeSource,
   openFolderActions,
   setFolderDialog,
   noteEncryption,
@@ -80,6 +81,8 @@ export function BrowseDocument({
   folderDrag: FolderListingState["folderDrag"];
   /** This person's pins and opens, for the phone's Home. */
   places: FolderListingState["places"];
+  /** Every note and folder in this workspace, on a phone (`useHomeSource`). */
+  homeSource: HomeSource;
   /** The ••• on a phone's folder page. */
   openFolderActions: FolderListingState["openFolderActions"];
   /** The pane's dialogs — a List's Archive opens the console's own. */
@@ -199,7 +202,6 @@ export function BrowseDocument({
     layout keeps the listing: its tree is on the screen beside it.
   */
   // Every note and folder in this workspace, for Home and a folder page's counts: a phone only.
-  const homeSource = useHomeSource(compact ? current?.id : null, current?.role, files.listings);
   const phoneHome = (
     <PhoneHome
       title={current?.displayName ?? contextLabel}

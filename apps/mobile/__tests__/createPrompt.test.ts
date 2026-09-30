@@ -232,7 +232,7 @@ describe("the phone's +", () => {
     press("New folder");
     const input = document.body.querySelector("input") as HTMLInputElement;
     expect(input.placeholder).toBe("Folder name");
-    expect(document.body.textContent).toContain("It goes in acme.");
+    expect(labels()).toContain("Put it in acme. Change");
     expect(document.body.textContent).not.toMatch(/README|bucket|Obsidian/);
   });
 

@@ -5,8 +5,10 @@ import {
   CreatePrompt,
   MovePicker,
   NamePrompt,
-  newFolderHint,
 } from "../Dialogs";
+import { NewFolderForm } from "../NewFolderForm";
+import { densityFor } from "../../../app/frame";
+import { useWindowDimensions } from "react-native";
 import { ShareDialog } from "../ShareDialog";
 import type { AudienceContext } from "../../privacy/audience";
 import { consoleOrigin } from "../shareOrigin";
@@ -29,8 +31,15 @@ export function ExplorerDialogs({
   onClose,
   access,
   create,
+  places,
 }: {
   files: FileBrowser;
+  /**
+   * What New folder's place picker lists beyond the folders already listed:
+   * a phone's copy of the whole workspace (`useHomeSource`), and what the top
+   * of it is called. Absent, it lists what the console has listed.
+   */
+  places?: { folders?: readonly string[]; rootLabel?: string };
   dialog: Dialog;
   onClose: () => void;
   /**
@@ -98,7 +107,11 @@ export function ExplorerDialogs({
     ) => Promise<unknown>;
   };
 }) {
+  // A phone lands in the folder it just made (board 05c); a pointer layout keeps its place.
+  const compact = densityFor(useWindowDimensions().width) === "compact";
   if (dialog === null) return null;
+  const pickable = [...new Set([...loadedFolders(files.listings), ...(places?.folders ?? [])])];
+  const rootLabel = places?.rootLabel ?? "Your workspace";
 
   switch (dialog.kind) {
     case "create":
@@ -116,10 +129,12 @@ export function ExplorerDialogs({
           */
           onCreateNote={() => files.createUntitled(dialog.folder, "note")}
           onCreateDrawing={() => files.createUntitled(dialog.folder, "drawing")}
-          onCreateFolder={(name) => {
+          onCreateFolder={(name, place) => {
             onClose();
-            files.createFolder(dialog.folder, name);
+            files.createFolder(place, name, { open: compact });
           }}
+          folders={pickable}
+          rootLabel={rootLabel}
           onNewMeeting={create?.onNewMeeting ?? null}
           onNewChat={create?.onNewChat ?? null}
           onResumeMeeting={create?.resume ?? null}
@@ -127,15 +142,14 @@ export function ExplorerDialogs({
       );
     case "newFolder":
       return (
-        <NamePrompt
-          title="New folder"
-          description={newFolderHint(dialog.folder)}
-          placeholder="Folder name"
-          confirmLabel="Create"
+        <NewFolderForm
+          folder={dialog.folder}
+          folders={pickable}
+          rootLabel={rootLabel}
           onCancel={onClose}
-          onConfirm={(name) => {
+          onCreate={(place, name) => {
             onClose();
-            files.createFolder(dialog.folder, name);
+            files.createFolder(place, name, { open: compact });
           }}
         />
       );

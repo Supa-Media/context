@@ -15,6 +15,7 @@ import type { ConsoleData, selectedContext } from "../../types";
 import type { FolderMenuState } from "./folderMenuState";
 import { useBrowseEncryption } from "./useBrowseEncryption";
 import { useHomePlaces } from "../../home/useHomePlaces";
+import { useHomeSource } from "../../home/useHomeSource";
 
 /**
  * The folder listing's right-click menu, the dialogs it leads to, and dragging
@@ -90,6 +91,8 @@ export function useFolderListing({
     current?.id,
     compact && data.visitor === undefined && current?.role !== undefined,
   );
+  // Every note and folder in this workspace, for Home, a folder page's counts and New folder's picker: a phone only.
+  const homeSource = useHomeSource(compact ? current?.id : null, current?.role, files.listings);
   const togglePin = places.togglePin;
   const pinnedPaths = places.pins;
   const isPinned = useCallback(
@@ -353,6 +356,7 @@ export function useFolderListing({
     folderMenuFor,
     folderDrag,
     places,
+    homeSource,
     openFolderActions,
   };
 }

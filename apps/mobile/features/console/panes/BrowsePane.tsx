@@ -196,6 +196,7 @@ export function BrowsePane({
     folderMenuFor,
     folderDrag,
     places,
+    homeSource,
     openFolderActions,
   } = useFolderListing({ files, contextLabel, settled, current, data });
   /*
@@ -315,6 +316,7 @@ export function BrowsePane({
       folderDrag={folderDrag}
       setFolderDialog={setFolderDialog}
       places={places}
+      homeSource={homeSource}
       openFolderActions={openFolderActions}
       noteEncryption={noteEncryption}
       notices={notices}
@@ -473,6 +475,7 @@ export function BrowsePane({
         files={files}
         dialog={folderDialog}
         onClose={() => setFolderDialog(null)}
+        places={{ folders: homeSource.folders, rootLabel: current?.displayName ?? contextLabel }}
       />
     </View>
   );
