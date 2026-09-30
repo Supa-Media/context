@@ -14,7 +14,6 @@ import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { leaveTo } from "../../../consent/leave";
 import { selectedContext, type ConsoleData } from "../../types";
-import { settingsSectionLabel } from "../sections";
 import {
   CHECKOUT_SETTLING_SLOW_MS,
   EXPORT_PROMISE,
@@ -90,6 +89,7 @@ export function PremiumPanel({
   onSelect,
 }: {
   data: ConsoleData;
+  /** Kept for callers; the panel no longer draws a title of its own. */
   section?: string;
   returned?: CheckoutOutcome | null;
   /** The overlay's section switch: the free tier's "bring your own" opens Storage. */
@@ -167,7 +167,6 @@ function PremiumLive({
  */
 export function PremiumBody({
   view,
-  section,
   returned = null,
   /** Test seam: the settling copy's later wording, without waiting for it. */
   slowAfter = CHECKOUT_SETTLING_SLOW_MS,
@@ -243,25 +242,11 @@ export function PremiumBody({
 
   return (
     <View>
-      <Text
-        /*
-          In the overlay one block is the whole panel, so its name is the
-          panel's title rather than a label separating it from the block above.
-          The string comes from the catalogue and never from a literal here —
-          the row and its heading drifted apart once already.
-        */
-        variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={
-          section === undefined ? styles.sectionHeadLater : styles.sectionHead
-        }
-      >
-        {settingsSectionLabel("premium")}
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
-        What this workspace pays for. Premium is per context rather
-        than per person, so upgrading this one leaves every other context you
-        can reach exactly as it is.
-      </Text>
+      {/*
+        No title of its own: `SettingsPane` draws this section's `PanelHead`,
+        and this panel drew the name and an intro a second time under it
+        until the settings cleanup (2026-09-29).
+      */}
 
       <FreeTierNudge
         status={status}
@@ -541,8 +526,6 @@ export function PremiumBody({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     sectionHead: { marginBottom: 6 },
-    sectionHeadLater: { marginTop: 28, marginBottom: 6 },
-    sectionSub: { marginBottom: 12 },
     head: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
     headText: { flex: 1 },
     blurb: { marginTop: 4 },

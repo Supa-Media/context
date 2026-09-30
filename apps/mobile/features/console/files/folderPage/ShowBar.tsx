@@ -3,9 +3,10 @@
  * search over names, Mine, and a menu for each of Owner, Tag, Priority,
  * Estimate and Due (`FilterMenu.tsx`). A kind with something ticked becomes
  * a chip saying what it keeps ("Tag is context or portal") that reopens its
- * menu, with × to clear it, and Clear clears them all; on the right, how
- * many are shown ("3 of 7 · match every filter") and the List's primary
- * "+ Add task" (`end`) for somebody who may write.
+ * menu, with × to clear it, and Clear clears them all. At the right end of
+ * the first line, however far the filters wrap: how many are shown ("3 of
+ * 7 · match every filter") and "+ Add task" (`end`) for somebody who may
+ * write, at the filters' own size (the owner found it too big, 2026-09-29).
  *
  * A way of looking, per viewer (`showFilter.ts`): nothing here writes to a
  * note, so a member has the same bar as an owner. Mine is the one-press way
@@ -147,34 +148,37 @@ export function ShowBar({
     );
 
   return (
-    <View style={styles.bar} role="toolbar" accessibilityLabel="Filter" testID="folder-show-bar">
-      {search}
-      <View style={styles.divider} />
-      {mine}
-      {active.map((kind) => (
-        <ActiveChip
-          key={kind}
-          kind={kind}
-          words={chipWords(filter, kind, context.who)}
-          onOpen={(anchor) => setMenu({ kind, anchor })}
-          onClear={() => onChange(clearKind(filter, kind))}
-        />
-      ))}
-      {FILTER_KINDS.filter((kind) => !active.includes(kind) && (kind !== "tag" || options("tag").length > 0)).map((kind) => (
-        <MenuButton key={kind} kind={kind} open={menu?.kind === kind} onOpen={(anchor) => setMenu({ kind, anchor })} />
-      ))}
-      {filtered ? (
-        <Pressable onPress={clearAll} role="button" accessibilityLabel="Clear filters" style={styles.clear} testID="folder-filter-clear">
-          <Text variant="meta" style={styles.clearText}>
-            Clear
-          </Text>
-        </Pressable>
-      ) : null}
-      <View style={styles.push} />
-      <Text variant="meta" style={styles.count} testID="folder-filter-count">
-        {countWords(shown, total, filter, noun)}
-      </Text>
-      {end === undefined ? null : end}
+    <View style={styles.wide} role="toolbar" accessibilityLabel="Filter" testID="folder-show-bar">
+      <View style={styles.bar}>
+        {search}
+        <View style={styles.divider} />
+        {mine}
+        {active.map((kind) => (
+          <ActiveChip
+            key={kind}
+            kind={kind}
+            words={chipWords(filter, kind, context.who)}
+            onOpen={(anchor) => setMenu({ kind, anchor })}
+            onClear={() => onChange(clearKind(filter, kind))}
+          />
+        ))}
+        {FILTER_KINDS.filter((kind) => !active.includes(kind) && (kind !== "tag" || options("tag").length > 0)).map((kind) => (
+          <MenuButton key={kind} kind={kind} open={menu?.kind === kind} onOpen={(anchor) => setMenu({ kind, anchor })} />
+        ))}
+        {filtered ? (
+          <Pressable onPress={clearAll} role="button" accessibilityLabel="Clear filters" style={styles.clear} testID="folder-filter-clear">
+            <Text variant="meta" style={styles.clearText}>
+              Clear
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <View style={styles.side}>
+        <Text variant="meta" style={styles.count} testID="folder-filter-count">
+          {countWords(shown, total, filter, noun)}
+        </Text>
+        {end === undefined ? null : end}
+      </View>
       {menu === null ? null : (
         <FilterMenu
           kind={menu.kind}
@@ -323,10 +327,12 @@ function ActiveChip({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     phone: { marginBottom: space.x2, gap: space.x2 },
-    bar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: space.x2 },
-    barPhone: { flexWrap: "nowrap", marginBottom: 0 },
+    bar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, flexGrow: 1, flexShrink: 1, minWidth: 0 },
+    barPhone: { flexWrap: "nowrap", flexGrow: 0 },
     divider: { width: 1, height: 18, marginHorizontal: 2, backgroundColor: colors.lineStrong },
-    push: { flexGrow: 1 },
+    // The filters wrap on the left; the count and "+ Add" hold the first line's right end.
+    wide: { flexDirection: "row", alignItems: "flex-start", gap: space.x3, marginBottom: space.x2 },
+    side: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 28, flexShrink: 0 },
     end: { marginLeft: "auto" },
     icon: { color: colors.text2 },
     plain: { color: colors.text2 },

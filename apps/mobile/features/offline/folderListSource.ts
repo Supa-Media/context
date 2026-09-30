@@ -5,7 +5,7 @@ import type { OpenNote } from "../console/files/types";
 import { currentEpoch } from "./epoch";
 import type { CacheScope } from "./keys";
 import { forgetMirroredNote, mirroredBodyAt, parseIndex, putMirroredNotes, type Needed } from "./mirror";
-import { onMirrorListed, onMirrorNotesChanged, publishMirrorNotesChanged } from "./mirrorEvents";
+import { onMirrorListed, onMirrorNotesChanged, publishMirrorNotesChanged, requestMirrorFolder } from "./mirrorEvents";
 import { mirroredListNotes } from "./mirrorLists";
 import type { MirrorStore } from "./mirrorStoreCore";
 
@@ -91,6 +91,7 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
         return null;
       }
     },
+    freshen: (folder) => requestMirrorFolder(workspaceId, folder),
     subscribe: (listener) => {
       const mine = (changed: string) => {
         if (changed === workspaceId) listener();

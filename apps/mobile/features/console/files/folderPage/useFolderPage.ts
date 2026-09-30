@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderListSource, ListNote, PropertyValue } from "../listBlock/model";
 import { parentPath } from "../paths";
+import { isProjectsFolder } from "./model";
 import type { TaskHost } from "./tasks/taskHost";
 import type { PeekEditing } from "./panel/peekEditing";
 
@@ -162,6 +163,12 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
       stop?.();
     };
   }, [source, scope]);
+
+  // A project folder is drawn from its statuses, so its notes are fetched now
+  // rather than whenever this device's background sync gets to them.
+  useEffect(() => {
+    if (isProjectsFolder(folder)) source?.freshen?.(folder);
+  }, [source, folder]);
 
   useEffect(() => {
     if (loaded === null || chosen.size === 0) return;

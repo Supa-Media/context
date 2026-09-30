@@ -6,6 +6,7 @@ import { Card, Grow, Row } from "../../../design/components/Card";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
+import { useArming } from "../../useArming";
 
 /**
  * The Macs this person has approved, and the one thing settings can do about
@@ -80,11 +81,9 @@ export function MachinesCard() {
                   {`Approved ${formatApprovedAt(machine.approvedAt)} · ${captureLine(machine.tier)}`}
                 </Text>
               </Grow>
-              <Button
-                label="Revoke"
-                variant="danger"
-                accessibilityLabel={`Revoke ${machine.name}'s access`}
-                onPress={() => {
+              <RevokeMachine
+                name={machine.name}
+                onRevoke={() => {
                   void revoke({ grantId: machine.grantId });
                 }}
                 testID={`revoke-machine-${machine.grantId}`}
@@ -119,3 +118,25 @@ const makeStyles = (_colors: Colors) =>
     sub: { marginBottom: space.x3, maxWidth: 546 },
     rowSub: { marginTop: 2 },
   });
+
+/** Two presses, like Revoke on an AI app: a revoked Mac has to sign in again. */
+function RevokeMachine({
+  name,
+  onRevoke,
+  testID,
+}: {
+  name: string;
+  onRevoke: () => void;
+  testID: string;
+}) {
+  const armed = useArming(onRevoke);
+  return (
+    <Button
+      label={armed.stage === "armed" ? "Press again to revoke" : "Revoke"}
+      variant="danger"
+      accessibilityLabel={`Revoke ${name}'s access`}
+      onPress={armed.press}
+      testID={testID}
+    />
+  );
+}

@@ -80,12 +80,14 @@ describe("the order and the grouping", () => {
     expect(rank("sharing")).toBeLessThan(rank("website"));
   });
 
-  test("eleven rows, and one of them only when it has something to say", () => {
+  test("twelve rows, and one of them only when it has something to say", () => {
     // The whole of the change: twenty rows under four headings became seven
     // under none, Model made it eight, and Emoji (the workspace's own, which
     // the : menu offers) made it ten. Privacy & feedback (early-beta
     // telemetry switches and the report, 2026-09-29) made it eleven, beside
-    // Profile because both are about the person. `plugins` is deprecated
+    // Profile because both are about the person. Activity (the audit trail as
+    // sentences, out of Workspace's "Advanced" block, 2026-09-29) made it
+    // twelve. `plugins` is deprecated
     // behind `shown` and `invitations` appears only while an invitation is
     // pending.
     expect(settingsSectionsFor("personal").map((section) => section.key)).toEqual([
@@ -98,12 +100,13 @@ describe("the order and the grouping", () => {
       "meetings",
       "premium",
       "sharing",
+      "activity",
       "website",
       "emoji",
     ]);
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(12);
+    ).toHaveLength(13);
   });
 
   test("every section sits under a heading somebody can answer", () => {
@@ -295,8 +298,9 @@ describe("searching the list", () => {
     ["revoke a link", "sharing"],
     ["members", "sharing"],
     ["groups", "sharing"],
-    ["audit log", "workspace"],
-    ["export keys", "workspace"],
+    ["audit log", "activity"],
+    ["who edited", "activity"],
+    ["export keys", "storage"],
     /*
       The four somebody types when they are done with a workspace. Every one of
       them matched *nothing* before: "delete this workspace" has been at the

@@ -7,6 +7,7 @@ import { Check, FieldList, Hint } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
+import { TextLink } from "../../design/components/TextLink";
 import { leading, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { relativeTime } from "../format";
@@ -20,16 +21,14 @@ import { FastSearchCard } from "../search/FastSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
 import { OverviewPanel } from "../settings/panels/OverviewPanel";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
-import { MembersSection } from "../members/MembersSection";
 import { ConnectedAppsCard } from "../settings/AccountSections";
-import { GroupsPanel } from "../settings/panels/GroupsPanel";
-import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
-import { shareBackSuggestions } from "../members/members";
 import { DomainSection } from "../settings/panels/DomainPanel";
 import { EmojiPanel } from "../settings/panels/EmojiPanel";
 import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
-import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
-import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
+import { ActivityPanel } from "../settings/panels/ActivityPanel";
+import { SharingSection } from "../settings/panels/SharingSection";
+import { EncryptionKeysBlock, FolderMovesCard } from "../settings/panels/StorageTools";
+import { DeleteWorkspaceCard } from "../settings/DeleteWorkspaceCard";
 import { PluginsPanel } from "../settings/panels/PluginsPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import type { SettingsSectionKey } from "../settings/sections";
@@ -162,8 +161,8 @@ export function SettingsPane({
         {storage?.managed === true
           ? "Context runs this bucket for you. You can take every file with you at any time, free, on any plan."
           : storage?.provider === "dropbox"
-          ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
-          : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
+          ? "Your notes are plain files in your own Dropbox. Unlink Context in your Dropbox settings and it loses access right away; every file stays where it is."
+          : "Your notes are plain files in storage you own. Remove Context's key at your provider and it loses access right away."}
       </PanelHead>
 
       {storage === null || storage === undefined ? (
@@ -285,6 +284,8 @@ export function SettingsPane({
         </>
       )}
 
+      <FolderMovesCard view={data.advanced.moves} />
+
       {storage?.connected === true && actions ? (
         <SettingsVaultImport workspaceId={actions.workspaceId} />
       ) : null}
@@ -337,11 +338,11 @@ export function SettingsPane({
         there is one setting for all of them.
       */}
       <SubHead title="Search">
-        Where this context&apos;s search is answered from. Your Markdown never moves:
-        the index is a copy that can be deleted and rebuilt, and it is off until an
-        owner turns it on.
+        How search finds your notes. The search index is a copy that can be deleted
+        and rebuilt; your notes never move.
       </SubHead>
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
+      <EncryptionKeysBlock action={data.advanced.keyExport} demo={data.demo} />
 
       </>
       ) : null}
@@ -349,114 +350,50 @@ export function SettingsPane({
       {show("workspace") ? (
       <>
       {/*
-        What this context is, and the levers that act on the whole of it.
-
-        Overview was a row of its own above Premium, answering "which context
-        am I in, what am I in it, and is it working" — which is what you ask on
-        arrival, not something you navigate to. It heads this page instead
-        (owner's call, 2026-09-18, with Sayo: the overview is not needed).
-        Advanced follows it, because audit, key export and deleting the
-        workspace are the same subject at the other end: this context as a
-        whole, rather than what comes into it or who can see it.
+        What this workspace is, and the one lever that acts on the whole of
+        it. "Advanced" used to follow, holding folder moves, the audit trail,
+        key export and deletion; since the settings cleanup (2026-09-29) the
+        trail is its own Activity section, moves and keys sit with Storage,
+        and deletion is here under a heading that says what it is.
       */}
       <PanelHead section="workspace" sectioned={section !== undefined}>
         {current?.kind === "shared"
-          ? "A workspace several people share. It has no address of its own — only a personal one can be sent mail."
-          : "One bucket, one set of privacy rules, one history."}
+          ? "A workspace several people share. Everyone in it sees its name and picture."
+          : "Your own workspace: its name, its picture, and whether it is working."}
       </PanelHead>
       <OverviewPanel data={data} onSelect={onSelect} />
-
-      <SubHead title="Advanced">
-        Background folder moves, audit trail, and key export. Most people never need this.
-      </SubHead>
-      <AdvancedPanel view={data.advanced} demo={data.demo} />
+      {data.advanced.deletion === undefined || data.demo ? null : (
+        <>
+          <Text variant="eyebrow" style={styles.danger}>
+            Can&apos;t be undone
+          </Text>
+          <DeleteWorkspaceCard deletion={data.advanced.deletion} />
+        </>
+      )}
       </>
+      ) : null}
+
+      {show("activity") ? (
+        <ActivityPanel
+          view={data.advanced.audit}
+          members={data.members?.members}
+          sectioned={section !== undefined}
+        />
       ) : null}
 
       {show("premium") ? (
       <>
       <PanelHead section="premium" sectioned={section !== undefined}>
-        What this context costs, and what changes if it costs something.
-        Downloading everything is free on either plan and still works after
-        you cancel.
+        What this workspace pays for. Premium is per workspace, so your other
+        workspaces stay as they are. Downloading everything is free on either plan
+        and still works after you cancel.
       </PanelHead>
       <PremiumPanel data={data} section={section} returned={returned} onSelect={onSelect} />
       </>
       ) : null}
 
       {show("sharing") ? (
-      <>
-      {/*
-        One screen for one question.
-
-        People, Groups, Shared links and Privacy were four rows under a heading
-        that asked "Who can see it" — which is one question, asked once, and
-        answered in four places a person had to visit in turn to find out what
-        the answer actually was. They are four blocks of one panel now, in
-        widening order: who is here, who is named as a set, what was handed out
-        one note at a time, and what the rules underneath all of it are.
-
-        Nothing about what any of them *decides* moved. `PrivacyPanel` still
-        reads the live manifest through the same pure modules, and the members,
-        groups and shares views are the same owner-gated shapes they were.
-      */}
-      <PanelHead section="sharing" sectioned={section !== undefined}>
-        Who can reach this context, what each of them may do, and what has been
-        handed out one link at a time. Nothing here is public — no setting on
-        this screen puts a note in front of somebody you have not named.
-      </PanelHead>
-
-      <SubHead title="People">
-        Everyone who can reach this context, and what each of them may do. Write access
-        is never implied by read — a role is granted, not inherited.
-      </SubHead>
-      <MembersSection
-        view={data.members}
-        viewerRole={current?.role}
-        /*
-          The owner's paragraph about what having members hands over is the
-          Privacy block's sentence in older words — "mark it team" against the
-          two words that block is held to. One point, two voices, and no longer
-          a screen apart: Privacy keeps it, People stops repeating it.
-        */
-        showReachRule={false}
-        /*
-          Defensive because this pane is rendered from fixtures that carry only
-          the half of `members` their own subject needs — the Dropbox screens
-          test among them. A missing invitations list is "nobody to suggest",
-          not a crash in a section that test is not about.
-        */
-        shareBackWith={
-          Array.isArray(data.members?.invitations)
-            ? shareBackSuggestions(data.contexts, data.members)
-            : []
-        }
-      />
-
-      <SubHead title="Groups">
-        A named set of people, so a folder rule can point at &quot;leads&quot; rather
-        than at three usernames you have to keep in step by hand.
-      </SubHead>
-      <GroupsPanel
-        view={data.groups}
-        members={data.members.members}
-        slug={current?.slug.replace(/^@/, "") ?? ""}
-      />
-
-      <SubHead title="Shared links">
-        Every note you have handed to somebody outside this context, one link at a
-        time — with a Revoke beside each.
-      </SubHead>
-      <SharedLinksPanel view={data.shares} />
-
-      {/*
-        Its own file, and its own module beneath that. Privacy is the block
-        whose every sentence is a claim about who can read somebody's notes, so
-        the rows, the words and the one control all come from pure modules a
-        test can drive — see `features/console/privacy/`.
-      */}
-      <PrivacyPanel data={data} />
-      </>
+        <SharingSection data={data} sectioned={section !== undefined} />
       ) : null}
 
       {show("website") ? (
@@ -599,6 +536,7 @@ function BindingCard({
     actions ? actions.workspaceId : null,
   );
   const [disconnecting, setDisconnecting] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const disconnect = useArming(() => {
     if (actions === undefined) return;
     setDisconnecting(true);
@@ -624,30 +562,36 @@ function BindingCard({
       value: isManaged ? "Context-managed storage" : isDropbox ? "Dropbox" : storage.provider,
     },
   ];
-  // Which account, not just which provider — the two things the field was
-  // stored for are saying whose Dropbox this is and noticing a *different*
-  // one arriving on a reconnect. This is a live query value, so a reconnect
-  // that changes the account replaces this row rather than leaving a stale
-  // one behind.
+  /*
+    The rest sit behind "Connection details" (settings cleanup, 2026-09-29).
+    An endpoint hostname, a masked access key and "bucket in the hostname"
+    answer nothing somebody opening Storage is asking; they are there to be
+    copied into a support thread or checked against the provider's console,
+    so they are one press away rather than the first thing on the page.
+  */
+  const details: Array<{ label: string; value: string }> = [];
+  // Which account, not just which provider: saying whose Dropbox this is,
+  // and noticing a *different* one arriving on a reconnect.
   if (isDropbox && storage.dropboxAccountId) {
-    fields.push({ label: "Connected as", value: storage.dropboxAccountId });
+    details.push({ label: "Connected as", value: storage.dropboxAccountId });
   }
   if (storage.bucket) fields.push({ label: "Bucket", value: storage.bucket });
-  if (storage.endpoint) fields.push({ label: "Endpoint", value: storage.endpoint });
-  if (storage.accessKey) fields.push({ label: "Access key", value: storage.accessKey });
+  if (storage.endpoint) details.push({ label: "Endpoint", value: storage.endpoint });
+  if (storage.accessKey) details.push({ label: "Access key", value: storage.accessKey });
   if (storage.rootPrefix) {
-    fields.push({ label: isDropbox ? "Folder" : "Root prefix", value: storage.rootPrefix });
+    (isDropbox ? fields : details).push({
+      label: isDropbox ? "Folder" : "Root prefix",
+      value: storage.rootPrefix,
+    });
   } else if (isDropbox) {
-    // Worth a row of its own rather than an absence: "which folder is this?"
-    // is the first question somebody has about a Dropbox connection, and the
-    // answer — the app folder Dropbox made for us, not their whole account —
-    // is the thing the consent screen promised.
+    // "Which folder is this?" is the first question somebody has about a
+    // Dropbox connection, and the answer is the thing the consent screen
+    // promised, so it stays on the page.
     fields.push({ label: "Folder", value: "Context's own app folder" });
   }
-  // Shown only when somebody actually had to answer it — the same restraint the
-  // connect form applies to asking.
+  // Shown only when somebody actually had to answer it at connect time.
   if (addressing !== null) {
-    fields.push({
+    details.push({
       label: "Addressing",
       value: addressing === "path" ? "bucket in the path" : "bucket in the hostname",
     });
@@ -661,7 +605,15 @@ function BindingCard({
   return (
     <>
     <Card testID="storage-binding">
-      <FieldList fields={fields} testIDPrefix="storage-field" />
+      <FieldList fields={showDetails ? [...fields, ...details] : fields} testIDPrefix="storage-field" />
+      {details.length === 0 ? null : (
+        <TextLink
+          label={showDetails ? "Hide connection details" : "Show connection details"}
+          onPress={() => setShowDetails((open) => !open)}
+          style={styles.detailsToggle}
+          testID="storage-details-toggle"
+        />
+      )}
       <EncryptionRow storage={storage} />
       {/*
         A binding in `error` is the state this pane exists to get someone out
@@ -923,7 +875,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionRowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
 
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  danger: { marginTop: 36, marginBottom: 10, color: colors.critText },
   rowSub: { marginTop: 2 },
+  detailsToggle: { marginTop: 10, alignSelf: "flex-start" },
   capabilities: { marginTop: space.x3 },
   checks: {
     marginTop: 15,

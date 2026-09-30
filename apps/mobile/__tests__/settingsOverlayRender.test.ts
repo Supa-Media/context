@@ -60,7 +60,8 @@ import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
 import { SharedLinksPanel } from "../features/console/settings/panels/SharedLinksPanel";
-import { AdvancedPanel } from "../features/console/settings/panels/AdvancedPanel";
+import { ActivityPanel } from "../features/console/settings/panels/ActivityPanel";
+import { FolderMovesCard } from "../features/console/settings/panels/StorageTools";
 import type { ConsoleData } from "../features/console/types";
 import {
   SETTINGS_SECTIONS,
@@ -144,7 +145,7 @@ describe("a phone reaches the settings, not just a menu", () => {
     // The regression: `sidebar ?? children` with a sidebar always supplied
     // meant no section content was reachable below 880pt at all.
     const text = overlay("storage").textContent ?? "";
-    expect(text).toContain("Your bucket, your credentials");
+    expect(text).toContain("plain files in storage you own");
   });
 
   test("one section at a time — storage is not the people screen", () => {
@@ -158,13 +159,13 @@ describe("a phone reaches the settings, not just a menu", () => {
     // Mounted alone: `overlay()` appends to the same body, so a second mount
     // in one test would be asserting against both screens at once.
     const text = overlay("storage").textContent ?? "";
-    expect(text).toContain("Where this context");
+    expect(text).toContain("How search finds your notes");
     expect(text).toContain("Fast search");
   });
 
   test("the workspace page answers which context this is before anything else", () => {
     const text = overlay("workspace").textContent ?? "";
-    expect(text).toContain("Workspace");
+    expect(text).toContain("General");
     expect(text).toContain("Personal workspace");
   });
 
@@ -187,7 +188,7 @@ describe("a phone reaches the settings, not just a menu", () => {
 
   test("and it is still the context's own settings, not an app-level pane", () => {
     const text = overlay("sharing").textContent ?? "";
-    expect(text).not.toContain("Your bucket, your credentials");
+    expect(text).not.toContain("plain files in storage you own");
   });
 
   test("the demo console cannot pretend to revoke a link", () => {
@@ -198,12 +199,18 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(host.querySelector('[data-testid^="share-revoke-"]')).toBeNull();
   });
 
-  test("the audit trail is a block on it, and offers no key export in the demo", () => {
-    const host = overlay("workspace");
-    const text = host.textContent ?? "";
-    expect(text).toContain("Audit trail");
-    expect(text).toContain("Encryption keys");
-    expect(host.querySelector('[data-testid="advanced-export-keys"]')).toBeNull();
+  test("activity is its own section, and the demo offers no key export anywhere", () => {
+    // The trail left General in the settings cleanup; General keeps only the
+    // workspace itself, and the key export (owner-only, absent in the demo)
+    // moved to Storage with no heading left behind when it is absent.
+    const activity = overlay("activity");
+    expect(activity.querySelectorAll('[data-testid="audit-row"]').length).toBeGreaterThan(0);
+    const general = overlay("workspace").textContent ?? "";
+    expect(general).not.toContain("Audit trail");
+    expect(general).not.toContain("Advanced");
+    const storage = overlay("storage");
+    expect(storage.textContent ?? "").not.toContain("Encryption keys");
+    expect(storage.querySelector('[data-testid="advanced-export-keys"]')).toBeNull();
   });
 
   test("the binding's health is stated, since no storage chip exists here", () => {
@@ -227,7 +234,7 @@ describe("the account's own settings have a home", () => {
     expect(text).toContain("AI apps");
     expect(text).toContain("every workspace");
     // And it is not the storage screen wearing another name.
-    expect(text).not.toContain("Your bucket, your credentials");
+    expect(text).not.toContain("plain files in storage you own");
   });
 
   /*
@@ -382,7 +389,8 @@ describe("the list is one press away, and it navigates", () => {
     });
     const text = host.textContent ?? "";
     for (const label of [
-      "Workspace",
+      "General",
+      "Activity",
       "Sharing & Access",
       "Storage",
       "Integrations",
@@ -581,7 +589,7 @@ describe("the section is named once", () => {
     const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
       (node) => node.textContent ?? "",
     );
-    expect(headings.filter((text) => text === "Workspace")).toHaveLength(1);
+    expect(headings.filter((text) => text === "General")).toHaveLength(1);
     expect(headings).not.toContain("Settings");
 
     // And the way back is named, not a bare chevron.
@@ -611,15 +619,11 @@ describe("the workspace page answers rather than listing properties", () => {
     expect(strip!.textContent ?? "").toContain("Connected");
   });
 
-  test("each fact is the way into the section that changes it", () => {
-    const chosen: string[] = [];
-    const host = overlay("workspace", (next) => chosen.push(next));
-    const fact = host.querySelector('[data-testid="overview-fact-sharing"]');
-    expect(fact).not.toBeNull();
-    act(() => {
-      (fact as HTMLElement).click();
-    });
-    expect(chosen).toEqual(["sharing"]);
+  test("it does not repeat the settings list as a card of links", () => {
+    // The "This workspace" card linked to Storage and Sharing & Access, which
+    // are rows in the list beside this page. It went in the settings cleanup.
+    const host = overlay("workspace");
+    expect(host.querySelector('[data-testid^="overview-fact-"]')).toBeNull();
   });
 
   test("the role is a sentence about you, not a lower-cased enum", () => {
@@ -798,17 +802,17 @@ describe("a section follows the context it belongs to, not the one beside it", (
   });
 
   test("an audit row belongs to the context that recorded it, not the one beside it", () => {
-    const { host, data } = liveOverlay("workspace");
-    expect(host.textContent ?? "").toContain("1-projects/board-update.md");
-    expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
+    const { host, data } = liveOverlay("activity");
+    expect(host.textContent ?? "").toContain("board-update");
+    expect(host.textContent ?? "").not.toContain("roadmap");
 
     act(() => {
       data().selectContext("pw");
     });
 
     const text = host.textContent ?? "";
-    expect(text).toContain("1-projects/roadmap.md");
-    expect(text).not.toContain("1-projects/board-update.md");
+    expect(text).toContain("roadmap");
+    expect(text).not.toContain("board-update");
   });
 });
 
@@ -840,19 +844,17 @@ describe("what a non-owner is told instead of the controls", () => {
     );
   });
 
-  test("advanced: the reason stands in for the missing audit trail", () => {
+  test("activity: the reason stands in for the missing audit trail", () => {
     const container = mount(() =>
-      createElement(AdvancedPanel, {
+      createElement(ActivityPanel, {
         view: {
-          moves: { jobs: [], loading: false, failure: null },
-          audit: {
-            events: [],
-            loading: false,
-            failure: null,
-            readOnlyReason: "Only an owner of this context can see its audit trail.",
-          },
-          keyExport: undefined,
+          events: [],
+          loading: false,
+          failure: null,
+          readOnlyReason: "Only an owner of this context can see its audit trail.",
         },
+        members: [],
+        sectioned: true,
       }),
     );
     expect(container.textContent ?? "").toContain(
@@ -873,12 +875,12 @@ describe("what a non-owner is told instead of the controls", () => {
     started drawing every row's `details` would pass a "the line is there" test
     and fail this one.
   */
-  test("advanced: a plugin's network row names the plugin, the host and what came back", () => {
+  test("activity: a plugin's network row names the plugin, the host and what came back", () => {
     const container = mount(() =>
-      createElement(AdvancedPanel, {
+      createElement(ActivityPanel, {
+        members: [],
+        sectioned: true,
         view: {
-          moves: { jobs: [], loading: false, failure: null },
-          audit: {
             events: [
               {
                 eventId: "net-1",
@@ -904,25 +906,25 @@ describe("what a non-owner is told instead of the controls", () => {
             ],
             loading: false,
             failure: null,
-          },
-          keyExport: undefined,
         },
       }),
     );
     expect(container.textContent ?? "").toContain("A plugin reached the internet");
-    expect(container.querySelector('[data-testid="audit-detail-net-1"]')?.textContent).toBe(
-      "youversion-linker · www.bible.com · GET · 200",
-    );
-    // And the row beside it, whose details the server also sent, draws none.
-    expect(container.querySelector('[data-testid="audit-detail-write-1"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="audit-detail-net-1"]')?.textContent?.replace(/[\u2066-\u2069]/g, ""),
+    ).toBe("youversion-linker · www.bible.com · GET · 200");
+    // And the row beside it, whose details the server also sent, draws only
+    // the note's folder, never those details.
+    expect(
+      container.querySelector('[data-testid="audit-detail-write-1"]')?.textContent?.replace(/[\u2066-\u2069]/g, ""),
+    ).toBe("1-projects");
     expect(container.textContent ?? "").not.toContain("conflictCheck");
   });
 
-  test("advanced: a durable move shows its measured phase and percentage", () => {
+  test("storage: a durable move shows its measured phase and percentage", () => {
     const container = mount(() =>
-      createElement(AdvancedPanel, {
-        view: {
-          moves: {
+      createElement(FolderMovesCard, {
+          view: {
             jobs: [{
               jobId: "job-1",
               status: "running",
@@ -934,9 +936,6 @@ describe("what a non-owner is told instead of the controls", () => {
             loading: false,
             failure: null,
           },
-          audit: { events: [], loading: false, failure: null },
-          keyExport: undefined,
-        },
       }),
     );
     expect(container.textContent ?? "").toContain("Copying safely · 400 of 500 · 80%");

@@ -27,7 +27,7 @@ jest.mock("convex/react", () => ({
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { AdvancedPanel } from "../features/console/settings/panels/AdvancedPanel";
+import { ActivityPanel } from "../features/console/settings/panels/ActivityPanel";
 import type { ConsoleAuditEvent } from "../features/console/advanced/advanced";
 
 const roots: (() => void)[] = [];
@@ -46,22 +46,21 @@ function mountTrail(events: ConsoleAuditEvent[]): HTMLElement {
   });
   act(() => {
     root.render(
-      createElement(AdvancedPanel, {
-        view: {
-          moves: { jobs: [], loading: false, failure: null },
-          audit: { events, loading: false, failure: null },
-          keyExport: undefined,
-        },
+      createElement(ActivityPanel, {
+        view: { events, loading: false, failure: null },
+        members: [{ userId: "u1", role: "owner", name: "Sam", joinedAt: 0, isMe: true }],
+        sectioned: true,
       }),
     );
   });
   return container;
 }
 
-const HOUR = 3_600_000;
+/** Text as read, without the isolates that wrap every name somebody else chose. */
+const plain = (text: string | null | undefined) => (text ?? "").replace(/[\u2066-\u2069]/g, "");
 
-describe("the audit trail panel", () => {
-  test("a run of identical renewals draws as one row with a count, and the edit keeps its own", () => {
+describe("the activity panel", () => {
+  test("routine sign-ins are hidden until asked for, then fold into one row", () => {
     const now = Date.now();
     const renewal = (id: string, ago: number): ConsoleAuditEvent => ({
       eventId: id,
@@ -73,23 +72,43 @@ describe("the audit trail panel", () => {
     });
     const container = mountTrail([
       renewal("r1", 0),
-      renewal("r2", HOUR),
-      renewal("r3", 2 * HOUR),
+      renewal("r2", 60_000),
+      renewal("r3", 120_000),
       {
         eventId: "w1",
         action: "file.write",
         actorUserId: "u1",
         actorEmail: "owner@example.test",
         paths: ["1-projects/plan.md"],
-        at: now - 3 * HOUR,
+        at: now - 180_000,
       },
     ]);
 
+    const rows = () => container.querySelectorAll('[data-testid="audit-row"]');
+    const text = (row: Element | undefined) => plain(row?.textContent);
+    expect(rows()).toHaveLength(1);
+    expect(text(rows()[0])).toContain("Sam edited plan");
+    expect(container.textContent).toContain("3 hidden");
+
+    act(() => {
+      (container.querySelector('[data-testid="activity-show-routine"]') as HTMLElement).click();
+    });
+    expect(rows()).toHaveLength(2);
+    expect(text(rows()[0])).toContain("Sam renewed the in-app agent's sign-in");
+    expect(text(rows()[0])).toContain("3 times");
+  });
+
+  test("a filter keeps only its kind of row", () => {
+    const now = Date.now();
+    const container = mountTrail([
+      { eventId: "a", action: "member.invited", actorUserId: "u1", paths: [], at: now },
+      { eventId: "b", action: "file.write", actorUserId: "u1", paths: ["x.md"], at: now - 1000 },
+    ]);
+    act(() => {
+      (container.querySelector('[data-testid="activity-filter-people"]') as HTMLElement).click();
+    });
     const rows = container.querySelectorAll('[data-testid="audit-row"]');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.textContent).toContain("Renewed the in-app agent's sign-in");
-    expect(rows[0]?.textContent).toContain("3 times · 2 hours ago to just now");
-    expect(rows[1]?.textContent).toContain("Edited a note");
-    expect(rows[1]?.textContent).toContain("1-projects/plan.md");
+    expect(rows).toHaveLength(1);
+    expect(plain(rows[0]?.textContent)).toContain("Sam invited somebody");
   });
 });
