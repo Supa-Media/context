@@ -20,7 +20,7 @@ import {
   dayOf,
   retargetPlaces as retarget,
 } from "./lib/places";
-import { requireWorkspaceAccess } from "./lib/workspaceAuth";
+import { getMembership, requireWorkspaceAccess } from "./lib/workspaceAuth";
 
 const kindValidator = v.union(v.literal("note"), v.literal("folder"));
 
@@ -45,12 +45,20 @@ function placePath(input: string): string {
   return path;
 }
 
-/** The caller, if signed in and a member of `workspaceId`; throws for a non-member. */
+/**
+ * The caller, if signed in and a member of `workspaceId`; otherwise `null`,
+ * and the query answers with nothing.
+ *
+ * Nothing rather than a refusal because these are subscriptions a phone holds
+ * open on Home: the moment somebody leaves or is removed from a workspace, a
+ * throwing query would take the screen down with it. An empty answer is the
+ * same for a workspace that does not exist, one the caller is not in, and one
+ * where they have pinned nothing, so it tells a stranger nothing either.
+ */
 async function readerIn(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Id<"users"> | null> {
   const userId = (await getAuthUserId(ctx)) as Id<"users"> | null;
   if (userId === null) return null;
-  await requireWorkspaceAccess(ctx, workspaceId, userId);
-  return userId;
+  return (await getMembership(ctx, workspaceId, userId)) === null ? null : userId;
 }
 
 async function writerIn(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Id<"users">> {

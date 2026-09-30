@@ -8,8 +8,10 @@
  *
  *  1. **Only the caller's own rows,** read and written. A signed-out caller
  *     reads nothing; nobody reads another person's pins or opens.
- *  2. **Only workspaces the caller is in,** refused exactly like one that does
- *     not exist, with nothing written.
+ *  2. **Only workspaces the caller is in.** A write elsewhere is refused
+ *     exactly like one to a workspace that does not exist, with nothing
+ *     written; a read elsewhere answers with nothing, even over rows left
+ *     behind, so a Home held open across leaving a workspace does not throw.
  *  3. **Only real paths.** `..`, control characters and empty strings are
  *     refused; a trailing slash is the same folder.
  *  4. **Pinning is idempotent and ordered,** new pins go last, and a reorder
@@ -28,6 +30,7 @@
  * Applied as local edits, suite re-run, failing tests counted.
  *
  *   listPins filters by workspace only (every member's pins)         2
+ *   listPins skips the membership check                              1
  *   pin skips the membership check                                   2
  *   pin inserts a second row for the same path                       2
  *   reorderPins ignores the order given                              1
@@ -148,8 +151,13 @@ describe("pins", () => {
     await expect(
       asUser(t, stranger).mutation(pin, { workspaceId: ws, path: "Clients", kind: "folder" }),
     ).rejects.toThrow();
-    await expect(asUser(t, stranger).query(listPins, { workspaceId: ws })).rejects.toThrow();
     expect(await allPins(t)).toEqual([]);
+    // Reading answers with nothing, exactly as for a workspace with no pins in it:
+    // a phone's Home holds this open, and leaving a workspace must not throw it.
+    await t.run((ctx) =>
+      ctx.db.insert("placePins", { userId: stranger, workspaceId: ws, path: "Clients", kind: "folder", order: 0, pinnedAt: 0 }),
+    );
+    expect(await asUser(t, stranger).query(listPins, { workspaceId: ws })).toEqual([]);
   });
 
   test("a path that is not a path is refused", async () => {
