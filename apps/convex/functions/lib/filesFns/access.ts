@@ -54,6 +54,7 @@ export function treeChangeOf(operation: FileOperation): TreeChange | null {
     case "restoreTrash":
       return { paths: [operation.from, operation.to], narrows: true, gone: [operation.from] };
     case "delete":
+    case "removeNewFolder":
       return { paths: [operation.path], narrows: true, gone: [operation.path] };
     case "archive":
     case "trash":
@@ -219,6 +220,7 @@ export function indexChangeOf(
     case "archive":
     case "trash":
     case "delete":
+    case "removeNewFolder":
       return { written: [], gone: [operation.path] };
     default:
       return null;

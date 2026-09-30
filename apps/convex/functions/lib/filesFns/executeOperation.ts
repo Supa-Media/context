@@ -17,6 +17,7 @@ import {
   clearVaultBatch,
   copyPath,
   createFolder,
+  removeNewFolder,
   deleteMovedSources,
   deletePath,
   duplicatePath,
@@ -708,6 +709,8 @@ export async function executeOperation(
         const created = await createFolder(store, { path: operation.path, clearance, now });
         return { kind: "folderCreated", ...created };
       }
+      case "removeNewFolder":
+        return { kind: "deleted", ...(await removeNewFolder(store, { path: operation.path, clearance })) };
       case "move": {
         const moved = await movePath(store, {
           from: operation.from,
