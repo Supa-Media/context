@@ -53,6 +53,17 @@ test.describe("side by side, on a wide screen", () => {
     await expect(claude).toContainText("Used Context", { timeout: 15_000 });
     await expect(claude).toContainText("Added folder");
 
+    // Two apps side by side, not a chat panel inside Context (Dev2,
+    // 2026-09-30): Context has its own window, apart from the chat's, and says
+    // which assistant is reaching it from the chat.
+    await expect(page.getByTestId("cast-workspace-bar")).toContainText("Claude, from chat");
+    const chatBox = (await claude.boundingBox())!;
+    const contextBox = (await page.getByTestId("cast-workspace-bar").boundingBox())!;
+    expect(contextBox.x).toBeGreaterThan(chatBox.x + chatBox.width + 8);
+    // Sized by its window, not the screen: its bottom edge is on the page.
+    const frame = (await page.getByTestId("app-frame").boundingBox())!;
+    expect(frame.y + frame.height).toBeLessThanOrEqual(800 - 8);
+
     // The tree takes each step as it lands.
     const tree = page.getByRole("tree").first();
     await expect(tree).toContainText("beta-launch", { timeout: 15_000 });

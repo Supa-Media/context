@@ -231,6 +231,11 @@ export const darkColors = {
    */
   chromeSurface: "#191715",
   pageSurface: "#201E1B",
+  /**
+   * The desk a cast's chat scene sets its two apps on: the chat app and
+   * Context, each its own window, so neither reads as a panel of the other.
+   */
+  castDesk: "#0C0B0A",
 
   ink: "#100F0E",
   white: "#EDE8E0",
@@ -448,6 +453,7 @@ export const lightColors: Colors = {
   /** See `darkColors.chromeSurface`: the page stays lighter than its chrome. */
   chromeSurface: "#F4F1EA",
   pageSurface: "#FFFDF9",
+  castDesk: "#DDD7CC",
 
   ink: "#FFFDF9",
   white: "#1A1714",

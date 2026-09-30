@@ -19,6 +19,8 @@ export const darkShadows = {
   drawer: "24px 0 60px -20px rgba(0,0,0,0.9)",
   /** A sheet rising from the bottom edge. */
   rising: "0 -10px 40px -12px rgba(0,0,0,0.9)",
+  /** An app's window set on a desk, as a cast's chat scene draws two apps. */
+  window: "0 1px 2px rgba(0,0,0,0.5), 0 12px 32px rgba(0,0,0,0.6)",
 } as const;
 
 export type Shadows = Readonly<Record<keyof typeof darkShadows, string>>;
@@ -37,4 +39,5 @@ export const lightShadows: Shadows = {
   floating: "0 6px 20px -6px rgba(16,16,28,0.18), 0 1px 3px rgba(16,16,28,0.10)",
   drawer: "24px 0 60px -20px rgba(16,16,28,0.22)",
   rising: "0 -10px 40px -12px rgba(16,16,28,0.20)",
+  window: "0 1px 2px rgba(26,23,20,0.10), 0 12px 32px rgba(26,23,20,0.14)",
 };

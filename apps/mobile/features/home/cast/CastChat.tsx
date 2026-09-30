@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
+import { useColors, useTheme } from "../../design/theme";
 import { castChatLooks, pointerType, radii, space, type CastChatLookColors } from "../../design/tokens";
 import type { ChatMessage, ChatTool, ChatWindow } from "./castChat";
 import type { CastChatView } from "./useHomeCast";
@@ -57,11 +58,13 @@ function Window({
   onClose?: () => void;
 }) {
   const scroller = useRef<ScrollView>(null);
+  // Its own window on the desk, never a panel of Context's (Dev2, 2026-09-30).
+  const { shadows } = useTheme();
   const ink = { color: look.ink, fontFamily: SYSTEM_FONT };
   const muted = { color: look.muted, fontFamily: SYSTEM_FONT };
   return (
     <View
-      style={[styles.window, { backgroundColor: look.ground, borderColor: look.line }]}
+      style={[styles.window, { backgroundColor: look.ground, borderColor: look.line, boxShadow: shadows.window }]}
       accessibilityRole={Platform.OS === "web" ? ("region" as never) : undefined}
       aria-label={`Chat with ${window.agent}`}
       testID={`cast-chat-${window.agent}`}
@@ -103,6 +106,33 @@ function Window({
           </View>
         </View>
       </View>
+    </View>
+  );
+}
+
+/**
+ * The top of Context's own window while a chat scene plays: the app's name,
+ * and which assistant is reaching it from the chat beside it ("Claude, from
+ * chat"), so the two read as two apps talking rather than one app with a chat
+ * panel (Dev2, 2026-09-30).
+ */
+export function CastWorkspaceBar({ view }: { view: CastChatView }) {
+  const colors = useColors();
+  const from = view.windows
+    .filter((window) => window.messages.some((message) => message.kind === "tools"))
+    .map((window) => window.agent);
+  return (
+    <View style={[styles.bar, { backgroundColor: colors.chromeSurface, borderBottomColor: colors.line }]} testID="cast-workspace-bar">
+      <Text style={[styles.barName, { color: colors.text }]}>Context</Text>
+      <View style={styles.grow} />
+      {from.length === 0 ? null : (
+        <View style={[styles.from, { backgroundColor: colors.hintWash, borderColor: colors.hintBorder }]}>
+          <View style={[styles.dot, { backgroundColor: colors.hintText }]} />
+          <Text style={[styles.small, styles.fromText, { color: colors.hintText }]} numberOfLines={1}>
+            {`${from.join(" and ")}, from chat`}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -159,6 +189,10 @@ function ToolRow({ tool, look }: { tool: ChatTool; look: CastChatLookColors }) {
 }
 
 const styles = StyleSheet.create({
+  bar: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 40, paddingHorizontal: space.x4, borderBottomWidth: 1 },
+  barName: { fontSize: pointerType.ui, fontWeight: "600" },
+  from: { flexDirection: "row", alignItems: "center", gap: space.x1, paddingHorizontal: space.x2, paddingVertical: 3, borderRadius: radii.pill, borderWidth: 1, flexShrink: 1 },
+  fromText: { fontWeight: "600" },
   column: { flex: 1, gap: space.x3, minHeight: 0, minWidth: 0 },
   window: { flex: 1, minHeight: 0, borderRadius: radii.console, borderWidth: 1, overflow: "hidden" },
   head: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 48, paddingHorizontal: space.x4, borderBottomWidth: 1 },

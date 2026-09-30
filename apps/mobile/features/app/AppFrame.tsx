@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { View } from "react-native";
 import { viewportHeight } from "../design/css";
 import { useThemedStyles } from "../design/theme";
 import { FrameContext } from "./appFrame/context";
+import { FrameFillsParent } from "./appFrame/fillParent";
 import { frameBody } from "./appFrame/body";
 import { frameBottomBar, frameStatusRow } from "./appFrame/bottomEdge";
 import { makeStyles } from "./appFrame/styles";
@@ -231,13 +232,14 @@ export function AppFrame({
     contentInsets,
     api,
   } = useFrameController({ explorer, aside, bottomBar });
+  const fillsParent = useContext(FrameFillsParent);
 
   return (
     <FrameContext.Provider value={api}>
       <View
         style={[
           styles.frame,
-          viewportHeight(shellBandPx),
+          fillsParent ? FILL : viewportHeight(shellBandPx),
           /*
             The notch, and only where the layout keeps the document out of it.
 
@@ -302,3 +304,5 @@ export function AppFrame({
     </FrameContext.Provider>
   );
 }
+
+const FILL = { flex: 1, minHeight: 0 } as const;

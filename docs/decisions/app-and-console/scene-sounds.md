@@ -89,6 +89,14 @@ in list view all in real time". The artboard was approved first.
   the workspace on a phone) or `chat: cut`, which fills the frame until the next
   `opens:`. A visitor can close the chat; the studio's stage cannot, since it is
   a recording.
+- **Side by side is two apps on a desk, never a chat panel in Context.** The
+  first build drew the chat inside Context's frame, and Dev2 rejected it
+  (2026-09-30: it looked "embedded in the app which its not"). Now the chat and
+  Context are each a window with its own shadow on a darker desk, as the
+  approved artboard drew them, and Context's window says which assistant is
+  reaching it ("Claude, from chat"). The console frame fills that window
+  (`FrameFillsParent`) rather than the screen. `castChat.spec.ts` checks the
+  windows are apart and the frame's bottom is on the page.
 
 Tests: `apps/mobile/__tests__/castChatGrammar.test.ts`, `castChat.test.ts`,
 `castWorkspace.test.ts`, and `e2e/webkit/castChat.spec.ts`.

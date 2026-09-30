@@ -18,7 +18,7 @@ import { BrowsePane } from "../console/panes/BrowsePane";
 import { CustomEmojiContext } from "../console/emoji/context";
 import { usePublishedEmoji } from "../console/emoji/published";
 import { writeClipboard } from "../design/clipboard";
-import { useThemedStyles, type Colors } from "../design/theme";
+import { useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import type { EmojiPictures } from "../share/emojiPictures";
 import { NO_PUBLISHED_IMAGES } from "../share/publishedImages";
 import {
@@ -43,8 +43,10 @@ import { useHomeMeetings } from "./meeting/useHomeMeetings";
 import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
 import { useLocalFolderLists } from "./useLocalFolderLists";
-import { CastChat } from "./cast/CastChat";
-import { space } from "../design/tokens";
+import { CastChat, CastWorkspaceBar } from "./cast/CastChat";
+import { FrameFillsParent } from "../app/appFrame/fillParent";
+import { viewportHeight } from "../design/css";
+import { radii, space } from "../design/tokens";
 import { findPath } from "./castWorkspace";
 import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
 
@@ -317,6 +319,9 @@ export function HomeShell() {
     <CastChat view={chat} colors={cast?.colors ?? NO_COLORS} onClose={stage === null ? castRoom.closeChat : undefined} />
   );
   const cut = chat?.setup.layout === "cut";
+  // Beside: two apps on a desk, each its own window (the approved artboard),
+  // never a chat panel inside Context's frame.
+  const desk = chatPanel !== null && !cut;
 
   /*
     The console's navigation, for a page with no console routes behind it.
@@ -345,33 +350,34 @@ export function HomeShell() {
       {joinSlot !== null && showJoin ? (
         <JoinSlotPortal slot={joinSlot}>{joinCard}</JoinSlotPortal>
       ) : null}
-      <View style={compact ? styles.stacked : styles.beside}>
-        {chatPanel !== null && !cut ? (
-          <View style={compact ? styles.chatAbove : styles.chatBeside}>{chatPanel}</View>
-        ) : null}
-        <View style={styles.workspace}>
-          <ConsoleFrame
-            data={data}
-            route={HOME_ROUTE}
-            pathname="/"
-            router={visitorRouter}
-            params={NO_PARAMS}
-          >
-            {browser.selectedPath === null && missing ? (
-              <HomePage
-                key={routePath}
-                markdown={source.kind === "waiting" ? "" : MISSING_PAGE_MARKDOWN}
-                compact={compact}
-                onLink={followLink}
-              />
-            ) : (
-              // The site's own emoji, over the console's library (which a visitor
-              // has none of), so a published page draws what its author typed.
-              <CustomEmojiContext.Provider value={emoji}>
-                <BrowsePane data={data} presence={castRoom.presence} />
-              </CustomEmojiContext.Provider>
-            )}
-          </ConsoleFrame>
+      <View style={[compact ? styles.stacked : styles.beside, desk ? [viewportHeight(), compact ? styles.deskCompact : styles.desk] : null]}>
+        {desk ? <View style={compact ? styles.chatAbove : styles.chatBeside}>{chatPanel}</View> : null}
+        <View style={[styles.workspace, desk ? styles.window : null]}>
+          {desk && chat !== null ? <CastWorkspaceBar view={chat} /> : null}
+          <FrameFillsParent.Provider value={desk}>
+            <ConsoleFrame
+              data={data}
+              route={HOME_ROUTE}
+              pathname="/"
+              router={visitorRouter}
+              params={NO_PARAMS}
+            >
+              {browser.selectedPath === null && missing ? (
+                <HomePage
+                  key={routePath}
+                  markdown={source.kind === "waiting" ? "" : MISSING_PAGE_MARKDOWN}
+                  compact={compact}
+                  onLink={followLink}
+                />
+              ) : (
+                // The site's own emoji, over the console's library (which a visitor
+                // has none of), so a published page draws what its author typed.
+                <CustomEmojiContext.Provider value={emoji}>
+                  <BrowsePane data={data} presence={castRoom.presence} />
+                </CustomEmojiContext.Provider>
+              )}
+            </ConsoleFrame>
+          </FrameFillsParent.Provider>
         </View>
       </View>
       {chatPanel !== null && cut ? (
@@ -392,15 +398,18 @@ export function HomeShell() {
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     ground: { flex: 1, backgroundColor: colors.pageSurface },
     beside: { flex: 1, flexDirection: "row", minHeight: 0 },
     stacked: { flex: 1, flexDirection: "column", minHeight: 0 },
     workspace: { flex: 1, minWidth: 0, minHeight: 0 },
-    chatBeside: { width: "36%", minWidth: 320, maxWidth: 480, padding: space.x3, backgroundColor: colors.chromeSurface },
-    chatAbove: { height: "46%", padding: space.x2, backgroundColor: colors.chromeSurface },
-    chatOver: { ...StyleSheet.absoluteFillObject, alignItems: "center", padding: space.x6, backgroundColor: colors.chromeSurface },
+    desk: { padding: space.x6, gap: space.x6, backgroundColor: colors.castDesk },
+    deskCompact: { padding: space.x2, gap: space.x2, backgroundColor: colors.castDesk },
+    window: { borderRadius: radii.console, overflow: "hidden", boxShadow: shadows.window, backgroundColor: colors.pageSurface },
+    chatBeside: { width: "36%", minWidth: 320, maxWidth: 468 },
+    chatAbove: { height: "46%" },
+    chatOver: { ...StyleSheet.absoluteFillObject, alignItems: "center", padding: space.x6, backgroundColor: colors.castDesk },
     // A reading column, the width a chat app gives its words, however wide the frame.
     chatOverColumn: { flex: 1, width: "100%", maxWidth: 760 },
   });
