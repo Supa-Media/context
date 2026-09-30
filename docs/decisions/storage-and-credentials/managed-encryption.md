@@ -72,8 +72,8 @@ all build their store from that one lookup.
 The walk runs in Convex, the same shape as the managed hand-off: one page of
 one workspace per action, rescheduling itself, with a `runId` so that a pause,
 a retry or a restart retires any run still in flight. Its phases are count,
-then seal (100 objects a page, 8 at a time), then check (every object is read
-again). Only then does the workspace become `encrypted`.
+then seal (300 objects a page, up to 24 in flight), then check (every object
+is read again). Only then does the workspace become `encrypted`.
 
 - **Every seal is a conditional write** on the etag it read, then a read-back
   that must open to exactly the original bytes. If it does not, the walk puts
@@ -84,9 +84,20 @@ again). Only then does the workspace become `encrypted`.
   the write, and the walk counts that object as `raced` and moves on. People
   write sealed in `migrating` mode, so nothing is lost and nothing older
   overwrites anything newer.
-- **A batch settles before a failure is reported.** A refusal marks the
-  workspace `failed` only after its sibling seals have finished, so the row
-  never reads failed while writes are still in flight.
+- **Objects move in a pool, not in batches** (`managedEncryptionFns/pool.ts`).
+  Up to 24 objects are in flight, and a lane takes the next object as soon as
+  it is free. The first walk sealed 8 at a time in lockstep, so every batch
+  waited for its slowest object, and a 60,000-file workspace took many hours. A byte budget (12 MB declared) caps what is held in memory, so a page
+  of large attachments runs a few at a time. An object larger than the
+  budget runs alone. Simplifying this back to batches costs hours per large
+  workspace, and dropping the budget risks running an action out of memory.
+  `managedEncryptionPool.test.ts` fails either way. Pages stay small enough
+  to finish well inside an action's time limit, because a run that times out
+  records nothing and schedules nothing; only Pause then Resume restarts it.
+- **Everything started settles before a failure is reported.** After a
+  refusal, nothing new starts. The workspace is marked `failed` only after
+  every seal already in flight has finished, so the row never reads failed
+  while writes are still in flight.
 - **A walk failure pauses the whole rollout** (`failed`). Staff see a stable
   code, never a message, since a message could quote a path. Owners see
   "Paused".
