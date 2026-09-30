@@ -99,6 +99,9 @@ export type MenuActionId =
    * right-click away.
    */
   | "revealInTree"
+  /** Put a note or folder on the phone's Home, for this person only (`functions/places.ts`). */
+  | "pin"
+  | "unpin"
   | "archive"
   | "restore"
   | "delete";
@@ -189,6 +192,11 @@ export interface MenuContext {
    * guesses wrong about who can read a note is worse than one that says less.
    */
   inherited?: Visibility;
+  /**
+   * Whether a path is on this person's Home. Present only where pinning is
+   * (a signed-in phone); a pin is personal, so a reader may pin too.
+   */
+  pinned?: (path: string) => boolean;
 }
 
 /**
@@ -541,6 +549,14 @@ function downloadGroup(context: MenuContext, target: { kind: string } | null): M
   ];
 }
 
+/** "Pin to Home" or "Unpin from Home", for one row, where there is a Home to pin to. */
+function pinGroup(context: MenuContext, single: TreeRow | null): MenuItem[] {
+  if (context.pinned === undefined || single === null) return [];
+  return context.pinned(single.path)
+    ? [makeItem(context, "unpin", "Unpin from Home")]
+    : [makeItem(context, "pin", "Pin to Home")];
+}
+
 /** "Paste foo.md", or nothing. The label names the thing so it is not a guess. */
 function pasteGroup(context: MenuContext, folder: string): MenuItem[] {
   const clipboard = context.clipboard;
@@ -584,6 +600,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     }
     return joinGroups([
       [makeItem(context, "open", "Open")],
+      pinGroup(context, single),
       [
         makeItem(context, "copyPath", "Copy path"),
         makeItem(context, "copyAtPath", "Copy @path"),
@@ -642,6 +659,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
           ...pasteGroup(context, single.path),
         ]
       : [],
+
+    pinGroup(context, single),
 
     // Rename and duplicate take one target and have no sensible plural: three
     // renames is three dialogs, and "Duplicate 3 items" is a batch job with a

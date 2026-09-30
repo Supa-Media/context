@@ -195,6 +195,8 @@ export function BrowsePane({
     openCrumbMenu,
     folderMenuFor,
     folderDrag,
+    places,
+    openFolderActions,
   } = useFolderListing({ files, contextLabel, settled, current, data });
   /*
     The two bands the floating chrome occupies, spent as content padding at
@@ -312,6 +314,8 @@ export function BrowsePane({
       folderMenuFor={folderMenuFor}
       folderDrag={folderDrag}
       setFolderDialog={setFolderDialog}
+      places={places}
+      openFolderActions={openFolderActions}
       noteEncryption={noteEncryption}
       notices={notices}
       pathBar={pathBar}

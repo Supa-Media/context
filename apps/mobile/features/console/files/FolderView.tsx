@@ -82,7 +82,7 @@
  * binding or a backfill is — the same split `Explorer` made for the same line.
  */
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
@@ -183,6 +183,7 @@ export function FolderView({
   pendingStateFor,
   page,
   showAudience = true,
+  phoneHead,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -233,6 +234,8 @@ export function FolderView({
    * they granted nobody anything.
    */
   showAudience?: boolean;
+  /** On a phone, what goes under the title in place of that sentence (`home/PhoneFolderHead.tsx`). */
+  phoneHead?: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -352,6 +355,7 @@ export function FolderView({
           pageWidth={pageWidth}
           onSelect={onSelect}
           rule={
+            compact && phoneHead !== undefined ? phoneHead :
             /*
               The owner's sentence about who can read this folder, and only for
               somebody it is true of. A homepage visitor granted nobody access
