@@ -99,7 +99,7 @@
 
 import { deleteStatements, projectNote, upsertStatements } from "./project.js";
 import { indexableText } from "../../encryption.js";
-import { D1Error } from "./client.js";
+import { D1Error, failureDetailOf } from "./client.js";
 import {
   DOCMAP_KEY,
   MANIFEST_PARSE_BYTE_CAP,
@@ -281,6 +281,7 @@ export async function projectPass(
     sweepComplete: false,
     reported: false,
     failure: null,
+    failureDetail: null,
   };
   const paths = census instanceof Map ? census : new Map(census || []);
   const cap = Number.isFinite(noteCap) ? Math.max(0, Math.floor(noteCap)) : D1_PASS_NOTE_CAP;
@@ -453,6 +454,7 @@ export async function projectPass(
     // stuck at "Preparing" with nothing to say why is the bug this whole path
     // exists to close.
     result.failure = error.code;
+    result.failureDetail = failureDetailOf(error);
   }
 
   return await finish(result, paths, indexPending, budget, reserve, client, reportProgress);
@@ -522,6 +524,7 @@ async function finish(result, paths, indexPending, budget, reserve, client, repo
     } catch (error) {
       if (!(error instanceof D1Error)) throw error;
       result.failure = error.code;
+      result.failureDetail = failureDetailOf(error);
     }
     const missing = Math.max(0, paths.size - result.notesIndexed);
     // Every count is a floor when a walk was cut short — the census's own

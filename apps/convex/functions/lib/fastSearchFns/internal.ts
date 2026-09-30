@@ -12,7 +12,15 @@
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
-import { BACKFILL_STALL_MS, PROJECTION_CHAIN, searchProjectionState, type SearchProjectionState } from "../fastSearch";
+import { D1_SCHEMA_VERSION, isRetryableD1Error } from "../d1";
+import {
+  BACKFILL_STALL_MS,
+  FAST_SEARCH_GENERATION,
+  PROJECTION_CHAIN,
+  fastSearchEntitled,
+  searchProjectionState,
+  type SearchProjectionState,
+} from "../fastSearch";
 import { bindingFor, planFor } from "./helpers";
 
 /** Contexts one sweep may restart. See `sweepStalledBackfillsHandler`. */
@@ -173,6 +181,60 @@ export async function sweepStalledBackfillsHandler(
       scope: "private",
       operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
     });
+    started += 1;
+  }
+
+  /*
+    A FAILURE THE SCREEN SAYS WILL RETRY, RETRIED.
+
+    A `failed` row whose code is a wait (Cloudflare unreachable, rate
+    limiting, a database not routable yet) outlasted the provisioner's
+    settling window or the projection chain's own retries. The card tells its
+    owner "Context tries again on its own", and this is where that sentence is
+    kept: after the same quiet window, the row goes back to the state it
+    failed out of and the work is scheduled again. A terminal code (a refused
+    token, a malformed request, a missing secret) is left for a person, since
+    waiting will not change its answer.
+  */
+  const failedRows = await ctx.db
+    .query("searchIndexes")
+    .withIndex("by_status", (q) => q.eq("status", "failed"))
+    .take(SWEEP_BATCH);
+  for (const row of failedRows) {
+    if (!row.optedIn || row.generation !== FAST_SEARCH_GENERATION) continue;
+    if (!isRetryableD1Error(row.errorCode)) continue;
+    if (now - row.updatedAt < BACKFILL_STALL_MS) continue;
+    const workspace = await ctx.db.get(row.workspaceId);
+    if (workspace === null) continue;
+    if (!fastSearchEntitled(workspace, await planFor(ctx, row.workspaceId))) continue;
+
+    // A database with the current schema failed while copying: resume the
+    // copy where its cursor stopped, counters kept. Anything short of that
+    // failed while being made, so it is made again — `provisionIndex` reuses
+    // a recorded database rather than creating a second one.
+    const provisioned =
+      typeof row.databaseId === "string" &&
+      row.databaseId.length > 0 &&
+      row.schemaVersion === D1_SCHEMA_VERSION;
+    await ctx.db.patch(row._id, {
+      status: provisioned ? "backfilling" : "provisioning",
+      errorCode: undefined,
+      error: undefined,
+      updatedAt: now,
+    });
+    if (provisioned) {
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: row.workspaceId,
+        scope: "private",
+        operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
+      });
+    } else {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.fastSearchProvision.provisionIndex,
+        { workspaceId: row.workspaceId, generation: FAST_SEARCH_GENERATION },
+      );
+    }
     started += 1;
   }
   return { started };

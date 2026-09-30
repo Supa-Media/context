@@ -392,8 +392,9 @@ export const forgetIndex = internalMutation({
  * It holds no decision, which is the rule for everything a cron reaches. It
  * does not decide whether a context may have a projection — that is
  * `searchProjectionState`, re-asked by the pass itself before it opens
- * anything — and it does not retry a `failed` row, because a failure is a
- * sentence somebody is being shown and "Try again" is theirs to press.
+ * anything. It restarts a `failed` row only when the failure is one waiting
+ * can fix (`isRetryableD1Error`), because that row's card says it will try
+ * again on its own; a terminal failure stays for its owner's "Try again".
  */
 export const sweepStalledBackfills = internalMutation({
   args: {},

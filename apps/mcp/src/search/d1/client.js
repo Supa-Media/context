@@ -104,11 +104,46 @@ export const D1_ERROR_CODES = Object.freeze([
 ]);
 
 export class D1Error extends Error {
-  constructor(code) {
+  /**
+   * `detail` is for the people diagnosing a failure, and carries only what
+   * this module wrote itself: `cause` from a closed set ("timeout",
+   * "network", "http_<status>", "envelope", "body_read", "oversize"), the
+   * statement's shape (its verb and table, from our own SQL text, never a
+   * bound parameter), and how long the request took. Never a provider
+   * message, never a param, never the token.
+   */
+  constructor(code, detail = {}) {
     super(`search index unavailable: ${code}`);
     this.name = "D1Error";
     this.code = code;
+    this.failureCause = typeof detail.cause === "string" ? detail.cause : undefined;
+    this.statement = typeof detail.statement === "string" ? detail.statement : undefined;
+    this.elapsedMs = Number.isFinite(detail.elapsedMs) ? detail.elapsedMs : undefined;
   }
+}
+
+/**
+ * The shape of one of our statements, for a log line: `INSERT notes_private_fts`.
+ *
+ * Read off the SQL this module was handed, which is always a literal in this
+ * codebase; the customer's text only ever travels as a bound parameter, so
+ * none of it can appear here.
+ */
+export function statementShape(sql) {
+  const text = typeof sql === "string" ? sql : "";
+  const verb = (text.match(/^\s*([A-Za-z]+)/) || [])[1];
+  const table = (text.match(/\b(?:FROM|INTO|UPDATE|TABLE(?:\s+IF\s+(?:NOT\s+)?EXISTS)?)\s+([A-Za-z_][A-Za-z0-9_]*)/i) || [])[1];
+  return [verb ? verb.toUpperCase() : "?", table || ""].join(" ").trim();
+}
+
+/** What a failure log may say about a D1 failure. See `D1Error`. */
+export function failureDetailOf(error) {
+  if (!(error instanceof D1Error)) return null;
+  return {
+    cause: error.failureCause ?? null,
+    statement: error.statement ?? null,
+    elapsedMs: error.elapsedMs ?? null,
+  };
 }
 
 /**
@@ -119,12 +154,12 @@ export class D1Error extends Error {
  * envelope failed at all, because Cloudflare answers a refused statement with
  * a 200 and `success: false`.
  */
-function classify(status) {
-  if (status === 401 || status === 403) return new D1Error("UNAUTHORIZED");
-  if (status === 404) return new D1Error("NOT_FOUND");
-  if (status === 429) return new D1Error("RATE_LIMITED");
-  if (status >= 500) return new D1Error("UNAVAILABLE");
-  return new D1Error("REFUSED");
+function classify(status, detail = {}) {
+  if (status === 401 || status === 403) return new D1Error("UNAUTHORIZED", detail);
+  if (status === 404) return new D1Error("NOT_FOUND", detail);
+  if (status === 429) return new D1Error("RATE_LIMITED", detail);
+  if (status >= 500) return new D1Error("UNAVAILABLE", detail);
+  return new D1Error("REFUSED", detail);
 }
 
 /**
@@ -183,6 +218,12 @@ export function createD1Client(descriptor, options = {}) {
   async function query(sql, params = []) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), D1_TIMEOUT_MS);
+    const started = Date.now();
+    const detail = (cause) => ({
+      cause,
+      statement: statementShape(sql),
+      elapsedMs: Date.now() - started,
+    });
     let response;
     try {
       response = await fetchImpl(endpoint, {
@@ -204,23 +245,28 @@ export function createD1Client(descriptor, options = {}) {
     } catch {
       // The caught error can quote the request, `Authorization` included. It is
       // dropped on the floor rather than wrapped — `controlPlane.js`'s rule.
-      throw new D1Error("UNAVAILABLE");
+      // Whether our own timer fired is ours to say, and is the one fact a
+      // person diagnosing "could not be reached" needs first.
+      throw new D1Error(
+        "UNAVAILABLE",
+        detail(controller.signal.aborted ? "timeout" : "network"),
+      );
     } finally {
       clearTimeout(timer);
     }
 
-    if (!response) throw new D1Error("UNAVAILABLE");
+    if (!response) throw new D1Error("UNAVAILABLE", detail("network"));
     const declared = Number(response.headers?.get?.("content-length"));
     if (Number.isFinite(declared) && declared > D1_RESPONSE_BYTE_CAP) {
-      throw new D1Error("REFUSED");
+      throw new D1Error("REFUSED", detail("oversize"));
     }
     let text;
     try {
       text = await response.text();
     } catch {
-      throw new D1Error("UNAVAILABLE");
+      throw new D1Error("UNAVAILABLE", detail("body_read"));
     }
-    if (text.length > D1_RESPONSE_BYTE_CAP) throw new D1Error("REFUSED");
+    if (text.length > D1_RESPONSE_BYTE_CAP) throw new D1Error("REFUSED", detail("oversize"));
     let body = null;
     try {
       body = JSON.parse(text);
@@ -230,7 +276,10 @@ export function createD1Client(descriptor, options = {}) {
     // A refused statement comes back 200 with `success: false`, so the status
     // alone is not the check.
     if (response.status !== 200 || !body || body.success !== true) {
-      throw classify(response.status);
+      throw classify(
+        response.status,
+        detail(response.status === 200 ? "envelope" : `http_${response.status}`),
+      );
     }
     const first = Array.isArray(body.result) ? body.result[0] : undefined;
     const rows = first && Array.isArray(first.results) ? first.results : [];
