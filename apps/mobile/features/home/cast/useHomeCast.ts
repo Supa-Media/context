@@ -5,7 +5,7 @@ import type { PresenceMember } from "../../console/presence/protocol";
 import { createSharedDoc, seedSharedDoc, type SharedDoc } from "../../console/presence/sharedDoc";
 import type { Presence } from "../../console/presence/usePresence";
 import { useReducedMotion } from "../../design/useReducedMotion";
-import { previewSlug } from "../castPreview";
+import { previewPagePath } from "../castPreview";
 import type { HomePage } from "../homeSite";
 import { castActorNamed, castMemberId, paceNamed, playCast } from "./castRun";
 import { castPresence } from "./castSite";
@@ -204,9 +204,11 @@ export function pageNamed(
   notes: Readonly<Record<string, string>>,
 ): string | null {
   const wanted = name.trim().toLowerCase().replace(/\.md$/, "").replace(/^\//, "");
+  // Folders stay folders: `inbox/james` is never the root's `inbox-james`.
+  const address = previewPagePath(wanted);
   for (const [path, page] of pages) {
     const route = page.routePath.slice(1).toLowerCase();
-    if (page.title.toLowerCase() === wanted || route === wanted || route === previewSlug(wanted)) return path;
+    if (page.title.toLowerCase() === wanted || route === wanted || route === address) return path;
   }
   for (const path of Object.keys(notes)) {
     const stem = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "").replace(/^\d{2}-/, "");
