@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CastActor, CastChatSetup, CastPaceName, CastStep } from "@context/shared";
+import type { CastActor, CastChatSetup, CastPaceName, CastShown, CastStep } from "@context/shared";
 import type { ActiveAgent, AgentActivityView, AgentMark } from "../../console/agents/agentActivity";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { createSharedDoc, seedSharedDoc, type SharedDoc } from "../../console/presence/sharedDoc";
@@ -7,8 +7,9 @@ import type { Presence } from "../../console/presence/usePresence";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { previewPagePath } from "../castPreview";
 import type { HomePage } from "../homeSite";
-import { castActorNamed, castMemberId, paceNamed, playCast, type CastWorkspace } from "./castRun";
+import { castActorNamed, castMemberId, paceNamed, playCast, type CastSaid, type CastWorkspace } from "./castRun";
 import { chatReducer, type ChatState } from "./castChat";
+import { phoneShowsAfter, phoneShowsCut } from "./castCamera";
 import { castPresence } from "./castSite";
 import type { StudioStage } from "./useStudioStage";
 
@@ -148,11 +149,25 @@ export function useHomeCast(options: {
           setChat((current) => ({
             setup,
             windows: chatReducer(current?.windows ?? [], event),
+            active: event.agent,
+            shows: phoneShowsAfter(current?.shows, event, setup.phone),
+            said: current?.said,
             // Filling the frame, it opens again whenever somebody says something in it.
             hidden: event.kind === "tool" ? (current?.hidden ?? false) : false,
           })),
+        shows: (what) =>
+          setChat((current) => ({
+            setup,
+            windows: current?.windows ?? [],
+            active: current?.active,
+            shows: phoneShowsCut(what, (current?.windows ?? []).map((window) => window.agent)),
+            said: current?.said,
+            hidden: current?.hidden ?? false,
+          })),
         agentDid: (actor, kind, at) => setActivity((current) => recordAgent(current, actor, kind, at, colors, Date.now())),
         room: (members) => inRoom((current) => ({ ...current, members })),
+        // Kept with the chat: a phone's Context window shows it as a card.
+        said: (said) => setChat((current) => (current === null ? null : { ...current, said })),
         commented: (thread) => inRoom((current) => ({ ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } })),
         clicked: (name) =>
           inRoom((current) => ({
@@ -163,6 +178,8 @@ export function useHomeCast(options: {
           const open = latest.current.open;
           // A chat filling the frame gives way to the workspace it was changing.
           if (setup.layout === "cut") setChat((current) => (current === null ? null : { ...current, hidden: true }));
+          // A comment card belongs to the page it was on.
+          setChat((current) => (current === null || current.said === undefined ? current : { ...current, said: undefined }));
           const target = pageNamed(name, latest.current.pages, latest.current.notes);
           if (target === null && open !== undefined) {
             // A folder's page: nothing to write into, and the show carries on beside it.
@@ -220,6 +237,12 @@ export function useHomeCast(options: {
 export interface CastChatView {
   setup: CastChatSetup;
   windows: ChatState;
+  /** The assistant the latest thing happened with: a phone shows its window. */
+  active?: string;
+  /** What a phone shows: both apps, Context, or one assistant's chat (`castCamera.ts`). */
+  shows?: CastShown;
+  /** The latest comment step's words, which a phone's Context window shows as a card. */
+  said?: CastSaid;
   /** Framed to fill the stage and the scene has cut to the workspace. */
   hidden: boolean;
 }

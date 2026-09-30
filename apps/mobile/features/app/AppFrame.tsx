@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { viewportHeight } from "../design/css";
 import { useThemedStyles } from "../design/theme";
 import { FrameContext } from "./appFrame/context";
-import { FrameFillsParent } from "./appFrame/fillParent";
+import { FrameBare, FrameFillsParent } from "./appFrame/fillParent";
 import { frameBody } from "./appFrame/body";
 import { frameBottomBar, frameStatusRow } from "./appFrame/bottomEdge";
 import { makeStyles } from "./appFrame/styles";
@@ -207,6 +207,7 @@ export function AppFrame({
   children,
 }: AppFrameProps) {
   const styles = useThemedStyles(makeStyles);
+  const bare = useContext(FrameBare);
   const {
     insets,
     state,
@@ -231,7 +232,7 @@ export function AppFrame({
     bottomBarShowing,
     contentInsets,
     api,
-  } = useFrameController({ explorer, aside, bottomBar });
+  } = useFrameController({ explorer, aside, bottomBar: bare ? undefined : bottomBar, bare });
   const fillsParent = useContext(FrameFillsParent);
 
   return (
@@ -256,7 +257,7 @@ export function AppFrame({
         ]}
         testID="app-frame"
       >
-        {frameTopBar({
+        {bare && compact ? null : frameTopBar({
           styles,
           compact,
           insets,

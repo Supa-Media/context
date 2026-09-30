@@ -32,6 +32,7 @@ function quoted(words: string): string {
 /** A step as the grammar's own examples write it; a note's body follows on indented lines. */
 export function castStepLine(step: CastStep): string {
   if (step.kind === "wait") return `wait ${seconds(step.ms)}`;
+  if (step.kind === "shows") return `shows: ${step.what === "context" ? "Context" : step.what}`;
   const who = step.actor.name;
   switch (step.kind) {
     case "line":
@@ -149,9 +150,9 @@ export function withCastWords(step: CastStep, words: string): CastStep | null {
   }
 }
 
-/** The step done by somebody else. A wait has nobody to change. */
+/** The step done by somebody else. A wait or a cut has nobody to change. */
 export function withCastActor(step: CastStep, actor: CastActor): CastStep {
-  return step.kind === "wait" ? step : { ...step, actor };
+  return "actor" in step ? { ...step, actor } : step;
 }
 
 /** The kinds of step a row can be switched between, in the order the editor offers them. */
@@ -163,9 +164,9 @@ export type CastEditKind = (typeof CAST_EDIT_KINDS)[number];
  * the new kind has words. `actor` stands in when the step was a wait.
  */
 export function withCastKind(step: CastStep, kind: CastEditKind, actor: CastActor): CastStep {
-  const who = step.kind === "wait" ? actor : step.actor;
+  const who = "actor" in step ? step.actor : actor;
   const words = castStepWords(step) ?? "";
-  const text = words === "" || step.kind === "wait" ? "…" : words;
+  const text = words === "" || !("actor" in step) ? "…" : words;
   switch (kind) {
     case "line":
       return { kind: "line", actor: who, text, at: 0 };
@@ -254,7 +255,7 @@ export function moveCastStep(source: string, from: number, to: number): string {
 export function castActors(source: string): CastActor[] {
   const seen = new Map<string, CastActor>();
   for (const step of splitWebsiteCast(source).steps) {
-    if (step.kind !== "wait" && !seen.has(step.actor.name)) seen.set(step.actor.name, step.actor);
+    if ("actor" in step && !seen.has(step.actor.name)) seen.set(step.actor.name, step.actor);
   }
   return [...seen.values()];
 }
@@ -266,7 +267,7 @@ export function renameCastActor(source: string, from: string, to: CastActor): st
   // Last to first, so each step's lines are still where the parser said.
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]!;
-    if (step.kind === "wait") continue;
+    if (!("actor" in step)) continue;
     const doer = step.actor.name === from;
     const clicked = step.kind === "click" && step.target === from;
     const asked = step.kind === "ask" && step.agent === from && to.kind === "agent";

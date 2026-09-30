@@ -73,6 +73,12 @@
  * chat filling the frame until the next "opens"; and a look, warm, plain or
  * dark. More than one assistant can be asked; each gets its own window.
  *
+ * On a phone, `phone:` says whether both apps show at once, Context above the
+ * chat (`split`, the default), or one at a time (`one app`), switching the way
+ * an iPhone does: to the chat when somebody asks, to Context when a step
+ * lands there. `shows: Context`, `shows: Claude` or `shows: both` is a cut the
+ * script makes itself, at that point in the scene.
+ *
  * **Comments are the exception, because a comment is about words.** "comments
  * on" quotes them and writes a real thread (`comments.cjs`) around the first
  * place they appear; "replies" and "resolves" act on the last thread this
@@ -136,7 +142,18 @@ export type CastStep =
   | { kind: "status"; actor: CastActor; path: string; status: string }
   /** A new task in a project folder: a note of its own, not started yet. */
   | { kind: "task"; actor: CastActor; project: string; text: string }
-  | { kind: "wait"; ms: number };
+  | { kind: "wait"; ms: number }
+  /**
+   * Which app a phone shows from here: Context, one assistant's chat, or both
+   * (`shows: Context`). Nobody does it; it is the film's cut, not an action.
+   */
+  | { kind: "shows"; what: CastShown };
+
+/** What a `shows:` step puts on a phone's screen: `context`, `both`, or an assistant as the script names it. */
+export type CastShown = "context" | "both" | (string & {});
+
+/** A step somebody does: every step but a pause and a cut. */
+export type CastActing = Extract<CastStep, { actor: CastActor }>;
 
 /** The lines of a page (split on newlines) one step was written on: `from` up to, not including, `to`. */
 export interface CastStepSource {
@@ -161,9 +178,18 @@ export const CAST_CHAT_LAYOUTS = ["side", "cut"] as const;
 export type CastChatLayout = (typeof CAST_CHAT_LAYOUTS)[number];
 export const CAST_CHAT_LOOKS = ["warm", "plain", "dark"] as const;
 export type CastChatLook = (typeof CAST_CHAT_LOOKS)[number];
+/**
+ * How a phone shows a scene with a chat (Dev2, 2026-09-30): both apps at once,
+ * Context above the chat (`split`, the default), or one app at a time filling
+ * the screen and switching like an iPhone when the work moves (`one`).
+ */
+export const CAST_PHONE_LAYOUTS = ["split", "one"] as const;
+export type CastPhoneLayout = (typeof CAST_PHONE_LAYOUTS)[number];
 export interface CastChatSetup {
   layout: CastChatLayout;
   look: CastChatLook;
+  /** On a phone; absent is split. */
+  phone?: CastPhoneLayout;
 }
 
 /** A scene's speed, written as a line of its own in a cast block. */
@@ -193,6 +219,9 @@ const TICK = new RegExp(String.raw`^${ACTOR}\s+(?:ticks|checks off|completes)\s*
 const GOTO = new RegExp(String.raw`^${ACTOR}\s+(?:opens|goes to)\s*:?\s*(.+)$`, "i");
 const PACE = /^pace\s*:?\s*(slow|lively|fast)$/i;
 const CHAT = /^chat\s*:\s*(.+)$/i;
+const PHONE = /^phone\s*:\s*(.+)$/i;
+const SHOWS = /^(?:shows?|show on the phone)\s*:\s*(.+)$/i;
+const AGENT_NAME = new RegExp(String.raw`^${NAME}$`);
 const ASK = new RegExp(String.raw`^${ACTOR}\s+asks\s+${ACTOR}\s*:\s*(.+)$`, "i");
 const ANSWER = new RegExp(String.raw`^${ACTOR}\s+(?:answers|says)\s*:\s*(.+)$`, "i");
 const FOLDER = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?folder\s*:\s*(.+)$`, "i");
@@ -243,6 +272,24 @@ function chatSetup(written: string): CastChatSetup | string {
   return setup;
 }
 
+/** `split` or `one app`, however it is said; a sentence saying what was not understood otherwise. */
+function phoneLayout(written: string): CastPhoneLayout | string {
+  const word = written.trim().toLowerCase().replace(/\s+/g, " ");
+  if (["split", "split screen", "both", "both apps", "side by side"].includes(word)) return "split";
+  if (["one", "one app", "one app at a time", "full", "full screen", "cut"].includes(word)) return "one";
+  return `Not a way to show a phone: ${word.slice(0, 60)}. Try split or one app.`;
+}
+
+/** `Context`, `both`, or an assistant's name; a sentence saying what was not understood otherwise. */
+function shown(written: string): CastShown | { problem: string } {
+  const word = written.trim().replace(/\s+/g, " ");
+  const lower = word.toLowerCase();
+  if (["context", "the workspace", "workspace"].includes(lower)) return "context";
+  if (["both", "both apps", "split", "split screen"].includes(lower)) return "both";
+  if (AGENT_NAME.test(word)) return word;
+  return { problem: `Not something a phone can show: ${word.slice(0, 60)}. Try Context, both, or an assistant like Claude.` };
+}
+
 /** Parse the lines inside one block. `line` and `append` get their anchors from the caller. */
 function parseBlock(
   lines: readonly string[],
@@ -278,7 +325,16 @@ function parseBlock(
     } else if ((match = CHAT.exec(text)) !== null) {
       const setup = chatSetup(match[1]!);
       if (typeof setup === "string") problems.push(setup);
-      else scene.chat = setup;
+      // A `phone:` line said before it still holds.
+      else scene.chat = scene.chat?.phone === undefined ? setup : { ...setup, phone: scene.chat.phone };
+    } else if ((match = PHONE.exec(text)) !== null) {
+      const phone = phoneLayout(match[1]!);
+      if (phone === "split" || phone === "one") scene.chat = { ...(scene.chat ?? { layout: "side", look: "warm" }), phone };
+      else problems.push(phone);
+    } else if ((match = SHOWS.exec(text)) !== null) {
+      const what = shown(match[1]!);
+      if (typeof what === "string") steps.push({ kind: "shows", what });
+      else problems.push(what.problem);
     } else if ((match = ASK.exec(text)) !== null) {
       const agent = actor(match[2]!);
       if (agent.kind !== "agent") problems.push(`Only an assistant can be asked, like Claude: ${text.slice(0, 120)}`);

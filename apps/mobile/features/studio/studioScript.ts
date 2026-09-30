@@ -79,6 +79,8 @@ export function describeStep(step: CastStep): string {
       return `adds a task to ${step.project} ${quoted(step.text)}`;
     case "wait":
       return `Wait ${Math.round(step.ms / 100) / 10}s`;
+    case "shows":
+      return step.what === "both" ? "The phone shows both apps" : `The phone shows ${step.what === "context" ? "Context" : step.what}`;
   }
 }
 
@@ -129,7 +131,7 @@ export function studioScript(source: string, pages: Readonly<Record<string, stri
   return {
     rows: steps.map((step, index) => ({
       index,
-      actor: step.kind === "wait" ? null : step.actor,
+      actor: "actor" in step ? step.actor : null,
       says: describeStep(step),
       at: timeline.starts[index] ?? null,
       step,

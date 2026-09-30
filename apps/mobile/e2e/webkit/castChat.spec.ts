@@ -84,15 +84,70 @@ test.describe("side by side, on a wide screen", () => {
   });
 });
 
-test("on a phone the chat sits above the workspace", async ({ page }) => {
-  await preview(page, ["@maya asks Claude: keep track of the beta", "Claude answers: On it."]);
-  const claude = page.getByTestId("cast-chat-Claude");
-  await expect(claude).toContainText("On it.", { timeout: 20_000 });
-  const chat = await claude.boundingBox();
-  const note = await page.locator(".cm-content").first().boundingBox();
-  expect(chat).not.toBeNull();
-  expect(note).not.toBeNull();
-  expect(chat!.y + chat!.height).toBeLessThanOrEqual(note!.y + 1);
+test.describe("on a phone", () => {
+  // Both apps on screen (Dev2, 2026-09-30: "I'd like to show how folders and
+  // things are being created as you chat"): Context above, one chat below.
+  test("Context sits above the chat, and each change shows its folder", async ({ page }) => {
+    test.setTimeout(60_000);
+    await preview(page, [
+      "pace: fast",
+      "@maya asks Claude: keep track of the beta",
+      "Claude answers: On it.",
+      "Claude adds folder: 1-projects/beta-launch",
+      "@maya asks ChatGPT: and plan the week",
+      "ChatGPT answers: Planned.",
+    ]);
+    const claude = page.getByTestId("cast-chat-Claude");
+    await expect(claude).toContainText("On it.", { timeout: 20_000 });
+    const chat = (await page.getByTestId("cast-phone-chat").boundingBox())!;
+    const context = (await page.getByTestId("cast-phone-context").boundingBox())!;
+    expect(context.y + context.height).toBeLessThanOrEqual(chat.y + 1);
+    expect(chat.y + chat.height).toBeLessThanOrEqual(844);
+
+    // The folder the step made it in comes up in Context while it lands.
+    await expect(claude).toContainText("Added folder", { timeout: 15_000 });
+    await expect(page.getByTestId("app-frame")).toContainText(/beta.launch/i, { timeout: 5_000 });
+
+    // A second assistant is a tab on the one chat window, not a third window.
+    const chatgpt = page.getByTestId("cast-chat-ChatGPT");
+    await expect(chatgpt).toContainText("Planned.", { timeout: 15_000 });
+    await expect(page.getByTestId("cast-chat-Claude")).toHaveCount(0);
+    await page.getByTestId("cast-chat-tab-Claude").click();
+    await expect(page.getByTestId("cast-chat-Claude")).toContainText("On it.");
+  });
+
+  // "the cast scripting stuff [should] decide wether to go split screen, or
+  // full screen on a specific app" (Dev2, 2026-09-30).
+  test("one app at a time goes where the work is, and the script can cut", async ({ page }) => {
+    test.setTimeout(60_000);
+    await preview(page, [
+      "phone: one app",
+      "@maya asks Claude: keep track of the beta",
+      "Claude adds folder: 1-projects/beta-launch",
+      "wait 3s",
+      "shows: Claude",
+      "Claude answers: Done.",
+      "wait 2s",
+      "shows: both",
+      "wait 5s",
+    ]);
+    const onScreen = async (id: string) => {
+      const box = (await page.getByTestId(id).boundingBox())!;
+      return box.x > -1 && box.x + box.width < 391;
+    };
+    // Somebody asking: the chat fills the phone, Context waits off the side.
+    await expect(page.getByTestId("cast-chat-Claude")).toContainText("keep track", { timeout: 20_000 });
+    await expect.poll(() => onScreen("cast-phone-chat"), { timeout: 5_000 }).toBe(true);
+    await expect.poll(() => onScreen("cast-phone-context")).toBe(false);
+    // A step in Context: the phone switches there to show it land.
+    await expect.poll(() => onScreen("cast-phone-context"), { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => onScreen("cast-phone-chat")).toBe(false);
+    // The script's own cuts.
+    await expect(page.getByTestId("cast-chat-Claude")).toContainText("Done.", { timeout: 15_000 });
+    await expect.poll(() => onScreen("cast-phone-chat")).toBe(true);
+    await expect.poll(() => onScreen("cast-phone-context"), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => onScreen("cast-phone-chat")).toBe(true);
+  });
 });
 
 test("a visitor can close the chat", async ({ page }) => {

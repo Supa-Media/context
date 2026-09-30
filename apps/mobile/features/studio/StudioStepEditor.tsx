@@ -52,7 +52,7 @@ export function StudioStepEditor({
   const fallback = cast[0] ?? { name: "@you", kind: "person" as const };
   return (
     <View style={styles.editor} testID="studio-step-editor">
-      {step.kind === "wait" ? null : (
+      {!("actor" in step) ? null : (
         <View style={styles.group}>
           <Text variant="treeMetaMono" style={styles.label}>
             Who

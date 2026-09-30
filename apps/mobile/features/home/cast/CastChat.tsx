@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { useColors, useTheme } from "../../design/theme";
@@ -23,14 +23,41 @@ export function CastChat({
   view,
   colors,
   onClose,
+  one = false,
 }: {
   view: CastChatView;
   /** Each cast member's colour: an assistant's badge is drawn in it. */
   colors: ReadonlyMap<string, string>;
   /** Absent on the studio's stage, which is a recording. */
   onClose?: () => void;
+  /**
+   * One window, the assistant the latest thing happened with, the others a
+   * tab away: a phone has room for one chat under Context (Dev2, 2026-09-30).
+   */
+  one?: boolean;
 }) {
   const look = castChatLooks[view.setup.look];
+  // A visitor's pick holds until the scene moves to another assistant.
+  const [picked, pick] = useState<string | null>(null);
+  useEffect(() => pick(null), [view.active, view.shows]);
+  if (one && view.windows.length > 0) {
+    const shown =
+      view.windows.find((window) => window.agent === (picked ?? chatShown(view))) ?? view.windows[view.windows.length - 1]!;
+    const tabs =
+      view.windows.length < 2
+        ? undefined
+        : view.windows.map((window) => ({
+            agent: window.agent,
+            badge: colors.get(window.agent) ?? look.muted,
+            on: window.agent === shown.agent,
+            press: () => pick(window.agent),
+          }));
+    return (
+      <View style={styles.column} testID="cast-chat">
+        <Window window={shown} look={look} badge={colors.get(shown.agent) ?? look.muted} onClose={onClose} tabs={tabs} />
+      </View>
+    );
+  }
   return (
     <View style={styles.column} testID="cast-chat">
       {view.windows.map((window, index) => (
@@ -46,16 +73,31 @@ export function CastChat({
   );
 }
 
+/** The assistant a phone's one chat window is on: the one the script cut to, or the latest to speak. */
+function chatShown(view: CastChatView): string | undefined {
+  return view.shows !== undefined && view.shows !== "both" && view.shows !== "context" ? view.shows : view.active;
+}
+
+interface ChatTab {
+  agent: string;
+  badge: string;
+  on: boolean;
+  press: () => void;
+}
+
 function Window({
   window,
   look,
   badge,
   onClose,
+  tabs,
 }: {
   window: ChatWindow;
   look: CastChatLookColors;
   badge: string;
   onClose?: () => void;
+  /** The scene's assistants, when there are several and one window shows. */
+  tabs?: readonly ChatTab[];
 }) {
   const scroller = useRef<ScrollView>(null);
   // Its own window on the desk, never a panel of Context's (Dev2, 2026-09-30).
@@ -70,14 +112,36 @@ function Window({
       testID={`cast-chat-${window.agent}`}
     >
       <View style={[styles.head, { borderBottomColor: look.line }]}>
-        <View style={[styles.badge, { backgroundColor: badge }]} />
-        <Text style={[styles.name, ink]} numberOfLines={1}>
-          {window.agent}
-        </Text>
+        {tabs === undefined ? (
+          <>
+            <View style={[styles.badge, { backgroundColor: badge }]} />
+            <Text style={[styles.name, ink]} numberOfLines={1}>
+              {window.agent}
+            </Text>
+          </>
+        ) : (
+          <View style={[styles.tabs, { backgroundColor: look.chip }]} role="tablist">
+            {tabs.map((tab) => (
+              <Pressable
+                key={tab.agent}
+                onPress={tab.press}
+                role="tab"
+                aria-selected={tab.on}
+                style={[styles.tab, tab.on ? { backgroundColor: look.field, boxShadow: `0 1px 2px ${look.line}` } : null]}
+                testID={`cast-chat-tab-${tab.agent}`}
+              >
+                <View style={[styles.tabBadge, { backgroundColor: tab.badge }]} />
+                <Text style={[styles.tabName, tab.on ? ink : muted]} numberOfLines={1}>
+                  {tab.agent}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         <View style={styles.grow} />
         <View style={[styles.connected, { backgroundColor: look.chip }]}>
           <View style={[styles.dot, { backgroundColor: look.ok }]} />
-          <Text style={[styles.small, muted]}>Context connected</Text>
+          <Text style={[styles.small, muted]}>{tabs === undefined ? "Context connected" : "Connected"}</Text>
         </View>
         {onClose === undefined ? null : (
           <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close the chat" style={styles.close} testID="cast-chat-close">
@@ -197,6 +261,10 @@ const styles = StyleSheet.create({
   window: { flex: 1, minHeight: 0, borderRadius: radii.console, borderWidth: 1, overflow: "hidden" },
   head: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 48, paddingHorizontal: space.x4, borderBottomWidth: 1 },
   badge: { width: 20, height: 20, borderRadius: 10 },
+  tabs: { flexDirection: "row", gap: 2, padding: 3, borderRadius: radii.pill, flexShrink: 1 },
+  tab: { flexDirection: "row", alignItems: "center", gap: space.x1, minHeight: 30, paddingHorizontal: space.x2, borderRadius: radii.pill },
+  tabBadge: { width: 12, height: 12, borderRadius: 6 },
+  tabName: { fontSize: pointerType.ui, fontWeight: "600" },
   name: { fontSize: pointerType.lede, fontWeight: "600", flexShrink: 1 },
   grow: { flex: 1, minWidth: 0 },
   connected: { flexDirection: "row", alignItems: "center", gap: space.x1, paddingHorizontal: space.x2, paddingVertical: 3, borderRadius: radii.pill },
