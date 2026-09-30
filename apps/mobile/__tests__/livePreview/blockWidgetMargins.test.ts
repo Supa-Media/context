@@ -29,7 +29,12 @@ import { join } from "node:path";
 import { describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { livePreviewStyles } from "../../features/console/files/livePreview";
+import { FormWidget } from "../../features/console/files/formBlock";
+import {
+  decorationsFor,
+  livePreviewStyles,
+  markdownLanguage,
+} from "../../features/console/files/livePreview";
 import { CastWidget } from "../../features/console/files/livePreview/castBlock";
 import { HtmlPreviewWidget } from "../../features/console/files/livePreview/htmlPreview";
 
@@ -86,6 +91,15 @@ describe("block widgets are measured whole", () => {
     try {
       expect(new CastWidget(3).toDOM(view).className).toBe("cm-lp-cast-block");
       expect(new HtmlPreviewWidget("<p>hi</p>").toDOM().className).toBe("cm-lp-preview-block");
+      // The form's wrapper is added where the editor draws it, so ask the editor.
+      const doc = ["```form", "id: f", "responses: r.md", "fields:", "  - { name: a, type: line }", "```"].join("\n");
+      const state = EditorState.create({ doc, extensions: [markdownLanguage(), EditorState.readOnly.of(true)] });
+      const forms: FormWidget[] = [];
+      decorationsFor(state).between(0, doc.length, (_from, _to, value) => {
+        const widget = (value.spec as { widget?: unknown }).widget;
+        if (widget instanceof FormWidget) forms.push(widget);
+      });
+      expect(forms.map((form) => form.toDOM().className)).toEqual(["cm-lp-form-block"]);
     } finally {
       view.destroy();
     }

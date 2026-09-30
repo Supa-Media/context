@@ -385,19 +385,7 @@ export class FormWidget extends WidgetType {
     );
   }
 
-  /*
-    The card is bordered, so its spacing is the block's padding rather than
-    its own margin: CodeMirror measures a block widget without its margins, and
-    every line below would take clicks meant for the line above it
-    (blockWidgetMargins.test.ts).
-  */
   toDOM(): HTMLElement {
-    const block = el("div", "cm-lp-form-block");
-    block.append(this.card());
-    return block;
-  }
-
-  private card(): HTMLElement {
     const wrap = el("div", "cm-lp-form");
     if (this.fence.config === null) {
       wrap.classList.add("cm-lp-form-broken");
