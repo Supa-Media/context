@@ -143,7 +143,7 @@ export function useFolderListing({
         ...(togglePin === null ? {} : { pinned: isPinned }),
         // What the row would be visible to with no setting of its own, so
         // "use the folder's setting" can say what it means.
-        ...(target.kind === "row"
+        ...(target.kind === "row" || target.kind === "page"
           ? { inherited: findEntry(files.listings, target.row.path)?.inherited }
           : {}),
       });
@@ -219,7 +219,8 @@ export function useFolderListing({
       const entry = findEntry(files.listings, folder);
       if (entry == null || folder === "") return false;
       const row = treeRowFor(entry, files.listings[parentPath(folder)]?.folderDefault ?? "private");
-      return openFolderTarget({ kind: "row", row }, folderLabel(baseName(folder)), anchor);
+      // The folder you are standing in, so the sheet is the page's, not a row's (board 08).
+      return openFolderTarget({ kind: "page", row }, folderLabel(baseName(folder)), anchor);
     },
     [openFolderTarget, files.listings],
   );
