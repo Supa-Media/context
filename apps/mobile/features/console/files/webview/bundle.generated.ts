@@ -115,7 +115,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/webview/protocol.ts": "eb57f66815433b325f5885ae338bcbbc17c08fcce43b12dcaf922ed967793cb4",
   "apps/mobile/features/console/files/webview/styles.ts": "c374dd59290e0e42957e5b7e1d0da74745c842ef909881767e4e9049c10e0977",
   "apps/mobile/features/console/presence/agentName.ts": "10578c78a2c1d5c31046a5f6d076d1827699fdbbbe061ceecaaa7ca761604bf9",
-  "apps/mobile/features/design/tokens/colors.ts": "9b3aaf8ceed9a699ef01a32ef01151a27bc8db779ec9fbe48df2af50eaa1ae20",
+  "apps/mobile/features/design/tokens/colors.ts": "9c4097385ef4eaa0f572f80bdbd7973431778cc27ec9583e9223dff606e60d82",
   "apps/mobile/features/voice/dictation.ts": "57cf14dc00e534eb3a93022294f7f3d5f1b256ad82724be4d23e8b40adc42b64",
   "packages/drawings/src/collab.js": "6407da8b4407ffddcc1cf0e584979d4ab08f3ac883dfb06b010459fef2f753c7",
   "packages/drawings/src/excalidraw.js": "d190b7c15675c34e0ad07b8d83a4766c1cdc661b50322f5e6112be5084ac9e1b",
