@@ -161,6 +161,26 @@ crons.interval(
   {},
 );
 
+/**
+ * Restart a managed-encryption walk whose run died without recording anything.
+ *
+ * A fourth job that acts outside this database, so it owes the two paragraphs
+ * the header asks for. It holds no decision: it only restarts a walk that staff
+ * already started, and the watchdog restarts only what the walk itself would
+ * let run (never under a paused rollout, never during a hand-off out, never a
+ * decrypt stopped on an error). The re-asking happens at the moment of
+ * acting: every run it schedules asks `walkPlan` again before touching the
+ * bucket, and every write the walk makes is conditional and read back. A walk
+ * that keeps dying is failed as `STALLED` after a few restarts, which pauses
+ * the rollout where staff can see it. `managedEncryptionFns/watchdog.ts`.
+ */
+crons.interval(
+  "restart stalled encryption walks",
+  { minutes: 5 },
+  internal.functions.managedEncryption.restartStalledWalks,
+  {},
+);
+
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(
   "reconcile website route indexes",

@@ -324,6 +324,8 @@ export function failureLine(code: string | undefined): string {
   switch (code) {
     case "KEY_UNAVAILABLE":
       return "Its key couldn't be opened";
+    case "STALLED":
+      return "Kept stopping partway. Retry picks up where it left off";
     case "WALK_FAILED":
     case undefined:
       return "Stopped on an error";

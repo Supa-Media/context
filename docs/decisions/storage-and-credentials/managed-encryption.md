@@ -94,6 +94,18 @@ is read again). Only then does the workspace become `encrypted`.
   `managedEncryptionPool.test.ts` fails either way. Pages stay small enough
   to finish well inside an action's time limit, because a run that times out
   records nothing and schedules nothing; only Pause then Resume restarts it.
+- **A walk that dies silently is restarted** (`managedEncryptionFns/watchdog.ts`,
+  a cron every 5 minutes). A run that times out, runs out of memory, or fails
+  to record its page never reaches `failWalk` and schedules nothing, so the row
+  just stops moving. The first production rollout stalled this way. A row that
+  has not moved for 15 minutes (longer than any action can live) is started
+  again from its cursor with a new `runId`. After 3 restarts with no page
+  recorded between them, it fails as `STALLED`, which pauses the rollout
+  rather than looping in silence. Retry and Resume reset the count. The
+  watchdog only restarts what `walkPlan` would let run: never under a paused
+  rollout, never during a hand-off out, and never a decrypt stopped on an
+  error. Without it, one hung R2 request stops a workspace until someone
+  notices, and `managedEncryptionWatchdog.test.ts` fails.
 - **Everything started settles before a failure is reported.** After a
   refusal, nothing new starts. The workspace is marked `failed` only after
   every seal already in flight has finished, so the row never reads failed

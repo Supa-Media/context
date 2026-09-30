@@ -88,7 +88,7 @@ export async function walkPlanHandler(
   return { state: row.state, phase: row.phase, cursor: row.cursor };
 }
 
-async function stillOnManagedBucket(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+export async function stillOnManagedBucket(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
   const binding = await ctx.db
     .query("storageBindings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -105,7 +105,7 @@ async function stillOnManagedBucket(ctx: QueryCtx, workspaceId: Id<"workspaces">
  * row keeps its state: `encrypting` still reads both kinds, a switch back
  * restarts it (`managedBucketBound`), and Resume picks up an abandoned one.
  */
-async function handOffUnderWay(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+export async function handOffUnderWay(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
   const migrations = await ctx.db
     .query("managedStorageMigrations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -145,11 +145,13 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
   const row = await workspaceEncryptionRow(ctx, args.workspaceId);
   if (row === null || row.runId !== args.runId || row.phase !== args.phase) return false;
   const now = Date.now();
+  // Every recorded page is progress, so the watchdog's count starts over.
+  const moved = { updatedAt: now, stalls: undefined };
   if (args.phase === "count") {
     const total = (row.filesTotal ?? 0) + args.counted;
     await ctx.db.patch(row._id, args.nextCursor === null
-      ? { phase: "seal", cursor: undefined, filesTotal: total, updatedAt: now }
-      : { cursor: args.nextCursor, filesTotal: total, updatedAt: now });
+      ? { phase: "seal", cursor: undefined, filesTotal: total, ...moved }
+      : { cursor: args.nextCursor, filesTotal: total, ...moved });
     return true;
   }
   const sum = row.filesDone + args.done;
@@ -158,15 +160,15 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
   const filesDone = sum;
   const filesTotal = Math.max(row.filesTotal ?? 0, sum);
   if (args.nextCursor !== null) {
-    await ctx.db.patch(row._id, { cursor: args.nextCursor, filesDone, filesTotal, updatedAt: now });
+    await ctx.db.patch(row._id, { cursor: args.nextCursor, filesDone, filesTotal, ...moved });
     return true;
   }
   if (args.phase === "seal") {
-    await ctx.db.patch(row._id, { state: "checking", phase: "check", cursor: undefined, filesDone, filesTotal, updatedAt: now });
+    await ctx.db.patch(row._id, { state: "checking", phase: "check", cursor: undefined, filesDone, filesTotal, ...moved });
     return true;
   }
   if (args.phase === "unseal") {
-    await ctx.db.patch(row._id, { phase: "confirm", cursor: undefined, filesDone, filesTotal, updatedAt: now });
+    await ctx.db.patch(row._id, { phase: "confirm", cursor: undefined, filesDone, filesTotal, ...moved });
     return true;
   }
   if (args.phase === "confirm") {
@@ -177,7 +179,7 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
       filesDone,
       filesTotal,
       completedAt: now,
-      updatedAt: now,
+      ...moved,
     });
     return false;
   }
@@ -188,7 +190,7 @@ export async function recordPageHandler(ctx: MutationCtx, args: PageResult): Pro
     filesDone,
     filesTotal,
     completedAt: now,
-    updatedAt: now,
+    ...moved,
   });
   await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.tick, { restartActive: false });
   return false;
