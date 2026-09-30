@@ -78,11 +78,33 @@ export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 const D1_TIMEOUT_MS = 8_000;
 
 /**
- * Statements per batched request. A long note is a few dozen chunk inserts,
- * and one request per note is the point; the cap keeps a very long note from
- * becoming one body big enough to hit a request limit of its own.
+ * How big one batched request may get: statements, and bytes of SQL and
+ * params. A window of a hundred ordinary notes fits in one request, which is
+ * the point; the caps keep a group of very long notes from becoming one body
+ * big enough, or slow enough, to hit a limit of D1's own, and keep a refused
+ * group small.
  */
-export const D1_BATCH_STATEMENTS = 50;
+export const D1_BATCH_STATEMENTS = 500;
+export const D1_GROUP_BYTES = 512 * 1024;
+
+/** Split statements into groups under both caps, in order. */
+export function groupStatements(list) {
+  const groups = [];
+  let group = [];
+  let bytes = 0;
+  for (const statement of list) {
+    const size = JSON.stringify(statement).length;
+    if (group.length > 0 && (group.length >= D1_BATCH_STATEMENTS || bytes + size > D1_GROUP_BYTES)) {
+      groups.push(group);
+      group = [];
+      bytes = 0;
+    }
+    group.push(statement);
+    bytes += size;
+  }
+  if (group.length > 0) groups.push(group);
+  return groups;
+}
 
 /**
  * Cap on a D1 response body.
@@ -361,7 +383,8 @@ export function createD1Client(descriptor, options = {}) {
    * matches nothing. The budget still counts statements, whatever the
    * transport: it bounds work, and a batch is the same work in fewer requests.
    *
-   * Sent as batches of at most `D1_BATCH_STATEMENTS`, each one transaction.
+   * Sent as groups under `D1_BATCH_STATEMENTS` and `D1_GROUP_BYTES`, each one
+   * transaction.
    * Where D1 refuses a batch it falls back to one statement per request, which
    * is not a transaction: what makes that survivable is the cursor, which
    * advances only after a group lands, so the next pass re-projects the note —
@@ -379,8 +402,7 @@ export function createD1Client(descriptor, options = {}) {
       return { applied: 0, skipped: true };
     }
     let applied = 0;
-    for (let start = 0; start < list.length; start += D1_BATCH_STATEMENTS) {
-      const group = list.slice(start, start + D1_BATCH_STATEMENTS);
+    for (const group of groupStatements(list)) {
       if (budget) for (let n = 0; n < group.length; n += 1) budget.take(reserve);
       if (group.length > 1 && (await batch(group))) {
         applied += group.length;

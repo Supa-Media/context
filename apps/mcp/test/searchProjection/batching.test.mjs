@@ -15,10 +15,15 @@
  */
 
 import {
+  CURSOR_KEY,
   DESCRIPTOR,
   createD1Backend,
   createD1Client,
+  createSearchBudget,
+  noteStore,
+  projectPass,
 } from "./fixtures.mjs";
+import { D1_GROUP_BYTES, groupStatements } from "../../src/search/d1/client.js";
 import { projectNote, upsertStatements } from "../../src/search/d1/project.js";
 
 function noteStatements(path, content) {
@@ -99,5 +104,76 @@ export async function runBatchingChecks(check) {
     }
     check("a rate-limited batch is reported as rate limited", code === "RATE_LIMITED");
     backend.close();
+  }
+
+  {
+    // A whole window of notes goes out together: a pass of 60 notes is one
+    // write request, not sixty.
+    const backend = createD1Backend();
+    const client = createD1Client(DESCRIPTOR, { fetchImpl: (u, i) => backend.handle(u, i) });
+    const notes = {};
+    const census = new Map();
+    for (let n = 0; n < 60; n += 1) {
+      const path = `1-projects/w${String(n).padStart(2, "0")}.md`;
+      notes[path] = `# Window ${n}\n\nA bilby, number ${n}.\n`;
+      census.set(path, `v${n}`);
+    }
+    const before = backend.requests.length;
+    const result = await projectPass(noteStore(notes), client, {
+      census,
+      visibilityOf: () => "team",
+      budget: createSearchBudget(2_000),
+      noteCap: 100,
+    });
+    const writes = backend.requests.slice(before).filter((r) => r.batch > 0);
+    const indexed = backend.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
+    check("a pass of 60 notes copies all 60", result.projected === 60 && indexed === 60);
+    check("in one write request", writes.length === 1);
+    backend.close();
+  }
+
+  {
+    // A group that does not land leaves the cursor where it was, so the next
+    // pass copies those notes again rather than skipping past them.
+    const backend = createD1Backend();
+    const notes = {};
+    const census = new Map();
+    for (let n = 0; n < 10; n += 1) {
+      const path = `1-projects/c${n}.md`;
+      notes[path] = `# Cursor ${n}\n\nA quokka.\n`;
+      census.set(path, `v${n}`);
+    }
+    const client = createD1Client(DESCRIPTOR, {
+      fetchImpl: async (url, init) => {
+        const body = JSON.parse(init.body);
+        if (Array.isArray(body.batch)) {
+          return new Response(JSON.stringify({ success: false, errors: [] }), { status: 503 });
+        }
+        return backend.handle(url, init);
+      },
+    });
+    const result = await projectPass(noteStore(notes), client, {
+      census,
+      visibilityOf: () => "team",
+      budget: createSearchBudget(2_000),
+      noteCap: 100,
+    });
+    const cursor = backend.rows("SELECT value FROM index_state WHERE key = ?", [CURSOR_KEY]);
+    check("a group that fails is reported", result.failure === "UNAVAILABLE");
+    check(
+      "and the cursor does not move past notes that never landed",
+      cursor.length === 0 || cursor[0].value === "",
+    );
+    backend.close();
+  }
+
+  {
+    const big = { sql: "INSERT INTO t VALUES (?)", params: ["x".repeat(200_000)] };
+    const groups = groupStatements([big, big, big, { sql: "SELECT 1", params: [] }]);
+    check(
+      "groups are split by size, never above the byte cap unless one statement is",
+      groups.length >= 2 &&
+        groups.every((g) => g.length === 1 || JSON.stringify(g).length <= D1_GROUP_BYTES + 1_000),
+    );
   }
 }
