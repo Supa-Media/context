@@ -29,6 +29,7 @@
  * @ana leaves
  * @maya opens: pricing
  * @maya types: and this is what it costs.
+ * pace: slow
  * ```
  * ````
  *
@@ -36,6 +37,9 @@
  * was; "adds to the line above" lands at the end of whatever paragraph is
  * above it now. Nothing matches quoted words, so editing the page around a
  * block can move where a step lands but can never make one fail.
+ *
+ * **A scene has a pace**: `pace: slow`, `lively` (the default) or `fast`, a
+ * line anywhere in its blocks, for a film that needs a slower read.
  *
  * **A scene can span pages.** "opens: pricing" moves the show to that page,
  * the way a visitor clicking it would, and every step after it plays there:
@@ -99,7 +103,13 @@ export interface WebsiteCast {
   steps: CastStep[];
   /** Lines that were not understood, for the author; they are skipped. */
   problems: string[];
+  /** How fast the scene plays (`pace: slow`); absent is the homepage's own, lively. */
+  pace?: CastPaceName;
 }
+
+/** A scene's speed, written as a line of its own in a cast block. */
+export const CAST_PACES = ["slow", "lively", "fast"] as const;
+export type CastPaceName = (typeof CAST_PACES)[number];
 
 /** Bounds, so a page cannot script an unbounded show. */
 export const MAX_CAST_STEPS = 60;
@@ -122,6 +132,7 @@ const LEAVE = new RegExp(String.raw`^${ACTOR}\s+leaves$`, "i");
 const CLICK = new RegExp(String.raw`^${ACTOR}\s+clicks(?: on)?\s+${ACTOR}$`, "i");
 const TICK = new RegExp(String.raw`^${ACTOR}\s+(?:ticks|checks off|completes)\s*:\s*(.+)$`, "i");
 const GOTO = new RegExp(String.raw`^${ACTOR}\s+(?:opens|goes to)\s*:?\s*(.+)$`, "i");
+const PACE = /^pace\s*:?\s*(slow|lively|fast)$/i;
 const WAIT = /^wait\s+(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds?)?$/i;
 
 function actor(written: string): CastActor {
@@ -140,6 +151,7 @@ function parseBlock(
   anchors: { line: number; append: number | null },
   steps: CastStep[],
   problems: string[],
+  scene: { pace?: CastPaceName },
 ): void {
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i]!;
@@ -150,7 +162,10 @@ function parseBlock(
       return;
     }
     let match: RegExpExecArray | null;
-    if ((match = WAIT.exec(text)) !== null) {
+    if ((match = PACE.exec(text)) !== null) {
+      // The scene's, wherever it is written; the last one written wins.
+      scene.pace = match[1]!.toLowerCase() as CastPaceName;
+    } else if ((match = WAIT.exec(text)) !== null) {
       const amount = Number(match[1]);
       const ms = (match[2] ?? "s").toLowerCase() === "ms" ? amount : amount * 1000;
       steps.push({ kind: "wait", ms: Math.min(Math.round(ms), MAX_CAST_WAIT_MS) });
@@ -216,6 +231,7 @@ export function splitWebsiteCast(source: string): WebsiteCast {
   let length = 0; // characters in out.join("\n") + "\n" so far
   const steps: CastStep[] = [];
   const problems: string[] = [];
+  const scene: { pace?: CastPaceName } = {};
   let fence: string | null = null; // an ordinary code block, whose contents are not ours
 
   const emit = (line: string) => {
@@ -254,6 +270,7 @@ export function splitWebsiteCast(source: string): WebsiteCast {
       { line: length, append: trimmed === "" ? null : trimmed.length },
       steps,
       problems,
+      scene,
     );
     i = end;
     // One blank line around a removed block is enough: drop the one after it
@@ -268,7 +285,46 @@ export function splitWebsiteCast(source: string): WebsiteCast {
   for (const step of steps) {
     if ((step.kind === "line" || step.kind === "append") && step.at > cap) step.at = cap;
   }
-  return { markdown, steps, problems };
+  return scene.pace === undefined ? { markdown, steps, problems } : { markdown, steps, problems, pace: scene.pace };
+}
+
+/**
+ * The page with its scene set to `pace`: every `pace` line in its cast blocks
+ * taken out, and, unless it is the default (lively), one written as the first
+ * line of the first block. A page with no cast block is returned as it is.
+ */
+export function setCastPace(source: string, pace: CastPaceName): string {
+  const lines = source.split("\n");
+  const out: string[] = [];
+  let fence: string | null = null;
+  let cast: string | null = null;
+  let written = pace === "lively";
+  for (const line of lines) {
+    if (cast !== null) {
+      if (closes(line, cast)) cast = null;
+      else if (PACE.test(line.trim())) continue;
+      out.push(line);
+      continue;
+    }
+    if (fence !== null) {
+      if (closes(line, fence)) fence = null;
+      out.push(line);
+      continue;
+    }
+    const open = OPEN.exec(line);
+    out.push(line);
+    if (open !== null) {
+      cast = open[1]!;
+      if (!written) {
+        out.push(`pace: ${pace}`);
+        written = true;
+      }
+      continue;
+    }
+    const other = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (other !== null) fence = other[1]!;
+  }
+  return written ? out.join("\n") : source;
 }
 
 /** The page as a site that does not play the cast draws it. */

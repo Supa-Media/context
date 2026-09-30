@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { setCastPace, type CastPaceName } from "@context/shared";
 import { Platform } from "react-native";
 import { FrameIconButton } from "../../../app/AppFrame";
 import { hasCast } from "../../../home/castPreview";
@@ -27,9 +28,19 @@ export function castPreviewButton(
   saveSounds?: SaveSounds,
   soundStorage?: SoundStorage,
   readPage?: ReadScenePage,
+  savePace?: (pace: CastPaceName) => string | null,
 ) {
   if (Platform.OS !== "web" || !hasCast(draft)) return null;
-  return <CastPreviewButton draft={draft} path={path} saveSounds={saveSounds} soundStorage={soundStorage} readPage={readPage} />;
+  return (
+    <CastPreviewButton
+      draft={draft}
+      path={path}
+      saveSounds={saveSounds}
+      soundStorage={soundStorage}
+      readPage={readPage}
+      savePace={savePace}
+    />
+  );
 }
 
 function CastPreviewButton({
@@ -38,12 +49,14 @@ function CastPreviewButton({
   saveSounds,
   soundStorage,
   readPage,
+  savePace,
 }: {
   draft: string;
   path: string;
   saveSounds?: SaveSounds;
   soundStorage?: SoundStorage;
   readPage?: ReadScenePage;
+  savePace?: (pace: CastPaceName) => string | null;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -56,6 +69,7 @@ function CastPreviewButton({
           onSaveSounds={saveSounds}
           soundStorage={soundStorage}
           readPage={readPage}
+          onSavePace={savePace}
         /> : null}
     </>
   );
@@ -69,12 +83,32 @@ function CastPreviewButton({
  * tunes sounds, and keeps nothing.
  */
 export function soundsWriter(files: FileBrowser, presence: Presence | undefined): SaveSounds | undefined {
+  const write = noteWriter(files, presence);
+  if (write === undefined) return undefined;
+  return (items) =>
+    write((current) => {
+      const changed = setNoteProperty(current, SOUNDS_PROPERTY, items);
+      return "error" in changed ? `That can’t be saved: ${changed.error ?? "it would not read back as written"}.` : { text: changed.text };
+    });
+}
+
+/** The studio's pace, written as the scene's `pace:` line, the same way. */
+export function paceWriter(files: FileBrowser, presence: Presence | undefined): ((pace: CastPaceName) => string | null) | undefined {
+  const write = noteWriter(files, presence);
+  return write === undefined ? undefined : (pace) => write((current) => ({ text: setCastPace(current, pace) }));
+}
+
+/** A change to the open note, through the room when there is one; why not, or `null`. */
+function noteWriter(
+  files: FileBrowser,
+  presence: Presence | undefined,
+): ((change: (current: string) => { text: string } | string) => string | null) | undefined {
   if (!files.canEdit) return undefined;
-  return (items) => {
+  return (change) => {
     const shared = presence?.collaboration;
     const current = shared?.text ?? files.editor.draft;
-    const changed = setNoteProperty(current, SOUNDS_PROPERTY, items);
-    if ("error" in changed) return `That can’t be saved: ${changed.error ?? "it would not read back as written"}.`;
+    const changed = change(current);
+    if (typeof changed === "string") return changed;
     if (changed.text === current) return null;
     if (shared !== undefined) shared.onVersionedChange(changed.text, shared.revision);
     else files.setDraft(changed.text);

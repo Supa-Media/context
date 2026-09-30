@@ -12,7 +12,7 @@ import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
-import { castPreviewButton, scenePageReader, soundStorage, soundsWriter } from "./castPreviewButton";
+import { castPreviewButton, paceWriter, scenePageReader, soundStorage, soundsWriter } from "./castPreviewButton";
 import type { FolderListingState } from "./useFolderListing";
 
 /**
@@ -198,6 +198,7 @@ export function BrowseNoteHead({
             soundsWriter(files, presence),
             soundStorage(files),
             scenePageReader(files, selected.path),
+            paceWriter(files, presence),
           )
         : null}
       {selected.kind === "file" ? (

@@ -8,7 +8,7 @@
  * kept per page for `useHomeCast`.
  */
 
-import { splitWebsiteCast, type CastStep } from "@context/shared";
+import { splitWebsiteCast, type CastPaceName, type CastStep } from "@context/shared";
 import type { PresenceMember } from "../../console/presence/protocol";
 import type { Presence } from "../../console/presence/usePresence";
 import type { SharedDoc } from "../../console/presence/sharedDoc";
@@ -21,16 +21,20 @@ export interface CastSite {
   scripts: ReadonlyMap<string, readonly CastStep[]>;
   /** Every member's colour, across every page. */
   colors: ReadonlyMap<string, string>;
+  /** Route path → the pace its scene asked for. Pages that asked for none are absent. */
+  paces: ReadonlyMap<string, CastPaceName>;
 }
 
 export function castSite(site: readonly HomePage[]): CastSite {
   const scripts = new Map<string, readonly CastStep[]>();
+  const paces = new Map<string, CastPaceName>();
   const pages = site.map((page) => {
     const split = splitWebsiteCast(page.markdown);
     if (split.steps.length > 0) scripts.set(page.routePath, split.steps);
+    if (split.steps.length > 0 && split.pace !== undefined) paces.set(page.routePath, split.pace);
     return split.markdown === page.markdown ? page : { ...page, markdown: split.markdown };
   });
-  return { pages, scripts, colors: castColors([...scripts.values()].flat()) };
+  return { pages, scripts, colors: castColors([...scripts.values()].flat()), paces };
 }
 
 const NOTHING = () => {};

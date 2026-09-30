@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
-import { splitWebsiteCast } from "@context/shared";
+import { setCastPace, splitWebsiteCast, type CastPaceName } from "@context/shared";
 import { Button } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -17,6 +17,7 @@ import { StudioRecord } from "./StudioRecord";
 import { StudioSoundsPanel } from "./sounds/StudioSoundsPanel";
 import { useStudioSounds, type SaveSounds, type SoundStorage } from "./sounds/useStudioSounds";
 import { StudioScriptRail } from "./StudioScriptRail";
+import { StudioPace } from "./StudioPace";
 import { StudioStage } from "./StudioStage";
 import { StudioTransport } from "./StudioTransport";
 import { useStudioPlayer } from "./useStudioPlayer";
@@ -47,6 +48,7 @@ export function CastStudio({
   onSaveSounds,
   soundStorage,
   readPage,
+  onSavePace,
 }: {
   draft: string;
   title: string;
@@ -57,6 +59,8 @@ export function CastStudio({
   soundStorage?: SoundStorage;
   /** Reads a page the scene opens (`opens: pricing`), for the stage to go to. */
   readPage?: ReadScenePage;
+  /** Writes the scene's `pace:` line into the note; why not, or `null`. Absent where it cannot be changed. */
+  onSavePace?: (pace: CastPaceName) => string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const wide = useWindowDimensions().width >= RAIL_MIN_WINDOW;
@@ -69,10 +73,24 @@ export function CastStudio({
 
   // The draft as it is each time the stage loads; the rail follows every edit.
   const pages = useScenePages(draft, readPage);
-  const script = useMemo(() => studioScript(draft, pagesByName(pages)), [draft, pages]);
+  /*
+    A pace just chosen shows at once, whether or not it could be kept; the
+    note's own line takes over again as soon as it changes.
+  */
+  const [paceChoice, setPaceChoice] = useState<CastPaceName | null>(null);
+  const scene = paceChoice === null ? draft : setCastPace(draft, paceChoice);
+  const notePace = useMemo(() => splitWebsiteCast(stripFrontmatter(draft)).pace ?? "lively", [draft]);
+  useEffect(() => setPaceChoice(null), [notePace]);
+  const choosePace = (pace: CastPaceName) => {
+    setPaceChoice(pace);
+    onSavePace?.(pace);
+    // The stage reads the scene when it loads: a fresh one, waiting for Play.
+    player.hold();
+  };
+  const script = useMemo(() => studioScript(scene, pagesByName(pages)), [scene, pages]);
   const memberColors = useMemo(() => castColors(splitWebsiteCast(stripFrontmatter(draft)).steps), [draft]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new page is what reads a new draft
-  const src = useMemo(() => `/#${castPreviewFragment(draft, title, pages)}`, [player.stageKey, title, pages]);
+  const src = useMemo(() => `/#${castPreviewFragment(scene, title, pages)}`, [player.stageKey, title, pages]);
   const total = script.timeline.total;
 
   return (
@@ -116,6 +134,7 @@ export function CastStudio({
             })}
           </View>
           <View style={[styles.topSide, styles.topEnd]}>
+            <StudioPace pace={script.pace} onChange={choosePace} />
             <Pressable
               onPress={() => setSoundsOpen((open) => !open)}
               accessibilityRole="button"

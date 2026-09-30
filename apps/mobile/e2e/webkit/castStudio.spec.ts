@@ -149,3 +149,46 @@ test("a scene goes on to another page, and the stage follows it there", async ({
   await expect(stage(page)).not.toContainText("Free is free");
   await expect(page.getByTestId("studio-step-5")).toHaveAttribute("aria-current", "step", { timeout: 15_000 });
 });
+
+test("sounds are heard: Play wakes the audio, and the first cue starts a sound", async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __audio: { started: number; states: string[] } };
+    w.__audio = { started: 0, states: [] };
+    const start = OscillatorNode.prototype.start;
+    OscillatorNode.prototype.start = function (...args: Parameters<typeof start>) {
+      w.__audio.started += 1;
+      w.__audio.states.push(this.context.state);
+      return start.apply(this, args);
+    };
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
+  await page.getByTestId("studio-play").click();
+  const audio = () => page.evaluate(() => (window as unknown as { __audio: { started: number; states: string[] } }).__audio);
+  await expect.poll(async () => (await audio()).started, { timeout: 15_000 }).toBeGreaterThan(0);
+  expect((await audio()).states.every((state) => state === "running")).toBe(true);
+});
+
+test("pace: chosen in the studio, kept in the note, and the scene's times follow it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("studio-pace-lively")).toHaveAttribute("aria-checked", "true");
+  const length = async () => {
+    const text = (await page.getByTestId("cast-studio").getByText(/steps · \d+:\d\d/).first().textContent()) ?? "";
+    const [m, s] = text.slice(text.lastIndexOf(" ") + 1).split(":").map(Number);
+    return m! * 60 + s!;
+  };
+  const lively = await length();
+  await page.getByTestId("studio-pace-slow").click();
+  await expect(page.getByTestId("studio-pace-slow")).toHaveAttribute("aria-checked", "true");
+  const note = () => page.evaluate(() => (window as unknown as { __castStudioNote?: string }).__castStudioNote ?? "");
+  await expect.poll(note).toContain("```cast\npace: slow\n");
+  await expect.poll(length).toBeGreaterThan(lively);
+  // The stage starts over at the new pace and still plays.
+  await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
+  await page.getByTestId("studio-play").click();
+  await expect(stage(page)).toContainText("this page is live", { timeout: 20_000 });
+});

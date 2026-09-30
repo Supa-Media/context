@@ -1,6 +1,7 @@
-import { splitWebsiteCast, type CastActor, type CastStep } from "@context/shared";
+import { splitWebsiteCast, type CastActor, type CastPaceName, type CastStep } from "@context/shared";
 import { stripFrontmatter } from "../share/markdown";
 import { castTimeline, type CastTimeline } from "../home/cast/castTimeline";
+import { paceNamed } from "../home/cast/castRun";
 
 /** One row of the studio's script. */
 export interface ScriptRow {
@@ -18,6 +19,8 @@ export interface StudioScript {
   timeline: CastTimeline;
   /** Lines the cast grammar did not understand, for the author. */
   problems: string[];
+  /** How fast it plays: its `pace:` line, or lively. */
+  pace: CastPaceName;
 }
 
 const QUOTE_MAX = 60;
@@ -61,8 +64,8 @@ export function describeStep(step: CastStep): string {
 
 /** A note's script, as the studio's rail and scrubber show it; `pages` are the ones it opens, by name. */
 export function studioScript(source: string, pages: Readonly<Record<string, string>> = {}): StudioScript {
-  const { markdown, steps, problems } = splitWebsiteCast(stripFrontmatter(source));
-  const timeline = castTimeline(markdown, steps, pages);
+  const { markdown, steps, problems, pace } = splitWebsiteCast(stripFrontmatter(source));
+  const timeline = castTimeline(markdown, steps, pages, paceNamed(pace));
   return {
     rows: steps.map((step, index) => ({
       index,
@@ -72,5 +75,6 @@ export function studioScript(source: string, pages: Readonly<Record<string, stri
     })),
     timeline,
     problems,
+    pace: pace ?? "lively",
   };
 }

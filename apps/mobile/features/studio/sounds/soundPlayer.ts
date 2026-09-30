@@ -13,6 +13,12 @@ export interface SoundPlayer {
   decode: (bytes: ArrayBuffer) => Promise<AudioBuffer | null>;
   /** Play a decoded upload at `volume` percent. */
   playBuffer: (buffer: AudioBuffer, volume: number, options?: { typing?: boolean }) => void;
+  /**
+   * Make the audio context now, inside a press. Safari lets a page make a
+   * sound only once one was made or resumed during a press, and a cue arrives
+   * from the stage, never during one.
+   */
+  wake: () => void;
   close: () => void;
 }
 
@@ -21,8 +27,9 @@ type AudioContextClass = new () => AudioContext;
 /**
  * Plays `synth.ts`'s recipes with Web Audio.
  *
- * The audio context is made on the first sound, which in the studio always
- * follows a press (Play, Hear, Start), so the browser lets it make a noise.
+ * The audio context is made by `wake`, from a press in the studio, or else on
+ * the first sound. Cues arrive from the stage rather than during a press, so
+ * a browser as strict as Safari needs the `wake`.
  * Where there is no Web Audio at all (a phone's runtime, a test) it is silent.
  */
 export function createSoundPlayer(
@@ -121,6 +128,9 @@ export function createSoundPlayer(
       source.buffer = buffer;
       source.connect(out.level);
       source.start(out.ctx.currentTime + 0.005);
+    },
+    wake() {
+      ready();
     },
     close() {
       void context?.close();
