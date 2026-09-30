@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CastActor, CastPaceName, CastStep } from "@context/shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CastActor, CastChatSetup, CastPaceName, CastStep } from "@context/shared";
 import type { ActiveAgent, AgentActivityView, AgentMark } from "../../console/agents/agentActivity";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { createSharedDoc, seedSharedDoc, type SharedDoc } from "../../console/presence/sharedDoc";
@@ -7,7 +7,8 @@ import type { Presence } from "../../console/presence/usePresence";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { previewSlug } from "../castPreview";
 import type { HomePage } from "../homeSite";
-import { castActorNamed, castMemberId, paceNamed, playCast } from "./castRun";
+import { castActorNamed, castMemberId, paceNamed, playCast, type CastWorkspace } from "./castRun";
+import { chatReducer, type ChatState } from "./castChat";
 import { castPresence } from "./castSite";
 import type { StudioStage } from "./useStudioStage";
 
@@ -38,6 +39,14 @@ export function useHomeCast(options: {
   pages: ReadonlyMap<string, HomePage>;
   /** Add a note without opening it; its tree path, or `null`. */
   addNote: (folder: string, name: string, text: string) => string | null;
+  /** Add a note into the folder a script names, made when missing; its tree path, or `null`. */
+  addNoteIn?: (folder: string, name: string, text: string) => string | null;
+  /** What an assistant in a scene does to the workspace (`castRun.ts`). */
+  workspace?: CastWorkspace;
+  /** The folder a step names, for an `opens:` that goes to a folder's page. */
+  folderNamed?: (name: string) => string | null;
+  /** Tree path → how its scene's chats are framed; absent is side by side, warm. */
+  chatSetups?: ReadonlyMap<string, CastChatSetup>;
   /** Open the page at this tree path, as the visitor clicking it would. */
   open?: (path: string) => void;
   /**
@@ -45,12 +54,14 @@ export function useHomeCast(options: {
    * plays on the studio's clock, only once told to start.
    */
   stage?: StudioStage | null;
-}): { presence: Presence | undefined; agents: AgentActivityView | undefined } {
+}): { presence: Presence | undefined; agents: AgentActivityView | undefined; chat: CastChatView | null; closeChat: () => void } {
   const { enabled, scripts, colors, selectedPath } = options;
   const stage = options.stage ?? null;
   const start = stage?.start ?? null;
   const [room, setRoom] = useState<Room | null>(null);
   const [activity, setActivity] = useState<AgentActivityView>({ agents: [], marks: [] });
+  // The chats of the show playing, or the last one: they stay to be read until another starts.
+  const [chat, setChat] = useState<CastChatView | null>(null);
   const played = useRef(new Set<string>());
   // The show playing now, and what it was started from.
   const show = useRef<Show | null>(null);
@@ -91,6 +102,8 @@ export function useHomeCast(options: {
     const shared = createSharedDoc({});
     seedSharedDoc(shared, latest.current.notes[path] ?? "");
     setRoom({ path, shared, members: [] });
+    const setup: CastChatSetup = latest.current.chatSetups?.get(path) ?? { layout: "side", look: "warm" };
+    setChat(null);
     const seen = played.current;
     seen.add(path);
     let begun = false;
@@ -120,7 +133,24 @@ export function useHomeCast(options: {
         // Skipped steps land whole; the one asked for plays as it would.
         instant: () => reducedRef.current || (clock !== null && clock.rushing && !live),
         pageNamed: (name) => pageNamed(name, latest.current.pages, latest.current.notes),
-        addNote: (name, text) => latest.current.addNote(folder, name, text),
+        addNote: (name, text, into) => {
+          const { addNote, addNoteIn } = latest.current;
+          return into === undefined || addNoteIn === undefined ? addNote(folder, name, text) : addNoteIn(into, name, text);
+        },
+        workspace: {
+          addFolder: (at) => latest.current.workspace?.addFolder(at) ?? null,
+          move: (at, into) => latest.current.workspace?.move(at, into) ?? null,
+          rename: (at, name) => latest.current.workspace?.rename(at, name) ?? null,
+          setStatus: (at, status) => latest.current.workspace?.setStatus(at, status) ?? null,
+          addTask: (project, text) => latest.current.workspace?.addTask(project, text) ?? null,
+        },
+        chat: (event) =>
+          setChat((current) => ({
+            setup,
+            windows: chatReducer(current?.windows ?? [], event),
+            // Filling the frame, it opens again whenever somebody says something in it.
+            hidden: event.kind === "tool" ? (current?.hidden ?? false) : false,
+          })),
         agentDid: (actor, kind, at) => setActivity((current) => recordAgent(current, actor, kind, at, colors, Date.now())),
         room: (members) => inRoom((current) => ({ ...current, members })),
         commented: (thread) => inRoom((current) => ({ ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } })),
@@ -130,8 +160,19 @@ export function useHomeCast(options: {
             peek: { member: castMemberId(castActorNamed(name)), step: (current.peek?.step ?? 0) + 1 },
           })),
         open: (name) => {
-          const target = pageNamed(name, latest.current.pages, latest.current.notes);
           const open = latest.current.open;
+          // A chat filling the frame gives way to the workspace it was changing.
+          if (setup.layout === "cut") setChat((current) => (current === null ? null : { ...current, hidden: true }));
+          const target = pageNamed(name, latest.current.pages, latest.current.notes);
+          if (target === null && open !== undefined) {
+            // A folder's page: nothing to write into, and the show carries on beside it.
+            const folderAt = latest.current.folderNamed?.(name) ?? null;
+            if (folderAt === null || folderAt === here.at) return null;
+            here.at = folderAt;
+            setRoom(null);
+            open(folderAt);
+            return { path: folderAt, shared: null };
+          }
           if (target === null || target === here.at || open === undefined) return null;
           const next = createSharedDoc({});
           seedSharedDoc(next, latest.current.notes[target] ?? "");
@@ -171,7 +212,16 @@ export function useHomeCast(options: {
     () => (room === null || room.path !== selectedPath ? undefined : castPresence(room.shared, room.members, room.focus ?? null, room.peek ?? null)),
     [room, selectedPath],
   );
-  return { presence, agents: activity.agents.length === 0 ? undefined : activity };
+  const closeChat = useCallback(() => setChat(null), []);
+  return { presence, agents: activity.agents.length === 0 ? undefined : activity, chat, closeChat };
+}
+
+/** A scene's chats as the homepage draws them (`CastChat.tsx`). */
+export interface CastChatView {
+  setup: CastChatSetup;
+  windows: ChatState;
+  /** Framed to fill the stage and the scene has cut to the workspace. */
+  hidden: boolean;
 }
 
 /** The page a show is in, who is there, and what the chip and margin should open. */

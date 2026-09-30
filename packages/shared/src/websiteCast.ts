@@ -46,6 +46,33 @@
  * a new line lands at the end of that page, comments quote its words, and the
  * person who opened it goes along while the rest rejoin when they next act.
  *
+ * **A scene can happen in a chat.** "@maya asks Claude: …" opens a chat
+ * with that assistant beside the workspace, in a window that looks like no
+ * product in particular, and "Claude answers: …" is its reply. From then on
+ * what Claude does to the workspace shows in its chat as it happens ("Used
+ * Context"), while the workspace changes beside it: that is the film. The
+ * workspace steps are the ones an assistant takes through the MCP:
+ *
+ * ````
+ * ```cast
+ * chat: side by side, warm
+ * @maya asks Claude: we picked Oct 14 for the beta. keep track of it?
+ * Claude answers: On it.
+ * Claude adds folder: 1-projects/beta-launch
+ * Claude adds note: 1-projects/beta-launch/decisions
+ *   - Beta ships Oct 14
+ * Claude marks beta-launch as: in progress
+ * Claude adds task to beta-launch: Invite the first 50 people
+ * Claude renames 1-projects/beta-launch/decisions to: launch decisions
+ * Claude moves 1-projects/old-notes into: 4-archive
+ * @maya opens: 1-projects
+ * ```
+ * ````
+ *
+ * `chat:` says how it is framed: side by side (the default) or `cut`, the
+ * chat filling the frame until the next "opens"; and a look, warm, plain or
+ * dark. More than one assistant can be asked; each gets its own window.
+ *
  * **Comments are the exception, because a comment is about words.** "comments
  * on" quotes them and writes a real thread (`comments.cjs`) around the first
  * place they appear; "replies" and "resolves" act on the last thread this
@@ -77,8 +104,8 @@ export type CastStep =
   | { kind: "append"; actor: CastActor; text: string; at: number; below?: boolean }
   /** An agent (or person) reading this page, or the page named. */
   | { kind: "read"; actor: CastActor; page: string | null }
-  /** A new note in the tree, beside this page. */
-  | { kind: "note"; actor: CastActor; name: string; text: string }
+  /** A new note in the tree: beside this page, or in `folder` when the name was a path. */
+  | { kind: "note"; actor: CastActor; name: string; text: string; folder?: string }
   /** A comment thread on the first appearance of `quote`, with `text` as its first comment. */
   | { kind: "comment"; actor: CastActor; quote: string; text: string }
   /** A reply to the last thread this page's cast started. */
@@ -95,6 +122,20 @@ export type CastStep =
   | { kind: "tick"; actor: CastActor; quote: string }
   /** The show moves to another page, and the steps after this one play there. */
   | { kind: "open"; actor: CastActor; page: string }
+  /** Somebody asking an assistant, in a chat of its own: typed into its box, then sent. */
+  | { kind: "ask"; actor: CastActor; agent: string; text: string }
+  /** An assistant's reply in its chat. */
+  | { kind: "answer"; actor: CastActor; text: string }
+  /** A new folder, with any folders above it that are missing. */
+  | { kind: "folder"; actor: CastActor; path: string }
+  /** A note or folder moved into another folder. */
+  | { kind: "move"; actor: CastActor; path: string; into: string }
+  /** A note or folder given a new name where it is. */
+  | { kind: "rename"; actor: CastActor; path: string; name: string }
+  /** A project's (or task's) status line set: what a List or Board groups by. */
+  | { kind: "status"; actor: CastActor; path: string; status: string }
+  /** A new task in a project folder: a note of its own, not started yet. */
+  | { kind: "task"; actor: CastActor; project: string; text: string }
   | { kind: "wait"; ms: number };
 
 /** The lines of a page (split on newlines) one step was written on: `from` up to, not including, `to`. */
@@ -111,6 +152,18 @@ export interface WebsiteCast {
   problems: string[];
   /** How fast the scene plays (`pace: slow`); absent is the homepage's own, lively. */
   pace?: CastPaceName;
+  /** How its chats are framed (`chat: cut, dark`); absent is side by side, warm. */
+  chat?: CastChatSetup;
+}
+
+/** How a scene's chats are framed: beside the workspace or filling the frame, and their look. */
+export const CAST_CHAT_LAYOUTS = ["side", "cut"] as const;
+export type CastChatLayout = (typeof CAST_CHAT_LAYOUTS)[number];
+export const CAST_CHAT_LOOKS = ["warm", "plain", "dark"] as const;
+export type CastChatLook = (typeof CAST_CHAT_LOOKS)[number];
+export interface CastChatSetup {
+  layout: CastChatLayout;
+  look: CastChatLook;
 }
 
 /** A scene's speed, written as a line of its own in a cast block. */
@@ -139,6 +192,14 @@ const CLICK = new RegExp(String.raw`^${ACTOR}\s+clicks(?: on)?\s+${ACTOR}$`, "i"
 const TICK = new RegExp(String.raw`^${ACTOR}\s+(?:ticks|checks off|completes)\s*:\s*(.+)$`, "i");
 const GOTO = new RegExp(String.raw`^${ACTOR}\s+(?:opens|goes to)\s*:?\s*(.+)$`, "i");
 const PACE = /^pace\s*:?\s*(slow|lively|fast)$/i;
+const CHAT = /^chat\s*:\s*(.+)$/i;
+const ASK = new RegExp(String.raw`^${ACTOR}\s+asks\s+${ACTOR}\s*:\s*(.+)$`, "i");
+const ANSWER = new RegExp(String.raw`^${ACTOR}\s+(?:answers|says)\s*:\s*(.+)$`, "i");
+const FOLDER = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?folder\s*:\s*(.+)$`, "i");
+const MOVE = new RegExp(String.raw`^${ACTOR}\s+moves\s+(.+?)\s+into\s*:\s*(.+)$`, "i");
+const RENAME = new RegExp(String.raw`^${ACTOR}\s+renames\s+(.+?)\s+to\s*:\s*(.+)$`, "i");
+const STATUS = new RegExp(String.raw`^${ACTOR}\s+(?:marks|sets)\s+(.+?)\s+(?:as|to)\s*:\s*(.+)$`, "i");
+const TASK = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?task to\s+(.+?)\s*:\s*(.+)$`, "i");
 const WAIT = /^wait\s+(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds?)?$/i;
 
 function actor(written: string): CastActor {
@@ -151,13 +212,44 @@ function clip(text: string): string {
   return text.trim().slice(0, MAX_CAST_TEXT);
 }
 
+/**
+ * A path in the tree as written: forward slashes, no leading or trailing one,
+ * and never a step up or into Context's own plumbing. A scene plays into a
+ * copy of the site in the visitor's tab, but a path is still a path.
+ */
+function cleanPath(written: string): string {
+  return written
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part !== "" && part !== "." && part !== ".." && !part.startsWith("."))
+    .join("/")
+    .slice(0, 200);
+}
+
+/** `side by side, dark`, in any order; a sentence saying what was not understood otherwise. */
+function chatSetup(written: string): CastChatSetup | string {
+  const setup: CastChatSetup = { layout: "side", look: "warm" };
+  for (const raw of written.toLowerCase().split(/[,;]/)) {
+    const word = raw.trim().replace(/\s+/g, " ");
+    // "chat, then cut" reads as two words, the first saying nothing.
+    if (word === "" || word === "chat") continue;
+    if (["side by side", "side", "beside"].includes(word)) setup.layout = "side";
+    else if (["cut", "then cut", "full", "full screen"].includes(word)) setup.layout = "cut";
+    else if ((CAST_CHAT_LOOKS as readonly string[]).includes(word)) setup.look = word as CastChatLook;
+    else return `Not a way to show a chat: ${word.slice(0, 60)}. Try side by side or cut, and warm, plain or dark.`;
+  }
+  return setup;
+}
+
 /** Parse the lines inside one block. `line` and `append` get their anchors from the caller. */
 function parseBlock(
   lines: readonly string[],
   anchors: { line: number; append: number | null },
   steps: CastStep[],
   problems: string[],
-  scene: { pace?: CastPaceName },
+  scene: { pace?: CastPaceName; chat?: CastChatSetup },
   spans?: { base: number; out: CastStepSource[] },
 ): void {
   /*
@@ -183,6 +275,28 @@ function parseBlock(
     if ((match = PACE.exec(text)) !== null) {
       // The scene's, wherever it is written; the last one written wins.
       scene.pace = match[1]!.toLowerCase() as CastPaceName;
+    } else if ((match = CHAT.exec(text)) !== null) {
+      const setup = chatSetup(match[1]!);
+      if (typeof setup === "string") problems.push(setup);
+      else scene.chat = setup;
+    } else if ((match = ASK.exec(text)) !== null) {
+      const agent = actor(match[2]!);
+      if (agent.kind !== "agent") problems.push(`Only an assistant can be asked, like Claude: ${text.slice(0, 120)}`);
+      else steps.push({ kind: "ask", actor: actor(match[1]!), agent: agent.name, text: clip(match[3]!) });
+    } else if ((match = ANSWER.exec(text)) !== null) {
+      steps.push({ kind: "answer", actor: actor(match[1]!), text: clip(match[2]!) });
+    } else if ((match = FOLDER.exec(text)) !== null) {
+      const path = cleanPath(match[2]!);
+      if (path === "") problems.push(`A folder needs a name: ${text.slice(0, 120)}`);
+      else steps.push({ kind: "folder", actor: actor(match[1]!), path });
+    } else if ((match = TASK.exec(text)) !== null) {
+      steps.push({ kind: "task", actor: actor(match[1]!), project: cleanPath(match[2]!), text: clip(match[3]!).slice(0, 120) });
+    } else if ((match = MOVE.exec(text)) !== null) {
+      steps.push({ kind: "move", actor: actor(match[1]!), path: cleanPath(match[2]!), into: cleanPath(match[3]!) });
+    } else if ((match = RENAME.exec(text)) !== null) {
+      steps.push({ kind: "rename", actor: actor(match[1]!), path: cleanPath(match[2]!), name: match[3]!.trim().replace(/[/\\]/g, "-").slice(0, 80) });
+    } else if ((match = STATUS.exec(text)) !== null) {
+      steps.push({ kind: "status", actor: actor(match[1]!), path: cleanPath(match[2]!), status: match[3]!.trim().toLowerCase().slice(0, 40) });
     } else if ((match = WAIT.exec(text)) !== null) {
       const amount = Number(match[1]);
       const ms = (match[2] ?? "s").toLowerCase() === "ms" ? amount : amount * 1000;
@@ -194,9 +308,14 @@ function parseBlock(
         i += 1;
         body.push(lines[i]!.replace(/^\s{2}/, ""));
       }
-      const name = match[2]!.trim().replace(/[/\\]/g, "-").slice(0, 80);
+      // A path puts it in that folder: `1-projects/launch/decisions`.
+      const written = cleanPath(match[2]!);
+      const cut = written.lastIndexOf("/");
+      const name = written.slice(cut + 1).slice(0, 80);
+      const folder = cut === -1 ? undefined : written.slice(0, cut);
       if (name === "") problems.push(`A note needs a name: ${text}`);
-      else steps.push({ kind: "note", actor: actor(match[1]!), name, text: clip(body.join("\n")) });
+      else if (folder === undefined) steps.push({ kind: "note", actor: actor(match[1]!), name, text: clip(body.join("\n")) });
+      else steps.push({ kind: "note", actor: actor(match[1]!), name, text: clip(body.join("\n")), folder });
     } else if ((match = APPEND.exec(text)) !== null) {
       const words = clip(match[3]!);
       const below = match[2]!.toLowerCase() === "a line below";
@@ -264,7 +383,7 @@ function splitCast(source: string, spans?: CastStepSource[]): WebsiteCast {
   let length = 0; // characters in out.join("\n") + "\n" so far
   const steps: CastStep[] = [];
   const problems: string[] = [];
-  const scene: { pace?: CastPaceName } = {};
+  const scene: { pace?: CastPaceName; chat?: CastChatSetup } = {};
   let fence: string | null = null; // an ordinary code block, whose contents are not ours
 
   const emit = (line: string) => {
@@ -319,7 +438,10 @@ function splitCast(source: string, spans?: CastStepSource[]): WebsiteCast {
   for (const step of steps) {
     if ((step.kind === "line" || step.kind === "append") && step.at > cap) step.at = cap;
   }
-  return scene.pace === undefined ? { markdown, steps, problems } : { markdown, steps, problems, pace: scene.pace };
+  const cast: WebsiteCast = { markdown, steps, problems };
+  if (scene.pace !== undefined) cast.pace = scene.pace;
+  if (scene.chat !== undefined) cast.chat = scene.chat;
+  return cast;
 }
 
 /**
