@@ -22,7 +22,7 @@ export const imageStyles = `
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px;
-  margin: 10px 0;
+  padding: 10px 0;
   position: relative;
 }
 .cm-lp-image {

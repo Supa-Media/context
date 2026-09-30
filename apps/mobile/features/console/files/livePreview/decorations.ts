@@ -361,7 +361,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   for (const form of forms) {
     hides.push(
       Decoration.replace({
-        widget: new FormWidget(form, host),
+        widget: new SpacedFormWidget(form, host),
         block: true,
       }).range(form.from, form.to),
     );
@@ -487,4 +487,19 @@ export function decorationsFor(state: EditorState): DecorationSet {
   // before its own `##` mark ends, so neither list alone is in document order
   // once they are concatenated.
   return RangeSet.of([...lines, ...styles, ...doneText, ...hides], true);
+}
+
+/**
+ * The form card inside a block that carries its spacing as padding. The card
+ * is bordered, so it cannot trade its margin for padding itself, and CodeMirror
+ * measures a block widget without its margins: every line below would take
+ * clicks meant for the line above it (`blockWidgetMargins.test.ts`).
+ */
+class SpacedFormWidget extends FormWidget {
+  override toDOM(): HTMLElement {
+    const block = document.createElement("div");
+    block.className = "cm-lp-form-block";
+    block.append(super.toDOM());
+    return block;
+  }
 }

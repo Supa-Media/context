@@ -244,7 +244,12 @@ export class HtmlPreviewWidget extends WidgetType {
     frame.setAttribute("title", "Rendered preview");
     frame.setAttribute("loading", "lazy");
     wrap.append(frame);
-    return wrap;
+    // Spaced by the block's padding, not the card's margin: CodeMirror measures
+    // a block widget without its margins (`BLOCK_WIDGET_ROOTS`).
+    const block = document.createElement("div");
+    block.className = "cm-lp-preview-block";
+    block.append(wrap);
+    return block;
   }
   /* A click on the preview should place the caret, which is what reveals it. */
   ignoreEvent(): boolean {
