@@ -9,8 +9,9 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { fonts, layout, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import type { PhoneRowMeta } from "../home/folderRows";
 import type { DragModifier } from "./dnd";
 import type { FolderDrag, FolderMenu } from "./FolderView";
 import { displayName } from "./paths";
@@ -37,6 +38,7 @@ export function FolderRow({
   sync = null,
   picked,
   onHold,
+  phone,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
@@ -58,10 +60,18 @@ export function FolderRow({
    * press (or right-click) is still the row's own menu.
    */
   onHold?: (path: string) => void;
+  /**
+   * A phone folder page's row, drawn the way Home draws one (board 07 of the
+   * Home artboards, approved 2026-09-30): a subfolder says what it holds, a
+   * note says when it changed and its first line, a pinned one is marked, and
+   * only a folder has a chevron. Only in the card.
+   */
+  phone?: PhoneRowMeta;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const label = displayName(row.name);
+  const home = card && phone !== undefined ? phone : null;
   /*
     THE SAME HOOK THE TREE'S ROWS USE, AND FOR THE SAME REASON.
 
@@ -109,12 +119,13 @@ export function FolderRow({
     >
     <PressRow
       onPress={() => onSelect(row.path)}
-      style={[styles.row, card && styles.rowCard]}
+      style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome]}
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
       accessibilityLabel={
         withSyncMark(row.kind === "folder" ? `${label}, folder` : label, sync) +
+        (home === null ? "" : homeDetail(home)) +
         (picked === true ? ", selected" : "")
       }
       testID="folder-row"
@@ -154,16 +165,34 @@ export function FolderRow({
         ) : card ? (
           <Icon
             name={row.kind === "folder" ? "folder" : "file"}
-            size={16}
-            color={colors.muted}
+            size={home === null ? 16 : 20}
+            color={home === null ? colors.muted : colors.text2}
           />
         ) : row.kind === "folder" ? (
           <Icon name="chevronRight" size={15} color={colors.muted} />
         ) : null}
       </View>
-      <Text variant="treeTouch" style={styles.rowName} numberOfLines={1}>
-        {label}
-      </Text>
+      {home === null ? (
+        <Text variant="treeTouch" style={styles.rowName} numberOfLines={1}>
+          {label}
+        </Text>
+      ) : (
+        <View style={styles.homeText}>
+          <View style={styles.homeTop}>
+            {home.pinned ? (
+              <Icon name="pin" size={13} color={colors.muted} />
+            ) : null}
+            <Text style={styles.homeName} numberOfLines={1}>
+              {label}
+            </Text>
+          </View>
+          {home.sub === null ? null : (
+            <Text variant="meta" numberOfLines={1} testID="folder-row-sub">
+              {home.sub}
+            </Text>
+          )}
+        </View>
+      )}
       {/*
         The tree marks **only exceptions**, and so does this. A trailing "team"
         on every row of a context whose root is private is the folder's default
@@ -221,10 +250,26 @@ export function FolderRow({
         claim and is why both exist. Outside the card there is no list edge for
         it to sit against and the leading one already carries the listing.
       */}
-      {card ? <Icon name="chevronRight" size={14} color={colors.chromeMuted} /> : null}
+      {home?.meta == null ? null : (
+        <Text variant="meta" numberOfLines={1} style={styles.homeMeta} testID="folder-row-meta">
+          {home.meta}
+        </Text>
+      )}
+      {/*
+        On a phone's folder page only a folder has one: Home's rule, where a
+        note row opens in place and a folder row goes somewhere.
+      */}
+      {card && (home === null || row.kind === "folder") ? (
+        <Icon name="chevronRight" size={home === null ? 14 : 16} color={colors.chromeMuted} />
+      ) : null}
     </PressRow>
     </View>
   );
+}
+
+/** What a phone row's name alone does not say, for a screen reader. */
+function homeDetail({ meta, sub, pinned }: PhoneRowMeta): string {
+  return [pinned ? "pinned" : null, sub, meta].filter(Boolean).map((part) => `, ${part}`).join("");
 }
 
 /** See `FileTree`: the 8pt a 36pt row is short of the touch floor, halved. */
@@ -275,6 +320,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     touch floor, so `hitSlop` stops doing work here.
   */
   rowCard: { height: 48, paddingLeft: space.x4, paddingRight: space.x4 },
+  /*
+    Home's row, so a folder page and Home are one list (`PhoneHome.row`):
+    52 tall at least, free to grow for a note's first line.
+
+    A count here is not the pip slot's exception claim that the owner turned
+    down for `0-inbox` on 2026-09-18: it is words at the row's end, as Home
+    draws them, from the Home artboards the owner approved on 2026-09-30.
+  */
+  rowHome: { height: undefined, minHeight: 52, gap: space.x3, paddingVertical: space.x2 },
+  homeText: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 2 },
+  homeTop: { flexDirection: "row", alignItems: "center", gap: space.x1 },
+  homeName: { flexShrink: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text },
+  homeMeta: { flexShrink: 0 },
   /** The select mode's pick ring, in the glyph slot. */
   pick: {
     width: 18,

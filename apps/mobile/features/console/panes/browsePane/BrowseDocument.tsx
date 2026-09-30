@@ -23,6 +23,7 @@ import type { BrowseNoticeState } from "./useBrowseNotices";
 import type { FolderListingState } from "./useFolderListing";
 import { useTaskHost } from "./useTaskHost";
 import { folderCounts } from "../../home/folderHead";
+import { phoneRows } from "../../home/folderRows";
 import { PhoneFolderHead } from "../../home/PhoneFolderHead";
 import { PhoneHome } from "../../home/PhoneHome";
 import { useHomeSource } from "../../home/useHomeSource";
@@ -208,6 +209,14 @@ export function BrowseDocument({
       foot={contextFoot}
     />
   );
+  // What a phone's folder rows say beside their names: counts, dates, first lines, pins.
+  const phoneRowsFor = useMemo(
+    () =>
+      compact
+        ? phoneRows({ notes: homeSource.notes, folders: homeSource.folders, pins: places.pins, now: Date.now() })
+        : undefined,
+    [compact, homeSource, places.pins],
+  );
   // What a phone draws under a folder's title: counts, faces, the latest change, and its two buttons.
   const phoneHead = (folder: string) =>
     !compact ? undefined : (
@@ -320,6 +329,7 @@ export function BrowseDocument({
         page={folderPage}
         showAudience={data.visitor === undefined}
         phoneHead={phoneHead(selected.path)}
+        phoneRows={phoneRowsFor}
       />
     ) : files.conflict?.path === selected.path ? (
       /*
