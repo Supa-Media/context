@@ -76,6 +76,21 @@ against today's live text can delete somebody else's additions. Retries must
 reuse the same operation identities. A version mismatch never authorizes a
 blind overwrite or a fresh seed of an existing document.
 
+The exact-base merge keeps everything the document gained since that base as a
+peer's unseen insertion, so it must not be handed the writer's *own* typing
+back. On 2026-09-30 a note typed in the browser came back as its text followed
+by interleaved copies of itself: typing that had already landed as Yjs updates
+was sent again as a whole-text replacement against an older base, and each
+replay inserted it a second time. `replay.js` now recognizes that case from the
+text: when the desired text still holds every run the document gained (most of
+each run intact, so a peer's short word cannot be absorbed into letters of an
+agent's rewrite), the replacement is applied as an edit of the current text;
+when it only lacks gained text, nothing changes. A peer deletion the writer
+never saw, or any other genuine concurrent edit, keeps the exact-base merge.
+Reversing this fails `packages/collaboration/test/replay.mjs`. The engine
+guard is the backstop, not the fix: a client must still never replay text it
+has already sent.
+
 ## Permission and identity boundaries
 
 Every server request rechecks access. A revision token or document ID is not
