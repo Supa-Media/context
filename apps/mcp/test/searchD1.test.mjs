@@ -38,12 +38,20 @@
  *   `chunkText` with no overlap                                    1
  *   `toMatchExpression` passing the query through unquoted         1
  *   `COLUMN_WEIGHTS` missing its two UNINDEXED zeroes              1
+ *
+ * For the `ftsTableFor` block at the end:
+ *
+ *   the object-literal lookup back in place of `ftsTableFor`        2
+ *   a group rule sent to the team table                             2
+ *   `team` sent to the private table                               12
  */
 
 import {
   CHUNK_CHARS,
+  FTS_TABLE,
   chunkText,
   deleteStatements,
+  ftsTableFor,
   projectNote,
   upsertStatements,
 } from "../src/search/d1/project.js";
@@ -425,5 +433,83 @@ export async function runSearchD1Checks(check) {
     check("an unknown tier throws rather than defaulting", threw);
     check("a team tier reads one table", tablesForTier("team").length === 1);
     check("a personal tier reads both", tablesForTier("private").length === 2);
+  }
+
+  {
+    /*
+     * The same question on the WRITE side, and the one `FTS_TABLE` answered
+     * wrong.
+     *
+     * `upsertStatements` says an unknown visibility indexes nothing rather
+     * than guessing a table, because the safe guess and the useful guess
+     * differ and the useful one puts a private note's body in the team
+     * corpus. `FTS_TABLE` was an object literal and the lookup was
+     * `FTS_TABLE[visibility] ?? …`, so every name on `Object.prototype` —
+     * `constructor`, `toString`, `valueOf`, `hasOwnProperty`, `__proto__` —
+     * came back truthy, skipped the fallback, and was interpolated into
+     * `INSERT INTO ${table}` as `function Object() { [native code] }`.
+     *
+     * No caller could send one: `backfill.js` guards on the same three
+     * shapes, and the write path's visibility is `effectiveVisibility`'s,
+     * which the manifest parser holds to `team`, `private` or `@name` and
+     * throws on anything else. What was wrong was the STATED property, in a
+     * function whose whole job is choosing which tier's table a body lands
+     * in — and a statement naming no real table is `REFUSED`, which the
+     * control plane treats as terminal.
+     */
+    const projected = (visibility) =>
+      upsertStatements(
+        "1-projects/note.md",
+        projectNote("1-projects/note.md", {
+          version: "v1",
+          uploaded: null,
+          visibility,
+          content: "# Title\n\nbody",
+        }),
+      );
+    const inserts = (visibility) =>
+      projected(visibility).filter(({ sql }) => /^\s*INSERT INTO/.test(sql));
+    // The control: an ordinary unknown word already behaved.
+    check(
+      "an unknown visibility writes the notes row and no chunk row",
+      inserts("public").length === 1,
+    );
+    const inherited = ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"];
+    check(
+      "a visibility naming an Object.prototype member indexes nothing either",
+      inherited.every((visibility) => inserts(visibility).length === 1),
+    );
+    check(
+      "and no statement carries anything but a real table name",
+      [...inherited, "public"].every((visibility) =>
+        projected(visibility).every(({ sql }) =>
+          /^\s*(?:DELETE FROM|INSERT INTO)\s+(?:notes|notes_private_fts|notes_team_fts)\b/.test(sql),
+        ),
+      ),
+    );
+    // The two real tiers still reach their own table, so the fix is a
+    // narrowing of the unknown case and nothing else.
+    check(
+      "private and team still each write their own chunk rows",
+      inserts("private").length === 2 &&
+        projected("private").some(({ sql }) => sql.includes("notes_private_fts (path, ord")) &&
+        inserts("team").length === 2 &&
+        projected("team").some(({ sql }) => sql.includes("notes_team_fts (path, ord")),
+    );
+    check(
+      "a group rule still lands in the private table",
+      projected("@supa-leads").some(({ sql }) => sql.includes("notes_private_fts (path, ord")),
+    );
+    // The decision on its own, so the property is pinned to the function that
+    // makes it rather than only to the statements it ends up shaping.
+    check(
+      "ftsTableFor answers for the three known shapes and nothing else",
+      ftsTableFor("private") === FTS_TABLE.private &&
+        ftsTableFor("team") === FTS_TABLE.team &&
+        ftsTableFor("@supa-leads") === FTS_TABLE.private &&
+        [...inherited, "public", "", null, undefined, 0].every(
+          (visibility) => ftsTableFor(visibility) === undefined,
+        ),
+    );
   }
 }
