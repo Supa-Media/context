@@ -348,8 +348,10 @@ export type ToGuest =
    * Who is commenting here: the viewer's `@handle`, or `null` where nobody
    * can. Desired state, resent on `ready` like `suggest`. The guest signs new
    * comments and replies with it, and with `null` a thread is read-only.
+   * `moderator` lets the viewer delete anybody's comments (a workspace
+   * owner); absent, as an older host sends it, means their own only.
    */
-  | { v: number; type: "commenter"; author: string | null }
+  | { v: number; type: "commenter"; author: string | null; moderator?: boolean }
   /**
    * Whether this surface can read notes for a ```list block. `false` leaves
    * every list as its source, which is what the guest did before lists

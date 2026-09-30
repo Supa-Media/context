@@ -79,6 +79,11 @@ export interface NoteEditorProps {
    */
   commenter?: string | null;
   /**
+   * Whether the viewer may delete anybody's comments, not only their own: a
+   * workspace owner. Absent means own comments only.
+   */
+  commentModerator?: boolean;
+  /**
    * A visitor's way to be able to reply: a thread's reply field then reads
    * "Sign in to reply" and opens this. Absent for a signed-in reader.
    */

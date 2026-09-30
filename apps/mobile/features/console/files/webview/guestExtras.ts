@@ -42,6 +42,7 @@ export interface GuestExtras {
 
 export function guestExtras(post: (message: ToHost) => void, links: NoteLinkRef): GuestExtras {
   let author: string | null = null;
+  let moderator = false;
   const lists: ListHostRef = { current: null, generation: 0 };
   const listeners = new Set<() => void>();
   const pendingLoads = new Map<string, (source: ListSource | null) => void>();
@@ -85,7 +86,7 @@ export function guestExtras(post: (message: ToHost) => void, links: NoteLinkRef)
 
   return {
     extensions: [
-      comments({ author: () => author }),
+      comments({ author: () => author, moderator: () => moderator }),
       commentSheet({ placement: "inline" }),
       listHost.of(lists),
     ],
@@ -96,6 +97,7 @@ export function guestExtras(post: (message: ToHost) => void, links: NoteLinkRef)
       switch (message.type) {
         case "commenter":
           author = typeof message.author === "string" && message.author.startsWith("@") ? message.author : null;
+          moderator = author !== null && message.moderator === true;
           // Nothing in the document changed, but who may comment did.
           view.dispatch({});
           return true;

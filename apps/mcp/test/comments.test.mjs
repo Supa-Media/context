@@ -31,7 +31,7 @@
 import comments from "../../../packages/shared/src/comments.cjs";
 import { commentAuthor } from "../src/tools/notes/comment.js";
 
-const { addThread, appendEvent, applyChanges, findAnchors, locateQuote, parseComments, sanitizeAuthor, stripComments, describeComments } = comments;
+const { addThread, appendEvent, applyChanges, deleteComment, findAnchors, locateQuote, parseComments, sanitizeAuthor, stripComments, describeComments } = comments;
 
 const AT = "2026-09-27T07:30:12Z";
 
@@ -178,6 +178,50 @@ export function runCommentFormatChecks(check) {
     check("comments: an unknown thread is refused", appendEvent(DEMO, { thread: "zzzz", kind: "comment", author: "X", body: "hi" }).error !== undefined);
   }
 
+  // --- deleting: the one edit that removes -----------------------------------
+  {
+    const note = "# Pricing\n\nfree, you cheapo\n";
+    const first = addThread(note, { quote: "you cheapo", author: "Codex", body: "Tone it down.", at: AT, id: "aaaa" });
+    const one = applyChanges(note, first.changes);
+    const gone = applyChanges(one, deleteComment(one, { thread: "aaaa", index: 0 }).changes);
+    check("comments: deleting the only thread gives back the note exactly as it was", gone === note);
+
+    const second = applyChanges(one, addThread(one, { quote: "Pricing", author: "@dev2", body: "Title case?", at: AT, id: "bbbb" }).changes);
+    const third = applyChanges(second, appendEvent(second, { thread: "aaaa", kind: "comment", author: "@dev2", body: "fine\nreally", at: AT }).changes);
+    const withReply = applyChanges(third, appendEvent(third, { thread: "aaaa", kind: "resolved", author: "@dev2", at: AT }).changes);
+
+    const noReply = applyChanges(withReply, deleteComment(withReply, { thread: "aaaa", index: 1 }).changes);
+    const kept = parseComments(noReply).threads.find((t) => t.id === "aaaa");
+    check(
+      "comments: deleting a reply removes its lines, continuation included, and nothing else",
+      kept.events.map((e) => e.kind).join(",") === "comment,resolved" && !noReply.includes("really") && noReply.includes("Title case?") &&
+        noReply === withReply.replace(`- ${AT} @dev2: fine\n    really\n`, ""),
+    );
+
+    const firstGone = applyChanges(withReply, deleteComment(withReply, { thread: "aaaa", index: 0 }).changes);
+    const left = parseComments(firstGone);
+    check("comments: deleting a thread's first comment deletes the thread and its replies", left.threads.length === 1 && left.threads[0].id === "bbbb" && !firstGone.includes("fine"));
+    check("comments: …and its markers, leaving the words", firstGone.includes("\nfree, you cheapo\n") && !firstGone.includes("c:aaaa"));
+    check("comments: …and the other thread's anchor is untouched", left.anchors.has("bbbb"));
+    check("comments: no blank line is left where the thread was", firstGone.includes("```comments\nbbbb ") && !/\n\n```\n$/.test(firstGone));
+
+    const lastGone = applyChanges(withReply, deleteComment(withReply, { thread: "bbbb", index: 0 }).changes);
+    check(
+      "comments: deleting the last thread in the block drops the blank line before it",
+      /really\n- \S+ @dev2 resolved\n```\n$/.test(lastGone) && parseComments(lastGone).threads.length === 1,
+    );
+
+    check("comments: deleting from an unknown thread is refused", deleteComment(withReply, { thread: "zzzz", index: 0 }).error !== undefined);
+    check("comments: an index past the thread's comments is refused", deleteComment(withReply, { thread: "aaaa", index: 2 }).error !== undefined);
+    check(
+      "comments: a comment that is not the one the reader saw is refused",
+      /changed/.test(deleteComment(withReply, { thread: "aaaa", index: 1, expect: { at: AT, author: "Codex" } }).error ?? ""),
+    );
+    const edited = withReply.replace("- " + AT + " @dev2 resolved", "- " + AT + " @dev2 resolved\nnote to self: ask Sayo");
+    const handKept = applyChanges(edited, deleteComment(edited, { thread: "aaaa", index: 1 }).changes);
+    check("comments: deleting keeps a hand-typed line inside the thread", handKept.includes("note to self: ask Sayo\n"));
+  }
+
   // --- lines somebody typed by hand survive ----------------------------------
   {
     const edited = DEMO.replace("- 2026-09-27T07:31:45Z @dev2 resolved", "- 2026-09-27T07:31:45Z @dev2 resolved\nnote to self: ask Sayo");
@@ -275,6 +319,34 @@ export async function runCommentToolChecks(check, { call, controlPlane, contextS
 
   const withShare = await call(CODEX, "write_note", { path, visibility: "private", comment: { action: "reopen", thread: id } });
   check("comment tool: other arguments beside a comment are refused, not ignored", withShare?.isError === true && (await storedText(path)) === final);
+
+  const notMine = await call(CODEX, "write_note", { path: "1-projects/comments/pricing.md", comment: { action: "delete", thread: id } });
+  check("comment tool: an agent's delete takes back its own comment first", !notMine?.isError && /deleted thread/.test(notMine?.content?.[0]?.text ?? ""));
+  check("comment tool: deleting the thread it started removes the thread and its anchor", parseComments(await storedText(path)).threads.length === 0 && !(await storedText(path)).includes("<!--c:"));
+
+  const kept = await call(CODEX, "write_note", { path, comment: { action: "add", quote: "free, you cheapo", text: "again" } });
+  const keptId = /started thread ([a-z0-9]{4,12})/.exec(kept?.content?.[0]?.text ?? "")?.[1];
+  await call("priv-token", "write_note", { path, comment: { action: "reply", thread: keptId, text: "a person's reply" } });
+  const before = await storedText(path);
+  const priv = await call("priv-token", "write_note", { path, comment: { action: "reply", thread: keptId, text: "and another" } });
+  const afterPriv = await storedText(path);
+  const codexReply = await call(CODEX, "write_note", { path, comment: { action: "reply", thread: keptId, text: "codex again" } });
+  const deletedReply = await call(CODEX, "write_note", { path, comment: { action: "delete", thread: keptId } });
+  const afterDelete = await storedText(path);
+  check(
+    "comment tool: delete removes the agent's latest comment, not the thread, when that was a reply",
+    !priv?.isError && !codexReply?.isError && !deletedReply?.isError && afterDelete === afterPriv && before !== afterPriv,
+  );
+  const theirs = await call("priv-token", "write_note", { path, comment: { action: "add", quote: "Premium", text: "someone else's" } });
+  const theirsId = /started thread ([a-z0-9]{4,12})/.exec(theirs?.content?.[0]?.text ?? "")?.[1];
+  const beforeRefusal = await storedText(path);
+  const refused = await call(CODEX, "write_note", { path, comment: { action: "delete", thread: theirsId } });
+  check(
+    "comment tool: an agent cannot delete a thread it wrote nothing in",
+    refused?.isError === true && /only your own/.test(refused?.content?.[0]?.text ?? "") && (await storedText(path)) === beforeRefusal,
+  );
+  const otherAgent = await call(READER, "write_note", { path, comment: { action: "delete", thread: keptId } });
+  check("comment tool: a read-only connection cannot delete", otherAgent?.isError === true && (await storedText(path)) === beforeRefusal);
 
   const ambiguous = await call(CODEX, "write_note", { path, comment: { action: "add", quote: "e", text: "which one?" } });
   check("comment tool: an ambiguous quote is refused with a count", ambiguous?.isError === true && /appears \d+ times/.test(ambiguous?.content?.[0]?.text ?? ""));

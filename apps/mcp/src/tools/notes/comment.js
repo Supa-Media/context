@@ -1,6 +1,11 @@
 /**
- * `write_note`'s `comment` argument: add a comment thread, reply, resolve or
- * reopen, without the caller rewriting the note.
+ * `write_note`'s `comment` argument: add a comment thread, reply, resolve,
+ * reopen or delete, without the caller rewriting the note.
+ *
+ * Delete is an agent taking back its own words: the latest comment signed with
+ * this connection's name in that thread, and the whole thread when that
+ * comment started it. People's comments are deleted in the app, by their
+ * author or a workspace owner; an agent has no owner's reach here.
  *
  * Comments live in the note's own file (`packages/shared/src/comments.cjs` has
  * the format and the reasons). An agent could maintain that block by hand with
@@ -27,9 +32,9 @@ import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 
-const { addThread, appendEvent, applyChanges, parseComments, sanitizeAuthor } = comments;
+const { addThread, appendEvent, applyChanges, deleteComment, parseComments, sanitizeAuthor } = comments;
 
-const ACTIONS = new Set(["add", "reply", "resolve", "reopen"]);
+const ACTIONS = new Set(["add", "reply", "resolve", "reopen", "delete"]);
 
 /** The author written into the log for this connection. Never taken from arguments. */
 export function commentAuthor(actor) {
@@ -93,6 +98,7 @@ function summaryFor(action) {
   if (action === "add") return "commented on this note";
   if (action === "reply") return "replied to a comment";
   if (action === "resolve") return "resolved a comment";
+  if (action === "delete") return "deleted a comment";
   return "reopened a comment";
 }
 
@@ -108,7 +114,7 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
   // visibility change beside its comment should be told none happened.
   const extra = ["images", "share", "share_short", "visibility", "confirm_team_publish"].find((key) => args[key] !== undefined);
   if (extra) return toolError(`${extra} cannot be combined with comment; comment first, then write_note again for that`);
-  if (!ACTIONS.has(request.action)) return toolError("comment.action must be add, reply, resolve or reopen");
+  if (!ACTIONS.has(request.action)) return toolError("comment.action must be add, reply, resolve, reopen or delete");
   if (typeof request.text === "string" && request.text.length > 5000) {
     return toolError("comment.text is too long; keep a comment under 5000 characters");
   }
@@ -131,7 +137,17 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
 
     let outcome;
     let quote;
-    if (request.action === "add") {
+    let removedThread = false;
+    if (request.action === "delete") {
+      if (typeof request.thread !== "string") return toolError("comment.thread is required; read_note lists each thread's id");
+      const thread = parseComments(text).threads.find((t) => t.id === request.thread);
+      if (!thread) return toolError(`there is no comment thread "${request.thread}" on this note`);
+      const said = thread.events.filter((event) => event.kind === "comment");
+      const index = said.map((event) => event.author).lastIndexOf(author);
+      if (index === -1) return toolError(`thread ${request.thread} has no comment by ${author}; only your own comments can be deleted`);
+      removedThread = index === 0;
+      outcome = deleteComment(text, { thread: request.thread, index, expect: { at: said[index].at, author } });
+    } else if (request.action === "add") {
       if (typeof request.text !== "string") return toolError("comment.text is required to add a comment");
       outcome = addThread(text, {
         quote: request.quote,
@@ -165,7 +181,9 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
     const done =
       request.action === "add"
         ? `comment: started thread ${outcome.id} on ${JSON.stringify(quote)} as ${author}`
-        : `comment: ${request.action === "reply" ? "replied to" : request.action === "resolve" ? "resolved" : "reopened"} thread ${request.thread} as ${author}`;
+        : request.action === "delete"
+          ? `comment: deleted ${removedThread ? "thread" : "your latest comment in thread"} ${request.thread}`
+          : `comment: ${request.action === "reply" ? "replied to" : request.action === "resolve" ? "resolved" : "reopened"} thread ${request.thread} as ${author}`;
     return toolText(`${written.content[0].text}\n${done}`);
   }
   return toolError("conflict: note kept changing while the comment was being added; try again");

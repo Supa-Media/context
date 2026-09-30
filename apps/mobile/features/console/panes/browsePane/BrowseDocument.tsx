@@ -315,6 +315,8 @@ export function BrowseDocument({
         activity={data.activity}
         // A person signs with their handle; a visitor comments locally, like they edit.
         commenter={commenterFor(data.viewer?.name, data.visitor !== undefined)}
+        // An owner may delete anyone's comments; everyone else only their own.
+        commentModerator={data.visitor === undefined && capabilitiesForRole(current?.role).isOwner}
         onSignInToComment={data.visitor?.signIn}
         // A visitor's edits stay in their tab; the foot must not say "bucket".
         local={data.visitor !== undefined}

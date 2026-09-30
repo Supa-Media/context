@@ -82,6 +82,34 @@ describe("comments in the iOS editor", () => {
     expect(parseComments(sent).threads[0]!.events.at(-1)).toMatchObject({ author: "@dev2", text: "fair, toned down" });
   });
 
+  test("your own comment has a Delete that asks first; somebody else's has none unless you own the workspace", () => {
+    const mine = COMMENTED.replace("\n```\n", "\n- 2026-09-27T07:31:40Z @dev2: fair\n```\n");
+    const on = connect({ doc: mine, editable: true });
+    wired = on;
+    on.host.setCommenter("@dev2");
+    on.view.dispatch({ effects: setActiveThread.of("k7f2") });
+    const sheet = () => on.view.scrollDOM.querySelector<HTMLElement>(".cm-cmt-sheet-inline")!;
+    expect(sheet().querySelectorAll(".cm-cmt-del")).toHaveLength(1);
+    sheet().querySelector<HTMLButtonElement>(".cm-cmt-del")!.click();
+    expect(sheet().textContent).toContain("Delete this comment?");
+    // Nothing is deleted until the question is answered.
+    expect(on.view.state.doc.toString()).toBe(mine);
+    sheet().querySelector<HTMLButtonElement>(".cm-cmt-danger")!.click();
+    on.flush();
+    expect(on.changes.at(-1)).toBe(COMMENTED);
+
+    on.host.setCommenter("@dev2", true);
+    on.view.dispatch({ effects: setActiveThread.of(null) });
+    on.view.dispatch({ effects: setActiveThread.of("k7f2") });
+    const del = sheet().querySelector<HTMLButtonElement>(".cm-cmt-del")!;
+    expect(del.getAttribute("aria-label")).toBe("Delete this thread");
+    del.click();
+    expect(sheet().textContent).toContain("Delete this thread and its replies?");
+    sheet().querySelector<HTMLButtonElement>(".cm-cmt-danger")!.click();
+    on.flush();
+    expect(on.changes.at(-1)).toBe("# Pricing\n\nIt is free, you cheapo for now.\n");
+  });
+
   test("a name that is not an @handle signs nothing", () => {
     wired = connect({ doc: COMMENTED, editable: true });
     wired.host.setCommenter("Codex");

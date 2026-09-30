@@ -81,6 +81,28 @@ export function messages(thread: CommentThread): CommentEvent[] {
   return thread.events.filter((event) => event.kind === "comment");
 }
 
+/**
+ * Whether `viewer` may delete a comment written by `author`: their own, or
+ * anyone's when they may moderate the workspace (its owners). Deleting a
+ * thread's first comment deletes the thread, replies included, so a person who
+ * started a thread may take it back with the replies it drew. The note is
+ * plain Markdown that anyone who may edit it could change by hand; this is the
+ * rule the buttons follow, not a lock on the file.
+ */
+export function mayDelete(author: string, viewer: string | null, moderator: boolean): boolean {
+  if (viewer === null) return false;
+  return moderator || author === viewer;
+}
+
+/**
+ * What a card is drawn from, without where its lines sit in the file: an edit
+ * above the block moves every offset, and a card keyed on them would be
+ * rebuilt on every keystroke.
+ */
+export function eventsKey(thread: CommentThread): [string, string, string, string][] {
+  return thread.events.map((event) => [event.at, event.author, event.kind, event.text]);
+}
+
 /** The resolve line a resolved thread shows, from its last status event. */
 export function resolvedBy(thread: CommentThread): CommentEvent | null {
   if (thread.status !== "resolved") return null;
