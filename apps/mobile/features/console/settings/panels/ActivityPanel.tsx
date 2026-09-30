@@ -60,7 +60,14 @@ export function ActivityPanel({
   const [who, setWho] = useState<string | null>(null);
   // Not memoised: "4 minutes ago" has to be read against now on every draw,
   // and 200 events are cheap to walk.
-  const page = buildActivity(view.events, { filter, showRoutine, now: Date.now(), names, who });
+  const page = buildActivity(view.events, {
+    filter,
+    showRoutine,
+    now: Date.now(),
+    names,
+    who,
+    short: compact,
+  });
   // A person picked under one kind filter may not appear under the next; the
   // menu still offers them, so "nothing of this kind" is the honest page.
   const people = who !== null && !page.people.includes(who) ? [...page.people, who] : page.people;

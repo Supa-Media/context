@@ -151,7 +151,7 @@ export function MembersSection({
         under it — people first, then who is still invited.
       */}
       <View style={styles.headRow}>
-        <Text variant="rowTitle" style={styles.heading}>
+        <Text variant="noteTitle">
           People
         </Text>
         {actions !== undefined ? (
@@ -364,7 +364,7 @@ function InvitationRow({
         {actions !== undefined ? (
           <Button
             label={busy ? "Cancelling…" : "Cancel invite"}
-            variant="ghost"
+            variant="mini"
             disabled={busy}
             accessibilityLabel={`Cancel the invitation to ${invitation.invitee}`}
             testID={`invitation-withdraw-${invitation.invitationId}`}
@@ -543,7 +543,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 12,
     marginBottom: 10,
   },
-  heading: { fontSize: 17 },
   spaced: { marginBottom: 11 },
   list: { paddingVertical: 0 },
   rowWrap: { paddingVertical: 10 },

@@ -347,7 +347,7 @@ export function SettingsPane({
         different places, and a switch above the context picker would claim
         there is one setting for all of them.
       */}
-      <Text variant="rowTitle" style={styles.searchHead}>
+      <Text variant="noteTitle" style={styles.searchHead}>
         Search
       </Text>
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
@@ -532,7 +532,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   danger: { marginTop: 36, marginBottom: 10, color: colors.critText },
   under: { marginTop: 12, gap: 9, flexWrap: "wrap" },
-  searchHead: { marginTop: 32, marginBottom: 10, fontSize: 17 },
+  searchHead: { marginTop: 32, marginBottom: 10 },
   rowSub: { marginTop: 2 },
   detailsToggle: { marginTop: 10, alignSelf: "flex-start" },
   failure: { marginTop: 15 },

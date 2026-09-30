@@ -5,6 +5,7 @@ import {
   activityCategory,
   buildActivity,
   isRoutineActivity,
+  shortAgo,
 } from "../features/console/advanced/auditActivity";
 
 const MINUTE = 60_000;
@@ -173,6 +174,22 @@ describe("the activity page", () => {
       hiddenRoutineToday: false,
       people: [],
     });
+  });
+});
+
+describe("a phone's times", () => {
+  test("today reads 4m and 1h; other days keep the clock", () => {
+    expect(shortAgo(NOW - 4 * MINUTE, NOW)).toBe("4m");
+    expect(shortAgo(NOW - 90 * MINUTE, NOW)).toBe("1h");
+    expect(shortAgo(NOW - 10_000, NOW)).toBe("now");
+    const page = buildActivity([event({ at: NOW - 22 * MINUTE })], {
+      filter: "all",
+      showRoutine: false,
+      now: NOW,
+      names,
+      short: true,
+    });
+    expect(page.days[0]?.rows[0]?.when).toBe("22m");
   });
 });
 

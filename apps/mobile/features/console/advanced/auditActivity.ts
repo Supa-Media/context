@@ -225,8 +225,20 @@ function clock(at: number): string {
   return new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-function whenFor(group: AuditGroup, today: boolean, now: number): string {
-  const show = (at: number) => (today ? relativeTime(at, now) : clock(at));
+/**
+ * "4m", "1h": today's times on a phone, where "4 minutes ago" wraps the
+ * sentence beside it onto a third line. The artboard's phone frame drew these.
+ */
+export function shortAgo(at: number, now: number): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h`;
+}
+
+function whenFor(group: AuditGroup, today: boolean, now: number, short: boolean): string {
+  const show = (at: number) =>
+    today ? (short ? shortAgo(at, now) : relativeTime(at, now)) : clock(at);
   const latest = show(group.event.at);
   if (group.count === 1) return latest;
   const first = show(group.firstAt);
@@ -241,6 +253,8 @@ export function buildActivity(
     showRoutine: boolean;
     /** One person's rows only, by the name the sentence uses; absent for anyone. */
     who?: string | null;
+    /** Today's times as "4m" rather than "4 minutes ago" (a phone). */
+    short?: boolean;
     now: number;
     /** Member names by user id, so a sentence says "Seyi" rather than an email. */
     names?: ReadonlyMap<string, string>;
@@ -285,7 +299,7 @@ export function buildActivity(
           sentence,
           detail,
           notes,
-          when: whenFor(group, isToday, options.now),
+          when: whenFor(group, isToday, options.now, options.short === true),
           count: group.count,
         };
       }),

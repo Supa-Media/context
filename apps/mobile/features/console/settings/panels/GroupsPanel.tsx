@@ -85,7 +85,7 @@ export function GroupsPanel({
         row per group — its name and who is in it — that opens to the names,
         the additions and Delete.
       */}
-      <Text variant="rowTitle" style={styles.heading}>
+      <Text variant="noteTitle">
         Groups
       </Text>
       <Text variant="rowSub" style={styles.lede}>
@@ -344,7 +344,6 @@ function NewGroup({ slug, actions }: { slug: string; actions: GroupActions }) {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  heading: { fontSize: 17 },
   lede: { marginTop: 2, marginBottom: 10 },
   list: { paddingVertical: 0 },
   divided: { borderTopWidth: 1, borderTopColor: colors.line },

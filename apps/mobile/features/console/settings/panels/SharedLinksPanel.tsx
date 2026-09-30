@@ -6,6 +6,8 @@ import { Hint } from "../../../design/components/Field";
 import { FormError } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { baseName, displayName } from "../../files/paths";
 import { useArming } from "../../useArming";
 import {
   describeShareFailure,
@@ -51,7 +53,7 @@ export function SharedLinksPanel({ view }: { view: SharesView }) {
 
   return (
     <View>
-      <Text variant="rowTitle" style={styles.heading}>
+      <Text variant="noteTitle" style={styles.heading}>
         Links you&apos;ve shared
       </Text>
       <Card style={styles.list}>
@@ -116,13 +118,13 @@ function ShareRow({
   }
 
   // The note's own title where the share carries it, else its file name.
-  const name =
-    share.previewTitle?.trim() ||
-    (share.entryPath.split("/").pop() ?? share.entryPath).replace(/\.md$/i, "");
+  // Both come out of somebody's bucket, so both are contained for display.
+  const title = share.previewTitle?.trim();
+  const name = title ? isolateForDisplay(title) : displayName(baseName(share.entryPath));
   const lifetime = share.expiresAt === undefined ? null : shareLifetime(share.expiresAt, now);
 
   return (
-    <View style={first ? null : styles.divided}>
+    <View style={[styles.item, first ? null : styles.divided]}>
       <Row style={styles.wrapRow}>
         <Grow>
           <Text variant="rowTitle" numberOfLines={1}>
@@ -164,8 +166,9 @@ function ShareRow({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    heading: { fontSize: 17, marginBottom: 10 },
+    heading: { marginBottom: 10 },
     list: { paddingVertical: 0 },
+    item: { paddingVertical: 12 },
     divided: { borderTopWidth: 1, borderTopColor: colors.line },
     rowSub: { marginTop: 2 },
     rowError: { marginTop: 8 },

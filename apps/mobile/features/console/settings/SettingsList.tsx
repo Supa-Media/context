@@ -424,7 +424,9 @@ function SettingsRow({
       />
       <Text
         variant={compact ? "railTouch" : "rail"}
-        numberOfLines={1}
+        // Two lines rather than an ellipsis: "People & sharing" beside
+        // "3 people" is wider than the column, and the artboard wraps it.
+        numberOfLines={2}
         style={[styles.label, selected ? styles.labelOn : null]}
       >
         {label}
@@ -551,7 +553,7 @@ const makeStyles = (colors: Colors) =>
     spacer: { flexGrow: 1, minWidth: space.x2 },
     // Capped, so a long bucket name truncates instead of squeezing the label
     // it is supposed to be answering.
-    value: { flexShrink: 1, maxWidth: "48%", textAlign: "right", color: colors.muted },
+    value: { flexShrink: 0, maxWidth: "48%", textAlign: "right", color: colors.muted },
     switcherWrap: { marginBottom: space.x2 },
     switcher: {
       flexDirection: "row",
