@@ -28,8 +28,7 @@ import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from 
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
 import { clearanceOf } from "../clearance";
-import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET, isRetryableD1Error, messageFor } from "../d1";
-import { PROJECTION_RETRY_MS } from "../fastSearch";
+import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET, messageFor } from "../d1";
 import {
   type FileStore,
   loadPrivacyState,
@@ -49,6 +48,7 @@ import {
   operationTouchesWebsite,
 } from "../websites/changes";
 import { executeOperation } from "./executeOperation";
+import { recordProjectionOutcome } from "./projectionOutcome";
 import {
   failForwardSync,
   releaseForwardSync,
@@ -549,85 +549,12 @@ export async function runFileOperationHandler(
       .catch(() => {});
   }
 
-  /*
-   * WHAT A PROJECTION PASS LEARNED, WRITTEN WHERE A PERSON CAN SEE IT.
-   *
-   * The gateway's copy of this posts to `/gateway/search-index/progress`,
-   * because it is on the other side of a network boundary and holds a secret
-   * rather than a session. There is no hop to make from inside the control
-   * plane, so the internal mutations are called directly — and they are the
-   * same two the route calls, so the policy about what may be applied to a
-   * row is answered in one place whichever half reports.
-   *
-   * A failure goes to `recordProvisionResult` rather than to the progress
-   * mutation, and that is not a tidy-up: the progress mutation carries two
-   * counters and a `ready` flag, and a failed pass's counters are zero
-   * because they are only computed when something moved. Reporting them
-   * would write "no notes found" onto the row. `failed` is a state the
-   * console already renders, with the owner's own "Try again" on it.
-   */
   if (result.kind === "indexProjected") {
-    const passes = Math.floor(args.operation.kind === "projectIndex"
-      ? args.operation.passes ?? 0
-      : 0);
-    if (result.failure !== undefined) {
-      /*
-        A BLIP IS A WAIT, NOT A VERDICT.
-
-        This used to record `failed` on any failure, and the row then said
-        "Cloudflare could not be reached. This will retry." while nothing
-        retried: `failed` is outside `backfilling`, so the chain stopped and
-        the sweep did not look at it. A person watched a card promise a retry
-        at 84% and nothing came. A failure waiting can fix spends one link of
-        the chain on a delayed retry instead, and writes nothing, so the card
-        keeps saying "Preparing", which is true. Only a chain that has run out
-        of links records the failure, and the sweep restarts that one too.
-      */
-      if (isRetryableD1Error(result.failure) && passes > 0) {
-        await ctx.scheduler.runAfter(
-          PROJECTION_RETRY_MS,
-          internal.functions.files.runFileOperation,
-          {
-            workspaceId: args.workspaceId,
-            scope: args.scope,
-            operation: { kind: "projectIndex", passes: passes - 1 },
-          },
-        );
-        return result;
-      }
-      await ctx.runMutation(
-        internal.functions.fastSearch.recordProvisionResult,
-        {
-          workspaceId: args.workspaceId,
-          status: "failed",
-          errorCode: result.failure,
-          error: messageFor(result.failure),
-        },
-      );
-      return result;
-    }
-    if (result.report) {
-      await ctx.runMutation(
-        internal.functions.fastSearch.recordProjectionProgress,
-        {
-          workspaceId: args.workspaceId,
-          notesIndexed: result.notesIndexed,
-          notesPending: result.notesPending,
-          ready: result.ready,
-        },
-      );
-    }
-    // Same shape, same reasoning and the same place as the maintenance chain
-    // below: scheduled from inside the barrier, which propagates no taint,
-    // and only by a link that made progress and did not finish.
-    if (result.moved && !result.ready && passes > 0) {
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope: args.scope,
-        operation: { kind: "projectIndex", passes: passes - 1 },
-      });
-    }
-    return result;
+    await recordProjectionOutcome(ctx, args, result);
+    // The detail was for the log line; the scheduler keeps return values, and
+    // the validator holds them to the shape every caller already reads.
+    const { failureDetail: _logged, ...answer } = result;
+    return answer;
   }
 
   // A maintenance pass that got somewhere and is not finished schedules the

@@ -73,6 +73,16 @@ export interface ProjectionPass {
   /** A `D1Error` code, or `null`. Ours, from a closed set — never a provider's. */
   failure: string | null;
   /**
+   * For the log line only: how the failure happened (`timeout`, `http_503`…),
+   * on which of our statements, and how long it took. Never shown to anybody
+   * and never a provider's words — see `D1Error` in the gateway's client.
+   */
+  failureDetail?: {
+    cause: string | null;
+    statement: string | null;
+    elapsedMs: number | null;
+  } | null;
+  /**
    * Did this pass move anything?
    *
    * **The only reason to schedule another**, and the reason it is not
@@ -240,6 +250,7 @@ export async function projectSearchIndex(
     notesPending: progress.notesPending,
     ready: progress.state === "ready",
     failure,
+    failureDetail: result.failureDetail ?? null,
     moved: moved || result.projected > 0 || result.deleted > 0,
     report: failure === null && worthReporting(result),
   };

@@ -20,6 +20,7 @@ import {
   DatabaseSync,
   createD1Backend,
   createD1Client,
+  failureDetailOf,
   createSearchBudget,
   noteStore,
   projectPass,
@@ -149,6 +150,42 @@ export async function runSearchProjectionWireAndTenancyChecks(check) {
     check(
       "and the thrown error that quoted the token is dropped, not wrapped",
       !message.includes(API_TOKEN),
+    );
+  }
+
+  {
+    // What a developer reads when a pass fails: how, on which statement, and
+    // how long it took. Ours only: three codes' worth of "UNAVAILABLE" used
+    // to be indistinguishable, and none of the provider's words may ride along.
+    const failWith = async (fetchImpl) => {
+      const client = createD1Client(DESCRIPTOR, { fetchImpl });
+      try {
+        await client.query("INSERT INTO notes_private_fts (path) VALUES (?)", ["1-projects/secret.md"]);
+      } catch (error) {
+        return failureDetailOf(error);
+      }
+      return null;
+    };
+    const dropped = await failWith(async () => {
+      throw new Error(`fetch failed: POST with Bearer ${API_TOKEN}`);
+    });
+    const refused = await failWith(async () =>
+      new Response(JSON.stringify({ success: false, errors: [{ message: ACCOUNT_ID }] }), { status: 503 }),
+    );
+    check("a dropped connection says network", dropped?.cause === "network");
+    check("a 503 says which status", refused?.cause === "http_503");
+    check(
+      "the statement is named by verb and table",
+      refused?.statement === "INSERT notes_private_fts",
+    );
+    check("and how long it took", Number.isFinite(refused?.elapsedMs));
+    const text = JSON.stringify([dropped, refused]);
+    check(
+      "with no token, account, database or bound parameter in it",
+      !text.includes(API_TOKEN) &&
+        !text.includes(ACCOUNT_ID) &&
+        !text.includes(DATABASE_ID) &&
+        !text.includes("secret.md"),
     );
   }
 

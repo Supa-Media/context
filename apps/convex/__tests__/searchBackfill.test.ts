@@ -67,8 +67,6 @@
  *   the sweep restarting a chain that is already working                      1
  *   the sweep starting a context whose owner never asked                      1
  *   an unconfigured deployment left `backfilling` forever                     1
- *   a Cloudflare blip recorded as `failed` instead of retried by the chain    1
- *   the sweep restarting a failure waiting cannot fix                         1
  *   the credential opened before the row is asked                         0 → 1
  *   the chain treated as still due for a row that is no longer
  *     `backfilling` (i.e. one that is `ready`)                            0 → 1
@@ -115,6 +113,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryS3, memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { d1AndBucketFetch, stubD1, type StubD1 } from "./searchBackfill.helpers";
+import { cancelPendingJobs, opted, project, queued, row } from "./searchBackfill.trigger.helpers";
 import {
   type FileStore,
   projectSearchIndex,
@@ -136,32 +135,8 @@ import {
 } from "./fixtures.helpers";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../functions/lib/d1";
 
-/**
- * Every deployment a test in this file stood up, so `afterEach` can put its
- * scheduler to bed.
- *
- * `convex-test` starts a `runAfter(0)` job on a **real** timer, and several
- * checks here deliberately end with one queued — asserting that a link was
- * scheduled is half the point of the file. Left alone, that timer fires during
- * whichever test is running by then, and reaches for `globalThis.fetch`, which
- * is that test's stub. The symptom is a check failing over statements sent by
- * a pass belonging to a context it has never heard of, and it passes when run
- * alone: the classic shape of a suite whose tests are not isolated.
- *
- * So every pending job is cancelled between tests. Cancelling rather than
- * draining, because draining would run work the test had just finished proving
- * should exist and had no intention of executing.
- */
-const deployments: TestConvex[] = [];
-
 afterEach(async () => {
-  for (const t of deployments.splice(0)) {
-    await t.run(async (ctx) => {
-      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
-        if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
-      }
-    });
-  }
+  await cancelPendingJobs();
   vi.unstubAllGlobals();
 });
 
@@ -418,97 +393,6 @@ describe("a projection pass the control plane runs itself", () => {
 /* -------------------------------------------------------------------------- */
 /*                    what starts it, and what stops it                       */
 /* -------------------------------------------------------------------------- */
-
-/** A context with a bucket, a provisioned index row, and the D1 credential set. */
-async function opted(
-  options: { status?: Doc<"searchIndexes">["status"]; optedIn?: boolean; notes?: number } = {},
-): Promise<{
-  t: TestConvex;
-  workspaceId: Id<"workspaces">;
-  owner: Id<"users">;
-  d1: StubD1;
-  bucket: ReturnType<typeof memoryS3>;
-}> {
-  const t = setupTest();
-  deployments.push(t);
-  const owner = await createUser(t, "owner@example.invalid");
-  const workspaceId = await createWorkspace(t, owner, "quokka-notes");
-
-  const bucket = memoryS3(FAKE_STORAGE.bucket);
-  bucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
-  bucket.seed("index.md", "# Context\n");
-  for (let n = 0; n < (options.notes ?? 3); n += 1) {
-    bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nThe quokkaplan ships.\n`);
-  }
-  const d1 = stubD1();
-  vi.stubGlobal("fetch", d1AndBucketFetch(d1, bucket.fetchImpl));
-
-  await seedStorageBinding(t, { workspaceId, boundBy: owner });
-  await seedAppSecret(t, D1_TOKEN_SECRET, FAKE_D1.apiToken);
-  await seedAppSecret(t, D1_ACCOUNT_SECRET, FAKE_D1.accountId);
-
-  const now = Date.now();
-  await t.run(async (ctx) => {
-    await ctx.db.insert("workspacePlans", {
-      workspaceId,
-      managedStorage: false,
-      fastSearch: true,
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.insert("searchIndexes", {
-      workspaceId,
-      generation: "premium-v1",
-      optedIn: options.optedIn ?? true,
-      optedInBy: owner,
-      optedInAt: now,
-      status: options.status ?? "backfilling",
-      databaseId: "example-database-0000",
-      databaseName: "context-search-example",
-      schemaVersion: 1,
-      notesIndexed: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
-  });
-  return { t, workspaceId, owner, d1, bucket };
-}
-
-function row(t: TestConvex, workspaceId: Id<"workspaces">) {
-  return t.run(
-    async (ctx) =>
-      await ctx.db
-        .query("searchIndexes")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-        .unique(),
-  );
-}
-
-/** Jobs queued but not yet run, by function name. */
-async function queued(t: TestConvex, name: string) {
-  const jobs = await t.run((ctx) =>
-    ctx.db.system.query("_scheduled_functions").collect(),
-  );
-  return jobs.filter(
-    (job) => job.name.includes(name) && job.state.kind === "pending",
-  );
-}
-
-async function project(
-  t: TestConvex,
-  workspaceId: Id<"workspaces">,
-  passes = 4,
-) {
-  return await t.action(internal.functions.files.runFileOperation, {
-    workspaceId,
-    // Scope-blind, like `maintainIndex`: an index describes the bucket, and
-    // the tier a note is copied at comes from `privacy.md` per note, never
-    // from whoever happened to schedule the pass.
-    scope: "private" as const,
-    operation: { kind: "projectIndex" as const, passes },
-  });
-}
 
 describe("the trigger", () => {
   test("provisioning schedules the first pass, after the status is recorded", async () => {
@@ -773,122 +657,6 @@ describe("the trigger", () => {
     const after = await row(t, workspaceId);
     expect(after?.status).toBe("failed");
     expect(after?.errorCode).toBe("NOT_CONFIGURED");
-  });
-
-  test("a Cloudflare blip is retried by the chain, not recorded as failed", async () => {
-    /*
-      The screen a person actually saw: "Cloudflare could not be reached. This
-      will retry." at 84%, and nothing retried, because a projection pass
-      recorded `failed` on any failure and a `failed` row is outside
-      everything that restarts work. A failure waiting can fix spends a link on
-      a delayed retry instead, and the row keeps saying it is preparing.
-    */
-    const { t, workspaceId, d1 } = await opted({ notes: 3 });
-    d1.fail = "UNAVAILABLE";
-
-    await project(t, workspaceId, 4);
-
-    const after = await row(t, workspaceId);
-    expect(after?.status).toBe("backfilling");
-    expect(after?.error).toBeUndefined();
-    const retries = await queued(t, "runFileOperation");
-    expect(retries).toHaveLength(1);
-    // Delayed, not immediate: an outage answered at once is answered the same.
-    expect(retries[0]!.scheduledTime).toBeGreaterThan(Date.now() + 10_000);
-    // And it spends a link, which is what keeps an outage from looping forever.
-    expect(retries[0]!.args[0].operation).toEqual({ kind: "projectIndex", passes: 3 });
-  });
-
-  test("a chain that runs out of links on a blip records it, for the sweep", async () => {
-    const { t, workspaceId, d1 } = await opted({ notes: 3 });
-    d1.fail = "RATE_LIMITED";
-
-    await project(t, workspaceId, 0);
-
-    const after = await row(t, workspaceId);
-    expect(after?.status).toBe("failed");
-    expect(after?.errorCode).toBe("RATE_LIMITED");
-    expect(after?.error).toContain("tries again on its own");
-    expect(await queued(t, "runFileOperation")).toHaveLength(0);
-  });
-
-  test("the sweep restarts a row that failed on a blip, counters kept", async () => {
-    const { t, workspaceId } = await opted({ notes: 3 });
-    await t.run(async (ctx) => {
-      const existing = await ctx.db
-        .query("searchIndexes")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-        .unique();
-      await ctx.db.patch(existing!._id, {
-        status: "failed",
-        errorCode: "UNAVAILABLE",
-        error: "Cloudflare could not be reached.",
-        notesIndexed: 580,
-        notesPending: 110,
-        updatedAt: Date.now() - 86_400_000,
-      });
-    });
-
-    const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
-
-    expect(swept.started).toBe(1);
-    const after = await row(t, workspaceId);
-    expect(after?.status).toBe("backfilling");
-    expect(after?.error).toBeUndefined();
-    expect(after?.errorCode).toBeUndefined();
-    // Resumed, not restarted: the percentage does not drop back to zero.
-    expect(after?.notesIndexed).toBe(580);
-    expect(await queued(t, "runFileOperation")).toHaveLength(1);
-  });
-
-  test("the sweep re-provisions a row that failed on a blip before its schema", async () => {
-    const { t, workspaceId } = await opted({ notes: 3 });
-    await t.run(async (ctx) => {
-      const existing = await ctx.db
-        .query("searchIndexes")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-        .unique();
-      await ctx.db.patch(existing!._id, {
-        status: "failed",
-        errorCode: "NOT_FOUND",
-        schemaVersion: undefined,
-        updatedAt: Date.now() - 86_400_000,
-      });
-    });
-
-    const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
-
-    expect(swept.started).toBe(1);
-    expect((await row(t, workspaceId))?.status).toBe("provisioning");
-    expect(await queued(t, "provisionIndex")).toHaveLength(1);
-    expect(await queued(t, "runFileOperation")).toHaveLength(0);
-  });
-
-  test("the sweep leaves a terminal failure, a fresh one, and an opted-out one alone", async () => {
-    for (const [patch, label] of [
-      [{ errorCode: "UNAUTHORIZED" }, "refused token"],
-      [{ errorCode: "NOT_CONFIGURED" }, "missing secret"],
-      [{ errorCode: "UNAVAILABLE", updatedAt: Date.now() }, "failed a moment ago"],
-      [{ errorCode: "UNAVAILABLE", optedIn: false }, "opted out"],
-    ] as const) {
-      const { t, workspaceId } = await opted({ notes: 3 });
-      await t.run(async (ctx) => {
-        const existing = await ctx.db
-          .query("searchIndexes")
-          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-          .unique();
-        await ctx.db.patch(existing!._id, {
-          status: "failed",
-          updatedAt: Date.now() - 86_400_000,
-          ...patch,
-        });
-      });
-
-      const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
-
-      expect(swept.started, label).toBe(0);
-      expect((await row(t, workspaceId))?.status, label).toBe("failed");
-    }
   });
 
   test("the sweep starts a context that was left backfilling before any of this existed", async () => {

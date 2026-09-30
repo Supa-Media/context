@@ -136,6 +136,7 @@ export const provisionIndex = internalAction({
 
     try {
       let databaseId = binding.databaseId;
+      let created = false;
       let databaseName = binding.databaseName;
 
       if (databaseId === undefined) {
@@ -146,6 +147,7 @@ export const provisionIndex = internalAction({
         const { database, adopted } = await ensureDatabase(config, name);
         databaseId = database.uuid;
         databaseName = database.name;
+        created = true;
         // Recorded BEFORE the schema is applied, and that order is the whole
         // safety argument: a database created but not recorded is one nothing
         // can ever find to delete — an orphaned derived copy of somebody's
@@ -180,7 +182,11 @@ export const provisionIndex = internalAction({
         databaseId,
         databaseName,
         schemaVersion: D1_SCHEMA_VERSION,
-        notesIndexed: 0,
+        // Zero only for a database this run just made. A retry against the
+        // recorded one ("Try again" on a failed card) resumes a copy that is
+        // still there, and showing "Nothing indexed yet" over 580 notes the
+        // database holds reads as the retry having thrown them away.
+        ...(created ? { notesIndexed: 0 } : {}),
       });
 
       /*
