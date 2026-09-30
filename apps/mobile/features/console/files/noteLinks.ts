@@ -440,14 +440,13 @@ export function noteLinks(ref: NoteLinkRef): Extension {
    * A web link is only offered when the surface can open one — without
    * `onOpenUrl` it stays text the caret goes into, which is what it was.
    */
-  const targetAtCoords = (
+  const targetUnder = (
     view: EditorView,
-    x: number,
-    y: number,
     under: EventTarget | null,
   ): { from: number; to: number; path?: string; url?: string } | null => {
-    if (!onLinkText(view, under)) return null;
-    const pos = view.posAtCoords({ x, y });
+    // Only the link's words are the link (`onLinkText`), and the words say
+    // which link they are; see `linkTextPos` for why not the coordinates.
+    const pos = linkTextPos(view, under);
     if (pos === null) return null;
     const note = noteLinkAt(spansOf(view), pos);
     if (note !== null) return note;
@@ -455,7 +454,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     return webLinkAt(view.state, pos);
   };
 
-  /** Follow what `targetAtCoords` found. */
+  /** Follow what `targetUnder` found. */
   const follow = (target: { path?: string; url?: string }, mode: NoteLinkOpen): void => {
     if (target.path !== undefined) ref.current.onOpen(target.path, mode);
     else if (target.url !== undefined) ref.current.onOpenUrl?.(target.url);
@@ -492,7 +491,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         click belongs to the caret.
       */
       if (event.altKey) return false;
-      const span = targetAtCoords(view, event.clientX, event.clientY, event.target);
+      const span = targetUnder(view, event.target);
       if (span === null) return false;
       // The link is unfolded to its source and somebody is working inside it.
       if (editing(view, span)) return false;
@@ -510,7 +509,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       forget();
       if (event.touches.length !== 1) return false;
       const touch = event.touches[0]!;
-      const span = targetAtCoords(view, touch.clientX, touch.clientY, event.target);
+      const span = targetUnder(view, event.target);
       if (span === null) return false;
       /*
         A TAP ON A LINK'S WORDS ALWAYS OPENS IT. Unlike a click, a tap does not
@@ -603,10 +602,33 @@ export function noteLinks(ref: NoteLinkRef): Extension {
  * clickable are one set.
  */
 export function onLinkText(view: EditorView, under: EventTarget | null): boolean {
+  return linkElement(view, under) !== null;
+}
+
+/** The drawn link the pointer is on, or `null`. */
+function linkElement(view: EditorView, under: EventTarget | null): Element | null {
   const element =
     under instanceof Element ? under : under instanceof Node ? under.parentElement : null;
   const link = element?.closest(".cm-note-link, .cm-lp-link") ?? null;
-  return link !== null && view.contentDOM.contains(link);
+  return link !== null && view.contentDOM.contains(link) ? link : null;
+}
+
+/**
+ * The document position of the link the pointer is on, read off the element
+ * rather than off the coordinates.
+ *
+ * `posAtCoords` reads CodeMirror's height map, and that map is only as right
+ * as the last measure. A block widget whose drawn height the map missed (the
+ * homepage's join card, whose bottom margin collapsed out of its box) shifts
+ * every line below it, and a click on a link near the end of the note resolved
+ * to the end of the document instead. The last link on the page then answered
+ * every click: the owner's report of 2026-09-30, where each of the homepage's
+ * footer links (home, pricing, use cases, devlog) opened the devlog. The
+ * element is what the browser hit-tested, so it cannot drift.
+ */
+function linkTextPos(view: EditorView, under: EventTarget | null): number | null {
+  const link = linkElement(view, under);
+  return link === null ? null : view.posAtDOM(link, 0);
 }
 
 /** A user agent, or nothing, without assuming there is a browser. */

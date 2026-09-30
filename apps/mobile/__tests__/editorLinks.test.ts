@@ -259,6 +259,71 @@ describe("only the link's words are the link, not the line it sits on", () => {
   });
 });
 
+describe("the link clicked is the link opened, wherever the coordinates land", () => {
+  /*
+    The owner's report of 2026-09-30: on the homepage every footer link (home,
+    pricing, use cases, devlog) opened the devlog. A block widget above the
+    footer was drawn taller than CodeMirror measured it, so `posAtCoords`
+    resolved every click on the last line to the end of the note, and the last
+    link on it answered all of them.
+
+    jsdom resolves every coordinate to position 0, inside the first link, which
+    is that drift in miniature: the coordinates name one link and the element
+    under the pointer names another. The element has to win.
+  */
+  const FOOTER = "[home](/index) - [pricing](/pricing) - [devlog](/devlog)";
+
+  function footer(): { view: EditorView; opened: string[]; links: HTMLElement[]; parent: HTMLElement } {
+    const opened: string[] = [];
+    const ref = {
+      current: {
+        path: "index.md",
+        paths: ["index.md", "pricing.md", "devlog.md"],
+        onOpen: (path: string) => opened.push(path),
+      } satisfies NoteLinkContext,
+    };
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      state: EditorState.create({ doc: FOOTER, extensions: [noteLinks(ref)] }),
+      parent,
+    });
+    const links = [...view.contentDOM.querySelectorAll<HTMLElement>(".cm-note-link")];
+    return { view, opened, links, parent };
+  }
+
+  test("a click opens the link under the pointer, not the one at the coordinates", () => {
+    const { view, opened, links, parent } = footer();
+    try {
+      expect(links.map((link) => link.textContent)).toEqual([
+        "[home](/index)",
+        "[pricing](/pricing)",
+        "[devlog](/devlog)",
+      ]);
+      for (const link of links) link.dispatchEvent(mouse("mousedown"));
+      expect(opened).toEqual(["index.md", "pricing.md", "devlog.md"]);
+    } finally {
+      view.destroy();
+      parent.remove();
+    }
+  });
+
+  test("and so does a tap", () => {
+    jest.useFakeTimers();
+    const { view, opened, links, parent } = footer();
+    try {
+      for (const link of links.slice(1)) {
+        link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+        link.dispatchEvent(touch("touchend", []));
+      }
+      expect(opened).toEqual(["pricing.md", "devlog.md"]);
+    } finally {
+      view.destroy();
+      parent.remove();
+    }
+  });
+});
+
 describe("⌘-click and middle-click open it behind", () => {
   /**
    * jsdom's user agent is not an Apple one, so `Ctrl` is this environment's

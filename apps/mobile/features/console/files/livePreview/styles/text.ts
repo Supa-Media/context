@@ -42,6 +42,15 @@ export const textStyles = `
 .cm-lp-cast-name { font-weight: 600; color: var(--lp-heading); }
 .cm-lp-cast-count { font-family: var(--lp-mono); font-size: 0.92em; }
 /*
+  The join box (joinBlock.ts) keeps its children's margins inside it. The
+  homepage's card has a bottom margin, and without a formatting context of its
+  own that margin collapsed out of the box, where CodeMirror's measure of the
+  widget never saw it. Every line below was then drawn lower than the editor
+  believed, and a click on the page's last line resolved past the end of the
+  note (every footer link opened the devlog, 2026-09-30).
+*/
+.cm-lp-join { display: flow-root; }
+/*
   A dictated phrase the engine has not settled on yet.
 
   Grey and italic because that is what "heard, not written" has to look like:
