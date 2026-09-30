@@ -96,7 +96,7 @@ test("the box is actually drawn, on every line of the callout", async ({ page })
     const style = getComputedStyle(node);
     return { border: style.borderLeftWidth, background: style.backgroundColor };
   });
-  expect(drawn.border).toBe("3px");
+  expect(drawn.border).toBe("1px");
   expect(drawn.background).not.toBe("rgba(0, 0, 0, 0)");
 });
 
@@ -110,13 +110,29 @@ test("an untitled callout is titled with its type, as Obsidian does", async ({ p
 test("the marker comes back the moment the caret is in it", async ({ page }) => {
   await typeCallout(page, "> [!warning] Mind the gap");
   const editor = page.locator(".cm-content");
+  // Off the callout: the marker is drawn as the card's head, not as source.
+  await page.keyboard.press("Control+Home");
   await expect(editor).not.toContainText("[!warning]");
 
-  // Back onto the marker. Editing the type would be impossible otherwise.
-  await page.keyboard.press("Home");
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
+  // Back into it. Editing the type would be impossible otherwise.
+  await page.keyboard.press("Control+End");
   await expect(editor).toContainText("[!warning]");
+});
+
+/*
+  "The md format doesn't show when I click over it." With the caret anywhere in
+  the callout, its first line is drawn as the Markdown it is, and the card's
+  edge says it is being edited.
+*/
+test("clicking into the text shows the first line as Markdown", async ({ page }) => {
+  await typeCallout(page, "> [!warning] Mind the gap", "and the door");
+  const editor = page.locator(".cm-content");
+  // The caret is at the end of the body line, inside the callout.
+  await expect(editor).toContainText("[!warning] Mind the gap");
+  await expect(page.locator(".cm-lp-callout-source")).toHaveCount(1);
+  await expect(page.locator(".cm-lp-callout-editing")).toHaveCount(2);
+
+  await page.keyboard.press("Control+Home");
+  await expect(editor).not.toContainText("[!warning]");
+  await expect(page.locator(".cm-lp-callout-editing")).toHaveCount(0);
 });

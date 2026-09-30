@@ -51,7 +51,7 @@
     reveal.ts        the inline reveal rule: hidden marks, reveal units,
                      selectionTouches, styleClassFor, wiki-link spans
     lists.ts         hanging indents, finished tasks, list glyphs, isTicked
-    callouts.ts      callout detection and CalloutTitleWidget
+    callouts.ts      callout detection and the card's widgets
     writingTable.ts  STATE: setWritingTable / writingTable (the table shown as
                      source), stopWritingTable, showTableSource
     engagement.ts    STATE: setEditorEngaged / editorEngaged, engageEditor,
@@ -93,7 +93,14 @@ export {
   type HangingIndent,
   type ListGlyph,
 } from "./livePreview/lists";
-export { CalloutTitleWidget, calloutLabel, callouts, type Callout } from "./livePreview/callouts";
+export {
+  CalloutArrowWidget,
+  CalloutBadgeWidget,
+  CalloutTitleWidget,
+  calloutLabel,
+  callouts,
+  type Callout,
+} from "./livePreview/callouts";
 export {
   alignmentsIn,
   tableGrids,

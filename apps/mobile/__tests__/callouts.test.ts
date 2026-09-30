@@ -27,6 +27,8 @@
 import { describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import {
+  CalloutArrowWidget,
+  CalloutBadgeWidget,
   CalloutTitleWidget,
   callouts,
   decorationsFor,
@@ -207,7 +209,9 @@ describe("what the reader sees", () => {
   test("the caret on one line reveals that line's mark and no other", () => {
     const doc = "> [!note] Titled\n> body\n";
     // Column 2 of the second line, inside its `> `.
-    expect(visible(doc, doc.indexOf("> body") + 1)).toBe("Titled\n> body\n");
+    // The first line is source now because the caret is in the callout — see
+    // "the quiet card" below — but its own `>` still stays put.
+    expect(visible(doc, doc.indexOf("> body") + 1)).toBe("[!note] Titled\n> body\n");
   });
 
   test("the marker comes back when the caret is in it", () => {
@@ -244,5 +248,82 @@ describe("the box", () => {
   test("a plain blockquote gets no box", () => {
     const state = stateFor("> Just a quote\n", 100);
     expect(lineClasses(state, state.doc.line(1).from)).not.toContain("cm-lp-callout");
+  });
+});
+
+/**
+ * THE QUIET CARD — Dev2 picked design A (2026-09-30) from three artboards.
+ *
+ * Reported as "embeds needs a better appearance. the md format also don't show
+ * when i click over it": a near-black box with an underlined link for a title,
+ * and a click inside that left the callout's own Markdown hidden. The card is
+ * one quiet line on top (the type's icon and name, then the title with ↗ when
+ * it is a link), the text under it, and — the moment the caret is anywhere in
+ * the callout — its first line drawn as the Markdown it is.
+ *
+ * SABOTAGE: drop the badge replacement and "the type rides in front of a
+ * title" fails; drop the `tail` class and "the box closes" fails; drop the
+ * engaged pass and all three "clicking in" cases fail.
+ */
+describe("the quiet card", () => {
+  function widgets(state: EditorState): unknown[] {
+    const found: unknown[] = [];
+    const iter = decorationsFor(state).iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { widget?: unknown };
+      if (spec.widget !== undefined) found.push(spec.widget);
+      iter.next();
+    }
+    return found;
+  }
+
+  test("the type rides in front of a title the author wrote", () => {
+    const state = stateFor(BIBLE, 200);
+    const badges = widgets(state).filter((w) => w instanceof CalloutBadgeWidget);
+    expect(badges).toHaveLength(1);
+    expect((badges[0] as CalloutBadgeWidget).label).toBe("Bible");
+  });
+
+  test("a title that is a link gets an arrow after it, and a plain title does not", () => {
+    expect(widgets(stateFor(BIBLE, 200)).filter((w) => w instanceof CalloutArrowWidget)).toHaveLength(1);
+    expect(
+      widgets(stateFor("> [!note] Plain\n> body\n", 100)).filter((w) => w instanceof CalloutArrowWidget),
+    ).toHaveLength(0);
+  });
+
+  test("the box closes: its last line is the tail, and a one-line callout is both", () => {
+    const state = stateFor(BIBLE, 200);
+    expect(lineClasses(state, state.doc.line(1).from)).not.toContain("cm-lp-callout-tail");
+    expect(lineClasses(state, state.doc.line(2).from)).toContain("cm-lp-callout-tail");
+    const one = stateFor("> [!warning] Mind the gap\n\nAfter.\n", 100);
+    expect(lineClasses(one, 0)).toEqual(
+      expect.arrayContaining(["cm-lp-callout-head", "cm-lp-callout-tail"]),
+    );
+  });
+
+  test("clicking in shows the first line as its Markdown", () => {
+    const body = BIBLE.indexOf("For God");
+    const text = visible(BIBLE, body + 4);
+    expect(text.split("\n")[0]).toBe("[!bible] [John 3:16 - NIV](https://example.invalid/jhn.3.16)");
+    // And no badge or arrow is drawn over the source it now shows.
+    const state = stateFor(BIBLE, body + 4);
+    expect(widgets(state).some((w) => w instanceof CalloutBadgeWidget)).toBe(false);
+    expect(widgets(state).some((w) => w instanceof CalloutArrowWidget)).toBe(false);
+  });
+
+  test("clicking in marks every line as being edited, and the first as source", () => {
+    const state = stateFor(BIBLE, BIBLE.indexOf("For God") + 4);
+    expect(lineClasses(state, state.doc.line(1).from)).toEqual(
+      expect.arrayContaining(["cm-lp-callout-editing", "cm-lp-callout-source"]),
+    );
+    expect(lineClasses(state, state.doc.line(2).from)).toContain("cm-lp-callout-editing");
+    expect(lineClasses(state, state.doc.line(2).from)).not.toContain("cm-lp-callout-source");
+  });
+
+  test("with the caret elsewhere, nothing is being edited", () => {
+    const doc = `${BIBLE}\nAfter.\n`;
+    const state = stateFor(doc, doc.length);
+    expect(lineClasses(state, 0)).not.toContain("cm-lp-callout-editing");
+    expect(visible(doc).split("\n")[0]).toBe("John 3:16 - NIV");
   });
 });

@@ -75,6 +75,7 @@ export function ensureStyles(colors: Colors): void {
   */
   --lp-line: ${colors.line};
   --lp-line-strong: ${colors.lineStrong};
+  --lp-raised: ${colors.surface2};
   /* The wash behind a focused control, so focus is a ring rather than one
      pixel of border changing colour. */
   --lp-focus-ring: ${colors.accentDim};

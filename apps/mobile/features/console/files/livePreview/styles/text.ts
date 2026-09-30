@@ -130,37 +130,81 @@ export const textStyles = `
 }
 .cm-lp-quote { color: var(--lp-muted); font-style: italic; }
 /*
-  A CALLOUT — an Obsidian blockquote that opens with [!type].
+  A CALLOUT — an Obsidian blockquote that opens with [!type] — drawn as a
+  quiet card (design A, picked by the owner 2026-09-30 over a quote and a
+  foldable box).
 
-  A box rather than the quote's italic muted run, because that is the whole
-  point of the syntax: the author is setting this apart from the prose around
-  it. The callout's own lines override the quote styling they inherit, since
-  every line of one is also a Blockquote and would otherwise be drawn as an
-  aside inside its own box.
+  A raised card, one step up from the note, rather than the near-black well it
+  used to sit in: that read as a hole in the page. The box is line decorations,
+  so the head line carries the top edge and the tail line the bottom one, and a
+  one-line callout carries both.
 
-  NO PER-TYPE COLOUR, deliberately, and it is the restraint this file already
-  states about its palette: Obsidian has thirteen callout types and thirteen
-  colours, and each one here would be another --lp-* token crossing the WebView
-  bridge for a distinction the box and the title already carry. The icon in the
-  report that prompted this is not Obsidian's either — it is the plugin's own
-  stylesheet, which Context does not load into the trusted realm.
+  The head is one quiet line: the type's icon and name, small and muted, then
+  the title in the heading's weight. A title that is a link loses its underline
+  and gains a trailing arrow instead — two underlined things side by side was
+  most of what looked wrong.
 
-  The left bar is the one piece of the quote's vocabulary kept, so a callout
-  still reads as a quoted block rather than as a code fence.
+  With the caret anywhere inside, the edge turns the link colour and the head
+  line is drawn as the Markdown it is, small and mono, so what somebody is
+  editing is what they see. See the engaged pass in decorations.ts.
+
+  Still NO PER-TYPE COLOUR: each would be another --lp-* token crossing the
+  WebView bridge. The icon is a stroke in currentColor, which crosses nothing.
 */
 .cm-lp-callout {
-  background: var(--lp-code-bg);
-  border-left: 3px solid var(--lp-line-strong);
+  background: var(--lp-raised);
+  border-left: 1px solid var(--lp-line-strong);
+  border-right: 1px solid var(--lp-line-strong);
   color: var(--lp-content);
   font-style: normal;
-  padding-left: 10px;
 }
+/*
+  The card's inner padding has to outrank the two hosts' own reset of every
+  line's padding (#root .cm-line on the phone, .cm-lp-root .cm-line on the
+  web). :is() takes the id's weight, so this wins on both without either host
+  knowing about callouts.
+*/
+:is(#root, .cm-lp-root) .cm-line.cm-lp-callout { padding-left: 16px; padding-right: 16px; }
+:is(#root, .cm-lp-root) .cm-line.cm-lp-callout-head { padding-top: 10px; }
+:is(#root, .cm-lp-root) .cm-line.cm-lp-callout-tail { padding-bottom: 12px; }
 .cm-lp-callout .cm-lp-quote { color: inherit; font-style: inherit; }
-/* Rounded at the ends, so a run of lines reads as one box. */
-.cm-lp-callout-head { border-top-right-radius: 6px; padding-top: 2px; }
-/* The title line carries the weight; the type stands in when there is none. */
+.cm-lp-callout-head {
+  border-top: 1px solid var(--lp-line-strong);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+.cm-lp-callout-tail {
+  border-bottom: 1px solid var(--lp-line-strong);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+.cm-lp-callout.cm-lp-callout-editing { border-color: var(--lp-link); }
+/* The title carries the weight; the type rides in front of it, quietly. */
 .cm-lp-callout-head .cm-lp-quote { color: var(--lp-heading); font-weight: 600; }
+.cm-lp-callout-head .cm-lp-link { color: var(--lp-heading); text-decoration: none; }
+.cm-lp-callout-badge {
+  color: var(--lp-muted);
+  font-size: 0.82em;
+  font-style: normal;
+  font-weight: 400;
+}
+.cm-lp-callout-icon { display: inline-block; margin-right: 6px; vertical-align: -0.15em; }
+.cm-lp-callout-icon svg { display: block; }
+.cm-lp-callout-badge-dot { margin: 0 8px; }
+.cm-lp-callout-label .cm-lp-callout-icon { color: var(--lp-muted); }
 .cm-lp-callout-type { color: var(--lp-heading); font-weight: 600; font-style: normal; }
+.cm-lp-callout-arrow { color: var(--lp-muted); display: inline-block; margin-left: 4px; vertical-align: -0.05em; }
+.cm-lp-callout-arrow svg { display: block; }
+/* Clicked in: the head line is its own Markdown, small and mono. */
+.cm-lp-callout-source,
+.cm-lp-callout-source .cm-lp-quote,
+.cm-lp-callout-source .cm-lp-link {
+  color: var(--lp-muted);
+  font-family: var(--lp-mono);
+  font-size: 0.85em;
+  font-weight: 400;
+  text-decoration: none;
+}
 .cm-lp-link { color: var(--lp-link); text-decoration: underline; }
 /*
   A list item's indent is arithmetic rather than taste, and it is not here: the

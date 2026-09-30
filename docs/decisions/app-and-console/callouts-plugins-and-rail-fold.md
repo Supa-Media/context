@@ -29,14 +29,27 @@ saying. It is hidden per callout rather than by widening that set, so a plain
 quote keeps every one of its marks, and per *line* rather than per callout, so a
 caret on one line does not bring back the `>` on the four nobody is editing.
 
-**No per-type colours, no icons.** Obsidian has thirteen callout types and
-thirteen colours; each would be another `--lp-*` token crossing the WebView
-bridge, against this area's standing restraint about palette-specific tokens.
-The book icon in the report's screenshot is not Obsidian's either — it is the
-plugin's own stylesheet, and Context does not load a plugin's CSS into the
-trusted realm. Folding is not implemented, and the `+`/`-` that asks for it is
-consumed as part of the marker rather than left behind: a callout that will not
-fold is legible, and half a marker on screen is the bug this fixes.
+**A quiet card, and its Markdown when clicked in** (owner's pick, 2026-09-30,
+design A of three artboards). The first box was a near-black well with the
+title drawn as an underlined link, which read as a hole in the page; and a
+click inside left the callout's own Markdown hidden. It is now a raised card
+(`--lp-raised`, one step up from the note) with one quiet head line: the
+type's stroke icon and name, then the title in the heading's weight, and an ↗
+instead of an underline when the title is a link. With the caret anywhere in
+the callout, not only on the marker, the head line is drawn as its source and
+the edge takes the link colour. That is per callout, where the `>` reveal is
+per line, because the head is the callout's name and should not blink as the
+caret walks down the body.
+
+**Still no per-type colours.** Obsidian has thirteen callout types and
+thirteen colours, and each would be another `--lp-*` token crossing the WebView
+bridge. Icons are allowed because a stroke in `currentColor` crosses nothing:
+six shapes, chosen by the type, unknown types drawn as a note. The book icon in
+the original report was the plugin's own stylesheet, and Context still does not
+load a plugin's CSS into the trusted realm. Folding is not implemented, and the
+`+`/`-` that asks for it is consumed as part of the marker rather than left
+behind: a callout that will not fold is legible, and half a marker on screen is
+the bug this fixes.
 
 **The completion list stopped assuming its own content at the same time.** Every
 completion this console wrote for itself is a note path or a form keyword — a

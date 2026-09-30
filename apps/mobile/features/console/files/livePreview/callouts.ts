@@ -196,9 +196,128 @@ export class CalloutTitleWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-lp-callout-label";
     const span = document.createElement("span");
     span.className = "cm-lp-callout-type";
     span.textContent = this.label;
+    wrap.append(iconElement(this.type), span);
+    return wrap;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               the quiet card                               */
+/* -------------------------------------------------------------------------- */
+
+/*
+  One stroke icon per family of types, drawn in the line's own colour. Not the
+  per-type palette the header of this file declines: an icon is a shape in
+  `currentColor`, so it crosses no bridge and names no colour. Constant markup,
+  never built from the note — the type only picks which one.
+*/
+const ICON_PATHS: Readonly<Record<string, string>> = {
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
+  alert: '<path d="M12 3 2 21h20z"/><path d="M12 10v5"/><path d="M12 18h.01"/>',
+  bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z"/>',
+  quote: '<path d="M7 7h4v4c0 3-2 5-4 6"/><path d="M15 7h4v4c0 3-2 5-4 6"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+  note: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>',
+};
+
+/** Which icon a type is drawn with; anything unknown is a note. */
+export function calloutIcon(type: string): keyof typeof ICON_PATHS {
+  switch (type) {
+    case "bible":
+    case "scripture":
+    case "verse":
+    case "cite":
+      return "book";
+    case "warning":
+    case "caution":
+    case "attention":
+    case "danger":
+    case "error":
+    case "bug":
+    case "failure":
+    case "fail":
+    case "missing":
+      return "alert";
+    case "tip":
+    case "hint":
+    case "important":
+    case "idea":
+      return "bulb";
+    case "quote":
+      return "quote";
+    case "success":
+    case "check":
+    case "done":
+      return "check";
+    default:
+      return "note";
+  }
+}
+
+function iconElement(type: string): HTMLElement {
+  const holder = document.createElement("span");
+  holder.className = "cm-lp-callout-icon";
+  holder.setAttribute("aria-hidden", "true");
+  holder.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[calloutIcon(type)]}</svg>`;
+  return holder;
+}
+
+/**
+ * What a titled callout's marker is drawn as: its icon, its type, and a dot
+ * before the author's title. Design A's one quiet line — the type is said once,
+ * small, and the title carries the weight.
+ */
+export class CalloutBadgeWidget extends WidgetType {
+  readonly label: string;
+
+  constructor(readonly type: string) {
+    super();
+    this.label = calloutLabel(type);
+  }
+
+  eq(other: CalloutBadgeWidget): boolean {
+    return other.type === this.type;
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-lp-callout-badge";
+    const label = document.createElement("span");
+    label.className = "cm-lp-callout-badge-type";
+    label.textContent = this.label;
+    const dot = document.createElement("span");
+    dot.className = "cm-lp-callout-badge-dot";
+    dot.textContent = "·";
+    span.append(iconElement(this.type), label, dot);
+    return span;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/** The ↗ after a title that is a link, so it reads as one without an underline. */
+export class CalloutArrowWidget extends WidgetType {
+  eq(): boolean {
+    return true;
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-lp-callout-arrow";
+    span.setAttribute("aria-hidden", "true");
+    span.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>';
     return span;
   }
 
