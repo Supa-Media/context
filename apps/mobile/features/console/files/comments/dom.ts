@@ -31,8 +31,23 @@ export function button(label: string, className: string, onClick: () => void): H
   return node;
 }
 
-/** One comment: who, when, and what they said. */
-export function message(author: string, at: string, text: string): HTMLElement {
+/**
+ * How a comment the viewer may delete is deleted. `thread` says the whole
+ * thread goes with it (it is the first comment), which the confirmation says
+ * out loud; `run` deletes and returns an error to show, or null.
+ */
+export interface Deletion {
+  thread: boolean;
+  run: () => string | null;
+}
+
+/**
+ * One comment: who, when, and what they said. With `deletion`, a Delete link
+ * sits at the end of the name row, and pressing it asks first, in the card
+ * itself: the iOS web view draws no `window.confirm`, and a question beside
+ * the comment says which comment it means.
+ */
+export function message(author: string, at: string, text: string, deletion?: Deletion): HTMLElement {
   const row = el("div", "cm-cmt-msg");
   // A person is their face (`faces/`), an agent the robot; never initials.
   const avatar = isPerson(author) ? faceNode(author, "cm-cmt-av") : robotNode("cm-cmt-av cm-cmt-av-agent");
@@ -45,8 +60,46 @@ export function message(author: string, at: string, text: string): HTMLElement {
   when.title = at;
   who.append(when);
   main.append(who, el("div", "cm-cmt-body", text));
+  if (deletion) {
+    const ask = button("Delete", "cm-cmt-del", () => {
+      ask.hidden = true;
+      main.append(confirmDelete(deletion, () => {
+        ask.hidden = false;
+        ask.focus();
+      }));
+    });
+    ask.setAttribute("aria-label", deletion.thread ? "Delete this thread" : "Delete this comment");
+    who.append(ask);
+  }
   row.append(avatar, main);
   return row;
+}
+
+function confirmDelete(deletion: Deletion, onCancel: () => void): HTMLElement {
+  const box = el("div", "cm-cmt-confirm");
+  box.setAttribute("role", "group");
+  const question = el("span", "cm-cmt-confirm-q", deletion.thread ? "Delete this thread and its replies?" : "Delete this comment?");
+  const yes = button("Delete", "cm-cmt-danger", () => {
+    const error = deletion.run();
+    if (error !== null) {
+      question.textContent = error;
+      question.classList.add("cm-cmt-problem");
+    }
+  });
+  const no = button("Cancel", "cm-cmt-link", () => {
+    box.remove();
+    onCancel();
+  });
+  box.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    box.remove();
+    onCancel();
+  });
+  box.append(question, el("span", "cm-cmt-confirm-actions"));
+  box.lastElementChild!.append(no, yes);
+  queueMicrotask(() => no.focus());
+  return box;
 }
 
 /**

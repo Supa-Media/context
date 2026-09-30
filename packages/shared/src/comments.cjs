@@ -30,7 +30,8 @@
  * Resolving never removes anything: it adds a `resolved` line, and reopening
  * adds a `reopened` one. A thread's status is whichever of those came last.
  * That keeps the whole history in the file (Dev2 asked for Google Docs'
- * "see resolved comments"), and it makes every change an insertion. Two people
+ * "see resolved comments"), and it makes every change but a delete an
+ * insertion (`deleteComment` says why that one removes). Two people
  * replying at once are two insertions, which the collaborative editor merges
  * without either reply being lost; a format that rewrote a status field in
  * place would have had them fight over one line.
@@ -165,9 +166,9 @@ function findAnchors(text) {
  * The note's threads, in the order the block lists them.
  *
  * Each is `{ id, quote, events, status, anchored, headerStart, end }`, where an
- * event is `{ at, author, kind: "comment" | "resolved" | "reopened", text }`
- * and `end` is the offset just after the thread's last line (where the next
- * event goes). Lines the parser does not recognise are skipped, never fatal:
+ * event is `{ at, author, kind: "comment" | "resolved" | "reopened", text,
+ * start, end }` (`[start, end)` covering its lines) and a thread's `end` is the
+ * offset just after its last line (where the next event goes). Lines the parser does not recognise are skipped, never fatal:
  * this reads files people edit by hand.
  */
 function parseComments(text) {
@@ -198,18 +199,19 @@ function parseComments(text) {
     if (!thread) continue;
     if (row.text.startsWith(CONTINUATION) && lastComment) {
       lastComment.text += `\n${row.text.slice(CONTINUATION.length)}`;
-      thread.end = Math.min(next, block.bodyEnd);
+      lastComment.end = Math.min(next, block.bodyEnd);
+      thread.end = lastComment.end;
       continue;
     }
     const comment = COMMENT_RE.exec(row.text);
     const status = comment ? null : STATUS_RE.exec(row.text);
     if (comment) {
-      lastComment = { at: comment[1], author: comment[2], kind: "comment", text: comment[3] };
+      lastComment = { at: comment[1], author: comment[2], kind: "comment", text: comment[3], start: at, end: Math.min(next, block.bodyEnd) };
       thread.events.push(lastComment);
       thread.end = Math.min(next, block.bodyEnd);
     } else if (status) {
       lastComment = null;
-      thread.events.push({ at: status[1], author: status[2], kind: status[3], text: "" });
+      thread.events.push({ at: status[1], author: status[2], kind: status[3], text: "", start: at, end: Math.min(next, block.bodyEnd) });
       thread.status = status[3] === "resolved" ? "resolved" : "open";
       thread.end = Math.min(next, block.bodyEnd);
     } else if (row.text.trim() === "") {
@@ -387,6 +389,63 @@ function appendEvent(text, { thread, kind, author, body, at } = {}) {
   return { changes: [{ from: found.end, to: found.end, insert }] };
 }
 
+/**
+ * Delete one comment, or a whole thread.
+ *
+ * `index` counts the thread's comments (not its resolve and reopen lines) from
+ * 0. Deleting the first comment deletes the thread: its header, every line of
+ * its log, the blank line that separated it from its neighbour, and the two
+ * markers around its words, so the words themselves stay exactly as they were.
+ * The last thread takes the whole block with it. Deleting a reply removes that
+ * reply's lines and nothing else.
+ *
+ * This is the one edit here that removes rather than inserts. The log stays
+ * append-only for everything else, and a deletion is a person taking back what
+ * they (or, for an owner, anyone) wrote, which is what "delete" has to mean:
+ * a tombstone would leave the words in the file. `expect` (`{ at, author }`)
+ * is checked against the comment at `index`, so a thread that changed between
+ * the reader's click and the delete refuses rather than removing the wrong
+ * line.
+ */
+function deleteComment(text, { thread, index, expect } = {}) {
+  const source = typeof text === "string" ? text : "";
+  const parsed = parseComments(source);
+  const found = parsed.threads.find((t) => t.id === thread);
+  if (!found) return { error: `there is no comment thread "${thread}" on this note` };
+  const said = found.events.filter((event) => event.kind === "comment");
+  const target = Number.isInteger(index) ? said[index] : undefined;
+  if (!target) return { error: `thread ${thread} has no comment ${index}` };
+  if (expect && (expect.at !== target.at || expect.author !== target.author)) {
+    return { error: "that comment changed while you were deleting it; try again" };
+  }
+  if (index > 0) return { changes: [{ from: target.start, to: target.end, insert: "" }] };
+
+  const changes = [];
+  const anchor = parsed.anchors.get(found.id);
+  if (anchor) {
+    changes.push({ from: anchor.openStart, to: anchor.from, insert: "" });
+    changes.push({ from: anchor.to, to: anchor.closeEnd, insert: "" });
+  }
+  const block = parsed.block;
+  if (parsed.threads.length === 1) {
+    // The only thread: the block goes, with the blank lines that led up to it,
+    // exactly as `stripComments` removes it.
+    let start = block.start;
+    while (start > 0 && source[start - 1] === "\n") start -= 1;
+    let end = block.end;
+    while (end < source.length && source[end] === "\n") end += 1;
+    const keep = start > 0 && end < source.length ? "\n\n" : start > 0 ? "\n" : "";
+    changes.push({ from: start, to: end, insert: keep });
+    return { changes };
+  }
+  let from = found.headerStart;
+  let to = found.end;
+  if (from - 2 >= block.bodyStart && source[from - 1] === "\n" && source[from - 2] === "\n") from -= 1;
+  else if (to < block.bodyEnd && source[to] === "\n") to += 1;
+  changes.push({ from, to, insert: "" });
+  return { changes };
+}
+
 /** Apply `{ from, to, insert }` changes (offsets in the original text). */
 function applyChanges(text, changes) {
   const sorted = [...changes].map((c, i) => ({ ...c, i })).sort((a, b) => b.from - a.from || b.i - a.i);
@@ -439,6 +498,7 @@ module.exports = {
   locateQuote,
   addThread,
   appendEvent,
+  deleteComment,
   applyChanges,
   stripComments,
   describeComments,

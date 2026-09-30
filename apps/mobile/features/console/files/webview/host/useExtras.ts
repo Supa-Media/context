@@ -34,12 +34,13 @@ export function listSink(current: () => FolderLists): Required<ExtrasSink> {
 export function useExtras(
   bridge: HostBridge,
   commenter: string | null | undefined,
+  commentModerator: boolean,
   folderLists: FolderLists,
   canOpenNotes: boolean,
 ): void {
   useEffect(() => {
-    bridge.setCommenter(commenter ?? null);
-  }, [bridge, commenter]);
+    bridge.setCommenter(commenter ?? null, commentModerator);
+  }, [bridge, commenter, commentModerator]);
   const listsAvailable = folderLists !== undefined && canOpenNotes;
   const listsEditable = folderLists?.setProperty !== undefined;
   useEffect(() => {

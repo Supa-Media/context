@@ -27,11 +27,14 @@
 
 import { Facet, Prec, StateEffect, StateField, type EditorState, type Extension, type Range, type TransactionSpec } from "@codemirror/state";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
+import { mayDelete } from "./model";
 import {
   addThread,
   appendEvent,
+  deleteComment,
   parseComments,
   type CommentChange,
+  type CommentEvent,
   type CommentThread,
   type CommentsBlock,
   type CommentAnchor,
@@ -47,6 +50,11 @@ export interface CommentHost {
    * "Sign in to reply" only when this is there.
    */
   signIn?: () => (() => void) | undefined;
+  /**
+   * Whether the viewer may delete anyone's comments (a workspace owner), not
+   * just their own. Absent means own comments only.
+   */
+  moderator?: () => boolean;
 }
 
 export const commentHost = Facet.define<CommentHost, CommentHost>({
@@ -252,6 +260,26 @@ export function threadTransaction(
   return specFor(result.changes, kind === "resolved" ? [setActiveThread.of(null)] : []);
 }
 
+/** Whether this viewer may delete `event`, the thread's comment it was given as. */
+export function canDeleteComment(state: EditorState, event: CommentEvent): boolean {
+  if (!canComment(state)) return false;
+  const host = state.facet(commentHost);
+  return mayDelete(event.author, host.author(), host.moderator?.() ?? false);
+}
+
+/**
+ * The transaction that deletes a thread's `index`th comment (0 deletes the
+ * thread), or the reason it cannot. The comment is named by what the viewer
+ * saw, so one that changed under them is refused rather than guessed at.
+ */
+export function deleteTransaction(state: EditorState, thread: string, index: number, seen: CommentEvent): TransactionSpec | { error: string } {
+  if (!canDeleteComment(state, seen)) return { error: "You can only delete your own comments." };
+  const result = deleteComment(state.doc.toString(), { thread, index, expect: { at: seen.at, author: seen.author } });
+  if (result.error !== undefined) return { error: result.error };
+  const ui = state.field(commentUi);
+  return specFor(result.changes, index === 0 && ui.active === thread ? [setActiveThread.of(null)] : []);
+}
+
 function run(view: EditorView, spec: TransactionSpec | { error: string }): string | null {
   if ("error" in spec && typeof spec.error === "string") return spec.error;
   view.dispatch(spec as TransactionSpec);
@@ -266,6 +294,11 @@ export function submitDraft(view: EditorView, body: string): string | null {
 /** Reply to, resolve or reopen a thread. Returns an error to show, or null. */
 export function addToThread(view: EditorView, thread: string, kind: "comment" | "resolved" | "reopened", body?: string): string | null {
   return run(view, threadTransaction(view.state, thread, kind, body));
+}
+
+/** Delete a comment, or its whole thread when it is the first. Returns an error to show, or null. */
+export function removeFromThread(view: EditorView, thread: string, index: number, seen: CommentEvent): string | null {
+  return run(view, deleteTransaction(view.state, thread, index, seen));
 }
 
 const clickHighlight = EditorView.domEventHandlers({

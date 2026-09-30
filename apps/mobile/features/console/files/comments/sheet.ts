@@ -40,17 +40,19 @@ import type { CommentThread } from "@context/shared/src/comments.cjs";
 import {
   addToThread,
   canComment,
+  canDeleteComment,
   commentHost,
   commentUi,
   commentableSelection,
   commentsParsed,
   setActiveThread,
+  removeFromThread,
   setDraft,
   startCommentOn,
   submitDraft,
 } from "./extension";
 import { button, carryOver, composer, el, message, report } from "./dom";
-import { hasMargin, messages, quoteLabel, resolvedBy } from "./model";
+import { eventsKey, hasMargin, messages, quoteLabel, resolvedBy } from "./model";
 
 export type SheetPlacement = "viewport" | "inline";
 
@@ -153,6 +155,7 @@ class Sheet implements PluginValue {
     const content = narrow ? sheetContent(this.view) : null;
     const editable = canComment(this.view.state);
     const signIn = this.view.state.facet(commentHost).signIn?.() !== undefined;
+    const moderator = this.view.state.facet(commentHost).moderator?.() ?? false;
 
     if (content === null) {
       this.layer.hidden = true;
@@ -162,7 +165,7 @@ class Sheet implements PluginValue {
       const signature = JSON.stringify(
         content.kind === "draft"
           ? ["draft"]
-          : [content.thread.id, content.thread.events, content.thread.status, content.thread.anchored, editable, signIn],
+          : [content.thread.id, eventsKey(content.thread), content.thread.status, content.thread.anchored, editable, signIn, moderator],
       );
       if (signature !== this.signature) {
         const opening = this.signature === null;
@@ -219,7 +222,12 @@ class Sheet implements PluginValue {
     const thread = content.thread;
     const list = el("div", "cm-cmt-sheet-list");
     if (!thread.anchored) list.append(el("div", "cm-cmt-detached", "The highlighted text was deleted"));
-    for (const event of messages(thread)) list.append(message(event.author, event.at, event.text));
+    messages(thread).forEach((event, index) => {
+      const deletion = canDeleteComment(this.view.state, event)
+        ? { thread: index === 0, run: () => removeFromThread(this.view, thread.id, index, event) }
+        : undefined;
+      list.append(message(event.author, event.at, event.text, deletion));
+    });
     body.append(list);
 
     const closed = resolvedBy(thread);

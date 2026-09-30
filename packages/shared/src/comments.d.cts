@@ -11,6 +11,9 @@ export interface CommentEvent {
   author: string;
   kind: "comment" | "resolved" | "reopened";
   text: string;
+  /** The event's lines in the file, `[start, end)`. */
+  start: number;
+  end: number;
 }
 
 export interface CommentThread {
@@ -83,6 +86,16 @@ export declare function appendEvent(
     author: string;
     body?: string;
     at?: Date | string;
+  },
+): { changes: CommentChange[]; error?: undefined } | { error: string };
+export declare function deleteComment(
+  text: string,
+  options: {
+    thread: string;
+    /** Which comment, counting the thread's comments from 0; 0 deletes the thread. */
+    index: number;
+    /** The comment as the reader saw it; a mismatch is refused. */
+    expect?: { at: string; author: string };
   },
 ): { changes: CommentChange[]; error?: undefined } | { error: string };
 export declare function applyChanges(text: string, changes: readonly CommentChange[]): string;

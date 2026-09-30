@@ -15,13 +15,15 @@ import {
   commentUi,
   commentsParsed,
   comments,
+  deleteTransaction,
   draftTransaction,
   hiddenBlockRange,
   threadTransaction,
+  setActiveThread,
   setDraft,
   setShowResolved,
 } from "../features/console/files/comments/extension";
-import { commenterFor, isPerson, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
+import { commenterFor, eventsKey, isPerson, mayDelete, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
 import { shiftFor } from "../features/console/files/comments/rail";
 
 const NOTE = [
@@ -36,8 +38,8 @@ const NOTE = [
   "",
 ].join("\n");
 
-function stateFor(doc: string, author: string | null = "@dev2") {
-  return EditorState.create({ doc, extensions: [comments({ author: () => author })] });
+function stateFor(doc: string, author: string | null = "@dev2", moderator = false) {
+  return EditorState.create({ doc, extensions: [comments({ author: () => author, moderator: () => moderator })] });
 }
 
 group("the margin's rules", () => {
@@ -189,5 +191,59 @@ group("the editor's view of the file", () => {
     expect("error" in threadTransaction(stateFor(NOTE, null), "k7f2", "comment", "hi")).toBe(true);
     const readOnly = EditorState.create({ doc: NOTE, extensions: [comments({ author: () => "@dev2" }), EditorState.readOnly.of(true)] });
     expect("error" in threadTransaction(readOnly, "k7f2", "resolved")).toBe(true);
+  });
+});
+
+group("deleting a comment", () => {
+  const THREADED = NOTE.replace(
+    "- 2026-09-27T07:30:12Z Codex: This seems a little unprofessional.\n",
+    "- 2026-09-27T07:30:12Z Codex: This seems a little unprofessional.\n- 2026-09-27T07:31:40Z @dev2: eh\n- 2026-09-27T07:32:00Z @sayo: agreed\n",
+  );
+  const said = (doc: string) => parseComments(doc).threads[0]!.events.filter((e) => e.kind === "comment");
+
+  test("a person deletes their own comments; an owner deletes anybody's; nobody signed in deletes nothing", () => {
+    expect(mayDelete("@dev2", "@dev2", false)).toBe(true);
+    expect(mayDelete("@sayo", "@dev2", false)).toBe(false);
+    expect(mayDelete("Codex", "@dev2", false)).toBe(false);
+    expect(mayDelete("@sayo", "@dev2", true)).toBe(true);
+    expect(mayDelete("@dev2", null, true)).toBe(false);
+  });
+
+  test("deleting your own reply removes only its line", () => {
+    const state = stateFor(THREADED);
+    const spec = deleteTransaction(state, "k7f2", 1, said(THREADED)[1]!);
+    expect("error" in spec).toBe(false);
+    const text = state.update(spec as TransactionSpec).state.doc.toString();
+    expect(text).toBe(THREADED.replace("- 2026-09-27T07:31:40Z @dev2: eh\n", ""));
+  });
+
+  test("somebody else's comment is refused unless the viewer is an owner", () => {
+    expect("error" in deleteTransaction(stateFor(THREADED), "k7f2", 2, said(THREADED)[2]!)).toBe(true);
+    const owner = stateFor(THREADED, "@dev2", true);
+    const text = owner.update(deleteTransaction(owner, "k7f2", 2, said(THREADED)[2]!) as TransactionSpec).state.doc.toString();
+    expect(text).not.toContain("agreed");
+  });
+
+  test("deleting the first comment deletes the thread, its markers and the block, and closes the card", () => {
+    let state = stateFor(THREADED, "@dev2", true);
+    state = state.update({ effects: setActiveThread.of("k7f2") }).state;
+    const next = state.update(deleteTransaction(state, "k7f2", 0, said(THREADED)[0]!) as TransactionSpec).state;
+    expect(next.doc.toString()).toBe("# free, you cheapo :annoyed:\n\nPremium is like 5 bucks doe.\n");
+    expect(next.field(commentUi).active).toBeNull();
+  });
+
+  test("a comment that moved since the reader saw it is refused, not guessed at", () => {
+    const state = stateFor(THREADED, "@dev2", true);
+    expect("error" in deleteTransaction(state, "k7f2", 1, said(THREADED)[2]!)).toBe(true);
+  });
+
+  test("a read-only note offers no delete", () => {
+    const readOnly = EditorState.create({ doc: THREADED, extensions: [comments({ author: () => "@dev2" }), EditorState.readOnly.of(true)] });
+    expect("error" in deleteTransaction(readOnly, "k7f2", 1, said(THREADED)[1]!)).toBe(true);
+  });
+
+  test("a card is keyed on what the thread says, not where its lines sit", () => {
+    const moved = `Intro line.\n\n${THREADED}`;
+    expect(eventsKey(parseComments(moved).threads[0]!)).toEqual(eventsKey(parseComments(THREADED).threads[0]!));
   });
 });

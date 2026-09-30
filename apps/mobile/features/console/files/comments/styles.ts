@@ -104,6 +104,10 @@ function marginStyles(colors: CommentPalette, font: string | undefined): string 
 .cm-cmt-who b { font-weight: 600; }
 .cm-cmt-tag { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: ${colors.markTeam}; }
 .cm-cmt-when { font-size: 11.5px; color: ${colors.muted}; font-variant-numeric: tabular-nums; }
+.cm-cmt-who .cm-cmt-del { margin-left: auto; }
+.cm-cmt-del[hidden] { display: none; }
+.cm-cmt-confirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; margin-top: 6px; font-size: 12.5px; color: ${colors.text2}; }
+.cm-cmt-confirm-actions { display: flex; gap: 6px; margin-left: auto; }
 .cm-cmt-body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 1px; }
 .cm-cmt-quote {
   font-size: 12px; color: ${colors.muted};
@@ -131,6 +135,14 @@ function marginStyles(colors: CommentPalette, font: string | undefined): string 
 .cm-cmt-rail button:focus-visible { outline: 2px solid ${colors.accent}; outline-offset: 1px; }
 .cm-cmt-rail .cm-cmt-link:hover, .cm-cmt-rail .cm-cmt-resolve:hover { background: ${colors.chipFill}; color: ${colors.text}; }
 .cm-cmt-rail .cm-cmt-resolve { border-color: ${colors.line}; }
+.cm-cmt-rail .cm-cmt-del { padding: 0 4px; font-size: 11.5px; color: ${colors.muted}; }
+.cm-cmt-rail .cm-cmt-del:hover { color: ${colors.critText}; background: transparent; }
+/* A pointer finds Delete by hovering the card; a finger has no hover, so it is always there. */
+@media (hover: hover) {
+  .cm-cmt-rail .cm-cmt-del { opacity: 0; }
+  .cm-cmt-rail .cm-cmt-msg:hover .cm-cmt-del, .cm-cmt-rail .cm-cmt-del:focus-visible { opacity: 1; }
+}
+.cm-cmt-rail .cm-cmt-danger, .cm-cmt-sheet .cm-cmt-danger { background: ${colors.critText}; color: ${colors.surface}; font-weight: 600; }
 .cm-cmt-rail .cm-cmt-primary { background: ${colors.accent}; color: ${colors.surface}; }
 .cm-cmt-rail .cm-cmt-chip {
   background: ${colors.surface}; border-color: ${colors.lineStrong}; color: ${colors.text};
@@ -201,6 +213,8 @@ function sheetStyles(colors: CommentPalette, font: string | undefined): string {
   border: 1px solid transparent; background: transparent; color: ${colors.text2};
 }
 .cm-cmt-sheet button:focus-visible { outline: 2px solid ${colors.accent}; outline-offset: 1px; }
+.cm-cmt-sheet .cm-cmt-del { min-height: 32px; padding: 2px 6px; font-size: 13.5px; color: ${colors.muted}; }
+.cm-cmt-sheet .cm-cmt-confirm { font-size: 14px; }
 .cm-cmt-sheet .cm-cmt-resolve { border-color: ${colors.line}; }
 .cm-cmt-sheet .cm-cmt-primary { background: ${colors.accent}; color: ${colors.surface}; font-weight: 600; }
 .cm-cmt-sheet .cm-cmt-close { min-height: 36px; padding: 2px 10px; font-size: 22px; line-height: 1; color: ${colors.muted}; }

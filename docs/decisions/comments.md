@@ -32,8 +32,8 @@ out of the product would lose its conversation.
 ## The log is append-only
 
 Resolving adds a `resolved` line, and reopening adds a `reopened` line. A
-thread's status is whichever of the two came last. Nothing is ever deleted,
-which is how resolved threads keep their history. Because every action is an
+thread's status is whichever of the two came last. Resolving never deletes
+anything, which is how resolved threads keep their history. Because every action is an
 insertion, two people replying at once merge through the collaborative editor
 without either reply being lost. A status field rewritten in place would make
 them compete for the same line.
@@ -41,6 +41,35 @@ them compete for the same line.
 A comment's continuation lines are indented four spaces. A closing fence may
 be indented by at most three, so no comment can end the block early.
 `comments.test.mjs` sabotage-tests this.
+
+## Deleting is the one edit that removes
+
+Dev2 asked for a way to delete comments on 2026-09-29. A deleted comment's
+lines are removed from the file (`deleteComment`), not marked deleted: a
+tombstone would leave the words in the note, and taking words back is the
+point. Deleting a thread's first comment deletes the thread, with its replies,
+its two markers (the words stay) and, when it was the last thread, the whole
+block, so the note reads byte for byte as it did before the comment. Deleting
+a reply removes only its lines.
+
+- People delete their own comments, and a workspace's owners delete anyone's
+  (`mayDelete` in `files/comments/model.ts`, fed `isOwner` by
+  `BrowseDocument`). The iOS editor gets the owner flag with the `commenter`
+  bridge message. Since the block is plain Markdown that anyone who may edit
+  the note can change by hand, this is the rule the buttons follow, not a lock.
+- The Delete link asks first, inside the card, because the iOS web view draws
+  no `window.confirm`. The confirmation names what goes: "Delete this thread
+  and its replies?" on a first comment.
+- The delete names the comment the viewer saw (its time and author), so a
+  thread that changed under them refuses instead of removing another line.
+- Agents delete with `write_note` `comment: { action: "delete", thread }`,
+  which takes back the latest comment signed with the connection's own name in
+  that thread, and the thread when that comment started it. An agent never
+  deletes anyone else's comment.
+
+A removal can lose a reply typed into the same thread at the same moment by
+someone else, which an insertion never could. That is accepted: deletes are
+rare and deliberate, and the alternative keeps the words.
 
 ## Agents comment through write_note, and cannot choose their name
 

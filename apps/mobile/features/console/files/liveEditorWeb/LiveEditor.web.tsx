@@ -81,6 +81,7 @@ export function LiveEditor({
   onBlur,
   onTitleCaret,
   commenter,
+  commentModerator,
   onSignInToComment,
   titleNote,
   accessibilityLabel,
@@ -290,8 +291,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, onSignInToComment };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, commentModerator, onSignInToComment });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, commentModerator, onSignInToComment };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can

@@ -291,6 +291,8 @@ export interface LiveEditorProps {
    * the threads readable and offers no way to add to them.
    */
   commenter?: string | null;
+  /** Whether the viewer may delete anybody's comments (a workspace owner), not only their own. */
+  commentModerator?: boolean;
   /** A visitor's sign-in; a thread's reply field then says "Sign in to reply". */
   onSignInToComment?: () => void;
   onPreviewLinks?: (links: { href: string; text: string }[]) =>
@@ -314,6 +316,7 @@ export interface EditorHandlers {
   onDictate: LiveEditorProps["onDictate"];
   onAsk: LiveEditorProps["onAsk"];
   commenter?: LiveEditorProps["commenter"];
+  commentModerator?: LiveEditorProps["commentModerator"];
   onSignInToComment?: LiveEditorProps["onSignInToComment"];
 }
 
