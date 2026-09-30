@@ -33,6 +33,8 @@
  *   the Note row routed through a NamePrompt again                  1
  *   the meeting row drawn with `onNewMeeting` null                  1
  *   `canEdit` ignored, so a reader is offered the three files       1
+ *   `NamePrompt` never a sheet on a phone                           1
+ *   New folder's README placeholder paragraph put back              1
  */
 
 import { afterEach, describe, expect, test } from "@jest/globals";
@@ -161,12 +163,13 @@ describe("the phone's +", () => {
 
   test("it says where the thing is going", () => {
     mount("1-projects");
-    expect(document.body.textContent).toContain("1-projects");
+    // By the name the rest of the app shows it under, not the bucket's.
+    expect(document.body.textContent).toContain("In projects.");
   });
 
   test("and names the root when that is the destination", () => {
     mount("");
-    expect(document.body.textContent).toContain("the root of your context");
+    expect(document.body.textContent).toContain("the top of your workspace");
   });
 
   /**
@@ -217,6 +220,34 @@ describe("the phone's +", () => {
       meetings: 0,
       chats: 0,
     });
+  });
+
+  /**
+   * Plain words (board 05 of the phone Home artboards, approved 2026-09-30):
+   * where the folder goes, a field that says what to type, and nothing about
+   * README placeholders, which is storage detail nobody asked about.
+   */
+  test("Folder asks in plain words: where it goes, and what to type", () => {
+    mount("clients/acme");
+    press("New folder");
+    const input = document.body.querySelector("input") as HTMLInputElement;
+    expect(input.placeholder).toBe("Folder name");
+    expect(document.body.textContent).toContain("It goes in acme.");
+    expect(document.body.textContent).not.toMatch(/README|bucket|Obsidian/);
+  });
+
+  test("on a phone, the name is asked in a bottom sheet too", () => {
+    Object.defineProperty(document.documentElement, "clientWidth", { value: 390, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+    try {
+      mount("1-projects");
+      press("New folder");
+      expect(document.body.querySelector("input")).not.toBeNull();
+      expect(document.body.querySelector('[data-testid="dialog-sheet"]')).not.toBeNull();
+    } finally {
+      delete (document.documentElement as { clientWidth?: number }).clientWidth;
+      window.dispatchEvent(new Event("resize"));
+    }
   });
 
   test("Meeting reaches the meeting flow and creates no file", () => {

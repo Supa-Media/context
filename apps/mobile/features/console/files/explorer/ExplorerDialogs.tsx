@@ -5,7 +5,7 @@ import {
   CreatePrompt,
   MovePicker,
   NamePrompt,
-  NEW_FOLDER_HINT,
+  newFolderHint,
 } from "../Dialogs";
 import { ShareDialog } from "../ShareDialog";
 import type { AudienceContext } from "../../privacy/audience";
@@ -129,7 +129,8 @@ export function ExplorerDialogs({
       return (
         <NamePrompt
           title="New folder"
-          description={NEW_FOLDER_HINT}
+          description={newFolderHint(dialog.folder)}
+          placeholder="Folder name"
           confirmLabel="Create"
           onCancel={onClose}
           onConfirm={(name) => {

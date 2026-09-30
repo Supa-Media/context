@@ -205,6 +205,7 @@ export function BrowseDocument({
       opened={places.opened}
       onOpen={files.select}
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
+      onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
       onTogglePin={places.togglePin}
       foot={contextFoot}
     />

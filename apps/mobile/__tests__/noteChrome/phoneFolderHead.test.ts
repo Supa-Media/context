@@ -10,7 +10,9 @@
  *
  * SABOTAGE: drop `phoneHead` from BrowseDocument's `FolderView`. The head is
  * not drawn and every test here fails. Drop `pinned` from `openFolderTarget`'s
- * `itemsFor` and the Pin test fails alone.
+ * `itemsFor` and the Pin test fails alone. Send Home's `""` to the folder
+ * page's items, or drop `onActions` from BrowseDocument's `PhoneHome`, and
+ * "offers what the workspace itself can do" fails.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -53,12 +55,29 @@ describe("a phone's folder page", () => {
     app.press(app.find("phone-folder-actions"));
     expect(inBody("menu-sheet")).not.toBeNull();
     const labels = [...document.body.querySelectorAll('[data-testid^="menu-label-"]')].map((node) => node.textContent);
-    expect(labels).toEqual(expect.arrayContaining(["Rename…", "Move to…", "Pin to Home", "Archive"]));
+    expect(labels).toEqual(expect.arrayContaining(["Rename…", "Move to…", "Pin to Home", "Archive folder"]));
+    // The folder you are standing in, not a row: nothing to open, making things first (board 08).
+    expect(labels.slice(0, 2)).toEqual(["New note", "New folder inside"]);
+    expect(labels).not.toContain("Open");
   });
 
   test("New folder inside asks for a name in this folder", () => {
     const app = mountConsole(dataWith(IN_FOLDER as never, { kind: "folder", path: "notes", name: "notes" }));
     app.press(app.find("phone-folder-new-folder"));
     expect(document.body.textContent).toContain("New folder");
+  });
+});
+
+describe("Home's •••", () => {
+  test("offers what the workspace itself can do, and nothing that would move it", () => {
+    const app = mountConsole(dataWith({ ...IN_FOLDER, selectedPath: "" } as never, { kind: "folder", path: "", name: "" }));
+    expect(app.find("phone-home")).not.toBeNull();
+    app.press(app.find("phone-home-actions"));
+    expect(inBody("menu-sheet")).not.toBeNull();
+    const labels = [...document.body.querySelectorAll('[data-testid^="menu-label-"]')].map((node) => node.textContent);
+    expect(labels.slice(0, 2)).toEqual(["New note", "New folder"]);
+    for (const gone of ["Rename…", "Move to…", "Pin to Home", "Archive folder", "Open"]) {
+      expect(labels).not.toContain(gone);
+    }
   });
 });

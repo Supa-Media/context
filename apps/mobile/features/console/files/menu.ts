@@ -358,6 +358,7 @@ function crumbItems(context: MenuContext, folder: string): MenuItem[] {
  * "hidden, not deleted", with Undo.
  */
 function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
+  if (row.path === "") return homeItems(context, row);
   if (row.readOnly) return entryItems(context, [row]);
   if (!context.canEdit) return joinGroups([pinGroup(context, row), downloadGroup(context, row)]);
   const archived = restoreTargetFor(row.path) !== null;
@@ -377,6 +378,23 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
         ? makeItem(context, "restore", "Restore folder")
         : makeItem(context, "archive", "Archive folder"),
     ],
+  ]);
+}
+
+/**
+ * Home's •••: the workspace itself. It makes things at the top, says who can
+ * see it and downloads all of it, and it cannot be renamed, moved, pinned to
+ * itself or archived, so none of those is offered.
+ */
+function homeItems(context: MenuContext, row: TreeRow): MenuItem[] {
+  const download = downloadGroup(context, row);
+  if (!context.canEdit) return download;
+  return joinGroups([
+    [makeItem(context, "newNote", "New note"), makeItem(context, "newFolder", "New folder"), ...pasteGroup(context, "")],
+    context.canSetVisibility
+      ? visibilityGroup(context, true, 1, row).map((item) => ({ ...item, label: "Share" }))
+      : [],
+    download,
   ]);
 }
 

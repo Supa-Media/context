@@ -10,6 +10,7 @@ import { ancestorsOf, baseName, folderLabel, parentPath } from "../../files/path
 import { canDrop as verdictFor, type DragSource } from "../../files/dnd";
 import type { FolderDrag, FolderMenu } from "../../files/FolderView";
 import { findEntry, treeRowFor } from "../../files/tree";
+import type { FileEntry } from "../../files/types";
 import type { ConsoleData, selectedContext } from "../../types";
 import type { FolderMenuState } from "./folderMenuState";
 import { useBrowseEncryption } from "./useBrowseEncryption";
@@ -216,11 +217,16 @@ export function useFolderListing({
    */
   const openFolderActions = useCallback(
     (folder: string, anchor: { x: number; y: number }) => {
-      const entry = findEntry(files.listings, folder);
-      if (entry == null || folder === "") return false;
+      // Home is the workspace's top, which has no entry of its own to find.
+      const top = files.listings[""]?.folderDefault ?? "private";
+      const entry: FileEntry | null | undefined =
+        folder === ""
+          ? { kind: "folder", path: "", name: "", visibility: top, inherited: top, exception: false, readOnly: false }
+          : findEntry(files.listings, folder);
+      if (entry == null) return false;
       const row = treeRowFor(entry, files.listings[parentPath(folder)]?.folderDefault ?? "private");
       // The folder you are standing in, so the sheet is the page's, not a row's (board 08).
-      return openFolderTarget({ kind: "page", row }, folderLabel(baseName(folder)), anchor);
+      return openFolderTarget({ kind: "page", row }, folder === "" ? "Home" : folderLabel(baseName(folder)), anchor);
     },
     [openFolderTarget, files.listings],
   );
