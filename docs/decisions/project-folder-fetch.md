@@ -19,4 +19,14 @@ kept, if other folders are read, or if a stopped pass still leaves the List
 without statuses; `folderPageView.test.ts` fails if a project folder stops
 asking.
 
+**A request waits until it can run** (reported the night it shipped: "mobile
+is still stale"). A phone opens straight onto the page it was last on, before
+it knows it is online and before the live list of contexts lands, and the
+first version dropped the request that page made then. Now the last folder
+asked for in each context is remembered and runs as soon as it can, and again
+on coming online, on the contexts landing and on every return to the
+foreground, since a page left open is the one whose notes moved on
+(`offline/folderFreshener.ts`; `offlineFolderFreshener.test.ts` fails if an
+early request is dropped or a retry does nothing).
+
 Part of [folder lists](./folder-lists.md).
