@@ -69,9 +69,8 @@ describe("the tree's foot became the context root page's foot", () => {
   test("the binding and the counts are one line under the context's own page", () => {
     const app = mountConsole(dataWith(AT_ROOT as never, { kind: "folder", path: "", name: "" }));
 
-    // The page is really the context's — the heading is the context's name,
-    // which is what `FolderView` takes a `contextLabel` for.
-    expect(app.container.textContent).toContain("@seyi");
+    // The page is really the context's: Home, headed with the workspace's name.
+    expect(app.find("phone-home")!.textContent).toContain("seyi");
     // One muted line: the binding, then what has been read of the tree. No
     // index figure, because this fixture's `fastSearch.status` is `null` —
     // "not answered yet" — and an absence is never drawn as a zero.

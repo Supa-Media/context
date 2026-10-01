@@ -354,7 +354,8 @@ describe("the phone reaches a destination with nothing opened first", () => {
     expect(trigger).not.toBeNull();
     // Named, not just present: an icon carries nothing to a screen reader and
     // there is no menu and no keymap here to reach it by instead.
-    expect(trigger!.getAttribute("aria-label")).toBe("@seyi — account menu");
+    // The workspace you are in, whose mark it now shows (owner, 2026-10-01).
+    expect(trigger!.getAttribute("aria-label")).toBe("@seyi — workspaces and account");
 
     const box = window.getComputedStyle(trigger!);
     expect(Number.parseFloat(box.width)).toBeGreaterThanOrEqual(layout.minTouchTarget);

@@ -75,10 +75,12 @@ export function untitledName(
   folder: string,
   kind: UntitledKind,
   now: Date,
+  /** Names the bucket refused although the listing did not have them. */
+  alsoTaken: Iterable<string> = [],
 ): string {
   const stem = untitledStem(now);
   const suffix = suffixFor(kind);
-  const taken = namesIn(listings, folder);
+  const taken = new Set([...namesIn(listings, folder), ...alsoTaken]);
   if (!taken.has(`${stem}${suffix}`)) return `${stem}${suffix}`;
   /*
     Bounded rather than a `while (true)`. A thousand untitled notes in one

@@ -7,6 +7,7 @@ import { targetFolder } from "./files/tree";
 import { SelectActionsBar } from "./files/SelectActionsBar";
 import { useSelectBar } from "./files/selectActions";
 import { scopeLabel } from "./layout/SearchScope";
+import { NoteQuickBar, type NoteQuick, type NoteQuickId } from "./NoteQuickBar";
 import type { ConsoleData } from "./types";
 
 /** Where a quick note from Home lands (Dev2, 2026-09-30: "inbox is the default folder"). */
@@ -40,10 +41,16 @@ export function quickNoteFolder(data: ConsoleData): string {
  *    everything else a `+` can start (a drawing, a folder, a meeting), so
  *    none of those lost their only route on a phone.
  *
- * The microphone opens search the way the field does: iOS and Android both
- * dictate into any focused field from the keyboard's own microphone key, which
- * is the one this points at (see `features/voice/engine.ts` for why the app
- * does not grow a second dictation engine).
+ * **There is no microphone in the field any more** (owner, 2026-10-01: *"the
+ * microphone button for some reason opens up search"*). It only ever opened
+ * search: the app has no speech engine of its own on a phone
+ * (`features/voice/engine.ts` says why), so the button was a pointer to the
+ * keyboard's microphone key, which is there the moment search opens. A
+ * microphone that does not listen reads as a broken one.
+ *
+ * **In a note the field gives way to the note's own actions** — Share, Move,
+ * Ask AI (`NoteQuickBar`) — beside the same compose button (owner, same
+ * review): searching from inside a note means leaving it.
  *
  * The bar's room is `AppFrame`'s bottom slot, as it was; this draws what is in
  * it and decides nothing about whether it shows.
@@ -52,8 +59,11 @@ export function ConsoleBottomBar({
   data,
   onSearch,
   onCreate,
+  note,
 }: {
   data: ConsoleData;
+  /** The open note's actions; given while a note — not a folder, not Home — is open. */
+  note?: { actions: readonly NoteQuick[]; onAction: (id: NoteQuickId) => void };
   /** Opens search, narrowed to `scope` — a folder's path — or across the workspace when `null`. */
   onSearch: (scope: string | null) => void;
   /**
@@ -74,32 +84,35 @@ export function ConsoleBottomBar({
   // A reader cannot write a note; the round button is then only the sheet, if that has rows.
   const canNote = data.files.canEdit;
 
+  // A note with no action this person may take keeps the field rather than an empty capsule.
+  const quick = note !== undefined && note.actions.length > 0 ? note : null;
+
   if (picking !== null) return <SelectActionsBar bar={picking} />;
   return (
-    <View style={styles.bar} testID="notes-bar" role="toolbar" aria-label="Search and new note">
-      <View style={styles.field}>
-        <Pressable
-          onPress={search}
-          accessibilityRole="button"
-          accessibilityLabel={scope === null ? "Search notes" : `Search in ${scopeLabel(scope)}`}
-          style={({ pressed }) => [styles.fieldPress, pressed ? styles.fieldPressed : null]}
-          testID="notes-bar-search"
-        >
-          <Icon name="search" size={18} color={colors.muted} />
-          <Text style={styles.placeholder} numberOfLines={1}>
-            {scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={search}
-          accessibilityRole="button"
-          accessibilityLabel="Search by voice"
-          accessibilityHint="Opens search; your keyboard's microphone key types what you say"
-          style={({ pressed }) => [styles.mic, pressed ? styles.fieldPressed : null]}
-        >
-          <Icon name="mic" size={18} color={colors.text2} />
-        </Pressable>
-      </View>
+    <View
+      style={styles.bar}
+      testID="notes-bar"
+      role="toolbar"
+      aria-label={quick === null ? "Search and new note" : "Note actions and new note"}
+    >
+      {quick !== null ? (
+        <NoteQuickBar actions={quick.actions} onAction={quick.onAction} />
+      ) : (
+        <View style={styles.field}>
+          <Pressable
+            onPress={search}
+            accessibilityRole="button"
+            accessibilityLabel={scope === null ? "Search notes" : `Search in ${scopeLabel(scope)}`}
+            style={({ pressed }) => [styles.fieldPress, pressed ? styles.fieldPressed : null]}
+            testID="notes-bar-search"
+          >
+            <Icon name="search" size={18} color={colors.muted} />
+            <Text style={styles.placeholder} numberOfLines={1}>
+              {scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
+            </Text>
+          </Pressable>
+        </View>
+      )}
       {!canNote && onCreate === null ? null : (
         <Pressable
           onPress={canNote ? () => data.files.createUntitled(folder, "note") : () => onCreate?.(folder)}
@@ -144,11 +157,10 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       flexDirection: "row",
       alignItems: "center",
       gap: space.x2,
-      paddingLeft: space.x4,
+      paddingHorizontal: space.x4,
     },
     fieldPressed: { backgroundColor: colors.surface2 },
     placeholder: { flex: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.muted },
-    mic: { width: 48, alignSelf: "stretch", alignItems: "center", justifyContent: "center" },
     compose: {
       width: FIELD_HEIGHT + 2,
       height: FIELD_HEIGHT + 2,

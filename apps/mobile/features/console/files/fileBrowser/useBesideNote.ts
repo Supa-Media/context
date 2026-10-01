@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { guardLeaving } from "../editor";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
+import type { OpenNote } from "../types";
 import type { OpenNoteValues } from "./useOpenNote";
 
 type BesideDeps =
@@ -77,8 +78,8 @@ export function useBesideNote(deps: BesideDeps) {
   );
 
   const select = useCallback(
-    (path: string): boolean => {
-      const moved = selectNote(path);
+    (path: string, written?: OpenNote): boolean => {
+      const moved = selectNote(path, written);
       if (moved) lend(null);
       return moved;
     },

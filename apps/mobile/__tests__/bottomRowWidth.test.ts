@@ -677,17 +677,17 @@ describe("the console's own bottom row", () => {
    * **Apple Notes' bar: a search field and the round new-note button.**
    *
    * Approved by the owner on 2026-09-30 (the mobile Home artboards), replacing
-   * the five keys — back, browse, search, new, recent — of 2026-09-27. Back is
-   * the path bar's and the system's, Browse and Recent are what Home lists,
-   * and the `+` sheet is the round button held. `BottomBar` and its key
-   * geometry stay, probed above, for any row of keys somebody builds again.
+   * the five keys of 2026-09-27. Back is the top-left ‹, Browse and Recent are
+   * what Home lists, the `+` sheet is the round button held, and the mic went
+   * on 2026-10-01 (no speech engine on a phone: it only opened search).
+   * `BottomBar` and its key geometry stay, probed above, for any row of keys.
    */
-  test("is a search field with a microphone, and the new-note button", () => {
+  test("is a search field and the new-note button, with no microphone", () => {
     const container = mountConsole(390);
     const bar = need(container, "notes-bar");
     const labels = [...bar.querySelectorAll("[aria-label]")].map((node) => node.getAttribute("aria-label"));
 
-    expect(labels).toEqual(["Search notes", "Search by voice", "New note"]);
+    expect(labels).toEqual(["Search notes", "New note"]);
     for (const gone of ["back", "browse", "new", "recent", "forward", "save"]) {
       expect(container.querySelector(`[data-testid="bottom-bar-${gone}"]`)).toBeNull();
     }

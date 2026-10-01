@@ -36,10 +36,12 @@ describe("the note names itself, inside itself", () => {
     // filename is a content hash, which is why `noteHeading` exists at all.
     expect(title!.textContent).toBe("The storage binding");
 
-    // The band says where you are, including the last segment...
-    expect(app.find("breadcrumb-leaf")).not.toBeNull();
-    // ...and it is not pressable: pressing it would re-select what is open.
+    // No path row names it a second time any more (owner, 2026-10-01: "I dont
+    // think we need to show the file path at the top of notes anymore"); the
+    // way up is the back button, which names the folder above.
+    expect(app.find("breadcrumb-leaf")).toBeNull();
     expect(app.container.querySelector(`[aria-label="Open ${NOTE}"]`)).toBeNull();
+    expect(app.find("phone-back")).not.toBeNull();
     // …and the visibility chip stayed gone.
     expect(app.container.textContent).not.toContain("follows its folder");
   });

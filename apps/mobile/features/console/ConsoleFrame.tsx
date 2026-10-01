@@ -59,6 +59,7 @@ import { noteActionItems } from "./layout/noteActions";
 import {
   consoleAsidePanel,
   consoleBottomBar,
+  consoleAccountSlot,
   consoleExplorer,
   consoleSyncSlot,
 } from "./layout/slots";
@@ -469,9 +470,10 @@ export function ConsoleFrame({
           `SwitcherMenu`'s `"phone"` trigger. It was two: `AccountBlock`'s menu
           for a member and this popover for a visitor, which is how the two
           drifted (the visitor's had no workspaces, the member's had no
-          switching, and neither could say the other's rows).
+          switching, and neither could say the other's rows). On any page below
+          Home it is ‹ back instead, naming where it goes (owner, 2026-10-01).
         */
-        accountSlot={<SwitcherMenu {...switcherProps} trigger="phone" />}
+        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps })}
         /*
           `browsing`, not `insideContext`.
 
@@ -490,7 +492,10 @@ export function ConsoleFrame({
           switcherProps,
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
-        bottomBar={consoleBottomBar({ browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog })}
+        bottomBar={consoleBottomBar({
+          browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog,
+          note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel, ask: startNewChat } : null,
+        })}
       >
         <Shortcuts
           files={data.files}

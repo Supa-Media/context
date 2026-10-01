@@ -19,6 +19,7 @@ import type { BrowserStateValues } from "./useBrowserState";
 import type { ConflictsAndDraftsValues } from "./useConflictsAndDrafts";
 import type { ContextMovesValues } from "./useContextMoves";
 import type { CreateAndMoveValues } from "./useCreateAndMove";
+import type { NoteCreateValues } from "./useNoteCreate";
 import type { LinkedTitleValues } from "./useLinkedTitle";
 import type { ListingsValues } from "./useListings";
 import type { NoteReadsValues } from "./useNoteReads";
@@ -89,14 +90,8 @@ type FileBrowserValueDeps =
     | "setDraft"
     | "useTheirs"
   >
-  & Pick<
-    CreateAndMoveValues,
-    | "createDrawing"
-    | "createFolder"
-    | "createNote"
-    | "createUntitled"
-    | "move"
-  >
+  & Pick<CreateAndMoveValues, "createFolder" | "move">
+  & Pick<NoteCreateValues, "createDrawing" | "createNote" | "createUntitled">
   & Pick<
     ContextMovesValues,
     | "contextMoves"

@@ -194,6 +194,6 @@ function subscribeReducedMotion(listener: () => void): () => void {
   return () => reducedMotionListeners.delete(listener);
 }
 
-function useSharedReducedMotion(): boolean {
+export function useSharedReducedMotion(): boolean {
   return useSyncExternalStore(subscribeReducedMotion, () => reducedMotion, () => true);
 }

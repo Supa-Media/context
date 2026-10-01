@@ -36,7 +36,7 @@ async function openLegal(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.locator(".cm-content").first()).toContainText("Notes for your team", { timeout: 15_000 });
   // From Home, where every folder is: the site's pages are notes at the top, and Legal is its one folder.
-  await page.getByLabel("@context, the context you are in — open its root", { exact: true }).tap();
+  await touch(page, "phone-back");
   await expect(page.getByTestId("phone-home")).toBeVisible();
   await touch(page, "notes-bar-search");
   await expect(page.getByTestId("palette-input")).toBeFocused();

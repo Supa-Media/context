@@ -35,6 +35,7 @@ import { useSaving } from "./fileBrowser/useSaving";
 import { useConflictsAndDrafts } from "./fileBrowser/useConflictsAndDrafts";
 import { useQueuedOps } from "./fileBrowser/useQueuedOps";
 import { useCreateAndMove } from "./fileBrowser/useCreateAndMove";
+import { useNoteCreate } from "./fileBrowser/useNoteCreate";
 import { useContextMoves } from "./fileBrowser/useContextMoves";
 import { useRowCommands } from "./fileBrowser/useRowCommands";
 import { useBatch } from "./fileBrowser/useBatch";
@@ -75,7 +76,8 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   const withConflictsAndDrafts = { ...withSaving, ...useConflictsAndDrafts(withSaving) };
   const withQueuedOps = { ...withConflictsAndDrafts, ...useQueuedOps(withConflictsAndDrafts) };
   const withCreateAndMove = { ...withQueuedOps, ...useCreateAndMove(withQueuedOps) };
-  const withContextMoves = { ...withCreateAndMove, ...useContextMoves(withCreateAndMove) };
+  const withNoteCreate = { ...withCreateAndMove, ...useNoteCreate(withCreateAndMove) };
+  const withContextMoves = { ...withNoteCreate, ...useContextMoves(withNoteCreate) };
   const withRowCommands = { ...withContextMoves, ...useRowCommands(withContextMoves) };
   const withBatch = { ...withRowCommands, ...useBatch(withRowCommands) };
   const withVisibility = { ...withBatch, ...useVisibility(withBatch) };

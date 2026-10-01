@@ -16,6 +16,30 @@ export async function tap(page: Page, label: string): Promise<void> {
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 }
 
+/**
+ * Back to Home the way a person on a phone gets there: the top-left ‹ until
+ * there is no page above to go back to. The path row this used to tap is gone
+ * (2026-10-01), and each press goes up one folder, as Apple Notes' does.
+ */
+export async function goHome(page: Page): Promise<void> {
+  const back = page.getByTestId("phone-back");
+  for (let i = 0; i < 6 && (await back.count()) > 0; i += 1) {
+    const box = await back.boundingBox();
+    if (box === null) break;
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(350);
+  }
+  await page.getByTestId("phone-home").waitFor();
+}
+
+/**
+ * Wait until the open note is the one whose text includes `heading`. The
+ * phone draws no path row naming the note any more; its own first line does.
+ */
+export async function waitForNote(page: Page, heading: string): Promise<void> {
+  await page.locator(".cm-content").filter({ hasText: heading }).first().waitFor();
+}
+
 /** Tap one of Home's folder lines by the folder's name, whatever it holds. */
 export async function tapFolderOnHome(page: Page, name: string): Promise<void> {
   const line = page.getByTestId("phone-home-folder").filter({ has: page.getByText(name, { exact: true }) });
@@ -42,7 +66,7 @@ export async function tapRow(page: Page, name: string): Promise<void> {
  * From the fixture's landing note to `2-areas/weekly-review.md` — the note
  * `placeholderData.ts` carries the wikilink, the two tasks and the long
  * bullet on. Pressing through the real tree is what a person does, and it
- * exercises the folder view, the breadcrumb and the note in one pass rather
+ * exercises Home, the folder view and the note in one pass rather
  * than needing the fixture to pre-select a note no navigation reached.
  */
 export async function openWeeklyReview(page: Page): Promise<void> {
@@ -52,13 +76,13 @@ export async function openWeeklyReview(page: Page): Promise<void> {
   // before anything else is pressed — otherwise a slow first paint races the
   // rest of this walk.
   await page.getByTestId("note-scroll").waitFor();
-  await tap(page, "@seyi, the context you are in — open its root");
+  await goHome(page);
   // The root on a phone is Home (2026-09-30): every top-level folder is one
   // line there, named with what it holds.
   await tapFolderOnHome(page, "areas");
   await page.getByTestId("folder-row").first().waitFor();
   await tap(page, "weekly-review");
-  await page.getByTestId("breadcrumb-leaf").waitFor();
+  await waitForNote(page, "Weekly review");
 }
 
 /**

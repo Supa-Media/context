@@ -32,13 +32,13 @@ test("a tap on a wikilink follows it", async ({ page }) => {
   await expect(link).toBeVisible();
   const box = await link.boundingBox();
   if (box === null) throw new Error("the wikilink has no box to tap");
-  const before = await page.getByTestId("breadcrumb-leaf").textContent();
+  const before = await page.getByTestId("phone-back").getAttribute("aria-label");
 
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 
-  // The note it names is open: the breadcrumb's leaf is the one thing on this
-  // screen that says which note that is once the document has scrolled.
-  await expect(page.getByTestId("breadcrumb-leaf")).not.toHaveText(before ?? "");
+  // The note it names is open: it lives in another folder, so the ‹ in the top
+  // corner now goes back somewhere else.
+  await expect(page.getByTestId("phone-back")).not.toHaveAttribute("aria-label", before ?? "");
   // And nothing asks first. The confirmation is gone with the press.
   await expect(page.getByText("Open this note?")).toHaveCount(0);
 });
@@ -59,7 +59,7 @@ test("a long press does not navigate — it is a selection again", async ({ page
   const box = await link.boundingBox();
   if (box === null) throw new Error("the wikilink has no box to press");
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const before = await page.getByTestId("breadcrumb-leaf").textContent();
+  const before = await page.getByTestId("phone-back").getAttribute("aria-label");
 
   await dispatchTouch(page, "touchstart", point);
   await page.waitForTimeout(300);
@@ -67,7 +67,7 @@ test("a long press does not navigate — it is a selection again", async ({ page
   await page.waitForTimeout(400);
 
   await expect(page.getByText("Open this note?")).toHaveCount(0);
-  await expect(page.getByTestId("breadcrumb-leaf")).toHaveText(before ?? "");
+  await expect(page.getByTestId("phone-back")).toHaveAttribute("aria-label", before ?? "");
 });
 
 test("a tap that drifts is a scroll, not a follow", async ({ page }) => {
@@ -83,13 +83,13 @@ test("a tap that drifts is a scroll, not a follow", async ({ page }) => {
   const box = await link.boundingBox();
   if (box === null) throw new Error("the wikilink has no box to drag from");
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const before = await page.getByTestId("breadcrumb-leaf").textContent();
+  const before = await page.getByTestId("phone-back").getAttribute("aria-label");
 
   await dispatchTouch(page, "touchstart", point);
   await dispatchTouch(page, "touchmove", { x: point.x, y: point.y + 60 });
   await dispatchTouch(page, "touchend", { x: point.x, y: point.y + 60 });
 
-  await expect(page.getByTestId("breadcrumb-leaf")).toHaveText(before ?? "");
+  await expect(page.getByTestId("phone-back")).toHaveAttribute("aria-label", before ?? "");
 });
 
 test("the checkbox control toggles on tap", async ({ page }) => {
@@ -131,14 +131,16 @@ test("a list marker does not reveal under the caret", async ({ page }) => {
   await expect(page.getByText("- Keep this list", { exact: false })).toHaveCount(0);
 });
 
-test("the breadcrumb chip tap closes the note", async ({ page }) => {
-  await expect(page.getByTestId("breadcrumb-leaf")).toBeVisible();
+test("back walks up to the folder, then Home closes the note", async ({ page }) => {
+  await tap(page, "Back to areas");
+  // One level up: the note's own folder, with the note in it and nothing open.
+  await expect(page.getByTestId("note-scroll")).toHaveCount(0);
+  await expect(page.getByLabel("weekly-review", { exact: true })).toBeVisible();
 
-  await tap(page, "@seyi, the context you are in — open its root");
-
+  await tap(page, "Back to Home");
   // `deselect` — the fixture's stand-in for the real navigation's
   // `router.replace(browseHref(...))`, see `E2EFixtureScreen.tsx` — lands on
-  // the context's own root — on a phone, Home — with no leaf and no open note.
-  await expect(page.getByTestId("breadcrumb-leaf")).toHaveCount(0);
+  // the workspace's own root, which on a phone is Home.
   await expect(page.getByTestId("phone-home")).toBeVisible();
+  await expect(page.getByTestId("phone-back")).toHaveCount(0);
 });

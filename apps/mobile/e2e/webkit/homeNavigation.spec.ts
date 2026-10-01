@@ -8,9 +8,10 @@ import { expect, test, type Page } from "@playwright/test";
      homepage is drawn by `app/(home)/_layout.tsx`, which outlives those
      pushes, so the browser's Back walks the pages of one visit.
   2. The way between pages is Home (2026-09-30, the Apple Notes board): the
-     path bar's workspace chip opens it, and it lists every page — the site's
-     loose pages under Notes, since they are in no folder. The bottom bar is
-     search and a new note, nothing else.
+     ‹ back button at the top left of a page opens it (2026-10-01), and it
+     lists every page — the site's loose pages under Notes, since they are in
+     no folder. On a page the bottom bar is the page's own actions and a new
+     note; on Home it is search and a new note.
   3. The homepage's cast opened the comment sheet over the page on every
      comment step. On a phone the highlight is the whole event; a tap on it
      opens the thread.
@@ -23,7 +24,7 @@ import { expect, test, type Page } from "@playwright/test";
 const content = (page: Page) => page.locator(".cm-content").first();
 
 async function openFromHome(page: Page, title: string): Promise<void> {
-  await page.getByLabel("@context, the context you are in — open its root", { exact: true }).click();
+  await page.getByRole("button", { name: "Back to Home" }).click();
   const home = page.getByTestId("phone-home");
   await expect(home).toBeVisible();
   await home.getByRole("button", { name: title }).last().click();
@@ -34,7 +35,7 @@ async function openFromHome(page: Page, title: string): Promise<void> {
 test("Home reaches every page, and Back walks the pages a visitor opened", async ({ page }) => {
   await page.goto("/");
   await expect(content(page)).toContainText("Notes for your team", { timeout: 15_000 });
-  await expect(page.getByRole("toolbar", { name: "Search and new note" })).toBeVisible();
+  await expect(page.getByRole("toolbar", { name: "Note actions and new note" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Browse files" })).toHaveCount(0);
 
   await openFromHome(page, "How it works");

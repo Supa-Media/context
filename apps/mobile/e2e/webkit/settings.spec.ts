@@ -106,24 +106,17 @@ const ACCOUNT_SETTINGS = "account-settings";
 async function openConsole(page: Page): Promise<void> {
   await page.goto("/e2e-fixture");
   /*
-    The breadcrumb rather than `note-scroll`: the fixture's default note is
-    drawn by a scroller on a phone and by the live editor at a pointer width,
-    and this file runs at both. Painting the line means the demo data and the
-    tree behind it have already resolved.
-
-    A *folder* segment, not the leaf. This waited on `breadcrumb-leaf`, and the
-    pointer breadcrumb stopped drawing one: the note's name is the H1 below the
-    line and the tab above it, so the line is its folders. The phone still
-    draws a leaf, so waiting on it was a wait that passed at 390pt and hung for
-    the full timeout at 1280 — which is exactly how this was found, as two
-    pointer-width cases timing out in `openConsole` rather than in an
-    assertion.
+    The way up from the default note, which each density draws differently:
+    the pointer breadcrumb's folder segment, or the phone's ‹ back to the
+    note's folder (the phone has no path row since 2026-10-01). Not
+    `note-scroll`, which a phone and a pointer width draw differently too.
+    Either one painting means the demo data and the tree behind it have
+    resolved.
 
     `1-projects` is the fixture's default selection (`placeholderData.ts`'s
-    `defaultSelection` is `1-projects/context-lc.md`), and a folder crumb is
-    drawn at both densities.
+    `defaultSelection` is `1-projects/context-lc.md`).
   */
-  await page.getByTestId("breadcrumb-folder-1-projects").waitFor();
+  await page.getByTestId("breadcrumb-folder-1-projects").or(page.getByTestId("phone-back")).first().waitFor();
 }
 
 /**
@@ -190,7 +183,8 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
   // overlay was never navigated away from.
   await page.getByLabel("Close settings", { exact: true }).tap();
   await expect(page.getByTestId("settings-overlay")).toHaveCount(0);
-  await expect(page.getByTestId("breadcrumb-leaf")).toBeVisible();
+  await expect(page.getByTestId("note-scroll")).toBeVisible();
+  await expect(page.getByTestId("phone-back")).toBeVisible();
 });
 
 test("the phone's section labels are left-aligned, not centred", async ({ page }) => {
@@ -371,7 +365,7 @@ test.describe("at a pointer width", () => {
 test.describe("back from Stripe", () => {
   test("the payment is acknowledged before the plan has caught up", async ({ page }) => {
     await page.goto(`/e2e-fixture?checkout=done`);
-    await page.getByTestId("breadcrumb-leaf").waitFor();
+    await page.getByTestId("note-scroll").waitFor();
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
     await expect(page.getByTestId("settings-overlay")).toBeVisible();
@@ -399,7 +393,7 @@ test.describe("back from Stripe", () => {
 
   test("coming back without paying says so, and sells nothing", async ({ page }) => {
     await page.goto(`/e2e-fixture?checkout=cancelled`);
-    await page.getByTestId("breadcrumb-leaf").waitFor();
+    await page.getByTestId("note-scroll").waitFor();
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
     await page.getByLabel("Back", { exact: true }).tap();

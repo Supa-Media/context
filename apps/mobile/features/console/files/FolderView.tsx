@@ -74,8 +74,7 @@
  *    be read as a count *of* `3-resources`, and would be wrong — a line that is
  *    accurate and misread is worse than one that is absent.
  *  - A caption repeated under forty folder pages is chrome, and the same
- *    argument the breadcrumb's `pathOnly` makes about not saying a thing twice
- *    applies to saying it forty times.
+ *    argument against saying a thing twice applies to saying it forty times.
  *
  * It is a string rather than a node, and it is composed by `contextFoot.ts`
  * rather than here, because this file has no business knowing what a storage

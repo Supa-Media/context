@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { tap, tapFolderOnHome } from "./helpers";
+import { goHome, tap, tapFolderOnHome, waitForNote } from "./helpers";
 
 /**
  * A DIAGRAM THAT LIVES IN A NOTE, DRAWN BY A FRAME THAT CANNOT RUN CODE.
@@ -32,10 +32,10 @@ import { tap, tapFolderOnHome } from "./helpers";
 async function openArchitectureMap(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/e2e-fixture");
   await page.getByTestId("note-scroll").waitFor();
-  await tap(page, "@seyi, the context you are in — open its root");
+  await goHome(page);
   await tapFolderOnHome(page, "areas");
   await tap(page, "architecture-map");
-  await page.getByTestId("breadcrumb-leaf").waitFor();
+  await waitForNote(page, "Where the notes actually live");
 }
 
 test.beforeEach(async ({ page }) => {
@@ -175,7 +175,7 @@ test("tapping the diagram gives the raw fence back", async ({ page }) => {
  *
  * Measured, not asserted from CSS: the markup came from a stranger, and a
  * layout that escapes its container draws over real console UI — the
- * breadcrumb, the save state, a privacy control. `overflow: hidden` on the
+ * back button, the save state, a privacy control. `overflow: hidden` on the
  * wrapper is what holds it, and only a browser can say whether it did.
  */
 test("the preview stays inside the note's own column", async ({ page }) => {
@@ -185,9 +185,9 @@ test("the preview stays inside the note's own column", async ({ page }) => {
   expect(frame.x).toBeGreaterThanOrEqual(scroller.x - 1);
   expect(frame.x + frame.width).toBeLessThanOrEqual(scroller.x + scroller.width + 1);
 
-  // Nothing under it was covered: the breadcrumb is above the editor and must
+  // Nothing under it was covered: the back button is above the editor and must
   // still be where it was, not behind a diagram that grew past its clip.
-  const crumb = (await page.getByTestId("breadcrumb-leaf").boundingBox())!;
+  const crumb = (await page.getByTestId("phone-back").boundingBox())!;
   expect(crumb.y + crumb.height).toBeLessThanOrEqual(frame.y + 1);
 
   // The page does not scroll sideways, which is what a box that escaped

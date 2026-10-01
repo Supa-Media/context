@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { ScrollView, View } from "react-native";
 import { ScreenViewport, type useSurfacePadding } from "../../../app/Screen";
+import { PageSlide } from "../../../design/components/PageSlide";
 import { useThemedStyles } from "../../../design/theme";
+import { slideDirection } from "../../home/phoneBack";
 import type { classifyCommsPath } from "../../communications/paths";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
@@ -96,53 +98,47 @@ export function DocumentSurface({
         its sibling, and takes the notices as a prop so they scroll with the
         document rather than pinning a band above it.
       */}
-      {compact && selected !== null && selected.kind === "file" ? (
-        openDocument
-      ) : compact ? (
+      {compact ? (
         /*
-          The status bar's band goes on the box *around* the scroller and our
-          own chrome inside it — see `SurfacePadding` in `app/frame.ts`. Spent
-          together on the content, the whole inset scrolled away with the
-          listing and the folder's rows rode up under the clock.
+          One slide for every page a phone shows, so going from a folder into
+          a note — two different branches below — is still one navigation the
+          slide can see (`PageSlide`).
         */
-        <ScreenViewport padding={padding}>
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={{
-              paddingTop: padding.content.top,
-              paddingBottom: padding.content.bottom,
-            }}
-            scrollIndicatorInsets={{
-              top: padding.content.top,
-              bottom: padding.content.bottom,
-            }}
-            testID="browse-scroll"
-          >
-            {/*
-              Where you are, and the way up — on a phone, where the drawer was
-              the only answer to both.
-
-              This line is the reversal of a stated decision, so it is worth
-              saying what changed rather than letting the comment above go
-              quietly untrue. The breadcrumb was dropped here because Obsidian
-              spends nothing on it and the note names itself inside the
-              document, which is right about *naming* and was wrong about
-              *navigation*: a folder page reached by a link had no route to its
-              parent at all, and the only way to another folder was the drawer,
-              which is the surface a phone makes hardest to get at. `pathOnly`
-              is the half that navigates and none of the half that labelled.
-
-              Inside the scroller rather than pinned above it, so it scrolls
-              away with the document: it answers a question people ask on
-              arrival, and a permanent band is a band that costs a line of the
-              note forever. It rides below the floating chrome because the
-              scroller already pays `padding.content.top` for it.
-            */}
-            {pathBar}
-            {notices}
-            <View style={styles.bodyCompact}>{openDocument}</View>
-          </ScrollView>
-        </ScreenViewport>
+        <PageSlide pageKey={selected?.path ?? ""} directionOf={slideDirection} testID="page-slide">
+          {selected !== null && selected.kind === "file" ? (
+            openDocument
+          ) : (
+            /*
+              The status bar's band goes on the box *around* the scroller and our
+              own chrome inside it — see `SurfacePadding` in `app/frame.ts`. Spent
+              together on the content, the whole inset scrolled away with the
+              listing and the folder's rows rode up under the clock.
+            */
+            <ScreenViewport padding={padding}>
+              <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={{
+                  paddingTop: padding.content.top,
+                  paddingBottom: padding.content.bottom,
+                }}
+                scrollIndicatorInsets={{
+                  top: padding.content.top,
+                  bottom: padding.content.bottom,
+                }}
+                testID="browse-scroll"
+              >
+                {/*
+                  `pathBar` was the folder path, and is now only who else is in
+                  the note: the way up is the ‹ back button at the top left (see
+                  `BrowsePathBar`, owner's review 2026-10-01).
+                */}
+                {pathBar}
+                {notices}
+                <View style={styles.bodyCompact}>{openDocument}</View>
+              </ScrollView>
+            </ScreenViewport>
+          )}
+        </PageSlide>
       ) : documentOwnsScroller ? (
         <>
           {notices}
