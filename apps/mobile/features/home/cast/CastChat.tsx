@@ -176,27 +176,16 @@ function Window({
 
 /**
  * The top of Context's own window while a chat scene plays: the app's name,
- * and which assistant is reaching it from the chat beside it ("Claude, from
- * chat"), so the two read as two apps talking rather than one app with a chat
- * panel (Dev2, 2026-09-30).
+ * so the two read as two apps rather than one app with a chat panel (Dev2,
+ * 2026-09-30). Which assistants are in it is the face pile's to say; a badge
+ * saying it again here was dropped (Dev2, 2026-10-01: "isnt that already
+ * clear from their presence indicators?").
  */
-export function CastWorkspaceBar({ view }: { view: CastChatView }) {
+export function CastWorkspaceBar() {
   const colors = useColors();
-  const from = view.windows
-    .filter((window) => window.messages.some((message) => message.kind === "tools"))
-    .map((window) => window.agent);
   return (
     <View style={[styles.bar, { backgroundColor: colors.chromeSurface, borderBottomColor: colors.line }]} testID="cast-workspace-bar">
       <Text style={[styles.barName, { color: colors.text }]}>Context</Text>
-      <View style={styles.grow} />
-      {from.length === 0 ? null : (
-        <View style={[styles.from, { backgroundColor: colors.hintWash, borderColor: colors.hintBorder }]}>
-          <View style={[styles.dot, { backgroundColor: colors.hintText }]} />
-          <Text style={[styles.small, styles.fromText, { color: colors.hintText }]} numberOfLines={1}>
-            {`${from.join(" and ")}, from chat`}
-          </Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -255,8 +244,6 @@ function ToolRow({ tool, look }: { tool: ChatTool; look: CastChatLookColors }) {
 const styles = StyleSheet.create({
   bar: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 40, paddingHorizontal: space.x4, borderBottomWidth: 1 },
   barName: { fontSize: pointerType.ui, fontWeight: "600" },
-  from: { flexDirection: "row", alignItems: "center", gap: space.x1, paddingHorizontal: space.x2, paddingVertical: 3, borderRadius: radii.pill, borderWidth: 1, flexShrink: 1 },
-  fromText: { fontWeight: "600" },
   column: { flex: 1, gap: space.x3, minHeight: 0, minWidth: 0 },
   window: { flex: 1, minHeight: 0, borderRadius: radii.console, borderWidth: 1, overflow: "hidden" },
   head: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 48, paddingHorizontal: space.x4, borderBottomWidth: 1 },

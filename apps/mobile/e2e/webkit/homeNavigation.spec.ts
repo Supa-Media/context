@@ -85,8 +85,11 @@ test("a cast comment on a phone shows its highlight and waits for a tap", async 
   // Give a sheet every chance to open on its own before saying it did not.
   await page.waitForTimeout(1_000);
   await expect(page.locator(".cm-cmt-sheet-layer:not([hidden])")).toHaveCount(0);
+  // Its words come up as a card instead, so the scene still shows them
+  // (Dev2, 2026-10-01: "im not seeing comments here").
+  await expect(page.getByTestId("cast-comment-card")).toContainText("a little bold?");
 
   await highlight.tap();
   await expect(page.locator(".cm-cmt-sheet-layer:not([hidden])")).toHaveCount(1);
-  await expect(page.getByText("a little bold?")).toBeVisible();
+  await expect(page.getByLabel("Comment thread").getByText("a little bold?")).toBeVisible();
 });

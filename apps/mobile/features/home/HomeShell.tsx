@@ -385,7 +385,7 @@ export function HomeShell() {
           ]}
           testID={phone ? "cast-phone-context" : undefined}
         >
-          {desk && chat !== null ? <CastWorkspaceBar view={chat} /> : null}
+          {desk ? <CastWorkspaceBar /> : null}
           {/* Always these two boxes, so the frame is never remounted when a chat appears. */}
           <View style={phone ? styles.zoomBox : styles.plainBox}>
           <View style={paneZoom(phone ? PANE_SCALE.context : 1)}>
@@ -417,8 +417,8 @@ export function HomeShell() {
             </FrameBare.Provider>
           </FrameFillsParent.Provider>
           </View>
-          {phone && chat?.said !== undefined ? (
-            <CastCommentCard said={chat.said} badge={cast?.colors.get(chat.said.who)} />
+          {compact && castRoom.said !== undefined ? (
+            <CastCommentCard said={castRoom.said} badge={cast?.colors.get(castRoom.said.who)} overBar={!phone} />
           ) : null}
           </View>
         </View>

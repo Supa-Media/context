@@ -197,6 +197,8 @@ export interface LiveEditorProps {
     collaboration?: DurableCollaboration;
     /** A thread the room is acting on, for the editor to open. See `Presence.commentFocus`. */
     commentFocus?: { thread: string; step: number } | null;
+    /** A cast's room (`Presence.demo`): the page follows whoever is writing. */
+    demo?: boolean;
   };
   /**
    * Scroll the surface this editor is laid out inside, by `delta` points.

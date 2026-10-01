@@ -452,7 +452,60 @@ export function reportSelection(getReporter: () => Reporter | undefined): Extens
 /** Told where this editor's caret is. Never told what is in the document. */
 export type Reporter = (anchor: number, head: number) => void;
 
+/**
+ * The caret that just moved, or `null`: of several, the last in the roster.
+ * One with no place in the document is not followed anywhere.
+ */
+export function movedCaret(before: PresenceMember[], after: PresenceMember[]): PresenceMember | null {
+  let moved: PresenceMember | null = null;
+  for (const member of after) {
+    if (member.head === null) continue;
+    const previous = before.find((one) => one.id === member.id);
+    if (previous === undefined || previous.head !== member.head) moved = member;
+  }
+  return moved;
+}
+
+/**
+ * Whether the page keeps whoever is writing in view. Only a cast turns it on
+ * (Dev2, 2026-10-01: "make sure that the page moves down or up to where is
+ * currently being written"): in a real note, somebody else typing must never
+ * take the page from the person reading it.
+ */
+export const setFollowCarets = StateEffect.define<boolean>();
+
+const followCarets = StateField.define<boolean>({
+  create: () => false,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setFollowCarets)) return effect.value;
+    }
+    return value;
+  },
+});
+
+/** Room under a followed caret, so it clears a phone's floating bar. */
+const FOLLOW_MARGIN = 120;
+
+const caretFollow = EditorView.updateListener.of((update: ViewUpdate) => {
+  if (!update.state.field(followCarets)) return;
+  const roster = update.transactions.flatMap((tr) => tr.effects.filter((effect) => effect.is(setRemoteCarets)));
+  if (roster.length === 0) return;
+  const moved = movedCaret(update.startState.field(caretState).members, roster[roster.length - 1]!.value);
+  const doc = update.state.field(caretDocument);
+  if (moved === null || moved.head === null || doc === null) return;
+  const offset = cursorOffset(moved.head, doc);
+  if (offset === null) return;
+  const view = update.view;
+  // Not inside this update: CodeMirror refuses a dispatch while one is running.
+  window.requestAnimationFrame(() => {
+    if (!view.dom.isConnected) return;
+    const at = clampToDocument(offset, view.state.doc.length);
+    view.dispatch({ effects: EditorView.scrollIntoView(at, { y: "nearest", yMargin: FOLLOW_MARGIN }) });
+  });
+});
+
 /** The whole extension, for `editorExtensions` to include. */
 export function remoteCarets(): Extension {
-  return [caretState, caretDocument, caretLabels, caretDecorations, caretLabelTimer, caretFlagFit, caretTheme];
+  return [caretState, caretDocument, caretLabels, followCarets, caretDecorations, caretLabelTimer, caretFollow, caretFlagFit, caretTheme];
 }
