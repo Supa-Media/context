@@ -20,6 +20,8 @@ export {
   presenceColors,
   castChatLooks,
   type CastChatLookColors,
+  castTerminalLooks,
+  type CastTerminalLookColors,
   DEFAULT_FACE_GROUNDS,
 } from "./tokens/colors";
 

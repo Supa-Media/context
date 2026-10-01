@@ -126,14 +126,17 @@ export function useCastPeek(options: Omit<PeekOptions, "peeking">): { peek: (fol
 
 /**
  * What a phone shows after a chat event. Split keeps both apps up; one app at
- * a time goes to the chat somebody is typing in, and to Context when an
- * assistant starts a step there, so the change lands on screen. An answer
+ * a time goes to the chat somebody is typing in, to Context when an
+ * assistant starts a step there, so the change lands on screen, and to an
+ * assistant's terminal when it starts a command, edits or asks something. An answer
  * stays where the film is: cutting away for every "Done." would be restless.
  */
 export function phoneShowsAfter(before: CastShown | undefined, event: CastChatEvent, phone: CastPhoneLayout | undefined): CastShown {
   if (phone !== "one") return before ?? "both";
   if (event.kind === "draft" || event.kind === "ask") return event.agent;
   if (event.kind === "tool" && !event.done) return "context";
+  // A terminal's own work: a command starting, an edit, a question for somebody.
+  if ((event.kind === "run" && event.output.length === 0 && !event.done) || event.kind === "edit" || event.kind === "approval") return event.agent;
   return before ?? event.agent;
 }
 

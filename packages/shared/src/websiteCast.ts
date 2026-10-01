@@ -81,6 +81,12 @@
  * says whether a phone's keyboard comes up while a person types a comment,
  * from that line on; it does by default.
  *
+ * **A scene can happen in a terminal.** "Codex runs: pnpm test", with what
+ * it printed on indented lines under it, "Codex edits: retry.ts" with a diff,
+ * and "Claude Code asks to run: …" answered by "@sam allows": an assistant
+ * that does any of these works in a terminal, in the folder a `terminal:`
+ * line names, and its Context work shows there too (`castTerminal.ts`).
+ *
  * **Comments are the exception, because a comment is about words.** "comments
  * on" quotes them and writes a real thread (`comments.cjs`) around the first
  * place they appear; "replies" and "resolves" act on the last thread this
@@ -92,6 +98,12 @@
  * does not play the cast uses `stripWebsiteCast` and draws the page without
  * them. Pure and dependency-free, like the rest of this package.
  */
+
+import { ACTOR, AGENT_NAME, MAX_CAST_TEXT, actor, clip, indentedBody } from "./castNames";
+import { parseTerminalStep, terminalLine, terminalsOf, withTerminal, type CastTerminal, type CastTerminalStep } from "./castTerminal";
+
+export { MAX_CAST_TEXT };
+export type { CastTerminal, CastTerminalStep };
 
 export type CastActorKind = "person" | "agent";
 
@@ -154,7 +166,9 @@ export type CastStep =
    * Whether a phone's keyboard comes up while a person types a comment, from
    * here on (`keyboard: off`); on by default. Nobody does it, like `shows:`.
    */
-  | { kind: "keyboard"; on: boolean };
+  | { kind: "keyboard"; on: boolean }
+  /** A command run, a file edited, a command asked for and allowed: an assistant in its terminal (`castTerminal.ts`). */
+  | CastTerminalStep;
 
 /** What a `shows:` step puts on a phone's screen: `context`, `both`, or an assistant as the script names it. */
 export type CastShown = "context" | "both" | (string & {});
@@ -197,6 +211,8 @@ export interface CastChatSetup {
   look: CastChatLook;
   /** On a phone; absent is split. */
   phone?: CastPhoneLayout;
+  /** The assistants that work in a terminal rather than a chat (`castTerminal.ts`). */
+  terminals?: CastTerminal[];
 }
 
 /** A scene's speed, written as a line of its own in a cast block. */
@@ -205,13 +221,9 @@ export type CastPaceName = (typeof CAST_PACES)[number];
 
 /** Bounds, so a page cannot script an unbounded show. */
 export const MAX_CAST_STEPS = 60;
-export const MAX_CAST_TEXT = 600;
 export const MAX_CAST_WAIT_MS = 30_000;
 
 const OPEN = /^ {0,3}(`{3,})\s*cast\s*$/i;
-const NAME = String.raw`[A-Za-z][A-Za-z0-9._-]{0,30}(?: [A-Za-z0-9][A-Za-z0-9._-]{0,30}){0,2}`;
-/** `@maya`, `Claude`, or somebody's agent: `@jon's Claude`. */
-const ACTOR = String.raw`(@[A-Za-z0-9][A-Za-z0-9_.-]{0,38}(?:['\u2019]s ${NAME})?|${NAME})`;
 const LINE = new RegExp(String.raw`^${ACTOR}\s+(?:types|writes)\s*:\s*(.+)$`, "i");
 const APPEND = new RegExp(String.raw`^${ACTOR}\s+adds (to the line above|a line below)\s*:\s*(.+)$`, "i");
 const READ = new RegExp(String.raw`^${ACTOR}\s+reads(?:\s*:\s*(.+))?$`, "i");
@@ -229,7 +241,6 @@ const CHAT = /^chat\s*:\s*(.+)$/i;
 const PHONE = /^phone\s*:\s*(.+)$/i;
 const SHOWS = /^(?:shows?|show on the phone)\s*:\s*(.+)$/i;
 const KEYBOARD = /^(?:phone\s+)?keyboard\s*:\s*(.+)$/i;
-const AGENT_NAME = new RegExp(String.raw`^${NAME}$`);
 const ASK = new RegExp(String.raw`^${ACTOR}\s+asks\s+${ACTOR}\s*:\s*(.+)$`, "i");
 const ANSWER = new RegExp(String.raw`^${ACTOR}\s+(?:answers|says)\s*:\s*(.+)$`, "i");
 const FOLDER = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?folder\s*:\s*(.+)$`, "i");
@@ -238,16 +249,6 @@ const RENAME = new RegExp(String.raw`^${ACTOR}\s+renames\s+(.+?)\s+to\s*:\s*(.+)
 const STATUS = new RegExp(String.raw`^${ACTOR}\s+(?:marks|sets)\s+(.+?)\s+(?:as|to)\s*:\s*(.+)$`, "i");
 const TASK = new RegExp(String.raw`^${ACTOR}\s+adds (?:a )?(?:new )?task to\s+(.+?)\s*:\s*(.+)$`, "i");
 const WAIT = /^wait\s+(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds?)?$/i;
-
-function actor(written: string): CastActor {
-  // A person is `@handle`; `@handle's Claude` is that person's agent.
-  const name = written.replace(/\u2019/g, "'");
-  return { name, kind: name.startsWith("@") && !name.includes("'s ") ? "person" : "agent" };
-}
-
-function clip(text: string): string {
-  return text.trim().slice(0, MAX_CAST_TEXT);
-}
 
 /**
  * A path in the tree as written: forward slashes, no leading or trailing one,
@@ -335,18 +336,26 @@ function parseBlock(
       return;
     }
     let match: RegExpExecArray | null;
+    let terminal: ReturnType<typeof terminalLine>;
+    let read: number | null;
     if ((match = PACE.exec(text)) !== null) {
       // The scene's, wherever it is written; the last one written wins.
       scene.pace = match[1]!.toLowerCase() as CastPaceName;
     } else if ((match = CHAT.exec(text)) !== null) {
       const setup = chatSetup(match[1]!);
       if (typeof setup === "string") problems.push(setup);
-      // A `phone:` line said before it still holds.
-      else scene.chat = scene.chat?.phone === undefined ? setup : { ...setup, phone: scene.chat.phone };
+      // A `phone:` or `terminal:` line said before it still holds.
+      else scene.chat = { ...setup, ...(scene.chat?.phone === undefined ? {} : { phone: scene.chat.phone }), ...(scene.chat?.terminals === undefined ? {} : { terminals: scene.chat.terminals }) };
     } else if ((match = PHONE.exec(text)) !== null) {
       const phone = phoneLayout(match[1]!);
       if (phone === "split" || phone === "one") scene.chat = { ...(scene.chat ?? { layout: "side", look: "warm" }), phone };
       else problems.push(phone);
+    } else if ((terminal = terminalLine(text)) !== null) {
+      if (typeof terminal === "string") problems.push(terminal);
+      else scene.chat = { ...(scene.chat ?? { layout: "side", look: "warm" }), terminals: withTerminal(scene.chat?.terminals, terminal) };
+    } else if ((read = parseTerminalStep(lines, i, steps, problems)) !== null) {
+      // A command's output and an edit's diff are its lines, read with it.
+      i = read;
     } else if ((match = KEYBOARD.exec(text)) !== null) {
       const on = keyboardOn(match[1]!);
       if (typeof on === "boolean") steps.push({ kind: "keyboard", on });
@@ -379,11 +388,8 @@ function parseBlock(
       steps.push({ kind: "wait", ms: Math.min(Math.round(ms), MAX_CAST_WAIT_MS) });
     } else if ((match = NOTE.exec(text)) !== null) {
       // The note's text is the lines under it indented by two spaces or more.
-      const body: string[] = [];
-      while (i + 1 < lines.length && (/^\s{2,}\S/.test(lines[i + 1]!) || lines[i + 1]!.trim() === "")) {
-        i += 1;
-        body.push(lines[i]!.replace(/^\s{2}/, ""));
-      }
+      const { body, next } = indentedBody(lines, i);
+      i = next;
       // A path puts it in that folder: `1-projects/launch/decisions`.
       const written = cleanPath(match[2]!);
       const cut = written.lastIndexOf("/");
@@ -515,6 +521,9 @@ function splitCast(source: string, spans?: CastStepSource[]): WebsiteCast {
     if ((step.kind === "line" || step.kind === "append") && step.at > cap) step.at = cap;
   }
   const cast: WebsiteCast = { markdown, steps, problems };
+  // An assistant that runs or edits works in a terminal, named or not.
+  const terminals = terminalsOf(steps, scene.chat?.terminals);
+  if (terminals !== undefined) scene.chat = { ...(scene.chat ?? { layout: "side", look: "warm" }), terminals };
   if (scene.pace !== undefined) cast.pace = scene.pace;
   if (scene.chat !== undefined) cast.chat = scene.chat;
   return cast;

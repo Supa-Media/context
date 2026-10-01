@@ -37,6 +37,8 @@ export function castTimeline(
   /** The pages its `opens:` steps name, by the name written, so steps there are timed against them. */
   pages: Readonly<Record<string, string>> = {},
   pace: CastPace = LIVELY,
+  /** The scene's terminals, whose Context work shows in them as the homepage plays it. */
+  terminals?: readonly string[],
 ): CastTimeline {
   const shared = createSharedDoc({});
   seedSharedDoc(shared, markdown);
@@ -79,7 +81,7 @@ export function castTimeline(
       }
       moments[moment] += 1;
     },
-  }, { pace });
+  }, { pace, terminals });
   clock.rush(() => total !== null);
   run.stop();
   clock.stop();

@@ -223,7 +223,7 @@ export function useHomeCast(options: {
         },
       },
       // The page it starts on sets the pace, for the whole scene.
-      { path, colors, pace: paceNamed(latest.current.paces?.get(path)) },
+      { path, colors, pace: paceNamed(latest.current.paces?.get(path)), terminals: setup.terminals?.map((terminal) => terminal.agent) },
     );
     if (clock !== null && !live) clock.rush(() => live);
     here.end = () => {

@@ -83,6 +83,14 @@ export function describeStep(step: CastStep): string {
       return step.on ? "A phone's keyboard comes up for typing" : "No phone keyboard";
     case "shows":
       return step.what === "both" ? "The phone shows both apps" : `The phone shows ${step.what === "context" ? "Context" : step.what}`;
+    case "run":
+      return `runs ${step.command}`;
+    case "edit":
+      return `edits ${step.file}`;
+    case "approve":
+      return `asks to run ${step.command}`;
+    case "allow":
+      return step.allowed ? "allows it" : "denies it";
   }
 }
 
@@ -119,6 +127,12 @@ export function describeVerb(step: CastStep): string {
       return `marks ${step.path} as`;
     case "task":
       return `adds a task to ${step.project}`;
+    case "run":
+      return "runs";
+    case "edit":
+      return "edits";
+    case "approve":
+      return "asks to run";
     case "wait":
       return "Pause";
     default:
@@ -128,8 +142,8 @@ export function describeVerb(step: CastStep): string {
 
 /** A note's script, as the studio's rail and scrubber show it; `pages` are the ones it opens, by name. */
 export function studioScript(source: string, pages: Readonly<Record<string, string>> = {}): StudioScript {
-  const { markdown, steps, problems, pace } = splitWebsiteCast(stripFrontmatter(source));
-  const timeline = castTimeline(markdown, steps, pages, paceNamed(pace));
+  const { markdown, steps, problems, pace, chat } = splitWebsiteCast(stripFrontmatter(source));
+  const timeline = castTimeline(markdown, steps, pages, paceNamed(pace), chat?.terminals?.map((terminal) => terminal.agent));
   return {
     rows: steps.map((step, index) => ({
       index,

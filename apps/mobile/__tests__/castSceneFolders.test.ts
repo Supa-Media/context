@@ -8,6 +8,7 @@ import { castTimeline } from "../features/home/cast/castTimeline";
 import { pageNamed } from "../features/home/cast/useHomeCast";
 import { castPreviewFrom, castPreviewHref, previewPagePath, previewSlug } from "../features/home/castPreview";
 import { liveHomeTree } from "../features/home/homeSite";
+import { setStatus } from "../features/home/castWorkspace";
 import type { HomeSnapshot } from "../features/home/homeSnapshot";
 import { sceneOpens } from "../features/studio/scenePages";
 import { scenePageReader } from "../features/console/panes/browsePane/castPreviewButton";
@@ -221,5 +222,35 @@ describe("the console reading a scene's pages", () => {
     expect(await read("clients/james")).toMatchObject({ markdown: `# ${scene}/clients/james.md\n` });
     for (const name of ["../secrets", "inbox/../../x", "./james", "inbox/./james", "..\\x", "/"]) expect(await read(name)).toBeNull();
     expect(reads).toEqual([`${scene}/inbox/01-james.md`, `${scene}/inbox-james.md`, `${scene}/clients/james.md`]);
+  });
+});
+
+describe("a project's own page", () => {
+  /*
+    Developer casts (2026-10-01): "Codex marks checkout-v2 as: in progress"
+    wrote a second note, `overview`, beside the project's page, because the
+    tree had named that page after its title. A folder's front note is how
+    a project is a project (`FRONT_NOTES`), so it keeps its name.
+  */
+  const site = [
+    { path: "index.md", routePath: "/", title: "Shop API", markdown: "# Shop API\n" },
+    { path: "projects/checkout-v2/overview.md", routePath: "/projects/checkout-v2/overview", title: "Checkout v2", markdown: "# Checkout v2\n" },
+    { path: "projects/checkout-v2/notes.md", routePath: "/projects/checkout-v2/notes", title: "Notes", markdown: "# Notes\n" },
+  ];
+
+  test("keeps its front note's name, and a status is written into it", () => {
+    const { tree, paths } = liveHomeTree(site);
+    const front = paths.get("/projects/checkout-v2/overview")!;
+    expect(front).toMatch(/\/overview\.md$/);
+    expect(paths.get("/projects/checkout-v2/notes")).toMatch(/\/\d{2}-Notes\.md$/);
+    const folder = front.slice(0, front.lastIndexOf("/"));
+    const made = setStatus(tree, folder, "in progress")!;
+    expect(made.path).toBe(front);
+    expect(Object.keys(made.tree.notes).filter((path) => path.startsWith(`${folder}/`))).toHaveLength(2);
+    expect(made.tree.notes[front]).toMatch(/^---\nstatus: in progress\n---/);
+  });
+
+  test("the site's own front page is still named by its title", () => {
+    expect(liveHomeTree(site).paths.get("/")).toBe("01-Shop API.md");
   });
 });

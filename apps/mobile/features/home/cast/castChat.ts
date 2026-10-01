@@ -24,7 +24,16 @@ export type CastChatEvent =
   /** The assistant's answer so far; `id` is the same while it grows. */
   | { kind: "answer"; agent: string; id: number; text: string; done: boolean }
   /** Something it did to the workspace, working and then done. */
-  | { kind: "tool"; agent: string; id: number; verb: string; what: string; done: boolean };
+  | { kind: "tool"; agent: string; id: number; verb: string; what: string; done: boolean }
+  /** A command in its terminal, and what it has printed so far; `id` is the same while it prints. */
+  | { kind: "run"; agent: string; id: number; command: string; output: readonly string[]; done: boolean }
+  /** A file it changed, as a diff. */
+  | { kind: "edit"; agent: string; id: number; file: string; diff: readonly string[] }
+  /** A command it asked to run, waiting for somebody and then answered by them. */
+  | { kind: "approval"; agent: string; id: number; command: string; answer: ChatApproval; by?: string };
+
+/** Where a command an assistant asked to run stands. */
+export type ChatApproval = "waiting" | "allowed" | "denied";
 
 export interface ChatTool {
   id: number;
@@ -37,7 +46,10 @@ export type ChatMessage =
   | { kind: "asked"; from: string; text: string }
   | { kind: "answer"; id: number; text: string; done: boolean }
   /** Steps taken one after another, drawn as one "Used Context" card. */
-  | { kind: "tools"; tools: ChatTool[] };
+  | { kind: "tools"; tools: ChatTool[] }
+  | { kind: "run"; id: number; command: string; output: readonly string[]; done: boolean }
+  | { kind: "edit"; id: number; file: string; diff: readonly string[] }
+  | { kind: "approval"; id: number; command: string; answer: ChatApproval; by?: string };
 
 export interface ChatWindow {
   /** The assistant, as the script names it. */
@@ -67,11 +79,15 @@ function applyTo(window: ChatWindow, event: CastChatEvent): ChatWindow {
       return { ...window, draft: event.text };
     case "ask":
       return { ...window, draft: "", messages: [...messages, { kind: "asked", from: event.from, text: event.text }] };
-    case "answer": {
-      const answer: ChatMessage = { kind: "answer", id: event.id, text: event.text, done: event.done };
-      const index = messages.findIndex((message) => message.kind === "answer" && message.id === event.id);
-      if (index === -1) return { ...window, messages: [...messages, answer] };
-      return { ...window, messages: messages.map((message, i) => (i === index ? answer : message)) };
+    case "answer":
+      return upsert(window, { kind: "answer", id: event.id, text: event.text, done: event.done });
+    case "run":
+      return upsert(window, { kind: "run", id: event.id, command: event.command, output: event.output, done: event.done });
+    case "edit":
+      return upsert(window, { kind: "edit", id: event.id, file: event.file, diff: event.diff });
+    case "approval": {
+      const approval: ChatMessage = { kind: "approval", id: event.id, command: event.command, answer: event.answer };
+      return upsert(window, event.by === undefined ? approval : { ...approval, by: event.by });
     }
     case "tool": {
       const tool: ChatTool = { id: event.id, verb: event.verb, what: event.what, done: event.done };
@@ -92,6 +108,13 @@ function applyTo(window: ChatWindow, event: CastChatEvent): ChatWindow {
       return { ...window, messages: [...messages, { kind: "tools", tools: [tool] }] };
     }
   }
+}
+
+/** A message that grows or changes in place (an answer, a command printing, an approval answered): replaced where it is, or added. */
+function upsert(window: ChatWindow, message: Extract<ChatMessage, { id: number }>): ChatWindow {
+  const index = window.messages.findIndex((one) => one.kind === message.kind && "id" in one && one.id === message.id);
+  if (index === -1) return { ...window, messages: [...window.messages, message] };
+  return { ...window, messages: window.messages.map((one, i) => (i === index ? message : one)) };
 }
 
 /** A name in the tree as a person says it: `1-projects` is Projects, `beta-launch` is Beta launch. */
