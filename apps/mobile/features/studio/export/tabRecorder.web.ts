@@ -132,7 +132,7 @@ function timePicture(video: HTMLVideoElement): { look: () => void; stop: () => n
     top: "0",
     width: `${MARK_PX}px`,
     height: `${MARK_PX}px`,
-    background: "#000",
+    background: "black",
     zIndex: "2147483647",
     pointerEvents: "none",
   });
@@ -162,7 +162,7 @@ function timePicture(video: HTMLVideoElement): { look: () => void; stop: () => n
       }
       if (now - last < MARK_FLIP_MS) return;
       white = !white;
-      mark.style.background = white ? "#fff" : "#000";
+      mark.style.background = white ? "white" : "black";
       flipped = now;
     },
     stop() {
