@@ -32,6 +32,9 @@ export interface StudioSounds {
   saves: boolean;
   /** Why the last change could not be saved. */
   problem: string | null;
+  /** The scene's sounds as a stream, for an export (`soundPlayer.ts`). */
+  capture: () => MediaStream | null;
+  release: () => void;
 }
 
 /**
@@ -168,6 +171,8 @@ export function useStudioSounds(
     upload,
     uploading,
     saves: save !== undefined,
+    capture: () => speaker().capture(),
+    release: () => sound.current?.release(),
     problem,
   };
 }
