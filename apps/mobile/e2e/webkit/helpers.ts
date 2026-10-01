@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * Real touch, everywhere a plain tap or a hold is enough.
@@ -14,6 +14,24 @@ export async function tap(page: Page, label: string): Promise<void> {
   const box = await page.getByLabel(label, { exact: true }).boundingBox();
   if (box === null) throw new Error(`no element labelled "${label}" to tap`);
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+/**
+ * Where `target` is once it has stopped moving. A phone's page slides in
+ * (`PageSlide`), so a box read mid-slide is a tap on whatever slides under it.
+ */
+export async function settledBox(target: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  await target.waitFor();
+  let box = await target.boundingBox();
+  for (let tries = 0; tries < 20; tries++) {
+    await target.page().waitForTimeout(50);
+    const next = await target.boundingBox();
+    const still = box !== null && next !== null && box.x === next.x && box.y === next.y;
+    box = next;
+    if (still) break;
+  }
+  if (box === null) throw new Error("nothing to tap");
+  return box;
 }
 
 /**

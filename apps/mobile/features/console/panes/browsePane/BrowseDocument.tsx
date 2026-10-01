@@ -23,7 +23,7 @@ import type { FolderListingState } from "./useFolderListing";
 import { useTaskHost } from "./useTaskHost";
 import { folderCounts } from "../../home/folderHead";
 import { phoneRows } from "../../home/folderRows";
-import { PhoneFolderHead } from "../../home/PhoneFolderHead";
+import { PhoneFolderButtons, PhoneFolderHead } from "../../home/PhoneFolderHead";
 import { PhoneHome } from "../../home/PhoneHome";
 import { folderTagTarget } from "../../home/folderTags";
 import { showTagOnHome } from "../../home/homeTag";
@@ -230,7 +230,7 @@ export function BrowseDocument({
         : undefined,
     [compact, homeSource, places.pins],
   );
-  // What a phone draws under a folder's title: counts, faces, the latest change, and its two buttons.
+  // What a phone draws under a folder's title: counts, faces and the latest change.
   const phoneHead = (folder: string) =>
     !compact ? undefined : (
       <PhoneFolderHead
@@ -242,8 +242,6 @@ export function BrowseDocument({
         )}
         entries={data.activity?.entries}
         onOpen={files.select}
-        onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder }) : undefined}
-        onActions={(at) => void openFolderActions(folder, at)}
         tags={folderTagTarget(folder, homeSource.notes)?.tags}
         onTag={(tag) => {
           showTagOnHome(tag);
@@ -347,6 +345,14 @@ export function BrowseDocument({
         page={folderPage}
         showAudience={data.visitor === undefined}
         phoneHead={phoneHead(selected.path)}
+        phoneButtons={
+          compact ? (
+            <PhoneFolderButtons
+              onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: selected.path }) : undefined}
+              onActions={(at) => void openFolderActions(selected.path, at)}
+            />
+          ) : undefined
+        }
         phoneRows={phoneRowsFor}
         askSelect={selectAsked === selected.path}
         onAskTaken={takeSelect}

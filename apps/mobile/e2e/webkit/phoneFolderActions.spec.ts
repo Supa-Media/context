@@ -75,3 +75,32 @@ test("Select notes trades search for the picked rows' actions, and Cancel gives 
   await expect(page.getByTestId("notes-bar")).toBeVisible();
   await expect(page.getByTestId("select-actions")).toHaveCount(0);
 });
+
+/*
+  The owner's retest of 2026-10-01: a folder page's two buttons sit on its
+  title's row, as Home's do (board 07), with no second ••• in the corner; and
+  Move is board 12's bottom sheet, with the folder it is in marked "Here now".
+*/
+test("a folder's buttons share its title's row, and the corner has no second •••", async ({ page }) => {
+  await openLegal(page);
+  const title = await page.getByTestId("folder-head-row").boundingBox();
+  const more = await page.getByTestId("phone-folder-actions").boundingBox();
+  expect(title).not.toBeNull();
+  expect(more).not.toBeNull();
+  expect(more!.y).toBeGreaterThanOrEqual(title!.y);
+  expect(more!.y + more!.height).toBeLessThanOrEqual(title!.y + title!.height + 1);
+  await expect(page.getByTestId("note-actions")).toHaveCount(0);
+});
+
+test("Move from a note is the place picker sheet, naming where it goes", async ({ page }) => {
+  await openLegal(page);
+  await touch(page, "folder-row");
+  await touch(page, "note-quick-moveTo");
+  await expect(page.getByTestId("dialog-sheet")).toBeVisible();
+  await expect(page.getByLabel("Find a folder", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("dialog-sheet")).toContainText("Here now");
+  await expect(page.getByTestId("place-confirm")).toBeDisabled();
+  await touch(page, "place-row", 0);
+  await expect(page.getByTestId("place-confirm")).toBeEnabled();
+  await expect(page.getByTestId("place-confirm")).toHaveText(/^Move to /);
+});

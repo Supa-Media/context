@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { dispatchTouch, openWeeklyReview, tap } from "./helpers";
+import { dispatchTouch, openWeeklyReview, settledBox, tap } from "./helpers";
 
 /**
  * The five cases `docs/decisions/testing.md` names as the ones an iOS-only
@@ -98,8 +98,8 @@ test("the checkbox control toggles on tap", async ({ page }) => {
   const unchecked = page.locator('.cm-lp-task[aria-checked="false"]').first();
   await expect(unchecked).toHaveCount(1);
 
-  const box = await unchecked.boundingBox();
-  if (box === null) throw new Error("the unchecked task has no box to tap");
+  // Once the note has finished sliding in: a tap mid-slide lands beside the box.
+  const box = await settledBox(unchecked);
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 
   // Ticked, and — livePreview.ts turns this into three characters in the

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import type { Match, PaletteItem } from "../../console/files/palette";
 import { space } from "../tokens";
-import { useThemedStyles, type Colors } from "../theme";
+import { useColors, useThemedStyles, type Colors } from "../theme";
+import { Icon, type IconName } from "./Icon";
 import { Text } from "./Text";
 
 /**
@@ -26,6 +27,17 @@ const GLYPHS: Readonly<Record<PaletteItem["kind"], string>> = {
   note: "▢",
   folder: "▸",
   command: "⌘",
+};
+
+/**
+ * `kind` on a phone: the icons Home's rows draw, at Home's size (board 04).
+ * The glyphs above read as tiny empty boxes at a thumb's distance (owner's
+ * retest, 2026-10-01).
+ */
+const ICONS: Readonly<Record<PaletteItem["kind"], IconName>> = {
+  note: "file",
+  folder: "folder",
+  command: "sparkle",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -90,7 +102,9 @@ export function PaletteRow({
   testID: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [hovered, setHovered] = useState(false);
+  const labelVariant = touch ? "treeTouch" : "tree";
   const runs = highlightRuns(match.item.label, match.ranges);
   const second = secondLine(match.item);
 
@@ -109,20 +123,25 @@ export function PaletteRow({
         styles.row,
         touch ? styles.rowTouch : styles.rowPointer,
         hovered && !selected && styles.rowHover,
-        selected && styles.rowSelected,
+        // A phone has no arrow keys to move a picked row, so none is painted.
+        selected && !touch && styles.rowSelected,
       ]}
     >
-      <Text variant="treeMeta" style={styles.glyph} aria-hidden>
-        {GLYPHS[match.item.kind]}
-      </Text>
+      {touch ? (
+        <Icon name={ICONS[match.item.kind]} size={20} color={colors.text2} />
+      ) : (
+        <Text variant="treeMeta" style={styles.glyph} aria-hidden>
+          {GLYPHS[match.item.kind]}
+        </Text>
+      )}
 
       <View style={styles.rowText}>
-        <Text variant="tree" numberOfLines={1} style={styles.label}>
+        <Text variant={labelVariant} numberOfLines={1} style={styles.label}>
           {runs.map((run, index) =>
             run.matched ? (
               <Text
                 key={`${index}-${run.text}`}
-                variant="tree"
+                variant={labelVariant}
                 style={styles.mark}
                 testID="palette-mark"
               >
@@ -160,7 +179,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x4,
   },
   rowPointer: { height: POINTER_ROW_HEIGHT },
-  rowTouch: { height: TOUCH_ROW_HEIGHT },
+  rowTouch: { height: TOUCH_ROW_HEIGHT, gap: space.x3 },
   rowHover: { backgroundColor: colors.surface2 },
   rowSelected: { backgroundColor: colors.accentDim },
   rowText: { flex: 1, minWidth: 0 },

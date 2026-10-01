@@ -14,9 +14,9 @@ const FACE = 24;
 
 /**
  * Under a folder's title on a phone (board 07 of the Home artboards, approved
- * 2026-09-30): what it holds, who has been in it this week, the latest change
- * in one line, and the folder's two buttons — New folder inside, and ••• for
- * everything else you can do to it (board 08).
+ * 2026-09-30): what it holds, who has been in it this week, and the latest
+ * change in one line. The folder's two buttons are `PhoneFolderButtons`, on
+ * the title's own row.
  *
  * It takes the place of the pointer layout's "private — yours alone…"
  * sentence: the people mark beside a shared folder's name already says who
@@ -27,8 +27,6 @@ export function PhoneFolderHead({
   counts,
   entries,
   onOpen,
-  onNewFolder,
-  onActions,
   tags = [],
   onTag,
 }: {
@@ -37,8 +35,6 @@ export function PhoneFolderHead({
   /** The workspace's activity, already read through the privacy filter; `undefined` where there is none. */
   entries: readonly ActivityEntry[] | undefined;
   onOpen: (path: string) => void;
-  onNewFolder?: () => void;
-  onActions?: (anchor: { x: number; y: number }) => void;
   /** The folder's own tags, from its front note (`home/folderTags.ts`, board 14). */
   tags?: readonly string[];
   /** Open Home filtered to a tag. */
@@ -48,7 +44,6 @@ export function PhoneFolderHead({
   const colors = useColors();
   const [now] = useState(() => Date.now());
   const { latest, actors } = folderActivity(entries ?? [], folder, now);
-  const at = (event: GestureResponderEvent) => ({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY });
 
   return (
     <View style={styles.head} testID="phone-folder-head">
@@ -66,29 +61,6 @@ export function PhoneFolderHead({
               <ActorFace key={actor.key} actor={actor} first={index === 0} />
             ))}
           </View>
-        )}
-        <View style={styles.spacer} />
-        {onNewFolder === undefined ? null : (
-          <Pressable
-            onPress={onNewFolder}
-            accessibilityRole="button"
-            accessibilityLabel="New folder inside"
-            style={({ pressed }) => [styles.round, pressed ? styles.pressed : null]}
-            testID="phone-folder-new-folder"
-          >
-            <Icon name="folderPlus" size={20} color={colors.text} />
-          </Pressable>
-        )}
-        {onActions === undefined ? null : (
-          <Pressable
-            onPress={(event) => onActions(at(event))}
-            accessibilityRole="button"
-            accessibilityLabel="Folder actions"
-            style={({ pressed }) => [styles.round, pressed ? styles.pressed : null]}
-            testID="phone-folder-actions"
-          >
-            <Icon name="more" size={20} color={colors.text} />
-          </Pressable>
         )}
       </View>
       {tags.length === 0 ? null : (
@@ -131,6 +103,53 @@ export function PhoneFolderHead({
   );
 }
 
+/**
+ * A folder's two buttons on a phone: New folder inside, and ••• for everything
+ * else you can do to it (board 08). They sit on the title's row, exactly where
+ * Home has its own (board 07) — they used to sit a line lower, beside the
+ * counts, which made a folder page look unlike Home and dropped them from a
+ * project's page altogether, whose property line replaces that line (owner's
+ * retest, 2026-10-01).
+ */
+export function PhoneFolderButtons({
+  onNewFolder,
+  onActions,
+}: {
+  onNewFolder?: () => void;
+  onActions?: (anchor: { x: number; y: number }) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const at = (event: GestureResponderEvent) => ({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY });
+  if (onNewFolder === undefined && onActions === undefined) return null;
+  return (
+    <View style={styles.buttons}>
+      {onNewFolder === undefined ? null : (
+        <Pressable
+          onPress={onNewFolder}
+          accessibilityRole="button"
+          accessibilityLabel="New folder inside"
+          style={({ pressed }) => [styles.round, pressed ? styles.pressed : null]}
+          testID="phone-folder-new-folder"
+        >
+          <Icon name="folderPlus" size={20} color={colors.text} />
+        </Pressable>
+      )}
+      {onActions === undefined ? null : (
+        <Pressable
+          onPress={(event) => onActions(at(event))}
+          accessibilityRole="button"
+          accessibilityLabel="Folder actions"
+          style={({ pressed }) => [styles.round, pressed ? styles.pressed : null]}
+          testID="phone-folder-actions"
+        >
+          <Icon name="more" size={20} color={colors.text} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 function ActorFace({ actor, first }: { actor: FolderActor; first: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -153,7 +172,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     top: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     counts: { color: colors.muted },
     pile: { flexDirection: "row" },
-    spacer: { flex: 1 },
+    buttons: { flexDirection: "row", alignItems: "center", gap: space.x3, flexShrink: 0 },
     round: {
       width: 44,
       height: 44,

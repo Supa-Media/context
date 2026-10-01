@@ -61,6 +61,15 @@ describe("a phone's folder page", () => {
     expect(labels).not.toContain("Open");
   });
 
+  test("its two buttons sit beside the title, as Home's do (board 07)", () => {
+    const app = mountConsole(dataWith(IN_FOLDER as never, { kind: "folder", path: "notes", name: "notes" }));
+    const titleRow = app.find("folder-head-row")!;
+    expect(titleRow.contains(app.find("phone-folder-new-folder"))).toBe(true);
+    expect(titleRow.contains(app.find("phone-folder-actions"))).toBe(true);
+    // Not a second time under it.
+    expect(app.container.querySelectorAll(`[data-testid="phone-folder-actions"]`)).toHaveLength(1);
+  });
+
   test("New folder inside asks for a name in this folder", () => {
     const app = mountConsole(dataWith(IN_FOLDER as never, { kind: "folder", path: "notes", name: "notes" }));
     app.press(app.find("phone-folder-new-folder"));

@@ -385,9 +385,18 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...pinGroup(context, row),
       ...tagsGroup(context, row),
     ],
-    context.canSetVisibility
-      ? visibilityGroup(context, true, 1, row).map((item) => ({ ...item, label: "Share" }))
-      : [],
+    /*
+      Board 15: "the same Share the app already has, as a full sheet" —
+      people, general access and a link. The folder page's ••• is the only
+      ••• on a phone's folder page (the corner's is a note's), so this is the
+      way to that sheet; the bare visibility choices are the fallback for a
+      console that may set visibility but not share.
+    */
+    context.canShare
+      ? [makeItem(context, "share", "Share…")]
+      : context.canSetVisibility
+        ? visibilityGroup(context, true, 1, row).map((item) => ({ ...item, label: "Share" }))
+        : [],
     context.selectable === true ? [makeItem(context, "selectNotes", "Select notes")] : [],
     downloadGroup(context, row),
     [

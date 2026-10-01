@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { useState } from "react";
+import { StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -8,7 +8,8 @@ import { fonts, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFieldFont } from "../../design/fieldFont";
 import { Shell } from "./DialogShell";
-import { openTo, pickerRows, placeName, placeTrail } from "./folderPickerModel";
+import { placeName, placeTrail } from "./folderPickerModel";
+import { PlacePicker } from "./PlacePicker";
 import { describeNameProblem } from "./paths";
 
 /**
@@ -60,6 +61,7 @@ export function NewFolderForm({
           rootLabel={rootLabel}
           initial={place}
           onBack={() => setPicking(false)}
+          confirmLabel={(name) => `Put it in ${name}`}
           onPick={(picked) => {
             setPlace(picked);
             setPicking(false);
@@ -120,106 +122,6 @@ export function NewFolderForm({
   );
 }
 
-/** The place picker, board 05b: the same list Move's board draws. */
-function PlacePicker({
-  folders,
-  rootLabel,
-  initial,
-  onBack,
-  onPick,
-}: {
-  folders: readonly string[];
-  rootLabel: string;
-  initial: string;
-  onBack: () => void;
-  onPick: (folder: string) => void;
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const fieldFont = useFieldFont();
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => openTo(initial));
-  const [picked, setPicked] = useState(initial);
-  const rows = useMemo(
-    () => pickerRows({ folders, open, query, rootLabel }),
-    [folders, open, query, rootLabel],
-  );
-  const toggle = (folder: string) =>
-    setOpen((current) => {
-      const next = new Set(current);
-      if (next.has(folder)) next.delete(folder);
-      else next.add(folder);
-      return next;
-    });
-
-  return (
-    <>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.back}>
-        <Icon name="chevronLeft" size={18} color={colors.accent} />
-        <Text style={styles.backLabel}>Back</Text>
-      </Pressable>
-      <View style={styles.find}>
-        <Icon name="search" size={16} color={colors.muted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          style={[styles.input, fieldFont]}
-          placeholder="Find a folder"
-          placeholderTextColor={colors.muted}
-          accessibilityLabel="Find a folder"
-        />
-      </View>
-      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-        {rows.length === 0 ? (
-          <Text variant="meta" style={styles.none}>
-            No folder is called that.
-          </Text>
-        ) : null}
-        {rows.map((row) => (
-          <View key={row.path || "/"} style={[styles.row, row.path === picked && styles.rowOn]}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={row.path === picked ? `${row.label}, picked` : row.label}
-              accessibilityState={{ selected: row.path === picked }}
-              onPress={() => setPicked(row.path)}
-              style={[styles.rowPick, { paddingLeft: space.x3 + row.depth * 20 }]}
-              testID="place-row"
-            >
-              <Icon name="folder" size={20} color={row.path === picked ? colors.accentText : colors.text2} />
-              <View style={styles.rowText}>
-                <Text style={[styles.rowLabel, row.path === picked && styles.rowLabelOn]} numberOfLines={1}>
-                  {row.label}
-                </Text>
-                {row.sub === undefined ? null : (
-                  <Text variant="meta" numberOfLines={1}>
-                    {row.sub}
-                  </Text>
-                )}
-              </View>
-              {row.path === picked ? <Icon name="check" size={18} color={colors.accentText} /> : null}
-            </Pressable>
-            {row.opens ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${row.open ? "Close" : "Open"} ${row.label}`}
-                onPress={() => toggle(row.path)}
-                style={styles.opener}
-              >
-                <Icon name={row.open ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
-              </Pressable>
-            ) : null}
-          </View>
-        ))}
-      </ScrollView>
-      <Button
-        label={`Put it in ${placeName(picked, rootLabel)}`}
-        variant="dialogPrimary"
-        onPress={() => onPick(picked)}
-      />
-    </>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     field: {
@@ -259,37 +161,4 @@ const makeStyles = (colors: Colors) =>
     placeName: { fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text, flexShrink: 0, maxWidth: "45%" },
     trail: { flex: 1, textAlign: "right" },
     actions: { flexDirection: "row", gap: 10, marginTop: 4 },
-    back: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 44, alignSelf: "flex-start" },
-    backLabel: { fontFamily: fonts.body, fontSize: touchType.ui, color: colors.accent, fontWeight: "500" },
-    find: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x2,
-      paddingHorizontal: space.x3,
-      minHeight: 44,
-      borderRadius: radii.lg,
-      backgroundColor: colors.well,
-    },
-    list: {
-      maxHeight: 380,
-      borderWidth: 1,
-      borderColor: colors.line,
-      borderRadius: radii.lg,
-      backgroundColor: colors.well,
-    },
-    none: { padding: space.x4 },
-    row: { flexDirection: "row", alignItems: "center", minHeight: 52 },
-    rowOn: { backgroundColor: colors.accentDim },
-    rowPick: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.x3, paddingVertical: space.x2, paddingRight: space.x3 },
-    rowText: { flex: 1, gap: 2 },
-    rowLabel: { fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text },
-    rowLabelOn: { color: colors.accentText, fontWeight: "600" },
-    opener: {
-      width: 44,
-      height: 44,
-      alignItems: "center",
-      justifyContent: "center",
-      borderLeftWidth: 1,
-      borderLeftColor: colors.line,
-    },
   });

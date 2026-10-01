@@ -23,7 +23,7 @@ import { ShareDialog } from "../ShareDialog";
 import type { AudienceContext } from "../../privacy/audience";
 import { consoleOrigin } from "../shareOrigin";
 import { sharesBreakingWarning, sharesBreakingWarningMany } from "../shares";
-import { baseName, folderLabel, parentPath } from "../paths";
+import { baseName, displayName, folderLabel, isMarkdown, parentPath } from "../paths";
 import { findEntry } from "../tree";
 import type { AccessMember, AccessRow, RemovalRoute } from "../access";
 import type { RecipientGroup } from "../recipients";
@@ -230,9 +230,11 @@ export function ExplorerDialogs({
     case "move":
       return (
         <MovePicker
-          title={`Move ${folderLabel(baseName(dialog.path))}`}
+          // A note by its name, as its row shows it: "Move Privacy", never "Move Privacy.md".
+          title={`Move ${isMarkdown(dialog.path) ? displayName(baseName(dialog.path)) : folderLabel(baseName(dialog.path))}`}
+          rootLabel={rootLabel}
           description={sharesBreakingWarning(files.shares, dialog.path, "Moving") ?? undefined}
-          folders={loadedFolders(files.listings).filter(
+          folders={pickable.filter(
             (folder) => dialog.path !== folder && !folder.startsWith(`${dialog.path}/`),
           )}
           currentFolder={parentPath(dialog.path)}
@@ -354,10 +356,11 @@ export function ExplorerDialogs({
       return (
         <MovePicker
           title={`Move ${dialog.paths.length} items`}
+          rootLabel={rootLabel}
           description={sharesBreakingWarningMany(files.shares, dialog.paths, "Moving") ?? undefined}
           // No picked folder can be its own destination, nor anywhere inside
           // one — the same filter the single move applies, over every path.
-          folders={loadedFolders(files.listings).filter(
+          folders={pickable.filter(
             (folder) =>
               !dialog.paths.some((path) => path === folder || folder.startsWith(`${path}/`)),
           )}

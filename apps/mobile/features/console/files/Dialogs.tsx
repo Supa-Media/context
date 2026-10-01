@@ -9,6 +9,7 @@ import type { MoveDestination } from "./browser";
 import { baseName, describeNameProblem, folderLabel } from "./paths";
 import { Shell } from "./DialogShell";
 import { NewFolderForm } from "./NewFolderForm";
+import { PlacePicker } from "./PlacePicker";
 import { createRows, type CreateRow } from "./createSheet";
 import { useFieldFont } from "../../design/fieldFont";
 
@@ -291,10 +292,13 @@ export function MovePicker({
   currentFolder,
   destinations = [],
   loadDestinationFolders,
+  rootLabel = "Your workspace",
   onCancel,
   onConfirm,
 }: {
   title: string;
+  /** What the top of this workspace is called on a phone, where places are named rather than pathed. */
+  rootLabel?: string;
   /** A consequence worth reading before choosing — see `sharesBreakingWarning`. */
   description?: string;
   folders: readonly string[];
@@ -354,9 +358,10 @@ export function MovePicker({
   const available =
     context === null ? folders : isFolderList(loaded) ? loaded.folders : [];
   const elsewhere = destinations.find((one) => one.id === context) ?? null;
+  const sheet = densityFor(useWindowDimensions().width) === "compact";
 
   return (
-    <Shell title={title} onClose={onCancel}>
+    <Shell title={title} onClose={onCancel} sheet={sheet}>
       {description ? <Text variant="paneSub">{description}</Text> : null}
       {destinations.length > 0 ? (
         <View style={styles.pills}>
@@ -399,43 +404,65 @@ export function MovePicker({
           Showing the first {loaded.folders.length} folders of that context.
         </Text>
       ) : null}
-      <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-        {available.map((folder) => {
-          const here = context === null && folder === currentFolder;
-          return (
-            <PressRow
-              key={folder || "/"}
-              accessibilityLabel={folder === "" ? "the root of your context" : folder}
-              selected={folder === chosen}
-              onPress={() => setChosen(folder)}
-              radius={radii.sm}
-              style={styles.listRow}
-              hoverStyle={styles.listRowHover}
-              selectedStyle={styles.listRowOn}
-            >
-              <Text variant="tree" style={folder === chosen ? styles.listRowOnLabel : undefined}>
-                {folder === "" ? "/ (root)" : folder}
-              </Text>
-              {here ? (
-                <Text variant="treeMeta" style={styles.listRowMeta}>
-                  where it is now
-                </Text>
-              ) : null}
-            </PressRow>
-          );
-        })}
-      </ScrollView>
-      <View style={styles.actions}>
-        <Button label="Cancel" variant="dialog" onPress={onCancel} />
-        <Button
-          label={elsewhere === null ? "Move here" : `Move to ${elsewhere.label}`}
-          variant="dialogPrimary"
-          // Only "the folder it is already in" is refused, and only in this
-          // context: the same path in another one is a different place.
-          disabled={chosen === null || (context === null && chosen === currentFolder)}
-          onPress={() => onConfirm(chosen!, context)}
+      {sheet ? (
+        /*
+          A phone's Move is board 12: the place picker New folder uses, folders
+          by name with the workspace at the top, rather than the pointer
+          layout's list of raw paths. Keyed by context so a switch starts the
+          tree over in that context's folders.
+        */
+        <PlacePicker
+          key={context ?? ""}
+          folders={available}
+          rootLabel={elsewhere?.label ?? rootLabel}
+          initial={context === null ? (currentFolder ?? "") : ""}
+          here={context === null ? currentFolder : null}
+          backLabel="Cancel"
+          onBack={onCancel}
+          confirmLabel={(name) => `Move to ${name}`}
+          onPick={(folder) => onConfirm(folder, context)}
         />
-      </View>
+      ) : (
+        <>
+          <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+            {available.map((folder) => {
+              const here = context === null && folder === currentFolder;
+              return (
+                <PressRow
+                  key={folder || "/"}
+                  accessibilityLabel={folder === "" ? "the root of your context" : folder}
+                  selected={folder === chosen}
+                  onPress={() => setChosen(folder)}
+                  radius={radii.sm}
+                  style={styles.listRow}
+                  hoverStyle={styles.listRowHover}
+                  selectedStyle={styles.listRowOn}
+                >
+                  <Text variant="tree" style={folder === chosen ? styles.listRowOnLabel : undefined}>
+                    {folder === "" ? "/ (root)" : folder}
+                  </Text>
+                  {here ? (
+                    <Text variant="treeMeta" style={styles.listRowMeta}>
+                      where it is now
+                    </Text>
+                  ) : null}
+                </PressRow>
+              );
+            })}
+          </ScrollView>
+          <View style={styles.actions}>
+            <Button label="Cancel" variant="dialog" onPress={onCancel} />
+            <Button
+              label={elsewhere === null ? "Move here" : `Move to ${elsewhere.label}`}
+              variant="dialogPrimary"
+              // Only "the folder it is already in" is refused, and only in this
+              // context: the same path in another one is a different place.
+              disabled={chosen === null || (context === null && chosen === currentFolder)}
+              onPress={() => onConfirm(chosen!, context)}
+            />
+          </View>
+        </>
+      )}
     </Shell>
   );
 }

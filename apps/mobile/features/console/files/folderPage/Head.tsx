@@ -102,7 +102,7 @@ export function FolderHead({
   /** Opens the front note; absent when there is none to open. */
   onOpenTitle?: () => void;
   switcher: ReactNode;
-  /** After the switch: the website folder's Publish. */
+  /** After the switch: the website folder's Publish, and a phone's two folder buttons. */
   actions?: ReactNode;
   /** The property line, the lede, the visibility sentence. */
   children?: ReactNode;
@@ -116,7 +116,7 @@ export function FolderHead({
   );
   return (
     <>
-      <View style={styles.head}>
+      <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
         <View style={styles.titleBox}>
           {onOpenTitle === undefined ? (
             heading
@@ -227,6 +227,8 @@ export function PropertyLine({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
+    /* `PhoneHome`'s head clearance, so the title lands where Home's does. */
+    headLarge: { paddingTop: space.x2 },
     titleBox: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     title: { flexShrink: 1 },
     /* `PhoneHome`'s own title, so Home and a folder page have one heading size. */

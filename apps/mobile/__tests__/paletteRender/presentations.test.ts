@@ -75,6 +75,26 @@ describe("one component, two presentations", () => {
     palette.unmount();
   });
 
+  /*
+    Board 04: a phone's rows lead with the note or folder icon Home draws, at
+    Home's size, in the touch type — not the pointer list's one-character
+    glyphs, which read as tiny empty boxes on a phone (owner's retest,
+    2026-10-01). Nothing is painted as picked: there is no arrow key to move it.
+  */
+  test("a touch row draws Home's icon and type, and no picked row", () => {
+    const palette = mount(PHONE);
+    const row = palette.find("palette-row-0")!;
+    expect(row.querySelector("[data-icon]")).not.toBeNull();
+    // No glyph drawn on its own (the fixture's own detail may still say ⌘N).
+    expect([...row.querySelectorAll("*")].some((node) => /^[▢▸⌘]$/.test(node.textContent ?? ""))).toBe(false);
+    expect(window.getComputedStyle(row).backgroundColor).toBe(window.getComputedStyle(palette.find("palette-row-1")!).backgroundColor);
+    palette.unmount();
+
+    const desktop = mount(DESKTOP);
+    expect(desktop.find("palette-row-0")!.querySelector("[data-icon]")).toBeNull();
+    desktop.unmount();
+  });
+
   test("the panel is bounded, so a wide window does not stretch it edge to edge", () => {
     const palette = mount(DESKTOP);
     const panel = palette.find("palette-panel")!;

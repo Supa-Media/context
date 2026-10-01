@@ -10,7 +10,7 @@
  * folder for the guard table and the mounting harness these tests share.
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { beforeAll, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -28,6 +28,18 @@ const noop = () => {};
  * safe-area insets on the web build, so it needs `METRICS` for the reason given
  * there.
  */
+/*
+  The pointer layout's Move. jsdom performs no layout and reports a width of 0,
+  which is a phone, and a phone's Move is board 12's sheet
+  (`noteChrome/phoneMove.test.ts`) — so the window is made wide before
+  anything mounts. react-native-web's `Dimensions` measures
+  `documentElement.clientWidth` and re-reads it on `resize`.
+*/
+beforeAll(() => {
+  Object.defineProperty(document.documentElement, "clientWidth", { value: 1280, configurable: true });
+  window.dispatchEvent(new Event("resize"));
+});
+
 function mountMoveDialog(
   path: string,
   elsewhere: {
