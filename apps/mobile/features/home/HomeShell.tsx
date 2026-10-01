@@ -5,7 +5,7 @@ import { useJoinSlot } from "./useJoinSlot";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
-import type { CastPaceName, CastStep } from "@context/shared";
+import type { CastStep } from "@context/shared";
 import { densityFor } from "../app/frame";
 import { ConsoleFrame } from "../console/ConsoleFrame";
 import type { NoteRename } from "../console/files/browser/contract";
@@ -18,7 +18,7 @@ import { BrowsePane } from "../console/panes/BrowsePane";
 import { CustomEmojiContext } from "../console/emoji/context";
 import { usePublishedEmoji } from "../console/emoji/published";
 import { writeClipboard } from "../design/clipboard";
-import { useThemedStyles, type Colors } from "../design/theme";
+import { useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import type { EmojiPictures } from "../share/emojiPictures";
 import { NO_PUBLISHED_IMAGES } from "../share/publishedImages";
 import {
@@ -42,12 +42,32 @@ import { HomeMeetingHost } from "./meeting/HomeMeetingHost";
 import { useHomeMeetings } from "./meeting/useHomeMeetings";
 import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
+import { useLocalFolderLists } from "./useLocalFolderLists";
+import { CastChat, CastWorkspaceBar } from "./cast/CastChat";
+import { CastCommentCard } from "./cast/CastCommentCard";
+import { followWorkspace, scenePage, useCastPeek } from "./cast/castCamera";
+import { PANE_SCALE, paneMotion, paneZoom, phoneBoxes, phoneView, usePhoneSwitch } from "./cast/PhoneDesk";
+import { useReducedMotion } from "../design/useReducedMotion";
+import { FrameBare, FrameFillsParent } from "../app/appFrame/fillParent";
+import { viewportHeight } from "../design/css";
+import { radii, space } from "../design/tokens";
+import { findPath } from "./castWorkspace";
 import { HOME_CONTEXT, useVisitorConsoleData } from "./useVisitorConsoleData";
 
 const NO_EMOJI: EmojiPictures = {};
 /** Links that mean "let me in": the page's own email field answers them. */
 const JOIN_ROUTES: ReadonlySet<string> = new Set(["/login", "/workspace/new"]);
 const NO_COLORS: ReadonlyMap<string, string> = new Map();
+
+/** A route-keyed map of the site's scenes, keyed by where each page is in the tree. */
+function byTreePath<T>(byRoute: ReadonlyMap<string, T> | undefined, paths: ReadonlyMap<string, string>): Map<string, T> {
+  const byPath = new Map<string, T>();
+  for (const [route, value] of byRoute ?? []) {
+    const path = paths.get(route);
+    if (path !== undefined) byPath.set(path, value);
+  }
+  return byPath;
+}
 
 /**
  * The homepage, as the app itself: the console's own frame (`ConsoleFrame`)
@@ -91,7 +111,8 @@ export function HomeShell() {
   // Global: this is drawn by `(home)/_layout`, whose own params are not the page.
   const params = useGlobalSearchParams<{ page?: string | string[] }>();
   const routePath = routeFromParam(params.page);
-  const compact = densityFor(useWindowDimensions().width) === "compact";
+  const windowWidth = useWindowDimensions().width;
+  const compact = densityFor(windowWidth) === "compact";
   const source = useHomeSite();
   const live = source.kind === "live" ? source.snapshot.pages : null;
   const emoji = usePublishedEmoji(source.kind === "live" ? source.snapshot.emoji : NO_EMOJI);
@@ -112,14 +133,8 @@ export function HomeShell() {
     }
     return byPath;
   }, [cast, home]);
-  const paces = useMemo(() => {
-    const byPath = new Map<string, CastPaceName>();
-    for (const [route, pace] of cast?.paces ?? []) {
-      const path = home.paths.get(route);
-      if (path !== undefined) byPath.set(path, pace);
-    }
-    return byPath;
-  }, [cast, home]);
+  const paces = useMemo(() => byTreePath(cast?.paces, home.paths), [cast, home]);
+  const chatSetups = useMemo(() => byTreePath(cast?.chats, home.paths), [cast, home]);
 
   /*
     A note the visitor renamed, for the console's tabs to follow — the live
@@ -136,6 +151,8 @@ export function HomeShell() {
   }, source.kind === "live" ? source.snapshot.images : NO_PUBLISHED_IMAGES);
   const browser = local.files;
   const { routeOf, pathOf, notes } = local;
+  // The console's folder pages and list blocks, reading the visitor's copy of the site.
+  const folderLists = useLocalFolderLists(notes, local.writeText);
 
   /*
     The people and agents the owner scripted into the site's pages, drawn by
@@ -164,16 +181,26 @@ export function HomeShell() {
     [browser, pathOf, routePath, router],
   );
 
+  // On a phone Context shows each change's folder for a moment, since a note
+  // filling it would hide the folders being made.
+  const phoneDesk = useRef(false);
+  const { peek, peeking } = useCastPeek({ enabled: () => phoneDesk.current, selected: browser.selectedPath, select: browser.select });
+  const workspace = useMemo(() => followWorkspace(local.cast, peek), [local.cast, peek]);
   const castRoom = useHomeCast({
     stage,
     enabled: Platform.OS === "web" && cast !== null,
     scripts,
     paces,
     colors: cast?.colors ?? NO_COLORS,
-    selectedPath: browser.selectedPath,
+    // A folder up for a moment is not the scene leaving its page.
+    selectedPath: scenePage(browser.selectedPath, peeking),
     notes,
     pages: home.pages,
     addNote: local.addNote,
+    addNoteIn: workspace.addNoteIn,
+    workspace,
+    folderNamed: (name) => findPath({ listings: browser.listings, notes }, name, "folder"),
+    chatSetups,
     // A scene's `opens:` goes where a click on that page would.
     open: (path) => {
       const route = routeOf(path);
@@ -269,7 +296,7 @@ export function HomeShell() {
     [browser],
   );
 
-  const data = useVisitorConsoleData(
+  const visitorData = useVisitorConsoleData(
     files,
     {
       signedIn: auth.isAuthenticated,
@@ -290,6 +317,30 @@ export function HomeShell() {
     withDemoPeople(castRoom.agents, demoPeople),
     notice === null ? null : { toast: notice, dismiss: () => setNotice(null) },
   );
+  const data = useMemo(() => ({ ...visitorData, folderLists }), [visitorData, folderLists]);
+
+  /*
+    A scene's chats (Dev2, 2026-09-30): beside the workspace, or over it
+    until the scene cuts to it. On a phone "beside" is above, so the chat and
+    the tree it is changing are both in view.
+  */
+  const chat = castRoom.chat;
+  const chatShown = chat !== null && chat.windows.length > 0 && !chat.hidden;
+  const chatPanel = !chatShown ? null : (
+    <CastChat view={chat} one={compact} colors={cast?.colors ?? NO_COLORS} onClose={stage === null ? castRoom.closeChat : undefined} />
+  );
+  const cut = chat?.setup.layout === "cut";
+  // Beside: two apps on a desk, each its own window (the approved artboard),
+  // never a chat panel inside Context's frame.
+  const desk = chatPanel !== null && !cut;
+  // A phone shows both apps, or one at a time (`PhoneDesk.ts`); recorded for
+  // Reels on the studio's stage, inside Instagram's safe zone.
+  const phone = desk && compact;
+  const view = phoneView(chat?.shows);
+  const phoneSwitch = usePhoneSwitch(phone ? view : "both", useReducedMotion());
+  const boxes = phoneBoxes(view, stage !== null);
+  // Each change's folder comes up while Context is on screen.
+  phoneDesk.current = phone && view !== "chat";
 
   /*
     The console's navigation, for a page with no console routes behind it.
@@ -318,28 +369,72 @@ export function HomeShell() {
       {joinSlot !== null && showJoin ? (
         <JoinSlotPortal slot={joinSlot}>{joinCard}</JoinSlotPortal>
       ) : null}
-      <ConsoleFrame
-        data={data}
-        route={HOME_ROUTE}
-        pathname="/"
-        router={visitorRouter}
-        params={NO_PARAMS}
+      <View
+        style={[
+          compact ? styles.stacked : styles.beside,
+          desk ? [viewportHeight(), compact ? styles.deskCompact : styles.desk] : null,
+          phone && phoneSwitch.phase !== "rest" ? styles.switching : null,
+        ]}
       >
-        {browser.selectedPath === null && missing ? (
-          <HomePage
-            key={routePath}
-            markdown={source.kind === "waiting" ? "" : MISSING_PAGE_MARKDOWN}
-            compact={compact}
-            onLink={followLink}
-          />
-        ) : (
-          // The site's own emoji, over the console's library (which a visitor
-          // has none of), so a published page draws what its author typed.
-          <CustomEmojiContext.Provider value={emoji}>
-            <BrowsePane data={data} presence={castRoom.presence} />
-          </CustomEmojiContext.Provider>
-        )}
-      </ConsoleFrame>
+        {desk && !compact ? <View style={styles.chatBeside}>{chatPanel}</View> : null}
+        <View
+          style={[
+            styles.workspace,
+            desk ? styles.window : null,
+            phone ? [styles.pane, boxes.context, paneMotion("context", view, phoneSwitch, windowWidth)] : null,
+          ]}
+          testID={phone ? "cast-phone-context" : undefined}
+        >
+          {desk && chat !== null ? <CastWorkspaceBar view={chat} /> : null}
+          {/* Always these two boxes, so the frame is never remounted when a chat appears. */}
+          <View style={phone ? styles.zoomBox : styles.plainBox}>
+          <View style={paneZoom(phone ? PANE_SCALE.context : 1)}>
+          <FrameFillsParent.Provider value={desk}>
+            {/* A phone's floating buttons would cover the scene in a small window. */}
+            <FrameBare.Provider value={phone}>
+            <ConsoleFrame
+              data={data}
+              route={HOME_ROUTE}
+              pathname="/"
+              router={visitorRouter}
+              params={NO_PARAMS}
+            >
+              {browser.selectedPath === null && missing ? (
+                <HomePage
+                  key={routePath}
+                  markdown={source.kind === "waiting" ? "" : MISSING_PAGE_MARKDOWN}
+                  compact={compact}
+                  onLink={followLink}
+                />
+              ) : (
+                // The site's own emoji, over the console's library (which a visitor
+                // has none of), so a published page draws what its author typed.
+                <CustomEmojiContext.Provider value={emoji}>
+                  <BrowsePane data={data} presence={castRoom.presence} />
+                </CustomEmojiContext.Provider>
+              )}
+            </ConsoleFrame>
+            </FrameBare.Provider>
+          </FrameFillsParent.Provider>
+          </View>
+          {phone && chat?.said !== undefined ? (
+            <CastCommentCard said={chat.said} badge={cast?.colors.get(chat.said.who)} />
+          ) : null}
+          </View>
+        </View>
+        {phone ? (
+          <View style={[styles.pane, boxes.chat, paneMotion("chat", view, phoneSwitch, windowWidth)]} testID="cast-phone-chat">
+            <View style={styles.plainBox}>
+              <View style={paneZoom(PANE_SCALE.chat)}>{chatPanel}</View>
+            </View>
+          </View>
+        ) : null}
+      </View>
+      {chatPanel !== null && cut ? (
+        <View style={styles.chatOver}>
+          <View style={styles.chatOverColumn}>{chatPanel}</View>
+        </View>
+      ) : null}
       {visitorMeetings === undefined ? null : (
         <HomeMeetingHost
           phone={compact}
@@ -353,7 +448,21 @@ export function HomeShell() {
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     ground: { flex: 1, backgroundColor: colors.pageSurface },
+    beside: { flex: 1, flexDirection: "row", minHeight: 0 },
+    stacked: { flex: 1, flexDirection: "column", minHeight: 0 },
+    workspace: { flex: 1, minWidth: 0, minHeight: 0 },
+    desk: { padding: space.x6, gap: space.x6, backgroundColor: colors.castDesk },
+    deskCompact: { position: "relative", overflow: "hidden", backgroundColor: colors.castDesk },
+    switching: { backgroundColor: colors.castSwitcher },
+    pane: { position: "absolute" },
+    zoomBox: { flex: 1, minHeight: 0, position: "relative", overflow: "hidden" },
+    plainBox: { flex: 1, minHeight: 0 },
+    window: { borderRadius: radii.console, overflow: "hidden", boxShadow: shadows.window, backgroundColor: colors.pageSurface },
+    chatBeside: { width: "36%", minWidth: 320, maxWidth: 468 },
+    chatOver: { ...StyleSheet.absoluteFillObject, alignItems: "center", padding: space.x6, backgroundColor: colors.castDesk },
+    // A reading column, the width a chat app gives its words, however wide the frame.
+    chatOverColumn: { flex: 1, width: "100%", maxWidth: 760 },
   });

@@ -325,3 +325,34 @@ export async function deleteEntryHandler(
   });
   return result;
 }
+
+/**
+ * Undo "New folder": remove it again, only while it is still empty. See
+ * `removeNewFolder` in `lib/fileOps/newFolder.ts` for what "empty" means and
+ * why it is decided by the bucket rather than by what the caller can see.
+ */
+export async function removeNewFolderHandler(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; path: string },
+): Promise<Extract<OperationResult, { kind: "deleted" }>> {
+  const actorUserId = await callerId(ctx);
+  const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    actorUserId,
+    workspaceId: args.workspaceId,
+    minimum: "editor",
+  });
+  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+    workspaceId: args.workspaceId,
+    scope,
+    grantedNames,
+    operation: { kind: "removeNewFolder", path: args.path },
+  })) as Extract<OperationResult, { kind: "deleted" }>;
+
+  await ctx.runMutation(internal.functions.audit.recordEvent, {
+    workspaceId: args.workspaceId,
+    actorUserId,
+    action: "folder.remove",
+    paths: [args.path],
+  });
+  return result;
+}

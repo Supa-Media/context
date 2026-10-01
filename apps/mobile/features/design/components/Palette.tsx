@@ -19,7 +19,7 @@ import { useColors, useThemedStyles } from "../theme";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
 import { makeStyles } from "./PaletteStyles";
-import { PaletteSheet } from "./PaletteSheet";
+import { PaletteSheet, type PaletteLookIn } from "./PaletteSheet";
 import { usePaletteKeys } from "./usePaletteKeys";
 
 /**
@@ -233,6 +233,8 @@ export interface PaletteProps {
   onDismiss: () => void;
   /** Under the field: what the search is narrowed to, and the way to widen it. */
   scopeBar?: ReactNode;
+  /** A phone's Look in chips and folder and tag results; ignored on a pointer layout. */
+  lookIn?: PaletteLookIn;
 }
 
 /**
@@ -309,6 +311,7 @@ export function Palette({
   onChoose,
   onDismiss,
   scopeBar,
+  lookIn,
 }: PaletteProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -316,6 +319,8 @@ export function Palette({
 
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [look, setLook] = useState("all");
+  const input = useRef<TextInput | null>(null);
 
   /**
    * Native is always the sheet; the browser decides on width. A desktop
@@ -364,6 +369,15 @@ export function Palette({
       // would point at the wrong reason this row is here.
       .map((item) => ({ item, score: 0, ranges: [] as readonly [number, number][] }));
   }, [search, local]);
+
+  /**
+   * Rows that are answers, as opposed to rows that are a way out of here.
+   *
+   * `matches` is what the keyboard walks and it includes the handoff; this is
+   * what the *copy* is about. Keeping them separate is what lets the handoff
+   * be a real row in the list without it counting as having found something.
+   */
+  const found = local.length + remote.length;
 
   /**
    * One list for the arrows and for Enter, so a keyboard walks into the search
@@ -479,6 +493,7 @@ export function Palette({
 
   const field = (
     <TextInput
+      ref={input}
       value={query}
       onChangeText={(next) => {
         setQuery(next);
@@ -546,14 +561,14 @@ export function Palette({
     </View>
   ) : null;
 
-  /**
-   * Rows that are answers, as opposed to rows that are a way out of here.
-   *
-   * `matches` is what the keyboard walks and it includes the handoff; this is
-   * what the *copy* is about. Keeping them separate is what lets the handoff
-   * be a real row in the list without it counting as having found something.
-   */
-  const found = local.length + remote.length;
+  // A phone's Look in chips and folder and tag rows (`PaletteLookIn`); `notes` false hides the note rows.
+  // A chip keeps the caret in the field, so typing carries on after picking one.
+  const lookAt = (next: string) => {
+    setLook(next);
+    input.current?.focus();
+  };
+  const looked = touch && lookIn ? lookIn.render({ query, found, look, setLook: lookAt }) : null;
+  const notes = looked?.notes !== false;
 
   const list = (
     <ScrollView
@@ -578,12 +593,13 @@ export function Palette({
         `noMatchMessage`. The one palette that has a handoff is the console's,
         which is the one those states were written for.
       */}
-      {found === 0 ? (
+      {looked?.places}
+      {notes && found === 0 ? (
         <View style={styles.empty} testID="palette-empty">
           <Text variant="rowSub">{emptyText}</Text>
         </View>
       ) : null}
-      {matches.map((match, index) => (
+      {(notes ? matches : []).map((match, index) => (
         <Fragment key={`${match.item.kind}:${match.item.id}`}>
           {/*
             The divider between what was already loaded and what searching the
@@ -624,7 +640,7 @@ export function Palette({
   );
 
   const heading =
-    emptyHeading && query.trim() === "" && matches.length > 0 ? (
+    emptyHeading && notes && query.trim() === "" && matches.length > 0 ? (
       <Text variant="eyebrow" style={styles.heading} testID="palette-heading">
         {emptyHeading}
       </Text>
@@ -637,6 +653,7 @@ export function Palette({
     return (
       <PaletteSheet field={field} onDismiss={onDismiss}>
         {scopeBar}
+        {looked?.chips}
         {heading}
         {sourceNotice}
         {reducedRecallNotice}

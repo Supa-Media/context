@@ -37,6 +37,10 @@ export interface FolderSelection {
   /** Enter the mode, optionally with one row already picked. */
   start: (path?: string) => void;
   toggle: (path: string) => void;
+  /** Pick every row, or none when every one is picked already (board 16's "Select all"). */
+  toggleAll: () => void;
+  /** Every row on the page is picked. */
+  all: boolean;
   done: () => void;
 }
 
@@ -76,6 +80,10 @@ export function useFolderSelection(rows: readonly FileEntry[], folder: string): 
       return next;
     });
   }, []);
+  const all = rows.length > 0 && picked.length === rows.length;
+  const toggleAll = useCallback(() => {
+    setPaths(all ? new Set() : new Set(rows.map((row) => row.path)));
+  }, [all, rows]);
   const done = useCallback(() => {
     setSelecting(false);
     setPaths(new Set());
@@ -87,6 +95,8 @@ export function useFolderSelection(rows: readonly FileEntry[], folder: string): 
     picked,
     start,
     toggle,
+    toggleAll,
+    all,
     done,
   };
 }
@@ -98,12 +108,51 @@ export function useFolderSelection(rows: readonly FileEntry[], folder: string): 
 export function FolderSelectBar({
   selection,
   onActions,
+  actionsBelow = false,
 }: {
   selection: FolderSelection;
   /** Open the tree's selection menu over the picked rows. */
   onActions: (rows: FileEntry[]) => void;
+  /**
+   * The picked rows' actions are on the bottom bar (board 16), and the way in
+   * is the folder's ••• or a long press: so no Select button, and the line
+   * in the mode is Cancel, the count, and Select all.
+   */
+  actionsBelow?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  if (actionsBelow) {
+    if (!selection.selecting) return null;
+    return (
+      <View style={styles.bar}>
+        <PressRow
+          accessibilityLabel="Cancel"
+          onPress={selection.done}
+          style={styles.button}
+          hoverStyle={styles.hover}
+          testID="folder-select-done"
+        >
+          <Text variant="body" style={styles.label}>
+            Cancel
+          </Text>
+        </PressRow>
+        <Text variant="paneSub" style={[styles.spacer, styles.middle]} testID="folder-select-count" aria-live="polite">
+          {`${selection.picked.length} selected`}
+        </Text>
+        <PressRow
+          accessibilityLabel={selection.all ? "Deselect all" : "Select all"}
+          onPress={selection.toggleAll}
+          style={styles.button}
+          hoverStyle={styles.hover}
+          testID="folder-select-all"
+        >
+          <Text variant="body" style={styles.label}>
+            {selection.all ? "Deselect all" : "Select all"}
+          </Text>
+        </PressRow>
+      </View>
+    );
+  }
   if (!selection.selecting) {
     return (
       <View style={styles.bar}>
@@ -169,5 +218,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.md,
   },
   hover: { backgroundColor: colors.surface3 },
+  middle: { textAlign: "center", color: colors.text, fontWeight: "600" },
   label: { color: colors.accent },
 });

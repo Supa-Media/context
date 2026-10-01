@@ -289,6 +289,24 @@ export function d1AndBucketFetch(
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
+    if (Array.isArray(body.batch)) {
+      // D1's batch form: one request, one result per statement, in order.
+      const result: unknown[] = [];
+      try {
+        for (const entry of body.batch as { sql: string; params?: unknown[] }[]) {
+          result.push({ results: await stub.client.query(entry.sql, entry.params ?? []), success: true });
+        }
+      } catch {
+        return new Response(JSON.stringify({ success: false, errors: [] }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ success: true, result }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     let results: unknown[] = [];
     try {
       results = await stub.client.query(body.sql, body.params ?? []);

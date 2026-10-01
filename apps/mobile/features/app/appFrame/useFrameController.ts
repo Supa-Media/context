@@ -45,10 +45,13 @@ export function useFrameController({
   explorer,
   aside,
   bottomBar,
+  bare = false,
 }: {
   explorer?: ReactNode;
   aside?: ReactNode;
   bottomBar?: ReactNode;
+  /** Drawn without the phone's floating chrome (`FrameBare`): nothing floats over the page to keep clear of. */
+  bare?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -446,7 +449,7 @@ export function useFrameController({
     () =>
       compact
         ? {
-            top: insets.top + layout.chromeButton + space.x3,
+            top: insets.top + (bare ? 0 : layout.chromeButton + space.x3),
             bottom: hasBottomBar
               ? layout.bottomBarHeight + layout.floatingInset + chromeGap
               : /*
@@ -459,7 +462,7 @@ export function useFrameController({
                 insets.bottom,
           }
         : { top: 0, bottom: insets.bottom },
-    [compact, insets.top, insets.bottom, chromeGap, hasBottomBar],
+    [compact, insets.top, insets.bottom, chromeGap, hasBottomBar, bare],
   );
 
   const api = useMemo<FrameApi>(

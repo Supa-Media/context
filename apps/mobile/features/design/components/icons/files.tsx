@@ -51,7 +51,8 @@ type FilesIconName =
   | "link"
   | "book"
   | "drive"
-  | "trash";
+  | "trash"
+  | "archive";
 
 /** Files, folders, links and attachments — the vault's own objects. */
 export const filesIcons: Record<FilesIconName, DrawFn> = {
@@ -112,6 +113,17 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
     rect("body", u, w, c, { x0: 0.24, y0: 0.32, x1: 0.76, y1: 0.9, radius: 0.1 }),
     bar("rib1", u, w, c, { cx: 0.42, cy: 0.61, length: 0.28, angle: 90 }),
     bar("rib2", u, w, c, { cx: 0.58, cy: 0.61, length: 0.28, angle: 90 }),
+  ],
+
+  archive: (u, w, c) => [
+    /*
+      A lidded box with a slot for a label: what the phone's select bar says
+      Archive with (board 16). Not `trash`, because archiving deletes nothing
+      and the bin says it does.
+    */
+    rect("lid", u, w, c, { x0: 0.12, y0: 0.16, x1: 0.88, y1: 0.36, radius: 0.06 }),
+    rect("body", u, w, c, { x0: 0.18, y0: 0.36, x1: 0.82, y1: 0.86, radius: 0.1 }),
+    bar("slot", u, w, c, { cx: 0.5, cy: 0.53, length: 0.2 }),
   ],
 
   copy: (u, w, c) => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import { dir, ids, labels, menu } from "./fixtures";
-import { actionTargetOf } from "../../features/console/files/actions";
+import { actionTargetOf, runMenuAction } from "../../features/console/files/actions";
 
 /**
  * The ••• on a phone's folder page (board 08 of the phone Home artboards,
@@ -17,6 +17,9 @@ import { actionTargetOf } from "../../features/console/files/actions";
  *  1. `itemsFor` sending a page to the row menu.   → "the board's verbs, in the board's order"
  *  2. `pageItems` dropping its `canEdit` branch.   → "a reader gets only what writes nothing"
  *  3. `actionTargetOf` without a `page` arm.        → "acts on the folder itself"
+ *  4. `tagsGroup` without the tags as its value.     → "Tags sits after Pin, saying the folder's tags"
+ *  5. Select notes offered without `selectable`.     → "Select notes, only where the page can pick rows"
+ *  6. `runMenuAction` dropping the `tags` arm.        → "Tags opens the folder's Tags sheet; Select notes asks the page"
  */
 describe("a phone folder page's ••• sheet", () => {
   const page = (path = "clients") => ({ kind: "page" as const, row: dir(path) });
@@ -62,5 +65,48 @@ describe("a phone folder page's ••• sheet", () => {
 
   test("acts on the folder itself", () => {
     expect(actionTargetOf(page("clients/acme"))).toEqual({ path: "clients/acme", folder: "clients/acme", kind: "folder" });
+  });
+});
+
+describe("Tags and Select notes on a phone folder page (boards 14 and 16)", () => {
+  const page = (path = "clients") => ({ kind: "page" as const, row: dir(path) });
+  const phone = { pinned: () => false, platform: "touch" as const };
+
+  test("Tags sits after Pin, saying the folder's tags", () => {
+    const sheet = menu(page(), { ...phone, tagsOf: () => ["client", "retainer"] });
+    const order = ids(sheet).filter((id) => id !== "visibility");
+    expect(order.slice(0, 6)).toEqual(["newNote", "newFolder", "rename", "moveTo", "pin", "tags"]);
+    expect(sheet.find((item) => item.id === "tags")).toMatchObject({ label: "Tags", value: "client, retainer" });
+    // No tags yet: the row, with nothing beside it.
+    expect(menu(page(), { ...phone, tagsOf: () => [] }).find((item) => item.id === "tags")?.value).toBeUndefined();
+    // Where they cannot be changed from here, no row at all.
+    expect(ids(menu(page(), { ...phone, tagsOf: () => null }))).not.toContain("tags");
+    expect(ids(menu(page(), phone))).not.toContain("tags");
+  });
+
+  test("Select notes, only where the page can pick rows", () => {
+    const sheet = ids(menu(page(), { ...phone, selectable: true }));
+    expect(sheet).toContain("selectNotes");
+    expect(sheet.indexOf("selectNotes")).toBeGreaterThan(sheet.indexOf("pin"));
+    expect(sheet.indexOf("selectNotes")).toBeLessThan(sheet.indexOf("archive"));
+    expect(ids(menu(page(), phone))).not.toContain("selectNotes");
+  });
+
+  test("Tags opens the folder's Tags sheet; Select notes asks the page", () => {
+    const dialogs: unknown[] = [];
+    const asked: string[] = [];
+    const context = {
+      files: {} as never,
+      contextLabel: "Northwind",
+      select: () => {},
+      setDialog: (dialog: unknown) => dialogs.push(dialog),
+      writeClipboard: () => {},
+      inheritedOf: () => "private" as const,
+      startSelect: (folder: string) => asked.push(folder),
+    };
+    runMenuAction("tags", page("clients/acme"), context as never);
+    runMenuAction("selectNotes", page("clients/acme"), context as never);
+    expect(dialogs).toEqual([{ kind: "tags", folder: "clients/acme" }]);
+    expect(asked).toEqual(["clients/acme"]);
   });
 });

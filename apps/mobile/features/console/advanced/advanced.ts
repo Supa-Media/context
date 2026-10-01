@@ -105,6 +105,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "file.duplicate": "Duplicated a note",
   "file.archive": "Archived a note",
   "folder.create": "Created a folder",
+  "folder.remove": "Removed a new folder",
   "workspace.structure_applied": "Set up the PARA folders",
   "workspace.renamed": "Renamed this workspace",
   "visibility.note": "Changed a note's visibility",

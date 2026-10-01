@@ -55,7 +55,7 @@ import type { RunOperationValues } from "./useRunOperation";
 
 type CreateAndMoveDeps =
   & { options: FileBrowserOptions }
-  & Pick<FileActionsValues, "createDirectory" | "moveEntry" | "workspaceId" | "writeNote">
+  & Pick<FileActionsValues, "createDirectory" | "moveEntry" | "undoNewFolder" | "workspaceId" | "writeNote">
   & Pick<
     BrowserStateValues,
     | "autosave"
@@ -79,7 +79,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
   const {
     options, autosave, createDirectory, deviceEtag, dispatch, drawLocally, isFolderPath, listings,
     listingsRef, moveEntry, nextToastId, noteRenamed, offlineRef, queuedToast, refresh, reportRefreshFailure,
-    run, select, selectedPathRef, setExpanded, setNotice, setSelectedPath, setToasts, viaQueue,
+    run, select, selectedPathRef, setExpanded, setNotice, setSelectedPath, setToasts, undoNewFolder, viaQueue,
     workspaceId, writeNote,
   } = deps;
 
@@ -365,7 +365,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
   );
 
   const createFolder = useCallback(
-    (folder: string, name: string) => {
+    (folder: string, name: string, how?: { open?: boolean }) => {
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
       if (problem !== null) return setNotice(problem);
       const path = joinPath(folder, name);
@@ -395,13 +395,39 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
       void run(
         async () => {
           await createDirectory({ workspaceId: workspaceId!, path });
-          return { touched: [path, joinPath(path, "README.md")] };
+          return {
+            touched: [path, joinPath(path, "README.md")],
+            message: folder === "" ? `Created ${folderLabel(name)}.` : `Created ${folderLabel(name)} in ${folderLabel(folder)}.`,
+            /*
+              Undo takes it back while it is still empty (board 05c). The
+              server decides "empty" against the whole bucket, notes this
+              person cannot see included (`removeNewFolder`), and refuses with
+              a sentence otherwise; `run` puts that sentence on the notice line
+              and the redraw below is taken back, so the folder stays.
+            */
+            undo: () => {
+              const inside = (at: string | null) => at !== null && (at === path || at.startsWith(`${path}/`));
+              const wasOpen = inside(selectedPathRef.current);
+              drawLocally((current) => undoFolderCreate(current, path));
+              void run(
+                async () => {
+                  await undoNewFolder({ workspaceId: workspaceId!, path });
+                  return { touched: [path, folder] };
+                },
+                () => drawLocally((current) => applyFolderCreate(current, path)),
+              ).then((ok) => {
+                if (ok && wasOpen && inside(selectedPathRef.current)) select(folder);
+              });
+            },
+          };
         },
         () => drawLocally((current) => undoFolderCreate(current, path)),
-      );
+      ).then((ok) => {
+        if (ok && how?.open === true) select(path);
+      });
       setExpanded((current) => new Set([...current, path]));
     },
-    [createDirectory, drawLocally, listings, options.canEdit, queuedToast, run, workspaceId],
+    [createDirectory, drawLocally, listings, options.canEdit, queuedToast, run, select, undoNewFolder, workspaceId],
   );
 
   const move = useCallback(

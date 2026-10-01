@@ -18,7 +18,7 @@ export const HOMEPAGE_PEOPLE_ACTIVE = 13;
 export function castPeople(steps: readonly CastStep[], colors: ReadonlyMap<string, string>): ActivePerson[] {
   const people = new Map<string, ActivePerson>();
   for (const step of steps) {
-    if (step.kind === "wait" || step.actor.kind !== "person") continue;
+    if (!("actor" in step) || step.actor.kind !== "person") continue;
     const id = castMemberId(step.actor);
     if (!people.has(id)) {
       people.set(id, { id, name: step.actor.name, color: colors.get(step.actor.name) ?? null, self: false });

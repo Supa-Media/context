@@ -47,7 +47,9 @@ export function hasCast(source: string): boolean {
 
 /**
  * A page a scene opens (`@maya opens: pricing`), carried beside the draft so
- * the preview has somewhere to go. `name` is what the script calls it.
+ * the preview has somewhere to go. `name` is what the script calls it, folders
+ * and all (`inbox/james`): the preview puts the page at that path from the
+ * scene (`previewPagePath`), so its tree shows the folder.
  */
 export interface PreviewPage {
   name: string;
@@ -68,6 +70,20 @@ export function previewSlug(name: string): string {
 }
 
 /**
+ * `inbox/James` → `inbox/james`: where a carried page sits beside the scene,
+ * each folder kept as its own segment (`previewSlug` alone would flatten it to
+ * `inbox-james`, a different page at the root). Leading and doubled slashes
+ * are dropped, since the path is always from the scene's own folder; `null`
+ * for a name that is not one, or that steps out of the scene (`..`, `.`).
+ */
+export function previewPagePath(name: string): string | null {
+  const segments = name.replace(/\\/g, "/").split("/").filter((segment) => segment.trim() !== "");
+  if (segments.length === 0 || segments.some((segment) => /^\.+$/.test(segment.trim()))) return null;
+  const slugs = segments.map(previewSlug);
+  return slugs.includes("") ? null : slugs.join("/");
+}
+
+/**
  * The draft as a site whose front page it is, with the pages its scene opens
  * beside it. `banner: false` only for the cast studio's stage, which our own
  * studio frames (`studioLink.ts`); otherwise every page says it, since a
@@ -82,10 +98,10 @@ export function castPreviewSnapshot(
   const pages = [{ path: "index.md", routePath: "/", title, markdown: banner + stripFrontmatter(source) }];
   const taken = new Set([""]);
   for (const page of (options.pages ?? []).slice(0, MAX_PREVIEW_PAGES)) {
-    const slug = previewSlug(page.name);
-    if (taken.has(slug)) continue;
-    taken.add(slug);
-    pages.push({ path: `${slug}.md`, routePath: `/${slug}`, title: page.title, markdown: banner + stripFrontmatter(page.markdown) });
+    const at = previewPagePath(page.name);
+    if (at === null || taken.has(at)) continue;
+    taken.add(at);
+    pages.push({ path: `${at}.md`, routePath: `/${at}`, title: page.title, markdown: banner + stripFrontmatter(page.markdown) });
   }
   return {
     siteName: "Preview",
@@ -157,7 +173,7 @@ function previewPages(value: unknown): PreviewPage[] | null {
     if (typeof one !== "object" || one === null) return null;
     const { name, title, markdown } = one as Record<string, unknown>;
     if (typeof name !== "string" || typeof title !== "string" || typeof markdown !== "string") return null;
-    if (previewSlug(name) === "") return null;
+    if (previewPagePath(name) === null) return null;
     pages.push({ name, title, markdown });
   }
   return pages;

@@ -231,6 +231,13 @@ export const darkColors = {
    */
   chromeSurface: "#191715",
   pageSurface: "#201E1B",
+  /**
+   * The desk a cast's chat scene sets its two apps on: the chat app and
+   * Context, each its own window, so neither reads as a panel of the other.
+   */
+  castDesk: "#0C0B0A",
+  /** Behind the apps while a cast on a phone switches between them, like an iPhone's app switcher. */
+  castSwitcher: "#1F1D1B",
 
   ink: "#100F0E",
   white: "#EDE8E0",
@@ -448,6 +455,8 @@ export const lightColors: Colors = {
   /** See `darkColors.chromeSurface`: the page stays lighter than its chrome. */
   chromeSurface: "#F4F1EA",
   pageSurface: "#FFFDF9",
+  castDesk: "#DDD7CC",
+  castSwitcher: "#2B2825",
 
   ink: "#FFFDF9",
   white: "#1A1714",
@@ -534,6 +543,51 @@ export const presenceColors = {
   cyan: "#06b6d4",
   lime: "#84cc16",
 } as const;
+
+/**
+ * The chat windows a cast scene draws beside the workspace
+ * (`features/home/cast/CastChat.tsx`): a stand-in for somebody's assistant, in
+ * a look that is no product's in particular, so none of these are ours to
+ * choose from the palette. `mark` is the round badge beside its name;
+ * `landing` tints a step whose change is landing in the workspace, in the
+ * workspace's own accent, so the eye joins the two.
+ */
+export const castChatLooks = {
+  warm: {
+    ground: "#F6F3EE",
+    ink: "#262320",
+    muted: "#655F56",
+    line: "rgba(38,35,32,0.10)",
+    chip: "rgba(38,35,32,0.05)",
+    bubble: "#EAE4D9",
+    field: "#FFFDF9",
+    ok: "#3E7A4E",
+    landing: "rgba(14,108,105,0.12)",
+  },
+  plain: {
+    ground: "#FFFDF9",
+    ink: "#1F1F1F",
+    muted: "#5E5E5E",
+    line: "rgba(0,0,0,0.09)",
+    chip: "rgba(0,0,0,0.05)",
+    bubble: "#EEF1F6",
+    field: "#FFFDF9",
+    ok: "#3E7A4E",
+    landing: "rgba(14,108,105,0.12)",
+  },
+  dark: {
+    ground: "#1B1D22",
+    ink: "#ECEDEF",
+    muted: "#A2A6AE",
+    line: "rgba(255,255,255,0.10)",
+    chip: "rgba(255,255,255,0.07)",
+    bubble: "#2C3038",
+    field: "#23262C",
+    ok: "#82C98E",
+    landing: "rgba(107,200,193,0.16)",
+  },
+} as const;
+export type CastChatLookColors = (typeof castChatLooks)[keyof typeof castChatLooks];
 
 /**
  * The ground behind the Supa mark, the face everybody has until they choose a

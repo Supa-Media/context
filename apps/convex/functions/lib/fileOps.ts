@@ -71,6 +71,7 @@ export type { FileContents, BatchRead } from "./fileOps/reading";
 export { writeFile, removeNoteEncryption } from "./fileOps/writing";
 export type { WriteResult } from "./fileOps/writing";
 export { renderFolderPlaceholder, createFolder, duplicateName } from "./fileOps/folders";
+export { removeNewFolder } from "./fileOps/newFolder";
 export { movePath } from "./fileOps/moving";
 export type { MoveResult } from "./fileOps/moving";
 export {

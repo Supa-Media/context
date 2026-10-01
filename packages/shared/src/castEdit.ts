@@ -32,6 +32,7 @@ function quoted(words: string): string {
 /** A step as the grammar's own examples write it; a note's body follows on indented lines. */
 export function castStepLine(step: CastStep): string {
   if (step.kind === "wait") return `wait ${seconds(step.ms)}`;
+  if (step.kind === "shows") return `shows: ${step.what === "context" ? "Context" : step.what}`;
   const who = step.actor.name;
   switch (step.kind) {
     case "line":
@@ -42,7 +43,8 @@ export function castStepLine(step: CastStep): string {
       return step.page === null ? `${who} reads` : `${who} reads: ${oneLine(step.page)}`;
     case "note": {
       const body = step.text === "" ? [] : step.text.split("\n").map((line) => (line.trim() === "" ? "" : `  ${line}`));
-      return [`${who} adds note: ${oneLine(step.name)}`, ...body].join("\n");
+      const name = step.folder === undefined ? oneLine(step.name) : `${step.folder}/${oneLine(step.name)}`;
+      return [`${who} adds note: ${name}`, ...body].join("\n");
     }
     case "comment":
       return `${who} comments on ${quoted(step.quote)}: ${oneLine(step.text)}`;
@@ -60,6 +62,20 @@ export function castStepLine(step: CastStep): string {
       return `${who} ticks: ${oneLine(step.quote)}`;
     case "open":
       return `${who} opens: ${oneLine(step.page)}`;
+    case "ask":
+      return `${who} asks ${step.agent}: ${oneLine(step.text)}`;
+    case "answer":
+      return `${who} answers: ${oneLine(step.text)}`;
+    case "folder":
+      return `${who} adds folder: ${step.path}`;
+    case "move":
+      return `${who} moves ${step.path} into: ${step.into}`;
+    case "rename":
+      return `${who} renames ${step.path} to: ${oneLine(step.name)}`;
+    case "status":
+      return `${who} marks ${step.path} as: ${oneLine(step.status)}`;
+    case "task":
+      return `${who} adds task to ${step.project}: ${oneLine(step.text)}`;
   }
 }
 
@@ -70,7 +86,18 @@ export function castStepWords(step: CastStep): string | null {
     case "append":
     case "comment":
     case "reply":
+    case "ask":
+    case "answer":
+    case "task":
       return step.text;
+    case "folder":
+      return step.path;
+    case "move":
+      return step.into;
+    case "rename":
+      return step.name;
+    case "status":
+      return step.status;
     case "tick":
       return step.quote;
     case "open":
@@ -94,7 +121,18 @@ export function withCastWords(step: CastStep, words: string): CastStep | null {
     case "append":
     case "comment":
     case "reply":
+    case "ask":
+    case "answer":
+    case "task":
       return text === "" ? null : { ...step, text };
+    case "folder":
+      return text === "" ? null : { ...step, path: text };
+    case "move":
+      return text === "" ? null : { ...step, into: text };
+    case "rename":
+      return text === "" ? null : { ...step, name: text };
+    case "status":
+      return text === "" ? null : { ...step, status: text.toLowerCase() };
     case "tick":
       return text === "" ? null : { ...step, quote: text };
     case "open":
@@ -112,9 +150,9 @@ export function withCastWords(step: CastStep, words: string): CastStep | null {
   }
 }
 
-/** The step done by somebody else. A wait has nobody to change. */
+/** The step done by somebody else. A wait or a cut has nobody to change. */
 export function withCastActor(step: CastStep, actor: CastActor): CastStep {
-  return step.kind === "wait" ? step : { ...step, actor };
+  return "actor" in step ? { ...step, actor } : step;
 }
 
 /** The kinds of step a row can be switched between, in the order the editor offers them. */
@@ -126,9 +164,9 @@ export type CastEditKind = (typeof CAST_EDIT_KINDS)[number];
  * the new kind has words. `actor` stands in when the step was a wait.
  */
 export function withCastKind(step: CastStep, kind: CastEditKind, actor: CastActor): CastStep {
-  const who = step.kind === "wait" ? actor : step.actor;
+  const who = "actor" in step ? step.actor : actor;
   const words = castStepWords(step) ?? "";
-  const text = words === "" || step.kind === "wait" ? "…" : words;
+  const text = words === "" || !("actor" in step) ? "…" : words;
   switch (kind) {
     case "line":
       return { kind: "line", actor: who, text, at: 0 };
@@ -217,24 +255,26 @@ export function moveCastStep(source: string, from: number, to: number): string {
 export function castActors(source: string): CastActor[] {
   const seen = new Map<string, CastActor>();
   for (const step of splitWebsiteCast(source).steps) {
-    if (step.kind !== "wait" && !seen.has(step.actor.name)) seen.set(step.actor.name, step.actor);
+    if ("actor" in step && !seen.has(step.actor.name)) seen.set(step.actor.name, step.actor);
   }
   return [...seen.values()];
 }
 
-/** The page with `from` renamed `to` in every step that names them, as doer or as the face clicked. */
+/** The page with `from` renamed `to` in every step that names them: as doer, as the face clicked, or as the assistant asked. */
 export function renameCastActor(source: string, from: string, to: CastActor): string {
   const steps = splitWebsiteCast(source).steps;
   let out = source;
   // Last to first, so each step's lines are still where the parser said.
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]!;
-    if (step.kind === "wait") continue;
+    if (!("actor" in step)) continue;
     const doer = step.actor.name === from;
     const clicked = step.kind === "click" && step.target === from;
-    if (!doer && !clicked) continue;
+    const asked = step.kind === "ask" && step.agent === from && to.kind === "agent";
+    if (!doer && !clicked && !asked) continue;
     let renamed: CastStep = doer ? { ...step, actor: to } : step;
     if (renamed.kind === "click" && clicked) renamed = { ...renamed, target: to.name };
+    if (renamed.kind === "ask" && asked) renamed = { ...renamed, agent: to.name };
     out = replaceCastStep(out, index, renamed);
   }
   return out;

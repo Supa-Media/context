@@ -78,6 +78,8 @@ export const ICON_NAMES = [
   "copy",
   /** Delete a row somebody added — a folder name, an invitee. See `files.tsx`. */
   "trash",
+  /** Archive, on a phone's select bar (board 16): a lidded box, since nothing is deleted. */
+  "archive",
   /**
    * Recent, drawn as a clock because every platform draws recency as one.
    *

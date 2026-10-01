@@ -56,6 +56,8 @@ export type FileErrorCode =
   /** `removeNoteEncryption` asked to act on a note that was never encrypted. */
   | "NOTE_NOT_ENCRYPTED"
   | "NOT_A_FOLDER"
+  /** Undo of a new folder, once something is in it (`removeNewFolder`). Kept, never deleted. */
+  | "FOLDER_NOT_EMPTY"
   /**
    * The five a markdown form refuses with. See `lib/formOps.ts`.
    *

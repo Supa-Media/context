@@ -5,6 +5,7 @@ import { itemsFromListings, itemsFromPaths, recentItems, type NoteNaming } from 
 import { useContextSearch } from "../files/useContextSearch";
 import type { ConsoleContext, ConsoleData } from "../types";
 import { scopePrefix } from "./SearchScope";
+import { useHomeSource } from "../home/useHomeSource";
 
 /**
  * What the ⌘K palette searches and lists: the whole context through the
@@ -18,6 +19,7 @@ export function usePaletteSearch({
   paletteOpen,
   history,
   scope = null,
+  phone = false,
 }: {
   data: ConsoleData;
   insideContext: boolean;
@@ -32,6 +34,8 @@ export function usePaletteSearch({
    * by the same path test.
    */
   scope?: string | null;
+  /** A phone, whose search also finds folders and tags (`SearchLookIn.tsx`). */
+  phone?: boolean;
 }) {
   /*
     Whole-context search, behind the same palette that filters what is loaded.
@@ -123,7 +127,16 @@ export function usePaletteSearch({
         : [],
     [paletteOpen, history, insideContext, paletteItems, naming],
   );
-  return { search, paletteItems, recent };
+  /*
+    Every folder and tag in this workspace, for a phone's search: this
+    device's copy, read only while search is open on a phone.
+  */
+  const places = useHomeSource(
+    phone && paletteOpen && insideContext ? current?.id : null,
+    current?.role,
+    listings,
+  );
+  return { search, paletteItems, recent, places };
 }
 
 export type PaletteSearch = ReturnType<typeof usePaletteSearch>;

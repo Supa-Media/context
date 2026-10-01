@@ -57,3 +57,60 @@ it live.
   as changed, not as removed and added.
 - Colours stay derived from the order people appear in; the studio does not
   store them.
+
+## A scene can be a chat with an assistant, and its workspace steps are real
+
+Dev2 asked (2026-09-30) for scenes where somebody chats with Claude, ChatGPT or
+both in another app, and the viewer watches the workspace change as it happens:
+"seeing folders move, notes get renamed, project items status getting updated
+in list view all in real time". The artboard was approved first.
+
+- **The chat is a stand-in, not a copy.** `@maya asks Claude: …` opens a window
+  named as the script names the assistant, drawn in the system's own sans and
+  one of three looks (warm, plain, dark) that are no product's. Nothing of a
+  real app's marks, colours or wording is drawn; the badge is the cast member's
+  presence colour, as everywhere else in a scene.
+- **Each workspace step shows in the chat, then lands, then shows done.** The
+  steps are the ones an assistant takes through the MCP: `adds folder`,
+  `adds note: folder/name`, `moves … into:`, `renames … to:`, `marks … as:`,
+  `adds task to …:`. With a chat open, a step appears under "Used Context" as
+  working, the change lands a beat later, and the row turns done, so the eye goes
+  from the chat to the tree. Without a chat the same steps simply happen.
+- **They change the visitor's copy of the site through the same code a visitor's
+  own change takes** (`useLocalFileBrowser`), so the tree, tabs and open note
+  follow them. A name that is not in the tree skips the step; a scene never
+  guesses. A status is the note's own `status:` line, or its folder's front note
+  (made when there is none), which is how anybody makes a project.
+- **The homepage's folder pages read the visitor's copy** (`useLocalFolderLists`,
+  handed to the console as `ConsoleData.folderLists`), so a projects folder
+  draws the console's own List and Board, and a status set in a scene moves its
+  row live. The homepage asks nothing of a device mirror or the server for them.
+- **Framing is a line in the block**: `chat: side by side` (the default; above
+  the workspace on a phone) or `chat: cut`, which fills the frame until the next
+  `opens:`. A visitor can close the chat; the studio's stage cannot, since it is
+  a recording.
+- **Side by side is two apps on a desk, never a chat panel in Context.** The
+  first build drew the chat inside Context's frame, and Dev2 rejected it
+  (2026-09-30: it looked "embedded in the app which its not"). Now the chat and
+  Context are each a window with its own shadow on a darker desk, as the
+  approved artboard drew them, and Context's window says which assistant is
+  reaching it ("Claude, from chat"). The console frame fills that window
+  (`FrameFillsParent`) rather than the screen. `castChat.spec.ts` checks the
+  windows are apart and the frame's bottom is on the page.
+- **On a phone the script picks split or one app, and a recording keeps to
+  the Reels safe zone.** Dev2 wanted both apps visible ("show how folders and
+  things are being created as you chat"), then asked that "the cast scripting
+  stuff … decide wether to go split screen, or full screen on a specific app",
+  switching "like on ios". `phone: split` (the default) puts Context above one
+  chat window, with a tab per assistant; `phone: one app` fills the screen
+  with the chat being asked, and with Context when a step starts there, and
+  switches with an app-switcher motion (shrink to a card, slide, grow).
+  `shows: Context|<assistant>|both` is the script's own cut. While Context is
+  on screen each step shows its folder for a moment (`castCamera.tsx`). On the
+  studio's stage, which is recorded for Reels, every resting pane sits inside
+  Instagram's safe zone (250 top, 420 bottom, 70 left, 55 right, 193 right
+  below 1110 on 1080×1920); only the under-a-second switch may pass under the
+  buttons. `castPhone.test.ts` checks the boxes against the zone.
+
+Tests: `apps/mobile/__tests__/castChatGrammar.test.ts`, `castPhone.test.ts`, `castCamera.test.ts`, `castChat.test.ts`,
+`castWorkspace.test.ts`, and `e2e/webkit/castChat.spec.ts`.

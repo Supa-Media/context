@@ -46,7 +46,7 @@ export function describeStep(step: CastStep): string {
     case "read":
       return step.page === null ? "reads this note" : `reads ${step.page}`;
     case "note":
-      return `adds the note ${step.name}`;
+      return step.folder === undefined ? `adds the note ${step.name}` : `adds the note ${step.name} to ${step.folder}`;
     case "comment":
       return `comments on ${quoted(step.quote)}`;
     case "reply":
@@ -63,8 +63,24 @@ export function describeStep(step: CastStep): string {
       return `ticks ${quoted(step.quote)}`;
     case "open":
       return `opens ${step.page}`;
+    case "ask":
+      return `asks ${step.agent} ${quoted(step.text)}`;
+    case "answer":
+      return `answers ${quoted(step.text)}`;
+    case "folder":
+      return `adds the folder ${step.path}`;
+    case "move":
+      return `moves ${step.path} into ${step.into}`;
+    case "rename":
+      return `renames ${step.path} to ${step.name}`;
+    case "status":
+      return `marks ${step.path} as ${step.status}`;
+    case "task":
+      return `adds a task to ${step.project} ${quoted(step.text)}`;
     case "wait":
       return `Wait ${Math.round(step.ms / 100) / 10}s`;
+    case "shows":
+      return step.what === "both" ? "The phone shows both apps" : `The phone shows ${step.what === "context" ? "Context" : step.what}`;
   }
 }
 
@@ -87,6 +103,20 @@ export function describeVerb(step: CastStep): string {
       return "ticks";
     case "open":
       return "opens";
+    case "ask":
+      return `asks ${step.agent}`;
+    case "answer":
+      return "answers";
+    case "folder":
+      return "adds the folder";
+    case "move":
+      return `moves ${step.path} into`;
+    case "rename":
+      return `renames ${step.path} to`;
+    case "status":
+      return `marks ${step.path} as`;
+    case "task":
+      return `adds a task to ${step.project}`;
     case "wait":
       return "Pause";
     default:
@@ -101,7 +131,7 @@ export function studioScript(source: string, pages: Readonly<Record<string, stri
   return {
     rows: steps.map((step, index) => ({
       index,
-      actor: step.kind === "wait" ? null : step.actor,
+      actor: "actor" in step ? step.actor : null,
       says: describeStep(step),
       at: timeline.starts[index] ?? null,
       step,

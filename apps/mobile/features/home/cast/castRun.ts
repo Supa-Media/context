@@ -26,12 +26,13 @@
  */
 
 import * as Y from "yjs";
-import type { CastActor, CastPaceName, CastStep } from "@context/shared";
+import type { CastActing, CastActor, CastPaceName, CastShown, CastStep } from "@context/shared";
 import { addThread, appendEvent, findAnchors, type CommentChange } from "@context/shared/src/comments.cjs";
 import type { PresenceMember } from "../../console/presence/protocol";
 import { agentName } from "../../console/presence/agentName";
 import { presenceColors } from "../../design/tokens";
 import { toBase64, type SharedDoc } from "../../console/presence/sharedDoc";
+import { chatTool, type CastChatEvent } from "./castChat";
 
 /** The origin of every transaction the cast makes; anything else is the visitor. */
 export const CAST_ORIGIN = Symbol("cast");
@@ -85,14 +86,30 @@ export interface CastHost {
   instant: () => boolean;
   /** The tree path a step's page name means, or `null` when there is none. */
   pageNamed: (name: string) => string | null;
-  /** Add a note beside this page. Its tree path, or `null` when it could not be made. */
-  addNote: (name: string, text: string) => string | null;
+  /** Add a note beside this page, or in `folder`. Its tree path, or `null` when it could not be made. */
+  addNote: (name: string, text: string, folder?: string) => string | null;
+  /**
+   * The workspace steps an assistant takes through the MCP. Each answers with
+   * the path it changed, or `null` when there was nothing to change (a name
+   * that is not in the tree): the step is then skipped, not guessed at.
+   */
+  workspace?: CastWorkspace;
+  /** What happens in the scene's chats (`castChat.ts`). */
+  chat?: (event: CastChatEvent) => void;
+  /** A `shows:` cut: which app a phone shows from here. */
+  shows?: (what: CastShown) => void;
   /** An agent read or wrote a note, for the tree's marks and the agents line. */
   agentDid: (actor: CastActor, kind: "read" | "write", path: string) => void;
   /** Who is in this note now. */
   room: (members: PresenceMember[]) => void;
   /** A comment step acted on this thread: a comment, a reply or a resolve. */
   commented?: (thread: string) => void;
+  /**
+   * What a comment step said, once it is all written: the thread's words and
+   * the latest entry in it. A phone's Context window shows it as a card,
+   * since there is no margin there to hold one.
+   */
+  said?: (said: CastSaid) => void;
   /** Step `index` of the script is starting: the studio's script follows along. */
   step?: (index: number) => void;
   /** The show ran to its end and everybody has left (not stopped by the visitor). */
@@ -106,7 +123,24 @@ export interface CastHost {
    * its tree path and a document seeded with it, for the rest of the show to
    * play into. `null` when there is no such page, and the show stays here.
    */
-  open?: (name: string) => { path: string; shared: SharedDoc } | null;
+  open?: (name: string) => { path: string; shared: SharedDoc | null } | null;
+}
+
+/** A comment, reply or resolve as a card says it. */
+export interface CastSaid {
+  who: string;
+  quote: string;
+  /** Empty for a resolve. */
+  text: string;
+  resolved: boolean;
+}
+
+export interface CastWorkspace {
+  addFolder: (path: string) => string | null;
+  move: (path: string, into: string) => string | null;
+  rename: (path: string, name: string) => string | null;
+  setStatus: (path: string, status: string) => string | null;
+  addTask: (project: string, text: string) => string | null;
 }
 
 /**
@@ -131,7 +165,7 @@ export function castColors(steps: readonly CastStep[]): Map<string, string> {
   const colors = new Map<string, string>();
   const used = new Set<string>();
   for (const step of steps) {
-    if (step.kind === "wait" || colors.has(step.actor.name)) continue;
+    if (!("actor" in step) || colors.has(step.actor.name)) continue;
     // "@jon's Claude" is Claude's colour, unless another Claude has it already.
     const known = KNOWN[agentName(step.actor.name).agent.toLowerCase()];
     const reserved = Object.values(KNOWN);
@@ -176,6 +210,11 @@ export function playCast(
   let path = options.path ?? "";
   // Moved to another page, a line or an addition lands at its end.
   let moved = false;
+  // Moved to a folder's page: there is no text to write into until a page is opened.
+  let inFolder = false;
+  // The assistants somebody has asked, whose steps show in their chats.
+  const chats = new Set<string>();
+  let said = 0;
   const pace = options.pace ?? LIVELY;
   const colors = options.colors ?? castColors(steps);
   const members = new Map<string, PresenceMember>();
@@ -241,19 +280,22 @@ export function playCast(
   };
   // The thread this page's cast started last: what "replies" and "resolves" act on.
   let thread: string | null = null;
+  let quote = "";
 
   // The visitor typed: step out of their way, at once and for good.
   const onChange = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
     if (transaction.origin !== CAST_ORIGIN) stop();
   };
   text.observe(onChange);
+  // False while the show is in a folder's page, which has no text to watch.
+  let watching = true;
 
   function stop() {
     if (stopped) return;
     stopped = true;
     for (const off of pending) off();
     pending.clear();
-    text.unobserve(onChange);
+    if (watching) text.unobserve(onChange);
     members.clear();
     publish();
   }
@@ -273,6 +315,35 @@ export function playCast(
     later(pace.lingerMs, () => leave(0));
   };
 
+  /** An assistant with a chat open, by the name it acts under. */
+  const chatOf = (actor: CastActor) => (actor.kind === "agent" && chats.has(actor.name.toLowerCase()) ? actor.name : null);
+  /**
+   * A step an assistant takes. With its chat open the step shows there as
+   * working, and a beat later happens beside it and shows as done, so the eye
+   * goes from the chat to the change; without one it just happens.
+   */
+  const act = (step: CastActing, run: () => void, then: () => void) => {
+    const agent = chatOf(step.actor);
+    const tool = chatTool(step);
+    if (agent === null || tool === null || host.chat === undefined) {
+      run();
+      return then();
+    }
+    const id = (said += 1);
+    host.chat({ kind: "tool", agent, id, ...tool, done: false });
+    later(host.instant() ? 0 : Math.round(pace.gapMs * 0.35), () => {
+      run();
+      host.chat?.({ kind: "tool", agent, id, ...tool, done: true });
+      then();
+    });
+  };
+  /** The same, for a step that writes into the page and ends in its own time: it shows as done at once. */
+  const mention = (step: CastActing) => {
+    const agent = chatOf(step.actor);
+    const tool = chatTool(step);
+    if (agent !== null && tool !== null) host.chat?.({ kind: "tool", agent, id: (said += 1), ...tool, done: true });
+  };
+
   const next = (index: number) => {
     if (index >= steps.length) return finish();
     const step = steps[index]!;
@@ -280,23 +351,42 @@ export function playCast(
     const then = () => later(pace.gapMs, () => next(index + 1));
 
     if (step.kind === "wait") return later(step.ms, () => next(index + 1));
-
-    if (step.kind === "read") {
-      const target = step.page === null ? path : host.pageNamed(step.page);
-      // Reading this note puts them in it, with no caret: they are reading.
-      if (step.page === null || target === path) {
-        join(step.actor);
-        publish();
-      }
-      if (target !== null && target !== "" && step.actor.kind === "agent") host.agentDid(step.actor, "read", target);
+    // A cut: the phone shows what the script says from here.
+    if (step.kind === "shows") {
+      host.shows?.(step.what);
       return then();
     }
 
+    if (step.kind === "ask") return ask(step, then);
+    if (step.kind === "answer") return answer(step, then);
+
+    if (step.kind === "read") {
+      return act(step, () => {
+        const target = step.page === null ? path : host.pageNamed(step.page);
+        // Reading this note puts them in it, with no caret: they are reading.
+        if (!inFolder && (step.page === null || target === path)) {
+          join(step.actor);
+          publish();
+        }
+        if (target !== null && target !== "" && step.actor.kind === "agent") host.agentDid(step.actor, "read", target);
+      }, then);
+    }
+
     if (step.kind === "note") {
-      const made = host.addNote(step.name, step.text);
-      if (made !== null) host.cue?.("note");
-      if (made !== null && step.actor.kind === "agent") host.agentDid(step.actor, "write", made);
-      return then();
+      return act(step, () => {
+        const made = host.addNote(step.name, step.text, step.folder);
+        if (made !== null) host.cue?.("note");
+        if (made !== null && step.actor.kind === "agent") host.agentDid(step.actor, "write", made);
+      }, then);
+    }
+
+    if (step.kind === "folder" || step.kind === "move" || step.kind === "rename" || step.kind === "status" || step.kind === "task") {
+      return act(step, () => {
+        const made = workspaceStep(step, host.workspace);
+        if (made === null) return;
+        host.cue?.(step.kind === "task" ? "note" : "writes");
+        if (step.actor.kind === "agent") host.agentDid(step.actor, "write", made);
+      }, then);
     }
 
     if (step.kind === "join") {
@@ -319,14 +409,19 @@ export function playCast(
     }
 
     if (step.kind === "open") {
+      mention(step);
       const page = host.open?.(step.page) ?? null;
       if (page === null) return then();
-      text.unobserve(onChange);
-      ({ doc, text } = page.shared);
+      if (watching) text.unobserve(onChange);
       path = page.path;
-      moved = true;
       thread = null;
-      text.observe(onChange);
+      inFolder = page.shared === null;
+      watching = page.shared !== null;
+      if (page.shared !== null) {
+        ({ doc, text } = page.shared);
+        moved = true;
+        text.observe(onChange);
+      }
       // Whoever opened it goes along; the others follow when they next act.
       const opener = castMemberId(step.actor);
       for (const id of [...members.keys()]) if (id !== opener) members.delete(id);
@@ -335,6 +430,10 @@ export function playCast(
       host.cue?.("click");
       return then();
     }
+
+    // In a folder's page there are no words to write into.
+    if (inFolder) return then();
+    mention(step);
 
     if (step.kind === "tick") {
       // The first open task whose words include the quote; none, and nothing happens.
@@ -399,6 +498,50 @@ export function playCast(
   };
 
   /*
+    Somebody asking an assistant: a person's words are typed into its box a
+    key at a time, the way they type anywhere, then sent. The chat opens with
+    the first thing said in it.
+  */
+  function ask(step: Extract<CastStep, { kind: "ask" }>, then: () => void) {
+    chats.add(step.agent.toLowerCase());
+    const send = () => {
+      host.chat?.({ kind: "ask", agent: step.agent, from: step.actor.name, text: step.text });
+      host.cue?.("comment");
+      then();
+    };
+    if (step.actor.kind === "agent" || host.instant()) return send();
+    const keys = [...step.text];
+    let typed = "";
+    const key = (k: number) => {
+      if (k >= keys.length) return later(pace.keyMs * 4, send);
+      typed += keys[k]!;
+      host.chat?.({ kind: "draft", agent: step.agent, from: step.actor.name, text: typed });
+      host.cue?.("typing");
+      later(keyDelay(keys[k]!, k, pace.keyMs), () => key(k + 1));
+    };
+    later(pace.keyMs * 3, () => key(0));
+  }
+
+  /** An assistant's answer, arriving a few words at a time, the way assistants answer. */
+  function answer(step: Extract<CastStep, { kind: "answer" }>, then: () => void) {
+    chats.add(step.actor.name.toLowerCase());
+    const id = (said += 1);
+    host.cue?.("writes");
+    if (host.instant()) {
+      host.chat?.({ kind: "answer", agent: step.actor.name, id, text: step.text, done: true });
+      return then();
+    }
+    const words = step.text.match(/\s*\S+/g) ?? [step.text];
+    const grow = (n: number) => {
+      const done = n >= words.length;
+      host.chat?.({ kind: "answer", agent: step.actor.name, id, text: words.slice(0, n).join(""), done });
+      if (done) return then();
+      later(pace.keyMs * 2, () => grow(n + 1));
+    };
+    grow(1);
+  }
+
+  /*
     A comment, a reply or a resolve. The words a thread is about are
     highlighted as the author's selection while they write, the way the
     console shows somebody commenting; the comment itself is typed into its
@@ -411,6 +554,7 @@ export function playCast(
     if (step.kind === "comment") {
       const made = addThread(source, { quote: step.quote, author: step.actor.name, body: step.text });
       thread = made.error === undefined ? made.id : null;
+      quote = step.quote;
       result = made;
     } else if (thread === null) {
       result = { error: "no thread" };
@@ -436,6 +580,7 @@ export function playCast(
     };
     const done = () => {
       host.cue?.(step.kind === "resolve" ? "resolve" : "comment");
+      host.said?.({ who: step.actor.name, quote, text: step.kind === "resolve" ? "" : step.text, resolved: step.kind === "resolve" });
       if (step.actor.kind === "agent") host.agentDid(step.actor, "write", path);
       const range = words();
       if (range !== null) later(pace.highlightMs, () => place(id, at(range.to, -1), at(range.to, -1)));
@@ -470,6 +615,26 @@ export function playCast(
 
   later(pace.startMs, () => next(0));
   return { stop };
+}
+
+/** One workspace step, through the host; the path it changed, or `null`. */
+function workspaceStep(
+  step: Extract<CastStep, { kind: "folder" | "move" | "rename" | "status" | "task" }>,
+  workspace: CastWorkspace | undefined,
+): string | null {
+  if (workspace === undefined) return null;
+  switch (step.kind) {
+    case "folder":
+      return workspace.addFolder(step.path);
+    case "move":
+      return workspace.move(step.path, step.into);
+    case "rename":
+      return workspace.rename(step.path, step.name);
+    case "status":
+      return workspace.setStatus(step.path, step.status);
+    case "task":
+      return workspace.addTask(step.project, step.text);
+  }
 }
 
 /** Where the space inside `- [ ]` is, on the first open task mentioning `quote`, or `null`. */

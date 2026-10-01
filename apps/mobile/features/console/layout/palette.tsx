@@ -7,6 +7,8 @@ import { PaletteWithAsk } from "./frameBridges";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
 import type { PaletteSearch } from "./usePaletteSearch";
+import { lookInFor } from "./SearchLookIn";
+import { showTagOnHome } from "../home/homeTag";
 
 /**
  * ⌘K, while it is open, with its two handoffs — to the search page and to the
@@ -27,6 +29,7 @@ export function consolePalette({
   data,
   scope = null,
   setScope,
+  places,
 }: {
   paletteOpen: boolean;
   setAsked: ConsoleAside["setAsked"];
@@ -39,6 +42,8 @@ export function consolePalette({
   /** The folder search is narrowed to, from a folder page's bottom bar; `null` for the whole workspace. */
   scope?: string | null;
   setScope?: (scope: string | null) => void;
+  /** A phone's folders and tags, for Look in and the places search finds (boards 03, 04). */
+  places?: { notes: readonly { path: string; tags: readonly string[] }[]; folders: readonly string[]; rootLabel: string };
 }) {
   return (
     paletteOpen ? (
@@ -113,9 +118,32 @@ export function consolePalette({
           data.files.select(item.id);
         }}
         onDismiss={() => setPaletteOpen(false)}
+        lookIn={
+          places === undefined
+            ? undefined
+            : lookInFor({ ...places, scope, ...placeOpeners(data, () => setPaletteOpen(false)) })
+        }
       />
         )}
       />
     ) : null
   );
+}
+
+/**
+ * Where a folder or a tag found by a phone's search goes: the folder's page,
+ * or Home with that tag's chip on (`homeTag.ts`). Search closes first either way.
+ */
+export function placeOpeners(data: ConsoleData, close: () => void) {
+  return {
+    onOpenFolder: (path: string) => {
+      close();
+      data.files.select(path);
+    },
+    onOpenTag: (tag: string) => {
+      close();
+      showTagOnHome(tag);
+      data.files.deselect();
+    },
+  };
 }

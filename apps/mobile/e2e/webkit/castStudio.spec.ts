@@ -285,3 +285,30 @@ test("the page on the stage is the whole window of its frame, with no empty band
   await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
   await expect.poll(inner).toEqual([405, 720]);
 });
+
+test("a page in a folder beside the scene shows in that folder, and the show comes back from it", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/e2e-fixture?screen=cast-studio-folders");
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await expect(stage(page)).toContainText("Free is free", { timeout: 20_000 });
+  const frame = page.frameLocator('[data-testid="studio-stage"] iframe');
+  // The sidebar: James inside an inbox folder, never "inbox-james" beside the scene.
+  const inbox = frame.getByText("inbox", { exact: true }).first();
+  const james = frame.getByText("James", { exact: true }).first();
+  await expect(inbox).toBeVisible({ timeout: 20_000 });
+  await expect(james).toBeVisible();
+  await expect(frame.getByText(/inbox-james/i)).toHaveCount(0);
+  const [folderBox, jamesBox] = [await inbox.boundingBox(), await james.boundingBox()];
+  expect(jamesBox!.y).toBeGreaterThan(folderBox!.y);
+  expect(jamesBox!.x).toBeGreaterThan(folderBox!.x);
+  await page.getByTestId("studio-stage").screenshot({ path: test.info().outputPath("folders-sidebar.png") });
+
+  await page.getByTestId("studio-step-4").click();
+  await expect(stage(page)).toContainText("Cancun Airbnb", { timeout: 20_000 });
+  // Back on the scene's own page, where the comment lands in its margin.
+  await expect(frame.locator(".cm-cmt-card").first()).toContainText("you still owe James $700.", { timeout: 30_000 });
+  await expect(stage(page)).toContainText("Free is free");
+  await expect(stage(page)).not.toContainText("Cancun Airbnb");
+  await page.getByTestId("studio-stage").screenshot({ path: test.info().outputPath("folders-back.png") });
+});

@@ -7,6 +7,20 @@ import { Icon } from "./Icon";
 import { Text } from "./Text";
 
 /**
+ * What a phone's search adds above the notes it finds: the "Look in" chips and
+ * the folders and tags that match (boards 03 and 04). The palette keeps which
+ * chip is on (`look`, "all" for none) so it resets each time search opens;
+ * the caller draws the rest from it. `notes: false` hides the note rows.
+ */
+export interface PaletteLookIn {
+  render(state: { query: string; found: number; look: string; setLook: (look: string) => void }): {
+    chips: ReactNode;
+    places: ReactNode;
+    notes: boolean;
+  };
+}
+
+/**
  * Search on a phone (boards 03 and 04 of the phone Home artboards, approved by
  * the owner on 2026-09-30): a big "Search" title, the results under it, and
  * the field at the bottom where the bottom bar's field was, so it rides up on
