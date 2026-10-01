@@ -167,16 +167,10 @@ export function AppFrameVisualFixture({
 
   return (
     /*
-      The current-context pill, which the phone's breadcrumb needs in front of
-      it.
-
-      Both nodes were `null`, and the phone board showed what that costs:
-      `Breadcrumb`'s `pathOnly` draws "a separator in front of every crumb, the
-      first included — because the thing to its left is the context button", so
-      with no pill the line opened on a bare `/`. The product always supplies
-      one at compact (`console/_layout`), so a fixture that does not is
-      reporting a defect the product does not have — which is the thing this
-      file exists to stop doing.
+      The current-context pill, which the product supplies at compact
+      (`console/_layout`) for the panes that still draw the navigation band.
+      A fixture that does not is reporting a defect the product does not have —
+      which is the thing this file exists to stop doing.
 
       `contexts` was `null` too, on the argument that the switcher above
       already offers them — which is true at a *pointer* width and false at the

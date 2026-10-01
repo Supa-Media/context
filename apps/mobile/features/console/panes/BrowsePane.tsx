@@ -274,15 +274,9 @@ export function BrowsePane({
    * here rather than in each branch is what stops the two placements drifting
    * into two sets of props.
    */
-  /** See `BrowsePathBar`: where you are, and the way up — the phone's answer to both. */
+  /** See `BrowsePathBar`: on a phone, who else is in the note. */
   const pathBar = compact ? (
-    <BrowsePathBar
-      files={files}
-      selected={selected}
-      settled={settled}
-      openCrumbMenu={openCrumbMenu}
-      presence={presence}
-    />
+    <BrowsePathBar files={files} selected={selected} presence={presence} />
   ) : null;
 
   /**
@@ -359,14 +353,10 @@ export function BrowsePane({
         and Share is in the top bar's trailing group (`_layout`, where Obsidian
         puts the ⋯ container).
 
-        **The fourth thing it carried was folder navigation, and this used to
-        hand that to "the tree", which a phone no longer has.** It is `pathBar`
-        below — the same `Breadcrumb` in `pathOnly` mode, drawn *inside* the
-        note rather than pinned over it, so it scrolls away with the document —
-        plus `FolderView`, which is what a segment of it opens. That is not the
-        row this branch removed: it is one line of monospace path with no title,
-        no chip and no Share on it, and it is the only way up on a density with
-        no panel.
+        **The fourth thing it carried was folder navigation.** On a phone that
+        is the ‹ back button at the top left, naming the folder above
+        (`home/phoneBack.ts`, owner's review 2026-10-01) — the path row that did
+        it before is gone, and `pathBar` below is only who else is in the note.
       */}
       {selected !== null && settled && !compact ? (
         <BrowseNoteHead

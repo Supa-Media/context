@@ -60,8 +60,9 @@ import { useThemedStyles, type Colors } from "../design/theme";
  * The button and the segments scroll together: they are one line — *this
  * context, then this folder, then that one* — and two scrollers would let the
  * button sit still while the path it heads slid out from under it. So `NavBand`
- * owns the `ScrollView` and `Breadcrumb.pathOnly` returns bare segments into
- * it. Nothing truncates, on either row: a context or a folder ellipsised is two
+ * owns the `ScrollView`. (Browse on a phone draws no path any more — the
+ * owner's review, 2026-10-01 — so the row is the context alone, on the panes
+ * that still draw it: Map, Connections, Settings.) Nothing truncates, on either row: a context or a folder ellipsised is two
  * of them that look identical, on the control whose whole job is telling them
  * apart.
  *

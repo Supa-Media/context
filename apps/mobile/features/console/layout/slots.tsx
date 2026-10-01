@@ -1,11 +1,17 @@
 import type { ComponentProps, Dispatch, SetStateAction } from "react";
 import { AsidePanel } from "../aside/AsidePanel";
 import { ConsoleBottomBar } from "../ConsoleBottomBar";
+import { noteQuickActions, type NoteQuickId } from "../NoteQuickBar";
+import type { FileEntry } from "../files/types";
+import { noteActionItems } from "./noteActions";
+import { runNoteAction } from "./NoteActionsSheet";
 import { Explorer, type Dialog } from "../files/Explorer";
 import type { TreePick } from "../files/selection";
 import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
+import { PhoneBack } from "../home/PhoneBack";
+import { phoneBackTarget } from "../home/phoneBack";
 import { SwitcherMenu } from "../SwitcherMenu";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
@@ -47,6 +53,39 @@ export function consoleSyncSlot({
         onPress={() => setSyncOpen(true)}
       />
     ) : undefined
+  );
+}
+
+/**
+ * The phone's top-left: the workspace's own button on Home, and ‹ back on
+ * every page below it (owner, 2026-10-01). See `home/phoneBack.ts`.
+ *
+ * A signed-out visitor keeps Sign in beside the back button: it is the one call
+ * to action the top bar carries, and the homepage opens on a page, not on Home.
+ */
+export function consoleAccountSlot({
+  phone,
+  browsing,
+  data,
+  switcherProps,
+}: {
+  phone: boolean;
+  browsing: boolean;
+  data: ConsoleData;
+  switcherProps: ComponentProps<typeof SwitcherMenu>;
+}) {
+  const account = <SwitcherMenu {...switcherProps} trigger="phone" />;
+  const target = phone && browsing ? phoneBackTarget(data.files.selectedPath) : null;
+  if (target === null) return account;
+  return (
+    <PhoneBack
+      target={target}
+      onBack={() => {
+        if (target.folder === null) data.files.deselect();
+        else data.files.select(target.folder);
+      }}
+      after={switcherProps.onSignIn !== undefined ? account : undefined}
+    />
   );
 }
 
@@ -195,6 +234,7 @@ export function consoleBottomBar({
   setSearchScope,
   canCreate,
   setBarDialog,
+  note,
 }: {
   browsing: boolean;
   data: ConsoleData;
@@ -202,11 +242,36 @@ export function consoleBottomBar({
   setSearchScope: (scope: string | null) => void;
   canCreate: boolean;
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
+  /**
+   * The note on screen, for the phone's note bar: its entry, the workspace's
+   * label its actions name, and a fresh AI conversation where there is one.
+   * `null` on Home, on a folder, and off a phone.
+   */
+  note: { entry: FileEntry; contextLabel: string; ask: (() => void) | null } | null;
 }) {
+  const quick =
+    note === null
+      ? undefined
+      : {
+          actions: noteQuickActions(
+            noteActionItems({
+              entry: note.entry,
+              canEdit: data.files.canEdit,
+              canShare: data.files.canShare,
+              visitor: data.visitor !== undefined,
+            }).map((item) => item.id),
+            note.ask !== null,
+          ),
+          onAction: (id: NoteQuickId) => {
+            if (id === "ask") note.ask?.();
+            else runNoteAction(id, { data, entry: note.entry, contextLabel: note.contextLabel, setBarDialog });
+          },
+        };
   return (
     browsing ? (
       <ConsoleBottomBar
         data={data}
+        note={quick}
         onSearch={(scope) => {
           setSearchScope(scope);
           setPaletteOpen(true);

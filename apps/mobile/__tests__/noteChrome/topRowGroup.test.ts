@@ -46,12 +46,13 @@ describe("the top row ends in one group, and it is the note's", () => {
    * above the note**, and the trailing group on it holds what acts on the note.
    * So the row is asserted by its three slots rather than by an emptiness.
    */
-  test("an account, and the note's own actions", () => {
+  test("back, and the note's own actions", () => {
     const app = mountConsole(dataWith());
 
-    // The slot's own control, not `account-sign-out`: that testID now names a
-    // row inside the menu this trigger opens, not something on screen at rest.
-    expect(app.find("account-menu")).not.toBeNull();
+    // On a note the leading slot is ‹ back (owner, 2026-10-01); the account
+    // button — the workspace's mark — is Home's, which has no page above it.
+    expect(app.find("phone-back")).not.toBeNull();
+    expect(app.find("account-menu")).toBeNull();
     // The note's own actions: read/edit and •••, with Share inside •••.
     expect(app.find("note-actions")).not.toBeNull();
     expect(app.find("note-share")).toBeNull();

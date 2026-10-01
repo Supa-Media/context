@@ -1,107 +1,50 @@
+import { StyleSheet, View } from "react-native";
 import { layout } from "../../../design/tokens";
-import { NavBand } from "../../NavBand";
-import { Breadcrumb } from "../../files/Breadcrumb";
+import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../../files/browser";
-import { noteHeading } from "../../files/frontmatter";
 import { PresencePile } from "../../presence/PresencePile";
 import type { Presence } from "../../presence/usePresence";
 import type { entryAt } from "../../files/tree";
-import type { FolderListingState } from "./useFolderListing";
 
-  /**
-   * Where you are, and the way up — the phone's answer to both.
-   *
-   * Built here and handed to two surfaces, because a note and a folder scroll
-   * in different containers on a phone: a note brings its own (see the comment
-   * on the branch below, and `NoteEditor.pathBar`), a folder sits in this
-   * pane's. One node passed twice rather than two copies of the same line —
-   * `NoteEditor`'s own header states the rule this follows: two copies of a
-   * tree is how a control ends up on one surface and missing from the other.
-   *
-   * `pathOnly` is the subtractive form: ancestors, pressable, and none of the
-   * naming a phone already does inside the document. `Breadcrumb`'s header has
-   * the argument.
-   *
-   * **The path is the second row of `NavBand`, not the whole of it.** The
-   * contexts are the first, and they are here rather than in the floating top
-   * bar because navigation that lies across somebody's note is an overlap
-   * rather than reachability — `NavBand` has that argument and the duplication
-   * argument beside it. The band is built even with nothing selected, because
-   * the contexts do not depend on a selection; it draws nothing at all off a
-   * phone, where the rail is the contexts and the full breadcrumb is the path.
-   */
+/**
+ * What a phone draws above a note or a folder: who else is in the note, and
+ * nothing else.
+ *
+ * It was the path — the workspace's pill, then every folder down to the page —
+ * and the owner's review of the phone Home took it out (2026-10-01): *"I dont
+ * think we need to show the file path at the top of notes anymore"*. Each thing
+ * it did went somewhere it belongs. The way up is the ‹ back button at the top
+ * left (`home/phoneBack.ts`), which names the folder above; the workspace's
+ * mark is the account button on Home (`SwitcherMenu`'s phone trigger); the
+ * page names itself, a note in its title and a folder in its head.
+ *
+ * The presence pile stays, at the trailing edge, because it is the one fact on
+ * the row nothing else says: somebody else is in this note with you.
+ */
 export function BrowsePathBar({
   files,
   selected,
-  settled,
-  openCrumbMenu,
   presence,
 }: {
   files: FileBrowser;
   selected: ReturnType<typeof entryAt>;
-  settled: boolean;
-  openCrumbMenu: FolderListingState["openCrumbMenu"];
-  /** The open note's room, for the pile at the end of the path. */
+  /** The open note's room, for the pile. */
   presence?: Presence;
 }) {
+  const styles = useThemedStyles(makeStyles);
+  /*
+    Only for the note the editor holds: the room is that note's, and the
+    selection can move ahead of it.
+  */
+  if (presence === undefined || selected?.kind !== "file" || files.editor.path !== selected.path) return null;
   return (
-    <NavBand
-      /*
-        The note's own margin, so the pills and the path line up with the first
-        character of the document under them rather than with the edge of the
-        glass. `NavBand` takes it from here for the reason its `band` style
-        gives: only the caller knows what the band is sitting above.
-      */
-      gutter={layout.readingMargin}
-      /*
-        A fresh row, not a scrolled one, whenever "where you are" changes.
-        `files.contextId` as well as the path: a switch that happens to land on
-        a note or folder with the same name in the new context (`index.md`, an
-        `@lk`/`@seyi` `1-projects` folder) is still a different position, and
-        the row's own scroll offset has no way to tell those apart on its own.
-        See `NavBand`'s `trailKey` for what not doing this costs.
-      */
-      trailKey={`${files.contextId ?? ""}:${selected?.path ?? ""}`}
-      /*
-        Who else is in this note, at the end of a row that is always drawn, so
-        somebody arriving never pushes the note down. Only for the note the
-        editor holds: the room is that note's, and the selection can move
-        ahead of it.
-      */
-      trailing={
-        presence !== undefined &&
-        selected?.kind === "file" &&
-        files.editor.path === selected.path ? (
-          <PresencePile presence={presence} compact />
-        ) : null
-      }
-      path={
-        selected === null || !settled ? null : (
-          <Breadcrumb
-            pathOnly
-            path={selected.path}
-            /*
-              What the note calls itself, where it calls itself anything — the
-              same rule the pointer layout's breadcrumb applies, and passed here
-              for the same reason. A captured note's filename is a content hash,
-              so on a phone the only line naming what is on screen was naming
-              nothing.
-
-              Only when the editor is holding *this* note: `files.editor` is one
-              buffer and the selection can move ahead of it, so titling the
-              crumb from a draft belonging to a different path would put one
-              note's subject over another note's name.
-            */
-            title={
-              selected.kind === "file" && files.editor.path === selected.path
-                ? noteHeading(files.editor.draft, selected.path)
-                : undefined
-            }
-            onSelectFolder={files.select}
-            onFolderMenu={openCrumbMenu}
-          />
-        )
-      }
-    />
+    <View style={styles.row} testID="phone-presence-row">
+      <PresencePile presence={presence} compact />
+    </View>
   );
 }
+
+const makeStyles = () =>
+  StyleSheet.create({
+    row: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: layout.readingMargin },
+  });

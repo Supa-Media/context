@@ -334,7 +334,7 @@ export function SwitcherMenu({
           accessibilityLabel={
             signedOut
               ? "Sign in or join the waitlist"
-              : `${data.viewer.name} — account menu${elsewhere ? ", another workspace has changed" : ""}${
+              : `${current !== undefined ? `${atName(current.slug)} — workspaces and account` : `${data.viewer.name} — account menu`}${elsewhere ? ", another workspace has changed" : ""}${
                   whatsNew?.unread ? ", what's new is unread" : ""
                 }`
           }
@@ -354,7 +354,21 @@ export function SwitcherMenu({
             </View>
           ) : (
             <View style={styles.markSlot}>
-              <Avatar initial={data.viewer.initial} />
+              {/*
+                The workspace you are in, not your face (owner, 2026-10-01):
+                the path row's workspace mark went with the path, and this is
+                where it went. The sheet behind it is still the account's.
+              */}
+              {current !== undefined ? (
+                <WorkspaceMark
+                  label={atName(current.slug)}
+                  tone={current.status}
+                  icon={iconFor(current)}
+                  size={PHONE_MARK}
+                />
+              ) : (
+                <Avatar initial={data.viewer.initial} />
+              )}
               {dotted ? (
                 <View style={[styles.newDot, styles.avatarDot]} aria-hidden testID="account-switcher-activity" />
               ) : null}
@@ -458,6 +472,9 @@ export function sheetItems(sections: readonly AccountCardSection[]): MenuItem<st
   }
   return items;
 }
+
+/** The phone's top-left mark: the avatar's size, so the slot does not move. */
+const PHONE_MARK = 28;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({

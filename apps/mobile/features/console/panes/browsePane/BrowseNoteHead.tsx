@@ -74,9 +74,8 @@ export function BrowseNoteHead({
             `‹ ›` at the head of the path, on a pointer, as Obsidian has them.
             For a day they were in the title row over the file tree; the
             owner moved them back into the note (2026-09-28): they walk
-            between notes, so they belong to the note. The phone's
-            breadcrumb is `pathOnly` and draws neither, because its bottom
-            bar carries the same pair over the same `history.ts` stack.
+            between notes, so they belong to the note. A phone has no
+            breadcrumb; its way back is ‹ at the top left.
           */
           history={
             nav === null

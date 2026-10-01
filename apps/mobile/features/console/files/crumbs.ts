@@ -1,10 +1,9 @@
 /**
  * The path of the place somebody is standing in, as a list of crumbs.
  *
- * One function, two renderers: the phone's band (`Breadcrumb.pathOnly`, drawn
- * inside `NavBand` behind the lit context pill) and the pointer layout's region
- * header (`Breadcrumb`, which adds the context segment and the visibility
- * chip). They used to each slice the path themselves, and that is how they came
+ * One function for the pointer layout's region header (`Breadcrumb`). It had a
+ * second renderer, the phone's path row, until that row was retired
+ * (2026-10-01). The two used to each slice the path themselves, and that is how they came
  * to disagree about what a segment is — one of them dropped the leaf, then the
  * context, and shipped a line that named neither the note you had open nor the
  * context you were in.

@@ -49,13 +49,29 @@ export function WorkspaceMark({
   label,
   tone,
   icon,
+  size,
 }: {
   label: string;
   tone: DotTone;
   /** The owner's choice, resolved. Absent — and a photo still loading — is the letter. */
   icon?: MarkIcon;
+  /**
+   * Drawn larger than the list's 18pt — the phone's top-left account button,
+   * where the workspace's mark stands in for the person's avatar (owner,
+   * 2026-10-01). The same square, scaled: corner, letter and photo inset.
+   */
+  size?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const scaled =
+    size === undefined
+      ? null
+      : {
+          mark: { width: size, height: size, borderRadius: Math.round(size * 0.28) },
+          letter: { fontSize: Math.round(size * 0.5) },
+          emoji: { fontSize: Math.round(size * 0.62), lineHeight: size - 1 },
+          photo: { width: size - 2, height: size - 2, borderRadius: Math.round(size * 0.24) },
+        };
   /*
     The first letter that is one, so `@seyi` marks S rather than `@`. A label
     with no letters at all — a slug of digits — falls back to the first
@@ -85,18 +101,19 @@ export function WorkspaceMark({
       <View
         style={[
           styles.mark,
+          scaled?.mark,
           tone === "warn" && styles.markWarn,
           tone === "crit" && styles.markCrit,
         ]}
         aria-hidden
       >
-        <Image source={{ uri: icon.uri }} style={styles.markPhoto} resizeMode="cover" />
+        <Image source={{ uri: icon.uri }} style={[styles.markPhoto, scaled?.photo]} resizeMode="cover" />
       </View>
     );
   }
   return (
     <View
-      style={[styles.mark, tone === "warn" && styles.markWarn, tone === "crit" && styles.markCrit]}
+      style={[styles.mark, scaled?.mark, tone === "warn" && styles.markWarn, tone === "crit" && styles.markCrit]}
       aria-hidden
     >
       {icon?.kind === "emoji" ? (
@@ -107,9 +124,9 @@ export function WorkspaceMark({
           monochrome one (✏️, ⚖️, ⭐ without its variation selector on some
           platforms) does not, and would otherwise come out in `ink`.
         */
-        <Text style={styles.markEmoji}>{icon.emoji}</Text>
+        <Text style={[styles.markEmoji, scaled?.emoji]}>{icon.emoji}</Text>
       ) : (
-        <Text style={styles.markLetter}>{letter}</Text>
+        <Text style={[styles.markLetter, scaled?.letter]}>{letter}</Text>
       )}
     </View>
   );
