@@ -682,12 +682,14 @@ describe("the console's own bottom row", () => {
    * and the `+` sheet is the round button held. `BottomBar` and its key
    * geometry stay, probed above, for any row of keys somebody builds again.
    */
-  test("is a search field with a microphone, and the new-note button", () => {
+  test("is a search field and the new-note button, with no microphone", () => {
     const container = mountConsole(390);
     const bar = need(container, "notes-bar");
     const labels = [...bar.querySelectorAll("[aria-label]")].map((node) => node.getAttribute("aria-label"));
 
-    expect(labels).toEqual(["Search notes", "Search by voice", "New note"]);
+    // No "Search by voice" (owner, 2026-10-01): the phone has no speech engine,
+    // so the microphone only ever opened search.
+    expect(labels).toEqual(["Search notes", "New note"]);
     for (const gone of ["back", "browse", "new", "recent", "forward", "save"]) {
       expect(container.querySelector(`[data-testid="bottom-bar-${gone}"]`)).toBeNull();
     }

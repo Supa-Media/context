@@ -33,6 +33,9 @@
  * SABOTAGE: drop the rail column from `E2EFixtureScreen` and "a pointer layout
  * reaches every context" fails; gate `NavBandProvider`'s `contexts` on the
  * pointer branch instead and "a phone reaches every context" fails.
+ * (Since 2026-10-01 a phone's contexts are behind Home's workspace mark: drop
+ * the `SwitcherMenu` phone trigger from the fixture's Home and the phone case
+ * fails.)
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -110,14 +113,21 @@ function mountFixture(width: number) {
   /*
     Open the workspace switcher, if this density has one.
 
-    A phone's contexts are `NavBand`'s, in the scroller, and are on the screen
-    from the first frame. A pointer layout's are `SwitcherMenu`'s, behind the
-    name in the title bar — so reaching them is a press, which is what a person
-    does too. Pressing nothing when there is no trigger is how the phone's case
-    stays the control it was written to be.
+    Both are `SwitcherMenu`'s, behind a press, which is what a person does
+    too: a pointer layout's behind the name in the title bar, a phone's behind
+    Home's workspace mark (2026-10-01; the phone's `NavBand` strip went with
+    its path row) — so a phone walks up to Home first.
   */
   const openSwitcher = () => {
-    const trigger = document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]');
+    // A phone's switcher is Home's top-left, so go up to Home first.
+    for (let i = 0; i < 6; i += 1) {
+      const back = container.querySelector<HTMLElement>('[data-testid="phone-back"]');
+      if (back === null) break;
+      act(() => back.click());
+    }
+    const trigger =
+      document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]') ??
+      document.body.querySelector<HTMLElement>('[aria-label*="— workspaces and account"]');
     if (trigger === null) return;
     act(() => {
       trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -137,7 +147,7 @@ function mountFixture(width: number) {
     const labels = Array.from(
       /*
         Every role, because the two surfaces are two kinds of control. The
-        phone's contexts are buttons in `NavBand`; the pointer layout's are
+        phone's are rows in the account sheet; the pointer layout's are
         the account card's workspace rows, which are `menuitemradio` — one of
         them is the workspace you are in. Asking for `button` alone found the
         account button and none of the workspaces behind it.
@@ -193,8 +203,10 @@ describe("the browser-reachable console offers its contexts at every density", (
     expect(desktop.container.querySelectorAll('[data-testid="context-strip"]')).toHaveLength(0);
     expect(desktop.container.querySelectorAll('[data-testid="account-switcher"]')).toHaveLength(1);
 
+    // A phone's one switcher is Home's workspace mark; there is no strip.
     const phone = mountFixture(390);
-    expect(phone.container.querySelectorAll('[data-testid="context-strip"]')).toHaveLength(1);
-    expect(phone.container.querySelectorAll('[data-testid="account-switcher"]')).toHaveLength(0);
+    phone.openSwitcher();
+    expect(phone.container.querySelectorAll('[data-testid="context-strip"]')).toHaveLength(0);
+    expect(phone.container.querySelectorAll('[aria-label*="— workspaces and account"]')).toHaveLength(1);
   });
 });

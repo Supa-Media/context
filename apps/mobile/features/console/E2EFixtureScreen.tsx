@@ -32,9 +32,11 @@ import type { VoicePage } from "../voice/VoiceButton";
  *
  * The real supplier is `app/(app)/console/_layout.tsx`. Its phone top-left is
  * `consoleAccountSlot`: ‹ back on any page below Home (owner, 2026-10-01),
- * which this draws from the same `phoneBackTarget` and `PhoneBack`. Going Home
- * calls `files.deselect()` directly, which is what the product's navigation
- * does to this browser's state.
+ * which this draws from the same `phoneBackTarget` and `PhoneBack`, and the
+ * workspace's mark on Home — the real `SwitcherMenu` phone trigger, which is
+ * how a phone reaches its other workspaces now that the path row's context
+ * strip is gone. Going Home calls `files.deselect()` directly, which is what
+ * the product's navigation does to this browser's state.
  *
  * `AppFrame`'s bottom toolbar is not part of this: none of the WebKit cases
  * presses it, and pulling in `AppFrame`, `EditorRegion` and `useTabs` would
@@ -49,7 +51,7 @@ import type { VoicePage } from "../voice/VoiceButton";
  * browser: at 1440×900 this fixture answered three `[role=button]` elements in
  * the whole console — an avatar, one breadcrumb crumb, and the save pill —
  * while the same fixture at 390×844 drew `@lk` and `@public-worship` above the
- * path. A person could not reach another context on the larger screen at all.
+ * path (a phone reaches them from Home's workspace mark now). A person could not reach another context on the larger screen at all.
  *
  * That is not what the product does. `BrowsePane` draws `NavBand` at compact
  * only, because at medium and wide the contexts are the title bar's —
@@ -258,7 +260,23 @@ export function E2EFixtureScreen({
                 page above (`consoleAccountSlot`). Going up clears an anchor the
                 way the product's navigation does.
               */}
-              {back === null ? null : (
+              {back === null ? (
+                /*
+                  Home's top-left is the workspace's own mark, the product's
+                  phone trigger (`consoleAccountSlot`): the way to every other
+                  workspace on a phone.
+                */
+                <SwitcherMenu
+                  data={data}
+                  label={current === null ? "Your context" : atName(current.slug)}
+                  trigger="phone"
+                  onOpenContext={(slug) => {
+                    setAnchor(null);
+                    openContext(slug);
+                  }}
+                  onOpenSettings={openSettings}
+                />
+              ) : (
                 <PhoneBack
                   target={back}
                   onBack={() => {
