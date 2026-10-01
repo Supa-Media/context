@@ -33,6 +33,7 @@ import { agentName } from "../../console/presence/agentName";
 import { presenceColors } from "../../design/tokens";
 import { toBase64, type SharedDoc } from "../../console/presence/sharedDoc";
 import { chatTool, type CastChatEvent } from "./castChat";
+import { terminalSteps } from "./castTerminalPlay";
 
 /** The origin of every transaction the cast makes; anything else is the visitor. */
 export const CAST_ORIGIN = Symbol("cast");
@@ -160,11 +161,12 @@ export type CastMoment = (typeof CAST_MOMENTS)[number];
   The console's presence palette (`PRESENCE_COLORS` in the gateway), so a cast
   member is drawn in a colour a real member could have. Assigned in order of
   appearance rather than hashed, so two members of one small cast are never
-  the same colour; Claude and ChatGPT keep the hues people know them by.
+  the same colour; Claude and ChatGPT keep the hues people know them by, and
+  Claude Code and Codex theirs, which their terminals' accents echo.
 */
 const P = presenceColors;
 const PALETTE = [P.pink, P.blue, P.violet, P.cyan, P.lime, P.red, P.green, P.amber];
-const KNOWN: Record<string, string> = { claude: P.amber, chatgpt: P.green };
+const KNOWN: Record<string, string> = { claude: P.amber, chatgpt: P.green, "claude code": P.amber, codex: P.green };
 
 export function castColors(steps: readonly CastStep[]): Map<string, string> {
   const colors = new Map<string, string>();
@@ -208,6 +210,8 @@ export function playCast(
     path?: string;
     /** Each member's colour, so one person is one colour on every page. */
     colors?: ReadonlyMap<string, string>;
+    /** Assistants in a terminal (`terminal:`), whose every step shows there from their first. */
+    terminals?: readonly string[];
   } = {},
 ): { stop: () => void } {
   // The page the show is in: the one it started on until a step opens another.
@@ -218,7 +222,7 @@ export function playCast(
   // Moved to a folder's page: there is no text to write into until a page is opened.
   let inFolder = false;
   // The assistants somebody has asked, whose steps show in their chats.
-  const chats = new Set<string>();
+  const chats = new Set<string>((options.terminals ?? []).map((agent) => agent.toLowerCase()));
   let said = 0;
   const pace = options.pace ?? LIVELY;
   const colors = options.colors ?? castColors(steps);
@@ -366,6 +370,7 @@ export function playCast(
       return then();
     }
 
+    if (step.kind === "run" || step.kind === "edit" || step.kind === "approve" || step.kind === "allow") return terminal(step, then);
     if (step.kind === "ask") return ask(step, then);
     if (step.kind === "answer") return answer(step, then);
 
@@ -505,6 +510,14 @@ export function playCast(
     place(id, at(cursor, -1), at(cursor, -1));
     later(pace.keyMs * 3, () => key(0));
   };
+
+  const terminal = terminalSteps({
+    host,
+    pace,
+    later,
+    nextId: () => (said += 1),
+    opened: (agent) => chats.add(agent.toLowerCase()),
+  });
 
   /*
     Somebody asking an assistant: a person's words are typed into its box a

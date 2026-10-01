@@ -4,14 +4,9 @@ import { Icon } from "../../design/components/Icon";
 import { useColors, useTheme } from "../../design/theme";
 import { castChatLooks, pointerType, radii, space, type CastChatLookColors } from "../../design/tokens";
 import type { ChatMessage, ChatTool, ChatWindow } from "./castChat";
+import { SYSTEM_FONT, terminalLook, terminalOf } from "./castLook";
+import { CastTerminal, type ChatTab } from "./CastTerminal";
 import type { CastChatView } from "./useHomeCast";
-
-/*
-  A chat app that is nobody's in particular: the system's own sans, not the
-  console's, so the window reads as another app beside Context rather than a
-  panel of it.
-*/
-const SYSTEM_FONT = Platform.select({ web: "ui-sans-serif, system-ui, -apple-system, sans-serif", default: undefined });
 
 /**
  * The chats of a scene, beside the workspace or filling the frame (Dev2,
@@ -54,35 +49,52 @@ export function CastChat({
           }));
     return (
       <View style={styles.column} testID="cast-chat">
-        <Window window={shown} look={look} badge={colors.get(shown.agent) ?? look.muted} onClose={onClose} tabs={tabs} />
+        <AnyWindow view={view} window={shown} badge={colors.get(shown.agent) ?? look.muted} onClose={onClose} tabs={tabs} compact />
       </View>
     );
   }
   return (
     <View style={styles.column} testID="cast-chat">
       {view.windows.map((window, index) => (
-        <Window
+        <AnyWindow
           key={window.agent}
+          view={view}
           window={window}
-          look={look}
           badge={colors.get(window.agent) ?? look.muted}
           onClose={index === 0 ? onClose : undefined}
+          compact={false}
         />
       ))}
     </View>
   );
 }
 
+/** An assistant's window: its terminal, when the scene put it in one, or its chat. */
+function AnyWindow({
+  view,
+  window,
+  badge,
+  onClose,
+  tabs,
+  compact,
+}: {
+  view: CastChatView;
+  window: ChatWindow;
+  badge: string;
+  onClose?: () => void;
+  tabs?: readonly ChatTab[];
+  compact: boolean;
+}) {
+  const terminal = terminalOf(view.setup.terminals, window.agent);
+  if (terminal !== undefined) {
+    return <CastTerminal window={window} folder={terminal.folder} look={terminalLook(window.agent)} compact={compact} onClose={onClose} tabs={tabs} />;
+  }
+  return <Window window={window} look={castChatLooks[view.setup.look]} badge={badge} onClose={onClose} tabs={tabs} />;
+}
+
 /** The assistant a phone's one chat window is on: the one the script cut to, or the latest to speak. */
 function chatShown(view: CastChatView): string | undefined {
   return view.shows !== undefined && view.shows !== "both" && view.shows !== "context" ? view.shows : view.active;
-}
-
-interface ChatTab {
-  agent: string;
-  badge: string;
-  on: boolean;
-  press: () => void;
 }
 
 function Window({
@@ -155,6 +167,8 @@ function Window({
         contentContainerStyle={styles.messages}
         // The newest is what the film is about: keep it in view as it grows.
         onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: true })}
+        // A window that shrinks (another opening beside it) keeps its newest line in view too.
+        onLayout={() => scroller.current?.scrollToEnd({ animated: false })}
       >
         {window.messages.map((message, index) => (
           <Message key={keyOf(message, index)} message={message} look={look} />
@@ -193,6 +207,7 @@ export function CastWorkspaceBar() {
 function keyOf(message: ChatMessage, index: number): string {
   if (message.kind === "answer") return `answer-${message.id}`;
   if (message.kind === "tools") return `tools-${message.tools[0]?.id ?? index}`;
+  if ("id" in message) return `${message.kind}-${message.id}`;
   return `asked-${index}`;
 }
 
@@ -206,6 +221,8 @@ function Message({ message, look }: { message: ChatMessage; look: CastChatLookCo
     );
   }
   if (message.kind === "answer") return <Text style={[styles.words, ink]}>{message.text}</Text>;
+  // A command, an edit or a question about one is a terminal's; a chat has none to show.
+  if (message.kind !== "tools") return null;
   const done = message.tools.filter((tool) => tool.done).length;
   return (
     <View style={[styles.card, { borderColor: look.line }]} testID="cast-chat-tools">

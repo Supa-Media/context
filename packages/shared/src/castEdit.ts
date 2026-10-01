@@ -11,6 +11,7 @@
  * Pure and dependency-free, like the grammar in `websiteCast.ts`.
  */
 
+import { renameTerminal, terminalStepLine } from "./castTerminal";
 import { castStepSources, splitWebsiteCast, type CastActor, type CastStep } from "./websiteCast";
 
 /** One line of text, as a step's words must be: the grammar reads a line at a time. */
@@ -77,6 +78,11 @@ export function castStepLine(step: CastStep): string {
       return `${who} marks ${step.path} as: ${oneLine(step.status)}`;
     case "task":
       return `${who} adds task to ${step.project}: ${oneLine(step.text)}`;
+    case "run":
+    case "edit":
+    case "approve":
+    case "allow":
+      return terminalStepLine(step);
   }
 }
 
@@ -101,6 +107,11 @@ export function castStepWords(step: CastStep): string | null {
       return step.status;
     case "tick":
       return step.quote;
+    case "run":
+    case "approve":
+      return step.command;
+    case "edit":
+      return step.file;
     case "open":
       return step.page;
     case "read":
@@ -136,6 +147,11 @@ export function withCastWords(step: CastStep, words: string): CastStep | null {
       return text === "" ? null : { ...step, status: text.toLowerCase() };
     case "tick":
       return text === "" ? null : { ...step, quote: text };
+    case "run":
+    case "approve":
+      return text === "" ? null : { ...step, command: text };
+    case "edit":
+      return text === "" ? null : { ...step, file: text };
     case "open":
       return text === "" ? null : { ...step, page: text };
     case "read":
@@ -264,7 +280,8 @@ export function castActors(source: string): CastActor[] {
 /** The page with `from` renamed `to` in every step that names them: as doer, as the face clicked, or as the assistant asked. */
 export function renameCastActor(source: string, from: string, to: CastActor): string {
   const steps = splitWebsiteCast(source).steps;
-  let out = source;
+  // Its terminal, if a line names one, is still its own.
+  let out = to.kind === "agent" ? renameTerminal(source, from, to.name) : source;
   // Last to first, so each step's lines are still where the parser said.
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]!;

@@ -202,7 +202,10 @@ export {
   type CastStep,
   type CastStepSource,
   type WebsiteCast,
+  type CastTerminal,
+  type CastTerminalStep,
 } from "./websiteCast";
+export { MAX_CAST_OUTPUT_LINES } from "./castTerminal";
 export {
   CAST_EDIT_KINDS,
   castActorNamed,

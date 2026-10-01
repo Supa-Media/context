@@ -94,7 +94,7 @@ describe("asking and answering", () => {
   test("ChatGPT and Claude each get a window, in the order they were asked", () => {
     const show = scene("@maya asks ChatGPT: plan the week\n@maya asks Claude: and file it\nClaude answers: Filed.\nChatGPT answers: Planned.");
     show.playTo(show.ended);
-    expect(show.chats().map((window) => [window.agent, window.messages.map((message) => (message.kind === "tools" ? "tools" : message.text))])).toEqual([
+    expect(show.chats().map((window) => [window.agent, window.messages.map((message) => ("text" in message ? message.text : message.kind))])).toEqual([
       ["ChatGPT", ["plan the week", "Planned."]],
       ["Claude", ["and file it", "Filed."]],
     ]);

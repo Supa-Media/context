@@ -1,4 +1,5 @@
 import { parseWebsitePage } from "@context/shared";
+import { FRONT_NOTES } from "../../../mcp/src/lists/grammar.js";
 import type { FileEntry, FolderListing } from "../console/files/types";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
 import type { LegalPageContent } from "../legal/LegalPage";
@@ -128,7 +129,15 @@ export function liveHomeTree(site: readonly HomePage[]): HomeTree {
       }
       parent = folder;
     }
-    const path = numbered(parent, fileName(page.title));
+    /*
+      A project's `overview.md` keeps its name: it is what makes its folder a
+      project (`FRONT_NOTES`), and where a scene's "marks … as" writes the
+      status. Not `index.md`, which is how the site sends a page that names a
+      folder, drawn by its title like any page.
+    */
+    const leaf = segments[segments.length - 1]!;
+    const front = parent !== "" && leaf.toLowerCase() === FRONT_NOTES[0];
+    const path = front ? `${parent}/${leaf}` : numbered(parent, fileName(page.title));
     pages.set(path, page);
     paths.set(page.routePath, path);
     entries[parent]!.push(entry(path));

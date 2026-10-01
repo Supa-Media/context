@@ -590,6 +590,47 @@ export const castChatLooks = {
 export type CastChatLookColors = (typeof castChatLooks)[keyof typeof castChatLooks];
 
 /**
+ * The terminals a developer cast draws an assistant in (Dev2, 2026-10-01):
+ * dark, monospaced, and no product's in particular, like the chats above.
+ * `cool` is a blue-black with a mint accent, `ember` a brown-black with a
+ * coral one, so two assistants side by side are told apart at a glance.
+ * `add`/`remove` colour a diff's lines, `ok`/`fail` a test run's.
+ */
+export const castTerminalLooks = {
+  cool: {
+    ground: "#0E1013",
+    raised: "#171A1F",
+    ink: "#D7DCE2",
+    bright: "#FFFFFF",
+    muted: "#8B939E",
+    line: "#23272E",
+    accent: "#9FE3C0",
+    onAccent: "#0E1013",
+    ask: "#2F4A3E",
+    add: "#9FE3C0",
+    remove: "#F2A3A3",
+    ok: "#9FE3C0",
+    fail: "#F2A3A3",
+  },
+  ember: {
+    ground: "#171412",
+    raised: "#211B18",
+    ink: "#E7DFD8",
+    bright: "#FFFFFF",
+    muted: "#9C918A",
+    line: "#2E2723",
+    accent: "#F0A57E",
+    onAccent: "#1C1512",
+    ask: "#5A4336",
+    add: "#9FE3C0",
+    remove: "#F2A3A3",
+    ok: "#9FE3C0",
+    fail: "#F2A3A3",
+  },
+} as const;
+export type CastTerminalLookColors = (typeof castTerminalLooks)[keyof typeof castTerminalLooks];
+
+/**
  * A phone's keyboard as a cast draws it while somebody types a comment
  * (Dev2, 2026-10-01): the iPhone's own, light and dark, since it is the
  * phone's and not ours.
