@@ -302,7 +302,13 @@ export function useOpenNote(deps: OpenNoteDeps) {
   );
 
   const select = useCallback(
-    (path: string): boolean => {
+    /**
+     * `written`: the note as a write that has just created it left it. A note
+     * this console made a moment ago is opened from that answer rather than
+     * read back — the read was a whole extra round trip on every quick note,
+     * for a text and an etag the write had already returned.
+     */
+    (path: string, written?: OpenNote): boolean => {
       /*
         Write what is pending before anything moves.
 
@@ -349,6 +355,15 @@ export function useOpenNote(deps: OpenNoteDeps) {
        * Anything else is a folder, and treating an unknown `.md` as a note is
        * the right failure anyway — that is a real read whose refusal is honest.
        */
+      if (written !== undefined && written.path === path) {
+        // Anything still being read is for a note nobody is going to now.
+        openRun.current += 1;
+        setOpening(null);
+        offlineRef.current.rememberNote(written);
+        dispatch({ type: "opened", note: written });
+        return true;
+      }
+
       const known = findEntry(listings, path);
       const isFolder = known === null ? !isMarkdown(path) : known.kind === "folder";
       if (isFolder) {

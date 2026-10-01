@@ -1,6 +1,6 @@
 /**
  * Drawing a move before the bucket confirms it, queuing one offline, and
- * creating notes, drawings and folders.
+ * creating folders. Notes and drawings are `useNoteCreate`'s.
  *
  * Part of `useFileBrowser`, moved out of that file verbatim. The facade calls
  * each part in the order the code used to run, so every hook is still called
@@ -13,21 +13,17 @@
    it. What it reports here is refs, state setters and `dispatch` that now
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
-import { isDrawingPath, newDrawing } from "@context/drawings";
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import {
   baseName,
   describeMoveProblem,
   describeNameProblem,
   displayName,
-  drawingFileName,
-  ensureMarkdown,
   isMarkdown,
   joinPath,
   parentPath,
 } from "../paths";
 import { findEntry, namesIn } from "../tree";
-import { untitledName } from "../untitled";
 import {
   applyFolderCreate,
   applyMove,
@@ -37,17 +33,15 @@ import {
   undoFolderCreate,
 } from "../optimistic";
 import {
-  DRAWING_NEEDS_CONNECTION,
   FOLDER_NEEDS_CONNECTION,
   NOT_ON_DEVICE,
   claimedMessage,
   collision,
   folderLabel,
 } from "./copy";
-import type { Listings, FileBrowserOptions } from "./types";
+import type { FileBrowserOptions } from "./types";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
-import type { ListingsValues } from "./useListings";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { OpenNoteValues } from "./useOpenNote";
 import type { QueuedOpsValues } from "./useQueuedOps";
@@ -55,7 +49,7 @@ import type { RunOperationValues } from "./useRunOperation";
 
 type CreateAndMoveDeps =
   & { options: FileBrowserOptions }
-  & Pick<FileActionsValues, "createDirectory" | "moveEntry" | "undoNewFolder" | "workspaceId" | "writeNote">
+  & Pick<FileActionsValues, "createDirectory" | "moveEntry" | "undoNewFolder" | "workspaceId">
   & Pick<
     BrowserStateValues,
     | "autosave"
@@ -70,7 +64,6 @@ type CreateAndMoveDeps =
     | "setToasts"
   >
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
-  & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
   & Pick<OpenNoteValues, "select">
   & Pick<RunOperationValues, "run">
   & Pick<QueuedOpsValues, "deviceEtag" | "isFolderPath" | "queuedToast" | "viaQueue">;
@@ -78,9 +71,9 @@ type CreateAndMoveDeps =
 export function useCreateAndMove(deps: CreateAndMoveDeps) {
   const {
     options, autosave, createDirectory, deviceEtag, dispatch, drawLocally, isFolderPath, listings,
-    listingsRef, moveEntry, nextToastId, noteRenamed, offlineRef, queuedToast, refresh, reportRefreshFailure,
+    listingsRef, moveEntry, nextToastId, noteRenamed, offlineRef, queuedToast,
     run, select, selectedPathRef, setExpanded, setNotice, setSelectedPath, setToasts, undoNewFolder, viaQueue,
-    workspaceId, writeNote,
+    workspaceId,
   } = deps;
 
   /* ------------------------------------------------------------------ */
@@ -243,127 +236,6 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
     [autosave, deviceEtag, isFolderPath, options.canEdit, queuedToast],
   );
 
-  const createNote = useCallback(
-    (folder: string, rawName: string) => {
-      const name = ensureMarkdown(rawName);
-      const problem = describeNameProblem(name) ?? collision(listings, folder, name);
-      if (problem !== null) return setNotice(problem);
-      const path = joinPath(folder, name);
-      /*
-        Offline, the note is made on the device and opened at once — the core
-        of taking notes offline. It is a queued create (`baseEtag: null`), so
-        what is eventually sent is the same `writeNote` with no `expectedEtag`
-        this function makes online, and the server's create refuses if a note
-        appeared at that name meanwhile: parked as a conflict, with nothing
-        overwritten. The name checks above are the same ones, against the
-        listings as drawn — the queue's own new notes included.
-      */
-      if (offlineRef.current.reachability === "offline") {
-        if (!options.canEdit || workspaceId === null) return;
-        if (isDrawingPath(name)) return setNotice(DRAWING_NEEDS_CONNECTION);
-        if (offlineRef.current.claims(path)) return setNotice(claimedMessage(displayName(name)));
-        const text = `# ${name.replace(/\.md$/i, "")}\n\n`;
-        offlineRef.current.queueSave({ path, text, baseEtag: null });
-        setExpanded((current) => (folder === "" ? current : new Set([...current, folder])));
-        select(path);
-        return;
-      }
-      void run(async () => {
-        /*
-          A drawing is seeded as a drawing, whichever control got here.
-
-          `# name` is right for a note and is a file the gateway *refuses* on a
-          `.excalidraw.md` path — `toolWriteNote` demands that a write to one
-          carry a payload, so a person who typed `plan.excalidraw` into New
-          note used to get an error rather than a drawing. Branching on the
-          name rather than adding a second write path means every surface that
-          creates a note gets this: the toolbar, the phone's `+`, and a folder
-          row's menu.
-        */
-        const text = isDrawingPath(name) ? newDrawing() : `# ${name.replace(/\.md$/i, "")}\n\n`;
-        await writeNote({ workspaceId: workspaceId!, path, text });
-        return { touched: [path] };
-      }).then((ok) => {
-        if (ok) select(path);
-      });
-    },
-    [listings, options.canEdit, run, select, workspaceId, writeNote],
-  );
-
-  /**
-   * New drawing: the same creation as above, with the suffix supplied.
-   *
-   * A person names a diagram, not a file format, and `<name>.excalidraw.md` is
-   * two extensions they should not have to know about. Delegating rather than
-   * writing means the collision and name checks are the note's, once.
-   */
-  const createDrawing = useCallback(
-    (folder: string, rawName: string) => {
-      createNote(folder, drawingFileName(rawName));
-    },
-    [createNote],
-  );
-
-  /**
-   * The notes made without a name that have not taken one yet.
-   *
-   * Session-scoped and deliberately not derived from the *name* alone. A path
-   * matching `untitled-<date>` is not enough to earn an automatic rename: a
-   * note made yesterday, opened today, whose heading somebody had already
-   * changed by hand would rename itself the moment it loaded — a file moving in
-   * somebody's bucket because they looked at it. Only a note this session
-   * created without asking for a name is a note this session may name.
-   *
-   * An entry leaves when the rename fires, so the adoption happens **once**.
-   * After that the heading and the filename are two things the person owns
-   * separately, which is how every other note in the bucket already works.
-   */
-  const awaitingTitle = useRef<Set<string>>(new Set());
-
-  /**
-   * New note, new drawing: made now, called `untitled-<date>`, opened.
-   *
-   * Delegates rather than writing, so the name checks, the collision check, the
-   * offline queue and the drawing seed are all `createNote`'s — one create in
-   * this file, whatever asked for it. What is added here is the name and the
-   * promise that the name is temporary. See `untitled.ts`.
-   */
-  const createUntitled = useCallback(
-    (folder: string, kind: "note" | "drawing") => {
-      if (!options.canEdit) return;
-      const make = (known: Listings) => {
-        const name = untitledName(known, folder, kind, new Date());
-        awaitingTitle.current.add(joinPath(folder, name));
-        createNote(folder, name);
-      };
-      /*
-        THE DESTINATION IS LOADED FIRST, AND THAT IS NOT A TIDINESS POINT.
-
-        The name is chosen against the folder's listing, and listings are fetched
-        per folder — so a destination nobody has opened reads as *empty*, and
-        every untitled note made into it is called `untitled-<date>` with no
-        suffix. The second one is then a name the bucket already has, and the
-        server's create refuses it.
-
-        That is not hypothetical: the quick-note link (`?quickAction=note`) files
-        into `0-inbox` from a widget, on a console that has loaded the root and
-        nothing else. Two captures on one day, in two launches, is the ordinary
-        use of a capture widget — and before this the second was an error
-        message.
-
-        Loaded, this is one `listFiles` the console was going to make anyway when
-        the create's own `refresh` ran. Unloaded and unreachable, the refusal
-        surfaces through `reportRefreshFailure` rather than as a note that
-        silently did not appear.
-      */
-      if (listings[folder] !== undefined) return make(listings);
-      void refresh([folder])
-        .then(({ pages }) => make({ ...listingsRef.current, ...pages }))
-        .catch(reportRefreshFailure);
-    },
-    [createNote, listings, options.canEdit, refresh, reportRefreshFailure],
-  );
-
   const createFolder = useCallback(
     (folder: string, name: string, how?: { open?: boolean }) => {
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
@@ -485,8 +357,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
   );
 
   return {
-    drawListingMove, drawMove, moveResult, queueMoveOf, queueRemovalOf, createNote, createDrawing,
-    awaitingTitle, createUntitled, createFolder, move,
+    drawListingMove, drawMove, moveResult, queueMoveOf, queueRemovalOf, createFolder, move,
   };
 }
 

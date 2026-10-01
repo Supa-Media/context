@@ -234,3 +234,42 @@ export function undoFolderCreate(listings: Listings, path: string): MutableListi
   for (const key of subtreeOf(listings, path)) delete next[key];
   return next;
 }
+
+/**
+ * A new note, drawn before the `writeNote` that makes it real.
+ *
+ * Only into a folder that is already listed — the first restraint above — and
+ * with the folder's default, the same row the server will return. Drawn so
+ * the name is *taken* the moment it is chosen: `untitledName` reads this
+ * listing, and a second press that could not see the first note picked the
+ * same name and was refused (`__tests__/quickNoteCreate.test.ts`).
+ */
+export function applyNoteCreate(listings: Listings, path: string): MutableListings {
+  const next: MutableListings = { ...listings };
+  const parentKey = parentOf(path);
+  const parent = next[parentKey];
+  if (parent === undefined || parent.entries.some((one) => one.path === path)) return next;
+  const inherited: Visibility = parent.folderDefault;
+  const row: FileEntry = {
+    kind: "file",
+    path,
+    name: baseNameOf(path),
+    visibility: inherited,
+    inherited,
+    exception: false,
+    readOnly: false,
+  };
+  next[parentKey] = { ...parent, entries: [...parent.entries, row].sort(compareEntries) };
+  return next;
+}
+
+/** The inverse of `applyNoteCreate`, for a `writeNote` that was refused. */
+export function undoNoteCreate(listings: Listings, path: string): MutableListings {
+  const next: MutableListings = { ...listings };
+  const parentKey = parentOf(path);
+  const parent = next[parentKey];
+  if (parent !== undefined) {
+    next[parentKey] = { ...parent, entries: parent.entries.filter((one) => one.path !== path) };
+  }
+  return next;
+}

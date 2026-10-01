@@ -52,7 +52,7 @@ import { isLinkedTitle, proposeTitle, type TitleProposal } from "../linkedTitle"
 import { sharesBreakingWarning } from "../shares";
 import { isUntitled, titleFor } from "../untitled";
 import type { BrowserStateValues } from "./useBrowserState";
-import type { CreateAndMoveValues } from "./useCreateAndMove";
+import type { NoteCreateValues } from "./useNoteCreate";
 import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { RowCommandsValues } from "./useRowCommands";
@@ -62,7 +62,7 @@ type LinkedTitleDeps =
   & Pick<FileActionsValues, "readNote" | "workspaceId">
   & Pick<BrowserStateValues, "editor" | "renamed">
   & Pick<OfflineQueueValues, "listings">
-  & Pick<CreateAndMoveValues, "awaitingTitle">
+  & Pick<NoteCreateValues, "awaitingTitle">
   & Pick<RowCommandsValues, "rename">
   & Pick<SharesValues, "shares">;
 
