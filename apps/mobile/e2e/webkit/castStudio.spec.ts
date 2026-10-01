@@ -348,7 +348,11 @@ test("Export video saves the scene as a file, at the frame's size", async ({ pag
   const download = page.waitForEvent("download", { timeout: 90_000 });
   await page.getByTestId("studio-record-export").click();
   await expect(page.getByText("Ready to record")).toHaveCount(0);
+  // The countdown times the shared picture with a square in the corner, so
+  // the file's sound can wait for it; the square is gone before the take.
+  await expect(page.locator("[data-export-timing]")).toHaveCount(1);
   await expect(stage(page)).toContainText("this page is live", { timeout: 20_000 });
+  await expect(page.locator("[data-export-timing]")).toHaveCount(0);
 
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/-phone\.(mp4|webm)$/);

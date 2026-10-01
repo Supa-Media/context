@@ -5,6 +5,9 @@ import {
   cropFor,
   exportFileName,
   pickVideoType,
+  pictureLag,
+  MAX_PICTURE_LAG_MS,
+  RECORDER_LAG_MS,
 } from "../features/studio/export/videoExport";
 
 /*
@@ -95,5 +98,27 @@ describe("canExportVideo", () => {
     expect(canExportVideo({ ...chrome, CropTarget: undefined })).toBe(false);
     expect(canExportVideo({ ...chrome, MediaRecorder: Object.assign(function () {}, { isTypeSupported: () => false }) })).toBe(false);
     expect(canExportVideo(undefined)).toBe(false);
+  });
+});
+
+describe("pictureLag", () => {
+  // "the audio seems out of sync with the video export" (Dev2, 2026-10-01).
+  // A take with a flash and a beep at the same instant had the flash about
+  // 100ms after the beep: the shared tab's trip, timed before each take, plus
+  // the recorder's own share, which is the same every time.
+  test("the middle reading, so one slow frame does not move it, plus the recorder's share", () => {
+    expect(pictureLag([48, 52, 186, 50, 47])).toBe(50 + RECORDER_LAG_MS);
+    expect(pictureLag([40, 60, 50, 70])).toBe(55 + RECORDER_LAG_MS);
+  });
+
+  test("too few readings to trust leaves the recorder's share alone", () => {
+    expect(pictureLag([])).toBe(RECORDER_LAG_MS);
+    expect(pictureLag([120, 130])).toBe(RECORDER_LAG_MS);
+  });
+
+  test("never less than the recorder's share, never past the most a shared tab could trail", () => {
+    expect(pictureLag([-5, -10, -20])).toBe(RECORDER_LAG_MS);
+    expect(pictureLag([4000, 5000, 6000])).toBe(MAX_PICTURE_LAG_MS);
+    expect(pictureLag([Number.NaN, 60, 70, 80])).toBe(70 + RECORDER_LAG_MS);
   });
 });

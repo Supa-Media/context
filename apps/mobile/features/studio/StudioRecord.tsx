@@ -20,6 +20,7 @@ type Phase = "prep" | "asking" | "count" | "rolling" | "saving" | "done";
 /** The scene's sounds, for an export to put in the file (`useStudioSounds`). */
 export interface RecordSound {
   capture: () => MediaStream | null;
+  lag: (seconds: number) => void;
   release: () => void;
 }
 
@@ -136,6 +137,7 @@ export function StudioRecord({
       stage: () => document.querySelector('[data-testid="studio-stage"]'),
       size: EXPORT_SIZES[frame.id],
       sound: sound?.capture() ?? null,
+      lagSound: (seconds) => sound?.lag(seconds),
       onStopped: () => {
         take.current = null;
         sound?.release();

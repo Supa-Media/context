@@ -34,6 +34,7 @@ export interface StudioSounds {
   problem: string | null;
   /** The scene's sounds as a stream, for an export (`soundPlayer.ts`). */
   capture: () => MediaStream | null;
+  lag: (seconds: number) => void;
   release: () => void;
 }
 
@@ -172,6 +173,7 @@ export function useStudioSounds(
     uploading,
     saves: save !== undefined,
     capture: () => speaker().capture(),
+    lag: (seconds) => sound.current?.lag(seconds),
     release: () => sound.current?.release(),
     problem,
   };

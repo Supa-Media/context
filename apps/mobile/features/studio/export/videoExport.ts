@@ -87,6 +87,38 @@ export function cropFor(
   return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
 }
 
+/** The most a shared tab's picture is believed to trail the page; more is a bad reading. */
+export const MAX_PICTURE_LAG_MS = 500;
+
+/** Fewer readings than this, and only the recorder's share is corrected. */
+const FEWEST_READINGS = 3;
+
+/**
+ * What the picture loses after the page sees it and before the file keeps it:
+ * the canvas's own capture and the recorder's muxing. Measured from takes
+ * with a flash and a beep at the same instant (80–85ms past the reading, at
+ * two screen sizes), so it is added to every reading rather than timed.
+ */
+export const RECORDER_LAG_MS = 80;
+
+/**
+ * How far the picture trails the sound in the file, in milliseconds.
+ *
+ * The sound goes into the file straight from the studio's audio; the picture
+ * goes out through tab sharing and comes back to be drawn, about 100ms later
+ * in all, so a take sounded early (Dev2, 2026-10-01: "the audio seems out of
+ * sync with the video export"). Before the take starts the recorder times the
+ * tab's part of that trip a few times; this is the middle reading, so a single
+ * slow frame does not move it, plus the recorder's own share.
+ */
+export function pictureLag(readings: readonly number[]): number {
+  const good = readings.filter((one) => Number.isFinite(one)).sort((a, b) => a - b);
+  if (good.length < FEWEST_READINGS) return RECORDER_LAG_MS;
+  const half = Math.floor(good.length / 2);
+  const middle = good.length % 2 === 1 ? good[half] : (good[half - 1] + good[half]) / 2;
+  return Math.min(MAX_PICTURE_LAG_MS, Math.max(0, middle) + RECORDER_LAG_MS);
+}
+
 interface ExportGlobals {
   navigator?: { mediaDevices?: { getDisplayMedia?: unknown } };
   MediaRecorder?: { isTypeSupported?: (mimeType: string) => boolean } | undefined;
