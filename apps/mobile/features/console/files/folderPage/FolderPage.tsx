@@ -100,6 +100,7 @@ export function FolderPage({
   pageWidth = 0,
   onSelect,
   rule,
+  titleActions,
   files,
 }: {
   folder: string;
@@ -118,6 +119,8 @@ export function FolderPage({
   onSelect: (path: string) => void;
   /** The visibility sentence. Left out on a project's page, whose property line takes its place. */
   rule: ReactNode;
+  /** On a phone, the folder's own buttons, on the title's row as Home's are (board 07). */
+  titleActions?: ReactNode;
   /** The Notes view: the listing itself. */
   files: ReactNode;
 }) {
@@ -256,7 +259,7 @@ export function FolderPage({
   if (host === undefined) {
     return (
       <>
-        <FolderHead title={fallbackTitle} switcher={null} large={compact}>
+        <FolderHead title={fallbackTitle} switcher={null} large={compact} actions={titleActions}>
           {rule}
         </FolderHead>
         <View style={styles.contents}>{files}</View>
@@ -377,7 +380,12 @@ export function FolderPage({
         title={summary?.title ?? fallbackTitle}
         onOpenTitle={summary !== null && !summary.creates && summary.title !== null ? () => onSelect(summary.target) : undefined}
         switcher={tracks ? <ViewSwitch view={view} onChange={choose} compact={compact} /> : null}
-        actions={host !== undefined && isWebsiteFolder(folder) ? <PublishWebsite workspaceId={host.workspaceId} /> : null}
+        actions={
+          <>
+            {host !== undefined && isWebsiteFolder(folder) ? <PublishWebsite workspaceId={host.workspaceId} /> : null}
+            {titleActions}
+          </>
+        }
       >
         {summary !== null && (isProject || offersStatus) ? (
           <PropertyLine

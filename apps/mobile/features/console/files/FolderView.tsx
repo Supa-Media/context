@@ -192,6 +192,7 @@ export function FolderView({
   page,
   showAudience = true,
   phoneHead,
+  phoneButtons,
   phoneRows,
   askSelect = false,
   onAskTaken,
@@ -247,6 +248,8 @@ export function FolderView({
   showAudience?: boolean;
   /** On a phone, what goes under the title in place of that sentence (`home/PhoneFolderHead.tsx`). */
   phoneHead?: ReactNode;
+  /** On a phone, the folder's New folder and ••• (`PhoneFolderButtons`), on the title's row. */
+  phoneButtons?: ReactNode;
   /** What a phone row says beside its name; with it, Folders and Notes are drawn apart. */
   phoneRows?: PhoneRows;
   /** "Select notes" was chosen from this folder's ••• (board 16): enter select mode, then say so. */
@@ -388,6 +391,7 @@ export function FolderView({
           compact={compact}
           pageWidth={pageWidth}
           onSelect={onSelect}
+          titleActions={compact ? phoneButtons : undefined}
           rule={
             compact && phoneHead !== undefined ? phoneHead :
             /*

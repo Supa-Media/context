@@ -45,7 +45,9 @@ describe("the phone's note bar", () => {
   test("Move opens the move dialog for the note on screen", () => {
     const app = mountConsole(dataWith());
     app.press(app.find("note-quick-moveTo"));
-    expect(document.body.querySelector('[aria-label="Move plan.md"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="Move plan"]')).not.toBeNull();
+    // By its name, as its row shows it, and as board 12's sheet.
+    expect(document.body.querySelector('[data-testid="dialog-sheet"]')).not.toBeNull();
   });
 
   test("a folder keeps the search field, without a microphone", () => {

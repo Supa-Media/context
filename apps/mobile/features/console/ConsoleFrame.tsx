@@ -282,8 +282,13 @@ export function ConsoleFrame({
     sheet cannot disagree about whether there is anything behind it.
   */
   const [actionsOpen, setActionsOpen] = useState(false);
+  /*
+    A note's only. A folder page draws its own ••• under its title (board 07,
+    `PhoneFolderHead`), so a second one in the corner was two buttons for one
+    menu on the same screen (owner's retest, 2026-10-01).
+  */
   const actionsEntry =
-    phone && browsing && selectedEntry !== null &&
+    phone && browsing && selectedEntry !== null && selectedEntry.kind === "file" &&
     noteActionItems({
       entry: selectedEntry,
       canEdit: data.files.canEdit,

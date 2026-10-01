@@ -23,6 +23,13 @@ function openShare(app: {
   press: (node: HTMLElement | null) => void;
   find: (testID: string) => HTMLElement | null;
 }): void {
+  // A folder page's ••• is its own, under the title; a note's is the corner's.
+  const folder = app.find("phone-folder-actions");
+  if (folder !== null) {
+    app.press(folder);
+    app.press(document.body.querySelector<HTMLElement>('[data-testid="menu-item-share"]'));
+    return;
+  }
   app.press(app.find("note-actions"));
   app.press(sheet("note-action-share"));
 }
@@ -205,7 +212,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     app.press(sheet("note-action-move"));
     // The sheet closed and the existing dialog opened in its place.
     expect(sheet("note-action-move")).toBeNull();
-    expect(document.body.querySelector('[aria-label="Move plan.md"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="Move plan"]')).not.toBeNull();
   });
 
   test("and it is absent — not dimmed — for anybody the server would refuse", () => {
@@ -235,12 +242,15 @@ describe("the top row ends in one group, and it is the note's", () => {
    * tests below are the same claims re-asked where they now live: a named
    * segmented control inside the share sheet.
    */
-  test("a folder is acted on through the same one button", () => {
+  test("a folder is acted on through its own •••, and the corner has none", () => {
     const app = mountConsole(
       dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
     );
-    app.press(app.find("note-actions"));
-    expect(sheet("note-action-share")).not.toBeNull();
+    // One ••• per screen (owner's retest, 2026-10-01): a folder page's is the
+    // one under its title, so the corner's note button is not drawn.
+    expect(app.find("note-actions")).toBeNull();
+    app.press(app.find("phone-folder-actions"));
+    expect(document.body.querySelector('[data-testid="menu-item-share"]')).not.toBeNull();
     // The padlock is gone for a folder too — there is only ever one icon now.
     expect(app.find("note-visibility")).toBeNull();
   });

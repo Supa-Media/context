@@ -35,12 +35,15 @@ export function useFolderListing({
   settled,
   current,
   data,
+  onShare,
 }: {
   files: FileBrowser;
   contextLabel: string;
   settled: boolean;
   current: ReturnType<typeof selectedContext>;
   data: ConsoleData;
+  /** Opens the pane's own share sheet, with who has access, for the selected path. */
+  onShare?: (path: string) => void;
 }) {
   /* ------------------------------------------------------------------ */
   /*                   the folder listing's right-click                  */
@@ -164,8 +167,14 @@ export function useFolderListing({
           named people. So the item is absent rather than half-working, and
           sharing stays where it already is: open the note, use the frame's
           own share control.
+
+          The one exception is that control itself: a phone's folder page is
+          the selected folder, its ••• under the title is the only one on the
+          screen (board 15), and its Share opens the pane's full sheet through
+          `onShare` rather than the listing's bare dialog.
         */
-        canShare: false,
+        canShare:
+          onShare !== undefined && pageOnPhone && files.canShare && target.row.path === files.selectedPath,
         clipboard: files.clipboard,
         /*
           The `touch` arm's first real caller, and exactly what it was kept for.
@@ -191,7 +200,7 @@ export function useFolderListing({
         ...(pageOnPhone && (files.listings[target.row.path]?.entries.length ?? 0) > 0 ? { selectable: true } : {}),
       });
     },
-    [files, compact, togglePin, isPinned, saveTags, homeNotes],
+    [files, compact, togglePin, isPinned, saveTags, homeNotes, onShare],
   );
   const openFolderTarget = useCallback(
     (target: MenuTarget, title: string, anchor: { x: number; y: number }) => {
@@ -216,7 +225,8 @@ export function useFolderListing({
       files,
       contextLabel,
       select: files.select,
-      setDialog: setFolderDialog,
+      setDialog: (dialog) =>
+        dialog?.kind === "share" && onShare !== undefined ? onShare(dialog.path) : setFolderDialog(dialog),
       writeClipboard: (text) => void writeClipboard(text),
       /**
        * Put the tree on a folder: open every ancestor, then select it.
@@ -239,7 +249,7 @@ export function useFolderListing({
       ...(togglePin === null ? {} : { togglePin }),
       startSelect: setSelectAsked,
     }),
-    [files, contextLabel, togglePin],
+    [files, contextLabel, togglePin, onShare],
   );
 
   /**

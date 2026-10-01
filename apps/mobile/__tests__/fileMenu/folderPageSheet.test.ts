@@ -33,11 +33,12 @@ describe("a phone folder page's ••• sheet", () => {
       "rename",
       "moveTo",
       "pin",
+      "share",
       "download",
       "archive",
     ]);
     expect(labels(sheet)).toEqual(
-      expect.arrayContaining(["New note", "New folder inside", "Rename…", "Move to…", "Pin to Home", "Share", "Archive folder"]),
+      expect.arrayContaining(["New note", "New folder inside", "Rename…", "Move to…", "Pin to Home", "Share…", "Archive folder"]),
     );
     expect(ids(sheet)).not.toEqual(expect.arrayContaining(["open"]));
     for (const gone of ["open", "duplicate", "copy", "cut", "copyPath", "copyAtPath", "delete", "newDrawing"]) {
@@ -45,12 +46,27 @@ describe("a phone folder page's ••• sheet", () => {
     }
   });
 
-  test("who can see it sits between Pin and Archive, for someone who may set it", () => {
-    const sheet = ids(menu(page(), pins));
-    const at = sheet.indexOf("visibility");
-    expect(at).toBeGreaterThan(sheet.indexOf("pin"));
-    expect(at).toBeLessThan(sheet.indexOf("archive"));
-    expect(ids(menu(page(), { ...pins, canSetVisibility: false }))).not.toContain("visibility");
+  /*
+    Board 15: the owner's Share is the full sheet (people, general access,
+    link). Someone who may set who can see it but not share it keeps the
+    smaller who-can-see-it choice, under the same word.
+  */
+  test("Share sits between Pin and Archive: the full sheet for its owner, who can see it otherwise", () => {
+    const owner = menu(page(), pins);
+    const at = ids(owner).indexOf("share");
+    expect(at).toBeGreaterThan(ids(owner).indexOf("pin"));
+    expect(at).toBeLessThan(ids(owner).indexOf("archive"));
+    expect(ids(owner)).not.toContain("visibility");
+    expect(labels(owner)).toContain("Share…");
+
+    const setter = ids(menu(page(), { ...pins, canShare: false }));
+    const set = setter.indexOf("visibility");
+    expect(set).toBeGreaterThan(setter.indexOf("pin"));
+    expect(set).toBeLessThan(setter.indexOf("archive"));
+    expect(ids(menu(page(), { ...pins, canShare: false, canSetVisibility: false }))).not.toEqual(
+      expect.arrayContaining(["visibility"]),
+    );
+    expect(ids(menu(page(), { ...pins, canShare: false, canSetVisibility: false }))).not.toContain("share");
   });
 
   test("a folder already put away offers Restore instead", () => {

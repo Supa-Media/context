@@ -202,7 +202,7 @@ export function BrowsePane({
     saveTags,
     selectAsked,
     takeSelect,
-  } = useFolderListing({ files, contextLabel, settled, current, data });
+  } = useFolderListing({ files, contextLabel, settled, current, data, onShare: files.canShare ? setSharing : undefined });
   /*
     The two bands the floating chrome occupies, spent as content padding at
     both ends.

@@ -46,13 +46,25 @@
  * opinion on. What it holds is that the two agree.
  */
 
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, beforeAll, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import { Confirm, MovePicker, NamePrompt } from "../features/console/files/Dialogs";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/*
+  The pointer layout's Move. jsdom performs no layout and reports a width of 0,
+  which is a phone, and a phone's Move is board 12's sheet
+  (`noteChrome/phoneMove.test.ts`) — so the window is made wide before
+  anything mounts. react-native-web's `Dimensions` measures
+  `documentElement.clientWidth` and re-reads it on `resize`.
+*/
+beforeAll(() => {
+  Object.defineProperty(document.documentElement, "clientWidth", { value: 1280, configurable: true });
+  window.dispatchEvent(new Event("resize"));
+});
 
 const roots: (() => void)[] = [];
 afterEach(() => {
