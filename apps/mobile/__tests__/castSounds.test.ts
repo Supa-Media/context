@@ -213,6 +213,36 @@ describe("the sound player", () => {
     expect(started).toHaveLength(2);
   });
 
+  test("an export hears every sound the studio plays from then on", () => {
+    const { audio } = fakeAudio();
+    const tap = { stream: { id: "tap" } };
+    (audio as unknown as { prototype: Record<string, unknown> }).prototype.createMediaStreamDestination = () => tap;
+    const connected: unknown[] = [];
+    const base = (audio as unknown as { prototype: { createGain: () => { connect: (to: unknown) => void } } }).prototype.createGain;
+    (audio as unknown as { prototype: Record<string, unknown> }).prototype.createGain = function (this: unknown) {
+      const gain = base.call(this);
+      return { ...gain, connect: (to: unknown) => connected.push(to) };
+    };
+    const player = createSoundPlayer(audio, () => 0);
+    player.play("chime", 80);
+    expect(connected).not.toContain(tap);
+    const stream = player.capture();
+    expect(stream).toBe(tap.stream);
+    player.play("chime", 80);
+    expect(connected).toContain(tap);
+    // Released: the next sound goes to the speakers only.
+    player.release();
+    connected.length = 0;
+    player.play("chime", 80);
+    expect(connected).not.toContain(tap);
+  });
+
+  test("with no Web Audio, an export is silent rather than broken", () => {
+    const player = createSoundPlayer(undefined);
+    expect(player.capture()).toBeNull();
+    expect(() => player.release()).not.toThrow();
+  });
+
   test("with no Web Audio, nothing happens and nothing throws", () => {
     const player = createSoundPlayer(undefined);
     expect(() => player.play("chime", 80)).not.toThrow();

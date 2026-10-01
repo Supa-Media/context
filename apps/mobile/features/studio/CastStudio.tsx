@@ -222,6 +222,7 @@ export function CastStudio({
             frame={frame}
             src={src}
             sceneName={title}
+            sound={sounds}
             onLeave={() => {
               setRecording(false);
               player.hold();

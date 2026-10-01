@@ -19,6 +19,14 @@ export interface SoundPlayer {
    * from the stage, never during one.
    */
   wake: () => void;
+  /**
+   * Every sound from now on, also as a stream, for Export to put in the file.
+   * Straight from here rather than the tab's audio, so nothing else playing
+   * on the computer ends up in the take. `null` without Web Audio.
+   */
+  capture: () => MediaStream | null;
+  /** Stop sending sounds to the stream `capture` gave. */
+  release: () => void;
   close: () => void;
 }
 
@@ -39,6 +47,7 @@ export function createSoundPlayer(
   let context: AudioContext | null = null;
   let noiseBuffer: AudioBuffer | null = null;
   let lastKey = -Infinity;
+  let tap: MediaStreamAudioDestinationNode | null = null;
 
   const ready = (): AudioContext | null => {
     if (audio === undefined) return null;
@@ -100,6 +109,7 @@ export function createSoundPlayer(
     const level = ctx.createGain();
     level.gain.value = (Math.min(100, volume) / 100) * HEADROOM;
     level.connect(ctx.destination);
+    if (tap !== null) level.connect(tap);
     return { ctx, level };
   };
 
@@ -132,7 +142,17 @@ export function createSoundPlayer(
     wake() {
       ready();
     },
+    capture() {
+      const ctx = ready();
+      if (ctx === null || typeof ctx.createMediaStreamDestination !== "function") return null;
+      tap ??= ctx.createMediaStreamDestination();
+      return tap.stream;
+    },
+    release() {
+      tap = null;
+    },
     close() {
+      tap = null;
       void context?.close();
       context = null;
       noiseBuffer = null;

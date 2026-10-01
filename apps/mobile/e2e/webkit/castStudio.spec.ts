@@ -312,3 +312,68 @@ test("a page in a folder beside the scene shows in that folder, and the show com
   await expect(stage(page)).not.toContainText("Cancun Airbnb");
   await page.getByTestId("studio-stage").screenshot({ path: test.info().outputPath("folders-back.png") });
 });
+
+// "is there a way you can do an easy export so I dont have to screen record
+// all the time" (Dev2, 2026-10-01). The browser's share prompt is its own and
+// cannot be pressed from a test, so the shared tab is a stand-in stream; the
+// rest (the take, the crop, the file) is the real thing.
+test("Export video saves the scene as a file, at the frame's size", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "Export is offered where a browser can share this tab: Chrome and Edge.");
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1440;
+    canvas.height = 900;
+    const paint = canvas.getContext("2d")!;
+    let hue = 0;
+    setInterval(() => {
+      hue = (hue + 7) % 360;
+      paint.fillStyle = `hsl(${hue} 60% 50%)`;
+      paint.fillRect(0, 0, canvas.width, canvas.height);
+    }, 33);
+    const asked: unknown[] = [];
+    (window as unknown as { __asked: unknown[] }).__asked = asked;
+    navigator.mediaDevices.getDisplayMedia = async (options?: DisplayMediaStreamOptions) => {
+      asked.push(options);
+      return canvas.captureStream(30);
+    };
+  });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("studio-frame-phone").click();
+
+  await page.getByTestId("studio-record").click();
+  await expect(page.getByTestId("studio-record-export")).toBeEnabled({ timeout: 20_000 });
+  const download = page.waitForEvent("download", { timeout: 90_000 });
+  await page.getByTestId("studio-record-export").click();
+  await expect(page.getByText("Ready to record")).toHaveCount(0);
+  await expect(stage(page)).toContainText("this page is live", { timeout: 20_000 });
+
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/-phone\.(mp4|webm)$/);
+  const path = await file.path();
+  const { statSync } = await import("node:fs");
+  expect(statSync(path).size).toBeGreaterThan(10_000);
+  await expect(page.getByTestId("studio-record-done")).toContainText(file.suggestedFilename());
+  // This tab, offered first; never the whole screen.
+  const asked = await page.evaluate(() => (window as unknown as { __asked: { preferCurrentTab?: boolean; video?: { displaySurface?: string } }[] }).__asked);
+  expect(asked[0]?.preferCurrentTab).toBe(true);
+  expect(asked[0]?.video?.displaySurface).toBe("browser");
+});
+
+test("a refused share says so, and the take can be tried again", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "Export is offered where a browser can share this tab: Chrome and Edge.");
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      throw new DOMException("Permission denied", "NotAllowedError");
+    };
+  });
+  await page.goto(PAGE);
+  await expect(page.getByTestId("cast-studio")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("studio-record").click();
+  await expect(page.getByTestId("studio-record-export")).toBeEnabled({ timeout: 20_000 });
+  await page.getByTestId("studio-record-export").click();
+  await expect(page.getByTestId("studio-record-problem")).toContainText("choose this tab");
+  await expect(page.getByTestId("studio-record-export")).toBeEnabled();
+});
