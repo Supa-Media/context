@@ -62,7 +62,7 @@ export function browserCanShareSystemAudio(): boolean {
  * Firefox and Safari have `getDisplayMedia` and never share audio from it, so
  * on them the offer is a picker in front of every meeting that cannot produce
  * the thing it asks for. That was tolerable while the offer was off by default;
- * with it on (`machineAudio.ts`) it would be a prompt per meeting for nothing.
+ * now that it is always on it would be a prompt per meeting for nothing.
  *
  * `suppressLocalAudioPlayback` is a constraint that only means anything on a
  * captured display's **audio** track, and the browsers that share display
@@ -92,15 +92,30 @@ const DISPLAY_CONSTRAINTS = {
     alive, and never rendered or recorded: `MediaRecorder` is given the mixed
     **audio** destination, not this stream.
   */
-  video: { frameRate: 1, width: 1, height: 1 },
+  video: { frameRate: 1, width: 1, height: 1, displaySurface: "monitor" },
   /*
-    Hints, which a browser that does not know them ignores. `systemAudio`
-    lets Chrome offer the machine's audio for a whole screen too (Windows and
-    ChromeOS can), and `selfBrowserSurface` keeps this tab out of the list:
-    sharing the app's own tab is the easiest wrong answer, and it carries none
-    of the call.
+    Hints, which a browser that does not know them ignores, all pointing the
+    picker at one answer: the whole screen, with its sound.
+
+    It used to point at a tab — "pick the tab the call is in and leave its
+    audio on" — which people found confusing and fiddly, and which misses every
+    call held in an app rather than a tab (Dev2, 2026-10-01: "just share system
+    audio"). The machine's own sound carries every call wherever it plays.
+
+    `displaySurface: "monitor"` opens Chrome's picker on Entire screen,
+    `monitorTypeSurfaces` keeps that pane offered, and `systemAudio: "include"`
+    offers the "Also share system audio" toggle beside it — on Windows, ChromeOS
+    and Linux, and on a Mac from Chrome 141 with macOS 14.2. `preferCurrentTab`
+    false and `selfBrowserSurface: "exclude"` keep this app's own tab out of
+    it: sharing it is the easiest wrong answer, and it carries none of the call.
+
+    A browser can still hand back a screen with no sound (the toggle left off,
+    an older Mac); `shareSystemAudio` below turns that into the same "only your
+    side" warning as a cancelled picker, with a button to ask again.
   */
+  monitorTypeSurfaces: "include",
   systemAudio: "include",
+  preferCurrentTab: false,
   selfBrowserSurface: "exclude",
 } as const;
 

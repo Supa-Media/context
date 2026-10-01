@@ -138,6 +138,30 @@ describe("the whole call, where a browser can ask for it", () => {
     await recorder.stop();
   });
 
+  /**
+   * THE PICKER OPENS ON THE WHOLE SCREEN, WITH ITS SOUND.
+   *
+   * People were asked to find the tab their call was in and tick its audio,
+   * which nobody understood and which missed every call held in an app rather
+   * than a tab (Dev2, 2026-10-01: "just share system audio"). The machine's
+   * own sound carries every call wherever it is playing, so the picker is
+   * asked to open on Entire screen with system audio offered, and never on
+   * this app's own tab.
+   */
+  test("the picker is asked for the whole screen and its system audio", async () => {
+    installSharing();
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+    const options = webState.displayOptions as Record<string, unknown>;
+    expect(options.audio).toBeTruthy();
+    expect((options.video as Record<string, unknown>).displaySurface).toBe("monitor");
+    expect(options.systemAudio).toBe("include");
+    expect(options.monitorTypeSurfaces).toBe("include");
+    expect(options.selfBrowserSurface).toBe("exclude");
+    expect(options.preferCurrentTab).toBe(false);
+    await recorder.stop();
+  });
+
   test("nobody is asked to share anything unless they asked for it", async () => {
     installSharing();
     const { recorder } = harness({ systemAudio: false });

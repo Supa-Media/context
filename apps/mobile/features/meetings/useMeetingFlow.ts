@@ -1,7 +1,6 @@
 import {
   createElement,
   useCallback,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -9,12 +8,9 @@ import {
 } from "react";
 import { useRouter } from "expo-router";
 
-import { openStore } from "../offline/store";
-import type { KeyValueStore } from "../offline/memory";
 import { MeetingRefusal } from "./components/MeetingRefusal";
 import { MeetingsController, meetings } from "./controller";
 import { automaticDestination, type DestinationContext, type MeetingDestination } from "./destination";
-import { recallSystemAudio } from "./machineAudio";
 import { meetingHref } from "./route";
 import { UNTITLED_MEETING } from "./session";
 
@@ -94,8 +90,6 @@ export interface MeetingFlowInput {
    * Absent everywhere else, where `automaticDestination` is the rule.
    */
   destination?: MeetingDestination;
-  /** Injected by tests. Defaults to this device's store. */
-  store?: KeyValueStore;
   /** Injected by tests. Defaults to the app's one controller. */
   controller?: MeetingsController;
 }
@@ -127,8 +121,6 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [claim, setClaim] = useState(false);
 
-  const store = useMemo(() => input.store ?? openStore(), [input.store]);
-
   /*
     Subscribed rather than read once: the controller is configured by an effect
     in another layout, so a press during a cold start has to see it land.
@@ -139,7 +131,6 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     controller.getSnapshot,
   );
 
-  const canSystemAudio = snapshot.capture.systemAudio;
   const live = snapshot.live;
 
   /*
@@ -197,22 +188,13 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     void (async () => {
       try {
         /*
-          Read at the press rather than held in state: it is a device setting
-          changed in another pane, and a value captured on mount would record
-          the wrong thing for anybody who changed it without reloading. The
-          read is a local store hit, and `recallSystemAudio` swallows its own
-          failures — a device that cannot answer records without the tap, which
-          is the same default as never having chosen.
-
-          Sent only where the recorder offers it at all: absent means "whatever
-          this build can do without asking again", which is the honest answer
-          for a surface that never drew the switch.
+          No `systemAudio`: the controller takes the machine's own audio
+          wherever this build can, always (Dev2, 2026-10-01 — there is no
+          setting for it any more).
         */
-        const systemAudio = canSystemAudio ? await recallSystemAudio(store) : false;
         const id = await controller.start({
           title,
           destination: answer.destination,
-          ...(canSystemAudio ? { systemAudio } : {}),
         });
         show(id);
       } catch {
@@ -231,7 +213,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
         starting.current = false;
       }
     })();
-  }, [canSystemAudio, contexts, controller, destination, live, show, snapshot.status, store, title]);
+  }, [contexts, controller, destination, live, show, snapshot.status, title]);
 
   const dismiss = useCallback(() => {
     setRefusal(null);

@@ -58,8 +58,9 @@ import { createRoot } from "react-dom/client";
  *  6. `show` always pushes the route, ignoring `onStarted`.
  *     → `a surface that can show a meeting in place is not navigated away
  *     from` fails.
- *  7. `recallSystemAudio`'s stored answer ignored in favour of the default.
- *     → `the machine's own audio follows the setting, not a question` fails.
+ *  7. A stored answer from the old settings switch read again.
+ *     → `an "off" left over from the old switch still records both sides`
+ *     fails.
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -82,8 +83,6 @@ const { fakeRecorder } =
   require("../features/meetings/capture/fake") as typeof import("../features/meetings/capture/fake");
 const { INBOX_FOLDER } =
   require("../features/meetings/destination") as typeof import("../features/meetings/destination");
-const { rememberMachineAudio } =
-  require("../features/meetings/machineAudio") as typeof import("../features/meetings/machineAudio");
 const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -119,8 +118,14 @@ function mount(element: ReactElement): Mounted {
   };
 }
 
-/** The control, wherever it lives — the console's + menu, or the phone's key. */
-function Harness(props: Parameters<typeof useMeetingFlow>[0]): ReactElement {
+/**
+ * The control, wherever it lives — the console's + menu, or the phone's key.
+ *
+ * `store` is the one the controller was configured with; the flow itself no
+ * longer reads the device's store, so it is carried here only for the tests
+ * that write an old answer into it.
+ */
+function Harness(props: Parameters<typeof useMeetingFlow>[0] & { store?: Store }): ReactElement {
   const flow = useMeetingFlow(props);
   return createElement(
     "div",
@@ -387,13 +392,16 @@ describe("a press that cannot record says so", () => {
   });
 });
 
-describe("the machine's own audio is a setting now, not a question", () => {
+describe("the call's audio is always taken, with no setting and no question", () => {
   async function startWith(
     capability: Partial<Recorder["capability"]>,
     chosen: boolean | null = null,
   ): Promise<Recorder> {
     const { store, recorder } = await configure(capability);
-    if (chosen !== null) await rememberMachineAudio(store, chosen);
+    // The old settings switch's key, written the way it used to be.
+    if (chosen !== null) {
+      await store.set("context.lc.meetings\u001fv1\u001fmachine-audio", chosen ? "on" : "off");
+    }
     const mounted = mount(createElement(Harness, { contexts: [OWN], store }));
     await settle();
     press("new-meeting");
@@ -417,21 +425,22 @@ describe("the machine's own audio is a setting now, not a question", () => {
     expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
-  test("the machine's own audio follows the setting, not a question", async () => {
+  test("an \"off\" left over from the old switch still records both sides", async () => {
     /*
-      Somebody who only records in-person meetings turned it off once in the
-      settings pane, and that answer beats the default at every press.
+      There was a switch in the meetings pane, and people who turned it off
+      recorded one side of their calls. It is gone (Dev2, 2026-10-01), and the
+      answer it left on their device is not read.
     */
     const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, false);
-    expect(recorder.startedWith?.systemAudio).toBe(false);
+    expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
   test("a build that cannot take it sends no answer at all", async () => {
     const recorder = await startWith({ systemAudio: false, systemAudioNeedsPicker: false }, true);
     /*
-      Not the stored `true`. The controller's own fallback decides for a build
-      that cannot do this, and sending a setting it would have to ignore is the
-      app inventing an answer on somebody's behalf.
+      Not the stale stored `true`. The controller's own fallback decides for a
+      build that cannot do this, and sending an answer it would have to ignore
+      is the app inventing one on somebody's behalf.
     */
     expect(recorder.startedWith?.systemAudio).toBe(false);
   });

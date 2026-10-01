@@ -174,12 +174,10 @@ export interface StartInput {
   /**
    * Record the machine's own audio as well as the microphone.
    *
-   * The person's answer from the sheet, and only ever asked where a build can
-   * do it at all — inside the desktop shell on a signed build, or in a browser
-   * that can put a source picker in front of somebody. Absent means "whatever
-   * this build can do **without asking again**", which is what pressing Record
-   * from a surface that never offered the choice has to mean: the shell's
-   * silent tap is taken, the browser's picker is not.
+   * Absent means "whatever this build can take": the desktop shell's silent
+   * tap, or a browser's picker opened on the whole screen. Nothing in the app
+   * passes it any more — there is no setting to turn it off (Dev2,
+   * 2026-10-01) — and only tests say no.
    *
    * The recorder narrows it: a `true` here on a browser or a phone changes
    * nothing, because a recorder reports what it opened rather than echoing

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { findSession, recordElapsedMs } from "../../features/meetings/controller";
 import { fakeSegment } from "../../features/meetings/capture/fake";
 import { meetingKey, parseMeetingKey } from "../../features/meetings/keys";
-import { rememberMachineAudio } from "../../features/meetings/machineAudio";
 import { isSynced } from "../../features/meetings/record";
 import {
   DEVICE,
@@ -221,13 +220,18 @@ describe("what a caller who says nothing gets", () => {
     expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
-  test("somebody who turned it off in settings is not asked", async () => {
+  test("an \"off\" left over from the old settings switch is ignored", async () => {
+    /*
+      The switch is gone (Dev2, 2026-10-01: the call's audio is always taken),
+      but devices that turned it off still hold the answer under its old key.
+      Nothing reads that key any more, and this is the proof.
+    */
     const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
     const store = memoryStore();
-    await rememberMachineAudio(store, false);
+    await store.set("context.lc.meetings\u001fv1\u001fmachine-audio", "off");
     const { controller } = await harness({ recorder, store });
     await controller.start({ title: "Standup" });
-    expect(recorder.startedWith?.systemAudio).toBe(false);
+    expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
   test("a build that cannot take it is not sent a yes", async () => {

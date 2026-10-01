@@ -206,10 +206,8 @@ export const { memoryStore } =
   require("../../features/offline/memory") as typeof import("../../features/offline/memory");
 export const { fakeGateway } =
   require("../../features/meetings/fakeGateway") as typeof import("../../features/meetings/fakeGateway");
-export const { MIC_ONLY_SENTENCE } =
+export const { MIC_ONLY_SENTENCE, CALL_AUDIO_SENTENCE, CALL_AUDIO_PICKER_SENTENCE } =
   require("../../features/meetings/disclosure") as typeof import("../../features/meetings/disclosure");
-export const { defaultMachineAudio, recallMachineAudio, rememberMachineAudio, recallSystemAudio } =
-  require("../../features/meetings/machineAudio") as typeof import("../../features/meetings/machineAudio");
 export const { describeMachine, machineTitle } =
   require("../../features/meetings/thisMachine") as typeof import("../../features/meetings/thisMachine");
 export const { createDesktopGateway, meetingsWriterFor, DESKTOP_WRITE_SENTENCES } =
