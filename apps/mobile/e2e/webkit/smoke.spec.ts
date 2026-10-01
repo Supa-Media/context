@@ -9,7 +9,7 @@ import { openWeeklyReview } from "./helpers";
  */
 test("the built app boots, navigates its tree and renders a note", async ({ page }) => {
   await openWeeklyReview(page);
-  await expect(page.getByTestId("breadcrumb-leaf")).toHaveText("Weekly review");
+  await expect(page.getByLabel("Back to areas", { exact: false })).toBeVisible();
   await expect(page.getByTestId("note-scroll")).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText("Weekly review");
 });

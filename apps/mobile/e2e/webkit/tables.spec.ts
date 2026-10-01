@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { tap, tapFolderOnHome, tapRow } from "./helpers";
+import { goHome, tapFolderOnHome, tapRow, waitForNote } from "./helpers";
 
 /**
  * A TABLE THAT WAS ALREADY IN THE NOTE, ON THE CONSOLE'S OWN SCREEN.
@@ -35,11 +35,11 @@ const GRID = ".cm-lp-grid-live";
 async function openOrgChart(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/e2e-fixture");
   await page.getByTestId("note-scroll").waitFor();
-  await tap(page, "@seyi, the context you are in — open its root");
+  await goHome(page);
   await tapFolderOnHome(page, "areas");
   await tapRow(page, "public-worship");
   await tapRow(page, "org-chart");
-  await page.getByTestId("breadcrumb-leaf").waitFor();
+  await waitForNote(page, "Org chart");
 }
 
 test.describe("a table already in the note", () => {

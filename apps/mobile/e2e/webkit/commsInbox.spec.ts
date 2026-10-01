@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { tap, tapFolderOnHome, tapRow } from "./helpers";
+import { goHome, tap, tapFolderOnHome, tapRow } from "./helpers";
 
 /**
  * The board message's own card, never its thread heading — a thread with one
@@ -38,7 +38,7 @@ function boardMessage(page: Page) {
 async function openInbox(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/e2e-fixture");
   await page.getByTestId("note-scroll").waitFor();
-  await tap(page, "@seyi, the context you are in — open its root");
+  await goHome(page);
   await tapFolderOnHome(page, "inbox");
 }
 

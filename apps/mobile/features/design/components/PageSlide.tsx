@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { Animated, Easing, Platform, StyleSheet, useWindowDimensions } from "react-native";
+import { Animated, Easing, Platform, StyleSheet, View, useWindowDimensions, type ViewStyle } from "react-native";
 import { useSharedReducedMotion } from "./Reveal";
 
 /** Which way a page change moves: deeper pushes in from the right, up comes in from the left. */
@@ -72,19 +72,32 @@ export function PageSlide({
 
   const from = direction.current === "back" ? -width / 3 : width / 3;
   return (
-    <Animated.View
-      style={[
-        styles.page,
-        {
-          opacity: progress,
-          transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [from, 0] }) }],
-        },
-      ]}
-      testID={testID}
-    >
-      {children}
-    </Animated.View>
+    <View style={styles.clip}>
+      <Animated.View
+        style={[
+          styles.page,
+          {
+            opacity: progress,
+            transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [from, 0] }) }],
+          },
+        ]}
+        testID={testID}
+      >
+        {children}
+      </Animated.View>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 } });
+/*
+  The arriving page starts a third of a screen to one side, and on the web a
+  box that far out widens the document — measured at 436px on a 390px phone,
+  and still that wide after the slide had finished, so the page could be
+  dragged sideways (`htmlPreview.spec.ts`, "stays inside the note's own
+  column"). `clip` rather than `hidden` because a `hidden` box is still a
+  scroll container that focusing something inside can scroll; a `clip` one
+  is not.
+*/
+const CLIP: ViewStyle = Platform.OS === "web" ? ({ overflow: "clip" } as unknown as ViewStyle) : { overflow: "hidden" };
+
+const styles = StyleSheet.create({ clip: { flex: 1, ...CLIP }, page: { flex: 1 } });

@@ -4,8 +4,8 @@ import { AccountBlock } from "./AccountBlock";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { BrowsePane } from "./panes/BrowsePane";
 import { ConsoleNavProvider, type ConsoleNav } from "./ConsoleNavContext";
-import { ContextStrip, CurrentContextPill } from "./ContextStrip";
-import { NavBandProvider } from "./NavBand";
+import { PhoneBack } from "./home/PhoneBack";
+import { phoneBackTarget } from "./home/phoneBack";
 import type { CheckoutOutcome } from "@context/shared";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
 import {
@@ -23,25 +23,18 @@ import { VoiceHostProvider, type VoiceHost } from "../voice/VoiceHost";
 import type { VoicePage } from "../voice/VoiceButton";
 
 /**
- * The real phone console — `BrowsePane` under a `NavBandProvider` — on the
- * fixture data `apps/mobile/e2e/webkit` drives.
+ * The real phone console — `BrowsePane`, with the product's ‹ back button
+ * above it on a phone — on the fixture data `apps/mobile/e2e/webkit` drives.
  *
  * **Not `ConsoleShell`.** That component is `Landing.tsx`'s marketing
  * mockup — a fake window with its own rail, used only so the landing page can
- * show "the real console components running on demo data" beside a hero. It
- * never wraps its content in a `NavBandProvider`, so the breadcrumb's lit
- * context pill (`nav-context-${slug}`, case (e)'s target) does not exist
- * inside it at all — the strip and the pill are supplied by whoever mounts
- * `NavBand`'s children, and on the landing page nobody does.
+ * show "the real console components running on demo data" beside a hero.
  *
- * The real supplier is `app/(app)/console/_layout.tsx`, which this wiring is
- * copied from (the `NavBandProvider` block, `phone` forced true, `current`
- * and `contexts` built the same way) — minus the `expo-router` navigation
- * `onSelect`/`onOpen`/`onLeaveContext` call, since there is no signed-in
- * session or URL here for them to act on. `onOpenRoot` calls
- * `files.deselect()` directly instead of `router.replace(browseHref(...))`:
- * deselect is what that navigation *does* to this browser's state, and the
- * suite is verifying that state, not a URL.
+ * The real supplier is `app/(app)/console/_layout.tsx`. Its phone top-left is
+ * `consoleAccountSlot`: ‹ back on any page below Home (owner, 2026-10-01),
+ * which this draws from the same `phoneBackTarget` and `PhoneBack`. Going Home
+ * calls `files.deselect()` directly, which is what the product's navigation
+ * does to this browser's state.
  *
  * `AppFrame`'s bottom toolbar is not part of this: none of the WebKit cases
  * presses it, and pulling in `AppFrame`, `EditorRegion` and `useTabs` would
@@ -188,6 +181,9 @@ export function E2EFixtureScreen({
     `onSelect`/`onOpen` do nothing above. The sheet's meeting row is still
     pressable, which is what the case about the handoff asserts.
   */
+  // The phone's ‹ back, as `consoleAccountSlot` draws it in the product's top bar.
+  const back = phone ? phoneBackTarget(data.files.selectedPath) : null;
+
   const voiceHost: VoiceHost = {
     page: fixtureVoicePage(data.files, current),
     onRecordMeeting: () => {},
@@ -257,6 +253,22 @@ export function E2EFixtureScreen({
           */}
           {phone ? (
             <View style={styles.account}>
+              {/*
+                The product's top-left on a page below Home: ‹ back, naming the
+                page above (`consoleAccountSlot`). Going up clears an anchor the
+                way the product's navigation does.
+              */}
+              {back === null ? null : (
+                <PhoneBack
+                  target={back}
+                  onBack={() => {
+                    setAnchor(null);
+                    if (back.folder === null) data.files.deselect();
+                    else data.files.select(back.folder);
+                  }}
+                />
+              )}
+              <View style={styles.accountSpacer} />
               <AccountBlock
                 name={data.viewer.name}
                 detail={data.viewer.detail}
@@ -268,41 +280,6 @@ export function E2EFixtureScreen({
               />
             </View>
           ) : null}
-          <NavBandProvider
-            /*
-              Both rows are the phone's, exactly as in `console/_layout`, which
-              builds each of them behind the same `phone` condition. At a
-              pointer density `BrowsePane` draws no band at all and the rail is
-              the switcher; passing the nodes anyway would leave a second one
-              built and one `NavBand` away from being on the screen beside it.
-            */
-            nodes={{
-              current:
-                phone && current !== null ? (
-                  <CurrentContextPill
-                    context={current}
-                    onOpenRoot={() => {
-                      setAnchor(null);
-                      data.files.deselect();
-                    }}
-                    onSelect={() => {}}
-                  />
-                ) : null,
-              contexts: phone ? (
-                <ContextStrip
-                  contexts={data.contexts}
-                  currentSlug={current?.slug ?? null}
-                  recent={[]}
-                  loading={data.loading}
-                  onOpen={(slug) => {
-                    setAnchor(null);
-                    openContext(slug);
-                  }}
-                  onSelect={() => {}}
-                />
-              ) : null,
-            }}
-          >
             <VoiceHostProvider value={voiceHost}>
             <ConsoleNavProvider value={nav}>
             <BrowsePane
@@ -316,7 +293,6 @@ export function E2EFixtureScreen({
             />
             </ConsoleNavProvider>
             </VoiceHostProvider>
-          </NavBandProvider>
         </View>
         {phone ? null : (
           <View style={styles.accountFoot}>
@@ -365,7 +341,8 @@ export function E2EFixtureScreen({
 }
 
 const styles = StyleSheet.create({
-  account: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: space.x3 },
+  account: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.x3 },
+  accountSpacer: { flex: 1 },
   /** The pane above the account button, which is the whole of what `AppFrame` does here. */
   frame: { flex: 1, flexDirection: "column", minHeight: 0 },
   /**

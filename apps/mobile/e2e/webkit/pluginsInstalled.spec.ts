@@ -24,7 +24,7 @@ const ACCOUNT_SETTINGS = "account-settings";
 
 async function openPlugins(page: import("@playwright/test").Page) {
   await page.goto("/e2e-fixture");
-  await page.getByTestId("breadcrumb-leaf").waitFor();
+  await page.getByTestId("note-scroll").waitFor();
   await tap(page, ACCOUNT_MENU);
   await page.getByTestId(ACCOUNT_SETTINGS).tap();
   // The list is one press back from whatever section opened first.

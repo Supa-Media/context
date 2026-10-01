@@ -175,9 +175,11 @@ test.describe("on a phone", () => {
     await expect(card).toContainText("Welcome");
     const box = (await card.boundingBox())!;
     expect(box.y + box.height).toBeLessThanOrEqual(844);
-    // Over the note, never over the search bar at the foot of the phone.
-    const search = await page.getByText("Search", { exact: true }).first().boundingBox();
-    if (search !== null) expect(box.y + box.height).toBeLessThanOrEqual(search.y);
+    // Over the note, never over the bar at the foot of the phone — the note's
+    // own actions now, where it used to be the search field.
+    const bar = page.getByTestId("notes-bar").first();
+    const foot = (await bar.count()) > 0 ? await bar.boundingBox() : null;
+    if (foot !== null) expect(box.y + box.height).toBeLessThanOrEqual(foot.y);
     await expect(card).toContainText("it reads fine", { timeout: 15_000 });
   });
 
