@@ -98,6 +98,8 @@ export interface CastHost {
   chat?: (event: CastChatEvent) => void;
   /** A `shows:` cut: which app a phone shows from here. */
   shows?: (what: CastShown) => void;
+  /** `keyboard: on|off`: whether a phone's keyboard comes up for typing from here. */
+  keyboard?: (on: boolean) => void;
   /** An agent read or wrote a note, for the tree's marks and the agents line. */
   agentDid: (actor: CastActor, kind: "read" | "write", path: string) => void;
   /** Who is in this note now. */
@@ -105,9 +107,10 @@ export interface CastHost {
   /** A comment step acted on this thread: a comment, a reply or a resolve. */
   commented?: (thread: string) => void;
   /**
-   * What a comment step said, once it is all written: the thread's words and
-   * the latest entry in it. A phone's Context window shows it as a card,
-   * since there is no margin there to hold one.
+   * What a comment step said: the thread's words and the latest entry in it,
+   * while a person types it (`draft`) and once it is all written. A phone's
+   * Context window shows it as a card, since there is no margin there to hold
+   * one, and its keyboard while it is typed.
    */
   said?: (said: CastSaid) => void;
   /** Step `index` of the script is starting: the studio's script follows along. */
@@ -133,6 +136,8 @@ export interface CastSaid {
   /** Empty for a resolve. */
   text: string;
   resolved: boolean;
+  /** Still being typed: `text` is what is written so far. */
+  draft?: boolean;
 }
 
 export interface CastWorkspace {
@@ -354,6 +359,10 @@ export function playCast(
     // A cut: the phone shows what the script says from here.
     if (step.kind === "shows") {
       host.shows?.(step.what);
+      return then();
+    }
+    if (step.kind === "keyboard") {
+      host.keyboard?.(step.on);
       return then();
     }
 
@@ -603,9 +612,13 @@ export function playCast(
     select();
     let cursor = last.from + shift + within;
     const keys = [...body];
+    const typed = (k: number) =>
+      host.said?.({ who: step.actor.name, quote, text: keys.slice(0, k).join(""), resolved: false, draft: true });
+    typed(0);
     const key = (k: number) => {
       if (k >= keys.length) return done();
       write(cursor, keys[k]!);
+      typed(k + 1);
       host.cue?.("typing");
       cursor += keys[k]!.length;
       later(keyDelay(keys[k]!, k, pace.keyMs), () => key(k + 1));

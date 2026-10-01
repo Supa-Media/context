@@ -213,6 +213,86 @@ describe("the sound player", () => {
     expect(started).toHaveLength(2);
   });
 
+  /** A fake context that records what each gain and the export's delay connect to. */
+  function tappedAudio() {
+    const { audio } = fakeAudio();
+    const tap = { stream: { id: "tap" } };
+    const fake = audio as unknown as { prototype: Record<string, unknown> };
+    fake.prototype.createMediaStreamDestination = () => tap;
+    const connected: unknown[] = [];
+    const delays: { delayTime: { value: number }; to: unknown[]; max: number }[] = [];
+    fake.prototype.createDelay = (max: number) => {
+      const delay = { delayTime: { value: 0 }, to: [] as unknown[], max, connect: (to: unknown) => delay.to.push(to) };
+      delays.push(delay);
+      return delay;
+    };
+    const base = (audio as unknown as { prototype: { createGain: () => { connect: (to: unknown) => void } } }).prototype.createGain;
+    fake.prototype.createGain = function (this: unknown) {
+      const gain = base.call(this);
+      return { ...gain, connect: (to: unknown) => connected.push(to) };
+    };
+    return { audio, tap, connected, delays };
+  }
+
+  test("an export hears every sound the studio plays from then on", () => {
+    const { audio, tap, connected, delays } = tappedAudio();
+    const player = createSoundPlayer(audio, () => 0);
+    player.play("chime", 80);
+    expect(delays).toHaveLength(0);
+    const stream = player.capture();
+    expect(stream).toBe(tap.stream);
+    // The take's sound goes through one delay into the stream.
+    expect(delays).toHaveLength(1);
+    expect(delays[0].to).toEqual([tap]);
+    player.play("chime", 80);
+    expect(connected).toContain(delays[0]);
+    expect(connected).not.toContain(tap);
+    // Released: the next sound goes to the speakers only.
+    player.release();
+    connected.length = 0;
+    player.play("chime", 80);
+    expect(connected).not.toContain(delays[0]);
+  });
+
+  test("the file's sound waits for the picture, and the speakers never do", () => {
+    // "the audio seems out of sync with the video export" (Dev2, 2026-10-01):
+    // the picture reaches the file after a trip through tab sharing, the
+    // sound straight from here, so the file's sound is held back to match.
+    const { audio, connected, delays } = tappedAudio();
+    const player = createSoundPlayer(audio, () => 0);
+    player.capture();
+    player.lag(0.12);
+    expect(delays[0].delayTime.value).toBeCloseTo(0.12);
+    player.play("chime", 80);
+    // Heard live with no delay: the speakers are wired straight on.
+    expect(connected).toContain(delays[0]);
+    expect(connected.some((to) => to !== delays[0])).toBe(true);
+    // A nonsense reading never pushes the sound out of reach.
+    player.lag(-1);
+    expect(delays[0].delayTime.value).toBe(0);
+    player.lag(Number.NaN);
+    expect(delays[0].delayTime.value).toBe(0);
+    player.lag(9);
+    expect(delays[0].delayTime.value).toBeLessThanOrEqual(delays[0].max);
+  });
+
+  test("a lag set before capture, or after release, does nothing and throws nothing", () => {
+    const { audio, delays } = tappedAudio();
+    const player = createSoundPlayer(audio, () => 0);
+    expect(() => player.lag(0.1)).not.toThrow();
+    player.capture();
+    expect(delays[0].delayTime.value).toBe(0);
+    player.release();
+    expect(() => player.lag(0.1)).not.toThrow();
+  });
+
+  test("with no Web Audio, an export is silent rather than broken", () => {
+    const player = createSoundPlayer(undefined);
+    expect(player.capture()).toBeNull();
+    expect(() => player.lag(0.1)).not.toThrow();
+    expect(() => player.release()).not.toThrow();
+  });
+
   test("with no Web Audio, nothing happens and nothing throws", () => {
     const player = createSoundPlayer(undefined);
     expect(() => player.play("chime", 80)).not.toThrow();

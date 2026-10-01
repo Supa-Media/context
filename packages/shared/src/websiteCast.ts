@@ -77,7 +77,9 @@
  * chat (`split`, the default), or one at a time (`one app`), switching the way
  * an iPhone does: to the chat when somebody asks, to Context when a step
  * lands there. `shows: Context`, `shows: Claude` or `shows: both` is a cut the
- * script makes itself, at that point in the scene.
+ * script makes itself, at that point in the scene. `keyboard: off` (or `on`)
+ * says whether a phone's keyboard comes up while a person types a comment,
+ * from that line on; it does by default.
  *
  * **Comments are the exception, because a comment is about words.** "comments
  * on" quotes them and writes a real thread (`comments.cjs`) around the first
@@ -147,7 +149,12 @@ export type CastStep =
    * Which app a phone shows from here: Context, one assistant's chat, or both
    * (`shows: Context`). Nobody does it; it is the film's cut, not an action.
    */
-  | { kind: "shows"; what: CastShown };
+  | { kind: "shows"; what: CastShown }
+  /**
+   * Whether a phone's keyboard comes up while a person types a comment, from
+   * here on (`keyboard: off`); on by default. Nobody does it, like `shows:`.
+   */
+  | { kind: "keyboard"; on: boolean };
 
 /** What a `shows:` step puts on a phone's screen: `context`, `both`, or an assistant as the script names it. */
 export type CastShown = "context" | "both" | (string & {});
@@ -221,6 +228,7 @@ const PACE = /^pace\s*:?\s*(slow|lively|fast)$/i;
 const CHAT = /^chat\s*:\s*(.+)$/i;
 const PHONE = /^phone\s*:\s*(.+)$/i;
 const SHOWS = /^(?:shows?|show on the phone)\s*:\s*(.+)$/i;
+const KEYBOARD = /^(?:phone\s+)?keyboard\s*:\s*(.+)$/i;
 const AGENT_NAME = new RegExp(String.raw`^${NAME}$`);
 const ASK = new RegExp(String.raw`^${ACTOR}\s+asks\s+${ACTOR}\s*:\s*(.+)$`, "i");
 const ANSWER = new RegExp(String.raw`^${ACTOR}\s+(?:answers|says)\s*:\s*(.+)$`, "i");
@@ -290,6 +298,14 @@ function shown(written: string): CastShown | { problem: string } {
   return { problem: `Not something a phone can show: ${word.slice(0, 60)}. Try Context, both, or an assistant like Claude.` };
 }
 
+/** `on` or `off`, however it is said; a sentence saying what was not understood otherwise. */
+function keyboardOn(written: string): boolean | string {
+  const word = written.trim().toLowerCase();
+  if (["on", "yes", "show", "shown", "up"].includes(word)) return true;
+  if (["off", "no", "hide", "hidden", "down", "none"].includes(word)) return false;
+  return `Not a way to show a keyboard: ${word.slice(0, 60)}. Try on or off.`;
+}
+
 /** Parse the lines inside one block. `line` and `append` get their anchors from the caller. */
 function parseBlock(
   lines: readonly string[],
@@ -331,6 +347,10 @@ function parseBlock(
       const phone = phoneLayout(match[1]!);
       if (phone === "split" || phone === "one") scene.chat = { ...(scene.chat ?? { layout: "side", look: "warm" }), phone };
       else problems.push(phone);
+    } else if ((match = KEYBOARD.exec(text)) !== null) {
+      const on = keyboardOn(match[1]!);
+      if (typeof on === "boolean") steps.push({ kind: "keyboard", on });
+      else problems.push(on);
     } else if ((match = SHOWS.exec(text)) !== null) {
       const what = shown(match[1]!);
       if (typeof what === "string") steps.push({ kind: "shows", what });

@@ -6,6 +6,9 @@ export const TYPING_GAP_MS = 55;
 /** The loudest a sound plays at 100%, so a scene's sounds sit under its pictures. */
 const HEADROOM = 0.6;
 
+/** The most the captured sound can be held back, in seconds. */
+const MOST_LAG_S = 1;
+
 export interface SoundPlayer {
   /** Play a built-in sound at `volume` percent. `"off"` and unknown ids are silent. */
   play: (id: string, volume: number, options?: { typing?: boolean }) => void;
@@ -19,6 +22,20 @@ export interface SoundPlayer {
    * from the stage, never during one.
    */
   wake: () => void;
+  /**
+   * Every sound from now on, also as a stream, for Export to put in the file.
+   * Straight from here rather than the tab's audio, so nothing else playing
+   * on the computer ends up in the take. `null` without Web Audio.
+   */
+  capture: () => MediaStream | null;
+  /**
+   * Hold the captured sound back by `seconds`, so it meets the picture: a
+   * shared tab's picture reaches the file later than the sound does
+   * (`tabRecorder.web.ts` measures how much). The speakers are never held.
+   */
+  lag: (seconds: number) => void;
+  /** Stop sending sounds to the stream `capture` gave. */
+  release: () => void;
   close: () => void;
 }
 
@@ -39,6 +56,9 @@ export function createSoundPlayer(
   let context: AudioContext | null = null;
   let noiseBuffer: AudioBuffer | null = null;
   let lastKey = -Infinity;
+  let tap: MediaStreamAudioDestinationNode | null = null;
+  // Between every sound and the tap: holds the file's sound back to the picture.
+  let held: DelayNode | null = null;
 
   const ready = (): AudioContext | null => {
     if (audio === undefined) return null;
@@ -100,6 +120,7 @@ export function createSoundPlayer(
     const level = ctx.createGain();
     level.gain.value = (Math.min(100, volume) / 100) * HEADROOM;
     level.connect(ctx.destination);
+    if (held !== null) level.connect(held);
     return { ctx, level };
   };
 
@@ -132,7 +153,27 @@ export function createSoundPlayer(
     wake() {
       ready();
     },
+    capture() {
+      const ctx = ready();
+      if (ctx === null || typeof ctx.createMediaStreamDestination !== "function") return null;
+      if (tap === null) {
+        tap = ctx.createMediaStreamDestination();
+        held = ctx.createDelay(MOST_LAG_S);
+        held.connect(tap);
+      }
+      return tap.stream;
+    },
+    lag(seconds) {
+      if (held === null) return;
+      held.delayTime.value = Number.isFinite(seconds) ? Math.min(MOST_LAG_S, Math.max(0, seconds)) : 0;
+    },
+    release() {
+      tap = null;
+      held = null;
+    },
     close() {
+      tap = null;
+      held = null;
       void context?.close();
       context = null;
       noiseBuffer = null;

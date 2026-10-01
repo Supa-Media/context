@@ -79,6 +79,8 @@ export function describeStep(step: CastStep): string {
       return `adds a task to ${step.project} ${quoted(step.text)}`;
     case "wait":
       return `Wait ${Math.round(step.ms / 100) / 10}s`;
+    case "keyboard":
+      return step.on ? "A phone's keyboard comes up for typing" : "No phone keyboard";
     case "shows":
       return step.what === "both" ? "The phone shows both apps" : `The phone shows ${step.what === "context" ? "Context" : step.what}`;
   }
