@@ -19,7 +19,6 @@ import { onSpooledAudioChange, spooledAudioCounts, type MeetingRecorder } from "
 import { newMeetingId } from "../ids";
 import { NOT_DURABLE_REASON, loadMeetings } from "../local";
 import { emptyAck, type MeetingRecord } from "../record";
-import { recallSystemAudio } from "../machineAudio";
 import { mayResume } from "../resume";
 import { PROTOCOL_VERSION } from "../protocol";
 import { can, hasNothingCaptured, isLive, seedProjection, transcriptionFor } from "../session";
@@ -273,17 +272,13 @@ export class LifecycleMixin {
       await config.recorder.start({
         sessionId: id,
         /*
-          Absent means "what this device's setting says", which is on unless
-          somebody turned it off in the meetings pane (`machineAudio.ts`). It
-          used to mean "off wherever it costs a picker", which is how the
-          Meetings page's Record button and Resume recorded one side of every
-          call in a browser while New meeting recorded both: they never passed
-          an answer, and the fallback was the one-sided one. The setting is read
-          here so every way of starting a meeting gets the same answer.
+          Absent means "whatever this build can take", which is the machine's
+          own audio wherever the recorder offers it. There was a setting to
+          turn it off, and people who did recorded one side of their calls; it
+          is gone (Dev2, 2026-10-01). A caller may still say no, which only
+          tests do.
         */
-        systemAudio:
-          input.systemAudio ??
-          (config.recorder.capability.systemAudio && (await recallSystemAudio(config.store))),
+        systemAudio: input.systemAudio ?? config.recorder.capability.systemAudio,
       });
       // Show native recording chrome only after an audio recorder really opens.
       if (

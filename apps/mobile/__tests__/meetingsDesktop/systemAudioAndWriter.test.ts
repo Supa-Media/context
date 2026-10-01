@@ -12,20 +12,18 @@ jest.mock("react-native-safe-area-context", () => ({
 import {
   DESKTOP_MESSAGES,
   DESKTOP_WRITE_SENTENCES,
+  CALL_AUDIO_PICKER_SENTENCE,
+  CALL_AUDIO_SENTENCE,
   MIC_ONLY_SENTENCE,
   MeetingGatewayError,
   MeetingsController,
   createDesktopGateway,
-  defaultMachineAudio,
   desktopState,
   fakeGateway,
   fakeRecorder,
   installShell,
   meetingsWriterFor,
   memoryStore,
-  recallMachineAudio,
-  recallSystemAudio,
-  rememberMachineAudio,
   resetDesktop,
   resolveRecorder,
   teardownDesktop,
@@ -144,52 +142,30 @@ describe("system audio is offered only where it exists", () => {
   });
 });
 
-describe("the whole-call switch, now that there is no sheet to put it on", () => {
+describe("the whole call is always taken, and there is no switch for it", () => {
   /**
-   * THE SWITCH OUTLIVED THE SHEET, AND IT HAD TO.
-   *
-   * It used to be a row on the destination sheet, answered per meeting. The
-   * sheet is gone — pressing New meeting records — and on a phone or inside the
-   * desktop shell that costs nothing: the shell's loopback tap is silent and a
-   * phone cannot do this at all. **In a browser it would have been a capability
-   * deleted**, because taking the far side of a call there needs
-   * `getDisplayMedia`, which costs a source picker, and somebody who never
-   * wants the picker needs somewhere to say so.
-   *
-   * So the answer is a per-device setting (`machineAudio.ts`), read at the
-   * press, and these are its halves. What it does to a recording is
-   * `meetingsFlow.test.ts`'s; what the settings pane says about it is prose
-   * beside the switch.
+   * There was a switch in the meetings pane, kept so somebody who never wanted
+   * a browser's picker could turn it off. People turned it off and recorded one
+   * side of their calls, so it is gone (Dev2, 2026-10-01): every build that can
+   * take the machine's own audio takes it. Starting a meeting with it is
+   * `meetingsFlow.test.ts`'s and the controller's; this is what is left to say
+   * where a build cannot.
    */
-  test("nobody's answer means both sides of the call, picker or not", async () => {
-    // A picker in front of every meeting is the price; a transcript with one
-    // side of a call in it is the cost it avoids.
-    expect(defaultMachineAudio()).toBe(true);
-    await expect(recallSystemAudio(memoryStore())).resolves.toBe(true);
-  });
-
-  test("a device that has never been asked says so, rather than guessing", async () => {
-    await expect(recallMachineAudio(memoryStore())).resolves.toBeNull();
-  });
-
-  test("an answer survives the device it was given on", async () => {
-    const store = memoryStore();
-    await rememberMachineAudio(store, true);
-    await expect(recallMachineAudio(store)).resolves.toBe(true);
-    await rememberMachineAudio(store, false);
-    await expect(recallMachineAudio(store)).resolves.toBe(false);
-  });
-
-  test("a stored answer beats the default, in both directions", async () => {
-    const store = memoryStore();
-    await rememberMachineAudio(store, false);
-    await expect(recallSystemAudio(store)).resolves.toBe(false);
-    await rememberMachineAudio(store, true);
-    await expect(recallSystemAudio(store)).resolves.toBe(true);
-  });
-
-  test("and the sentence a mic-only build shows is still about the far side of a call", () => {
+  test("the sentence a mic-only build shows is still about the far side of a call", () => {
     expect(MIC_ONLY_SENTENCE).toMatch(/far side of a call/i);
+  });
+
+  test("the settings pane says it is always on, and never offers to turn it off", () => {
+    for (const sentence of [CALL_AUDIO_SENTENCE, CALL_AUDIO_PICKER_SENTENCE]) {
+      expect(sentence).toMatch(/both sides of a call/i);
+      expect(sentence).not.toMatch(/turn (this|it) off/i);
+    }
+  });
+
+  test("in a browser it names the picker's own choices, not a tab to find", () => {
+    expect(CALL_AUDIO_PICKER_SENTENCE).toMatch(/Entire screen/);
+    expect(CALL_AUDIO_PICKER_SENTENCE).toMatch(/system audio/i);
+    expect(CALL_AUDIO_PICKER_SENTENCE).not.toMatch(/\btab\b/i);
   });
 });
 

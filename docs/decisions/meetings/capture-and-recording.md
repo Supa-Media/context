@@ -118,15 +118,31 @@ costs a picker, every meeting, with a checkbox most people have never noticed on
 it. `systemAudioNeedsPicker` is the second field that keeps them apart, and it
 carries three consequences that are the whole of this decision:
 
-- **The offer is off by default in a browser and on in the shell.** A default of
-  on would put a screen-share picker in front of every meeting anybody records,
-  including the in-person ones. That is not a feature people turn off; it is a
-  feature people stop using.
-- **A caller who says nothing gets what the build can do *without asking
-  again*.** `controller.start`'s fallback used to be the capability itself,
-  which was right while the only mechanism was silent. Left that way, any code
-  path that starts a meeting without going through the sheet would open a picker
-  on behalf of somebody who was never asked.
+- **The offer is always on, in a browser as in the shell, and there is no
+  switch.** It was first off by default in a browser, to keep a picker away
+  from in-person meetings. People recorded calls on headphones and got one side,
+  so the owner made it the default (2026-09-26), with a settings switch to turn
+  it off. People turned that off and lost calls the same way, and the owner
+  removed it (2026-10-01): *"make sure this is default on, I don't know why
+  there is an option to turn it off"*. A picker in front of every meeting is
+  the accepted price. A stored "off" from the old switch is not read.
+- **A caller who says nothing gets everything the build can take.**
+  `controller.start`'s fallback is the capability itself, so every way of
+  starting a meeting (New meeting, the Meetings page's Record, Resume) records
+  both sides.
+- **The picker is pointed at the whole screen, with its sound.** It used to be
+  pointed at a tab: *"pick the tab the call is in and leave its audio on"*,
+  which the owner reported as confusing and fiddly, and which misses calls held
+  in an app. `displaySurface: "monitor"`, `monitorTypeSurfaces: "include"`,
+  `systemAudio: "include"`, `preferCurrentTab: false` and
+  `selfBrowserSurface: "exclude"` open Chrome's picker on Entire screen with
+  "Also share system audio" beside it, and every sentence names those two
+  choices. A browser cannot skip the picker or tick the toggle itself — that is
+  the platform's consent step, and no page can get past it. System audio from a
+  whole screen works in Chrome on Windows, ChromeOS and Linux, and on a Mac from
+  Chrome 141 with macOS 14.2; an older Mac hands back a silent screen, which is
+  the "only your side" warning with a button to ask again. The desktop app's
+  loopback tap asks nothing.
 - **The picker is opened before the microphone prompt, and that order is not a
   preference.** `getDisplayMedia` requires transient activation and
   `getUserMedia` does not, so a microphone prompt sitting on screen while
@@ -136,8 +152,8 @@ carries three consequences that are the whole of this decision:
 
 **Three ways the ask comes back empty, and they are the ordinary case rather
 than the edge one.** The picker is cancelled; the source chosen carries no audio
-(a whole screen on most platforms, anything at all on a browser that shares no
-audio); or nothing on the page can mix two inputs into one recording. All three
+(system audio left off, a Mac older than macOS 14.2, anything at all on a
+browser that shares no audio); or nothing on the page can mix two inputs into one recording. All three
 leave a microphone recording, all three say one sentence, and the share is
 handed straight back rather than held — a captured tab with its indicator lit,
 contributing nothing to the transcript, is the worst available outcome. Pressing
@@ -165,7 +181,8 @@ is let go rather than held`, `a share stopped mid-meeting is said out loud, and
 the rest is recorded`, `ending a meeting turns the sharing indicator off as well
 as the recording one`, `a refused microphone hands the share back rather than
 leaving it running`, `a browser says a picker is coming, and what to pick`, and
-`a picker is not opened on somebody's behalf`.
+`the picker is asked for the whole screen and its system audio`, and
+`an "off" left over from the old switch still records both sides`.
 
 **Not proven here:** that a real Chrome hands back a real tab's audio and that
 the mix is intelligible. The suite drives a fake browser; the last step needs a

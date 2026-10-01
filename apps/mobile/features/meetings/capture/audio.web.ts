@@ -34,17 +34,18 @@ import { CAPTURE_MESSAGES, WEB_MIME_CANDIDATES } from "./audioWeb/messages";
  * It is still the desktop app's job in the sense that matters: a browser tab
  * cannot tap the machine's output, and nothing here pretends otherwise. What a
  * browser can do is ask the **person** to hand it a source —
- * `getDisplayMedia({ audio: true })`, the tab or screen picker, with the "share
- * audio" option ticked — and mix that source's audio with the microphone into
+ * `getDisplayMedia`, opened on the whole screen with "share system audio"
+ * offered (`audioWeb/capabilities.ts`) — and mix that source's audio with the microphone into
  * one recording. That is a genuinely different consent story from the shell's
  * loopback tap and it is drawn as one: `systemAudioNeedsPicker` is what tells
- * the settings pane to say a picker is coming, the offer is **on** by default
- * (`machineAudio.ts` says why), and every way it can come back empty is reported in a sentence
+ * the settings pane to say a picker is coming, it is **always** asked for
+ * (a one-sided transcript of a call is worse than a prompt), and every way it can come back empty is reported in a sentence
  * rather than left to look like a recording of both sides.
  *
  * Three ways it comes back empty, all of them ordinary: the picker was
- * cancelled, the source chosen carries no audio (a whole screen on most
- * platforms, anything at all on a browser that cannot share audio), or nothing
+ * cancelled, the source chosen carries no audio (system audio left unticked,
+ * a Mac older than macOS 14.2, anything at all on a browser that cannot share
+ * audio), or nothing
  * here can mix two inputs into one recording. Each one leaves a microphone
  * recording and says `SYSTEM_AUDIO_UNSHARED`.
  *

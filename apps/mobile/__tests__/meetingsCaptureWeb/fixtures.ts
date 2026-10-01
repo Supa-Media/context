@@ -281,6 +281,8 @@ export const webState = {
   denyMicrophone: false,
   pickerAnswer: "audio" as PickerAnswer,
   displayTracks: [] as FakeTrack[],
+  /** What the picker was last asked for, so a test can read the hints. */
+  displayOptions: null as Record<string, unknown> | null,
   /** Which prompts were opened, in order. See "the picker goes first". */
   prompts: [] as string[],
   contexts: [] as FakeAudioContext[],
@@ -353,8 +355,9 @@ export function installGetUserMedia(withPicker = false, pickerSharesAudio = true
             getSupportedConstraints: () => ({
               suppressLocalAudioPlayback: pickerSharesAudio,
             }),
-            getDisplayMedia: async () => {
+            getDisplayMedia: async (options: Record<string, unknown>) => {
               webState.prompts.push("picker");
+              webState.displayOptions = options;
               if (webState.pickerAnswer === "cancelled") throw new Error("Permission denied");
               webState.displayTracks =
                 webState.pickerAnswer === "silent"
@@ -528,6 +531,7 @@ export function resetWebBrowser(): void {
   webState.blobConstructionFails = false;
   webState.pickerAnswer = "audio";
   webState.displayTracks = [];
+  webState.displayOptions = null;
   webState.prompts = [];
   webState.contexts = [];
   webState.analyserAmplitude = 0;

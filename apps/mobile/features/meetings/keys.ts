@@ -116,25 +116,6 @@ export function destinationKey(): string {
   return `${PREFIX}destination`;
 }
 
-/**
- * Whether this device takes the machine's own audio as well as the microphone.
- *
- * The switch used to live on the destination sheet and be answered per meeting.
- * With the sheet gone the question would have gone with it — and in a browser
- * that is a capability lost rather than a question saved, because taking the
- * far side of a call there costs a source picker that nobody wants in front of
- * an in-person meeting. So the answer moved to the meetings settings pane,
- * where it is decided once in a quiet moment, and `useMeetingFlow` reads it at
- * the press.
- *
- * No workspace segment, for `destinationKey`'s reason: it is a fact about the
- * machine somebody is recording on, not about a context. Absent means on,
- * picker or not, and that default lives in `machineAudio.ts` rather than here.
- */
-export function machineAudioKey(): string {
-  return `${PREFIX}machine-audio`;
-}
-
 export interface ParsedMeetingKey {
   workspaceId: string;
   meetingId: string;
