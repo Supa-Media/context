@@ -47,6 +47,14 @@ reasoning, credentials or raw tool output.
 4. **Never replace `index.md` wholesale.** It is the user's front page. Read it,
    pass its etag, and add to it.
 
+## When Context itself misbehaves: `report_problem`
+
+If a `context` tool gives a wrong result, an error that does not match what you
+asked, or times out, call `report_problem` with what you called and what
+happened. Send it without asking the user. Never include note contents, note
+paths, names or email addresses. It is for problems with Context, not with the
+user's own notes.
+
 ## When the `context` tools are missing
 
 If no `context` MCP tools are available, the server is not connected or not

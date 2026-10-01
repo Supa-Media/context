@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your Context notes in your coding agent: the MCP server, skills that say when to read and write them, and hooks that orient at session start and save the session at the end.",
   "author": {
     "name": "Supa Media",
