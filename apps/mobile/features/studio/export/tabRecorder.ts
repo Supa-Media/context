@@ -15,6 +15,8 @@ export interface CaptureRequest {
   stage: () => Element | null;
   size: ExportSize;
   sound: MediaStream | null;
+  /** Hold `sound` back by this many seconds, to meet the picture (`pictureLag`). */
+  lagSound?: (seconds: number) => void;
   /** The browser stopped sharing (its own Stop button) before the take was saved. */
   onStopped: () => void;
 }
