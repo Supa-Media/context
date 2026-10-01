@@ -118,10 +118,8 @@ costs a picker, every meeting, with a checkbox most people have never noticed on
 it. `systemAudioNeedsPicker` is the second field that keeps them apart, and it
 carries three consequences that are the whole of this decision:
 
-- **The offer is off by default in a browser and on in the shell.** A default of
-  on would put a screen-share picker in front of every meeting anybody records,
-  including the in-person ones. That is not a feature people turn off; it is a
-  feature people stop using.
+- ~~**The offer is off by default in a browser and on in the shell.**~~
+  Superseded by the owner; see the end of this section.
 - **A caller who says nothing gets what the build can do *without asking
   again*.** `controller.start`'s fallback used to be the capability itself,
   which was right while the only mechanism was silent. Left that way, any code
@@ -170,6 +168,24 @@ leaving it running`, `a browser says a picker is coming, and what to pick`, and
 **Not proven here:** that a real Chrome hands back a real tab's audio and that
 the mix is intelligible. The suite drives a fake browser; the last step needs a
 machine, a call and a pair of headphones.
+
+**Superseded twice on the default, by the owner.** On 2026-09-26 the offer went
+on by default in a browser too, picker and all, behind a per-device switch in
+the meetings pane. On 2026-10-01 the switch went: *"make sure this is default
+on, I dont know why there is an option to turn it off in settings"*. So the
+controller takes the machine's audio wherever the build can
+(`input.systemAudio ?? capability.systemAudio`), an answer the old switch left
+on a device is ignored, and the pane says what happens instead of offering a
+choice. The same message asked for *"just share system audio, no need to
+select a specific tab"*: the picker now opens on Entire screen
+(`displaySurface: "monitor"`, plus the `systemAudio` and `windowAudio` hints),
+and every sentence tells people to choose Entire screen with system audio on.
+**A browser still cannot take the machine's audio without its own picker** —
+that limit is the browser's, not ours — and where a screen's audio cannot be
+looped back (some macOS Chrome builds), the warning says to pick the call's tab
+instead. The desktop app's loopback tap asks nothing. The checks are `an answer
+the old switch left on the device is ignored` and `a browser is told to share
+the whole screen with system audio, not to hunt for a tab`.
 
 ### iOS recording survives screen lock through two deliberate controls
 

@@ -10,30 +10,28 @@ jest.mock("react-native-safe-area-context", () => ({
 }));
 
 import {
+  BOTH_SIDES_SENTENCE,
+  BROWSER_SHARE_SENTENCE,
   DESKTOP_MESSAGES,
   DESKTOP_WRITE_SENTENCES,
   MIC_ONLY_SENTENCE,
   MeetingGatewayError,
   MeetingsController,
   createDesktopGateway,
-  defaultMachineAudio,
   desktopState,
   fakeGateway,
   fakeRecorder,
   installShell,
   meetingsWriterFor,
   memoryStore,
-  recallMachineAudio,
-  recallSystemAudio,
-  rememberMachineAudio,
   resetDesktop,
   resolveRecorder,
   teardownDesktop,
 } from "./fixtures";
 
 /**
- * System audio offered only where it exists, the whole-call switch with no
- * sheet to put it on, the meeting's own id going to the shell, and the shell
+ * System audio offered only where it exists, what the settings pane says now
+ * that there is no switch, the meeting's own id going to the shell, and the shell
  * writing what it records. See `fixtures.ts` for the fake shell, fake browser
  * and the sabotage record that proves it.
  */
@@ -144,48 +142,21 @@ describe("system audio is offered only where it exists", () => {
   });
 });
 
-describe("the whole-call switch, now that there is no sheet to put it on", () => {
+describe("the machine's own audio, now that there is no switch for it", () => {
   /**
-   * THE SWITCH OUTLIVED THE SHEET, AND IT HAD TO.
-   *
-   * It used to be a row on the destination sheet, answered per meeting. The
-   * sheet is gone — pressing New meeting records — and on a phone or inside the
-   * desktop shell that costs nothing: the shell's loopback tap is silent and a
-   * phone cannot do this at all. **In a browser it would have been a capability
-   * deleted**, because taking the far side of a call there needs
-   * `getDisplayMedia`, which costs a source picker, and somebody who never
-   * wants the picker needs somewhere to say so.
-   *
-   * So the answer is a per-device setting (`machineAudio.ts`), read at the
-   * press, and these are its halves. What it does to a recording is
-   * `meetingsFlow.test.ts`'s; what the settings pane says about it is prose
-   * beside the switch.
+   * The switch was a per-device setting, on by default, and the owner removed
+   * it (2026-10-01). What it does to a recording is `meetingsFlow.test.ts`'s
+   * and the controller suite's; these are what the pane says instead.
    */
-  test("nobody's answer means both sides of the call, picker or not", async () => {
-    // A picker in front of every meeting is the price; a transcript with one
-    // side of a call in it is the cost it avoids.
-    expect(defaultMachineAudio()).toBe(true);
-    await expect(recallSystemAudio(memoryStore())).resolves.toBe(true);
+  test("the pane says both sides of a call are recorded", () => {
+    expect(BOTH_SIDES_SENTENCE).toMatch(/both sides of a call/i);
   });
 
-  test("a device that has never been asked says so, rather than guessing", async () => {
-    await expect(recallMachineAudio(memoryStore())).resolves.toBeNull();
-  });
-
-  test("an answer survives the device it was given on", async () => {
-    const store = memoryStore();
-    await rememberMachineAudio(store, true);
-    await expect(recallMachineAudio(store)).resolves.toBe(true);
-    await rememberMachineAudio(store, false);
-    await expect(recallMachineAudio(store)).resolves.toBe(false);
-  });
-
-  test("a stored answer beats the default, in both directions", async () => {
-    const store = memoryStore();
-    await rememberMachineAudio(store, false);
-    await expect(recallSystemAudio(store)).resolves.toBe(false);
-    await rememberMachineAudio(store, true);
-    await expect(recallSystemAudio(store)).resolves.toBe(true);
+  test("a browser is told to share the whole screen with system audio, not to hunt for a tab", () => {
+    // "just share system audio, no need to select a specific tab" — the owner.
+    expect(BROWSER_SHARE_SENTENCE).toMatch(/Entire screen/);
+    expect(BROWSER_SHARE_SENTENCE).toMatch(/system audio/i);
+    expect(BROWSER_SHARE_SENTENCE).not.toMatch(/\btab\b/i);
   });
 
   test("and the sentence a mic-only build shows is still about the far side of a call", () => {

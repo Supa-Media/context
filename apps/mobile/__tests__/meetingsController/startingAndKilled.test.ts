@@ -2,7 +2,6 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { findSession, recordElapsedMs } from "../../features/meetings/controller";
 import { fakeSegment } from "../../features/meetings/capture/fake";
 import { meetingKey, parseMeetingKey } from "../../features/meetings/keys";
-import { rememberMachineAudio } from "../../features/meetings/machineAudio";
 import { isSynced } from "../../features/meetings/record";
 import {
   DEVICE,
@@ -204,7 +203,8 @@ describe("starting a meeting", () => {
  * that passed nothing got no picker and recorded the microphone alone. That was
  * the Meetings page's Record button and Resume, both of which pass nothing, and
  * it recorded one side of people's calls while New meeting recorded both. The
- * fallback is now the device's own setting, on unless somebody turned it off.
+ * fallback is now the capability itself: there is no setting to turn it off
+ * (removed by the owner, 2026-10-01).
  */
 describe("what a caller who says nothing gets", () => {
   test("a silent tap is taken", async () => {
@@ -221,13 +221,13 @@ describe("what a caller who says nothing gets", () => {
     expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
-  test("somebody who turned it off in settings is not asked", async () => {
+  test("an \"off\" the retired settings switch left on the device is ignored", async () => {
     const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
     const store = memoryStore();
-    await rememberMachineAudio(store, false);
+    await store.set("context.lc.meetings\u001fv1\u001fmachine-audio", "off");
     const { controller } = await harness({ recorder, store });
     await controller.start({ title: "Standup" });
-    expect(recorder.startedWith?.systemAudio).toBe(false);
+    expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
   test("a build that cannot take it is not sent a yes", async () => {

@@ -138,6 +138,24 @@ describe("the whole call, where a browser can ask for it", () => {
     await recorder.stop();
   });
 
+  test("the picker opens on the whole screen with system audio, not on a list of tabs", async () => {
+    /*
+      The owner (2026-10-01): "just share system audio, no need to select a
+      specific tab or anything, that just confuses people".
+    */
+    installSharing();
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+    expect(webState.pickerAsked).toMatchObject({
+      audio: true,
+      video: { displaySurface: "monitor" },
+      systemAudio: "include",
+      windowAudio: "system",
+      selfBrowserSurface: "exclude",
+    });
+    await recorder.stop();
+  });
+
   test("nobody is asked to share anything unless they asked for it", async () => {
     installSharing();
     const { recorder } = harness({ systemAudio: false });

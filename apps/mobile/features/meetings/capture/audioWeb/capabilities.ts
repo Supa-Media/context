@@ -62,7 +62,7 @@ export function browserCanShareSystemAudio(): boolean {
  * Firefox and Safari have `getDisplayMedia` and never share audio from it, so
  * on them the offer is a picker in front of every meeting that cannot produce
  * the thing it asks for. That was tolerable while the offer was off by default;
- * with it on (`machineAudio.ts`) it would be a prompt per meeting for nothing.
+ * with it always on it would be a prompt per meeting for nothing.
  *
  * `suppressLocalAudioPlayback` is a constraint that only means anything on a
  * captured display's **audio** track, and the browsers that share display
@@ -92,15 +92,25 @@ const DISPLAY_CONSTRAINTS = {
     alive, and never rendered or recorded: `MediaRecorder` is given the mixed
     **audio** destination, not this stream.
   */
-  video: { frameRate: 1, width: 1, height: 1 },
+  /*
+    `displaySurface: "monitor"` opens the picker on Entire screen rather than
+    on a list of tabs. The owner asked for exactly that (2026-10-01): *"just
+    share system audio, no need to select a specific tab or anything, that
+    just confuses people"*. A whole screen with system audio carries every
+    call app at once, a tab carries one, and finding the right tab is where
+    people got lost. A browser that cannot loop a screen's audio back still
+    lists tabs one click away, and the warning says so.
+  */
+  video: { frameRate: 1, width: 1, height: 1, displaySurface: "monitor" },
   /*
     Hints, which a browser that does not know them ignores. `systemAudio`
-    lets Chrome offer the machine's audio for a whole screen too (Windows and
-    ChromeOS can), and `selfBrowserSurface` keeps this tab out of the list:
-    sharing the app's own tab is the easiest wrong answer, and it carries none
-    of the call.
+    lets Chrome offer the machine's audio for a whole screen, `windowAudio`
+    does the same when somebody picks a window, and `selfBrowserSurface` keeps
+    this tab out of the list: sharing the app's own tab is the easiest wrong
+    answer, and it carries none of the call.
   */
   systemAudio: "include",
+  windowAudio: "system",
   selfBrowserSurface: "exclude",
 } as const;
 

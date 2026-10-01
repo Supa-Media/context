@@ -458,9 +458,9 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         nothing to do with what anybody chose. Asked first, the picker rides the
         press that opened it.
 
-        Only when the person's setting asks for it. `options.systemAudio` is on
-        by default here too (`machineAudio.ts` says why): a picker in front of
-        every meeting is the price of not recording one side of a call.
+        Only when the caller asks for it, which the controller always does
+        (`controller/lifecycle.ts` says why): a picker in front of every
+        meeting is the price of not recording one side of a call.
       */
       const wanted = options?.systemAudio === true && canShareSystemAudio;
       displayStream = wanted ? await askForSystemAudio() : null;

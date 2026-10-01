@@ -58,8 +58,8 @@ import { createRoot } from "react-dom/client";
  *  6. `show` always pushes the route, ignoring `onStarted`.
  *     → `a surface that can show a meeting in place is not navigated away
  *     from` fails.
- *  7. `recallSystemAudio`'s stored answer ignored in favour of the default.
- *     → `the machine's own audio follows the setting, not a question` fails.
+ *  7. The controller's fallback consults a stored answer again.
+ *     → `an answer the old switch left on the device is ignored` fails.
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -82,14 +82,15 @@ const { fakeRecorder } =
   require("../features/meetings/capture/fake") as typeof import("../features/meetings/capture/fake");
 const { INBOX_FOLDER } =
   require("../features/meetings/destination") as typeof import("../features/meetings/destination");
-const { rememberMachineAudio } =
-  require("../features/meetings/machineAudio") as typeof import("../features/meetings/machineAudio");
 const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type Store = ReturnType<typeof memoryStore>;
 type Recorder = ReturnType<typeof fakeRecorder>;
+
+/** The key the retired switch wrote, spelled out because nothing reads it now. */
+const OLD_SWITCH_KEY = "context.lc.meetings\u001fv1\u001fmachine-audio";
 
 const OWN = { slug: "testagent1", kind: "personal", role: "owner" };
 const SHARED = { slug: "field-notes", kind: "shared", role: "editor" };
@@ -165,7 +166,7 @@ async function configure(
   return { store, recorder };
 }
 
-/** Let the flow's own store read and the controller's writes settle. */
+/** Let the controller's writes settle. */
 async function settle(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -187,10 +188,10 @@ beforeEach(() => {
 
 describe("pressing it records, and asks nothing", () => {
   test("one press opens the microphone, with no sheet in the way", async () => {
-    const { store, recorder } = await configure();
+    const { recorder } = await configure();
     const shown_: string[] = [];
     const mounted = mount(
-      createElement(Harness, { contexts: [OWN], store, onStarted: (id) => shown_.push(id) }),
+      createElement(Harness, { contexts: [OWN], onStarted: (id) => shown_.push(id) }),
     );
     await settle();
 
@@ -212,8 +213,8 @@ describe("pressing it records, and asks nothing", () => {
       dropped into a folder colleagues watch, before the person who recorded it
       has read a word of it, is the failure this whole module exists to prevent.
     */
-    const { store } = await configure();
-    const mounted = mount(createElement(Harness, { contexts: [SHARED, OWN], store }));
+    await configure();
+    const mounted = mount(createElement(Harness, { contexts: [SHARED, OWN] }));
     await settle();
 
     press("new-meeting");
@@ -228,8 +229,8 @@ describe("pressing it records, and asks nothing", () => {
   });
 
   test("two presses in the same moment record one meeting", async () => {
-    const { store } = await configure();
-    const mounted = mount(createElement(Harness, { contexts: [OWN], store }));
+    await configure();
+    const mounted = mount(createElement(Harness, { contexts: [OWN] }));
     await settle();
 
     press("new-meeting");
@@ -241,10 +242,10 @@ describe("pressing it records, and asks nothing", () => {
   });
 
   test("pressing it again while one is running shows that one rather than starting a second", async () => {
-    const { store } = await configure();
+    await configure();
     const shown_: string[] = [];
     const mounted = mount(
-      createElement(Harness, { contexts: [OWN], store, onStarted: (id) => shown_.push(id) }),
+      createElement(Harness, { contexts: [OWN], onStarted: (id) => shown_.push(id) }),
     );
     await settle();
 
@@ -264,9 +265,9 @@ describe("pressing it records, and asks nothing", () => {
 describe("where the meeting shows up is the caller's business", () => {
   test("a surface that can show a meeting in place is not navigated away from", async () => {
     // The console. The note stays open and the panel takes the meeting.
-    const { store } = await configure();
+    await configure();
     const mounted = mount(
-      createElement(Harness, { contexts: [OWN], store, onStarted: () => {} }),
+      createElement(Harness, { contexts: [OWN], onStarted: () => {} }),
     );
     await settle();
 
@@ -280,8 +281,8 @@ describe("where the meeting shows up is the caller's business", () => {
   test("a surface with nowhere to put one gets the meeting's own screen", async () => {
     // The phone: `regionsFor` gives compact no panel at all, so the route is
     // still where a running meeting is watched and stopped.
-    const { store } = await configure();
-    const mounted = mount(createElement(Harness, { contexts: [OWN], store }));
+    await configure();
+    const mounted = mount(createElement(Harness, { contexts: [OWN] }));
     await settle();
 
     press("new-meeting");
@@ -296,8 +297,7 @@ describe("where the meeting shows up is the caller's business", () => {
 describe("a press that cannot record says so", () => {
   test("a device with no context yet says so rather than throwing", async () => {
     meetings.reset();
-    const store = memoryStore();
-    const mounted = mount(createElement(Harness, { contexts: [OWN], store }));
+    const mounted = mount(createElement(Harness, { contexts: [OWN] }));
     await settle();
 
     press("new-meeting");
@@ -312,7 +312,7 @@ describe("a press that cannot record says so", () => {
   test("the refusal clears when the context lands underneath", async () => {
     meetings.reset();
     const store = memoryStore();
-    const mounted = mount(createElement(Harness, { contexts: [OWN], store }));
+    const mounted = mount(createElement(Harness, { contexts: [OWN] }));
     await settle();
 
     press("new-meeting");
@@ -346,14 +346,14 @@ describe("a press that cannot record says so", () => {
       End was rewritten to close: *"I don't know if it succeeded, if it failed.
       Just nothing at all."*
     */
-    const { store } = await configure();
+    await configure();
     const controller = {
       subscribe: meetings.subscribe,
       getSnapshot: meetings.getSnapshot,
       start: () => Promise.reject(new Error("no device")),
     } as unknown as Parameters<typeof useMeetingFlow>[0]["controller"];
 
-    const mounted = mount(createElement(Harness, { contexts: [OWN], store, controller }));
+    const mounted = mount(createElement(Harness, { contexts: [OWN], controller }));
     await settle();
 
     press("new-meeting");
@@ -364,12 +364,11 @@ describe("a press that cannot record says so", () => {
   });
 
   test("somebody who owns no workspace is offered their name, not a recording", async () => {
-    const { store } = await configure();
+    await configure();
     const claims: number[] = [];
     const mounted = mount(
       createElement(Harness, {
         contexts: [SHARED],
-        store,
         onClaimName: () => claims.push(1),
       }),
     );
@@ -387,14 +386,14 @@ describe("a press that cannot record says so", () => {
   });
 });
 
-describe("the machine's own audio is a setting now, not a question", () => {
+describe("the machine's own audio is always taken, and nobody is asked", () => {
   async function startWith(
     capability: Partial<Recorder["capability"]>,
-    chosen: boolean | null = null,
+    stale: "on" | "off" | null = null,
   ): Promise<Recorder> {
     const { store, recorder } = await configure(capability);
-    if (chosen !== null) await rememberMachineAudio(store, chosen);
-    const mounted = mount(createElement(Harness, { contexts: [OWN], store }));
+    if (stale !== null) await store.set(OLD_SWITCH_KEY, stale);
+    const mounted = mount(createElement(Harness, { contexts: [OWN] }));
     await settle();
     press("new-meeting");
     await settle();
@@ -408,31 +407,22 @@ describe("the machine's own audio is a setting now, not a question", () => {
   });
 
   test("the browser asks for the call's audio too, picker and all", async () => {
-    /*
-      It used to be off here, because the picker costs a prompt every meeting.
-      That recorded one side of people's calls on headphones; a prompt is the
-      cheaper of the two (`machineAudio.ts`).
-    */
     const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true });
     expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
-  test("the machine's own audio follows the setting, not a question", async () => {
+  test("an answer the old switch left on the device is ignored", async () => {
     /*
-      Somebody who only records in-person meetings turned it off once in the
-      settings pane, and that answer beats the default at every press.
+      The settings switch is gone (owner, 2026-10-01). Somebody who turned it
+      off before then still has "off" stored, and it must not keep recording
+      half their calls with no control left to change it.
     */
-    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, false);
-    expect(recorder.startedWith?.systemAudio).toBe(false);
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, "off");
+    expect(recorder.startedWith?.systemAudio).toBe(true);
   });
 
-  test("a build that cannot take it sends no answer at all", async () => {
-    const recorder = await startWith({ systemAudio: false, systemAudioNeedsPicker: false }, true);
-    /*
-      Not the stored `true`. The controller's own fallback decides for a build
-      that cannot do this, and sending a setting it would have to ignore is the
-      app inventing an answer on somebody's behalf.
-    */
+  test("a build that cannot take it is not sent a yes", async () => {
+    const recorder = await startWith({ systemAudio: false, systemAudioNeedsPicker: false }, "on");
     expect(recorder.startedWith?.systemAudio).toBe(false);
   });
 });

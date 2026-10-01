@@ -286,13 +286,11 @@ There is nothing in front of it now, so the rule is absolute: the destination is
 is `a meeting recorded in a shared workspace still lands in your own inbox`, and
 its pure half is `standing in a shared workspace does not put the meeting in it`.
 
-**The whole-call switch outlived the sheet on purpose.** It was a row on it, and
-in a browser it is the only way to take the far side of a call — `getDisplayMedia`
-costs a source picker, so it cannot be a default and would have been deleted
-along with the sheet. It is a per-device setting now
-(`features/meetings/machineAudio.ts`), set in the meetings pane and read at the
-press; the defaults are the sheet's own, on where a shell can tap silently, off
-where a picker would appear in front of every in-person meeting.
+**The whole-call switch outlived the sheet, and then went too.** It moved to the
+meetings pane as a per-device setting when the sheet went, and the owner removed
+it on 2026-10-01: the machine's own audio is taken wherever a build can take it,
+and the pane says so instead of offering a choice. See
+[capture-and-recording](./capture-and-recording.md#a-browser-records-the-whole-call-only-if-somebody-hands-it-the-call).
 
 **Two presses can still be refused, and both say so.** A device whose controller
 has not been pointed at a context yet, and somebody who owns no personal
