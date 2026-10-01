@@ -32,6 +32,7 @@ function quoted(words: string): string {
 /** A step as the grammar's own examples write it; a note's body follows on indented lines. */
 export function castStepLine(step: CastStep): string {
   if (step.kind === "wait") return `wait ${seconds(step.ms)}`;
+  if (step.kind === "keyboard") return `keyboard: ${step.on ? "on" : "off"}`;
   if (step.kind === "shows") return `shows: ${step.what === "context" ? "Context" : step.what}`;
   const who = step.actor.name;
   switch (step.kind) {

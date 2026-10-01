@@ -180,6 +180,44 @@ test.describe("on a phone", () => {
     if (search !== null) expect(box.y + box.height).toBeLessThanOrEqual(search.y);
     await expect(card).toContainText("it reads fine", { timeout: 15_000 });
   });
+
+  // "since its mobile we should probably have the keyboard come up and
+  // simulated", "make sure the cast script can dictate if they want the
+  // keyboard shown", and "see one other previous comment in a ghost state"
+  // (Dev2, 2026-10-01).
+  test("a person's comment is typed on a keyboard, with the comment before it faded behind", async ({ page }) => {
+    test.setTimeout(60_000);
+    await preview(page, [
+      '@maya comments on "Welcome": a little short?',
+      "wait 1s",
+      "@jon replies: it reads fine to me, honestly",
+      "wait 2s",
+      "keyboard: off",
+      "@maya replies: fair enough then",
+      "wait 2s",
+    ]);
+    const keyboard = page.getByTestId("cast-keyboard");
+    const onScreen = async () => {
+      if ((await keyboard.count()) === 0) return false;
+      const box = await keyboard.boundingBox();
+      return box !== null && box.y < 844 - 40;
+    };
+    // While @jon types: the keyboard is up, a key is pressed, @maya's comment is the ghost.
+    await expect(page.getByTestId("cast-comment-card")).toContainText("it reads", { timeout: 20_000 });
+    await expect.poll(onScreen).toBe(true);
+    await expect(page.getByTestId("cast-keyboard-pressed")).toHaveCount(1);
+    await expect(page.getByTestId("cast-comment-ghost")).toContainText("a little short?");
+    const card = (await page.getByTestId("cast-comment-card").boundingBox())!;
+    const board = (await keyboard.boundingBox())!;
+    expect(card.y + card.height).toBeLessThanOrEqual(board.y + 1);
+    // Sent: the keyboard goes back down.
+    await expect(page.getByTestId("cast-comment-card")).toContainText("honestly", { timeout: 15_000 });
+    await expect.poll(onScreen, { timeout: 5_000 }).toBe(false);
+    // `keyboard: off`: typed with no keyboard, @jon's reply now the ghost.
+    await expect(page.getByTestId("cast-comment-card")).toContainText("fair", { timeout: 15_000 });
+    await expect(page.getByTestId("cast-comment-ghost")).toContainText("honestly");
+    expect(await onScreen()).toBe(false);
+  });
 });
 
 test("a visitor can close the chat", async ({ page }) => {

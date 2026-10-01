@@ -44,7 +44,7 @@ import { useHomeSite } from "./useHomeSite";
 import { useLocalFileBrowser } from "./useLocalFileBrowser";
 import { useLocalFolderLists } from "./useLocalFolderLists";
 import { CastChat, CastWorkspaceBar } from "./cast/CastChat";
-import { CastCommentCard } from "./cast/CastCommentCard";
+import { CastPhoneComments } from "./cast/CastPhoneComments";
 import { followWorkspace, scenePage, useCastPeek } from "./cast/castCamera";
 import { PANE_SCALE, paneMotion, paneZoom, phoneBoxes, phoneView, usePhoneSwitch } from "./cast/PhoneDesk";
 import { useReducedMotion } from "../design/useReducedMotion";
@@ -417,8 +417,14 @@ export function HomeShell() {
             </FrameBare.Provider>
           </FrameFillsParent.Provider>
           </View>
-          {compact && castRoom.said !== undefined ? (
-            <CastCommentCard said={castRoom.said} badge={cast?.colors.get(castRoom.said.who)} overBar={!phone} />
+          {compact ? (
+            <CastPhoneComments
+              comments={castRoom.comments}
+              keyboard={castRoom.keyboard}
+              colors={cast?.colors}
+              overBar={!phone}
+              scale={phone ? PANE_SCALE.context : 1}
+            />
           ) : null}
           </View>
         </View>

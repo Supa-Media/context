@@ -7,7 +7,8 @@ import type { Presence } from "../../console/presence/usePresence";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { previewPagePath } from "../castPreview";
 import type { HomePage } from "../homeSite";
-import { castActorNamed, castMemberId, paceNamed, playCast, type CastSaid, type CastWorkspace } from "./castRun";
+import { castActorNamed, castMemberId, paceNamed, playCast, type CastWorkspace } from "./castRun";
+import { NO_COMMENTS, commentsAfter, type CastComments } from "./castComments";
 import { chatReducer, type ChatState } from "./castChat";
 import { phoneShowsAfter, phoneShowsCut } from "./castCamera";
 import { castPresence } from "./castSite";
@@ -59,7 +60,9 @@ export function useHomeCast(options: {
   presence: Presence | undefined;
   agents: AgentActivityView | undefined;
   chat: CastChatView | null;
-  said: CastSaid | undefined;
+  comments: CastComments;
+  /** Whether a phone's keyboard comes up while a comment is typed (`keyboard:`). */
+  keyboard: boolean;
   closeChat: () => void;
 } {
   const { enabled, scripts, colors, selectedPath } = options;
@@ -69,8 +72,9 @@ export function useHomeCast(options: {
   const [activity, setActivity] = useState<AgentActivityView>({ agents: [], marks: [] });
   // The chats of the show playing, or the last one: they stay to be read until another starts.
   const [chat, setChat] = useState<CastChatView | null>(null);
-  // The latest comment, chat or no chat: a phone draws it as a card.
-  const [said, setSaid] = useState<CastSaid | undefined>(undefined);
+  // The latest comments, chat or no chat: a phone draws them as cards.
+  const [comments, setComments] = useState<CastComments>(NO_COMMENTS);
+  const [keyboard, setKeyboard] = useState(true);
   const played = useRef(new Set<string>());
   // The show playing now, and what it was started from.
   const show = useRef<Show | null>(null);
@@ -113,7 +117,8 @@ export function useHomeCast(options: {
     setRoom({ path, shared, members: [] });
     const setup: CastChatSetup = latest.current.chatSetups?.get(path) ?? { layout: "side", look: "warm" };
     setChat(null);
-    setSaid(undefined);
+    setComments(NO_COMMENTS);
+    setKeyboard(true);
     const seen = played.current;
     seen.add(path);
     let begun = false;
@@ -173,7 +178,8 @@ export function useHomeCast(options: {
           })),
         agentDid: (actor, kind, at) => setActivity((current) => recordAgent(current, actor, kind, at, colors, Date.now())),
         room: (members) => inRoom((current) => ({ ...current, members })),
-        said: setSaid,
+        said: (said) => setComments((current) => commentsAfter(current, said)),
+        keyboard: setKeyboard,
         commented: (thread) => inRoom((current) => ({ ...current, focus: { thread, step: (current.focus?.step ?? 0) + 1 } })),
         clicked: (name) =>
           inRoom((current) => ({
@@ -185,7 +191,7 @@ export function useHomeCast(options: {
           // A chat filling the frame gives way to the workspace it was changing.
           if (setup.layout === "cut") setChat((current) => (current === null ? null : { ...current, hidden: true }));
           // A comment card belongs to the page it was on.
-          setSaid(undefined);
+          setComments(NO_COMMENTS);
           const target = pageNamed(name, latest.current.pages, latest.current.notes);
           if (target === null && open !== undefined) {
             // A folder's page: nothing to write into, and the show carries on beside it.
@@ -236,7 +242,7 @@ export function useHomeCast(options: {
     [room, selectedPath],
   );
   const closeChat = useCallback(() => setChat(null), []);
-  return { presence, agents: activity.agents.length === 0 ? undefined : activity, chat, said, closeChat };
+  return { presence, agents: activity.agents.length === 0 ? undefined : activity, chat, comments, keyboard, closeChat };
 }
 
 /** A scene's chats as the homepage draws them (`CastChat.tsx`). */

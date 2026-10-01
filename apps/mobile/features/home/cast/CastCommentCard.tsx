@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { useColors, useTheme } from "../../design/theme";
-import { layout, pointerType, radii, space } from "../../design/tokens";
+import { pointerType, radii, space } from "../../design/tokens";
 import type { CastSaid } from "./castRun";
 
 /**
@@ -14,27 +14,29 @@ import type { CastSaid } from "./castRun";
  * of the comment come up here, over the foot of the note, as the approved
  * artboard drew them: who said it, what about, and what they said.
  *
- * A scene with no chat in it plays in the phone's own frame, floating search
- * bar and all (Dev2, 2026-10-01: "im not seeing comments here"), so there the
- * card sits above that bar rather than over it.
+ * A `ghost` is the comment before, faded behind the latest (Dev2, 2026-10-01:
+ * "at least see one other previous comment in a ghost state"). Placed by
+ * `CastPhoneComments`; a draft shows the words typed so far and a caret.
  */
-export function CastCommentCard({ said, badge, overBar = false }: { said: CastSaid; badge?: string; overBar?: boolean }) {
+export function CastCommentCard({ said, badge, ghost = false }: { said: CastSaid; badge?: string; ghost?: boolean }) {
   const colors = useColors();
   const { shadows } = useTheme();
   return (
     <View
-      style={[styles.card, overBar ? styles.overBar : null, { backgroundColor: colors.pageSurface, boxShadow: shadows.window }]}
-      role="status"
-      testID="cast-comment-card"
+      style={[styles.card, ghost ? styles.ghost : null, { backgroundColor: colors.pageSurface, boxShadow: shadows.window }]}
+      role={ghost ? undefined : "status"}
+      testID={ghost ? "cast-comment-ghost" : "cast-comment-card"}
     >
-      <View style={[styles.badge, { backgroundColor: badge ?? colors.muted }]} />
-      <View style={styles.words}>
+      {/* A ghost fades its words, never its card: the note must not show through. */}
+      <View style={[styles.badge, ghost ? styles.faded : null, { backgroundColor: badge ?? colors.muted }]} />
+      <View style={[styles.words, ghost ? styles.faded : null]}>
         <Text style={[styles.head, { color: colors.text }]} numberOfLines={1}>
           {said.who}
           <Text style={[styles.about, { color: colors.muted }]}>{` on “${said.quote}”`}</Text>
         </Text>
         <Text style={[styles.text, { color: said.resolved ? colors.muted : colors.text }]} numberOfLines={3}>
           {said.resolved ? "Resolved" : said.text}
+          {said.draft === true ? <Text style={{ color: badge ?? colors.text }}>|</Text> : null}
         </Text>
       </View>
     </View>
@@ -43,17 +45,13 @@ export function CastCommentCard({ said, badge, overBar = false }: { said: CastSa
 
 const styles = StyleSheet.create({
   card: {
-    position: "absolute",
-    left: space.x3,
-    right: space.x3,
-    bottom: space.x3,
     flexDirection: "row",
     gap: space.x2,
     padding: space.x3,
     borderRadius: radii.console,
   },
-  // The bar's own room, as the frame reserves it (`layout.floatingInset`).
-  overBar: { bottom: layout.bottomBarHeight + layout.floatingInset + layout.floatingGap },
+  ghost: { transform: [{ scale: 0.96 }] },
+  faded: { opacity: 0.42 },
   badge: { width: 24, height: 24, borderRadius: 7 },
   words: { flex: 1, minWidth: 0, gap: 2 },
   head: { fontSize: pointerType.meta, fontWeight: "600" },
