@@ -133,6 +133,20 @@ export const siteType = {
   h1Desktop: 64,
 } as const;
 
+/**
+ * The iPhone keyboard a cast draws while somebody types a comment on a phone
+ * (`CastKeyboard`). Apple's sizes, not ours: the keyboard is the phone's, and
+ * the cast scales them with the window it is drawn in.
+ */
+export const castKeyboardType = {
+  /** A letter on its key. */
+  key: 20,
+  /** shift, delete, 123, space and send. */
+  fn: 14,
+  /** The letter that pops up over a pressed key. */
+  pop: 30,
+} as const;
+
 export type TypeScale = Readonly<Record<keyof typeof pointerType, number>>;
 
 export const touchType: TypeScale = {

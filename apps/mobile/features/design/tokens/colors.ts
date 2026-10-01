@@ -590,6 +590,16 @@ export const castChatLooks = {
 export type CastChatLookColors = (typeof castChatLooks)[keyof typeof castChatLooks];
 
 /**
+ * A phone's keyboard as a cast draws it while somebody types a comment
+ * (Dev2, 2026-10-01): the iPhone's own, light and dark, since it is the
+ * phone's and not ours.
+ */
+export const castKeyboardLooks = {
+  light: { ground: "#D2D5DB", key: "#FFFFFF", fn: "#ABB0BA", shadow: "#898A8D", ink: "#000000", send: "#0A84FF", sendInk: "#FFFFFF", bar: "#1C1A17" },
+  dark: { ground: "#2B2B2E", key: "#6B6B6E", fn: "#474749", shadow: "#1A1A1B", ink: "#FFFFFF", send: "#0A84FF", sendInk: "#FFFFFF", bar: "#F2F2F2" },
+} as const;
+
+/**
  * The ground behind the Supa mark, the face everybody has until they choose a
  * picture (Dev2, 2026-09-28: "for the background color, use anything").
  * Which one a person gets is a hash of their handle (`faces/defaultFace.ts`),

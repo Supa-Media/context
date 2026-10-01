@@ -111,6 +111,17 @@ in list view all in real time". The artboard was approved first.
   Instagram's safe zone (250 top, 420 bottom, 70 left, 55 right, 193 right
   below 1110 on 1080×1920); only the under-a-second switch may pass under the
   buttons. `castPhone.test.ts` checks the boxes against the zone.
+- **A phone's comments are cards, typed on a drawn keyboard, with the one
+  before as a ghost.** A phone has no margin and the cast never opens the
+  comment sheet itself, so the latest comment is a card at the foot of
+  Context's window, above the floating search bar (Dev2, 2026-10-01: "im not
+  seeing comments here"). While a person types it, an iPhone keyboard comes up
+  under the card and pops the key just typed, in step with the typing sound
+  ("we should probably have the keyboard come up and simulated");
+  `keyboard: off` in the script leaves it down from that line on. The comment
+  before stays behind it, its words faded, never its card ("see one other
+  previous comment in a ghost state"). An agent's comment lands whole, with
+  no keyboard. `castKeyboard.test.ts` and `castChat.spec.ts` cover it.
 
 Tests: `apps/mobile/__tests__/castChatGrammar.test.ts`, `castPhone.test.ts`, `castCamera.test.ts`, `castChat.test.ts`,
 `castWorkspace.test.ts`, and `e2e/webkit/castChat.spec.ts`.
