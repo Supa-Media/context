@@ -48,7 +48,7 @@ import { editorMenuItems, type EditorMenuId } from "../editorMenu";
 import { insertTable } from "../markdownFormat";
 import { TableSizePicker } from "../TableSizePicker.web";
 import { closeFindPanel } from "../findInNote";
-import { setCaretLabels, setRemoteCarets } from "../../presence/remoteCarets";
+import { setCaretLabels, setFollowCarets, setRemoteCarets } from "../../presence/remoteCarets";
 import { useWindowDimensions } from "react-native";
 import { densityFor } from "../../../app/frame";
 import type { SharedDoc } from "../../presence/sharedDoc";
@@ -414,6 +414,12 @@ export function LiveEditor({
     if (!current) return;
     current.dispatch({ effects: setRemoteCarets.of(presence?.members ?? []) });
   }, [presence?.members]);
+
+  // A cast keeps whoever is writing in view; a real room never moves the page.
+  const followWriter = presence?.demo === true;
+  useEffect(() => {
+    view.current?.dispatch({ effects: setFollowCarets.of(followWriter) });
+  }, [followWriter]);
 
   /*
     Compact name flags on a phone (owner, 2026-09-28: "why dont we show the

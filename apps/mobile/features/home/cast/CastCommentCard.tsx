@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { useColors, useTheme } from "../../design/theme";
-import { pointerType, radii, space } from "../../design/tokens";
+import { layout, pointerType, radii, space } from "../../design/tokens";
 import type { CastSaid } from "./castRun";
 
 /**
@@ -13,13 +13,17 @@ import type { CastSaid } from "./castRun";
  * recording, though, "we cant see comments" (Dev2, 2026-09-30), so the words
  * of the comment come up here, over the foot of the note, as the approved
  * artboard drew them: who said it, what about, and what they said.
+ *
+ * A scene with no chat in it plays in the phone's own frame, floating search
+ * bar and all (Dev2, 2026-10-01: "im not seeing comments here"), so there the
+ * card sits above that bar rather than over it.
  */
-export function CastCommentCard({ said, badge }: { said: CastSaid; badge?: string }) {
+export function CastCommentCard({ said, badge, overBar = false }: { said: CastSaid; badge?: string; overBar?: boolean }) {
   const colors = useColors();
   const { shadows } = useTheme();
   return (
     <View
-      style={[styles.card, { backgroundColor: colors.pageSurface, boxShadow: shadows.window }]}
+      style={[styles.card, overBar ? styles.overBar : null, { backgroundColor: colors.pageSurface, boxShadow: shadows.window }]}
       role="status"
       testID="cast-comment-card"
     >
@@ -48,6 +52,8 @@ const styles = StyleSheet.create({
     padding: space.x3,
     borderRadius: radii.console,
   },
+  // The bar's own room, as the frame reserves it (`layout.floatingInset`).
+  overBar: { bottom: layout.bottomBarHeight + layout.floatingInset + layout.floatingGap },
   badge: { width: 24, height: 24, borderRadius: 7 },
   words: { flex: 1, minWidth: 0, gap: 2 },
   head: { fontSize: pointerType.meta, fontWeight: "600" },
