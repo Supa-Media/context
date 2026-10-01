@@ -44,13 +44,16 @@ export interface FeedbackReportInput {
 export interface FeedbackReport {
   clientReportId: string;
   message: string;
-  source: FeedbackSource;
+  /** `agent` only ever comes from `parseAgentReport`: the app's intake refuses it. */
+  source: FeedbackSource | "agent";
   screen: string;
   activity?: string;
   errorEventId?: string;
   screenshot?: { data: Uint8Array; contentType: "image/jpeg" | "image/png" };
-  app: { platform: FeedbackPlatform; build?: string };
+  app: { platform: FeedbackPlatform | "agent"; build?: string };
   system?: { family: SystemFamily; version?: string };
+  /** For an agent's report: which AI app filed it, as its grant names it. */
+  agentClient?: string;
 }
 
 function refuse(field: string): never {

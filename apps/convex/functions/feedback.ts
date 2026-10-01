@@ -42,7 +42,7 @@ import { FEEDBACK_LIMITS } from "@context/shared";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, internalMutation, query } from "../_generated/server";
-import { buildFeedbackEnvelope, parseDsn, type SentryTarget } from "./lib/feedback/envelope";
+import { deliverFeedback, feedbackTarget } from "./lib/feedback/deliver";
 import { parseFeedbackReport } from "./lib/feedback/report";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -52,24 +52,6 @@ export const FEEDBACK_RECEIPT_RETENTION_MS = 30 * DAY_MS;
 
 /** A send older than this that never finished is taken to have died. */
 export const STALE_SENDING_MS = 2 * 60 * 1000;
-
-/** How long a post to Sentry may take before the report is kept for later. */
-const SEND_TIMEOUT_MS = 15_000;
-
-/**
- * Where reports go, or null when this deployment takes none: no DSN (a
- * self-hosted deployment, or one nobody configured), or the brake
- * `FEEDBACK_INTAKE=disabled`.
- */
-function target(): SentryTarget | null {
-  if (process.env.FEEDBACK_INTAKE?.trim().toLowerCase() === "disabled") return null;
-  return parseDsn(process.env.FEEDBACK_SENTRY_DSN);
-}
-
-function environment(): string {
-  const name = process.env.APP_ENV?.trim().toLowerCase();
-  return name === "staging" || name === "development" || name === "preview" ? name : "production";
-}
 
 function newEventId(): string {
   const bytes = new Uint8Array(16);
@@ -83,7 +65,7 @@ export const feedbackAvailable = query({
   returns: v.boolean(),
   handler: async (ctx) => {
     if ((await getAuthUserId(ctx)) === null) return false;
-    return target() !== null;
+    return feedbackTarget() !== null;
   },
 });
 
@@ -106,71 +88,15 @@ export const submitFeedback = action({
     if (userId === null) {
       throw new ConvexError({ code: "FEEDBACK_UNAUTHENTICATED", message: "Sign in to send a report." });
     }
-    const sentry = target();
+    const sentry = feedbackTarget();
     if (sentry === null) {
       throw new ConvexError({ code: "FEEDBACK_NOT_CONFIGURED", message: "This deployment takes no reports." });
     }
     const report = parseFeedbackReport(args);
 
-    const now = Date.now();
-    const reservation: Reservation = await ctx.runMutation(internal.functions.feedback.reserveFeedback, {
-      userId,
-      clientReportId: report.clientReportId,
-      now,
-    });
-    if (reservation.kind === "sent") return { eventId: reservation.eventId };
-    if (reservation.kind === "busy") {
-      throw new ConvexError({ code: "FEEDBACK_BUSY", message: "This report is already being sent." });
-    }
-    if (reservation.kind === "limited") {
-      throw new ConvexError({
-        code: "FEEDBACK_RATE_LIMITED",
-        message: "That's the day's reports. It will go tomorrow.",
-        retryAfterMs: reservation.retryAfterMs,
-      });
-    }
-
-    const body = buildFeedbackEnvelope({
-      dsn: sentry.dsn,
-      eventId: reservation.eventId,
-      userId,
-      environment: environment(),
-      now,
-      report,
-    });
-    let delivered = false;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
-    try {
-      const response = await fetch(sentry.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-sentry-envelope" },
-        body,
-        signal: controller.signal,
-      });
-      delivered = response.ok;
-    } catch {
-      // Network failure or timeout: the report was not taken. Its content is
-      // not logged, here or anywhere.
-      delivered = false;
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (!delivered) {
-      await ctx.runMutation(internal.functions.feedback.releaseFeedback, { receiptId: reservation.receiptId });
-      throw new ConvexError({ code: "FEEDBACK_UNAVAILABLE", message: "The report could not be sent just now." });
-    }
-    await ctx.runMutation(internal.functions.feedback.markFeedbackSent, { receiptId: reservation.receiptId });
-    return { eventId: reservation.eventId };
+    return await deliverFeedback(ctx, { sentry, userId, report });
   },
 });
-
-type Reservation =
-  | { kind: "sent"; eventId: string }
-  | { kind: "busy" }
-  | { kind: "limited"; retryAfterMs: number }
-  | { kind: "reserved"; eventId: string; receiptId: Id<"feedbackReceipts"> };
 
 /** Step 2 of the module comment: decide, atomically, what this send is. */
 export const reserveFeedback = internalMutation({

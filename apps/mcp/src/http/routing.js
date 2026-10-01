@@ -31,6 +31,15 @@ export function attachLinkCalls(store, session, controlPlane) {
     writable: false,
     configurable: true,
   });
+  // `report_problem`: filed as this connection's person, resolved from its own
+  // token by the control plane. Not tied to a workspace, so the same call on
+  // every store a request touches.
+  Object.defineProperty(store, "reportProblem", {
+    value: (message) => controlPlane.reportProblem(session.accessToken, message),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
 }
 
 export function attachGatewayJobQueue(store, session, controlPlane, env) {

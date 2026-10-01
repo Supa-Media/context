@@ -1,6 +1,6 @@
 {
   "name": "@supa-media/context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Install Context into your AI tools: the MCP server, the skills, and the session hooks that save what a session learned",
   "license": "MIT",
   "type": "module",

@@ -14,6 +14,7 @@ import {
   toolVoteForm,
 } from "./forms/tools.js";
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
+import { toolReportProblem } from "./reportProblem.js";
 import { toolError } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolExportEncryptionKeys, toolSetEncryption } from "./encryption/setEncryption.js";
@@ -164,6 +165,8 @@ export async function callTool(name, args, store, scope) {
       return toolMigrateStorageLayout(store, scope, args);
     case "create_link":
       return toolCreateLink(store, scope, args);
+    case "report_problem":
+      return toolReportProblem(store, args);
     case "list_links":
       return toolListLinks(store, scope);
     case "revoke_link":

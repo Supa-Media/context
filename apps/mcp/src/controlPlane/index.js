@@ -4,6 +4,7 @@ import { createGrantMethods } from "./grants.js";
 import { createReportingMethods } from "./reporting.js";
 import { createJobMethods } from "./jobs.js";
 import { createLinkMethods } from "./links.js";
+import { createFeedbackMethods } from "./feedback.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -24,5 +25,6 @@ export function createControlPlane(env, options = {}) {
     ...createReportingMethods({ post, required }),
     ...createJobMethods({ post, required }),
     ...createLinkMethods({ post, required }),
+    ...createFeedbackMethods({ post }),
   };
 }

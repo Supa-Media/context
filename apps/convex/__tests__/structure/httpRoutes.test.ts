@@ -195,9 +195,8 @@ describe("the gateway's HTTP routes", () => {
    * which is exactly what happened before the ingest three existed — so pinning
    * the paths here is what keeps "the contract" and "the routes" the same list.
    *
-   * `/gateway/usage` had been served and called for some time without being
-   * pinned here, which is the failure this list exists to prevent, one route
-   * later. It is listed now, along with the search-index progress route.
+   * `/gateway/usage` was served and called unpinned for a while, the failure
+   * this list exists to prevent; it is listed now, as is every later route.
    */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
@@ -208,6 +207,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/jobs/open": "gatewayJobsOpen",
     "/gateway/jobs/report": "gatewayJobsReport",
     "/gateway/usage": "gatewayUsage",
+    "/gateway/feedback": "gatewayFeedback",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",
     "/gateway/authorize/start": "gatewayAuthorizeStart",
