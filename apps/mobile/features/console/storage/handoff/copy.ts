@@ -27,6 +27,9 @@ export const OWN_MOVE = {
   move: "Move to another bucket",
 };
 
+/** The destination form's heading and button, for either move into a bucket the owner holds. */
+export const MOVE_FORM_WORDS = { submit: "Start the move", submitting: "Starting…" };
+
 /** The line above the destination form for that move. */
 export const OWN_MOVE_FORM_LEDE =
   "Choose the bucket to move to. Context uses the whole bucket, not a folder inside it; if it already " +

@@ -32,7 +32,7 @@ import { ConnectForm } from "../storage/ConnectForm";
 import { StorageCard } from "../settings/panels/StorageCard";
 import { storageCompany } from "../settings/panels/StorageHealth";
 import { StorageMigrationCard } from "../storage/StorageMigration";
-import { HANDOFF_FORM_LEDE, OWN_MOVE_FORM_LEDE } from "../storage/handoff/copy";
+import { HANDOFF_FORM_LEDE, MOVE_FORM_WORDS, OWN_MOVE, OWN_MOVE_FORM_LEDE, TAKE_IT_WITH_YOU } from "../storage/handoff/copy";
 import { HandoffCard } from "../storage/handoff/HandoffCard";
 import type { SetupAgent } from "../../agentSetup/guides";
 
@@ -207,6 +207,7 @@ export function SettingsPane({
       ) : moving && actions && storage.managed !== true ? (
         <ConnectForm
           lede={OWN_MOVE_FORM_LEDE}
+          words={{ title: OWN_MOVE.title, ...MOVE_FORM_WORDS }}
           connect={async (values) => {
             await actions.move(values);
             setMoving(false);
@@ -225,6 +226,7 @@ export function SettingsPane({
         storage.managed === true ? (
           <ConnectForm
             lede={HANDOFF_FORM_LEDE}
+            words={{ title: TAKE_IT_WITH_YOU.move, ...MOVE_FORM_WORDS }}
             connect={async (values) => {
               await actions.handoff(values);
               setRebinding(false);

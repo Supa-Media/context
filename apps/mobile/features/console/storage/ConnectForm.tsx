@@ -51,12 +51,15 @@ import {
 export function ConnectForm({
   connect,
   lede,
+  words,
   /** Prefilled when re-binding an existing binding rather than starting fresh. */
   initial,
   onCancel,
 }: {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   lede?: string;
+  /** The heading and button when this form starts a move rather than a connection. */
+  words?: { title: string; submit: string; submitting: string };
   initial?: Partial<ConnectFormValues>;
   onCancel?: () => void;
 }) {
@@ -112,7 +115,7 @@ export function ConnectForm({
 
   return (
     <Card>
-      <Text variant="rowTitle">Connect your bucket</Text>
+      <Text variant="rowTitle">{words?.title ?? "Connect your bucket"}</Text>
       <Text variant="rowSub" style={styles.lede}>
         {lede ??
           "Context stores nothing of its own. Point it at an S3-compatible bucket you own and every note stays in it, as plain Markdown you can read without us."}
@@ -253,7 +256,7 @@ export function ConnectForm({
 
       <View style={styles.actions}>
         <Button
-          label={submitting ? "Connecting…" : "Connect"}
+          label={submitting ? (words?.submitting ?? "Connecting…") : (words?.submit ?? "Connect")}
           variant="accent"
           disabled={submitting}
           onPress={() => void submit()}
