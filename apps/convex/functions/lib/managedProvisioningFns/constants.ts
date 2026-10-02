@@ -60,7 +60,9 @@ export type ManagedProvisionError =
   | "NOT_ENTITLED"
   | "ALREADY_BOUND"
   | "CLOUDFLARE_REFUSED"
-  | "PROVISION_FAILED";
+  | "PROVISION_FAILED"
+  /** The owner is moving their files between their own buckets; try after. */
+  | "MOVE_IN_PROGRESS";
 
 /**
  * The R2 permission group a bucket-scoped token needs, by name.
@@ -84,6 +86,13 @@ export const CATCH_UP_PASS_DELAYS_MS = [
   15 * 60_000,
   30 * 60_000,
 ] as const;
+
+/**
+ * When a Dropbox grant kept for a move's catch-up passes is revoked even if
+ * the passes never revoke it themselves: well after the last pass (thirty
+ * minutes) would have run. Revoking a grant already revoked does nothing.
+ */
+export const DROPBOX_REVOKE_BACKSTOP_MS = 45 * 60_000;
 
 /**
  * How far before the last check began a catch-up looks.

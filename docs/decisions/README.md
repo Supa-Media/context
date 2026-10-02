@@ -34,6 +34,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Leaving never deletes a file the customer already had
 - The managed copy is kept a week after a move out
 - A move catches up after it switches over, and never overwrites to do it
+- A move between the owner's own buckets is a third direction, and never touches the old one
+- Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up
+- Dropbox workspaces are told support is ending, without a date
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to

@@ -8,9 +8,13 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import { Confirm } from "../../files/Dialogs";
 import type { ConsoleStorage } from "../../types";
 import {
+  DROPBOX_ENDING,
   MOVED,
+  OWN_MOVE,
   STILL_LIVE,
+  STILL_LIVE_OWN,
   STOP,
+  STOP_OWN,
   TAKE_IT_WITH_YOU,
   describeHandoffFailure,
   existingFilesLine,
@@ -22,7 +26,13 @@ import { handoffSteps, type HandoffStep } from "./steps";
 import { ExistingFilesChoice, type ExistingFilesAnswer } from "./ExistingFilesChoice";
 
 /**
- * The way out of managed storage, in Settings › Storage.
+ * Moving a workspace's files, in Settings › Storage.
+ *
+ * On Context's storage this is the way out of it. On storage the owner holds
+ * (a bucket, or Dropbox) it is the move to another bucket of theirs (`to_own`,
+ * `docs/design/own-storage-moves`), drawn with the same steps, stop and
+ * failure states, and for Dropbox the standing note that its support is
+ * ending. Below, "managed" describes the first case.
  *
  * One card with one job per state: offer the move and the download while the
  * workspace is on Context's storage; show the five steps while it moves, with
@@ -31,7 +41,7 @@ import { ExistingFilesChoice, type ExistingFilesAnswer } from "./ExistingFilesCh
  * every managed state, not only the idle one, because taking your files is
  * never behind anything (`CLAUDE.md`, non-negotiable #1).
  *
- * Draws nothing for a workspace that was never on managed storage.
+ * On storage the owner holds, draws nothing for anyone but an owner.
  */
 export function HandoffCard({
   storage,
@@ -41,6 +51,7 @@ export function HandoffCard({
   onDownload,
   onSwitchBack,
   onChooseExisting,
+  onOpenPremium,
   now = Date.now(),
 }: {
   storage: ConsoleStorage;
@@ -52,6 +63,8 @@ export function HandoffCard({
   onSwitchBack?: () => void;
   /** Answers a bucket that already has files: merge, or start fresh. */
   onChooseExisting?: (answer: ExistingFilesAnswer) => Promise<unknown>;
+  /** Settings › Premium, where an upgrade moves the files into Context storage. */
+  onOpenPremium?: () => void;
   now?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -62,7 +75,10 @@ export function HandoffCard({
     storage.managed !== true &&
     storage.managedRetainedUntil !== undefined &&
     storage.managedRetainedUntil > now;
-  if (storage.managed !== true && !retained) return null;
+  const ownStorage = storage.managed !== true && !retained;
+  if (ownStorage && !owner) return null;
+  const stillLive = ownStorage ? STILL_LIVE_OWN : STILL_LIVE;
+  const stopCopy = ownStorage ? STOP_OWN : STOP;
 
   if (retained) {
     return (
@@ -126,12 +142,12 @@ export function HandoffCard({
           ))}
         </View>
         <Text variant="rowSub" style={styles.line}>
-          {`${STILL_LIVE} You can close this page; the move carries on.`}
+          {`${stillLive} You can close this page; the move carries on.`}
         </Text>
         <Row style={styles.actions}>
           {owner && storage.handoffReadyToSwitch !== true && onStop !== undefined ? (
             <Button
-              label={stopping ? "Stopping…" : STOP.button}
+              label={stopping ? "Stopping…" : stopCopy.button}
               disabled={stopping}
               onPress={() => setConfirming(true)}
               testID="storage-handoff-stop"
@@ -141,9 +157,9 @@ export function HandoffCard({
         </Row>
         {confirming ? (
           <Confirm
-            title={STOP.title}
-            body={STOP.body}
-            confirmLabel={STOP.button}
+            title={stopCopy.title}
+            body={stopCopy.body}
+            confirmLabel={stopCopy.button}
             onCancel={() => setConfirming(false)}
             onConfirm={() => void stop()}
           />
@@ -164,7 +180,7 @@ export function HandoffCard({
       <Card testID="storage-handoff-failed" style={styles.card}>
         <FormError
           headline={failureHeadline(storage.handoffErrorCode, 0)}
-          next={describeHandoffFailure(storage.handoffErrorCode)}
+          next={describeHandoffFailure(storage.handoffErrorCode, stillLive)}
         />
         <ExistingFilesChoice
           bucket={storage.handoffBucket}
@@ -182,7 +198,7 @@ export function HandoffCard({
       <Card testID="storage-handoff-failed" style={styles.card}>
         <FormError
           headline={failureHeadline(storage.handoffErrorCode, failed.length)}
-          next={describeHandoffFailure(storage.handoffErrorCode)}
+          next={describeHandoffFailure(storage.handoffErrorCode, stillLive)}
         />
         {failed.length > 0 ? (
           <View style={styles.failedList} testID="storage-handoff-failed-files">
@@ -196,6 +212,42 @@ export function HandoffCard({
         <Row style={styles.actions}>
           {owner ? <Button label="Retry" onPress={onMove} testID="storage-handoff" /> : null}
           {download}
+        </Row>
+      </Card>
+    );
+  }
+
+  if (ownStorage) {
+    const dropbox = storage.provider === "dropbox";
+    return (
+      <Card testID="storage-own-move-offer" style={styles.card}>
+        <Text variant="rowTitle">{dropbox ? DROPBOX_ENDING.toBucket : OWN_MOVE.title}</Text>
+        {dropbox ? (
+          <Text variant="rowSub" style={styles.line} testID="storage-dropbox-ending">
+            {DROPBOX_ENDING.line}
+          </Text>
+        ) : null}
+        {storage.handoffStatus === "failed" ? (
+          <Text variant="rowSub" style={styles.line} role="status" testID="storage-handoff-stopped">
+            {stoppedLine(storage.handoffBucket)}
+          </Text>
+        ) : null}
+        <Text variant="rowSub" style={styles.line}>
+          {OWN_MOVE.body}
+        </Text>
+        <Row style={styles.actions}>
+          <Button
+            label={dropbox ? DROPBOX_ENDING.toBucket : OWN_MOVE.move}
+            onPress={onMove}
+            testID="storage-own-move"
+          />
+          {dropbox && onOpenPremium !== undefined ? (
+            <Button
+              label={DROPBOX_ENDING.toContext}
+              onPress={onOpenPremium}
+              testID="storage-dropbox-to-context"
+            />
+          ) : null}
         </Row>
       </Card>
     );

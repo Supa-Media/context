@@ -312,7 +312,7 @@ export interface ConsoleStorage {
   lastVerifiedAt?: number;
   /** Storage operated by Context, whose credential cannot be rotated or disconnected here. */
   managed?: boolean;
-  /** Owner-only progress for moving every raw object into customer storage. */
+  /** Owner-only progress for moving every raw object into the owner's bucket, from managed storage or (`to_own`) their own. */
   handoffStatus?: "copying" | "failed";
   handoffPhase?: "count" | "copy" | "verify_source" | "verify_target";
   handoffObjectsTotal?: number;
@@ -354,9 +354,10 @@ export interface StorageActions {
    */
   reverify: () => Promise<{ queued: boolean; status: string }>;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
-  /** Starts or retries a verified whole-bucket move out of managed storage. */
+  /** Start or retry a verified whole-bucket move: out of managed storage, or (`move`, `to_own`) into another bucket of the owner's. */
   handoff: (values: ConnectFormValues) => Promise<{ started: true }>;
-  /** Stops a move out of managed storage that has not started switching over. */
+  move: (values: ConnectFormValues) => Promise<{ started: true }>;
+  /** Stops a move into the owner's bucket that has not started switching over. */
   cancelHandoff: () => Promise<{ cancelled: boolean }>;
   /** Answers a destination that already has files: merge, or start fresh (typed consent). */
   chooseExistingFiles: (

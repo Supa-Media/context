@@ -1,5 +1,6 @@
 /**
- * What the owner reads about a move out of managed storage.
+ * What the owner reads about a move into a bucket they hold: out of managed
+ * storage, or between two of their own (`to_own`).
  *
  * One place, so the setup form, the progress card and the failure states say
  * the same thing in the same words. Failure text is keyed by the closed error
@@ -13,6 +14,38 @@
  */
 
 export const STILL_LIVE = "Your workspace keeps running from Context's storage until every file matches.";
+
+/** The same promise for a move between two of the owner's own buckets (`to_own`). */
+export const STILL_LIVE_OWN = "Your workspace keeps running from the storage it uses now until every file matches.";
+
+/** The offer, on a workspace whose storage the owner holds. */
+export const OWN_MOVE = {
+  title: "Move to another bucket",
+  body:
+    "Copies every file to a bucket you choose, checks each one, then switches this workspace to it. " +
+    "Your current storage is left exactly as it is; delete it yourself whenever you like.",
+  move: "Move to another bucket",
+};
+
+/** The destination form's heading and button, for either move into a bucket the owner holds. */
+export const MOVE_FORM_WORDS = { submit: "Start the move", submitting: "Starting…" };
+
+/** The line above the destination form for that move. */
+export const OWN_MOVE_FORM_LEDE =
+  "Choose the bucket to move to. Context uses the whole bucket, not a folder inside it; if it already " +
+  "has files, you'll choose whether to keep them or start fresh. Nothing in your current storage is " +
+  "changed or deleted. " +
+  STILL_LIVE_OWN;
+
+/**
+ * Dropbox support is ending (`docs/decisions/billing.md`: no new Dropbox
+ * connections). No date is given, so nothing is promised that has to be kept.
+ */
+export const DROPBOX_ENDING = {
+  line: "Dropbox support is ending. Move this workspace to a bucket you own, or to Context storage.",
+  toBucket: "Move to my bucket",
+  toContext: "Use Context storage",
+};
 
 export const TAKE_IT_WITH_YOU = {
   title: "Take your workspace with you",
@@ -68,6 +101,14 @@ export const STOP = {
     "move into the same place carries on from them.",
 };
 
+export const STOP_OWN = {
+  ...STOP,
+  body:
+    "Your workspace keeps running from the storage it uses now, exactly as it is. Files already " +
+    "copied to the new bucket are plain copies and stay there: keep or delete them, and a later " +
+    "move into the same place carries on from them.",
+};
+
 export function stoppedLine(bucket: string | undefined): string {
   return bucket === undefined
     ? "Move stopped. Nothing changed."
@@ -87,20 +128,20 @@ export function failureHeadline(code: string | undefined, failedCount: number): 
   }
 }
 
-export function describeHandoffFailure(code: string | undefined): string {
+export function describeHandoffFailure(code: string | undefined, stillLive: string = STILL_LIVE): string {
   switch (code) {
     case "DESTINATION_NOT_EMPTY":
-      return `Nothing has been copied or deleted yet. Choose what happens to the files already there. ${STILL_LIVE}`;
+      return `Nothing has been copied or deleted yet. Choose what happens to the files already there. ${stillLive}`;
     case "DESTINATION_NOT_CLEARED":
-      return `Nothing has been copied yet. A retention rule or the key's permissions can stop a delete: remove the rest yourself and start fresh again, or keep them and add your workspace beside them. ${STILL_LIVE}`;
+      return `Nothing has been copied yet. A retention rule or the key's permissions can stop a delete: remove the rest yourself and start fresh again, or keep them and add your workspace beside them. ${stillLive}`;
     case "TARGET_NOT_READY":
-      return `Context couldn't reach that bucket with the key you gave. Check the key and its permissions, then retry. ${STILL_LIVE}`;
+      return `Context couldn't reach that bucket with the key you gave. Check the key and its permissions, then retry. ${stillLive}`;
     case "OBJECT_TOO_LARGE":
-      return `These are too large to move this way yet. Download them from Files instead. ${STILL_LIVE}`;
+      return `These are too large to move this way yet. Download them from Files instead. ${stillLive}`;
     case "SOURCE_CHANGED":
-      return `This workspace's storage changed while it was moving, so nothing was switched. Retry to start again. ${STILL_LIVE}`;
+      return `This workspace's storage changed while it was moving, so nothing was switched. Retry to start again. ${stillLive}`;
     default:
-      return `The move stopped before switching over. ${STILL_LIVE} Retry to carry on.`;
+      return `The move stopped before switching over. ${stillLive} Retry to carry on.`;
   }
 }
 

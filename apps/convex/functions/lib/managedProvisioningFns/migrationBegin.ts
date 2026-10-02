@@ -8,11 +8,12 @@
 
 import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
-import type { Id } from "../../../_generated/dataModel";
+import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { requireWorkspaceRole } from "../workspaceAuth";
 import { R2_CREDENTIAL_SETTLE_MS } from "../cloudflare";
 import { managedBucketName } from "../managedStorage";
+import { directionOf, refuseDuringMove } from "./direction";
 
 type CustomerTarget = {
   provider: "r2" | "s3" | "b2" | "s3-compatible";
@@ -81,6 +82,17 @@ export async function beginManagedStorageMigrationHandler(
     await ctx.db.insert("managedStorageMigrations", {
       ...fields,
       createdAt: now,
+    });
+  } else if (directionOf(existing) !== "to_managed") {
+    // A stopped move of another direction is replaced, never resumed: its
+    // destination is a bucket the owner holds, not the one minted for this.
+    await ctx.db.patch(existing._id, {
+      ...fields,
+      targetRootPrefix: undefined,
+      targetForcePathStyle: undefined,
+      targetClaimed: undefined,
+      existingFiles: undefined,
+      failedKeys: undefined,
     });
   } else if (existing.sourceBindingId === args.sourceBindingId) {
     // A retry resumes the destination it already created. Do not reset the
@@ -160,46 +172,13 @@ export async function beginManagedStorageHandoffHandler(
     .query("managedStorageMigrations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
-  // A retry into the very destination an earlier attempt already checked was
-  // empty keeps that answer: what is there now is this move's own partial
-  // copy, and the move carries on from it. Any other destination is asked
-  // again, because its contents belong to whoever put them there.
-  const sameTarget =
-    existing !== null &&
-    existing.direction === "to_customer" &&
-    sameEndpoint(existing.targetEndpoint, args.target.endpoint) &&
-    existing.targetBucket === args.target.bucket &&
-    (existing.targetRootPrefix ?? "") === (args.target.rootPrefix ?? "");
-  const sameClaimedTarget = sameTarget && existing?.targetClaimed === true;
-  const fields = {
+  const fields = ownerTargetFields(existing, args.target, {
+    direction: "to_customer",
     workspaceId: args.workspaceId,
     sourceBindingId: current._id,
-    direction: "to_customer" as const,
-    targetClaimed: sameClaimedTarget,
-    // The owner's answer about files already there, like the claim, belongs
-    // to one destination only.
-    existingFiles: sameTarget ? existing?.existingFiles : undefined,
-    failedKeys: undefined,
-    targetProvider: args.target.provider,
-    targetEndpoint: args.target.endpoint,
-    targetRegion: args.target.region,
-    targetBucket: args.target.bucket,
-    targetRootPrefix: args.target.rootPrefix,
-    targetAccessKeyId: args.target.accessKeyId,
-    encryptedTargetSecretAccessKey: args.target.encryptedSecretAccessKey,
-    targetForcePathStyle: args.target.forcePathStyle,
-    status: "copying" as const,
-    phase: "count" as const,
-    cursor: undefined,
-    objectsCopied: 0,
-    objectsTotal: undefined,
-    objectsProcessedInPhase: 0,
-    changesInPass: 0,
-    readyToCutover: false,
-    errorCode: undefined,
-    startedBy: args.actorUserId,
-    updatedAt: now,
-  };
+    actorUserId: args.actorUserId,
+    now,
+  });
   if (existing === null) {
     await ctx.db.insert("managedStorageMigrations", { ...fields, createdAt: now });
   } else {
@@ -221,6 +200,143 @@ export async function beginManagedStorageHandoffHandler(
       workspaceId: args.workspaceId,
       retryUntil: now + R2_CREDENTIAL_SETTLE_MS,
     },
+  );
+  return { started: true };
+}
+
+/**
+ * A fresh census into a bucket the owner holds, shared by the move out of
+ * managed storage and the `to_own` move so the two cannot drift.
+ *
+ * A retry into the very destination an earlier attempt already checked was
+ * empty keeps that answer: what is there now is this move's own partial copy,
+ * and the move carries on from it. Any other destination is asked again,
+ * because its contents belong to whoever put them there.
+ */
+function ownerTargetFields(
+  existing: Doc<"managedStorageMigrations"> | null,
+  target: CustomerTarget,
+  move: {
+    direction: "to_customer" | "to_own";
+    workspaceId: Id<"workspaces">;
+    sourceBindingId: Id<"storageBindings">;
+    actorUserId: Id<"users">;
+    now: number;
+  },
+) {
+  const sameTarget =
+    existing !== null &&
+    existing.direction === move.direction &&
+    sameEndpoint(existing.targetEndpoint, target.endpoint) &&
+    existing.targetBucket === target.bucket &&
+    (existing.targetRootPrefix ?? "") === (target.rootPrefix ?? "");
+  return {
+    workspaceId: move.workspaceId,
+    sourceBindingId: move.sourceBindingId,
+    direction: move.direction,
+    targetClaimed: sameTarget && existing?.targetClaimed === true,
+    // The owner's answer about files already there, like the claim, belongs
+    // to one destination only.
+    existingFiles: sameTarget ? existing?.existingFiles : undefined,
+    failedKeys: undefined,
+    targetProvider: target.provider,
+    targetEndpoint: target.endpoint,
+    targetRegion: target.region,
+    targetBucket: target.bucket,
+    targetRootPrefix: target.rootPrefix,
+    targetAccessKeyId: target.accessKeyId,
+    encryptedTargetSecretAccessKey: target.encryptedSecretAccessKey,
+    targetForcePathStyle: target.forcePathStyle,
+    status: "copying" as const,
+    phase: "count" as const,
+    cursor: undefined,
+    objectsCopied: 0,
+    objectsTotal: undefined,
+    objectsProcessedInPhase: 0,
+    changesInPass: 0,
+    readyToCutover: false,
+    errorCode: undefined,
+    startedBy: move.actorUserId,
+    updatedAt: move.now,
+  };
+}
+
+/**
+ * Park a destination for a `to_own` move: from the storage the owner holds now
+ * (a bucket, or Dropbox) into another bucket they hold.
+ *
+ * Context's storage is on neither end, so nothing here reads or writes the
+ * plan row: a free workspace may not have one, and the console reads this
+ * move's progress from the migration row itself. The old storage stays live
+ * until the engine has copied and verified everything, and is never touched
+ * afterwards either (`docs/design/own-storage-moves`).
+ */
+export async function beginOwnStorageMoveHandler(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    actorUserId: Id<"users">;
+    target: CustomerTarget;
+  },
+): Promise<{ started: true }> {
+  await requireWorkspaceRole(ctx, args.workspaceId, args.actorUserId, "owner");
+  const current = await ctx.db
+    .query("storageBindings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  if (current === null) {
+    throw new ConvexError({
+      code: "NO_STORAGE",
+      message: "This workspace has no storage connected to move from.",
+    });
+  }
+  const plan = await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  if (current.bucket === managedBucketName(args.workspaceId) || plan?.managedStorage === true) {
+    throw new ConvexError({
+      code: "MANAGED_STORAGE",
+      message: "This workspace is on Context storage. Use the move out of Context storage instead.",
+    });
+  }
+  if (
+    current.provider !== "dropbox" &&
+    current.endpoint !== undefined &&
+    sameEndpoint(current.endpoint, args.target.endpoint) &&
+    current.bucket === args.target.bucket &&
+    (current.rootPrefix ?? "") === (args.target.rootPrefix ?? "")
+  ) {
+    throw new ConvexError({
+      code: "SAME_STORAGE",
+      message: "That is the bucket this workspace already uses.",
+    });
+  }
+  await refuseDuringMove(ctx, args.workspaceId);
+
+  const now = Date.now();
+  const existing = await ctx.db
+    .query("managedStorageMigrations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+    .unique();
+  const fields = ownerTargetFields(existing, args.target, {
+    direction: "to_own",
+    workspaceId: args.workspaceId,
+    sourceBindingId: current._id,
+    actorUserId: args.actorUserId,
+    now,
+  });
+  if (existing === null) {
+    await ctx.db.insert("managedStorageMigrations", { ...fields, createdAt: now });
+  } else {
+    // A stopped or failed move of any direction is replaced: the owner has
+    // chosen this destination now.
+    await ctx.db.patch(existing._id, fields);
+  }
+  await ctx.scheduler.runAfter(
+    0,
+    internal.functions.managedProvisioning.awaitManagedTargetReady,
+    { workspaceId: args.workspaceId, retryUntil: now + R2_CREDENTIAL_SETTLE_MS },
   );
   return { started: true };
 }

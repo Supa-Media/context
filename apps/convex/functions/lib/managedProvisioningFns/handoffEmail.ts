@@ -1,5 +1,6 @@
 /**
- * What the owner is emailed about a move out of managed storage.
+ * What the owner is emailed about a move into a bucket they hold: out of
+ * managed storage, or between two of their own (`ownMove`).
  *
  * A move can run for a long time with nobody watching, so the owner is told
  * when it stops for them (paused, or waiting for their answer about files
@@ -29,13 +30,15 @@ export function storageSettingsUrl(origin: string | null, slug: string): string 
 }
 
 const STILL_LIVE = "Your workspace keeps running from Context's storage, exactly as it was.";
+const STILL_LIVE_OWN = "Your workspace keeps running from the storage it uses now, exactly as it was.";
 
 export function renderHandoffEmail(
   kind: HandoffEmailKind,
-  facts: { workspaceName: string; url: string | null; retainedUntil?: number },
+  facts: { workspaceName: string; url: string | null; retainedUntil?: number; ownMove?: boolean },
 ): RenderedEmail {
   const name = sanitizeHeaderText(facts.workspaceName) || "your workspace";
   const where = facts.url ?? "Settings › Storage in Context";
+  const stillLive = facts.ownMove === true ? STILL_LIVE_OWN : STILL_LIVE;
   let subject: string;
   let lines: string[];
   switch (kind) {
@@ -44,7 +47,7 @@ export function renderHandoffEmail(
       lines = [
         `The bucket you chose for ${name} already has files in it, so nothing has been copied or deleted yet.`,
         "Choose whether to keep those files and add your workspace beside them, or start fresh.",
-        STILL_LIVE,
+        stillLive,
       ];
       break;
     case "paused":
@@ -52,7 +55,7 @@ export function renderHandoffEmail(
       lines = [
         `The move of ${name} to your own bucket stopped before switching over.`,
         "Settings › Storage says why and lets you retry; files already copied carry over.",
-        STILL_LIVE,
+        stillLive,
       ];
       break;
     case "finished": {

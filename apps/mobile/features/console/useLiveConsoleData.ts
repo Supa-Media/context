@@ -175,6 +175,7 @@ export function useLiveConsoleData(): ConsoleData {
   const startManagedStorageHandoff = useAction(
     api.functions.storage.startManagedStorageHandoff,
   );
+  const startStorageMove = useAction(api.functions.storage.startStorageMove);
   const cancelManagedStorageHandoff = useMutation(
     api.functions.managedHandoff.cancelManagedStorageHandoff,
   );
@@ -363,6 +364,7 @@ export function useLiveConsoleData(): ConsoleData {
     reverifyStorage,
     bindStorage,
     startManagedStorageHandoff,
+    startStorageMove,
     cancelManagedStorageHandoff,
     chooseExistingFilesForHandoff,
     disconnectStorage,

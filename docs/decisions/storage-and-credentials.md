@@ -125,3 +125,15 @@ Moved to [Every use of Jev goes through Jev smarts](./storage-and-credentials/in
 ## A managed bucket holds sealed bodies, and every way out is plain
 
 Moved to [A managed bucket holds sealed bodies, and every way out is plain](./storage-and-credentials/managed-encryption.md#a-managed-bucket-holds-sealed-bodies-and-every-way-out-is-plain).
+
+## A move between the owner's own buckets is a third direction, and never touches the old one
+
+Moved to [A move between the owner's own buckets is a third direction, and never touches the old one](./storage-and-credentials/own-storage-moves.md#a-move-between-the-owners-own-buckets-is-a-third-direction-and-never-touches-the-old-one).
+
+## Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up
+
+Moved to [Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up](./storage-and-credentials/own-storage-moves.md#dropbox-is-a-source-and-never-a-destination-and-its-grant-outlives-the-switch-for-the-catch-up).
+
+## Dropbox workspaces are told support is ending, without a date
+
+Moved to [Dropbox workspaces are told support is ending, without a date](./storage-and-credentials/own-storage-moves.md#dropbox-workspaces-are-told-support-is-ending-without-a-date).

@@ -10,6 +10,7 @@ import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { handoffEmailKindFor } from "./handoffEmail";
+import { involvesManagedStorage, intoOwnersBucket } from "./direction";
 
 /**
  * Stop a migration in both places a stopped migration has to be recorded.
@@ -34,15 +35,18 @@ export async function failMigrationRowAndPlan(
       updatedAt: Date.now(),
     });
     // Leaving can run with nobody watching: tell the owner who started it.
-    const kind = row.direction === "to_customer" ? handoffEmailKindFor(errorCode) : null;
+    const kind = intoOwnersBucket(row) ? handoffEmailKindFor(errorCode) : null;
     if (kind !== null) {
       await ctx.scheduler.runAfter(0, internal.functions.handoffEmail.sendHandoffEmail, {
         workspaceId,
         recipientUserId: row.startedBy,
         kind,
+        ...(row.direction === "to_own" ? { ownMove: true } : {}),
       });
     }
   }
+  // A move between the owner's own buckets is not Context's storage failing.
+  if (row !== null && !involvesManagedStorage(row)) return;
   const plan = await ctx.db
     .query("workspacePlans")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -71,7 +75,8 @@ export async function failManagedStorageMigrationHandler(
 }
 
 /**
- * The owner stops a move out of managed storage.
+ * The owner stops a move into a bucket they hold: out of managed storage, or
+ * between two of their own (`to_own`, which leaves the plan row alone).
  *
  * Nothing is undone because nothing was switched: the managed bucket stayed
  * live throughout, and the files already copied stay in the customer's bucket,
@@ -87,7 +92,7 @@ export async function cancelManagedStorageHandoffHandler(
     .query("managedStorageMigrations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  if (row === null || row.direction !== "to_customer" || row.status !== "copying") {
+  if (row === null || !intoOwnersBucket(row) || row.status !== "copying") {
     return { cancelled: false };
   }
   // Once the final pass has said it is ready to switch, the switch is seconds
@@ -99,6 +104,7 @@ export async function cancelManagedStorageHandoffHandler(
     failedKeys: undefined,
     updatedAt: Date.now(),
   });
+  if (!involvesManagedStorage(row)) return { cancelled: true };
   const plan = await ctx.db
     .query("workspacePlans")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

@@ -89,6 +89,8 @@ export const sendHandoffEmail = internalAction({
     recipientUserId: v.id("users"),
     kind: kindValidator,
     retainedUntil: v.optional(v.number()),
+    /** A `to_own` move: the workspace runs from the owner's own storage meanwhile. */
+    ownMove: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -110,6 +112,7 @@ export const sendHandoffEmail = internalAction({
       workspaceName: recipient.workspaceName,
       url: storageSettingsUrl(validAppOrigin(), recipient.slug),
       retainedUntil: args.retainedUntil,
+      ownMove: args.ownMove,
     });
     try {
       const response = await fetch(RESEND_ENDPOINT, {

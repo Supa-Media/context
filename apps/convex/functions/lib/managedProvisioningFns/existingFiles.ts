@@ -8,6 +8,7 @@
  * and shows it in the workspace beside the notes that move in.
  */
 
+import { involvesManagedStorage, intoOwnersBucket } from "./direction";
 import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -28,7 +29,7 @@ export async function chooseExistingFilesHandler(
     .unique();
   if (
     row === null ||
-    row.direction !== "to_customer" ||
+    !intoOwnersBucket(row) ||
     row.status !== "failed" ||
     // A start-fresh that could not delete everything asks the same question.
     (row.errorCode !== "DESTINATION_NOT_EMPTY" && row.errorCode !== "DESTINATION_NOT_CLEARED")
@@ -61,10 +62,12 @@ export async function chooseExistingFilesHandler(
     failedKeys: undefined,
     updatedAt: now,
   });
-  const plan = await ctx.db
-    .query("workspacePlans")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-    .unique();
+  const plan = involvesManagedStorage(row)
+    ? await ctx.db
+        .query("workspacePlans")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .unique()
+    : null;
   if (plan !== null) {
     await ctx.db.patch(plan._id, {
       managedProvisioning: "running",

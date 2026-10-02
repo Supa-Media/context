@@ -49,6 +49,17 @@ export const applyBindingArgs = {
   forcePathStyle: v.optional(v.boolean()),
   /** Keep a newly minted managed credential amber while IAM propagates. */
   verificationRetryUntil: v.optional(v.number()),
+  /**
+   * The storage-move engine's own switch-over. Every other caller is refused
+   * while a move is copying, because a binding changed under a move is a
+   * move that pauses with `SOURCE_CHANGED` (`docs/design/own-storage-moves`).
+   */
+  cutover: v.optional(v.boolean()),
+  /**
+   * Leave a Dropbox grant standing past the swap: a move's catch-up passes
+   * still read Dropbox, and revoke the grant themselves when they finish.
+   */
+  deferDropboxRevoke: v.optional(v.boolean()),
 };
 
 export const applyBindingReturns = v.object({ bindingId: v.id("storageBindings"), status: v.string() });

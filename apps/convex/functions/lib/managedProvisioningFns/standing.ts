@@ -9,6 +9,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { managedBucketName } from "../managedStorage";
+import { involvesManagedStorage, intoOwnersBucket } from "./direction";
 import { managedStorageEntitled } from "../premium";
 import { deploymentOffersFreeManaged } from "../billing/plan";
 
@@ -26,6 +27,8 @@ export async function provisioningStandingHandler(
   bindingId: Id<"storageBindings"> | null;
   migrationStatus?: "copying" | "failed";
   bindingIsManaged: boolean;
+  /** An owner's move between their own buckets is copying; not ours to resume. */
+  ownMoveInProgress: boolean;
   ownerId: Id<"users"> | null;
 } | null> {
   const workspace = await ctx.db.get(args.workspaceId);
@@ -54,7 +57,13 @@ export async function provisioningStandingHandler(
       freeTierOffered: deploymentOffersFreeManaged(),
     }),
     bindingId: binding?._id ?? null,
-    migrationStatus: migration?.status,
+    // Only a move into Context's storage is the upgrade's to resume. Any other
+    // row is somebody's own move, which the upgrade must never pick up.
+    migrationStatus:
+      migration !== null && involvesManagedStorage(migration) && !intoOwnersBucket(migration)
+        ? migration.status
+        : undefined,
+    ownMoveInProgress: migration?.direction === "to_own" && migration.status === "copying",
     bindingIsManaged: binding?.bucket === managedBucketName(args.workspaceId),
     ownerId: owner.find((member) => member.role === "owner")?.userId ?? null,
   };

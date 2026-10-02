@@ -11,6 +11,7 @@ import {
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
+import { directionOf, intoOwnersBucket, outOfManagedBucket } from "./lib/managedProvisioningFns/direction";
 import {
   reconcileMigrationPage,
   type MigrationStore,
@@ -207,7 +208,7 @@ export const managedBucketInUse = internalQuery({
       .query("managedStorageMigrations")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
-    return standing(migration !== null && migration.direction !== "to_customer");
+    return standing(migration !== null && directionOf(migration) === "to_managed");
   },
 });
 
@@ -336,6 +337,7 @@ export const provisionManagedStorage = internalAction({
       internal.functions.managedProvisioning.recordManagedProvisioning,
       { workspaceId: args.workspaceId, state: "running" },
     );
+    if (standing.ownMoveInProgress) return await fail("MOVE_IN_PROGRESS");
     if (standing.migrationStatus !== undefined) {
       const resumed: boolean = await ctx.runMutation(
         internal.functions.managedProvisioning.resumeManagedStorageMigration,
@@ -496,6 +498,7 @@ export const provisioningStanding = internalQuery({
         v.union(v.literal("copying"), v.literal("failed")),
       ),
       bindingIsManaged: v.boolean(),
+      ownMoveInProgress: v.boolean(),
       /**
        * Who this is being done for.
        *
@@ -616,7 +619,7 @@ export const awaitManagedTargetReady = internalAction({
       ready = await probeManagedTarget(migration, secretAccessKey);
       if (
         ready &&
-        migration.direction === "to_customer" &&
+        intoOwnersBucket(migration) &&
         migration.targetClaimed !== true &&
         migration.existingFiles === undefined
       ) {
@@ -626,7 +629,7 @@ export const awaitManagedTargetReady = internalAction({
       // bucket's name to agree to, done before anything is copied.
       if (
         ready &&
-        migration.direction === "to_customer" &&
+        intoOwnersBucket(migration) &&
         migration.targetClaimed !== true &&
         migration.existingFiles === "replace"
       ) {
@@ -646,7 +649,7 @@ export const awaitManagedTargetReady = internalAction({
     // Merging leaves the destination unclaimed, so nothing of theirs is deleted.
     if (
       ready &&
-      migration.direction === "to_customer" &&
+      intoOwnersBucket(migration) &&
       migration.targetClaimed !== true &&
       migration.existingFiles !== "merge"
     ) {
@@ -676,7 +679,7 @@ export const claimManagedStorageTarget = internalMutation({
       .query("managedStorageMigrations")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
-    if (row === null || row.status !== "copying" || row.direction !== "to_customer") {
+    if (row === null || row.status !== "copying" || !intoOwnersBucket(row)) {
       return null;
     }
     await ctx.db.patch(row._id, { targetClaimed: true, updatedAt: Date.now() });
@@ -781,7 +784,7 @@ export const runManagedStorageMigration = internalAction({
       // `reconcileMigrationObject` compares plain with plain. Moving in, the
       // source is the customer's own bucket and has none.
       const sourceEncryption =
-        migration.direction === "to_customer"
+        outOfManagedBucket(migration)
           ? await managedEncryptionOption(ctx, args.workspaceId)
           : null;
       const source = storeForBinding(sourceCredential, undefined, {
@@ -827,12 +830,12 @@ export const runManagedStorageMigration = internalAction({
           // the first write may lose keys the source lacks. A row started
           // before that check existed never had it, so it deletes nothing.
           deleteUnmatchedTarget:
-            migration.direction !== "to_customer" ||
+            !intoOwnersBucket(migration) ||
             migration.targetClaimed === true,
           // And even then only Context's plumbing: the customer's own files
           // were removed once, up front, if they chose to start fresh.
           deleteOnlyUnder:
-            migration.direction === "to_customer" ? ".context/" : undefined,
+            intoOwnersBucket(migration) ? ".context/" : undefined,
           // Merging: a file of theirs with a name the workspace also uses is
           // kept beside it on the first pass, before it is written over.
           keepTargetConflicts:
