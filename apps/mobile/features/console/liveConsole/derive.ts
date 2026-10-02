@@ -266,6 +266,7 @@ export interface StorageMutations {
   startManagedStorageHandoff: ReactAction<
     typeof api.functions.storage.startManagedStorageHandoff
   >;
+  startStorageMove: ReactAction<typeof api.functions.storage.startStorageMove>;
   cancelManagedStorageHandoff: ReactMutation<
     typeof api.functions.managedHandoff.cancelManagedStorageHandoff
   >;
@@ -287,6 +288,7 @@ export function storageActionsFor(
     reverifyStorage,
     bindStorage,
     startManagedStorageHandoff,
+    startStorageMove,
     cancelManagedStorageHandoff,
     chooseExistingFilesForHandoff,
     disconnectStorage,
@@ -310,6 +312,14 @@ export function storageActionsFor(
           handoff: async (values) => {
             const args = toBindStorageArgs(values, selectedContextId);
             return await startManagedStorageHandoff({
+              ...args,
+              workspaceId: selectedContextId,
+              provider: args.provider as Provider,
+            });
+          },
+          move: async (values) => {
+            const args = toBindStorageArgs(values, selectedContextId);
+            return await startStorageMove({
               ...args,
               workspaceId: selectedContextId,
               provider: args.provider as Provider,

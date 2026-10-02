@@ -53,7 +53,8 @@ export const credentialTables = {
    *
    * The original rows predate `direction` and are moves into managed storage;
    * absent therefore means `to_managed`. A move out records the customer's
-   * complete S3 binding. In both directions the source remains live until copy
+   * complete S3 binding, and so does `to_own`, a move between two buckets the
+   * owner holds (`lib/managedProvisioningFns/direction.ts`). In both directions the source remains live until copy
    * and verification finish, and the encrypted destination is never returned
    * by a public function.
    */
@@ -61,7 +62,7 @@ export const credentialTables = {
     workspaceId: v.id("workspaces"),
     sourceBindingId: v.id("storageBindings"),
     direction: v.optional(
-      v.union(v.literal("to_managed"), v.literal("to_customer")),
+      v.union(v.literal("to_managed"), v.literal("to_customer"), v.literal("to_own")),
     ),
     targetProvider: v.optional(
       v.union(

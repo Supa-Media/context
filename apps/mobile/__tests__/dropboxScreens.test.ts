@@ -446,6 +446,7 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
       reverify: async () => ({ queued: true, status: "unverified" }),
       connect: async () => ({ status: "unverified" }),
       handoff: async () => ({ started: true }),
+      move: async () => ({ started: true }),
       cancelHandoff: async () => ({ cancelled: true }),
       chooseExistingFiles: async () => ({ resumed: true as const }),
       disconnect: async () => ({ disconnected: true }),

@@ -1,6 +1,6 @@
 # Moving a workspace between buckets the owner holds
 
-Status: design, approved in conversation on 2026-10-01. Not built.
+Status: approved 2026-10-01 and built. Durable decisions are in `docs/decisions/storage-and-credentials/own-storage-moves.md`.
 
 ## Intent
 
@@ -124,25 +124,33 @@ case, so an S3 target never receives a clash.
 
 ### Settings, Storage, own bucket or Dropbox, owner only
 
-1. "Change storage" opens `ConnectForm` as today, with one new choice:
-   "Move my files there" (default) calls `startStorageMove`; "It already has my
-   files, just switch" calls `bindStorage` as today.
-2. `HandoffCard` draws for a `to_own` move: the same five steps, stop, the
-   existing-files question, failure lines. Its finished state says the old
-   bucket (or Dropbox folder) was not changed and can be deleted whenever the
-   owner likes. No switch-back button.
-3. `StorageActions` gains `move(values)`; `ConsoleStorage` reads the `to_own`
-   row's fields into the existing `handoff*` fields plus
-   `handoffDirection: "to_customer" | "to_own"`.
+1. "Change storage" keeps today's job: re-point or re-key without copying (the
+   "it already has my files" path). Moving is a separate card, "Move to
+   another bucket" ("Move to my bucket" on Dropbox), whose form calls
+   `startStorageMove`. Built this way rather than as a toggle on the re-key
+   form, which is prefilled with the current bucket for rotating a key.
+2. `HandoffCard` draws a `to_own` move: the same five steps, stop, the
+   existing-files question and failure lines, said about "the storage it uses
+   now", never Context's storage. The promise that the old storage is left as
+   it is appears on the offer and in the form; after the switch the storage
+   card shows the new bucket, and nothing records the finished move. No
+   switch-back button.
+3. `StorageActions` gains `move(values)`. The storage view's existing
+   `handoff*` fields carry a `to_own` move too; the card tells the two apart
+   by whether the workspace is on managed storage.
+4. Premium shows `MOVE_IN_PROGRESS` as "Your files are being moved to another
+   bucket", retryable once the move has finished or been stopped.
 
 ### Dropbox notice, owner of a Dropbox workspace only
 
-1. Console notice in the slot `useBrowseNotices` already uses for the storage
+1. Console notice in the band `useBrowseNotices` already uses for the storage
    layout notice: "Dropbox support is ending. Move this workspace to a bucket
    you own, or to Context storage." Buttons: "Move to my bucket" (Settings,
-   Storage, form open in move mode) and "Use Context storage" (Settings,
-   Premium).
-2. Dismissible, remembered per device, shown again 14 days after dismissal.
+   Storage, where the move card is) and "Use Context storage" (Settings,
+   Premium), and "Not now".
+2. The `dropbox-ending` in-app message: answered on the account, asked again
+   14 days after (`askAgainAfterMs`), with no device copy, which would keep it
+   away for good.
 3. The same sentence as a permanent line on the Storage card in Settings.
 4. Editors and members see neither.
 

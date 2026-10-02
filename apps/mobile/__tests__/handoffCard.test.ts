@@ -114,8 +114,8 @@ describe("the way out of managed storage", () => {
     member.unmount();
   });
 
-  test("draws nothing for a workspace that was never on managed storage", () => {
-    const screen = mount({ storage: managed({ managed: false }) });
+  test("draws nothing on storage the owner holds for anyone but an owner", () => {
+    const screen = mount({ storage: managed({ managed: false }), owner: false });
     expect(screen.text).toBe("");
     screen.unmount();
   });
@@ -257,10 +257,13 @@ describe("the way out of managed storage", () => {
     expect(kept.calls.back).toBe(1);
     kept.unmount();
 
+    // Once Context's copy is gone, so is the way back to it. What is left is
+    // the owner's own storage, which offers the move to another bucket.
     const gone = mount({
       storage: managed({ managed: false, managedRetainedUntil: NOW - 1 }),
     });
-    expect(gone.text).toBe("");
+    expect(gone.q("storage-switch-back")).toBeNull();
+    expect(gone.text).not.toContain("Your workspace now lives in your bucket");
     gone.unmount();
   });
 });
@@ -282,5 +285,59 @@ describe("the five steps a move walks", () => {
     const steps = handoffSteps({ phase: "copy", total: 10, processed: 14 });
     expect(steps.find((step) => step.key === "copy")?.progress).toEqual({ done: 10, total: 10 });
     expect(steps.filter((step) => step.progress !== undefined)).toHaveLength(1);
+  });
+});
+
+/**
+ * The move between two buckets the owner holds (`to_own`): the same card,
+ * offered on their own storage, with copy that never claims the workspace runs
+ * from Context's storage, and for Dropbox the note that its support is ending.
+ *
+ * ## Sabotage record
+ *
+ * Drawing the managed offer on own storage failed the first test; keeping
+ * `STILL_LIVE` for an own move failed the second; dropping the Dropbox branch
+ * failed the third.
+ */
+describe("moving between the owner's own buckets", () => {
+  const own = (overrides: Partial<ConsoleStorage> = {}) =>
+    managed({ managed: false, provider: "s3", ...overrides });
+
+  test("offers an owner the move to another bucket, and nothing about Context's storage", () => {
+    const screen = mount({ storage: own() });
+    expect(screen.q("storage-own-move")?.textContent).toBe("Move to another bucket");
+    expect(screen.q("storage-handoff")).toBeNull();
+    expect(screen.text).toContain("left exactly as it is");
+    expect(screen.text).not.toContain("Context's storage");
+    screen.click("storage-own-move");
+    expect(screen.calls.move).toBe(1);
+    screen.unmount();
+  });
+
+  test("shows the steps of a running move, said about the storage in use now", () => {
+    const screen = mount({
+      storage: own({
+        handoffStatus: "copying",
+        handoffPhase: "copy",
+        handoffBucket: "new-bucket",
+        handoffObjectsTotal: 10,
+        handoffObjectsProcessed: 4,
+      }),
+    });
+    expect(screen.q("storage-handoff-moving")?.textContent).toContain("Moving to new-bucket");
+    expect(screen.text).toContain("the storage it uses now");
+    expect(screen.text).not.toContain("Context's storage");
+    expect(screen.q("storage-handoff-stop")).not.toBeNull();
+    screen.unmount();
+  });
+
+  test("on Dropbox, says support is ending and offers both ways off it", () => {
+    let premium = 0;
+    const screen = mount({ storage: own({ provider: "dropbox" }), onOpenPremium: () => premium++ });
+    expect(screen.q("storage-dropbox-ending")?.textContent).toContain("Dropbox support is ending");
+    expect(screen.q("storage-own-move")?.textContent).toBe("Move to my bucket");
+    screen.click("storage-dropbox-to-context");
+    expect(premium).toBe(1);
+    screen.unmount();
   });
 });

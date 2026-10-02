@@ -16,6 +16,7 @@ import { organizerPlace, type BrowseNoticeState } from "./useBrowseNotices";
 import { OrganizerNotices } from "../../../organizer/Notices";
 import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
+import { DROPBOX_ENDING } from "../../storage/handoff/copy";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
@@ -38,6 +39,7 @@ export function BrowseNotices({
   moveNotices,
   setDismissedMoves,
   storageMigration,
+  dropboxEnding,
 }: {
   data: ConsoleData;
   files: FileBrowser;
@@ -55,6 +57,7 @@ export function BrowseNotices({
   moveNotices: BrowseNoticeState["moveNotices"];
   setDismissedMoves: BrowseNoticeState["setDismissedMoves"];
   storageMigration: BrowseNoticeState["storageMigration"];
+  dropboxEnding: BrowseNoticeState["dropboxEnding"];
 }) {
   const styles = useThemedStyles(makeStyles);
   // The intro, drawn as B2-02's welcome where it can be — see `sharedWelcome`.
@@ -296,6 +299,33 @@ export function BrowseNotices({
         asked — and the dialog behind the first is the same one both entry
         points raise.
       */}
+      {/*
+        Dropbox support is ending: the two ways off it, and a way to be asked
+        again later. A hint, not a warning: nothing is broken yet.
+      */}
+      {dropboxEnding.visible ? (
+        <View style={styles.notice} testID="browse-dropbox-ending">
+          <Text variant="hint">{DROPBOX_ENDING.line}</Text>
+          <View style={styles.noticeActions}>
+            {onOpenSettings === undefined ? null : (
+              <>
+                <Button
+                  label={DROPBOX_ENDING.toBucket}
+                  onPress={() => onOpenSettings("storage")}
+                  testID="browse-dropbox-to-bucket"
+                />
+                <Button
+                  label={DROPBOX_ENDING.toContext}
+                  onPress={() => onOpenSettings("premium")}
+                  testID="browse-dropbox-to-context"
+                />
+              </>
+            )}
+            <Button label="Not now" onPress={dropboxEnding.dismiss} testID="browse-dropbox-dismiss" />
+          </View>
+        </View>
+      ) : null}
+
       {storageMigration.visible && files.updateStorageLayout !== undefined ? (
         <View style={styles.notice} testID="browse-storage-migration">
           <Text variant="hint">{STORAGE_MIGRATION_OFFER}</Text>

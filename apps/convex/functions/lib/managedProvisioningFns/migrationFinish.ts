@@ -15,8 +15,10 @@ import type { StorageCapabilities } from "../storage/shapes";
 import {
   CATCH_UP_CLOCK_MARGIN_MS,
   CATCH_UP_PASS_DELAYS_MS,
+  DROPBOX_REVOKE_BACKSTOP_MS,
   MANAGED_RETENTION_AFTER_HANDOFF_MS,
 } from "./constants";
+import { directionOf, intoOwnersBucket } from "./direction";
 
 /** Atomically replace only the exact source binding the copy began from. */
 export async function finishManagedStorageMigrationHandler(
@@ -40,6 +42,7 @@ export async function finishManagedStorageMigrationHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
   const toCustomer = migration?.direction === "to_customer";
+  const toOwn = migration?.direction === "to_own";
   if (
     migration === null ||
     migration.status !== "copying" ||
@@ -49,7 +52,9 @@ export async function finishManagedStorageMigrationHandler(
     (toCustomer &&
       (current.bucket !== managedBucketName(args.workspaceId) ||
         current.accessKeyId === undefined ||
-        plan?.managedStorage !== true))
+        plan?.managedStorage !== true)) ||
+    // Between the owner's own buckets, Context's storage is on neither end.
+    (toOwn && (current.bucket === managedBucketName(args.workspaceId) || plan?.managedStorage === true))
   ) {
     if (migration !== null) {
       await ctx.db.patch(migration._id, {
@@ -57,11 +62,12 @@ export async function finishManagedStorageMigrationHandler(
         errorCode: "SOURCE_CHANGED",
         updatedAt: Date.now(),
       });
-      if (migration.direction === "to_customer") {
+      if (intoOwnersBucket(migration)) {
         await ctx.scheduler.runAfter(0, internal.functions.handoffEmail.sendHandoffEmail, {
           workspaceId: args.workspaceId,
           recipientUserId: migration.startedBy,
           kind: "paused",
+          ...(migration.direction === "to_own" ? { ownMove: true } : {}),
         });
       }
     }
@@ -80,6 +86,9 @@ export async function finishManagedStorageMigrationHandler(
     accessKeyId: migration.targetAccessKeyId,
     encryptedSecretAccessKey: migration.encryptedTargetSecretAccessKey,
     forcePathStyle: migration.targetForcePathStyle,
+    cutover: true,
+    // The catch-up passes below still read Dropbox, and revoke it after.
+    deferDropboxRevoke: current.provider === "dropbox",
   });
   if (args.capabilities !== undefined) {
     // Connected now, not after the verification `applyBinding` queued. The
@@ -97,7 +106,7 @@ export async function finishManagedStorageMigrationHandler(
   // Moving out keeps the encryption row: the managed bucket is kept for a
   // week with its sealed files, and a switch back re-adopts it. Moving in
   // (back) re-walks whatever the bucket now holds in a mode that reads both.
-  if (!toCustomer) await managedBucketBound(ctx, args.workspaceId);
+  if (directionOf(migration) === "to_managed") await managedBucketBound(ctx, args.workspaceId);
   const retainedUntil = Date.now() + MANAGED_RETENTION_AFTER_HANDOFF_MS;
   if (plan !== null && toCustomer) {
     await ctx.db.patch(plan._id, {
@@ -109,7 +118,7 @@ export async function finishManagedStorageMigrationHandler(
       managedProvisioningAt: Date.now(),
       updatedAt: Date.now(),
     });
-  } else if (plan !== null) {
+  } else if (plan !== null && !toOwn) {
     await ctx.db.patch(plan._id, {
       managedProvisioning: "ready",
       managedProvisioningError: undefined,
@@ -120,10 +129,14 @@ export async function finishManagedStorageMigrationHandler(
   await recordAudit(ctx, {
     workspaceId: args.workspaceId,
     actorUserId: migration.startedBy,
-    action: toCustomer
-      ? "storage.managed_handed_off"
-      : "storage.managed_migrated",
-    details: { objectsCopied: migration.objectsCopied },
+    action: toOwn
+      ? "storage.moved"
+      : toCustomer
+        ? "storage.managed_handed_off"
+        : "storage.managed_migrated",
+    details: toOwn
+      ? { objectsCopied: migration.objectsCopied, from: current.provider, to: migration.targetProvider ?? "r2" }
+      : { objectsCopied: migration.objectsCopied },
   });
   if (toCustomer && current.accessKeyId !== undefined) {
     // Not now: the owner gets a week to switch back, and the action checks
@@ -140,8 +153,34 @@ export async function finishManagedStorageMigrationHandler(
     );
   }
   // The old bucket's key, still sealed, for the passes that bring across what
-  // landed there after the last check (`lib/moveCatchUp.ts`). Only an S3-family
-  // key pair: a Dropbox grant is revoked by the rebind above.
+  // landed there after the last check (`lib/moveCatchUp.ts`). A Dropbox source
+  // sends its sealed refresh token instead: its grant was kept standing above
+  // for exactly these passes, which revoke it when they end. The revoke after
+  // the last pass would have run is the backstop for passes that never do.
+  if (current.provider === "dropbox" && current.encryptedRefreshToken !== undefined) {
+    await ctx.scheduler.runAt(
+      cutoverAt + CATCH_UP_PASS_DELAYS_MS[0],
+      internal.functions.moveCatchUp.runMoveCatchUp,
+      {
+        workspaceId: args.workspaceId,
+        targetBindingId: applied.bindingId,
+        since: (migration.passStartedAt ?? migration.createdAt) - CATCH_UP_CLOCK_MARGIN_MS,
+        cutoverAt,
+        direction: directionOf(migration),
+        pass: 0,
+        source: {
+          provider: "dropbox" as const,
+          rootPrefix: current.rootPrefix,
+          encryptedRefreshToken: current.encryptedRefreshToken,
+        },
+      },
+    );
+    await ctx.scheduler.runAt(
+      cutoverAt + DROPBOX_REVOKE_BACKSTOP_MS,
+      internal.functions.dropboxConnect.revokeDropboxGrant,
+      { workspaceId: args.workspaceId, encryptedRefreshToken: current.encryptedRefreshToken },
+    );
+  }
   if (
     current.provider !== "dropbox" &&
     current.accessKeyId !== undefined &&
@@ -157,7 +196,7 @@ export async function finishManagedStorageMigrationHandler(
         targetBindingId: applied.bindingId,
         since: (migration.passStartedAt ?? migration.createdAt) - CATCH_UP_CLOCK_MARGIN_MS,
         cutoverAt,
-        direction: toCustomer ? "to_customer" : "to_managed",
+        direction: directionOf(migration),
         pass: 0,
         source: {
           provider: current.provider,

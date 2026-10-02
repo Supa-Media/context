@@ -224,6 +224,7 @@ export function BrowsePane({
     setup,
     layingOut,
     storageMigration,
+    dropboxEnding,
     intro,
     introAnswer,
     introVisible,
@@ -261,6 +262,7 @@ export function BrowsePane({
       moveNotices={moveNotices}
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}
+      dropboxEnding={dropboxEnding}
     />
     )}
     </Reveal>

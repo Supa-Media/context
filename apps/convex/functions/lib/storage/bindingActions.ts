@@ -12,6 +12,7 @@
  * whole design.
  */
 
+import { refuseDuringMove } from "../managedProvisioningFns/direction";
 import { ConvexError } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../../../_generated/api";
@@ -336,6 +337,7 @@ export async function disconnectStorageHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
   if (binding === null) return { disconnected: false };
+  await refuseDuringMove(ctx, args.workspaceId);
 
   if (binding.bucket === managedBucketName(args.workspaceId)) {
     throw new ConvexError({

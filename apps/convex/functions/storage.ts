@@ -46,10 +46,11 @@
  * credential graph follows every registration here into those modules.
  */
 
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import {
+  type ActionCtx,
   action,
   internalAction,
   internalMutation,
@@ -80,6 +81,7 @@ import * as bindingView from "./lib/storage/bindingView";
 import * as validators from "./lib/storage/validators";
 import * as bindingActions from "./lib/storage/bindingActions";
 import * as credentialOpening from "./lib/storage/credentialOpening";
+import { refuseDuringMove } from "./lib/managedProvisioningFns/direction";
 
 export {
   capabilitiesValidator,
@@ -195,63 +197,90 @@ export const bindStorage = action({
 });
 
 /**
+ * The destination of a move, checked and sealed.
+ *
+ * The plaintext secret follows the same path as `bindStorage`: it exists only
+ * in the calling action, is sealed to the workspace, and the internal
+ * migration receives only the envelope. Shared by both ways a move into a
+ * bucket the owner holds begins, so their checks cannot drift apart.
+ */
+async function sealedMoveTarget(
+  ctx: ActionCtx,
+  args: ObjectType<typeof validators.startManagedStorageHandoffArgs>,
+) {
+  const userId = await getAuthUserId(ctx);
+  if (userId === null) {
+    throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
+  }
+  assertUsableEndpoint(args.endpoint);
+  const bucket = args.bucket.trim();
+  if (bucket.length === 0) {
+    throw new ConvexError({ code: "INVALID_BUCKET", message: "A bucket name is required." });
+  }
+  if (args.accessKeyId.trim().length === 0 || args.secretAccessKey.length === 0) {
+    throw new ConvexError({
+      code: "INVALID_CREDENTIAL",
+      message: "Both an access key id and a secret access key are required.",
+    });
+  }
+  if (
+    args.forcePathStyle === undefined &&
+    addressingIsAmbiguous(args.endpoint, bucket)
+  ) {
+    throw ambiguousAddressingError(bucket);
+  }
+  const rootPrefix = normalizeRootPrefix(args.rootPrefix);
+  const encryptedSecretAccessKey = await encryptSecret(
+    args.secretAccessKey,
+    requireKeyset(),
+    { workspaceId: args.workspaceId },
+  );
+  return {
+    workspaceId: args.workspaceId,
+    actorUserId: userId as Id<"users">,
+    target: {
+      provider: args.provider,
+      endpoint: args.endpoint,
+      region: args.region,
+      bucket,
+      rootPrefix,
+      accessKeyId: args.accessKeyId.trim(),
+      encryptedSecretAccessKey,
+      forcePathStyle: args.forcePathStyle,
+    },
+  };
+}
+
+/**
  * Copy a managed context into a bucket its owner controls, then swap bindings.
  *
- * The plaintext destination secret follows the same path as `bindStorage`: it
- * exists only in this action, is sealed to the workspace, and the internal
- * migration receives only the envelope. Unlike a rebind, this leaves the
- * managed source authoritative until every raw object has been reconciled and
- * a quiet verification pass completes.
+ * Unlike a rebind, this leaves the managed source authoritative until every
+ * raw object has been reconciled and a quiet verification pass completes.
  */
 export const startManagedStorageHandoff = action({
   args: validators.startManagedStorageHandoffArgs,
   returns: validators.startManagedStorageHandoffReturns,
-  handler: async (ctx, args): Promise<{ started: true }> => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) {
-      throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
-    }
-    assertUsableEndpoint(args.endpoint);
-    const bucket = args.bucket.trim();
-    if (bucket.length === 0) {
-      throw new ConvexError({ code: "INVALID_BUCKET", message: "A bucket name is required." });
-    }
-    if (args.accessKeyId.trim().length === 0 || args.secretAccessKey.length === 0) {
-      throw new ConvexError({
-        code: "INVALID_CREDENTIAL",
-        message: "Both an access key id and a secret access key are required.",
-      });
-    }
-    if (
-      args.forcePathStyle === undefined &&
-      addressingIsAmbiguous(args.endpoint, bucket)
-    ) {
-      throw ambiguousAddressingError(bucket);
-    }
-    const rootPrefix = normalizeRootPrefix(args.rootPrefix);
-    const encryptedSecretAccessKey = await encryptSecret(
-      args.secretAccessKey,
-      requireKeyset(),
-      { workspaceId: args.workspaceId },
-    );
-    return await ctx.runMutation(
+  handler: async (ctx, args): Promise<{ started: true }> =>
+    await ctx.runMutation(
       internal.functions.managedProvisioning.beginManagedStorageHandoff,
-      {
-        workspaceId: args.workspaceId,
-        actorUserId: userId as Id<"users">,
-        target: {
-          provider: args.provider,
-          endpoint: args.endpoint,
-          region: args.region,
-          bucket,
-          rootPrefix,
-          accessKeyId: args.accessKeyId.trim(),
-          encryptedSecretAccessKey,
-          forcePathStyle: args.forcePathStyle,
-        },
-      },
-    );
-  },
+      await sealedMoveTarget(ctx, args),
+    ),
+});
+
+/**
+ * Copy a workspace from storage its owner holds (a bucket, or Dropbox) into
+ * another bucket they hold, then swap bindings. The `to_own` move: the same
+ * engine and the same verification as the move out of managed storage, and
+ * the old storage is never touched (`docs/design/own-storage-moves`).
+ */
+export const startStorageMove = action({
+  args: validators.startManagedStorageHandoffArgs,
+  returns: validators.startManagedStorageHandoffReturns,
+  handler: async (ctx, args): Promise<{ started: true }> =>
+    await ctx.runMutation(
+      internal.functions.managedHandoff.beginOwnStorageMove,
+      await sealedMoveTarget(ctx, args),
+    ),
 });
 
 /**
@@ -272,6 +301,8 @@ export const applyBinding = internalMutation({
       args.actorUserId,
       "owner",
     );
+
+    if (args.cutover !== true) await refuseDuringMove(ctx, args.workspaceId);
 
     const now = Date.now();
     const existing = await ctx.db
@@ -382,7 +413,8 @@ export const applyBinding = internalMutation({
     // cannot tell that without running the sabotage, so it is written here.
     if (
       existing?.provider === "dropbox" &&
-      existing.encryptedRefreshToken !== undefined
+      existing.encryptedRefreshToken !== undefined &&
+      args.deferDropboxRevoke !== true
     ) {
       await ctx.scheduler.runAfter(
         0,

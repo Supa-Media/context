@@ -6,6 +6,7 @@
  * function and wires this handler to it; this module registers none and opens no credential.
  */
 
+import { intoOwnersBucket } from "../managedProvisioningFns/direction";
 import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
@@ -209,7 +210,9 @@ export async function getStorageBindingHandler(
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique()
     : null;
-  const customerHandoff = handoff?.direction === "to_customer" ? handoff : null;
+  // Any move into a bucket the owner holds: out of managed storage, or
+  // between two of their own. Both draw on the same card.
+  const customerHandoff = handoff !== null && intoOwnersBucket(handoff) ? handoff : null;
   const plan = isOwner
     ? await ctx.db
       .query("workspacePlans")

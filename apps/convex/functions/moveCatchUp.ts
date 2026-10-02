@@ -22,7 +22,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
-import { decryptSecret, requireKeyset } from "./lib/crypto";
+import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
+import { refreshDropboxToken } from "./lib/dropboxOAuth";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { catchUpPage, type CatchUpStore } from "./lib/moveCatchUp";
 import { keptManagedBucketOption, managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
@@ -36,16 +37,31 @@ import {
 import { providerValidator } from "./lib/storage/shapes";
 
 /** The old binding as it stood at the switch, its secret still sealed. */
-const sourceSnapshotValidator = v.object({
-  provider: providerValidator,
-  endpoint: v.string(),
-  region: v.string(),
-  bucket: v.string(),
-  rootPrefix: v.optional(v.string()),
-  accessKeyId: v.string(),
-  encryptedSecretAccessKey: v.string(),
-  forcePathStyle: v.optional(v.boolean()),
-});
+const sourceSnapshotValidator = v.union(
+  v.object({
+    provider: providerValidator,
+    endpoint: v.string(),
+    region: v.string(),
+    bucket: v.string(),
+    rootPrefix: v.optional(v.string()),
+    accessKeyId: v.string(),
+    encryptedSecretAccessKey: v.string(),
+    forcePathStyle: v.optional(v.boolean()),
+  }),
+  /*
+    A Dropbox source (`to_managed`, or `to_own` from Dropbox). Its grant was
+    left standing at the switch for these passes alone: each pass mints a
+    short-lived access token from the sealed refresh token, and the passes
+    revoke the grant themselves when they finish or stop. A revoke is also
+    scheduled at the switch for after the last pass would have run, so the
+    grant is revoked even if a pass never runs.
+  */
+  v.object({
+    provider: v.literal("dropbox"),
+    rootPrefix: v.optional(v.string()),
+    encryptedRefreshToken: v.string(),
+  }),
+);
 
 const catchUpArgs = {
   workspaceId: v.id("workspaces"),
@@ -60,7 +76,7 @@ const catchUpArgs = {
    * through it, as the move's own source is: a raw read would carry
    * ciphertext into the customer's bucket.
    */
-  direction: v.union(v.literal("to_customer"), v.literal("to_managed")),
+  direction: v.union(v.literal("to_customer"), v.literal("to_managed"), v.literal("to_own")),
   /** Index into `CATCH_UP_PASS_DELAYS_MS`. */
   pass: v.number(),
   /** Where this pass has listed up to, when it spans several runs. */
@@ -83,8 +99,19 @@ export const runMoveCatchUp = internalAction({
       internal.functions.moveCatchUp.currentBindingId,
       { workspaceId: args.workspaceId },
     );
+    // A Dropbox grant kept for these passes ends with them, and its refresh
+    // token may have rotated during them, so it is the latest one revoked.
+    let source = args.source;
+    const revokeDropbox = async () => {
+      if (source.provider !== "dropbox") return;
+      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
+        workspaceId: args.workspaceId,
+        encryptedRefreshToken: source.encryptedRefreshToken,
+      });
+    };
     if (current !== args.targetBindingId) {
       log("stopped", { reason: "binding_changed" });
+      await revokeDropbox();
       return null;
     }
 
@@ -92,6 +119,7 @@ export const runMoveCatchUp = internalAction({
       const pass = args.pass + 1;
       if (pass >= CATCH_UP_PASS_DELAYS_MS.length) {
         log("finished");
+        await revokeDropbox();
         return;
       }
       // Hoisted: the structure test reads a scheduled call's slots by position.
@@ -99,7 +127,7 @@ export const runMoveCatchUp = internalAction({
       await ctx.scheduler.runAt(
         at,
         internal.functions.moveCatchUp.runMoveCatchUp,
-        { ...args, pass, cursor: undefined },
+        { ...args, source, pass, cursor: undefined },
       );
     };
 
@@ -116,27 +144,58 @@ export const runMoveCatchUp = internalAction({
         await nextPass();
         return null;
       }
-      const { encryptedSecretAccessKey, ...sourceFields } = args.source;
-      const secretAccessKey = await decryptSecret(encryptedSecretAccessKey, requireKeyset(), {
-        workspaceId: args.workspaceId,
-      });
-      const source = storeForBinding(
-        {
-          ...sourceFields,
-          secretAccessKey,
-          capabilities: { conditionalWrite: true },
-          status: "connected" as const,
-        },
-        undefined,
-        {
-          rawObjects: true,
-          // The managed bucket a workspace just left may hold sealed files.
-          // Its mode comes from the encryption row, not the binding (which is
-          // the customer's now), so late files arrive plain, never sealed.
-          managedEncryption:
-            args.direction === "to_customer" ? await keptManagedBucketOption(ctx, args.workspaceId) : null,
-        },
-      ) as unknown as CatchUpStore;
+      let oldStore: CatchUpStore;
+      if (source.provider === "dropbox") {
+        // A fresh access token from the sealed refresh token, inline here for
+        // the reachability analyzer (it reads a registered function's own
+        // body), and the refresh token resealed when Dropbox rotated it so the
+        // next pass and the final revoke spend the live one.
+        const keyset = requireKeyset();
+        const context = { workspaceId: args.workspaceId };
+        const clientId = process.env.DROPBOX_APP_KEY;
+        if (typeof clientId !== "string" || clientId.length === 0) throw new Error("DROPBOX_NOT_CONFIGURED");
+        const fresh = await refreshDropboxToken({
+          clientId,
+          clientSecret: process.env.DROPBOX_APP_SECRET || undefined,
+          refreshToken: await decryptSecret(source.encryptedRefreshToken, keyset, context),
+        });
+        if (fresh.refreshToken) {
+          source = { ...source, encryptedRefreshToken: await encryptSecret(fresh.refreshToken, keyset, context) };
+        }
+        oldStore = storeForBinding(
+          {
+            provider: "dropbox",
+            accessToken: fresh.accessToken,
+            rootPrefix: source.rootPrefix,
+            capabilities: { conditionalWrite: true },
+            status: "connected" as const,
+          },
+          undefined,
+          { rawObjects: true },
+        ) as unknown as CatchUpStore;
+      } else {
+        const { encryptedSecretAccessKey, ...sourceFields } = source;
+        const secretAccessKey = await decryptSecret(encryptedSecretAccessKey, requireKeyset(), {
+          workspaceId: args.workspaceId,
+        });
+        oldStore = storeForBinding(
+          {
+            ...sourceFields,
+            secretAccessKey,
+            capabilities: { conditionalWrite: true },
+            status: "connected" as const,
+          },
+          undefined,
+          {
+            rawObjects: true,
+            // The managed bucket a workspace just left may hold sealed files.
+            // Its mode comes from the encryption row, not the binding (which is
+            // the customer's now), so late files arrive plain, never sealed.
+            managedEncryption:
+              args.direction === "to_customer" ? await keptManagedBucketOption(ctx, args.workspaceId) : null,
+          },
+        ) as unknown as CatchUpStore;
+      }
       const target = storeForBinding(targetCredential, undefined, {
         rawObjects: true,
         // Moving back in, the destination is the managed bucket, which may
@@ -144,9 +203,9 @@ export const runMoveCatchUp = internalAction({
         managedEncryption: await managedEncryptionOption(ctx, args.workspaceId),
       }) as unknown as CatchUpStore;
 
-      const page = await source.list({ cursor: args.cursor, limit: MIGRATION_PAGE_SIZE });
+      const page = await oldStore.list({ cursor: args.cursor, limit: MIGRATION_PAGE_SIZE });
       const counts = await catchUpPage({
-        source,
+        source: oldStore,
         target,
         objects: page.objects,
         since: args.since,
@@ -169,6 +228,7 @@ export const runMoveCatchUp = internalAction({
     if (truncated) {
       await ctx.scheduler.runAfter(0, internal.functions.moveCatchUp.runMoveCatchUp, {
         ...args,
+        source,
         cursor,
       });
       return null;

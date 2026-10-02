@@ -7,12 +7,13 @@
  */
 
 import { v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { internalMutation, mutation } from "../_generated/server";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import { cancelManagedStorageHandoffHandler } from "./lib/managedProvisioningFns/migrationFail";
 import { recordAudit } from "./lib/audit";
 import { chooseExistingFilesHandler } from "./lib/managedProvisioningFns/existingFiles";
+import { beginOwnStorageMoveHandler } from "./lib/managedProvisioningFns/migrationBegin";
 
 /** Stop the move. Owner-only; the managed bucket was never switched away from. */
 export const cancelManagedStorageHandoff = mutation({
@@ -57,4 +58,32 @@ export const chooseExistingFilesForHandoff = mutation({
     });
     return result;
   },
+});
+
+/**
+ * Park the destination of a `to_own` move. Internal: `storage.startStorageMove`
+ * checks and seals the destination and passes only the envelope here.
+ */
+export const beginOwnStorageMove = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    target: v.object({
+      provider: v.union(
+        v.literal("r2"),
+        v.literal("s3"),
+        v.literal("b2"),
+        v.literal("s3-compatible"),
+      ),
+      endpoint: v.string(),
+      region: v.string(),
+      bucket: v.string(),
+      rootPrefix: v.optional(v.string()),
+      accessKeyId: v.string(),
+      encryptedSecretAccessKey: v.string(),
+      forcePathStyle: v.optional(v.boolean()),
+    }),
+  },
+  returns: v.object({ started: v.literal(true) }),
+  handler: async (ctx, args) => beginOwnStorageMoveHandler(ctx, args),
 });
