@@ -76,6 +76,13 @@ export const domainTables = {
     oneClick: v.optional(v.object({ provider: v.string(), url: v.string() })),
     /** Cloudflare's TXT for a root domain, as its registration last gave it. */
     hostnameTxt: v.optional(v.object({ name: v.string(), value: v.string() })),
+    /**
+     * Set on `www.<root>`, the companion a root domain gets when it is
+     * connected: it is proved by its root's ownership record, never offered
+     * one of its own, and sends every visitor to the root
+     * (`lib/customDomains/www.ts`).
+     */
+    wwwOf: v.optional(v.id("customDomains")),
   })
     .index("by_hostname", ["hostname"])
     .index("by_workspace", ["workspaceId"])

@@ -62,6 +62,7 @@ function domain(over: Partial<DomainView> = {}): DomainView {
     checkingSince: Date.now() - 4 * 60_000,
     records: RECORDS(hostname, apex, { routing: false, ownership: false }),
     oneClick: null,
+    www: null,
     ...over,
   };
 }

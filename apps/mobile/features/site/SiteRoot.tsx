@@ -40,9 +40,20 @@ function readLocation(): Location {
  */
 export function SiteRoot({ hostname }: { hostname: string }) {
   const styles = useThemedStyles(makeStyles);
-  const binding = useQuery(api.functions.customDomains.resolveHost, {
+  const answer = useQuery(api.functions.customDomains.resolveHost, {
     hostname,
   });
+  // A root domain's `www.` serves nothing: the router already redirects it,
+  // and if the app is reached here anyway it goes to the root the same way,
+  // and only ever to its own root.
+  const redirect =
+    answer !== undefined && answer !== null && "redirect" in answer && hostname === `www.${answer.redirect}`
+      ? answer.redirect
+      : null;
+  const binding = answer === undefined ? undefined : answer === null || "redirect" in answer ? null : answer;
+  useEffect(() => {
+    if (redirect !== null) window.location.replace(`https://${redirect}${window.location.pathname}${window.location.search}`);
+  }, [redirect]);
   const [location, setLocation] = useState<Location>(readLocation);
 
   useEffect(() => {

@@ -19,6 +19,7 @@ import {
   domainPill,
   domainShapeProblem,
   domainUrl,
+  wwwSentence,
   type DomainView,
 } from "../../domain/domain";
 import type { DomainActions, DomainPanelView, HomepageChoice } from "../../domain/useDomain";
@@ -61,6 +62,7 @@ const DEMO_DOMAIN_VIEW: DomainPanelView = {
       checkingSince: 0,
       records: [],
       oneClick: null,
+      www: null,
     },
   },
 };
@@ -327,6 +329,18 @@ function DomainCard({
               </Text>
             </Grow>
           </Row>
+          {domain.www !== null && (owner || domain.www.live) ? (
+            <Row divided testID="domain-www">
+              <Grow>
+                <Text variant="rowTitle" selectable>
+                  {domain.www.hostname}
+                </Text>
+                <Text variant="rowSub" style={styles.sub} selectable>
+                  {wwwSentence(domain)}
+                </Text>
+              </Grow>
+            </Row>
+          ) : null}
         </>
       ) : null}
 
