@@ -290,3 +290,53 @@ test("a write that loses a race is retried once on the newer text, never overwri
   assert.equal(answer.isError, false, answer.text);
   assert.equal(await read(PREFS, RAW), `${PREFS_TEXT}- Added by someone else.\n- Prefers short replies.\n`);
 });
+
+/*
+  FRONTMATTER IS NOT A LINE AN AGENT REMEMBERS A FACT INTO.
+
+  `replaces` names "the text of an existing line", and the edit used to search
+  the whole note for it — frontmatter included. A page's frontmatter is not
+  prose about the person, it is the metadata other parts of the product read as
+  a control: `audience: members` is what narrows a website page to the
+  workspace's members, and `parseWebsitePage` defaults a page with no
+  `audience` line to `public`. So one `remember` call naming that exact line —
+  a constant string, nothing to guess — swapped the control for a bullet and
+  published a members-only page to the internet, with no confirmation, because
+  this is the one save that deliberately does not wait for a go.
+
+  Both halves matter and both are asserted: the call is refused, and the note
+  is byte for byte what it was. The second is the promise this tool makes in
+  its own first test ("changes nothing else in the note").
+*/
+const PAGE = "website/team-only.md";
+const PAGE_TEXT = "---\naudience: members\ntitle: Team only\n---\n\n# Team only\n\n- Internal notes.\n";
+
+test("replaces never edits a line inside the frontmatter block", async () => {
+  const seeded = await call(OWNER, "write_note", { path: PAGE, content: PAGE_TEXT });
+  assert.equal(seeded.isError, false, seeded.text);
+  for (const replaces of ["audience: members", "title: Team only", "---"]) {
+    const answer = await remember({ fact: "Works from Lagos.", kind: "stated", note: PAGE, replaces });
+    assert.equal(answer.isError, true, `remember edited frontmatter line ${JSON.stringify(replaces)}`);
+    assert.match(answer.text, /frontmatter/i);
+    assert.equal(await read(PAGE), PAGE_TEXT, `the note changed while replacing ${JSON.stringify(replaces)}`);
+  }
+});
+
+test("a fact still appends below the frontmatter, and a body line is still replaceable", async () => {
+  const seeded = await call(OWNER, "write_note", { path: PAGE, content: PAGE_TEXT });
+  assert.equal(seeded.isError, false, seeded.text);
+  const added = await remember({ fact: "Works from Lagos.", kind: "stated", note: PAGE });
+  assert.equal(added.isError, false, added.text);
+  assert.equal(await read(PAGE), `${PAGE_TEXT}- Works from Lagos.\n`);
+  const swapped = await remember({
+    fact: "Internal notes, reviewed quarterly.",
+    kind: "stated",
+    note: PAGE,
+    replaces: "Internal notes.",
+  });
+  assert.equal(swapped.isError, false, swapped.text);
+  assert.equal(
+    await read(PAGE),
+    "---\naudience: members\ntitle: Team only\n---\n\n# Team only\n\n- Internal notes, reviewed quarterly.\n- Works from Lagos.\n",
+  );
+});
