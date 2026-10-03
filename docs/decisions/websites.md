@@ -627,3 +627,9 @@ case in `apps/convex/__tests__/websiteResolution.test.ts` fail if any of
 these comes back. Printing the script in the editor puts the page's loudest
 lines where the owner writes it; `livePreview/castFences.test.ts` fails if
 the row or its count goes, or an unclosed block swallows the note again.
+
+## A website's design is code notes
+
+_Decided by the owner, 2026-10-02._ `layout.html.md`, named layouts,
+`*.css.md` and HTML pages, sanitized twice and never run on context.lc:
+[websites/code-notes.md](./websites/code-notes.md).

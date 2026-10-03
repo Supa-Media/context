@@ -108,6 +108,9 @@ export async function homeSiteWorkspaceHandler(
   const pages: PublishedPage[] = [];
   for (const row of rows) {
     if (row.status !== "live" || row.audience !== "public" || row.routePath === null) continue;
+    // The homepage is drawn in the console's own frame, so a layout, a
+    // stylesheet or an all-HTML page is not one of its pages.
+    if (row.code !== undefined) continue;
     // The site's own files, and the notes the folders its pages name published.
     if (!/\.md$/i.test(row.objectKey)) continue;
     if (seen.has(row.objectKey)) continue;

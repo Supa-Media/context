@@ -170,6 +170,7 @@ export type {
   ResolvedWebsiteAddress,
   ResolvedWebsitePage,
   WebsiteEnableResult,
+  WebsiteDesign,
   WebsiteNavigationItem,
   WebsitePublishResult,
   WebsiteRouteAudience,
@@ -263,3 +264,6 @@ export {
   type InAppMessageScope,
   type InAppMessageSpec,
 } from "./inAppMessages";
+
+/** Website designs: layouts, stylesheets and the sanitizers they are drawn through. */
+export * from "./siteDesign";

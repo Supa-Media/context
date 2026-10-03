@@ -110,7 +110,7 @@ export async function scanWebsiteRoutes(
   const read = (keys: string[]) =>
     readScanPages(ctx, workspaceId, clearance, keys, options.publication === true);
   const { pages, etags } = await read(paths);
-  const own = buildWebsiteRouteStatuses(pages);
+  const own = buildWebsiteRouteStatuses(pages, { wholeSite: true });
   /*
     The folders the site's pages name. Their notes are read through the same
     barrier at the same clearance as the pages, so a note `privacy.md` holds
@@ -307,6 +307,7 @@ export async function commitRouteReconciliationHandler(
       description: route.description,
       nav: route.nav,
       problems: route.problems,
+      ...(route.code === undefined ? {} : { code: route.code }),
       updatedAt: now,
     });
   }

@@ -41,6 +41,19 @@ import {
 } from "./lib/websites/state";
 
 const problemValidator = v.object({ code: v.string(), message: v.string() });
+const codeRoleValidator = v.union(
+  v.literal("frame"),
+  v.literal("layout"),
+  v.literal("style"),
+  v.literal("script"),
+  v.literal("html"),
+);
+const designValidator = v.object({
+  frame: v.union(v.string(), v.null()),
+  template: v.union(v.string(), v.null()),
+  css: v.string(),
+  fonts: v.array(v.string()),
+});
 const statusValidator = v.object({
   objectKey: v.string(),
   routePath: v.union(v.string(), v.null()),
@@ -50,6 +63,7 @@ const statusValidator = v.object({
   description: v.union(v.string(), v.null()),
   nav: v.union(v.number(), v.null()),
   problems: v.array(problemValidator),
+  code: v.optional(codeRoleValidator),
 });
 const indexedStatusValidator = v.object({
   ...statusValidator.fields,
@@ -83,6 +97,7 @@ const resolvedPageValidator = v.union(
     navigation: navigationValidator,
     emoji: v.optional(v.record(v.string(), v.string())),
     images: v.optional(v.record(v.string(), v.string())),
+    design: v.optional(designValidator),
   }),
   authenticationRequiredValidator,
   unavailableValidator,
@@ -134,6 +149,19 @@ const resolutionPlanValidator = v.union(
     releaseFallback: v.boolean(),
     releaseId: v.optional(v.string()),
     releasePageId: v.optional(v.string()),
+    code: v.optional(v.literal("html")),
+    designNotes: v.optional(
+      v.array(
+        v.object({
+          objectKey: v.string(),
+          role: v.union(v.literal("frame"), v.literal("layout"), v.literal("style")),
+          sourceEtag: v.string(),
+          audience: v.union(v.literal("public"), v.literal("members")),
+          releaseId: v.optional(v.string()),
+          releasePageId: v.optional(v.string()),
+        }),
+      ),
+    ),
     folderPages: v.optional(
       v.array(
         v.object({

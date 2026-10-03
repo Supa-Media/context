@@ -240,6 +240,16 @@ export const workspaceTables = {
     description: v.union(v.string(), v.null()),
     nav: v.union(v.number(), v.null()),
     problems: v.array(v.object({ code: v.string(), message: v.string() })),
+    /** A code note's role in the site; absent on an ordinary page. */
+    code: v.optional(
+      v.union(
+        v.literal("frame"),
+        v.literal("layout"),
+        v.literal("style"),
+        v.literal("script"),
+        v.literal("html"),
+      ),
+    ),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])

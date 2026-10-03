@@ -4,6 +4,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import {
   buildWebsiteRouteStatuses,
+  isWebsiteRootKey,
   parseWebsitePage,
   stripWebsiteCast,
   stripWebsiteJoin,
@@ -31,6 +32,7 @@ import { PUBLICATION_CLEARANCE } from "./publication";
 import { readPublishedEmoji } from "./emoji";
 import { readPublishedImages } from "./images";
 import { folderListFor, folderPagesUnder, routeStatusKey, type FolderPage } from "./folders";
+import { readWebsiteDesign, siteDesignsAllowed, type DesignNote } from "./design";
 
 type SiteShell = {
   siteName: string;
@@ -70,6 +72,10 @@ export type WebsiteResolutionPlan =
       releasePageId?: string;
       /** The notes a `folder:` line on this page published, listed under it. */
       folderPages?: FolderPage[];
+      /** Set when the page is an all-HTML page (`about.html.md`). */
+      code?: "html";
+      /** The site's published layouts and stylesheets, when its plan draws them. */
+      designNotes?: DesignNote[];
     } & SiteShell);
 
 const NO_SITE: Extract<WebsiteResolutionPlan, { kind: "unavailable" }> = {
@@ -213,6 +219,25 @@ export async function websiteResolutionPlanHandler(
   const route = matches[0]!;
   if (route.routePath === null || route.title === null)
     return unavailable(shell);
+  const designs = await siteDesignsAllowed(ctx, workspace._id);
+  // An HTML page is all design: without one, there is no page to draw.
+  if (route.code === "html" && !designs) return unavailable(shell);
+  const designNotes: DesignNote[] = designs
+    ? indexed.flatMap((row) =>
+        row.status === "live" && (row.code === "frame" || row.code === "layout" || row.code === "style")
+          ? [
+              {
+                objectKey: row.objectKey,
+                role: row.code,
+                sourceEtag: row.sourceEtag,
+                audience: row.audience,
+                ...(row.releaseId === undefined ? {} : { releaseId: row.releaseId }),
+                ...(row.releasePageId === undefined ? {} : { releasePageId: row.releasePageId }),
+              },
+            ]
+          : [],
+      )
+    : [];
   if (route.audience === "members") {
     if (args.actorUserId === null) {
       return {
@@ -242,6 +267,8 @@ export async function websiteResolutionPlanHandler(
     ...(route.releasePageId === undefined
       ? {}
       : { releasePageId: route.releasePageId }),
+    ...(route.code === "html" ? { code: "html" as const } : {}),
+    ...(designNotes.length === 0 ? {} : { designNotes }),
     /*
       Withheld while a restriction may be pending, for the reason the menu is:
       a title in the list is a claim that the note is still on the site.
@@ -370,7 +397,7 @@ export async function resolveWebsitePageAs(
   // implies, so the compiler that placed it re-derives the same route.
   const statuses = buildWebsiteRouteStatuses([
     { objectKey: routeStatusKey(plan.objectKey, plan.routePath), markdown: result.text },
-  ]);
+  ], { code: isWebsiteRootKey(plan.objectKey) });
   const status = statuses[0];
   const parsed = parseWebsitePage(result.text);
   if (result.encrypted) {
@@ -440,6 +467,7 @@ export async function resolveWebsitePageAs(
     objectKey: plan.objectKey,
     body: folderListFor(plan.objectKey, result.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
+    design: { notes: plan.designNotes ?? [], text: result.text, html: plan.code === "html" },
     page: {
       kind: "page",
       siteName: plan.siteName,
@@ -497,7 +525,7 @@ async function resolveReleasedPage(
   const parsed = parseWebsitePage(page.text);
   const status = buildWebsiteRouteStatuses([
     { objectKey: routeStatusKey(plan.objectKey, plan.routePath), markdown: page.text },
-  ])[0];
+  ], { code: isWebsiteRootKey(plan.objectKey) })[0];
   if (
     isEncryptedNote(page.text) ||
     status?.status !== "live" ||
@@ -515,6 +543,7 @@ async function resolveReleasedPage(
     objectKey: plan.objectKey,
     body: folderListFor(plan.objectKey, page.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
+    design: { notes: plan.designNotes ?? [], text: page.text, html: plan.code === "html" },
     page: {
       kind: "page",
       siteName: plan.siteName,
@@ -578,8 +607,26 @@ async function renderWebsitePage(
     body: string;
     viewerAudience: WebsiteRouteAudience;
     page: Extract<ResolvedWebsitePage, { kind: "page" }>;
+    /** The site's published code notes and the served text, for its design. */
+    design?: { notes: DesignNote[]; text: string; html: boolean };
   },
 ): Promise<ResolvedWebsitePage> {
+  const designing =
+    args.design === undefined || (args.design.notes.length === 0 && !args.design.html)
+      ? Promise.resolve(null)
+      : readWebsiteDesign(ctx, {
+          workspaceId: args.workspaceId,
+          notes: args.design.notes,
+          pageKey: args.objectKey,
+          pageText: args.design.text,
+          pageIsHtml: args.design.html,
+          viewerAudience: args.viewerAudience,
+        }).catch(() => null);
+  // An HTML page's words are its HTML; its prose is notes, never published.
+  if (args.design?.html === true) {
+    const design = await designing;
+    return design === null ? { ...args.page, kind: "page" } : { ...args.page, markdown: "", design };
+  }
   const catalog = await ctx
     .runQuery(internal.functions.websites.websiteLinkCatalog, {
       workspaceId: args.workspaceId,
@@ -621,14 +668,16 @@ async function renderWebsitePage(
   }
 
   const markdown = rewriteWebsiteLinks(withLists, linkOptions, readableShares);
-  const [emoji, images] = await Promise.all([
+  const [emoji, images, design] = await Promise.all([
     readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({})),
     readPublishedImages(ctx, args.workspaceId, [markdown]).catch(() => ({})),
+    designing,
   ]);
   return {
     ...args.page,
     markdown,
     ...(Object.keys(emoji).length > 0 ? { emoji } : {}),
     ...(Object.keys(images).length > 0 ? { images } : {}),
+    ...(design === null ? {} : { design }),
   };
 }

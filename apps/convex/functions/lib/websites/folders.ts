@@ -70,7 +70,8 @@ export async function referencedWebsitePages(
   const taken = new Set(
     own.flatMap((status) => (status.routePath === null ? [] : [websiteRouteLookupKey(status.routePath)])),
   );
-  const statuses = buildWebsiteRouteStatuses(virtualPages).flatMap((status) => {
+  // A note a folder publishes is a note, whatever its name: never a layout or a stylesheet.
+  const statuses = buildWebsiteRouteStatuses(virtualPages, { code: false }).flatMap((status) => {
     if (status.status === "problem" || status.routePath === null) return [];
     if (taken.has(websiteRouteLookupKey(status.routePath))) return [];
     return [{ ...status, objectKey: realKey.get(status.objectKey)! }];
