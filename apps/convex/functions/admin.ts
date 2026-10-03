@@ -59,7 +59,7 @@ import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } f
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, type CountedTotal, type MetricSeries, countedTotalValidator } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
-import { jevUsageReportHandler, setJevSwitchHandler } from "./lib/jev/admin";
+import { jevUsageReportHandler, jevUsageReportValidator, setJevSwitchHandler } from "./lib/jev/admin";
 import {
   applySecretHandler,
   deleteSecretHandler,
@@ -151,15 +151,6 @@ export const usageReport = query({
 
 // -- Jev smarts -----------------------------------------------------------
 
-const jevDayValidator = v.object({
-  day: v.string(),
-  calls: v.number(),
-  failed: v.number(),
-  refused: v.number(),
-  tokens: v.number(),
-  costUsd: v.number(),
-});
-
 /**
  * Jev usage and estimated cost per feature, with each kill switch's state.
  * Counts only: no question, answer, path or workspace name. See
@@ -167,27 +158,7 @@ const jevDayValidator = v.object({
  */
 export const jevUsageReport = query({
   args: { days: v.optional(v.number()) },
-  returns: v.object({
-    usdPerMtok: v.number(),
-    allOff: v.boolean(),
-    features: v.array(
-      v.object({
-        feature: v.string(),
-        label: v.string(),
-        on: v.boolean(),
-        disabledByEnv: v.boolean(),
-        dailyCallsPerWorkspace: v.number(),
-        workspaces: v.number(),
-        calls: v.number(),
-        failed: v.number(),
-        refused: v.number(),
-        questions: v.number(),
-        tokens: v.number(),
-        costUsd: v.number(),
-        days: v.array(jevDayValidator),
-      }),
-    ),
-  }),
+  returns: jevUsageReportValidator,
   handler: async (ctx, args) => {
     try {
       await requireAdmin(ctx);
