@@ -152,10 +152,25 @@ export interface CastWorkspace {
 /**
  * The moments of a show a sound can go with: somebody arriving, a key, an
  * agent's words landing, a comment or reply sent, a thread resolved, a note
- * appearing. `click` is for steps the grammar has yet to learn.
+ * appearing, an assistant giving up. `click` is for steps the grammar has yet
+ * to learn.
  */
-export const CAST_MOMENTS = ["join", "agent", "typing", "writes", "click", "comment", "resolve", "note"] as const;
+export const CAST_MOMENTS = ["join", "agent", "typing", "writes", "click", "comment", "resolve", "note", "error"] as const;
 export type CastMoment = (typeof CAST_MOMENTS)[number];
+
+/*
+  An answer that is the assistant refusing to go on, the way the products word
+  it: a usage or rate limit, an overload, a bare "Error:". Dev2 asked for the
+  weekly-limit moment to sound like an error (2026-10-03). Phrases rather than
+  the word "error", so an assistant saying it fixed one still sounds like words
+  landing.
+*/
+const GIVES_UP =
+  /\b(?:usage limit|limit reached|rate limit|overloaded|out of credits|quota exceeded|something went wrong|try again later)\b|^\s*error\s*:/i;
+
+function givesUp(text: string): boolean {
+  return GIVES_UP.test(text);
+}
 
 /*
   The console's presence palette (`PRESENCE_COLORS` in the gateway), so a cast
@@ -548,7 +563,7 @@ export function playCast(
   function answer(step: Extract<CastStep, { kind: "answer" }>, then: () => void) {
     chats.add(step.actor.name.toLowerCase());
     const id = (said += 1);
-    host.cue?.("writes");
+    host.cue?.(givesUp(step.text) ? "error" : "writes");
     if (host.instant()) {
       host.chat?.({ kind: "answer", agent: step.actor.name, id, text: step.text, done: true });
       return then();
