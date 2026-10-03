@@ -17,33 +17,17 @@
  * notes is drawn exactly as before.
  */
 
-export type WebsiteCodeLanguage = "html" | "css" | "js";
-
-/**
- * What a code note is to the site: the frame, a layout a page names, a
- * stylesheet, a script, or an all-HTML page with an address of its own.
- */
-export type WebsiteCodeRole = "frame" | "layout" | "style" | "script" | "html";
-
-/** The file that frames every page. */
-export const WEBSITE_FRAME_FILE = "layout.html.md";
-
-const CODE_SUFFIX = /\.(html|css|js)\.md$/i;
-
-/** `layout: cards` names `cards.html.md`: one plain name, no folders. */
-export const WEBSITE_LAYOUT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
-
-/** The language a file's name declares, or null for an ordinary page. */
-export function websiteCodeLanguage(path: string): WebsiteCodeLanguage | null {
-  const match = CODE_SUFFIX.exec(path);
-  return match === null ? null : (match[1]!.toLowerCase() as WebsiteCodeLanguage);
-}
-
-/** `cards` for `website/cards.html.md`. */
-export function websiteCodeName(path: string): string {
-  const leaf = path.slice(path.lastIndexOf("/") + 1);
-  return leaf.replace(CODE_SUFFIX, "");
-}
+// The names are read where routes are compiled, which node also loads on its
+// own (scripts/devlog-copy.mjs), so they live there; this module adds the rest.
+export {
+  WEBSITE_FRAME_FILE,
+  WEBSITE_LAYOUT_NAME,
+  websiteCodeLanguage,
+  websiteCodeName,
+  type WebsiteCodeLanguage,
+  type WebsiteCodeRole,
+} from "../websiteRoutes";
+import type { WebsiteCodeLanguage } from "../websiteRoutes";
 
 const LANGUAGE_WORDS: Record<WebsiteCodeLanguage, ReadonlySet<string>> = {
   html: new Set(["html"]),
