@@ -150,7 +150,7 @@ describe("pieces", () => {
   it("builds its key from checked parts only", () => {
     const ask = sitePageAsk(new URL("https://context.lc/_site/page?handle=acme&path=%2Fa%2Fb"), null)!;
     expect(pageKey(ask, "4:rel_1:scanned").url).toBe(
-      "https://site-page.invalid/v2/acme/4%3Arel_1%3Ascanned/%2Fa%2Fb",
+      "https://site-page.invalid/v3/acme/4%3Arel_1%3Ascanned/%2Fa%2Fb",
     );
   });
 

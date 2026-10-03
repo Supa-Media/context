@@ -196,23 +196,27 @@ export function findVarsThatAreSecrets(files) {
     // Comments blanked (not removed — line numbers stay aligned) before
     // searching: every one of these headers narrates "wrangler deploy" and
     // "wrangler secret put" in prose, well above the real steps.
+    // Every deploy in the workflow, not the first: one workflow may deploy a
+    // helper Worker before the one it pushes secrets into.
     const lines = stripComments(text).split("\n");
-    const deployLine = lines.findIndex((l) => DEPLOYS_LIVE.test(l));
-    if (deployLine === -1) continue;
+    const configPaths = new Set();
+    lines.forEach((line, index) => {
+      if (!DEPLOYS_LIVE.test(line)) return;
+      const configPath = resolveConfigPath(lines, index, workingDirectoryAbove(lines, index));
+      if (configPath) configPaths.add(configPath); // none found: nothing to check against, not a pass
+    });
 
-    const dir = workingDirectoryAbove(lines, deployLine);
-    const configPath = resolveConfigPath(lines, deployLine, dir);
-    if (!configPath) continue; // nothing found to check against — not a pass, just nothing to say
-
-    const configText = readFileSync(configPath, "utf8");
-    const collisions = varsKeysIn(configText).filter((key) => pushed.includes(key));
-    if (collisions.length > 0) {
-      problems.push(
-        `${name} pushes ${collisions.join(", ")} via \`wrangler secret put\`, but ` +
-          `${configPath.replace(ROOT + "/", "")} already declares ${collisions.length > 1 ? "them" : "it"} under ` +
-          `\`vars\` as plaintext. A committed var of the same name as a secret is exactly the #302 shape — ` +
-          `remove it from \`vars\`.`,
-      );
+    for (const configPath of configPaths) {
+      const configText = readFileSync(configPath, "utf8");
+      const collisions = varsKeysIn(configText).filter((key) => pushed.includes(key));
+      if (collisions.length > 0) {
+        problems.push(
+          `${name} pushes ${collisions.join(", ")} via \`wrangler secret put\`, but ` +
+            `${configPath.replace(ROOT + "/", "")} already declares ${collisions.length > 1 ? "them" : "it"} under ` +
+            `\`vars\` as plaintext. A committed var of the same name as a secret is exactly the #302 shape — ` +
+            `remove it from \`vars\`.`,
+        );
+      }
     }
   }
   return problems;

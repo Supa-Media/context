@@ -12,6 +12,41 @@
  * path and a case-folded lookup key for collision detection.
  */
 
+/*
+ * Code notes' names (`siteDesign/codeNotes.ts` reads their blocks). Kept here
+ * because this file is loaded by node directly, with no bundler, so it
+ * imports nothing relative.
+ */
+
+export type WebsiteCodeLanguage = "html" | "css" | "js";
+
+/**
+ * What a code note is to the site: the frame, a layout a page names, a
+ * stylesheet, a script, or an all-HTML page with an address of its own.
+ */
+export type WebsiteCodeRole = "frame" | "layout" | "style" | "script" | "html";
+
+/** The file that frames every page. */
+export const WEBSITE_FRAME_FILE = "layout.html.md";
+
+const CODE_SUFFIX = /\.(html|css|js)\.md$/i;
+
+/** `layout: cards` names `cards.html.md`: one plain name, no folders. */
+export const WEBSITE_LAYOUT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/** The language a file's name declares, or null for an ordinary page. */
+export function websiteCodeLanguage(path: string): WebsiteCodeLanguage | null {
+  const match = CODE_SUFFIX.exec(path);
+  return match === null ? null : (match[1]!.toLowerCase() as WebsiteCodeLanguage);
+}
+
+/** `cards` for `website/cards.html.md`. */
+export function websiteCodeName(path: string): string {
+  const leaf = path.slice(path.lastIndexOf("/") + 1);
+  return leaf.replace(CODE_SUFFIX, "");
+}
+
+
 /** The working canonical root; callers may override it at this one boundary. */
 export const DEFAULT_WEBSITE_ROOT = "website";
 
@@ -50,6 +85,8 @@ export type WebsiteRouteDiagnosticCode =
   | "case_collision";
 
 export interface WebsiteRoute {
+  /** Set on an all-HTML page (`about.html.md` at `/about`). */
+  code?: "html";
   /** Exact key to read from the workspace bucket. */
   objectKey: string;
   /** Exact file path below the configured website root. */
@@ -75,6 +112,11 @@ export interface WebsiteRouteCompilation {
   diagnostics: WebsiteRouteDiagnostic[];
   /** Objects that are not Markdown pages under the configured root. */
   ignoredObjectKeys: string[];
+  /**
+   * Code notes that are drawn into pages rather than served at an address:
+   * the frame, named layouts, stylesheets and scripts. Empty unless `code`.
+   */
+  codeNotes: Array<{ objectKey: string; role: Exclude<WebsiteCodeRole, "html"> }>;
 }
 
 export interface WebsiteRouteOptions {
@@ -82,6 +124,19 @@ export interface WebsiteRouteOptions {
   root?: string;
   /** Override only for a host whose platform routing table differs. */
   reservedFirstSegments?: readonly string[];
+  /**
+   * Read `.html.md`, `.css.md` and `.js.md` as code notes
+   * (`./siteDesign/codeNotes.ts`). Off for notes a folder reference
+   * publishes: those are notes, whatever they are called.
+   */
+  code?: boolean;
+  /** `.html.md` files a page names with `layout:`; never an address. */
+  layoutObjectKeys?: ReadonlySet<string>;
+  /**
+   * The pages are the whole site, so a `layout:` naming a file that is not
+   * among them is a problem. A single page re-checked on its own is not.
+   */
+  wholeSite?: boolean;
 }
 
 const CONTROL_OR_BACKSLASH = /[\u0000-\u001f\u007f\\]/;
@@ -99,6 +154,23 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+/**
+ * The address a page has when somebody named it by its file instead:
+ * `/index` and `/index.md` are `/`, `/blog/index` is `/blog`, `/about.md` is
+ * `/about` — the addresses those files publish at. `null` when `routePath`
+ * does not look like a file name. Only ever a fallback after the exact
+ * address found nothing, so a page really published at `/x.md` keeps it.
+ */
+export function websiteFileAddressAlias(routePath: string): string | null {
+  let path = routePath.replace(/\.html\.md$/i, "").replace(/\.md$/i, "");
+  const segments = path.split("/");
+  if (segments.length > 1 && segments.at(-1)!.toLowerCase() === "index") {
+    segments.pop();
+    path = segments.join("/") || "/";
+  }
+  return path === routePath || path === "" ? null : path;
+}
+
 /** Build the derived-index key that both handle and custom-domain routes use. */
 export function websiteRouteLookupKey(path: string): string {
   return path.normalize("NFC").toLowerCase();
@@ -114,11 +186,16 @@ function assertRoot(root: string): void {
 
 type Candidate = WebsiteRoute;
 
+/** Is `objectKey` directly in the root, not in a folder under it? */
+function atRoot(objectKey: string, prefix: string): boolean {
+  return !objectKey.slice(prefix.length).includes("/");
+}
+
 type CandidateResult =
   | { kind: "candidate"; value: Candidate }
   | { kind: "diagnostic"; value: WebsiteRouteDiagnostic };
 
-function candidateFor(objectKey: string, prefix: string): CandidateResult {
+function candidateFor(objectKey: string, prefix: string, html: boolean): CandidateResult {
   const relativeFilePath = objectKey.slice(prefix.length);
 
   // A percent-bearing object key can be represented in a URL, but it creates
@@ -158,7 +235,8 @@ function candidateFor(objectKey: string, prefix: string): CandidateResult {
   }
 
   const filename = segments.at(-1)!;
-  const basename = filename.slice(0, -3);
+  // `about.html.md` is the page at `/about`, as `about.md` would be.
+  const basename = filename.slice(0, html ? -8 : -3);
   if (basename.length === 0) {
     return {
       kind: "diagnostic",
@@ -176,6 +254,7 @@ function candidateFor(objectKey: string, prefix: string): CandidateResult {
   return {
     kind: "candidate",
     value: {
+      ...(html ? { code: "html" as const } : {}),
       objectKey,
       relativeFilePath,
       routePath,
@@ -209,6 +288,7 @@ export function compileWebsiteRoutes(
   const ignoredObjectKeys: string[] = [];
   const diagnostics: WebsiteRouteDiagnostic[] = [];
   const candidates: Candidate[] = [];
+  const codeNotes: WebsiteRouteCompilation["codeNotes"] = [];
 
   for (const objectKey of uniqueKeys) {
     if (!objectKey.startsWith(prefix) || !/\.md$/i.test(objectKey)) {
@@ -216,10 +296,24 @@ export function compileWebsiteRoutes(
       continue;
     }
 
-    const result = candidateFor(objectKey, prefix);
+    const language = options.code === true ? websiteCodeLanguage(objectKey) : null;
+    const result = candidateFor(objectKey, prefix, language === "html");
     if (result.kind === "diagnostic") {
       diagnostics.push(result.value);
       continue;
+    }
+    if (language === "css" || language === "js") {
+      codeNotes.push({ objectKey, role: language === "css" ? "style" : "script" });
+      continue;
+    }
+    if (language === "html") {
+      const frame =
+        atRoot(objectKey, prefix) &&
+        result.value.relativeFilePath.toLowerCase() === WEBSITE_FRAME_FILE;
+      if (frame || options.layoutObjectKeys?.has(objectKey) === true) {
+        codeNotes.push({ objectKey, role: frame ? "frame" : "layout" });
+        continue;
+      }
     }
 
     const firstSegment = result.value.routePath.slice(1).split("/", 1)[0];
@@ -280,5 +374,5 @@ export function compileWebsiteRoutes(
     return compareText(leftKey, rightKey) || compareText(left.code, right.code);
   });
 
-  return { routes, diagnostics, ignoredObjectKeys };
+  return { routes, diagnostics, ignoredObjectKeys, codeNotes };
 }

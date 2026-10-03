@@ -11,6 +11,13 @@ import {
 } from "./websiteRoutes";
 import { stripComments } from "./comments.cjs";
 import { devlogPromiseProblems, isDevlogObjectKey } from "./devlog";
+import {
+  WEBSITE_LAYOUT_NAME,
+  websiteCodeBlock,
+  websiteCodeLanguage,
+  type WebsiteCodeRole,
+} from "./siteDesign/codeNotes";
+import { siteTemplateProblems } from "./siteDesign/template";
 
 /** The route-affecting subset of one ordinary Markdown note. */
 export interface ParsedWebsitePage {
@@ -19,6 +26,13 @@ export interface ParsedWebsitePage {
   title: string | null;
   description: string | null;
   nav: number | null;
+  /** `layout: cards`: draw the page with `website/cards.html.md`. */
+  layout: string | null;
+  /**
+   * `base: off` on a code note: pages drawn with it start from nothing, not
+   * from Context's base sheet (`siteDesign/baseCss.ts`). True unless off.
+   */
+  base: boolean;
   /** Markdown after frontmatter, normalized to LF but otherwise unchanged. */
   body: string;
   problems: WebsiteRouteProblem[];
@@ -29,7 +43,7 @@ export interface WebsitePageSource {
   markdown: string;
 }
 
-type ControlledField = "audience" | "draft" | "title" | "description" | "nav";
+type ControlledField = "audience" | "draft" | "title" | "description" | "nav" | "layout" | "base";
 
 const CONTROLLED_FIELDS = new Set<ControlledField>([
   "audience",
@@ -37,6 +51,8 @@ const CONTROLLED_FIELDS = new Set<ControlledField>([
   "title",
   "description",
   "nav",
+  "layout",
+  "base",
 ]);
 
 function invalid(message: string): WebsiteRouteProblem {
@@ -83,6 +99,8 @@ function base(body: string): Omit<ParsedWebsitePage, "problems"> {
     title: null,
     description: null,
     nav: null,
+    layout: null,
+    base: true,
     body,
   };
 }
@@ -124,7 +142,7 @@ export function parseWebsitePage(markdown: string): ParsedWebsitePage {
   for (const line of frontmatter) {
     const match = /^([A-Za-z][A-Za-z0-9_-]*):(?:[ \t]*(.*))?$/.exec(line);
     if (match === null) {
-      const possible = /^\s*(audience|draft|title|description|nav)\b/.exec(
+      const possible = /^\s*(audience|draft|title|description|nav|layout|base)\b/.exec(
         line,
       )?.[1];
       if (possible !== undefined) {
@@ -167,6 +185,13 @@ export function parseWebsitePage(markdown: string): ParsedWebsitePage {
       parsed.draft = value === "true";
       continue;
     }
+    if (field === "base") {
+      if (value !== "on" && value !== "off") {
+        return { ...parsed, problems: [invalid("Website base must be on or off.")] };
+      }
+      parsed.base = value === "on";
+      continue;
+    }
     if (field === "nav") {
       if (!/^(?:0|[1-9][0-9]*)$/.test(value)) {
         return {
@@ -182,6 +207,19 @@ export function parseWebsitePage(markdown: string): ParsedWebsitePage {
         };
       }
       parsed.nav = nav;
+      continue;
+    }
+
+    if (field === "layout") {
+      if (!WEBSITE_LAYOUT_NAME.test(value)) {
+        return {
+          ...parsed,
+          problems: [
+            invalid("Website layout must be a layout's name, like `layout: cards` for cards.html.md."),
+          ],
+        };
+      }
+      parsed.layout = value;
       continue;
     }
 
@@ -256,6 +294,31 @@ function diagnosticProblem(
   }
 }
 
+function codeProblem(message: string): WebsiteRouteProblem {
+  return { code: "code_note", message };
+}
+
+/** What is wrong with a code note's block, for its role in the site. */
+function codeNoteProblems(
+  objectKey: string,
+  role: WebsiteCodeRole,
+  body: string,
+  prefix: string,
+): WebsiteRouteProblem[] {
+  const language = websiteCodeLanguage(objectKey)!;
+  const block = websiteCodeBlock(body, language);
+  if ("problem" in block) return [codeProblem(block.problem)];
+  if ((role === "style" || role === "script") && objectKey.slice(prefix.length).includes("/")) {
+    return [codeProblem("Stylesheets and scripts go at the top of the website folder.")];
+  }
+  if (role === "frame" || role === "layout" || role === "html") {
+    return siteTemplateProblems(block.code, role === "frame" ? "frame" : role === "html" ? "page" : "layout").map(
+      codeProblem,
+    );
+  }
+  return [];
+}
+
 /** Produce the authenticated status for every Markdown route claimant. */
 export function buildWebsiteRouteStatuses(
   pages: readonly WebsitePageSource[],
@@ -264,11 +327,32 @@ export function buildWebsiteRouteStatuses(
   const byKey = new Map<string, string>();
   for (const page of pages) byKey.set(page.objectKey, page.markdown);
   const keys = [...byKey.keys()];
-  const compilation = compileWebsiteRoutes(keys, options);
+  const root = options.root ?? DEFAULT_WEBSITE_ROOT;
+  const prefix = `${root}/`;
+  const code = options.code !== false;
+  const parsedByKey = new Map(keys.map((key) => [key, parseWebsitePage(byKey.get(key)!)]));
+  /* The layouts pages name. Path compilation stays path-only; this is the
+     one fact it needs from the pages themselves. */
+  const layoutObjectKeys = new Set<string>();
+  if (code) {
+    for (const [key, page] of parsedByKey) {
+      if (page.layout === null || websiteCodeLanguage(key) !== null) continue;
+      const layoutKey = `${prefix}${page.layout}.html.md`;
+      if (byKey.has(layoutKey)) layoutObjectKeys.add(layoutKey);
+    }
+  }
+  const compileOptions: WebsiteRouteOptions = { ...options, code, layoutObjectKeys };
+  const compilation = compileWebsiteRoutes(keys, compileOptions);
   const ignored = new Set(compilation.ignoredObjectKeys);
   const routeByKey = new Map(
     compilation.routes.map((route) => [route.objectKey, route.routePath]),
   );
+  const roleByKey = new Map<string, WebsiteCodeRole>([
+    ...compilation.codeNotes.map((note) => [note.objectKey, note.role] as const),
+    ...compilation.routes.flatMap((route) =>
+      route.code === "html" ? [[route.objectKey, "html"] as const] : [],
+    ),
+  ]);
   const diagnosticsByKey = new Map<string, WebsiteRouteDiagnostic[]>();
   for (const diagnostic of compilation.diagnostics) {
     for (const objectKey of diagnostic.objectKeys) {
@@ -281,38 +365,58 @@ export function buildWebsiteRouteStatuses(
   const statuses: WebsiteRouteStatus[] = [];
   for (const objectKey of keys.sort()) {
     if (ignored.has(objectKey)) continue;
-    const page = parseWebsitePage(byKey.get(objectKey)!);
+    const page = parsedByKey.get(objectKey)!;
     const pathDiagnostics = diagnosticsByKey.get(objectKey) ?? [];
+    const language = code ? websiteCodeLanguage(objectKey) : null;
+    // A code note a diagnostic kept out of the compilation is still one.
+    const role: WebsiteCodeRole | undefined =
+      roleByKey.get(objectKey) ??
+      (language === null ? undefined : language === "html" ? "html" : language === "css" ? "style" : "script");
     let routePath = routeByKey.get(objectKey) ?? null;
-    if (routePath === null) {
+    if (routePath === null && (role === undefined || role === "html")) {
       // A claimant removed only because another claimant conflicts still has a
       // useful owner-facing path. The full compilation remains authoritative.
       routePath =
-        compileWebsiteRoutes([objectKey], options).routes[0]?.routePath ?? null;
+        compileWebsiteRoutes([objectKey], compileOptions).routes[0]?.routePath ?? null;
     }
+    const layoutProblems: WebsiteRouteProblem[] =
+      options.wholeSite !== true || role !== undefined || page.layout === null
+        ? []
+        : page.layout === "layout"
+          ? [codeProblem("`layout: layout` names the frame, which every page already has.")]
+          : layoutObjectKeys.has(`${prefix}${page.layout}.html.md`)
+            ? []
+            : [codeProblem(`\`layout: ${page.layout}\` needs ${prefix}${page.layout}.html.md, which isn't there.`)];
     const problems = [
       ...pathDiagnostics.map(diagnosticProblem),
       ...page.problems,
+      ...(role === undefined ? [] : codeNoteProblems(objectKey, role, page.body, prefix)),
+      ...layoutProblems,
       // An exploring line that reads like a promise holds the release, the
       // way a broken page does: the devlog is where that rule is kept — and
       // only there. Every workspace's site compiles through this function, so
       // the rule is scoped to the devlog page itself rather than to any page
       // that happens to be written in weeks.
-      ...(isDevlogObjectKey(objectKey, options.root ?? DEFAULT_WEBSITE_ROOT)
+      ...(isDevlogObjectKey(objectKey, root)
         ? devlogPromiseProblems(page.body).map(
             (message): WebsiteRouteProblem => ({ code: "devlog_promise", message }),
           )
         : []),
     ];
+    const pageLike = role === undefined || role === "html";
     statuses.push({
       objectKey,
-      routePath,
+      routePath: pageLike ? routePath : null,
       status: problems.length > 0 ? "problem" : page.draft ? "draft" : "live",
       audience: page.audience,
-      title: websitePageTitle(objectKey, page.title, page.body),
+      title:
+        role === undefined
+          ? websitePageTitle(objectKey, page.title, page.body)
+          : websitePageTitle(objectKey.replace(/\.(?:html|css|js)\.md$/i, ".md"), page.title, ""),
       description: page.description,
-      nav: page.nav,
+      nav: pageLike ? page.nav : null,
       problems,
+      ...(role === undefined ? {} : { code: role }),
     });
   }
   return statuses;

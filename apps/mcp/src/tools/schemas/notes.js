@@ -44,19 +44,48 @@ export function noteWriteToolDefinitions() {
         "id is a short lowercase name; responses is a note of its OWN, never this one; layout is table or sections; submit is the lowest role that may answer (member, editor or owner — use member for anything a link should collect); votes is named or off. Field types are line, text, select, number, date and checkbox; line and text need max, select needs options: [A, B]. Who may READ the answers is the responses note's own visibility, so say where it lands before you make it. " +
         "Add notify: owner — or notify: @handle — to EMAIL somebody every answer, which is what to reach for when they say they want to know when one comes in. It names a PERSON, never an address: the mail goes to a member of this context at the address on their account, an email address there is refused, and the mail carries the answers, so only somebody who could already open the answers note is told. " +
         "Then pass share to hand out a link to it — see that argument. " +
-        "\n\nTHIS TOOL ALSO UPLOADS IMAGES. Pass images: [{ name, data | url, alt? }] and embed each one in the content by its name, e.g. ![[chart.png]] or ![a chart](chart.png). " +
+        "\n\nTHIS TOOL ALSO UPLOADS IMAGES. Pass images: [{ name, data | url, alt? }] and embed each one in the content by its name, e.g. ![[chart.png]] or ![a chart](chart.png), or in a site's HTML and CSS as src=\"chart.png\" or url(chart.png). " +
         "data is the image's base64 (a data: URI works too); url is an https address the gateway fetches once. Either way the bytes are stored inside this workspace, the embed is rewritten to point at that copy, and the image follows the note's visibility. " +
         "PNG, JPEG, GIF, WebP and HEIC, up to 5 MB each and 10 per call; SVG is refused. An image the content does not embed is added at the end. " +
         "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead." +
         "\n\nTHIS TOOL ALSO COMMENTS, the way people comment in a shared document. read_note lists a note's open comment threads; " +
         "pass comment: { action: \"add\", quote, text } to highlight words and say something about them, or { action: \"reply\" | \"resolve\" | \"reopen\", thread, text? } to answer one. " +
         "Resolve a thread once you have acted on it: resolving keeps the whole thread in the note's history. " +
-        "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here.",
+        "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here. " +
+        "\n\nTHIS TOOL ALSO PUBLISHES THE WEBSITE, for the workspace's owners and editors. Saving a note under website/ publishes nothing. " +
+        "Pass site: { action: \"status\" } (with path \"website/index.md\" and no content) to see the draft Publish would release, what changed since the last publish, the problems that would stop it and the site's addresses. " +
+        "Pass site: { action: \"check\" } before publishing: it lists every address and its file, links that go nowhere (note and line), every picture with its size and users, what the HTML/CSS cleaner removes from your layouts and stylesheets and why, and pages that would draw nothing; add inspect: \"website/layout.html.md\" to see that note exactly as the site draws it. " +
+        "Then pass site: { action: \"publish\", draft } with the draft that status or check named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses. " +
+        "After publishing, site: { action: \"screenshot\", page: \"/about\" } photographs a public page as a signed-out visitor sees it at phone, tablet and desktop widths, and reports sideways scroll, whether the bottom can be scrolled to, boxes that hide content and pictures that did not load.",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string", description: "Destination path ending in .md" },
           content: { type: "string", description: "The whole note. Required unless comment is passed instead." },
+          site: {
+            type: "object",
+            additionalProperties: false,
+            description:
+              "Read, check or publish this context's website instead of writing a note; pass it with path \"website/index.md\" and no content. " +
+              "status names the draft Publish would release; check finds broken links, missing pictures and code the cleaner removes; publish releases the draft, and given that draft refuses if the folder changed since.",
+            properties: {
+              // A plain string, not an enum: a client that cached this list
+              // keeps it, and a new action has to reach it all the same.
+              action: { type: "string", description: "status, check, publish or screenshot." },
+              draft: { type: "string", description: "publish: the draft a status or check returned, so only what you checked goes live." },
+              page: { type: "string", description: "screenshot: the published address to photograph, e.g. \"/\" or \"/about\"." },
+              sizes: {
+                type: "array",
+                items: { type: "string", enum: ["phone", "tablet", "desktop"] },
+                description: "screenshot: which widths; all three when left out.",
+              },
+              inspect: {
+                type: "string",
+                description: "check: a layout, HTML page or stylesheet under website/, returned as the site draws it (cleaned, and scoped under .ctx-site).",
+              },
+            },
+            required: ["action"],
+          },
           comment: {
             type: "object",
             description:
@@ -111,6 +140,11 @@ export function noteWriteToolDefinitions() {
                 data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this or url." },
                 url: { type: "string", description: "An https URL to fetch the image from once. Pass this or data." },
                 alt: { type: "string", description: "Alt text, used when the image is appended rather than embedded by name" },
+                label: {
+                  type: "string",
+                  description:
+                    "Where the picture came from, e.g. original photograph, AI-assisted concept, early draft. Written into the note as the embed's title, ![alt](name \"label\"), so embed it that way rather than as ![[name]]; a site check lists it.",
+                },
               },
               required: ["name"],
               additionalProperties: false,

@@ -10,6 +10,7 @@
  */
 
 import {
+  websiteFileAddressAlias,
   websiteRouteLookupKey,
   type ResolvedWebsiteAddress,
 } from "@context/shared";
@@ -62,15 +63,17 @@ export async function websiteAddressPlanHandler(
       state.routeGeneration !== undefined &&
       state.routeGeneration === state.routeReconciledGeneration;
     if (!fresh) return { kind: "website" };
-    const indexed = await ctx.db
-      .query("websiteRouteIndex")
-      .withIndex("by_workspace_lookup", (q) =>
-        q
-          .eq("workspaceId", workspace._id)
-          .eq("lookupKey", websiteRouteLookupKey(routePath)),
-      )
-      .first();
-    if (indexed !== null) return { kind: "website" };
+    const claimed = (path: string) =>
+      ctx.db
+        .query("websiteRouteIndex")
+        .withIndex("by_workspace_lookup", (q) =>
+          q.eq("workspaceId", workspace._id).eq("lookupKey", websiteRouteLookupKey(path)),
+        )
+        .first();
+    if ((await claimed(routePath)) !== null) return { kind: "website" };
+    // `/index` names `index.md` by its file; the resolver opens `/` for it.
+    const alias = websiteFileAddressAlias(routePath);
+    if (alias !== null && (await claimed(alias)) !== null) return { kind: "website" };
   }
 
   const rawSlug =

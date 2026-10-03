@@ -450,7 +450,13 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
         ? " (published to this workspace so the link can open it; the answers note keeps its own visibility)"
         : "") +
       (attached.images.length
-        ? `\n${attached.images.map((image) => `image stored: ${image.name} → ${image.leaf}`).join("\n")}`
+        ? `\n${attached.images
+            .map(
+              (image) =>
+                `image stored: ${image.name} → ${image.leaf}` +
+                (image.labelLost ? " (label not kept: only a ![alt](name) embed carries one, and this note names it in code)" : ""),
+            )
+            .join("\n")}`
         : "") +
       (formLines.length ? `\n${formLines.join("\n")}` : "") +
       (shareLines.length ? `\n${shareLines.join("\n")}` : "") +

@@ -8,6 +8,7 @@
  * public function here is a path to the provider credential.
  */
 
+import { sitesSubdomainHandle } from "@context/shared";
 import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -20,6 +21,7 @@ import { isLive } from "../shares/standing";
 import { roleAtLeast, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { customDomainsDeployment } from "./config";
 import { mintOwnershipToken, ownershipRecordName, ownershipRecordValue } from "./dns";
+import { sitesDomainBinding } from "./sitesDomain";
 import { describeHostnameRejection, normalizeHostname, relativeRecordName } from "./hostname";
 import {
   applyCheck,
@@ -29,6 +31,7 @@ import {
   sweepActionFor,
   type CheckFindings,
 } from "./lifecycle";
+import { ensureWwwCompanion, wwwCompanionOf, wwwHostnameFor, wwwRedirectFor } from "./www";
 
 type Row = Doc<"customDomains">;
 
@@ -58,7 +61,7 @@ async function domainForOwner(
 /* -------------------------------------------------------------------------- */
 
 export const dnsRecordValidator = v.object({
-  purpose: v.union(v.literal("ownership"), v.literal("routing"), v.literal("hostname")),
+  purpose: v.union(v.literal("ownership"), v.literal("routing"), v.literal("hostname"), v.literal("www")),
   type: v.string(),
   /** Fully qualified. */
   name: v.string(),
@@ -91,6 +94,8 @@ export const domainViewValidator = v.object({
   records: v.array(dnsRecordValidator),
   /** Owner only, while records are missing: set them up at the DNS provider in one click. */
   oneClick: v.union(v.object({ provider: v.string(), url: v.string() }), v.null()),
+  /** A root domain's `www.`, which sends visitors to the root once it is live. */
+  www: v.union(v.object({ hostname: v.string(), live: v.boolean() }), v.null()),
 });
 
 export const settingsValidator = v.object({
@@ -103,7 +108,7 @@ export const settingsValidator = v.object({
 
 export type DomainSettings = Infer<typeof settingsValidator>;
 
-function recordsFor(row: Row, target: string): Infer<typeof dnsRecordValidator>[] {
+function recordsFor(row: Row, www: Row | null, target: string): Infer<typeof dnsRecordValidator>[] {
   const ownershipName = ownershipRecordName(row.hostname);
   return [
     {
@@ -137,7 +142,29 @@ function recordsFor(row: Row, target: string): Infer<typeof dnsRecordValidator>[
       value: ownershipRecordValue(row.verifyToken),
       done: row.ownershipVerified,
     },
+    // Proved by the root's TXT above, so it needs only somewhere to point.
+    ...(www === null
+      ? []
+      : [
+          {
+            purpose: "www" as const,
+            type: "CNAME",
+            name: www.hostname,
+            host: relativeRecordName(www.hostname, row.hostname),
+            value: target,
+            done: www.routingVerified,
+          },
+        ]),
   ];
+}
+
+/** The workspace's own domain: never its `www.` companion. */
+async function rootDomainOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Row | null> {
+  const rows = await ctx.db
+    .query("customDomains")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return rows.find((row) => row.wwwOf === undefined) ?? null;
 }
 
 export async function settingsHandler(
@@ -149,10 +176,8 @@ export async function settingsHandler(
   const canManage = roleAtLeast(membership.role, "owner");
   const deployment = customDomainsDeployment();
   const paying = await workspacePaying(ctx, args.workspaceId);
-  const row = await ctx.db
-    .query("customDomains")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-    .first();
+  const row = await rootDomainOf(ctx, args.workspaceId);
+  const www = row === null ? null : await wwwCompanionOf(ctx, row);
   return {
     available: deployment !== null,
     paying,
@@ -173,11 +198,12 @@ export async function settingsHandler(
             homeSlug: row.homeSlug ?? null,
             checkedAt: row.checkedAt ?? null,
             checkingSince: row.checkingSince,
-            records: canManage && deployment !== null ? recordsFor(row, deployment.target) : [],
+            records: canManage && deployment !== null ? recordsFor(row, www, deployment.target) : [],
             oneClick:
               canManage && row.status === "pending" && !(row.ownershipVerified && row.routingVerified)
                 ? (row.oneClick ?? null)
                 : null,
+            www: www === null ? null : { hostname: www.hostname, live: www.status === "active" },
           },
   };
 }
@@ -218,7 +244,7 @@ export async function connectHandler(
     .query("customDomains")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .collect();
-  if (existing.length >= DOMAINS_PER_WORKSPACE) {
+  if (existing.filter((row) => row.wwwOf === undefined).length >= DOMAINS_PER_WORKSPACE) {
     throw new ConvexError({
       code: "LIMIT_REACHED",
       message: "This workspace already has a domain. Remove it to connect a different one.",
@@ -262,6 +288,8 @@ export async function connectHandler(
   });
   await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.provision, { domainId });
   await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.detectProvider, { domainId });
+  const root = await ctx.db.get(domainId);
+  if (root !== null) await ensureWwwCompanion(ctx, root);
   return domainId;
 }
 
@@ -286,6 +314,11 @@ export async function checkNowHandler(
   await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.provision, {
     domainId: row._id,
   });
+  const www = await wwwCompanionOf(ctx, row);
+  if (www !== null && (www.status === "pending" || www.status === "active")) {
+    await ctx.db.patch(www._id, { checkingSince: now, checkCount: 0, problem: undefined, updatedAt: now });
+    await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.provision, { domainId: www._id });
+  }
   // A provider can take up our template after the domain was connected, so a
   // domain without a button looks again whenever its owner asks for a check.
   if (row.status === "pending" && row.oneClick === undefined) {
@@ -343,9 +376,12 @@ export async function removeHandler(
   ctx: MutationCtx,
   args: { domainId: Id<"customDomains"> },
 ): Promise<null> {
-  const { row, userId } = await domainForOwner(ctx, args.domainId);
+  const { row: named, userId } = await domainForOwner(ctx, args.domainId);
+  // A `www.` goes with its root, and only with it: removed alone, the sweep
+  // would only register it again.
+  const root = named.wwwOf === undefined ? named : await ctx.db.get(named.wwwOf);
+  const row = root ?? named;
   if (row.status !== "removing") {
-    await ctx.db.patch(row._id, { status: "removing", updatedAt: Date.now() });
     await recordAudit(ctx, {
       workspaceId: row.workspaceId,
       actorUserId: userId,
@@ -353,10 +389,21 @@ export async function removeHandler(
       details: { hostname: row.hostname },
     });
   }
-  await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.deprovision, {
-    domainId: row._id,
-  });
+  await startRemoval(ctx, row);
   return null;
+}
+
+/** Mark a domain and its `www.` removing, and delete them at the provider. */
+async function startRemoval(ctx: MutationCtx, row: Row): Promise<void> {
+  const www = await wwwCompanionOf(ctx, row);
+  for (const target of www === null ? [row] : [row, www]) {
+    if (target.status !== "removing") {
+      await ctx.db.patch(target._id, { status: "removing", updatedAt: Date.now() });
+    }
+    await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.deprovision, {
+      domainId: target._id,
+    });
+  }
 }
 
 /** For the workspace-deletion cascade: every domain goes, provider side too. */
@@ -387,6 +434,8 @@ export async function releaseWorkspaceDomains(
 export const resolvedHostValidator = v.union(
   v.null(),
   v.object({ handle: v.string(), homeSlug: v.union(v.string(), v.null()) }),
+  /** A root domain's `www.`: every request is sent to the root. */
+  v.object({ redirect: v.string() }),
 );
 
 /**
@@ -402,6 +451,8 @@ export async function resolveHostHandler(
   ctx: QueryCtx,
   args: { hostname: string },
 ): Promise<Infer<typeof resolvedHostValidator>> {
+  const handle = sitesSubdomainHandle(args.hostname);
+  if (handle !== null) return await sitesDomainBinding(ctx, handle);
   const normalized = normalizeHostname(args.hostname);
   if (!normalized.ok) return null;
   const row = await ctx.db
@@ -410,6 +461,10 @@ export async function resolveHostHandler(
     .first();
   if (row === null || row.status !== "active") return null;
   if (!(await workspacePaying(ctx, row.workspaceId))) return null;
+  if (row.wwwOf !== undefined) {
+    const redirect = await wwwRedirectFor(ctx, row);
+    return redirect === null ? null : { redirect };
+  }
   const workspace = await ctx.db.get(row.workspaceId);
   if (workspace === null) return null;
   return { handle: workspace.slug, homeSlug: row.homeSlug ?? null };
@@ -455,6 +510,14 @@ export async function recordCheckHandler(
   }
   const outcome = applyCheck(row, args.findings, Date.now());
   await ctx.db.patch(row._id, outcome.patch);
+  // The root's TXT is what proves its `www.`, so the moment it is seen the
+  // companion looks again rather than waiting out its own backoff.
+  if (outcome.patch.ownershipVerified === true && !row.ownershipVerified) {
+    const www = await wwwCompanionOf(ctx, row);
+    if (www !== null && www.status === "pending") {
+      await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.check, { domainId: www._id });
+    }
+  }
   if (outcome.patch.status === "active" && row.status !== "active") {
     await recordAudit(ctx, {
       workspaceId: row.workspaceId,
@@ -491,6 +554,10 @@ export async function sweepHandler(ctx: MutationCtx): Promise<null> {
       paying.set(row.workspaceId, isPaying);
     }
     const action = sweepActionFor(row, isPaying, now);
+    // A root domain connected before `www.` companions existed gets one here.
+    if (action.kind !== "release" && action.kind !== "deprovision" && isPaying && wwwHostnameFor(row) !== null) {
+      await ensureWwwCompanion(ctx, row);
+    }
     switch (action.kind) {
       case "none":
         break;
@@ -516,12 +583,7 @@ export async function sweepHandler(ctx: MutationCtx): Promise<null> {
         break;
       case "release":
       case "deprovision":
-        if (row.status !== "removing") {
-          await ctx.db.patch(row._id, { status: "removing", updatedAt: now });
-        }
-        await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.deprovision, {
-          domainId: row._id,
-        });
+        await startRemoval(ctx, row);
         break;
     }
   }

@@ -1,0 +1,21 @@
+{
+  "name": "@context/site-shots",
+  "version": "1.0.0",
+  "private": true,
+  "description": "context-site-shots: the Cloudflare Worker that photographs a published website at phone, tablet and desktop widths with a Browser Rendering binding, for an agent's write_note site screenshot. Reachable only by the gateway's service binding; keeps nothing.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/puppeteer": "^1.4.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "typescript": "~5.9.2",
+    "vitest": "^2",
+    "wrangler": "^4.124.0"
+  }
+}

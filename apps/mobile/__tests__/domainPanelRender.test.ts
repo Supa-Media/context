@@ -70,6 +70,7 @@ const pending = (over: Partial<DomainView> = {}): DomainView => ({
   checkedAt: Date.now() - 20_000,
   checkingSince: Date.now() - 60_000,
   oneClick: null,
+  www: null,
   records: [
     { purpose: "routing", type: "CNAME", name: "docs.acme.com", host: "docs", value: "customers.context.lc", done: false },
     {
@@ -154,6 +155,32 @@ describe("DomainPanel", () => {
     expect(root.textContent).toContain("https://docs.acme.com");
     expect(root.textContent).toContain("/intake · Intake form");
     expect(byTest(root, "domain-record-routing")).toBeNull();
+  });
+
+  test("a live root domain says what its www. does, or the one record it still needs", () => {
+    const live = { status: "active" as const, stage: "live" as const, ownershipVerified: true, routingVerified: true, httpsReady: true };
+    const wwwRecord = { purpose: "www" as const, type: "CNAME", name: "www.acme.com", host: "www", value: "customers.context.lc", done: false };
+    const waiting = mount({
+      settings: settings({
+        domain: pending({ ...live, hostname: "acme.com", apex: true, records: [wwwRecord], www: { hostname: "www.acme.com", live: false } }),
+      }),
+      failed: false,
+      homepageChoices: [],
+      actions: actions(),
+    });
+    expect(byTest(waiting, "domain-www")?.textContent).toContain(
+      "To send www.acme.com here too, add a CNAME for www pointing at customers.context.lc.",
+    );
+
+    const done = mount({
+      settings: settings({
+        domain: pending({ ...live, hostname: "acme.com", apex: true, records: [{ ...wwwRecord, done: true }], www: { hostname: "www.acme.com", live: true } }),
+      }),
+      failed: false,
+      homepageChoices: [],
+      actions: actions(),
+    });
+    expect(byTest(done, "domain-www")?.textContent).toContain("www.acme.com sends visitors to acme.com.");
   });
 
   test("a stuck domain says what to do, in our words", () => {

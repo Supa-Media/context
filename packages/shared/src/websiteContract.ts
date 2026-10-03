@@ -11,6 +11,7 @@ import {
   DEFAULT_WEBSITE_ROOT,
   type WebsiteRouteDiagnosticCode,
 } from "./websiteRoutes";
+import type { WebsiteCodeRole } from "./siteDesign/codeNotes";
 
 export const WEBSITE_CONTRACT_VERSION = 1 as const;
 
@@ -69,7 +70,8 @@ export type WebsiteRoutePublicationStatus = "live" | "draft" | "problem";
 export type WebsiteRouteProblemCode =
   | WebsiteRouteDiagnosticCode
   | "invalid_metadata"
-  | "devlog_promise";
+  | "devlog_promise"
+  | "code_note";
 
 export interface WebsiteRouteProblem {
   code: WebsiteRouteProblemCode;
@@ -88,6 +90,12 @@ export interface WebsiteRouteStatus {
   description: string | null;
   nav: number | null;
   problems: WebsiteRouteProblem[];
+  /**
+   * Set on a code note (`./siteDesign/codeNotes.ts`). Only `html`, an
+   * all-HTML page, has an address; the rest have a null `routePath` and are
+   * drawn into the pages rather than served as one.
+   */
+  code?: WebsiteCodeRole;
 }
 
 export interface WebsiteRouteSummary {
@@ -116,12 +124,32 @@ export function summarizeWebsiteRoutes(
     problems: 0,
   };
   for (const route of routes) {
+    // A layout or stylesheet is part of every page, not a page of its own;
+    // only a broken one is worth a count, so the owner goes and looks.
+    if (route.code !== undefined && route.code !== "html" && route.status !== "problem") {
+      summary.total -= 1;
+      continue;
+    }
     if (route.status === "problem") summary.problems += 1;
     else if (route.status === "draft") summary.drafts += 1;
     else if (route.audience === "members") summary.members += 1;
     else summary.public += 1;
   }
   return summary;
+}
+
+/** A page's design as the resolver hands it over (`siteDesign/`). */
+export interface WebsiteDesign {
+  /** `layout.html.md`'s sanitized HTML, or null for the default frame. */
+  frame: string | null;
+  /** The page's named layout, or an HTML page's own HTML, sanitized. */
+  template: string | null;
+  /** Every stylesheet, scoped to the page's container. */
+  css: string;
+  /** Google Fonts stylesheets to load. */
+  fonts: string[];
+  /** Present, and false, only when a note the page is drawn with says `base: off`. */
+  base?: false;
 }
 
 export interface WebsiteNavigationItem {
@@ -158,6 +186,12 @@ export type ResolvedWebsitePage =
        * as missing.
        */
       images?: Record<string, string>;
+      /**
+       * The site's own design, when it has code notes and its plan draws
+       * them: already sanitized, and composed and sanitized again where it
+       * is drawn. Absent, the page has the default look.
+       */
+      design?: WebsiteDesign;
     }
   | {
       kind: "authentication_required";

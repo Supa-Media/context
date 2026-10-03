@@ -7,6 +7,14 @@
  * and a failure to ask is a 503 that is never cached, so a control plane
  * mid-deploy cannot make a live site look disconnected for longer than the
  * outage itself.
+ *
+ * A root domain's `www.` serves nothing of its own: the control plane answers
+ * it with the root, and every request is sent there with a permanent redirect,
+ * path and query kept.
+ *
+ * The sites domain (`<handle>.ctxlc.site`) is served here too, by the same
+ * question: the control plane answers a workspace's handle for it. The bare
+ * domain and its `www.` have no site of their own and go to context.lc.
  */
 
 import type { Env } from "./index";
@@ -16,6 +24,23 @@ import { isSitePageRequest, sitePageResponse } from "./sitePages";
 
 const RESOLVE_TIMEOUT_MS = 1_500;
 const BINDING_CACHE_SECONDS = 60;
+/** Short, so a browser stops redirecting soon after a domain is removed. */
+const WWW_REDIRECT_CACHE_SECONDS = 300;
+
+/**
+ * Restated from `@context/shared` (`sitesDomain.ts`), which this Worker does
+ * not depend on.
+ */
+const SITES_DOMAIN = "ctxlc.site";
+
+/** A `www.` host, and the root domain it sends visitors to. */
+export interface WwwRedirect {
+  redirect: string;
+}
+
+type HostAnswer = SiteBinding | WwwRedirect;
+
+const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/;
 
 type Respond = (
   decision: RouteDecision,
@@ -54,7 +79,7 @@ async function bindingFor(
   hostname: string,
   env: Env,
   ctx: ExecutionContext,
-): Promise<SiteBinding | null | "unavailable"> {
+): Promise<HostAnswer | null | "unavailable"> {
   const origin = readOrigin(env.CONVEX_ORIGIN);
   if (origin === null) return "unavailable";
 
@@ -64,7 +89,7 @@ async function bindingFor(
   const cacheKey = new Request(`https://context.lc/__site-binding/${encodeURIComponent(hostname)}`);
   try {
     const cached = await cache?.match(cacheKey);
-    if (cached) return parseBinding(await cached.json());
+    if (cached) return parseBinding(await cached.json(), hostname);
   } catch {
     // A cache we cannot read is a slower request, not a failed one.
   }
@@ -87,7 +112,7 @@ async function bindingFor(
     return "unavailable";
   }
 
-  const binding = parseBinding(body);
+  const binding = parseBinding(body, hostname);
   if (cache !== null) {
     const stored = new Response(JSON.stringify(binding ?? { handle: null, homeSlug: null }), {
       headers: { "Content-Type": "application/json", "Cache-Control": `max-age=${BINDING_CACHE_SECONDS}` },
@@ -97,9 +122,17 @@ async function bindingFor(
   return binding;
 }
 
-/** Shape-checked, so an upstream answer never becomes a path unchecked. */
-function parseBinding(body: unknown): SiteBinding | null {
-  const payload = body as { handle?: unknown; homeSlug?: unknown } | null;
+/**
+ * Shape-checked, so an upstream answer never becomes a path unchecked. A
+ * redirect is only ever from `www.<root>` to `<root>`: whatever the answer
+ * says, this host can send a visitor nowhere else.
+ */
+export function parseBinding(body: unknown, hostname: string): HostAnswer | null {
+  const payload = body as { handle?: unknown; homeSlug?: unknown; redirect?: unknown } | null;
+  const redirect = payload?.redirect;
+  if (typeof redirect === "string") {
+    return HOSTNAME.test(redirect) && hostname === `www.${redirect}` ? { redirect } : null;
+  }
   const handle = payload?.handle;
   if (typeof handle !== "string" || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(handle)) return null;
   const home = payload?.homeSlug;
@@ -131,9 +164,20 @@ export async function siteResponse(
   if (request.method !== "GET" && request.method !== "HEAD") {
     return plain(405, "Method not allowed\n", "text/plain; charset=utf-8");
   }
-  const binding = await bindingFor(url.hostname.toLowerCase(), env, ctx);
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === SITES_DOMAIN || hostname === `www.${SITES_DOMAIN}`) {
+    const response = plain(301, "", "text/plain; charset=utf-8", "public, max-age=3600");
+    response.headers.set("Location", "https://context.lc/");
+    return response;
+  }
+  const binding = await bindingFor(hostname, env, ctx);
   if (binding === "unavailable") {
     return plain(503, "This site is temporarily unavailable. Try again in a moment.\n", "text/plain; charset=utf-8");
+  }
+  if (binding !== null && "redirect" in binding) {
+    const response = plain(301, "", "text/plain; charset=utf-8", `public, max-age=${WWW_REDIRECT_CACHE_SECONDS}`);
+    response.headers.set("Location", `https://${binding.redirect}${url.pathname}${url.search}`);
+    return response;
   }
 
   if (binding !== null && isSitePageRequest(url)) {

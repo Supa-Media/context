@@ -131,6 +131,11 @@ is served, or if a member can publish; `websiteNarrowing.test.ts` fails if a
 restriction waits for Publish or a new page does not; `siteHome.test.ts` fails
 if a save moves the homepage's revision or its words.
 
+## An agent can publish, the draft it checked and nothing newer
+
+Owners' and editors' agents check, publish and photograph a site through
+`write_note` `site`: [websites/agent-tools.md](./websites/agent-tools.md).
+
 ## Every site's pages are kept at the edge per Publish
 
 _Decided by the owner, 2026-09-26: "same functionality for all the websites
@@ -627,3 +632,15 @@ case in `apps/convex/__tests__/websiteResolution.test.ts` fail if any of
 these comes back. Printing the script in the editor puts the page's loudest
 lines where the owner writes it; `livePreview/castFences.test.ts` fails if
 the row or its count goes, or an unclosed block swallows the note again.
+
+## A website's design is code notes
+
+_Decided by the owner, 2026-10-02._ `layout.html.md`, named layouts,
+`*.css.md` and HTML pages, sanitized twice and never run on context.lc:
+[websites/code-notes.md](./websites/code-notes.md).
+
+## Every website is also at `<handle>.ctxlc.site`
+
+_Decided by the owner, 2026-10-02._ The same release, by the same resolver,
+on a domain of its own:
+[websites/sites-domain.md](./websites/sites-domain.md).

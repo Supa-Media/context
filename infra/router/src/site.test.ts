@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
 import { isPlatformHost, siteRoute } from "./site";
+import { parseBinding } from "./siteWorker";
 
 const ENV = {
   EXPO_ORIGIN: "https://context.expo.app",
@@ -24,9 +25,14 @@ const BROWSER =
   "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36";
 
 /** The control plane: which hosts are live sites, and for whom. */
-const SITES: Record<string, { handle: string; homeSlug: string | null }> = {
+const SITES: Record<string, { handle: string; homeSlug: string | null } | { handle: null; homeSlug: null; redirect: string }> = {
   "docs.acme-test.com": { handle: "acme", homeSlug: "welcome" },
   "globex-test.com": { handle: "globex", homeSlug: null },
+  "www.globex-test.com": { handle: null, homeSlug: null, redirect: "globex-test.com" },
+  // A control plane that answered wrongly still cannot send a visitor elsewhere.
+  "www.initech-test.com": { handle: null, homeSlug: null, redirect: "attacker-test.com" },
+  // The sites domain is answered by the same control-plane question.
+  "globex.ctxlc.site": { handle: "globex", homeSlug: null },
 };
 
 /** The control plane's answer for a website page, by `handle:routePath`. */
@@ -374,5 +380,62 @@ describe("a website page on context.lc", () => {
     const html = await (await get("https://context.lc/@globex", { ua: SLACK })).text();
     expect(html).toContain("<title>Context</title>");
     expect(calls.filter((c) => c.url.startsWith(ENV.CONVEX_ORIGIN))).toEqual([]);
+  });
+});
+
+describe("a root domain's www.", () => {
+  it("sends every request to the root, path and query kept, and fetches nothing else", async () => {
+    const response = await get("https://www.globex-test.com/writing/hello?ref=mail");
+    expect(response.status).toBe(301);
+    expect(response.headers.get("Location")).toBe("https://globex-test.com/writing/hello?ref=mail");
+    expect(response.headers.get("X-Robots-Tag")).toContain("noindex");
+    expect(upstreamPaths()).toEqual([]);
+  });
+
+  it("never sends a visitor anywhere but its own root", async () => {
+    const response = await get("https://www.initech-test.com/");
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Location")).toBeNull();
+    for (const [answer, host] of [
+      [{ redirect: "globex-test.com" }, "globex-test.com"],
+      [{ redirect: "globex-test.com" }, "www.www.globex-test.com"],
+      [{ redirect: "globex-test.com/evil" }, "www.globex-test.com/evil"],
+      [{ redirect: "evil.test\\@globex-test.com" }, "www.evil.test\\@globex-test.com"],
+      [{ redirect: 7 }, "www.globex-test.com"],
+    ] as const) {
+      expect([answer, host, parseBinding(answer, host)]).toEqual([answer, host, null]);
+    }
+    expect(parseBinding({ redirect: "globex-test.com" }, "www.globex-test.com")).toEqual({ redirect: "globex-test.com" });
+  });
+});
+
+describe("the sites domain", () => {
+  it("serves a workspace's site at <handle>.ctxlc.site, like any customer domain", async () => {
+    const response = await get("https://globex.ctxlc.site/writing/hello");
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("spa:/writing/hello");
+    expect(response.headers.get("X-Robots-Tag")).toContain("noindex");
+    expect(calls.some((c) => c.url.endsWith("/domain/resolve") && c.body === JSON.stringify({ hostname: "globex.ctxlc.site" }))).toBe(true);
+  });
+
+  it("never signs anybody in or serves the console there", async () => {
+    for (const path of ["/api/auth/signin", "/console", "/@globex/"]) {
+      const response = await get(`https://globex.ctxlc.site${path}`);
+      expect([path, response.status]).toEqual([path, 404]);
+    }
+    expect(upstreamPaths()).toEqual([]);
+  });
+
+  it("a name nobody holds is the same 404 as anything else", async () => {
+    const response = await get("https://nobody.ctxlc.site/");
+    expect(response.status).toBe(404);
+  });
+
+  it("the bare domain and its www. go to context.lc, asking nobody", async () => {
+    for (const url of ["https://ctxlc.site/", "https://www.ctxlc.site/pricing?x=1", "https://CTXLC.site/"]) {
+      const response = await get(url);
+      expect([url, response.status, response.headers.get("Location")]).toEqual([url, 301, "https://context.lc/"]);
+    }
+    expect(calls).toEqual([]);
   });
 });

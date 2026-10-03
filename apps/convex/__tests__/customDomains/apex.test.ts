@@ -57,8 +57,10 @@ describe("a root domain", () => {
       ["routing", "ALIAS", "@"],
       ["hostname", "TXT", "_cf-custom-hostname"],
       ["ownership", "TXT", "_context"],
+      // Its www., which sends visitors here (www.test.ts).
+      ["www", "CNAME", "www"],
     ]);
-    const registration = [...world.registrations.values()][0]!;
+    const registration = [...world.registrations.values()].find((row) => row.hostname === "acme-test.com")!;
     expect(before[1]).toMatchObject({
       name: "_cf-custom-hostname.acme-test.com",
       value: registration.ownership_verification!.value,

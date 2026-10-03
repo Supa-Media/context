@@ -20,6 +20,7 @@ import { consumeRateLimit } from "./lib/rateLimit";
 import { isAdmitted, USE_FOR_MAX, waitlistEmail } from "./lib/waitlist";
 import { renderWaitlistEmail } from "./lib/waitlistEmail";
 import { validAppOrigin } from "./lib/invitationEmail";
+import { scheduleSignupAlert } from "./signupAlerts";
 
 /** New waitlist rows per window, across every caller. */
 export const WAITLIST_JOINS_PER_HOUR = 300;
@@ -58,6 +59,7 @@ export const enter = mutation({
       joinedMailAt: now,
     });
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, { waitlistId: id, kind: "joined" });
+    await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
     return { status: "joined" as const };
   },
 });

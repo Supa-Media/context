@@ -41,4 +41,16 @@ export const waitlistTables = {
   })
     .index("by_email", ["email"])
     .index("by_status_joinedAt", ["status", "joinedAt"]),
+
+  /**
+   * Staff who asked to be emailed about each new waitlist signup and each new
+   * account (Dev2, 2026-10-03). One row per staff member who turned it on, from
+   * the console's Waitlist tab. The address is read from the user row at send
+   * time and must still be on `ADMIN_EMAILS`, so somebody taken off staff stops
+   * getting alerts without anybody remembering to switch them off.
+   */
+  signupAlertSubscribers: defineTable({
+    userId: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_user", ["userId"]),
 };

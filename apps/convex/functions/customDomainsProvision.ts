@@ -44,6 +44,7 @@ import {
   type CustomHostname,
   type ProviderConfig,
 } from "./lib/customDomains/provider";
+import { rootProves } from "./lib/customDomains/www";
 
 async function providerConfig(ctx: ActionCtx): Promise<ProviderConfig | null> {
   const deployment = customDomainsDeployment();
@@ -117,7 +118,12 @@ async function runCheck(
   const row = await ctx.runQuery(internal.functions.customDomains.rowForProvider, { domainId });
   if (row === null || (row.status !== "pending" && row.status !== "active")) return;
 
-  const ownership = row.ownershipVerified ? true : await ownershipPublished(row.hostname, row.verifyToken);
+  // A root domain's `www.` is proved by the root's own record, never by one of its own.
+  const ownership = row.ownershipVerified
+    ? true
+    : row.wwwOf !== undefined
+      ? rootProves(row, await ctx.runQuery(internal.functions.customDomains.rowForProvider, { domainId: row.wwwOf }))
+      : await ownershipPublished(row.hostname, row.verifyToken);
   const findings: CheckFindings = { ownership, readiness: null };
 
   const config = await providerConfig(ctx);

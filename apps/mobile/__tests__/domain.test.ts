@@ -32,6 +32,7 @@ const base: DomainView = {
   checkingSince: 0,
   records: [],
   oneClick: null,
+  www: null,
 };
 
 describe("what somebody types", () => {

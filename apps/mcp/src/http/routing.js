@@ -17,7 +17,7 @@
  * deployment and the test stub. `toolCreateLink` and its siblings refuse with
  * a sentence rather than throwing on `undefined`.
  */
-export function attachLinkCalls(store, session, controlPlane) {
+export function attachLinkCalls(store, session, controlPlane, env) {
   if (!controlPlane) return;
   Object.defineProperty(store, "links", {
     value: {
@@ -31,6 +31,35 @@ export function attachLinkCalls(store, session, controlPlane) {
     writable: false,
     configurable: true,
   });
+  // A website's status, check or publish (`write_note` `site`), for this context.
+  Object.defineProperty(store, "site", {
+    value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // The browser that photographs a published page (`infra/site-shots`), when
+  // this deployment binds one. It is only ever handed the address the control
+  // plane built for this context, after it cleared the caller.
+  if (typeof env?.SITE_SHOTS?.fetch === "function") {
+    Object.defineProperty(store, "shootSite", {
+      value: async (request) => {
+        const response = await env.SITE_SHOTS.fetch("https://site-shots/shoot", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body || !Array.isArray(body.shots)) {
+          return { error: typeof body?.error === "string" ? body.error : `the browser answered ${response.status}` };
+        }
+        return body;
+      },
+      enumerable: false,
+      writable: false,
+      configurable: true,
+    });
+  }
   // `report_problem`: filed as this connection's person, resolved from its own
   // token by the control plane. Not tied to a workspace, so the same call on
   // every store a request touches.

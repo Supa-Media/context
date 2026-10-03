@@ -95,9 +95,10 @@ async function postJson(url: string, body: unknown, limitMs: number): Promise<un
 
 /**
  * The answer's shape, in the key: a copy kept before pages carried their
- * pictures (`images`) is not served in place of one that does.
+ * pictures (`images`), or their design (`design`), is not served in place of
+ * one that does.
  */
-const PAGE_FORMAT = "v2";
+const PAGE_FORMAT = "v3";
 
 /** Our own key, built from checked parts; the request's URL never reaches it. */
 export function pageKey(ask: SitePageAsk, revision: string): Request {

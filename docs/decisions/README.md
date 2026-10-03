@@ -121,6 +121,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Premium serves the domain, and a lapse deletes nothing
 - One-click setup is Domain Connect, signed, and never for a root domain
 - A root domain carries Cloudflare's TXT as a third record
+- A root domain brings its `www.`, which only redirects
 - An incident note is metadata, never a summary of vendor text
 
 ## [Per-note encryption](./encryption.md)
@@ -229,6 +230,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - `privacy.md` decides what a website publishes
 - An edit is a candidate; the last complete release is the fallback
 - Edits wait for Publish
+- [An agent can publish, the draft it checked and nothing newer](./websites/agent-tools.md)
 - Every site's pages are kept at the edge per Publish
 - A fallback never reverses an explicit restriction
 - The index may lag on widening, never on narrowing
@@ -238,6 +240,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The homepage is `@context-lc`'s website, in its HTML
 - The homepage is the console's frame, never a copy of it
 - A page's emoji travel with the page
+- [A website's design is code notes](./websites/code-notes.md)
+- [Every website is also at `<handle>.ctxlc.site`](./websites/sites-domain.md)
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence

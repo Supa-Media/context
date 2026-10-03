@@ -34,6 +34,7 @@ import { CommunityLinks } from "./CommunityLinks";
 import { ReferralsView } from "./ReferralsView";
 import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
+import { SignupAlerts } from "./SignupAlerts";
 import { totalReferrals } from "./referrals";
 import { WaitlistAdd } from "./WaitlistAdd";
 import { WaitlistRows } from "./WaitlistRows";
@@ -138,6 +139,8 @@ export function WaitlistSection() {
           />
         )}
       </View>
+
+      <SignupAlerts />
 
       {adding ? (
         <WaitlistAdd

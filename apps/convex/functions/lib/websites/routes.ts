@@ -54,6 +54,8 @@ export async function scanWebsiteRoutes(
   statuses: WebsiteRouteStatus[];
   indexed: IndexedRoute[];
   restricted: string[];
+  /** The text of every page read, for a site check (`./siteCheck.ts`). */
+  pages: Array<{ objectKey: string; markdown: string }>;
 }> {
   const paths: string[] = [];
   /* Every other note this clearance may list, for the folders a page names. */
@@ -110,7 +112,7 @@ export async function scanWebsiteRoutes(
   const read = (keys: string[]) =>
     readScanPages(ctx, workspaceId, clearance, keys, options.publication === true);
   const { pages, etags } = await read(paths);
-  const own = buildWebsiteRouteStatuses(pages);
+  const own = buildWebsiteRouteStatuses(pages, { wholeSite: true });
   /*
     The folders the site's pages name. Their notes are read through the same
     barrier at the same clearance as the pages, so a note `privacy.md` holds
@@ -121,6 +123,7 @@ export async function scanWebsiteRoutes(
   const statuses = [...own, ...referenced.statuses];
   const allPages = [...pages, ...referenced.pages];
   return {
+    pages: allPages,
     restricted: allPages
       .filter((page) => websiteTextRestricts(page.markdown))
       .map((page) => page.objectKey),
@@ -307,6 +310,7 @@ export async function commitRouteReconciliationHandler(
       description: route.description,
       nav: route.nav,
       problems: route.problems,
+      ...(route.code === undefined ? {} : { code: route.code }),
       updatedAt: now,
     });
   }

@@ -31,7 +31,14 @@ import {
 } from "./lib/websites/resolver";
 import { homeSiteWorkspaceHandler, websiteSnapshot } from "./lib/websites/snapshot";
 import { publishWebsiteHandler } from "./lib/websites/publish";
+import {
+  gatewaySiteHandler,
+  gatewaySiteValidator,
+  siteFactsHandler,
+  siteFactsValidator,
+} from "./lib/websites/agentSite";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import { siteShotTargetHandler } from "./lib/websites/siteShots";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
   markWebsitePublicationEnsuredHandler,
@@ -41,6 +48,20 @@ import {
 } from "./lib/websites/state";
 
 const problemValidator = v.object({ code: v.string(), message: v.string() });
+const codeRoleValidator = v.union(
+  v.literal("frame"),
+  v.literal("layout"),
+  v.literal("style"),
+  v.literal("script"),
+  v.literal("html"),
+);
+const designValidator = v.object({
+  frame: v.union(v.string(), v.null()),
+  template: v.union(v.string(), v.null()),
+  css: v.string(),
+  fonts: v.array(v.string()),
+  base: v.optional(v.literal(false)),
+});
 const statusValidator = v.object({
   objectKey: v.string(),
   routePath: v.union(v.string(), v.null()),
@@ -50,6 +71,7 @@ const statusValidator = v.object({
   description: v.union(v.string(), v.null()),
   nav: v.union(v.number(), v.null()),
   problems: v.array(problemValidator),
+  code: v.optional(codeRoleValidator),
 });
 const indexedStatusValidator = v.object({
   ...statusValidator.fields,
@@ -83,6 +105,7 @@ const resolvedPageValidator = v.union(
     navigation: navigationValidator,
     emoji: v.optional(v.record(v.string(), v.string())),
     images: v.optional(v.record(v.string(), v.string())),
+    design: v.optional(designValidator),
   }),
   authenticationRequiredValidator,
   unavailableValidator,
@@ -134,6 +157,19 @@ const resolutionPlanValidator = v.union(
     releaseFallback: v.boolean(),
     releaseId: v.optional(v.string()),
     releasePageId: v.optional(v.string()),
+    code: v.optional(v.literal("html")),
+    designNotes: v.optional(
+      v.array(
+        v.object({
+          objectKey: v.string(),
+          role: v.union(v.literal("frame"), v.literal("layout"), v.literal("style")),
+          sourceEtag: v.string(),
+          audience: v.union(v.literal("public"), v.literal("members")),
+          releaseId: v.optional(v.string()),
+          releasePageId: v.optional(v.string()),
+        }),
+      ),
+    ),
     folderPages: v.optional(
       v.array(
         v.object({
@@ -294,6 +330,36 @@ export const publish = action({
     problems: v.array(v.object({ path: v.string(), message: v.string() })),
   }),
   handler: publishWebsiteHandler,
+});
+
+/** The database half of an agent's site status; see `lib/websites/agentSite.ts`. */
+export const siteFacts = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: siteFactsValidator,
+  handler: siteFactsHandler,
+});
+
+/** The one public page an agent may have photographed, counted against the hour's budget. INTERNAL. */
+export const siteShotTarget = internalMutation({
+  args: { workspaceId: v.id("workspaces"), page: v.string() },
+  returns: v.union(
+    v.object({ url: v.string(), address: v.string(), revision: v.union(v.number(), v.null()) }),
+    v.object({ message: v.string() }),
+  ),
+  handler: siteShotTargetHandler,
+});
+
+/** `/gateway/site`: status, check and publish for an owner's or editor's agent. INTERNAL. */
+export const gatewaySite = internalAction({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    action: v.string(),
+    draft: v.optional(v.string()),
+    path: v.optional(v.string()),
+  },
+  returns: gatewaySiteValidator,
+  handler: gatewaySiteHandler,
 });
 
 export const refreshRouteStatuses = action({

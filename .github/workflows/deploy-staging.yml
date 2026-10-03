@@ -207,6 +207,12 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
             | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(!JSON.parse(s).success)process.exit(1);console.log("Cloudflare Workers access verified.");});'
       - run: pnpm install --frozen-lockfile
+      # The gateway binds the screenshot browser (infra/site-shots) as a
+      # service, and Cloudflare refuses a binding to a script that does not
+      # exist, so that Worker deploys first, in this same job.
+      - name: Deploy the gateway's screenshot Worker
+        if: ${{ matrix.worker.name == 'mcp' }}
+        run: pnpm --dir infra/site-shots exec wrangler deploy --env staging
       - name: Deploy staging Worker
         run: pnpm --dir "$WORKER_DIR" exec wrangler deploy --env staging
       - name: Sync staging Worker secrets
