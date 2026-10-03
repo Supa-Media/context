@@ -123,3 +123,33 @@ describe("the CSS sanitizer reports what it removes", () => {
     ]);
   });
 });
+
+/*
+  AN AT-RULE'S NAME IS AUTHOR TEXT, NOT A KEY INTO A PROTOTYPE.
+
+  The reasons for refusing a blockless at-rule are looked up by the name the
+  author wrote. Read off an object literal, `@constructor;` and `@__proto__;`
+  find `Object.prototype`'s own members instead of missing, so `why` came back
+  as a function and as an object rather than a sentence — and `why` is declared
+  `v.string()` on the action that returns a check, so one such line in a
+  stylesheet failed the whole check instead of reporting one refusal.
+
+  Only these two reach it: the name is lower-cased first, so `hasOwnProperty`
+  and `toString` arrive as `hasownproperty` and `tostring` and miss. The test
+  asserts the type, not the wording, because the type is what the validator
+  rejects.
+*/
+describe("an at-rule name is never a key into Object.prototype", () => {
+  test("@constructor and @__proto__ are refused with a sentence like any other", () => {
+    // Both lookups: a blockless at-rule and one with a block are refused by
+    // separate lines, and each read the name the author wrote.
+    for (const name of ["constructor", "__proto__", "hasownproperty", "nonsense"]) {
+      for (const source of [`@${name};\n.a { color: red; }`, `@${name} { .b { color: red; } }`]) {
+        const mine = css(source).filter((removal) => removal.what.startsWith(`@${name}`));
+        expect(mine, source).toHaveLength(1);
+        expect(typeof mine[0]!.why, source).toBe("string");
+        expect(mine[0]!.why, source).toMatch(/not supported on a site/);
+      }
+    }
+  });
+});

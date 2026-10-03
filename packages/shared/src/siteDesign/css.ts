@@ -504,11 +504,18 @@ function selectorRefusal(raw: CssToken[]): string {
   return "it uses url(), an @-rule, a backslash or a character a site's selectors cannot";
 }
 
-const AT_RULE_REFUSALS: Record<string, string> = {
-  "font-face": "load fonts with a Google Fonts @import or <link> instead",
-  import: "only Google Fonts stylesheets can be imported",
-  charset: "",
-};
+/*
+  A `Map`, not an object literal: the key is the at-rule name the author wrote,
+  so a lookup on a literal finds `Object.prototype`'s own members. `@constructor`
+  and `@__proto__` returned a function and an object in place of a sentence —
+  the two that survive the `toLowerCase` above — and `why` is `v.string()` on
+  the action that returns a check, so one such line failed the whole check.
+*/
+const AT_RULE_REFUSALS = new Map<string, string>([
+  ["font-face", "load fonts with a Google Fonts @import or <link> instead"],
+  ["import", "only Google Fonts stylesheets can be imported"],
+  ["charset", ""],
+]);
 
 function sanitizeRules(rules: Rule[], options: SiteCssOptions, fonts: string[], depth: number): string[] {
   const out: string[] = [];
@@ -538,7 +545,7 @@ function sanitizeRules(rules: Rule[], options: SiteCssOptions, fonts: string[], 
     }
     if (rule.name === "import" && depth === 0) {
       const font = importedFont(rule.prelude);
-      if (font === null) dropAt(rule, AT_RULE_REFUSALS.import!);
+      if (font === null) dropAt(rule, AT_RULE_REFUSALS.get("import")!);
       else if (!fonts.includes(font)) {
         if (fonts.length < MAX_FONTS) fonts.push(font);
         else dropAt(rule, `a site loads at most ${MAX_FONTS} Google Fonts stylesheets`);
@@ -546,7 +553,7 @@ function sanitizeRules(rules: Rule[], options: SiteCssOptions, fonts: string[], 
       continue;
     }
     if (rule.block === null) {
-      dropAt(rule, AT_RULE_REFUSALS[rule.name] ?? `@${rule.name} is not supported on a site`);
+      dropAt(rule, AT_RULE_REFUSALS.get(rule.name) ?? `@${rule.name} is not supported on a site`);
       continue;
     }
     if (GROUPS.has(rule.name) && depth < 4) {
@@ -586,7 +593,7 @@ function sanitizeRules(rules: Rule[], options: SiteCssOptions, fonts: string[], 
       continue;
     }
     // `@font-face`, `@namespace`, `@page`, `@property` and anything newer: dropped.
-    dropAt(rule, AT_RULE_REFUSALS[rule.name] ?? `@${rule.name} is not supported on a site`);
+    dropAt(rule, AT_RULE_REFUSALS.get(rule.name) ?? `@${rule.name} is not supported on a site`);
   }
   return out;
 }
