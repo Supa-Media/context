@@ -20,6 +20,7 @@ import { createRoot } from "react-dom/client";
  *  3. **Shipped shows five and a count**, like the Discord post.
  *  4. **Exploring always carries "ideas, not promises".**
  *  5. **An offline person sees their last copy, and is told it is one.**
+ *  6. **Discord is the admin console's link or nothing**: no link, no button.
  *
  * ## Sabotage record
  *
@@ -30,6 +31,7 @@ import { createRoot } from "react-dom/client";
  *   SHIPPED_SHOWN = 50                                             1
  *   panel drops the exploring disclaimer                           1
  *   SwitcherMenu ignores whatsNew.unread for the avatar dot        1
+ *   panel always draws the Discord button                          1
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -158,8 +160,8 @@ function mount(element: ReturnType<typeof createElement>) {
   return { find, press };
 }
 
-function panel(state: WhatsNewState, onRetry: () => void = () => {}) {
-  return mount(createElement(WhatsNewPanel, { state, onClose: () => {}, onRetry }));
+function panel(state: WhatsNewState, onRetry: () => void = () => {}, discordUrl: string | null = null) {
+  return mount(createElement(WhatsNewPanel, { state, onClose: () => {}, onRetry, discordUrl }));
 }
 
 describe("the panel", () => {
@@ -179,6 +181,13 @@ describe("the panel", () => {
     const ui = panel({ kind: "ready", week: five });
     expect(ui.find("whats-new-exploring")!.textContent).toContain("ideas, not promises. some of these won't happen.");
     expect(ui.find("whats-new-declined")!.textContent).toContain("nothing this week");
+  });
+
+  test("Discuss on Discord shows only when the admin console has a link", () => {
+    expect(panel({ kind: "ready", week: five }).find("whats-new-discord")).toBeNull();
+    live.pop()!();
+    const linked = panel({ kind: "ready", week: five }, () => {}, "https://example.invalid/invite");
+    expect(linked.find("whats-new-discord")!.textContent).toBe("Discuss on Discord");
   });
 
   test("loading, error with a way to try again, and the offline copy named as one", () => {
