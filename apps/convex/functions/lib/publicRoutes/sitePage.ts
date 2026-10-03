@@ -91,6 +91,9 @@ function named(address: ResolvedWebsiteAddress): ResolvedWebsiteAddress {
         emoji: address.emoji,
         // And its pasted pictures, the same way; see `lib/websites/images.ts`.
         images: address.images,
+        // And its design, already sanitized; see `lib/websites/design.ts`.
+        // Without it every signed-out visitor got the default look.
+        design: address.design,
       };
     case "authentication_required":
       return {
