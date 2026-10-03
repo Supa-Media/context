@@ -38,6 +38,15 @@ describe("site CSS sanitizer: what survives", () => {
     expect(css("body.dark a { color: red }").css).toBe(".ctx-site body.dark a { color: red; }");
   });
 
+  test("a sheet that writes the container's own class is not scoped twice", () => {
+    expect(css(".ctx-site .hero { color: red }").css).toBe(".ctx-site .hero { color: red; }");
+    expect(css(".ctx-site { --bg: #000 }").css).toBe(".ctx-site { --bg: #000; }");
+    expect(css(".ctx-site > header, body .ctx-site p { margin: 0 }").css).toBe(".ctx-site > header, .ctx-site p { margin: 0; }");
+    // Only the bare class names the container; a longer name or a compound is the site's own.
+    expect(css(".ctx-site-hero { color: red }").css).toBe(".ctx-site .ctx-site-hero { color: red; }");
+    expect(css(".ctx-site.dark a { color: red }").css).toBe(".ctx-site .ctx-site.dark a { color: red; }");
+  });
+
   test("ids match the prefixed ids the HTML sanitizer writes; colours are untouched", () => {
     expect(css("#about { color: #fff }").css).toBe(".ctx-site #site-about { color: #fff; }");
   });

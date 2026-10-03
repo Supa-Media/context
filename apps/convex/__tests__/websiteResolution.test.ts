@@ -48,6 +48,32 @@ describe("public website resolution", () => {
     });
   });
 
+  test("an address that names a page by its file opens the page that file publishes", async () => {
+    // `index.md` publishes at `/`, so a link to `/index` (the file's name) is a
+    // natural slip; it opens the page rather than "Nothing here", and a page's
+    // own link to it is rewritten to the real address.
+    const f = await fixture();
+    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\n[Home](/index) [About](/about.md) [Blog](/blog/index)\n");
+    f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nAbout\n");
+    f.backend.seed("website/blog/index.md", "---\ntitle: Blog\n---\n\nPosts\n");
+    await publish(f);
+
+    const open = (routePath: string) => f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath });
+    await expect(open("/index")).resolves.toMatchObject({ kind: "page", routePath: "/", title: "Home" });
+    await expect(open("/INDEX/")).resolves.toMatchObject({ kind: "page", routePath: "/", title: "Home" });
+    await expect(open("/index.md")).resolves.toMatchObject({ kind: "page", routePath: "/", title: "Home" });
+    await expect(open("/blog/index")).resolves.toMatchObject({ kind: "page", routePath: "/blog", title: "Blog" });
+    await expect(open("/about.md")).resolves.toMatchObject({ kind: "page", routePath: "/about", title: "About" });
+    await expect(open("/nope/index")).resolves.toMatchObject({ kind: "unavailable" });
+    await expect(open("/")).resolves.toMatchObject({
+      kind: "page",
+      markdown: "[Home](/) [About](/about) [Blog](/blog)\n",
+    });
+    await expect(
+      f.t.action(api.functions.websites.resolveAddress, { handle: "atlas", routePath: "/index" }),
+    ).resolves.toMatchObject({ kind: "page", routePath: "/" });
+  });
+
   test("a cast block is the homepage's script and never reaches another site's page", async () => {
     const f = await fixture();
     f.backend.seed(

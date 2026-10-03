@@ -53,6 +53,14 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
     withSite.includes("sealed") && withSite.includes("analytics") && withSite.includes("Tell the person"),
   );
 
+  check(
+    "...and the contract an agent otherwise learns by breaking a site: scoping, scrolling, addresses, Publish",
+    withSite.includes("never write `.ctx-site`") &&
+      withSite.includes("scrolls by itself") &&
+      withSite.includes("not its file (`/index`)") &&
+      withSite.includes("Saving is not publishing"),
+  );
+
   const withoutSite = await site("ws_nositegd", { "1-projects/a.md": "# A\n" });
   check("...and not in a context with no website", !withoutSite.includes("## Building this context's website"));
 

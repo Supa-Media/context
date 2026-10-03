@@ -154,6 +154,23 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+/**
+ * The address a page has when somebody named it by its file instead:
+ * `/index` and `/index.md` are `/`, `/blog/index` is `/blog`, `/about.md` is
+ * `/about` — the addresses those files publish at. `null` when `routePath`
+ * does not look like a file name. Only ever a fallback after the exact
+ * address found nothing, so a page really published at `/x.md` keeps it.
+ */
+export function websiteFileAddressAlias(routePath: string): string | null {
+  let path = routePath.replace(/\.html\.md$/i, "").replace(/\.md$/i, "");
+  const segments = path.split("/");
+  if (segments.length > 1 && segments.at(-1)!.toLowerCase() === "index") {
+    segments.pop();
+    path = segments.join("/") || "/";
+  }
+  return path === routePath || path === "" ? null : path;
+}
+
 /** Build the derived-index key that both handle and custom-domain routes use. */
 export function websiteRouteLookupKey(path: string): string {
   return path.normalize("NFC").toLowerCase();

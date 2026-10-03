@@ -249,8 +249,12 @@ function isBare(token: CssToken | undefined, name: string): boolean {
   return token?.t === "ident" && token.v.toLowerCase() === name;
 }
 
-/** The compound that names the document: `html`, `body` or `:root`; its length in tokens. */
-function rootCompound(tokens: CssToken[], index: number): number {
+/**
+ * The compound that names the document: `html`, `body`, `:root`, or the
+ * container's own class (a sheet written knowing it is scoped would otherwise
+ * be scoped twice and match nothing); its length in tokens.
+ */
+function rootCompound(tokens: CssToken[], index: number, scope: string): number {
   const ends = (at: number) => {
     const next = tokens[at];
     return next === undefined || next.t === "ws" || (next.t === "delim" && (next.v === ">" || next.v === "+" || next.v === "~"));
@@ -258,6 +262,9 @@ function rootCompound(tokens: CssToken[], index: number): number {
   if ((isBare(tokens[index], "html") || isBare(tokens[index], "body")) && ends(index + 1)) return 1;
   const colon = tokens[index];
   if (colon?.t === "punct" && colon.v === ":" && isBare(tokens[index + 1], "root") && ends(index + 2)) return 2;
+  const dot = tokens[index];
+  const scopeClass = scope.startsWith(".") ? scope.slice(1).toLowerCase() : null;
+  if (scopeClass !== null && dot?.t === "delim" && dot.v === "." && isBare(tokens[index + 1], scopeClass) && ends(index + 2)) return 2;
   return 0;
 }
 
@@ -275,7 +282,7 @@ function sanitizeSelector(raw: CssToken[], scope: string): string | null {
   // `html body > header` is the container's `> header`.
   let index = 0;
   for (;;) {
-    const length = rootCompound(tokens, index);
+    const length = rootCompound(tokens, index, scope);
     if (length === 0) break;
     index += length;
     while (tokens[index]?.t === "ws") index += 1;
