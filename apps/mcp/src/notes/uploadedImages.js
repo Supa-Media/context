@@ -88,6 +88,15 @@ function cleanAlt(value) {
 }
 
 /**
+ * Where a picture came from ("original photograph", "AI-assisted concept"):
+ * one line, no quote that would end the Markdown title it is written as.
+ */
+function cleanLabel(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/["\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+/**
  * Decode or fetch every attached image, check it, name it, and point the note
  * at it. Returns `{ content, images }` or `{ error }`; writes nothing.
  *
@@ -97,6 +106,12 @@ function cleanAlt(value) {
  * only the target: the alias, the width and the link style stay as written.
  * An image the content never embeds is appended on a line of its own, so an
  * attachment is never stored and silently left unreferenced.
+ *
+ * A `label` says where a picture came from. It is written into the note as
+ * the embed's Markdown title, `![alt](leaf "label")`, so it is plain text that
+ * travels with the note and borrows its visibility, never a record beside it.
+ * A `![[name]]` embed has no title, so a label on one is refused; a picture
+ * named only in code is stored and reported as unlabelled (`labelLost`).
  */
 export async function prepareNoteImages(content, images) {
   if (images === undefined) return { content, images: [] };
@@ -150,7 +165,7 @@ export async function prepareNoteImages(content, images) {
     // could never be read back out. Asserted rather than assumed.
     const ref = imageRefFor(leaf);
     if (!ref || ref.mimeType !== type.contentType) return { error: `${label}: could not name the image` };
-    prepared.push({ name, leaf, key: IMAGE_PREFIX + leaf, bytes, contentType: type.contentType, alt: cleanAlt(image.alt) });
+    prepared.push({ name, leaf, key: IMAGE_PREFIX + leaf, bytes, contentType: type.contentType, alt: cleanAlt(image.alt), label: cleanLabel(image.label) });
   }
   if (prepared.length === 0) return { content, images: [] };
 
@@ -159,18 +174,62 @@ export async function prepareNoteImages(content, images) {
   const embedded = new Set();
   let next = content;
   const links = parseLinks(content).filter((link) => link.embed && byName.has(link.target.trim()));
+  for (const link of links) {
+    const image = byName.get(link.target.trim());
+    if (image.label && link.kind === "wiki") {
+      return {
+        error: `${image.name}: a label is written as the picture's title, which only a ![alt](${image.name}) embed has; embed it that way`,
+      };
+    }
+  }
   for (const link of links.sort((a, b) => b.start - a.start)) {
     const image = byName.get(link.target.trim());
     embedded.add(image.name);
-    next = next.slice(0, link.start) + image.leaf + next.slice(link.end);
+    // Only where the embed has no title of its own: a title someone wrote stays.
+    const titled = /^\s*["']/.test(next.slice(link.end));
+    const title = image.label && !titled ? ` "${image.label}"` : "";
+    next = next.slice(0, link.start) + image.leaf + title + next.slice(link.end);
+  }
+  const markdownEmbedded = new Set(embedded);
+  next = rewriteCodeReferences(next, byName, embedded);
+  for (const image of prepared) {
+    if (image.label && embedded.has(image.name) && !markdownEmbedded.has(image.name)) image.labelLost = true;
   }
   const appended = prepared
     .filter((image) => !embedded.has(image.name))
-    .map((image) => `![[${image.leaf}${image.alt ? `|${image.alt}` : ""}]]`);
+    .map((image) =>
+      image.label
+        ? `![${image.alt}](${image.leaf} "${image.label}")`
+        : `![[${image.leaf}${image.alt ? `|${image.alt}` : ""}]]`,
+    );
   if (appended.length) {
     next = `${next.replace(/\s*$/, "")}${next.trim() ? "\n\n" : ""}${appended.join("\n\n")}\n`;
   }
   return { content: next, images: prepared };
+}
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * A site's HTML and CSS name a picture with `src="logo.png"` or
+ * `url(logo.png)`, not an embed; those point at the stored copy too, so an
+ * agent writing a layout gets the picture where it put it rather than an
+ * embed tacked on after the code. Only a value that is exactly an attached
+ * name (optionally `./`-relative) is touched, and only its name.
+ */
+function rewriteCodeReferences(content, byName, embedded) {
+  let next = content;
+  for (const [name, image] of byName) {
+    const target = `((?:\\./)?)${escapeRegExp(name)}`;
+    const src = new RegExp(`(\\bsrc\\s*=\\s*)(["'])${target}\\2`, "gi");
+    const url = new RegExp(`(\\burl\\(\\s*)(["']?)${target}\\2(\\s*\\))`, "gi");
+    const before = next;
+    next = next
+      .replace(src, (_, lead, quote, dot) => `${lead}${quote}${dot}${image.leaf}${quote}`)
+      .replace(url, (_, lead, quote, dot, close) => `${lead}${quote}${dot}${image.leaf}${quote}${close}`);
+    if (next !== before) embedded.add(name);
+  }
+  return next;
 }
 
 /** Put every prepared image in the opaque store. Content-addressed, so a repeat is a no-op in effect. */

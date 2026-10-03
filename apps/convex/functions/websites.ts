@@ -31,7 +31,14 @@ import {
 } from "./lib/websites/resolver";
 import { homeSiteWorkspaceHandler, websiteSnapshot } from "./lib/websites/snapshot";
 import { publishWebsiteHandler } from "./lib/websites/publish";
+import {
+  gatewaySiteHandler,
+  gatewaySiteValidator,
+  siteFactsHandler,
+  siteFactsValidator,
+} from "./lib/websites/agentSite";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import { siteShotTargetHandler } from "./lib/websites/siteShots";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
   markWebsitePublicationEnsuredHandler,
@@ -53,6 +60,7 @@ const designValidator = v.object({
   template: v.union(v.string(), v.null()),
   css: v.string(),
   fonts: v.array(v.string()),
+  base: v.optional(v.literal(false)),
 });
 const statusValidator = v.object({
   objectKey: v.string(),
@@ -322,6 +330,36 @@ export const publish = action({
     problems: v.array(v.object({ path: v.string(), message: v.string() })),
   }),
   handler: publishWebsiteHandler,
+});
+
+/** The database half of an agent's site status; see `lib/websites/agentSite.ts`. */
+export const siteFacts = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: siteFactsValidator,
+  handler: siteFactsHandler,
+});
+
+/** The one public page an agent may have photographed, counted against the hour's budget. INTERNAL. */
+export const siteShotTarget = internalMutation({
+  args: { workspaceId: v.id("workspaces"), page: v.string() },
+  returns: v.union(
+    v.object({ url: v.string(), address: v.string(), revision: v.union(v.number(), v.null()) }),
+    v.object({ message: v.string() }),
+  ),
+  handler: siteShotTargetHandler,
+});
+
+/** `/gateway/site`: status, check and publish for an owner's or editor's agent. INTERNAL. */
+export const gatewaySite = internalAction({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    action: v.string(),
+    draft: v.optional(v.string()),
+    path: v.optional(v.string()),
+  },
+  returns: gatewaySiteValidator,
+  handler: gatewaySiteHandler,
 });
 
 export const refreshRouteStatuses = action({

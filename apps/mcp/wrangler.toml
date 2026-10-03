@@ -118,6 +118,16 @@ queue = "context-gateway-jobs"
 max_batch_size = 1
 max_batch_timeout = 5
 
+# `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
+# which photographs a published website page with Browser Rendering. Reached
+# only through this binding, so it has no address and holds no secret. It must
+# exist before this Worker deploys (Cloudflare refuses a binding to a missing
+# script), so the deploy jobs deploy it first. Self-hosting without Browser
+# Rendering: delete this block; screenshots then answer "not available".
+[[services]]
+binding = "SITE_SHOTS"
+service = "context-site-shots"
+
 # Self-host only. Comma-separated allowlist of Worker binding names that a
 # control-plane storage binding is permitted to name.
 #
@@ -213,3 +223,7 @@ queue = "context-gateway-jobs-staging"
 queue = "context-gateway-jobs-staging"
 max_batch_size = 1
 max_batch_timeout = 5
+
+[[env.staging.services]]
+binding = "SITE_SHOTS"
+service = "context-site-shots-staging"

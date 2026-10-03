@@ -15,6 +15,8 @@
  *     what the server changed.
  *  3. **Bulk Remove removes the selection** and nothing else.
  *  4. **Add emails names what it skipped** rather than dropping it quietly.
+ *  5. **The signup-alerts switch** names the address it mails and flips the
+ *     caller's own setting.
  *
  * Each runs twice: at a phone's width, where the rows stack, and at a
  * desk's, where they are a table. jsdom does no layout and reports a width
@@ -253,5 +255,16 @@ describe.each([
     const said = find("admin-waitlist-outcome")?.textContent ?? "";
     expect(said).toContain("Let 2 people in. They'll get an email.");
     expect(said).toContain("Not email addresses, so skipped: not-an-email.");
+  });
+
+  test("the signup-alerts switch names the address and turns alerts on", async () => {
+    mockAnswers.set("functions/admin:getSignupAlerts", { on: false, email: "staff@example.test" });
+    mount();
+    click("admin-tab-waitlist");
+    expect(find("admin-signup-alerts")?.textContent).toContain("sent to staff@example.test");
+    mockCall = async () => ({ on: true, email: "staff@example.test" });
+    click("admin-signup-alerts-switch");
+    await settle();
+    expect(mockCalls).toEqual([{ name: "functions/admin:setSignupAlerts", args: { on: true } }]);
   });
 });

@@ -48,12 +48,12 @@ const design: WebsiteDesign = {
   fonts: ["https://fonts.googleapis.com/css2?family=Space+Grotesk", "https://evil.test/font.css"],
 };
 
-function render(navigate = jest.fn<(path: string) => void>()) {
+function render(navigate = jest.fn<(path: string) => void>(), drawn: WebsiteDesign = design) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() =>
-    root.render(createElement(DesignedSite, { view, design, navigate, hrefFor: (path: string) => `/@supa${path === "/" ? "" : path}` })),
+    root.render(createElement(DesignedSite, { view, design: drawn, navigate, hrefFor: (path: string) => `/@supa${path === "/" ? "" : path}` })),
   );
   cleanups.push(() => act(() => root.unmount()));
   return { container, navigate };
@@ -69,6 +69,23 @@ describe("a designed site page", () => {
     expect(site.querySelector("nav a.current")!.textContent).toBe("Code");
     expect(container.querySelector("style")!.textContent).toContain(".ctx-site .card { border-radius: 18px; }");
     expect(container.querySelector("style")!.textContent).toContain(".ctx-site {");
+  });
+
+  test("base: off leaves out Context's base sheet, keeping the site's own", () => {
+    const { container } = render(undefined, { ...design, base: false });
+    const sheet = container.querySelector("style")!.textContent!;
+    expect(sheet).toBe(".ctx-site .card { border-radius: 18px; }");
+  });
+
+  test("the page scrolls itself, from the top of each new page", () => {
+    // The app turns the document's own scrolling off, so a site that did not
+    // bring a scroller of its own could never be read past the first screen.
+    const { container } = render();
+    const scroller = container.querySelector<HTMLElement>("[data-testid='site-scroll']")!;
+    expect(scroller).not.toBeNull();
+    expect(scroller.querySelector(".ctx-site")).not.toBeNull();
+    expect(scroller.style.overflowY).toBe("auto");
+    expect(scroller.style.height).toBe("100%");
   });
 
   test("nothing a site wrote runs", () => {

@@ -10,9 +10,13 @@
  * A link to a page on this site is followed in place, as the default look's
  * menu is, and carries the real address so a new tab opens the right page.
  * Every other link is left to the browser.
+ *
+ * The page scrolls in a box of its own: the app turns the document's
+ * scrolling off (`public/index.html`), so without one a long site could never
+ * be read past its first screen, and a site should not have to know that.
  */
 
-import { Fragment, createElement, useEffect, useMemo, useRef } from "react";
+import { createElement, useEffect, useMemo, useRef } from "react";
 import { SITE_BASE_CSS, SITE_SCOPE_CLASS, googleFontsUrl, type ResolvedWebsitePage, type WebsiteDesign } from "@context/shared";
 import { emojiPictures } from "../../share/emojiPictures";
 import { publishedImages } from "../../share/publishedImages";
@@ -34,6 +38,7 @@ export function DesignedSite({
   hrefFor: (routePath: string) => string;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
   const html = useMemo(
     () => designedPageHtml(view, design, { emoji: emojiPictures(view.emoji), images: publishedImages(view.images) }),
     [view, design],
@@ -85,11 +90,21 @@ export function DesignedSite({
     return () => root.removeEventListener("click", onClick);
   }, [html, hrefFor, navigate, view.routePath]);
 
+  // A new page opens at its top, as a page load would.
+  useEffect(() => {
+    if (scroller.current !== null) scroller.current.scrollTop = 0;
+  }, [view.routePath]);
+
   return createElement(
-    Fragment,
-    null,
+    "div",
+    {
+      ref: scroller,
+      "data-testid": "site-scroll",
+      style: { height: "100%", flex: "1 1 0%", minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch" },
+    },
     // Set as text, so it is never read as markup; every rule is scoped below.
-    createElement("style", null, `${SITE_BASE_CSS}\n${design.css}`),
+    // `base: off` on a code note: the site starts from nothing but its own CSS.
+    createElement("style", null, design.base === false ? design.css : `${SITE_BASE_CSS}\n${design.css}`),
     createElement("div", {
       className: SITE_SCOPE_CLASS,
       "data-testid": "site-designed",

@@ -3,6 +3,7 @@
  * Registered in `functions/admin.ts`, behind `requireAdmin`.
  */
 
+import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { ALL_JEV_FEATURES, JEV_FEATURES, type JevFeatureName, isJevFeature } from "./features";
 import { disabledByEnv, featureIsOn, usdPerMtok, utcDay } from "./meter";
@@ -101,3 +102,35 @@ export async function setJevSwitchHandler(
   else await ctx.db.insert("jevSwitches", { feature: args.feature, ...patch });
   return { feature: args.feature, off: args.off };
 }
+
+const jevDayValidator = v.object({
+  day: v.string(),
+  calls: v.number(),
+  failed: v.number(),
+  refused: v.number(),
+  tokens: v.number(),
+  costUsd: v.number(),
+});
+
+/** What `admin.jevUsageReport` returns. */
+export const jevUsageReportValidator = v.object({
+  usdPerMtok: v.number(),
+  allOff: v.boolean(),
+  features: v.array(
+    v.object({
+      feature: v.string(),
+      label: v.string(),
+      on: v.boolean(),
+      disabledByEnv: v.boolean(),
+      dailyCallsPerWorkspace: v.number(),
+      workspaces: v.number(),
+      calls: v.number(),
+      failed: v.number(),
+      refused: v.number(),
+      questions: v.number(),
+      tokens: v.number(),
+      costUsd: v.number(),
+      days: v.array(jevDayValidator),
+    }),
+  ),
+});

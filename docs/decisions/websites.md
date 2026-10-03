@@ -131,6 +131,11 @@ is served, or if a member can publish; `websiteNarrowing.test.ts` fails if a
 restriction waits for Publish or a new page does not; `siteHome.test.ts` fails
 if a save moves the homepage's revision or its words.
 
+## An agent can publish, the draft it checked and nothing newer
+
+Owners' and editors' agents check, publish and photograph a site through
+`write_note` `site`: [websites/agent-tools.md](./websites/agent-tools.md).
+
 ## Every site's pages are kept at the edge per Publish
 
 _Decided by the owner, 2026-09-26: "same functionality for all the websites

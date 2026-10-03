@@ -56,7 +56,8 @@ site inside the app. Script cannot be sanitized, only isolated, so:
   ids prefixed `site-` so nothing can clobber a global the app reads, and the
   output balanced so a layout cannot close the element it is drawn in.
 - **CSS is rebuilt from tokens** (`siteDesign/css.ts`): every selector scoped
-  under `.ctx-site` (`:root`, `html` and `body` name that container), nothing
+  under `.ctx-site` (`:root`, `html`, `body` and a bare `.ctx-site` name that
+  container, so a sheet written knowing it is scoped is not scoped twice), nothing
   that loads except a Google Fonts stylesheet, no escapes outside strings,
   functions from a closed list.
 - **The server sanitizes, and the browser sanitizes again.** The resolver
@@ -72,6 +73,19 @@ origin) and custom domains, the model Webflow uses on webflow.io. `.js.md` is
 recognised now so a script never becomes an address, and drawn only once it
 has that origin.
 
+A designed page scrolls in a box of its own (`DesignedSite.web.tsx`). The
+app turns the document's scrolling off, and a site's author should not have to
+know that; the first agent to build a long site found it could not be read
+past its first screen.
+
+An address that names a page by its file, `/index`, `/blog/index` or
+`/about.md`, opens the page that file publishes when nothing is published at
+it exactly (`websiteFileAddressAlias`), and a page's own link to one is
+rewritten to the real address. No route ever ends in `/index`, so this shadows
+nothing a site publishes; it does shadow a one-segment short link literally
+named `index` once the site has a home page, which is the website-first rule
+every other address already follows.
+
 ## Code notes publish like pages
 
 A code note is a route-index row with a `code` role and no address. Publish
@@ -82,6 +96,20 @@ publication clearance on every visit, so one `privacy.md` now holds back, or
 one deleted, encrypted or drafted, stops being drawn at once. A members-only
 code note is drawn only for members. Folder references (`folder:`) never make
 a code note: a note a folder publishes is a note, whatever it is called.
+
+## A site can turn the base sheet off
+
+Every designed page starts from a small base sheet (`siteDesign/baseCss.ts`)
+so a site with three lines of CSS is still readable. A site that brings its
+own reset fights it, so a code note may say `base: off` in its frontmatter
+(`on` or `off`, nothing else; anything else stops Publish). The frame or a
+stylesheet saying it takes the base sheet off every page; a layout saying it,
+or an HTML page's own frontmatter, takes it off only the pages drawn with it.
+Only a note that is drawn counts, so one `privacy.md` holds back stops
+switching it off at once, the same as its CSS. The switch is a field on the
+design (`base: false`, absent otherwise), so a design without it is drawn
+exactly as before. A site check's `inspect` of a stylesheet leaves the base
+sheet out when the frame or a stylesheet says `base: off`.
 
 ## Designs are Premium
 

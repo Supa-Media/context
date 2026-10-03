@@ -54,6 +54,8 @@ export async function scanWebsiteRoutes(
   statuses: WebsiteRouteStatus[];
   indexed: IndexedRoute[];
   restricted: string[];
+  /** The text of every page read, for a site check (`./siteCheck.ts`). */
+  pages: Array<{ objectKey: string; markdown: string }>;
 }> {
   const paths: string[] = [];
   /* Every other note this clearance may list, for the folders a page names. */
@@ -121,6 +123,7 @@ export async function scanWebsiteRoutes(
   const statuses = [...own, ...referenced.statuses];
   const allPages = [...pages, ...referenced.pages];
   return {
+    pages: allPages,
     restricted: allPages
       .filter((page) => websiteTextRestricts(page.markdown))
       .map((page) => page.objectKey),

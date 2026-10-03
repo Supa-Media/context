@@ -8,6 +8,7 @@ import {
   parseWebsitePage,
   stripWebsiteCast,
   stripWebsiteJoin,
+  websiteFileAddressAlias,
   websiteRouteLookupKey,
   type ResolvedWebsiteAddress,
   type ResolvedWebsitePage,
@@ -210,8 +211,14 @@ export async function websiteResolutionPlanHandler(
     siteName: workspace.displayName,
     navigation: restrictionPending ? [] : navigation,
   };
-  const lookupKey = websiteRouteLookupKey(routePath);
-  const claimants = indexed.filter((row) => row.lookupKey === lookupKey);
+  const claimantsOf = (path: string) => {
+    const lookupKey = websiteRouteLookupKey(path);
+    return indexed.filter((row) => row.lookupKey === lookupKey);
+  };
+  // `/index` names `index.md` by its file; it opens the page at `/`.
+  let claimants = claimantsOf(routePath);
+  const alias = websiteFileAddressAlias(routePath);
+  if (claimants.length === 0 && alias !== null) claimants = claimantsOf(alias);
   const matches = claimants.filter((row) => row.status === "live");
   // A page nobody has published yet is not on the site, however complete
   // its file is: edits wait for Publish.

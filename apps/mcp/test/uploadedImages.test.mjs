@@ -90,6 +90,90 @@ export async function runUploadedImageChecks() {
     (await noteText("1-projects/portable/diagram-note-2.md"))?.endsWith(`![[${leaf}|the  same  chart]]\n`)
   );
 
+  // -- a label saying where a picture came from travels in the note, as the embed's title
+  const labelled = await call("priv-token", "write_note", {
+    path: "1-projects/portable/labelled.md",
+    content: '# Work\n\n![The studio](studio.png)\n\n![Kept](studio.png "already titled")\n',
+    images: [
+      { name: "studio.png", data: PNG_B64, label: 'original "photograph"' },
+      { name: "concept.jpg", data: Buffer.from(JPEG).toString("base64"), alt: "Concept", label: "AI-assisted concept" },
+    ],
+  });
+  const labelledBody = await noteText("1-projects/portable/labelled.md");
+  const conceptLeaf = text(labelled).match(/concept\.jpg → (upload-[0-9a-f]{16}\.jpg)/)?.[1];
+  check(
+    "a labelled picture's embed carries the label as its title, made safe, and an existing title is kept",
+    !labelled.isError &&
+      labelledBody?.includes(`![The studio](${leaf} "original photograph")`) &&
+      labelledBody?.includes(`![Kept](${leaf} "already titled")`)
+  );
+  check(
+    "a labelled picture the content does not embed is appended with its label",
+    Boolean(conceptLeaf) && labelledBody?.endsWith(`![Concept](${conceptLeaf} "AI-assisted concept")\n`)
+  );
+  const wikiLabel = await call("priv-token", "write_note", {
+    path: "1-projects/portable/wiki-label.md",
+    content: "![[shot.png]]\n",
+    images: [{ name: "shot.png", data: PNG_B64, label: "early draft" }],
+  });
+  check(
+    "a label on a picture embedded as ![[name]] is refused with the form that keeps it",
+    wikiLabel.isError && /!\[alt\]\(shot\.png\)/.test(text(wikiLabel)) &&
+      (await noteText("1-projects/portable/wiki-label.md")) === null
+  );
+  const codeLabel = await call("priv-token", "write_note", {
+    path: "1-projects/portable/code-label.html.md",
+    content: '```html\n<img src="mark.png" alt="Mark">\n```\n',
+    images: [{ name: "mark.png", data: PNG_B64, label: "original drawing" }],
+  });
+  check(
+    "a labelled picture named only in code is stored, and the answer says the label was not kept",
+    !codeLabel.isError && /label .*not kept/i.test(text(codeLabel))
+  );
+
+  // -- a picture an HTML layout or a stylesheet names, the way a site's code notes do
+  const layout = await call("priv-token", "write_note", {
+    path: "1-projects/portable/layout.html.md",
+    content: [
+      "The site's frame.",
+      "",
+      "```html",
+      '<header><img src="logo.png" alt="Logo"><img src="./logo.png"><img src="big-logo.png"></header>',
+      "<div class=\"hero\" style=\"background: url('hero.jpg')\"></div>",
+      "```",
+      "",
+      "```css",
+      ".hero { background-image: url(hero.jpg); } .alt { background: url( \"hero.jpg\" ); }",
+      "```",
+      "",
+    ].join("\n"),
+    images: [
+      { name: "logo.png", data: PNG_B64 },
+      { name: "hero.jpg", data: Buffer.from(JPEG).toString("base64") },
+    ],
+  });
+  const layoutBody = await noteText("1-projects/portable/layout.html.md");
+  const heroLeaf = text(layout).match(/hero\.jpg → (upload-[0-9a-f]{16}\.jpg)/)?.[1];
+  check(
+    "an img src naming an attached picture points at the stored copy, and only an exact name does",
+    !layout.isError &&
+      layoutBody?.includes(`<img src="${leaf}" alt="Logo">`) &&
+      layoutBody?.includes(`<img src="./${leaf}">`) &&
+      layoutBody?.includes('<img src="big-logo.png">')
+  );
+  check(
+    "a url() naming an attached picture points at the stored copy, quoted or not",
+    Boolean(heroLeaf) &&
+      layoutBody?.includes(`url('${heroLeaf}')`) &&
+      layoutBody?.includes(`url(${heroLeaf})`) &&
+      layoutBody?.includes(`url( "${heroLeaf}" )`) &&
+      !layoutBody?.includes("hero.jpg")
+  );
+  check(
+    "a picture the code already names is not also appended as a Markdown embed",
+    !layoutBody?.includes("![[")
+  );
+
   // -- the type comes from the bytes
   const lying = await call("priv-token", "write_note", {
     path: "1-projects/portable/svg-note.md",

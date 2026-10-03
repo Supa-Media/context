@@ -145,6 +145,27 @@ describe("website designs", () => {
     });
   });
 
+  test("the edge copy signed-out visitors are served carries the design", async () => {
+    const f = await supa();
+    const answer = await f.t.fetch("/site/page", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "atlas", routePath: "/code" }),
+    });
+    const body = (await answer.json()) as { address: { design?: { template: string | null; css: string } } };
+    expect(body.address.design?.template).toContain('<div class="cards">');
+    expect(body.address.design?.css).toContain("--accent: #FFD23F");
+    // And an all-HTML page, whose design is the whole page.
+    const pricing = await f.t.fetch("/site/page", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "atlas", routePath: "/pricing" }),
+    });
+    expect(((await pricing.json()) as { address: { design?: { template: string } } }).address.design?.template).toBe(
+      "<h1>Pricing</h1><p>$5</p>",
+    );
+  });
+
   test("a site with no code notes looks exactly as it did", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\n# Hi\n");
@@ -152,6 +173,76 @@ describe("website designs", () => {
     const page = await resolve(f, "/");
     expect(page).toMatchObject({ kind: "page", markdown: "# Hi\n" });
     expect(page).not.toHaveProperty("design");
+  });
+
+  describe("base: off draws a site without Context's base sheet", () => {
+    test("by default every designed page starts from the base sheet", async () => {
+      const f = await supa();
+      const page = await resolve(f, "/code");
+      if (page.kind !== "page") throw new Error("expected a page");
+      expect(page.design).not.toHaveProperty("base");
+    });
+
+    test("a stylesheet that says base: off turns it off for every page, once published", async () => {
+      const f = await supa();
+      f.backend.seed("website/styles.css.md", `---\nbase: off\n---\n\n${STYLES("#FFD23F")}`);
+      const before = await resolve(f, "/");
+      if (before.kind !== "page") throw new Error("expected a page");
+      expect(before.design).not.toHaveProperty("base");
+
+      await expect(pressPublish(f)).resolves.toMatchObject({ published: true });
+      for (const path of ["/", "/code", "/pricing"]) {
+        const page = await resolve(f, path);
+        if (page.kind !== "page") throw new Error("expected a page");
+        expect(page.design).toMatchObject({ base: false });
+      }
+    });
+
+    test("a layout that says base: off turns it off only for the pages drawn with it", async () => {
+      const f = await supa();
+      f.backend.seed("website/cards.html.md", `---\nbase: off\n---\n\n${CARDS}`);
+      await expect(pressPublish(f)).resolves.toMatchObject({ published: true });
+      expect(await resolve(f, "/code")).toMatchObject({ kind: "page", design: { base: false } });
+      const home = await resolve(f, "/");
+      if (home.kind !== "page") throw new Error("expected a page");
+      expect(home.design).not.toHaveProperty("base");
+    });
+
+    test("a note privacy.md holds back no longer switches it off", async () => {
+      const f = await supa();
+      f.backend.seed("website/off.css.md", "---\nbase: off\n---\n\n```css\n.x { color: red; }\n```\n");
+      await expect(pressPublish(f)).resolves.toMatchObject({ published: true });
+      expect(await resolve(f, "/")).toMatchObject({ design: { base: false } });
+      await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+        workspaceId: f.workspaceId,
+        path: "website/off.css.md",
+        visibility: "private",
+      });
+      const page = await resolve(f, "/");
+      if (page.kind !== "page") throw new Error("expected a page");
+      expect(page.design).not.toHaveProperty("base");
+    });
+
+    test("anything but on or off stops Publish and names the note", async () => {
+      const f = await supa();
+      f.backend.seed("website/styles.css.md", `---\nbase: none\n---\n\n${STYLES("#FFD23F")}`);
+      await expect(pressPublish(f)).resolves.toEqual({
+        published: false,
+        problems: [{ path: "website/styles.css.md", message: "Website base must be on or off." }],
+      });
+    });
+
+    test("the edge copy carries the switch", async () => {
+      const f = await supa();
+      f.backend.seed("website/styles.css.md", `---\nbase: off\n---\n\n${STYLES("#FFD23F")}`);
+      await pressPublish(f);
+      const answer = await f.t.fetch("/site/page", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "atlas", routePath: "/code" }),
+      });
+      expect(((await answer.json()) as { address: { design?: { base?: boolean } } }).address.design?.base).toBe(false);
+    });
   });
 
   describe("designs are Premium", () => {

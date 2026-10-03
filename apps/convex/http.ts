@@ -122,6 +122,7 @@ import * as signals from "./functions/lib/gatewayRoutes/signals";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
+import * as site from "./functions/lib/gatewayRoutes/site";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
@@ -969,6 +970,11 @@ http.route({
   method: "POST",
   handler: gatewayLinksRevoke,
 });
+
+/* A website's status or a publish, for an owner's or editor's agent. */
+export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
+
+http.route({ path: "/gateway/site", method: "POST", handler: gatewaySite });
 
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 
