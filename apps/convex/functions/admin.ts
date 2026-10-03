@@ -59,7 +59,7 @@ import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } f
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, type CountedTotal, type MetricSeries, countedTotalValidator } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
-import { jevUsageReportHandler, setJevSwitchHandler } from "./lib/jev/admin";
+import { jevUsageReportHandler, jevUsageReportValidator, setJevSwitchHandler } from "./lib/jev/admin";
 import {
   applySecretHandler,
   deleteSecretHandler,
@@ -76,6 +76,7 @@ import {
   waitlistRowValidator,
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
+import { getSignupAlertsHandler, setSignupAlertsHandler } from "./lib/adminFns/signupAlerts";
 import {
   communityKindValidator,
   communityLinkValidator,
@@ -150,15 +151,6 @@ export const usageReport = query({
 
 // -- Jev smarts -----------------------------------------------------------
 
-const jevDayValidator = v.object({
-  day: v.string(),
-  calls: v.number(),
-  failed: v.number(),
-  refused: v.number(),
-  tokens: v.number(),
-  costUsd: v.number(),
-});
-
 /**
  * Jev usage and estimated cost per feature, with each kill switch's state.
  * Counts only: no question, answer, path or workspace name. See
@@ -166,27 +158,7 @@ const jevDayValidator = v.object({
  */
 export const jevUsageReport = query({
   args: { days: v.optional(v.number()) },
-  returns: v.object({
-    usdPerMtok: v.number(),
-    allOff: v.boolean(),
-    features: v.array(
-      v.object({
-        feature: v.string(),
-        label: v.string(),
-        on: v.boolean(),
-        disabledByEnv: v.boolean(),
-        dailyCallsPerWorkspace: v.number(),
-        workspaces: v.number(),
-        calls: v.number(),
-        failed: v.number(),
-        refused: v.number(),
-        questions: v.number(),
-        tokens: v.number(),
-        costUsd: v.number(),
-        days: v.array(jevDayValidator),
-      }),
-    ),
-  }),
+  returns: jevUsageReportValidator,
   handler: async (ctx, args) => {
     try {
       await requireAdmin(ctx);
@@ -283,6 +255,36 @@ export const addToWaitlist = mutation({
       throw toConvexError(error);
     }
     return await addEmailsHandler(ctx, args.emails, actor);
+  },
+});
+
+/** Whether the caller is mailed about each new signup, and at which address. */
+export const getSignupAlerts = query({
+  args: {},
+  returns: v.object({ on: v.boolean(), email: v.string() }),
+  handler: async (ctx) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await getSignupAlertsHandler(ctx, actor);
+  },
+});
+
+/** Turn the caller's signup alerts on or off. See `signupAlerts.ts`. */
+export const setSignupAlerts = mutation({
+  args: { on: v.boolean() },
+  returns: v.object({ on: v.boolean(), email: v.string() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setSignupAlertsHandler(ctx, actor, args.on);
   },
 });
 
