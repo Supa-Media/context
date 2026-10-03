@@ -48,6 +48,11 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
   check("orient carries the website guide where the context has a website folder", withSite.includes("## Building this context's website"));
   check("...naming the layout, stylesheet and loop syntax an agent writes", withSite.includes("layout.html.md") && withSite.includes(".css.md") && withSite.includes("{ each item in site.nav }"));
 
+  check(
+    "...and that site scripts only ever run sealed, which the agent says up front when asked for a site",
+    withSite.includes("sealed") && withSite.includes("analytics") && withSite.includes("Tell the person"),
+  );
+
   const withoutSite = await site("ws_nositegd", { "1-projects/a.md": "# A\n" });
   check("...and not in a context with no website", !withoutSite.includes("## Building this context's website"));
 
