@@ -8,6 +8,7 @@ export {
   sanitizeStyleAttribute,
   type SanitizedCss,
   type SiteCssOptions,
+  type SiteRemoval,
 } from "./css";
 export { decodeEntities, escapeHtml } from "./entities";
 export {

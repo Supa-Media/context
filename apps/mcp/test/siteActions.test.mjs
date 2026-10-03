@@ -160,6 +160,45 @@ export async function runSiteActionChecks(check) {
     const off = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "status" } });
     check("a site that is off says only the owner can turn it on", off.text.includes("the website is off"));
 
+    // -- check
+    answer = {
+      action: "check",
+      enabled: true,
+      draft: DRAFT,
+      routes: [
+        { address: "/", path: "website/index.md", status: "live", audience: "public" },
+        { address: "/contact", path: "website/contact.md", status: "draft", audience: "public" },
+      ],
+      pageProblems: [],
+      links: [{ path: "website/layout.html.md", line: 4, target: "/abuot", problem: "no page has the address /abuot; did you mean /about?" }],
+      pictures: [
+        { name: "logo.png", bytes: 2048, usedBy: ["website/layout.html.md"], problem: null },
+        { name: "gone.png", bytes: null, usedBy: ["website/about.md"], problem: "no picture is stored under this exact name" },
+      ],
+      code: [{ path: "website/layout.html.md", role: "frame", removed: [{ line: 6, what: "<template> and everything inside it", why: "a <template> is never drawn, so nothing inside it shows" }] }],
+      warnings: [{ path: "website/layout.html.md", why: "{ content } sits inside something the cleaner removes, so every page drawn with it shows nothing" }],
+      more: { links: 0, removed: 0 },
+      inspected: { path: "website/layout.html.md", output: "<header></header>", truncated: false },
+    };
+    const checked = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "check", inspect: "website/layout.html.md" } });
+    check("a check names the draft and every address with its file", !checked.isError &&
+      checked.text.includes(`website check · draft ${DRAFT}`) &&
+      checked.text.includes("/ ← website/index.md; /contact ← website/contact.md (draft)"));
+    check("...links that go nowhere by note and line, pictures by size and use",
+      checked.text.includes("- website/layout.html.md:4 → /abuot: no page has the address /abuot; did you mean /about?") &&
+      checked.text.includes("- logo.png (2 KB), used by website/layout.html.md") &&
+      checked.text.includes("- gone.png, used by website/about.md: no picture is stored under this exact name"));
+    check("...what the cleaner removed, by line, and what draws nothing",
+      checked.text.includes("- website/layout.html.md:6 <template> and everything inside it: a <template> is never drawn") &&
+      checked.text.includes("draws nothing, or less than it says (1):"));
+    check("...and the inspected note as the site draws it, fenced",
+      checked.text.includes("website/layout.html.md as the site draws it:\n```html\n<header></header>\n```"));
+    check("the check carried the note to inspect as path", sent()?.action === "check" && sent()?.path === "website/layout.html.md");
+    const badInspect = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "check", inspect: "privacy.md" } });
+    const inspectOnStatus = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "status", inspect: "website/a.md" } });
+    check("inspect names a note under website/, and only goes with check",
+      badInspect.isError && inspectOnStatus.isError && sent()?.path === "website/layout.html.md");
+
     // -- publish
     answer = { action: "publish", published: true, draft: DRAFT, revision: 5, addresses: STATUS.addresses, problems: [] };
     const published = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "publish", draft: DRAFT } });

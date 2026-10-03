@@ -161,6 +161,26 @@ typing, would publish half a sentence under its own verification.
 a stranger or a stale draft can publish; `apps/mcp/test/siteActions.test.mjs`
 fails if the gateway sends a draft the agent did not pass.
 
+### A check says what Publish would release, and what the cleaner takes out
+
+_Asked for by the owner, 2026-10-03._ `site: { action: "check" }` answers
+before a Publish what an agent could otherwise learn only in a browser: every
+address and its file, links in pages and site code that go nowhere (note and
+line, with the nearest real address), every picture the site draws with its
+size and the files that use it, what the HTML and CSS cleaners remove and why,
+and pages or layouts that would draw nothing — the `{ content }` an agent
+wrapped in a `<template>` is the classic one. `inspect` returns one code note
+as the site draws it, after Context's base sheet.
+
+The cleaners report through an optional `removed` callback
+(`packages/shared/src/siteDesign`). It is a side channel that never changes
+their output, which `siteDesignReport.test.ts` asserts for every case, so a
+check can never describe a site differently from how it is drawn. Links are
+judged by the same `websiteLinkDestination` the rewrite uses, against the
+routes Publish would release. A check reads at the publication clearance
+through the one barrier, writes nothing and publishes nothing
+(`controlPlane/siteCheck.test.ts`).
+
 ## Every site's pages are kept at the edge per Publish
 
 _Decided by the owner, 2026-09-26: "same functionality for all the websites

@@ -7,7 +7,7 @@ import { ControlPlaneError } from "./client.js";
 export function createSiteMethods({ post, required }) {
   return {
     /**
-     * `{ action: "status" | "publish", draft? }` in; the control plane's
+     * `{ action: "status" | "check" | "publish", draft?, inspect? }` in; the control plane's
      * answer out, or `null` for every refusal — not an owner or editor, no
      * write scope, no such workspace — so nothing here can tell them apart.
      */
@@ -17,6 +17,7 @@ export function createSiteMethods({ post, required }) {
         expectedWorkspaceId,
         action: request.action,
         ...(typeof request.draft === "string" ? { draft: request.draft } : {}),
+        ...(typeof request.inspect === "string" ? { path: request.inspect } : {}),
       });
       const site = required(parsed, "site");
       if (site === null) return null;

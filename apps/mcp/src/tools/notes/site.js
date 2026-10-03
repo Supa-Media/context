@@ -1,5 +1,5 @@
 /**
- * `write_note` `site` — a website's status, and Publish, from an agent.
+ * `write_note` `site` — a website's status, a check, and Publish, from an agent.
  *
  * On `write_note` rather than a tool of its own because clients cache the
  * tool list: an argument reaches every connected client the day it ships, a
@@ -16,7 +16,7 @@
 
 import { toolError, toolText } from "../results.js";
 
-const ACTIONS = new Set(["status", "publish"]);
+const ACTIONS = new Set(["status", "check", "publish"]);
 
 /** One sentence for every refusal, so it says nothing about why. */
 const REFUSED =
@@ -25,7 +25,7 @@ const REFUSED =
 export async function toolSiteAction(store, args) {
   const request = args.site;
   if (!request || typeof request !== "object" || !ACTIONS.has(request.action)) {
-    return toolError('site must be { action: "status" } or { action: "publish", draft? }');
+    return toolError('site must be { action: "status" }, { action: "check", inspect? } or { action: "publish", draft? }');
   }
   if (args.content !== undefined || args.comment !== undefined || args.images !== undefined) {
     return toolError("pass site on its own: it reads or publishes the website and writes no note");
@@ -33,11 +33,24 @@ export async function toolSiteAction(store, args) {
   if (request.draft !== undefined && (typeof request.draft !== "string" || !/^[0-9a-f]{16}$/.test(request.draft))) {
     return toolError('draft must be the 16-character draft a site status returned, e.g. "3fa9c2e01b7d4a65"');
   }
+  if (
+    request.inspect !== undefined &&
+    (request.action !== "check" ||
+      typeof request.inspect !== "string" ||
+      !/^website\/[^\0]{1,300}\.md$/.test(request.inspect))
+  ) {
+    return toolError('inspect goes with action "check" and names a note under website/, e.g. "website/layout.html.md"');
+  }
   if (typeof store.site !== "function") {
     return toolError("websites are not available on this deployment");
   }
-  const answer = await store.site({ action: request.action, ...(request.draft ? { draft: request.draft } : {}) });
+  const answer = await store.site({
+    action: request.action,
+    ...(request.draft ? { draft: request.draft } : {}),
+    ...(request.inspect ? { inspect: request.inspect } : {}),
+  });
   if (answer === null) return toolError(REFUSED);
+  if (request.action === "check") return describeCheck(answer);
   return request.action === "status" ? describeStatus(answer) : describePublish(answer);
 }
 
@@ -47,9 +60,7 @@ function when(ms) {
 
 function describeStatus(site) {
   if (!site.enabled) {
-    return toolText(
-      "the website is off. Only the workspace's owner can turn it on, in the app; until then nothing under website/ is published.",
-    );
+    return toolText(OFF);
   }
   const lines = [
     `website: on · draft ${site.draft} · published revision ${site.publishedRevision ?? "none yet"}${when(site.publishedAt)}`,
@@ -78,6 +89,68 @@ function describeStatus(site) {
       ? "fix the problems, then check again."
       : `to publish exactly this draft: write_note { path: "website/index.md", site: { action: "publish", draft: "${site.draft}" } }`,
   );
+  return toolText(lines.join("\n"));
+}
+
+function size(bytes) {
+  if (typeof bytes !== "number") return "";
+  if (bytes < 1024) return ` (${bytes} B)`;
+  if (bytes < 1024 * 1024) return ` (${Math.round(bytes / 1024)} KB)`;
+  return ` (${(bytes / 1024 / 1024).toFixed(1)} MB)`;
+}
+
+const OFF = "the website is off. Only the workspace's owner can turn it on, in the app; until then nothing under website/ is published.";
+
+function describeCheck(check) {
+  if (!check.enabled) return toolText(OFF);
+  const lines = [`website check · draft ${check.draft}`];
+  const routes = check.routes.map((route) => `${route.address} ← ${route.path}${route.status === "live" ? "" : ` (${route.status})`}`);
+  lines.push(`addresses (${routes.length}): ${routes.join("; ") || "none"}`);
+  let blocking = 0;
+  if (check.pageProblems.length > 0) {
+    blocking += check.pageProblems.length;
+    lines.push(`problems that stop Publish (${check.pageProblems.length}):`);
+    for (const page of check.pageProblems) lines.push(`- ${page.path}: ${page.problems.join(" ")}`);
+  }
+  if (check.links.length > 0) {
+    lines.push(`links that go nowhere (${check.links.length + check.more.links}):`);
+    for (const link of check.links) lines.push(`- ${link.path}:${link.line} → ${link.target}: ${link.problem}`);
+    if (check.more.links > 0) lines.push(`- …and ${check.more.links} more; fix these and check again.`);
+  }
+  if (check.pictures.length > 0) {
+    lines.push(`pictures (${check.pictures.length}):`);
+    for (const picture of check.pictures) {
+      lines.push(`- ${picture.name}${size(picture.bytes)}, used by ${picture.usedBy.join(", ")}${picture.problem ? `: ${picture.problem}` : ""}`);
+    }
+  }
+  const removed = check.code.flatMap((note) =>
+    note.removed.map((removal) => `- ${note.path}${removal.line === null ? "" : `:${removal.line}`} ${removal.what}: ${removal.why}`),
+  );
+  if (removed.length > 0) {
+    lines.push(`removed by the cleaner (${removed.length + check.more.removed}):`, ...removed);
+    if (check.more.removed > 0) lines.push(`- …and ${check.more.removed} more.`);
+  }
+  if (check.warnings.length > 0) {
+    lines.push(`draws nothing, or less than it says (${check.warnings.length}):`);
+    for (const warning of check.warnings) lines.push(`- ${warning.path}: ${warning.why}`);
+  }
+  const found = check.links.length + removed.length + check.warnings.length + check.pictures.filter((p) => p.problem).length;
+  if (found === 0 && blocking === 0) lines.push("nothing to fix.");
+  lines.push(
+    blocking > 0
+      ? "fix the problems that stop Publish, then check again."
+      : `to publish exactly this draft: write_note { path: "website/index.md", site: { action: "publish", draft: "${check.draft}" } }`,
+  );
+  if (check.inspected) {
+    const fence = check.inspected.path.endsWith(".css.md") ? "css" : "html";
+    lines.push(
+      "",
+      `${check.inspected.path} as the site draws it${check.inspected.truncated ? " (cut short)" : ""}:`,
+      `\`\`\`${fence}`,
+      check.inspected.output,
+      "\`\`\`",
+    );
+  }
   return toolText(lines.join("\n"));
 }
 
