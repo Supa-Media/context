@@ -145,6 +145,27 @@ describe("website designs", () => {
     });
   });
 
+  test("the edge copy signed-out visitors are served carries the design", async () => {
+    const f = await supa();
+    const answer = await f.t.fetch("/site/page", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "atlas", routePath: "/code" }),
+    });
+    const body = (await answer.json()) as { address: { design?: { template: string | null; css: string } } };
+    expect(body.address.design?.template).toContain('<div class="cards">');
+    expect(body.address.design?.css).toContain("--accent: #FFD23F");
+    // And an all-HTML page, whose design is the whole page.
+    const pricing = await f.t.fetch("/site/page", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "atlas", routePath: "/pricing" }),
+    });
+    expect(((await pricing.json()) as { address: { design?: { template: string } } }).address.design?.template).toBe(
+      "<h1>Pricing</h1><p>$5</p>",
+    );
+  });
+
   test("a site with no code notes looks exactly as it did", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\n# Hi\n");
