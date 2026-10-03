@@ -12,7 +12,7 @@ export const WEBSITE_GUIDE = [
   "",
   "`website/` is this context's website. Every file in it is a note.",
   "",
-  "- **Saving is not publishing.** Visitors see the last published version until the owner presses Publish on the `website` folder in the app; no tool publishes. Say so when you hand the site over.",
+  "- **Saving is not publishing.** Owners and editors publish with write_note `site`: `{ action: \"status\" }` shows the draft, changes and problems; `{ action: \"publish\", draft }` releases that draft and returns the live addresses. Others ask someone to press Publish in the app.",
   "- **Pages** are ordinary notes: `index.md` is `/`, `about.md` is `/about`. Words go here, in Markdown, so anyone can edit them in the app. Frontmatter: `title`, `description`, `nav: 1` (menu order), `layout: cards`, `draft: true`. Link to a page by its address (`/`, `/about`), not its file (`/index`).",
   "- **`layout.html.md`** is the frame around every page: header, logo, nav, footer, and `{ content }` where the page goes.",
   "- **`<name>.html.md`** is a layout a page picks with `layout: <name>`; one no page names is an all-HTML page at `/<name>`.",

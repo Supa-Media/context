@@ -31,6 +31,13 @@ export function attachLinkCalls(store, session, controlPlane) {
     writable: false,
     configurable: true,
   });
+  // A website's status or a publish (`write_note` `site`), for this context.
+  Object.defineProperty(store, "site", {
+    value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // `report_problem`: filed as this connection's person, resolved from its own
   // token by the control plane. Not tied to a workspace, so the same call on
   // every store a request touches.

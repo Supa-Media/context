@@ -51,12 +51,27 @@ export function noteWriteToolDefinitions() {
         "\n\nTHIS TOOL ALSO COMMENTS, the way people comment in a shared document. read_note lists a note's open comment threads; " +
         "pass comment: { action: \"add\", quote, text } to highlight words and say something about them, or { action: \"reply\" | \"resolve\" | \"reopen\", thread, text? } to answer one. " +
         "Resolve a thread once you have acted on it: resolving keeps the whole thread in the note's history. " +
-        "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here.",
+        "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here. " +
+        "\n\nTHIS TOOL ALSO PUBLISHES THE WEBSITE, for the workspace's owners and editors. Saving a note under website/ publishes nothing. " +
+        "Pass site: { action: \"status\" } (with path \"website/index.md\" and no content) to see the draft Publish would release, what changed since the last publish, the problems that would stop it and the site's addresses. " +
+        "Then pass site: { action: \"publish\", draft } with the draft that status named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses.",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string", description: "Destination path ending in .md" },
           content: { type: "string", description: "The whole note. Required unless comment is passed instead." },
+          site: {
+            type: "object",
+            additionalProperties: false,
+            description:
+              "Read or publish this context's website instead of writing a note; pass it with path \"website/index.md\" and no content. " +
+              "status names the draft Publish would release; publish releases it, and given that draft refuses if the folder changed since.",
+            properties: {
+              action: { type: "string", enum: ["status", "publish"] },
+              draft: { type: "string", description: "publish: the draft a status returned, so only what you checked goes live." },
+            },
+            required: ["action"],
+          },
           comment: {
             type: "object",
             description:
