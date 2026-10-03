@@ -31,6 +31,12 @@ import {
 } from "./lib/websites/resolver";
 import { homeSiteWorkspaceHandler, websiteSnapshot } from "./lib/websites/snapshot";
 import { publishWebsiteHandler } from "./lib/websites/publish";
+import {
+  gatewaySiteHandler,
+  gatewaySiteValidator,
+  siteFactsHandler,
+  siteFactsValidator,
+} from "./lib/websites/agentSite";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
@@ -322,6 +328,25 @@ export const publish = action({
     problems: v.array(v.object({ path: v.string(), message: v.string() })),
   }),
   handler: publishWebsiteHandler,
+});
+
+/** The database half of an agent's site status; see `lib/websites/agentSite.ts`. */
+export const siteFacts = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: siteFactsValidator,
+  handler: siteFactsHandler,
+});
+
+/** `/gateway/site`: status and publish for an owner's or editor's agent. INTERNAL. */
+export const gatewaySite = internalAction({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    action: v.string(),
+    draft: v.optional(v.string()),
+  },
+  returns: gatewaySiteValidator,
+  handler: gatewaySiteHandler,
 });
 
 export const refreshRouteStatuses = action({

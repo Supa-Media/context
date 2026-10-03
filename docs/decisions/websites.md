@@ -131,6 +131,36 @@ is served, or if a member can publish; `websiteNarrowing.test.ts` fails if a
 restriction waits for Publish or a new page does not; `siteHome.test.ts` fails
 if a save moves the homepage's revision or its words.
 
+## An agent can publish, the draft it checked and nothing newer
+
+_Decided by the owner, 2026-10-03, after an agent built a site through MCP and
+had to sign in to a browser to press Publish: "owners and editors" may publish
+through MCP._ This widens the section above only in where Publish is pressed;
+who may press it, and what it releases, are unchanged.
+
+`write_note` `site: { action: "status" }` reads the folder at the publication
+clearance, as Publish does, and answers with a **draft**: a fingerprint of
+every file that scan read, by path and etag. `site: { action: "publish", draft
+}` runs the same `publishWebsiteAs` the button runs and releases only if the
+folder is still that draft; a save that landed in between is a conflict that
+names the new draft, never a release of words nobody checked. A conflict still
+applies the scan's restrictions, as every scan does. The answer names the new
+`siteRevision` and the site's addresses, so "published" means published.
+
+The clearance is the button's: an owner or editor membership, plus the grant's
+own `context:write`. `context:private` is not required, because the site is
+read at the publication clearance whatever the caller can see. Every refusal
+is one `null` (`/gateway/site`), and the audit records the person and the
+connection. It is an argument on `write_note`, not a tool, because clients
+cache the tool list (`gateway-protocol.md`).
+
+The simplification to resist is publishing "whatever is there now" without
+the draft: an agent that checked a page, then lost a race with a person still
+typing, would publish half a sentence under its own verification.
+`apps/convex/__tests__/controlPlane/siteGateway.test.ts` fails if a member,
+a stranger or a stale draft can publish; `apps/mcp/test/siteActions.test.mjs`
+fails if the gateway sends a draft the agent did not pass.
+
 ## Every site's pages are kept at the edge per Publish
 
 _Decided by the owner, 2026-09-26: "same functionality for all the websites

@@ -250,3 +250,52 @@ export async function ownerClearanceForGatewayHandler(
   if (workspaceId === null) return null;
   return { workspaceId, actorUserId: live.grant.userId };
 }
+
+/**
+ * Editor clearance: the owner's predicate, widened to the one other role that
+ * may change a website. Publishing is the only caller (the owner, 2026-10-03:
+ * "owners and editors" may publish through MCP), and it asks for exactly what
+ * the console's Publish button asks for — an owner or editor membership — plus
+ * the grant's own `context:write`, because publishing is a write.
+ *
+ * `context:private` is deliberately NOT required, unlike the owner's
+ * predicate: a site is read at the publication clearance whatever the caller
+ * can see, so a team connection publishes exactly what an owner's would.
+ *
+ * The same shape as `ownerClearanceForGatewayHandler`: the token resolves to a
+ * live grant on its own, `expectedWorkspaceId` only selects within that
+ * grant's set, and the person and connection come off the grant for the audit.
+ */
+export function gatewayEditorClearance(
+  session: {
+    scopes: string[];
+    workspaces: Array<{ workspaceId: Id<"workspaces">; role: string }>;
+  },
+  expectedWorkspaceId: string,
+): Id<"workspaces"> | null {
+  const covered = session.workspaces.find((entry) => entry.workspaceId === expectedWorkspaceId);
+  if (covered === undefined) return null;
+  if (covered.role !== "owner" && covered.role !== "editor") return null;
+  if (!session.scopes.includes("context:write")) return null;
+  return covered.workspaceId;
+}
+
+export const editorClearanceForGatewayReturns = v.union(
+  v.null(),
+  v.object({ workspaceId: v.id("workspaces"), actorUserId: v.id("users"), clientId: v.string() }),
+);
+
+export async function editorClearanceForGatewayHandler(
+  ctx: QueryCtx,
+  args: ObjectType<typeof ownerClearanceForGatewayArgs>,
+) {
+  if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return null;
+  const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+  if (live === null) return null;
+  const workspaceId = gatewayEditorClearance(
+    { scopes: live.grant.scopes, workspaces: await contextsForGrant(ctx, live) },
+    args.expectedWorkspaceId,
+  );
+  if (workspaceId === null) return null;
+  return { workspaceId, actorUserId: live.grant.userId, clientId: live.grant.clientId };
+}

@@ -88,6 +88,7 @@ export function createControlPlaneStub(options = {}) {
    */
   /** Problem reports `/gateway/feedback` accepted, token and message as sent. */
   const feedback = [];
+  const siteCalls = [];
   const flags = {
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
@@ -148,6 +149,18 @@ export function createControlPlaneStub(options = {}) {
     if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
       return null;
     }
+    return { workspaceId: named.workspaceId, actorUserId: grant.userId };
+  }
+
+  /** The real route's owner-or-editor clearance (`gatewayEditorClearance`). */
+  async function clearedEditor(body) {
+    const grant = await grantForAccessToken(body.accessToken);
+    if (!grant) return null;
+    const named = coveredContexts(grant).find(
+      (entry) => entry.workspaceId === body.expectedWorkspaceId,
+    );
+    if (!named || (named.role !== "owner" && named.role !== "editor")) return null;
+    if (!grant.scopes.includes("context:write")) return null;
     return { workspaceId: named.workspaceId, actorUserId: grant.userId };
   }
 
@@ -669,6 +682,15 @@ export function createControlPlaneStub(options = {}) {
         return ok({ report: { eventId: "0".repeat(31) + feedback.length } });
       }
 
+      case "/gateway/site": {
+        // The site itself is the real control plane's; a test hands the stub
+        // its answer as `options.site(cleared, body)`, and every call is kept.
+        const cleared = await clearedEditor(body);
+        siteCalls.push({ ...body, cleared });
+        if (!cleared || (body.action !== "status" && body.action !== "publish")) return ok({ site: null });
+        return ok({ site: typeof options.site === "function" ? await options.site(cleared, body) : null });
+      }
+
       case "/gateway/links/create": {
         const cleared = await clearedOwner(body);
         if (!cleared) return ok({ link: null, shortRefused: null });
@@ -863,6 +885,7 @@ export function createControlPlaneStub(options = {}) {
     bindings,
     flags,
     feedback,
+    siteCalls,
     accessTokens,
     refreshTokens,
     gatewayJobs,

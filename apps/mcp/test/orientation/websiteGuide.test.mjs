@@ -58,7 +58,8 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
     withSite.includes("never write `.ctx-site`") &&
       withSite.includes("scrolls by itself") &&
       withSite.includes("not its file (`/index`)") &&
-      withSite.includes("Saving is not publishing"),
+      withSite.includes("Saving is not publishing") &&
+      withSite.includes('action: "publish", draft'),
   );
 
   const withoutSite = await site("ws_nositegd", { "1-projects/a.md": "# A\n" });

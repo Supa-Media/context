@@ -118,6 +118,13 @@ export const ownerClearanceForGateway = internalQuery({
   handler: session.ownerClearanceForGatewayHandler,
 });
 
+/** Owner or editor clearance, for publishing a website through an agent. */
+export const editorClearanceForGateway = internalQuery({
+  args: session.ownerClearanceForGatewayArgs,
+  returns: session.editorClearanceForGatewayReturns,
+  handler: session.editorClearanceForGatewayHandler,
+});
+
 /**
  * Open one workspace's storage credential for the gateway. INTERNAL ACTION,
  * and the second half of the two-factor check.

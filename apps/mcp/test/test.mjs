@@ -30,6 +30,7 @@ import { runOrganizerChecks } from "./organizer.test.mjs";
 import { runSetPropertyChecks } from "./listSetProperty.test.mjs";
 import { runStatusAdviceChecks, runStatusChecks } from "./listStatuses.test.mjs";
 import { runLinkToolChecks } from "./linkTools.test.mjs";
+import { runSiteActionChecks } from "./siteActions.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runMoveWithoutConditionalDeleteChecks } from "./moveWithoutConditionalDelete.test.mjs";
@@ -149,6 +150,7 @@ await suite("runSetPropertyChecks", () => runSetPropertyChecks(check));
 await suite("runStatusChecks", () => runStatusChecks(check));
 await suite("runStatusAdviceChecks", () => runStatusAdviceChecks(check));
 await suite("runLinkToolChecks", () => runLinkToolChecks(check));
+await suite("runSiteActionChecks", () => runSiteActionChecks(check));
 
 // A path is not a place to write privacy rules. Its own bucket, because the
 // fixture is one named private note and one forged path that tries to publish
