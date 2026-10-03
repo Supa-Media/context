@@ -178,6 +178,8 @@ export function rowText(entry: ActivityEntry): { title: string; meta: string } {
         return `A meeting landed: ${called(first)}`;
       case "session":
         return `${who} saved a session`;
+      case "remembered":
+        return `${who} remembered ${entry.n === 1 ? "1 fact" : `${entry.n} facts`}`;
       default:
         return `${who} changed ${called(first)}`;
     }
@@ -194,7 +196,8 @@ export type ActivityMark =
   | "archived"
   | "published"
   | "meeting"
-  | "session";
+  | "session"
+  | "remembered";
 
 export function markFor(entry: ActivityEntry): ActivityMark {
   const kinds: ActivityMark[] = [
@@ -205,6 +208,7 @@ export function markFor(entry: ActivityEntry): ActivityMark {
     "published",
     "meeting",
     "session",
+    "remembered",
   ];
   return kinds.includes(entry.kind as ActivityMark)
     ? (entry.kind as ActivityMark)

@@ -322,6 +322,13 @@ describe("a row", () => {
     expect(targetOf(entry({ kind: "moved", paths: ["1-projects", "5-archive"] }))).toBeNull();
   });
 
+  test("a remembered line counts facts and draws its own mark", () => {
+    const row = entry({ kind: "remembered", n: 3, by: "@seyi", via: "Claude", paths: ["3-resources/working-preferences.md"] });
+    expect(rowText(row).title).toBe("@seyi's Claude remembered 3 facts");
+    expect(rowText(entry({ kind: "remembered", n: 1 })).title).toMatch(/remembered 1 fact$/);
+    expect(markFor(row)).toBe("remembered");
+  });
+
   test("falls back to a mark it can draw rather than drawing nothing", () => {
     expect(markFor(entry({ kind: "something-a-later-build-invented" }))).toBe("revised");
   });

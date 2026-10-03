@@ -112,85 +112,7 @@ const MAX_ENTRY_PATHS = 5;
 /** A summary longer than this is a paragraph, and this is a list. */
 const MAX_SUMMARY_LENGTH = 140;
 
-/**
- * The kinds, and what each one is for.
- *
- * A closed set, because the viewing layer draws a mark per kind and an unknown
- * kind would draw nothing. Both writers map their own vocabulary onto this —
- * the gateway's `create_note` and the console's `file.create` are one kind.
- */
-const KINDS = Object.freeze([
-  "added",
-  "revised",
-  "moved",
-  "archived",
-  "published",
-  "meeting",
-  "session",
-]);
-
-/**
- * What each writer's action becomes, and what is deliberately dropped.
- *
- * `null` means "never a line". Read the nulls as the specification they are:
- *
- *  - **Reads** are not here at all, from either writer. Opening a note is not
- *    a change, and a feed that reported them would be surveillance.
- *  - **Plumbing** — `materialize_move`'s second half, the storage-layout
- *    migration, search projection, form response files — describes the
- *    product working, not somebody working.
- *  - **Arrivals on a timer** — mail, chat, calendar — are a sync job's output.
- *    They arrive by the hundred and nobody chose them.
- *  - **Proposals** are not here because they are already somewhere better: a
- *    proposal is a queue with a decision attached, and `list_proposals` is
- *    where its reviewer looks. An approved one lands as `added`.
- *  - **Key rotation and export** stay in the audit trail. They are the
- *    owner's security events, and the owner reads them where security events
- *    live rather than between two notes about a project.
- *  - **Making something private** is never a line, in either direction: the
- *    line would be the disclosure. Widening to team is, because that is an
- *    invitation to read.
- */
-const SUBSTANCE = Object.freeze({
-  // The gateway's vocabulary — `recordChange` in apps/mcp/src/index.js.
-  create_note: "added",
-  update_note: "revised",
-  archive_note: "archived",
-  move_note: "moved",
-  move_notes: "moved",
-  move_folder: "moved",
-  set_visibility: "published",
-  set_folder_visibility: "published",
-  save_context: "session",
-  meeting_note: "meeting",
-  approve_proposal: "added",
-  propose_note: null,
-  reject_proposal: null,
-  materialize_move: null,
-  inbox_capture: null,
-  inbox_update: null,
-  calendar_sync: null,
-  encrypt_note: null,
-  decrypt_note: null,
-  rotate_encryption_keys: null,
-  export_encryption_keys: null,
-
-  // The console's vocabulary — `recordEvent` in apps/convex/functions.
-  "file.create": "added",
-  "file.write": "revised",
-  "file.move": "moved",
-  "file.archive": "archived",
-  "file.copy": "added",
-  "file.duplicate": "added",
-  "visibility.note": "published",
-  "visibility.folder": "published",
-  "visibility.folder.named": "published",
-  "folder.create": null,
-  "file.delete": null,
-  "file.decrypt": null,
-  "vault.import": null,
-  "vault.replace.clear": null,
-});
+const { KINDS, SUBSTANCE } = require("./activityVocabulary.cjs");
 
 /**
  * Paths that never produce a line, whatever the action says.
@@ -397,6 +319,8 @@ function mergeable(existing, entry, windowMs) {
   if (existing.paths.includes(entry.paths[0])) return true;
   // A folder groups writes; a move already says where it went, and two moves
   // into one folder from two different places are two facts.
+  // What an app remembered in one stretch is one line wherever the notes are.
+  if (entry.kind === "remembered") return true;
   if (entry.kind !== "added" && entry.kind !== "revised" && entry.kind !== "session") {
     return false;
   }
@@ -404,7 +328,7 @@ function mergeable(existing, entry, windowMs) {
 }
 
 function windowFor(kind) {
-  return kind === "session" ? SESSION_WINDOW_MS : GROUP_WINDOW_MS;
+  return kind === "session" || kind === "remembered" ? SESSION_WINDOW_MS : GROUP_WINDOW_MS;
 }
 
 /**
@@ -433,7 +357,8 @@ function applyEntry(entries, entry) {
     const widens = entry.paths.some((path) => !known.has(path));
     // Already said, recently enough, about the same notes: the file on disk is
     // already correct and the cheapest correct write is none.
-    if (!widens && age < REFRESH_MS) return null;
+    // A remembered line counts facts, so every fact changes it.
+    if (!widens && age < REFRESH_MS && entry.kind !== "remembered") return null;
     const paths = candidate.paths
       .concat(entry.paths.filter((path) => !known.has(path)))
       .slice(0, MAX_ENTRY_PATHS);
@@ -445,11 +370,10 @@ function applyEntry(entries, entry) {
       paths,
       // Counting distinct notes rather than writes: six saves of one note is
       // one note, and that is the number a reader wants.
-      n: Math.max(
-        candidate.n,
-        new Set(candidate.paths.concat(entry.paths)).size,
-        entry.n,
-      ),
+      n:
+        entry.kind === "remembered"
+          ? candidate.n + entry.n
+          : Math.max(candidate.n, new Set(candidate.paths.concat(entry.paths)).size, entry.n),
       // A merged group takes the wider tier only when every part had it.
       vis: candidate.vis === "team" && entry.vis === "team" ? "team" : "private",
       note: entry.note || candidate.note || null,
@@ -567,6 +491,8 @@ function describeEntry(entry) {
       return `A meeting landed: ${code(first)}`;
     case "session":
       return `${who} saved a session`;
+    case "remembered":
+      return `${who} remembered ${entry.n === 1 ? "1 fact" : `${entry.n} facts`} in ${entry.paths.map(code).join(", ")}`;
     default:
       return `${who} changed ${code(first)}`;
   }

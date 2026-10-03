@@ -1,6 +1,6 @@
 # Remember in Context
 
-Status: design, decided with the owner on 2026-10-02. Not built.
+Status: decided with the owner on 2026-10-02, and built. Durable decisions: `docs/decisions/gateway-protocol/remember.md`.
 
 ## Intent
 
@@ -113,7 +113,7 @@ replaced a line. Refusals, as sentences the agent can act on:
 | `invalid` | `fact` empty, over 500 characters, or more than one line; `kind` not one of the two. |
 | `reserved_path` | `note` is `index.md`, `privacy.md`, `activity.md` or under `.context/`. |
 | `not_writable` | the path is not writable on this connection (the `write_note` rule). |
-| `encrypted` | the note is password-encrypted (never edited by an agent). |
+| `encrypted` | the note is password-locked (never edited by an agent). A note encrypted with the workspace key is written as `write_note` writes it. |
 | `replaces_not_found` / `replaces_ambiguous` | as above. |
 | `conflict` | the note changed twice while writing. |
 

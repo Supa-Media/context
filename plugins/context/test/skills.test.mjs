@@ -27,7 +27,7 @@ const SKILLS = new URL("../skills/", import.meta.url);
 const GATEWAY = new URL("../../../apps/mcp/src/", import.meta.url);
 
 /** The tools the skills tell an agent to call, by name. */
-const TOOLS_NAMED = ["orient", "search_notes", "read_note", "write_note", "save_context", "report_problem"];
+const TOOLS_NAMED = ["orient", "search_notes", "read_note", "write_note", "save_context", "report_problem", "remember"];
 
 function frontmatter(text) {
   const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
