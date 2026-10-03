@@ -53,6 +53,7 @@ import { runActivityRoundTripChecks } from "./activity/roundTrip.test.mjs";
 import { runActivityFileIdentityChecks } from "./activity/fileIdentity.test.mjs";
 import { runActivityVisibilityAndUnreadChecks } from "./activity/visibilityAndUnread.test.mjs";
 import { runActivityWiredChecks } from "./activity/wired.test.mjs";
+import { runActivityRememberedChecks } from "./activity/remembered.test.mjs";
 
 /**
  * This file used to hold every one of these checks directly, in one large
@@ -68,6 +69,7 @@ export async function runActivityChecks(check) {
   await runActivitySubstanceChecks(check);
   await runActivityShapingChecks(check);
   await runActivityGroupingChecks(check);
+  await runActivityRememberedChecks(check);
   await runActivityCheapPathChecks(check);
   await runActivityRoundTripChecks(check);
   await runActivityFileIdentityChecks(check);

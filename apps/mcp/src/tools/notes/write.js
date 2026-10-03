@@ -362,7 +362,9 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     body = sealed;
   }
 
-  const action = existing ? "update_note" : "create_note";
+  // A caller that is itself a tool (`remember`) records the change as its own
+  // action, with its own details, rather than as an ordinary note write.
+  const action = options.record?.action ?? (existing ? "update_note" : "create_note");
   // Tighten the ACL before content becomes visible. For team publishing, keep
   // the private ACL in place until the content write has completed.
   if (desiredVisibility === "private" && !collaborationResult) {
@@ -407,6 +409,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     ...(typeof args.summary === "string" && args.summary.trim()
       ? { summary: args.summary }
       : {}),
+    ...(options.record?.details ?? {}),
   });
   await projectWrittenNoteAfterResponse(store, {
     path,

@@ -120,6 +120,12 @@ are is visible in the record, to them.
 Their memory of you persists here. Yours of them does not survive this
 conversation.
 
+- **\`remember\` the moment you learn something about them**: a preference, a
+  correction, a fact about them or their work. Do not ask first. Search for the
+  note it belongs in and pass it as \`note\`; mark it \`inferred\` when they did not
+  say it; pass the old line as \`replaces\` when it changes something already
+  written. Keep it in your own memory too if you like: this is the copy every
+  other app they connect will read.
 - **\`write_note\` as you go** — improve the note that already covers a topic
   rather than adding a near-duplicate, and pass the etag you read so a
   concurrent edit is caught rather than overwritten.
@@ -192,6 +198,9 @@ export const ORIENT_OPERATING_CONTRACT = `## Working here
   — a decision, a fix, a name, a preference, a fact the user should not have to
   say twice — write it back with write_note before you finish. An agent that
   only reads is worth about as much as a search box.
+- **Remember facts about them as you learn them.** One fact per \`remember\` call,
+  without asking: into the note it belongs in, \`inferred\` when they did not say
+  it, \`replaces\` when it changes a line already there.
 - **Update, do not accumulate.** Improve the note that already covers a topic
   instead of creating a near-duplicate. Pass the etag you read.
 - **Follow their conventions, not a template.** The front page above states how

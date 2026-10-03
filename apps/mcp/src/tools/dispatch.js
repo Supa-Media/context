@@ -43,6 +43,7 @@ import { toolRotateEncryptionKeys } from "./encryption/rotate.js";
 import { toolSaveContext } from "./saveContext.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "./visibility.js";
 import { toolWriteNote } from "./notes/write.js";
+import { toolRemember } from "./notes/remember.js";
 import { toolCommentNote } from "./notes/comment.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
@@ -89,6 +90,8 @@ export async function callTool(name, args, store, scope) {
       if (args.site !== undefined) return toolSiteAction(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       return toolWriteNote(store, scope, rules, overrides, args);
+    case "remember":
+      return toolRemember(store, scope, rules, overrides, args);
     case "set_visibility":
       return toolSetVisibility(store, scope, rules, overrides, args);
     case "set_encryption":
