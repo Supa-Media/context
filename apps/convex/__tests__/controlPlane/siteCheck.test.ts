@@ -179,4 +179,13 @@ describe("/gateway/site check", () => {
     expect((await check(f, EDITOR, "website/nope.md"))!.inspected!.output).toMatch(/nothing to show/);
     expect(await f.t.query(api.functions.websites.siteRevision, { handle: "atlas" })).toEqual(before);
   });
+
+  test("a site that says base: off is inspected without the base sheet", async () => {
+    const f = await checkFixture();
+    f.backend.seed("website/reset.css.md", "---\nbase: off\n---\n\n```css\n.c { margin: 0; }\n```\n");
+    const sheet = (await check(f, EDITOR, "website/site.css.md"))!.inspected!;
+    expect(sheet.output).not.toContain("Context's base sheet");
+    expect(sheet.output).not.toContain("--bg: #ffffff");
+    expect(sheet.output).toContain(".ctx-site .a { color: red; }");
+  });
 });

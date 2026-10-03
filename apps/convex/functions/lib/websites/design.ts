@@ -190,10 +190,13 @@ export async function readWebsiteDesign(
   const texts = await publishedTexts(ctx, args.workspaceId, chosen);
   let frame: string | null = null;
   let template: string | null = args.pageIsHtml ? blockOf(args.pageKey, args.pageText) : null;
+  let base = !args.pageIsHtml || parseWebsitePage(args.pageText).base;
   const styles: string[] = [];
   for (const note of chosen) {
     const text = texts.get(note.objectKey);
     if (text === undefined) continue;
+    // Only a note that is drawn can switch the base sheet off.
+    if (!parseWebsitePage(text).base) base = false;
     const block = blockOf(note.objectKey, text);
     if (block === null) continue;
     if (note.role === "frame") frame = block;
@@ -201,7 +204,8 @@ export async function readWebsiteDesign(
     else styles.push(block);
   }
   if (frame === null && template === null && styles.length === 0) return null;
-  return await sanitizeDesign(ctx, args.workspaceId, { frame, template, styles });
+  const design = await sanitizeDesign(ctx, args.workspaceId, { frame, template, styles });
+  return base ? design : { ...design, base: false };
 }
 
 /**

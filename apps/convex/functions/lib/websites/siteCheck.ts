@@ -244,6 +244,12 @@ export function analyzeSite(input: SiteCheckInput): Omit<SiteCheck, "enabled" | 
   const code: SiteCheckCode[] = [];
   const warnings: Array<{ path: string; why: string }> = [];
   let inspected: SiteCheck["inspected"] = null;
+  // The frame or a stylesheet saying `base: off` takes the base sheet off every page.
+  const baseOff = live.some(
+    (status) =>
+      (status.code === "frame" || status.code === "style") &&
+      !parseWebsitePage(text.get(status.objectKey) ?? "").base,
+  );
   for (const status of live) {
     if (status.code === undefined || status.code === "script") continue;
     const note = text.get(status.objectKey);
@@ -319,7 +325,7 @@ export function analyzeSite(input: SiteCheckInput): Omit<SiteCheck, "enabled" | 
     if (removed.length > 0) code.push({ path: status.objectKey, role: status.code, removed });
     if (input.inspect === status.objectKey) {
       const full =
-        status.code === "style" ? `/* Context's base sheet, drawn before yours */\n${SITE_BASE_CSS}\n\n/* ${status.objectKey} */\n${output}` : output;
+        status.code === "style" && !baseOff ? `/* Context's base sheet, drawn before yours */\n${SITE_BASE_CSS}\n\n/* ${status.objectKey} */\n${output}` : output;
       inspected = {
         path: status.objectKey,
         output: full.slice(0, MAX_INSPECTED_OUTPUT),

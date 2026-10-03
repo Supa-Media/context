@@ -97,6 +97,20 @@ one deleted, encrypted or drafted, stops being drawn at once. A members-only
 code note is drawn only for members. Folder references (`folder:`) never make
 a code note: a note a folder publishes is a note, whatever it is called.
 
+## A site can turn the base sheet off
+
+Every designed page starts from a small base sheet (`siteDesign/baseCss.ts`)
+so a site with three lines of CSS is still readable. A site that brings its
+own reset fights it, so a code note may say `base: off` in its frontmatter
+(`on` or `off`, nothing else; anything else stops Publish). The frame or a
+stylesheet saying it takes the base sheet off every page; a layout saying it,
+or an HTML page's own frontmatter, takes it off only the pages drawn with it.
+Only a note that is drawn counts, so one `privacy.md` holds back stops
+switching it off at once, the same as its CSS. The switch is a field on the
+design (`base: false`, absent otherwise), so a design without it is drawn
+exactly as before. A site check's `inspect` of a stylesheet leaves the base
+sheet out when the frame or a stylesheet says `base: off`.
+
 ## Designs are Premium
 
 Websites are Premium (the owner, 2026-10-02), so designs are: on a deployment

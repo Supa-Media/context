@@ -54,13 +54,14 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
   );
 
   check(
-    "...and the contract an agent otherwise learns by breaking a site: scoping, scrolling, addresses, Publish",
+    "...and the contract an agent otherwise learns by breaking a site: scoping, scrolling, the base sheet, addresses, Publish",
     withSite.includes("never write `.ctx-site`") &&
       withSite.includes("scrolls by itself") &&
       withSite.includes("not its file (`/index`)") &&
       withSite.includes("Saving is not publishing") &&
       withSite.includes('action: "publish", draft') &&
-      withSite.includes('action: "check"'),
+      withSite.includes('action: "check"') &&
+      withSite.includes("`base: off`"),
   );
 
   const withoutSite = await site("ws_nositegd", { "1-projects/a.md": "# A\n" });

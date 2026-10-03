@@ -148,6 +148,8 @@ export interface WebsiteDesign {
   css: string;
   /** Google Fonts stylesheets to load. */
   fonts: string[];
+  /** Present, and false, only when a note the page is drawn with says `base: off`. */
+  base?: false;
 }
 
 export interface WebsiteNavigationItem {

@@ -103,7 +103,8 @@ export function DesignedSite({
       style: { height: "100%", flex: "1 1 0%", minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch" },
     },
     // Set as text, so it is never read as markup; every rule is scoped below.
-    createElement("style", null, `${SITE_BASE_CSS}\n${design.css}`),
+    // `base: off` on a code note: the site starts from nothing but its own CSS.
+    createElement("style", null, design.base === false ? design.css : `${SITE_BASE_CSS}\n${design.css}`),
     createElement("div", {
       className: SITE_SCOPE_CLASS,
       "data-testid": "site-designed",

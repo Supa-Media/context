@@ -60,6 +60,7 @@ const designValidator = v.object({
   template: v.union(v.string(), v.null()),
   css: v.string(),
   fonts: v.array(v.string()),
+  base: v.optional(v.literal(false)),
 });
 const statusValidator = v.object({
   objectKey: v.string(),
