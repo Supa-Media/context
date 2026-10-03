@@ -20,6 +20,8 @@ export const WEBSITE_GUIDE = [
   "- Layout fields: `{ content }`, `{ site.name }`, `{ page.title }`, `{ page.description }`, `{ page.intro }`, and loops `{ each item in site.nav }…{ item.link } { item.title } { item.current }…{ end }`, `{ each s in page.sections }…{ s.heading } { s.text } { s.link } { s.content }…{ end }` (one section per `##`).",
   "- HTML and CSS are cleaned before they are drawn: no scripts, event handlers, forms, iframes or SVG; pictures only from this workspace (attach with write_note `images` and use the stored name); no remote `url()`. Write layout with plain elements and classes.",
   "- Rule of thumb: words in Markdown pages; layout and look in HTML and CSS; Context blocks (folder lists, forms, embeds) only for workspace data.",
+  "- Published at `context.lc/@<handle>`, `<handle>.ctxlc.site`, and the owner's own domain if they connected one.",
+  "- **Scripts run sealed, or not at all.** Site scripts are not available yet, and when they are, each one runs sealed in its own box on the page: fine for a calculator, quiz, chart or game; never able to touch the rest of the page. Tell the person this when they ask for a site: no analytics or tracking snippets, chat bubbles, cookie banners or pasted third-party scripts, and no script that changes the whole page. Do sticky headers, scroll effects, menus and dark mode in CSS instead.",
 ].join("\n");
 
 /** The guide, when this connection can see a website folder. */
