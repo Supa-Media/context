@@ -183,7 +183,8 @@ function describeCheck(check) {
   if (check.pictures.length > 0) {
     lines.push(`pictures (${check.pictures.length}):`);
     for (const picture of check.pictures) {
-      lines.push(`- ${picture.name}${size(picture.bytes)}, used by ${picture.usedBy.join(", ")}${picture.problem ? `: ${picture.problem}` : ""}`);
+      const labels = (picture.labels ?? []).map((label) => `, "${label}"`).join("");
+      lines.push(`- ${picture.name}${size(picture.bytes)}${labels}, used by ${picture.usedBy.join(", ")}${picture.problem ? `: ${picture.problem}` : ""}`);
     }
   }
   const removed = check.code.flatMap((note) =>

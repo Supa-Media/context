@@ -196,7 +196,8 @@ export async function runSiteActionChecks(check) {
       pageProblems: [],
       links: [{ path: "website/layout.html.md", line: 4, target: "/abuot", problem: "no page has the address /abuot; did you mean /about?" }],
       pictures: [
-        { name: "logo.png", bytes: 2048, usedBy: ["website/layout.html.md"], problem: null },
+        { name: "logo.png", bytes: 2048, usedBy: ["website/layout.html.md"], labels: [], problem: null },
+        { name: "team.jpg", bytes: 4096, usedBy: ["website/about.md"], labels: ["original photograph"], problem: null },
         { name: "gone.png", bytes: null, usedBy: ["website/about.md"], problem: "no picture is stored under this exact name" },
       ],
       code: [{ path: "website/layout.html.md", role: "frame", removed: [{ line: 6, what: "<template> and everything inside it", why: "a <template> is never drawn, so nothing inside it shows" }] }],
@@ -210,7 +211,8 @@ export async function runSiteActionChecks(check) {
       checked.text.includes("/ ← website/index.md; /contact ← website/contact.md (draft)"));
     check("...links that go nowhere by note and line, pictures by size and use",
       checked.text.includes("- website/layout.html.md:4 → /abuot: no page has the address /abuot; did you mean /about?") &&
-      checked.text.includes("- logo.png (2 KB), used by website/layout.html.md") &&
+      checked.text.includes("- logo.png (2 KB), used by website/layout.html.md\n") &&
+      checked.text.includes('- team.jpg (4 KB), "original photograph", used by website/about.md') &&
       checked.text.includes("- gone.png, used by website/about.md: no picture is stored under this exact name"));
     check("...what the cleaner removed, by line, and what draws nothing",
       checked.text.includes("- website/layout.html.md:6 <template> and everything inside it: a <template> is never drawn") &&

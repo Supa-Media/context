@@ -140,6 +140,11 @@ export function noteWriteToolDefinitions() {
                 data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this or url." },
                 url: { type: "string", description: "An https URL to fetch the image from once. Pass this or data." },
                 alt: { type: "string", description: "Alt text, used when the image is appended rather than embedded by name" },
+                label: {
+                  type: "string",
+                  description:
+                    "Where the picture came from, e.g. original photograph, AI-assisted concept, early draft. Written into the note as the embed's title, ![alt](name \"label\"), so embed it that way rather than as ![[name]]; a site check lists it.",
+                },
               },
               required: ["name"],
               additionalProperties: false,

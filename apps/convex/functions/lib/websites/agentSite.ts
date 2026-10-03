@@ -369,7 +369,7 @@ const siteCheckAnswerValidator = v.object({
   pageProblems: v.array(v.object({ path: v.string(), problems: v.array(v.string()) })),
   links: v.array(v.object({ path: v.string(), line: v.number(), target: v.string(), problem: v.string() })),
   pictures: v.array(
-    v.object({ name: v.string(), bytes: nullableNumber, usedBy: v.array(v.string()), problem: nullableString }),
+    v.object({ name: v.string(), bytes: nullableNumber, usedBy: v.array(v.string()), labels: v.array(v.string()), problem: nullableString }),
   ),
   code: v.array(
     v.object({
