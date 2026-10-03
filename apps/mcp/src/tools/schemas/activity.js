@@ -44,8 +44,10 @@ export function activityToolDefinitions() {
       title: "List changes",
       description:
         "List every recorded change, including ones activity.md judges too small to mention, as " +
-        "immutable records filtered to paths visible to this connection. Records contain actions " +
-        "and paths, never note content. Prefer read_activity for catching up; this is the trail.",
+        "immutable records filtered to paths visible to this connection. A record carries the " +
+        "action, the paths and who made the change; a remember_fact record also carries the fact " +
+        "that was saved and the line it replaced, which is where an agent's provenance lives. No " +
+        "other record holds note content. Prefer read_activity for catching up; this is the trail.",
       inputSchema: {
         type: "object",
         properties: {

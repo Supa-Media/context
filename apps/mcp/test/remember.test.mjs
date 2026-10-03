@@ -340,3 +340,42 @@ test("a fact still appends below the frontmatter, and a body line is still repla
     "---\naudience: members\ntitle: Team only\n---\n\n# Team only\n\n- Internal notes, reviewed quarterly.\n- Works from Lagos.\n",
   );
 });
+
+/*
+  THE TRAIL'S DESCRIPTION HAS TO ADMIT WHAT THE TRAIL HOLDS.
+
+  `list_changes` told every caller "Records contain actions and paths, never
+  note content" — the sentence an agent reads to decide whether the trail is
+  safe to ask for. `remember_fact` stores the fact and the line it replaced,
+  both of them note content, by the owner's own design decision
+  (docs/decisions/gateway-protocol/remember.md: "Provenance lives in the audit
+  trail"). The promise was simply not revisited with it.
+
+  Two-sided on purpose, so neither half can rot: the record must carry the
+  fact, and while it does the description must not deny it. If the fact is
+  ever taken back out of the record, this test fails and says so, and the
+  stronger promise can be restored in the same commit.
+*/
+test("the trail's description admits the provenance the trail stores", async () => {
+  const answer = await remember({
+    fact: "Prefers short replies.",
+    kind: "inferred",
+    note: PREFS,
+    replaces: "Prefer concise but complete answers.",
+  });
+  assert.equal(answer.isError, false, answer.text);
+  const record = audits("remember-me").find((entry) => entry.action === "remember_fact");
+  assert.ok(record, "no remember_fact audit record");
+  assert.equal(typeof record.details.fact, "string", "the record no longer carries the fact");
+  assert.equal(typeof record.details.replaced, "string", "the record no longer carries the replaced line");
+
+  const listed = await rpc(OWNER, "tools/list", {});
+  const changes = (listed?.tools ?? []).find((tool) => tool.name === "list_changes");
+  assert.ok(changes, "list_changes is not advertised");
+  assert.doesNotMatch(
+    changes.description,
+    /never note content/i,
+    "the record carries note content, so the description must not promise it does not",
+  );
+  assert.match(changes.description, /remember_fact/i, "the description should name what does carry content");
+});
