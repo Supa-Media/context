@@ -84,6 +84,11 @@ export const BUILT_IN_SOUNDS = {
   swish: { label: "Swish", voices: [noise(1500, 1, 0, 0.22, 0.45, 5000)] },
   flip: { label: "Flip", voices: [noise(2500, 1.2, 0, 0.04, 0.5), noise(2000, 1.2, 0.07, 0.04, 0.45)] },
   drop: { label: "Drop", voices: [tone("sine", 900, 0, 0.16, 0.4, 300)] },
+  // Assistant gives up
+  buzz: { label: "Buzz", voices: [tone("sawtooth", 185, 0, 0.16, 0.22), tone("square", 196, 0, 0.16, 0.08), tone("sawtooth", 185, 0.22, 0.26, 0.22), tone("square", 196, 0.22, 0.26, 0.08)] },
+  "uh-oh": { label: "Uh-oh", voices: [tone("triangle", 587, 0, 0.16, 0.38), tone("triangle", 440, 0.18, 0.34, 0.38, 415)] },
+  bonk: { label: "Bonk", voices: [tone("sine", 320, 0, 0.22, 0.55, 110), noise(900, 2, 0, 0.05, 0.35)] },
+  denied: { label: "Denied", voices: [tone("square", 311, 0, 0.32, 0.1), tone("square", 330, 0, 0.32, 0.1), tone("sine", 155, 0, 0.32, 0.35)] },
 } satisfies Record<string, BuiltInSound>;
 
 export type BuiltInSoundId = keyof typeof BUILT_IN_SOUNDS;

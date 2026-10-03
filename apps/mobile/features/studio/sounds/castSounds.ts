@@ -50,6 +50,7 @@ export const MOMENT_LABELS: Record<CastMoment, string> = {
   comment: "Comment sent",
   resolve: "Comment resolved",
   note: "New note appears",
+  error: "Assistant gives up",
 };
 
 /** The built-in sounds offered for each moment, the default first. */
@@ -62,6 +63,7 @@ export const MOMENT_SOUNDS: Record<CastMoment, readonly string[]> = {
   comment: ["chime", "pop", "bell", "soft-tick", "ding"],
   resolve: ["tick", "check", "two-note", "bell", "pluck"],
   note: ["paper", "swish", "flip", "drop", "pop"],
+  error: ["buzz", "uh-oh", "bonk", "denied", "thud"],
 };
 
 export function defaultPlan(): SoundPlan {

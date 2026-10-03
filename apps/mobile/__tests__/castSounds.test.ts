@@ -144,7 +144,35 @@ describe("a show's moments", () => {
       comment: 2,
       resolve: 1,
       note: 1,
+      error: 0,
     });
+  });
+
+  test("an assistant giving up (a usage limit, an overload) is an error, not words landing", () => {
+    const cuesOf = (lines: string[]) => {
+      const { steps } = splitWebsiteCast(["# x", "", "```cast", ...lines, "```", ""].join("\n"));
+      const clock = createCastClock();
+      const cues: CastMoment[] = [];
+      playCast(steps, createSharedDoc({}), {
+        schedule: (ms, run) => clock.schedule(ms, run),
+        instant: () => false,
+        pageNamed: () => null,
+        addNote: (name) => `${name}.md`,
+        agentDid: () => {},
+        room: () => {},
+        cue: (moment) => cues.push(moment),
+      });
+      clock.rush(() => false);
+      clock.stop();
+      return cues.filter((moment) => moment === "writes" || moment === "error");
+    };
+    expect(cuesOf(["Claude answers: Weekly usage limit reached."])).toEqual(["error"]);
+    expect(cuesOf(["Claude Code answers: Claude usage limit reached. Resets Monday 9am."])).toEqual(["error"]);
+    expect(cuesOf(["ChatGPT says: Error: overloaded. Try again later."])).toEqual(["error"]);
+    expect(cuesOf(["Codex answers: You've hit your rate limit."])).toEqual(["error"]);
+    // Talking about an error is still an answer.
+    expect(cuesOf(["Claude answers: Fixed the error in refunds.ts. The limit check reads the event id now."])).toEqual(["writes"]);
+    expect(cuesOf(["Claude answers: Error handling lives in one place now."])).toEqual(["writes"]);
   });
 
   test("a cue crosses to the studio only as a moment it knows", () => {
