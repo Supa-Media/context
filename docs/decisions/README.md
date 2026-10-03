@@ -230,7 +230,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - `privacy.md` decides what a website publishes
 - An edit is a candidate; the last complete release is the fallback
 - Edits wait for Publish
-- An agent can publish, the draft it checked and nothing newer
+- [An agent can publish, the draft it checked and nothing newer](./websites/agent-tools.md)
 - Every site's pages are kept at the edge per Publish
 - A fallback never reverses an explicit restriction
 - The index may lag on widening, never on narrowing

@@ -19,6 +19,8 @@ describe("website page metadata", () => {
       nav: null,
       // `layout:` picks a site's layout (`websiteCodeNotes.test.ts`).
       layout: null,
+      // `base: off` drops Context's base sheet (`websiteDesign.test.ts`).
+      base: true,
       body: "# Welcome\n",
       problems: [],
     });

@@ -56,7 +56,7 @@ from the other side:
   needs neither. A `![[…]]` embed has no title, so a label on one is refused
   with the form that keeps it; a picture named only in code is stored and the
   answer says its label was not kept. A site check lists each picture's
-  labels (`docs/decisions/websites.md`).
+  labels (`docs/decisions/websites/agent-tools.md`).
 - **An encrypted note, and a drawing, refuse images.** An encrypted note's
   text is sealed and an image's bytes would not be, which is the paste's rule.
 
