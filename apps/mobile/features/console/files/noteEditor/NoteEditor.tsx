@@ -88,7 +88,6 @@ export function NoteEditor({
   canEdit,
   reading = false,
   notices,
-  lead,
   pathBar,
   onChange,
   onSave,
@@ -398,7 +397,7 @@ export function NoteEditor({
     commentModerator,
     onSignInToComment,
     // Props, as destructured above.
-    state, presence, drawingCollaboration, canEdit, reading, notices, lead, pathBar,
+    state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,

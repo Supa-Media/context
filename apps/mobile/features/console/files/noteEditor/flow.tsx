@@ -16,7 +16,6 @@ export function noteFlow(view: NoteView) {
     compact,
     pathBar,
     notices,
-    lead,
     passphraseLocked,
     state,
     styles,
@@ -35,7 +34,6 @@ export function noteFlow(view: NoteView) {
   <>
     {compact ? pathBar : null}
     {compact ? notices : null}
-    {lead}
     {/*
       A passphrase note gets `LockedNoteView` below instead of the raw
       envelope, and `LockedNoteView` says everything `EncryptedNotice`

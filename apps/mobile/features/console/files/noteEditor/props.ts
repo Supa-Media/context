@@ -116,13 +116,6 @@ export interface NoteEditorProps {
    */
   notices?: ReactNode;
   /**
-   * Something the page puts above the note, at every density, inside the
-   * note's own scroller so it scrolls away with the text. The homepage's
-   * `JoinCard` and nothing else: a visitor's way to sign in or join the
-   * waitlist, drawn in the page rather than on another screen.
-   */
-  lead?: ReactNode;
-  /**
    * Follow a link to another note.
    *
    * Absent where there is nowhere to go — the landing page's demo console — and

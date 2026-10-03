@@ -224,7 +224,7 @@ export {
   withCastWords,
   type CastEditKind,
 } from "./castEdit";
-export { JOIN_OPEN, stripWebsiteJoin } from "./websiteJoin";
+export { JOIN_OPEN, hasWebsiteJoin, stripWebsiteJoin } from "./websiteJoin";
 export {
   DEVLOG_EXPLORING_DISCLAIMER,
   DEVLOG_PAGE_FILE,

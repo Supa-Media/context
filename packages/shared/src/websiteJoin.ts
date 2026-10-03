@@ -58,3 +58,8 @@ export function stripWebsiteJoin(source: string): string {
   }
   return out.join("\n");
 }
+
+/** Whether `source` has a closed join fence, the only place the field is drawn. */
+export function hasWebsiteJoin(source: string): boolean {
+  return stripWebsiteJoin(source) !== source.replace(/\r\n?/g, "\n");
+}

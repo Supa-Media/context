@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useState } from "react";
 import type { AgentActivityView } from "../console/agents/agentActivity";
 import type { FileBrowser, NoteRename } from "../console/files/browser/contract";
 import type { ConsoleContext, ConsoleData, VisitorMeetings } from "../console/types";
@@ -52,8 +52,6 @@ export function useVisitorConsoleData(
     /** Sign in or join: brings the page's `join` card into view. */
     signIn: () => void;
     openApp: () => void;
-    /** The page's one email field, `JoinCard`, for somebody not signed in. */
-    join: ReactNode;
     /** The page's public address, or `null` for a note that has none. */
     linkFor: (path: string) => string | null;
     copy: (text: string) => Promise<boolean>;
@@ -68,7 +66,7 @@ export function useVisitorConsoleData(
 ): ConsoleData {
   const demo = useDemoConsoleData();
   const [toast, setToast] = useState<ToastSpec | null>(null);
-  const { linkFor, copy, signIn, join, openApp, signedIn, meetings } = actions;
+  const { linkFor, copy, signIn, openApp, signedIn, meetings } = actions;
 
   const share = useCallback(
     (path: string) => {
@@ -95,9 +93,9 @@ export function useVisitorConsoleData(
 
   return {
     ...demo,
-    // Invite-only: one "Sign in or join" and the card it points at, never a
-    // separate "Create workspace" (Dev2, 2026-09-28).
-    visitor: signedIn ? { openApp, share, meetings } : { signIn, join, share, meetings },
+    // Invite-only: one "Sign in or join", never a separate "Create
+    // workspace" (Dev2, 2026-09-28).
+    visitor: signedIn ? { openApp, share, meetings } : { signIn, share, meetings },
     viewer: signedIn ? SIGNED_IN : VISITOR,
     contexts: [HOME_CONTEXT],
     selectedContextId: HOME_CONTEXT.id,

@@ -148,11 +148,23 @@ describe("the homepage is the console's frame", () => {
 
   /*
     Invite-only (Dev2, 2026-09-28): one way in, "Sign in or join", and it
-    answers on this page. The email field is drawn above the note being read,
-    and the menu row focuses it rather than opening /login.
+    answers on this page. The menu row focuses the page's own field rather
+    than opening /login.
   */
-  test("the account button offers one way in, and it stays on the page", () => {
+  test("the account button offers one way in, and it stays on the page", async () => {
+    const index = mockSite.snapshot.pages[0]!;
+    const before = index.markdown;
+    index.markdown = "# Welcome\n\n```join\n```\n\nsee [pricing](pricing.md)";
+    try {
+      await signInFocusesTheField();
+    } finally {
+      index.markdown = before;
+    }
+  });
+
+  async function signInFocusesTheField() {
     const home = mountHome();
+    await act(async () => {});
     expect(home.find("join-card")).not.toBeNull();
     home.press(home.find("account-switcher"));
     expect(home.find("switcher-sign-in")).not.toBeNull();
@@ -161,11 +173,12 @@ describe("the homepage is the console's frame", () => {
       expect({ absent, drawn: home.find(absent) !== null }).toEqual({ absent, drawn: false });
     }
     home.press(home.find("switcher-sign-in"));
+    await act(async () => {});
     expect(mockPushed).not.toContain("/login");
     const field = home.find("join-email");
     expect(field).not.toBeNull();
     expect(document.activeElement).toBe(field);
-  });
+  }
 
   /*
     Dev2, 2026-09-29: the field goes where the page says, as the artboard drew
@@ -187,11 +200,36 @@ describe("the homepage is the console's frame", () => {
     }
   });
 
-  test("a page without one keeps the field above the note", () => {
-    mountHome();
-    const card = document.querySelector('[data-testid="join-card"]');
-    expect(card).not.toBeNull();
-    expect(card!.closest(".cm-lp-join")).toBeNull();
+  /*
+    Dev2, 2026-10-03: on devlog and connect, pages with no fence, the field sat
+    above the note at the pane's top-left corner, beside the page rather than
+    in it. A page without a fence has no field; "Sign in or join" there opens
+    the page that has one and focuses it.
+  */
+  test("a page without one has no field, and Sign in takes the visitor to the one that does", async () => {
+    const index = mockSite.snapshot.pages[0]!;
+    const before = index.markdown;
+    index.markdown = "# Welcome\n\n```join\n```\n\nthe end";
+    mockParams.page = "pricing";
+    try {
+      const home = mountHome();
+      await act(async () => {});
+      expect(home.find("join-card")).toBeNull();
+      home.press(home.find("account-switcher"));
+      home.press(home.find("switcher-sign-in"));
+      expect(mockPushed).toEqual(["/"]);
+    } finally {
+      index.markdown = before;
+    }
+  });
+
+  test("a site with no field anywhere sends Sign in to /login", async () => {
+    const home = mountHome();
+    await act(async () => {});
+    expect(home.find("join-card")).toBeNull();
+    home.press(home.find("account-switcher"));
+    home.press(home.find("switcher-sign-in"));
+    expect(mockPushed).toEqual(["/login"]);
   });
 
   test("somebody signed in still sees the page's own field", async () => {
