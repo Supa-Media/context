@@ -24,7 +24,7 @@
  */
 
 import { EditorState } from "@codemirror/state";
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import {
   decorationsFor,
   editorEngaged,
@@ -85,11 +85,27 @@ export function stateFor(doc: string, cursor?: number | [number, number]): Edito
       : typeof cursor === "number"
         ? { anchor: at(cursor) }
         : { anchor: at(cursor[0]), head: at(cursor[1]) };
-  return EditorState.create({
-    doc,
-    extensions: [markdownLanguage()],
-    ...(selection ? { selection } : {}),
-  });
+  return parsed(
+    EditorState.create({
+      doc,
+      extensions: [markdownLanguage()],
+      ...(selection ? { selection } : {}),
+    }),
+  );
+}
+
+/**
+ * Parse to the end before a test reads the tree. `EditorState.create` parses
+ * on a time budget and leaves the rest to an editor view, which a test has
+ * none of, so on a slow machine the tree could stop short (`fullParse.test.ts`).
+ * `ensureSyntaxTree` finishes the parse; the empty transaction after it is what
+ * puts the finished tree where `syntaxTree(state)` reads it.
+ */
+function parsed(state: EditorState): EditorState {
+  if (ensureSyntaxTree(state, state.doc.length, 10_000) === null) {
+    throw new Error("the fixture document did not parse within 10 seconds");
+  }
+  return state.update({}).state;
 }
 
 /**
@@ -101,11 +117,13 @@ export function stateFor(doc: string, cursor?: number | [number, number]): Edito
  */
 export function readingStateFor(doc: string, cursor?: number): EditorState {
   const state = stateFor(doc, cursor);
-  return EditorState.create({
-    doc: state.doc,
-    selection: state.selection,
-    extensions: [markdownLanguage(), EditorState.readOnly.of(true)],
-  });
+  return parsed(
+    EditorState.create({
+      doc: state.doc,
+      selection: state.selection,
+      extensions: [markdownLanguage(), EditorState.readOnly.of(true)],
+    }),
+  );
 }
 
 /**
