@@ -53,6 +53,7 @@ export async function recordChange(store, action, actorScope, paths, details = {
 export const INDEX_ON_CHANGE = new Map([
   ["update_note", "written"],
   ["create_note", "written"],
+  ["remember_fact", "written"],
   ["save_context", "written"],
   ["meeting_note", "written"],
   ["propose_note", "written"],

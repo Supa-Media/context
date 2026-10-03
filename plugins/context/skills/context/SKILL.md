@@ -27,6 +27,12 @@ paths it returns.
   a concurrent edit is refused instead of overwritten.
 - Before creating a note, tell the user which folder it will land in and wait
   for their go. The folder decides who else can read it.
+- When you learn something about the user (a preference, a correction, a fact
+  about them or their work), save it with `remember` right away, without asking:
+  one fact per call, in the note it belongs in (search first), `inferred` when
+  they did not say it, and `replaces` with the old line when it changes one.
+  This is the one save that does not wait for a go. You may keep it in your own
+  memory too.
 
 ## At the end: `save_context`
 

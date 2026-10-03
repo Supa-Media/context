@@ -47,6 +47,7 @@ const MARKS: Record<ActivityMark, IconName> = {
   published: "eye",
   meeting: "mic",
   session: "sparkle",
+  remembered: "pin",
 };
 
 export function ActivityList({

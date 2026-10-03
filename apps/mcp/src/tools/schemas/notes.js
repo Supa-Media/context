@@ -171,6 +171,43 @@ export function noteWriteToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     {
+      name: "remember",
+      title: "Remember a fact",
+      description:
+        "Save one durable fact about the person into their Context, so every app they connect knows it. " +
+        "Call it when you learn something worth keeping beyond this conversation: a preference, a " +
+        "correction, a fact about them or their work. Do not ask first. Search for the note the fact " +
+        "belongs in (search_notes) and pass it as note; leave note out and it becomes a new note in the " +
+        "inbox. Mark kind inferred when they did not say it outright. When the fact changes something " +
+        "already written, pass that exact line as replaces: it is swapped, never duplicated. You may also " +
+        "keep the fact in your own memory. The note keeps only the plain line; who saved it, when, and " +
+        "whether it was stated or inferred are recorded in the workspace's audit trail. Refused: an " +
+        "empty, multi-line or over-500-character fact; index.md, privacy.md, activity.md or anything under " +
+        ".context/; a password-encrypted note; a replaces that matches no line or more than one.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          fact: { type: "string", description: "One plain sentence, at most 500 characters, on one line" },
+          kind: {
+            type: "string",
+            enum: ["stated", "inferred"],
+            description: "stated: the person said it. inferred: you concluded it",
+          },
+          note: {
+            type: "string",
+            description: "Path of the note it belongs in; omit for a new note in 0-inbox/",
+          },
+          replaces: {
+            type: "string",
+            description: "The exact existing line this fact supersedes; a leading '- ' is optional",
+          },
+        },
+        required: ["fact", "kind"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "set_visibility",
       title: "Set note visibility",
       description:
