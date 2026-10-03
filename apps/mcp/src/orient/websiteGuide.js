@@ -19,7 +19,7 @@ export const WEBSITE_GUIDE = [
   "- A code note holds exactly one fenced block in the language its name says (```html, ```css); prose around the block is notes for people and agents, never published.",
   "- Layout fields: `{ content }`, `{ site.name }`, `{ page.title }`, `{ page.description }`, `{ page.intro }`, and loops `{ each item in site.nav }…{ item.link } { item.title } { item.current }…{ end }`, `{ each s in page.sections }…{ s.heading } { s.text } { s.link } { s.content }…{ end }` (one section per `##`).",
   "- HTML and CSS are cleaned before they are drawn: no scripts, event handlers, forms, iframes or SVG; pictures only from this workspace (attach with write_note `images` and use the stored name); no remote `url()`. Write layout with plain elements and classes.",
-  "- Rule of thumb: words in Markdown pages; layout and look in HTML and CSS; Context blocks (folder lists, forms, embeds) only for workspace data. Designs need Premium; without it the site keeps the default look.",
+  "- Rule of thumb: words in Markdown pages; layout and look in HTML and CSS; Context blocks (folder lists, forms, embeds) only for workspace data.",
 ].join("\n");
 
 /** The guide, when this connection can see a website folder. */
