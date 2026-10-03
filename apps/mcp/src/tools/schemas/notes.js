@@ -183,7 +183,8 @@ export function noteWriteToolDefinitions() {
         "keep the fact in your own memory. The note keeps only the plain line; who saved it, when, and " +
         "whether it was stated or inferred are recorded in the workspace's audit trail. Refused: an " +
         "empty, multi-line or over-500-character fact; index.md, privacy.md, activity.md or anything under " +
-        ".context/; a password-encrypted note; a replaces that matches no line or more than one.",
+        ".context/; a password-encrypted note; a replaces that matches no line, more than one, or a " +
+        "line of the note's frontmatter.",
       inputSchema: {
         type: "object",
         properties: {

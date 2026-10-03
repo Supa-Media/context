@@ -118,8 +118,30 @@ function bare(line) {
 }
 
 /**
+ * Where the note's prose starts: past the frontmatter block, if it has one.
+ *
+ * A `---` first line up to the next `---`, read exactly as `parseWebsitePage`
+ * reads it, and 0 when the block is unclosed — which that parser also treats
+ * as no frontmatter at all. Lines in there are not prose about the person;
+ * they are metadata other parts of the product read as a control.
+ */
+function bodyStart(lines) {
+  if (lines[0] !== "---") return 0;
+  const closing = lines.indexOf("---", 1);
+  return closing === -1 ? 0 : closing + 1;
+}
+
+/**
  * The one-line edit: swap the single line `replaces` names, or append.
  * Everything else in the note is left byte for byte as it was.
+ *
+ * `replaces` can only ever name a line of the note's prose. Frontmatter is
+ * excluded because a line in there is a control rather than a sentence, and
+ * the controls widen when they go missing: `audience: members` is what holds a
+ * website page to the workspace's members, and a page with no `audience` line
+ * is `public`. Swapping that one line for a bullet would publish the page to
+ * the internet — through the one save that deliberately does not wait for the
+ * person to approve it. An append already lands below the block.
  */
 function editLines(body, fact, replaces) {
   if (replaces === undefined) {
@@ -127,9 +149,18 @@ function editLines(body, fact, replaces) {
     return { body: `${body}${separator}- ${fact}\n` };
   }
   const lines = body.split("\n");
+  const start = bodyStart(lines);
   const wanted = bare(replaces);
-  const matches = lines.map((line, index) => (bare(line) === wanted ? index : -1)).filter((index) => index !== -1);
-  if (matches.length === 0) return { error: "replaces_not_found: no line in the note matches replaces; nothing was written" };
+  const found = (from, to) =>
+    lines.slice(from, to).map((line, index) => (bare(line) === wanted ? index + from : -1)).filter((index) => index !== -1);
+  const matches = found(start, lines.length);
+  if (matches.length === 0) {
+    return {
+      error: found(0, start).length
+        ? "replaces_frontmatter: that line is the note's frontmatter, not one of its facts; nothing was written"
+        : "replaces_not_found: no line in the note matches replaces; nothing was written",
+    };
+  }
   if (matches.length > 1) {
     return { error: "replaces_ambiguous: more than one line matches replaces; nothing was written" };
   }
