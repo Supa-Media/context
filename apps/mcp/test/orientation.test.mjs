@@ -54,6 +54,7 @@ import { runOrientationSaveAndArchiveChecks } from "./orientation/saveAndArchive
 import { runOrientationConnectSketchChecks } from "./orientation/connectSketch.test.mjs";
 import { runOrientationRecencyCollapseChecks } from "./orientation/recencyCollapse.test.mjs";
 import { runOrientationShedSignalChecks } from "./orientation/shedSignal.test.mjs";
+import { runOrientationWebsiteGuideChecks } from "./orientation/websiteGuide.test.mjs";
 
 /**
  * This file used to hold every one of these checks directly, in one large
@@ -77,6 +78,7 @@ export async function runOrientationChecks(check) {
     await runOrientationConnectSketchChecks(check, harness);
     await runOrientationRecencyCollapseChecks(check, harness);
     await runOrientationShedSignalChecks(check, harness);
+    await runOrientationWebsiteGuideChecks(check, harness);
   } finally {
     harness.restore();
   }

@@ -17,6 +17,8 @@ describe("website page metadata", () => {
       title: "Home",
       description: null,
       nav: null,
+      // `layout:` picks a site's layout (`websiteCodeNotes.test.ts`).
+      layout: null,
       body: "# Welcome\n",
       problems: [],
     });

@@ -50,6 +50,7 @@ export function HandleSite({
       name={view.siteName ?? handle}
       view={view}
       navigate={(path) => router.push(`/@${handle}${path === "/" ? "" : path}`)}
+      hrefFor={(path) => `/@${handle}${path === "/" ? "" : path}`}
       // Server-built; followed as given, and only ever inside this app, so a
       // bad answer cannot send a visitor off-site.
       signIn={(path) => {

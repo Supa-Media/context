@@ -13,6 +13,7 @@ import { UNDERLINE } from "../../share/siteLook";
 import { PLATFORM_ORIGIN } from "../host";
 import { ensureSiteSerifLoaded, siteSerif } from "../siteFonts";
 import { SiteFrame, useSiteSize } from "./SiteFrame";
+import { DesignedSite, designedSiteAvailable } from "./DesignedSite";
 
 /**
  * What a visitor sees at a website address, for every answer the server can
@@ -34,6 +35,7 @@ export function WebsitePage({
   view,
   menu = [],
   navigate,
+  hrefFor = (path) => path,
   signIn,
 }: {
   /** The workspace's display name, which is the site's name. */
@@ -45,12 +47,20 @@ export function WebsitePage({
    */
   menu?: readonly WebsiteNavigationItem[];
   navigate: (routePath: string) => void;
+  /** The address a page of this site has on this host, for a designed page's links. */
+  hrefFor?: (routePath: string) => string;
   /** Follow the server's sign-in path. */
   signIn: (signInPath: string) => void;
 }) {
   useEffect(ensureSiteSerifLoaded, []);
   const title = view.kind === "page" ? view.title : view.kind === "authentication_required" ? "Members only" : "Nothing here";
   useDocumentTitle(view.kind === "page" && view.routePath === "/" ? name : `${title} · ${name}`);
+
+  // A site with its own design draws its own frame (`DesignedSite`); on
+  // native, where there is no document to draw it in, it has the default look.
+  if (view.kind === "page" && view.design !== undefined && designedSiteAvailable) {
+    return <DesignedSite view={view} design={view.design} navigate={navigate} hrefFor={hrefFor} />;
+  }
 
   const navigation = view.kind === "page" ? view.navigation : view.kind === "off" ? [] : menu;
   const current = view.kind === "page" ? view.routePath : null;

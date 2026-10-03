@@ -24,6 +24,7 @@ import { ORIENT_OPERATING_CONTRACT } from "../mcp/instructions.js";
 import { PROPOSAL_PENDING_PREFIX } from "../tools/proposals.js";
 import { readFrontPage, readSaveProcedure } from "./frontPage.js";
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
+import { websiteGuideFor } from "./websiteGuide.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
 import { surveyContext } from "./survey.js";
@@ -196,6 +197,9 @@ export async function toolOrient(store, scope, rules, overrides) {
         lines.join("\n")
     );
   }
+
+  const websiteGuide = websiteGuideFor(survey);
+  if (websiteGuide) parts.push(websiteGuide);
 
   const otherContexts = await surveyOtherContexts(store);
   if (otherContexts) parts.push(otherContexts);
