@@ -131,7 +131,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
   "packages/shared/src/links.ts": "0c9cdadea3905d11d1f6d5ad12e142c6e481ead8dbaacd488be5aa0815a978c1",
   "packages/shared/src/websiteCast.ts": "8a84c0e78e67a0d4c3cba3e66944f1d2bd9ce1cc15316af30f709c7521971e8e",
-  "packages/shared/src/websiteJoin.ts": "d3a552fe2176a628e34df995b085de794691101e365a2634ea7aa5a0fce051a2"
+  "packages/shared/src/websiteJoin.ts": "932bada3c41ead60f1f0236eaefabb2ebbefc7ec50bc1e8a27aa205929561235"
 };
 
 /** Every npm package that went into the bundle, at the version it was built from. */

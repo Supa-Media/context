@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { stripWebsiteJoin } from "@context/shared/src/websiteJoin";
+import { hasWebsiteJoin, stripWebsiteJoin } from "@context/shared/src/websiteJoin";
 import { JoinWidget, joinFences } from "../../features/console/files/livePreview/joinBlock";
 import { decorationsFor, stateFor } from "./fixtures";
 
@@ -49,5 +49,15 @@ describe("a served site", () => {
     expect(stripWebsiteJoin("a\n\n```join\nb")).toBe("a\n\n```join\nb");
     const quoted = "````md\n```join\n```\n````";
     expect(stripWebsiteJoin(quoted)).toBe(quoted);
+  });
+});
+
+describe("whether a page has the field", () => {
+  test("only a closed join fence outside other code counts", () => {
+    expect(hasWebsiteJoin(PAGE)).toBe(true);
+    expect(hasWebsiteJoin(PAGE.replace(/\n/g, "\r\n"))).toBe(true);
+    expect(hasWebsiteJoin("# devlog\r\n\r\nwhat we shipped")).toBe(false);
+    expect(hasWebsiteJoin("a\n\n```join\nb")).toBe(false);
+    expect(hasWebsiteJoin("````md\n```join\n```\n````")).toBe(false);
   });
 });

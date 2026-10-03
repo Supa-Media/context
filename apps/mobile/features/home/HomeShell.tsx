@@ -5,7 +5,7 @@ import { useJoinSlot } from "./useJoinSlot";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
-import type { CastStep } from "@context/shared";
+import { hasWebsiteJoin, type CastStep } from "@context/shared";
 import { densityFor } from "../app/frame";
 import { ConsoleFrame } from "../console/ConsoleFrame";
 import type { NoteRename } from "../console/files/browser/contract";
@@ -211,22 +211,37 @@ export function HomeShell() {
 
   /*
     Invite-only (Dev2, 2026-09-28): signing in and joining the waitlist are one
-    email field, and it lives in the page (`JoinCard`): where the page's
-    ```join fence is (`websiteJoin.ts`), else above the note. The page's own
-    field is drawn for everyone, signed in or not (Dev2, 2026-09-29): it is part
-    of the page, and the page should look the same to whoever reads it. The
+    email field, and it lives in the page (`JoinCard`), where the page's
+    ```join fence is (`websiteJoin.ts`) and nowhere else. A page without one
+    has no field: it used to get one above the note, which on a pointer
+    layout sat at the pane's corner beside the page rather than in it
+    (Dev2's devlog and connect screenshots, 2026-10-03). The page's own field
+    is drawn for everyone, signed in or not (Dev2, 2026-09-29): it is part of
+    the page, and the page should look the same to whoever reads it. The
     account button's "Sign in or join" and every link to sign-in or a new
-    workspace bring that field into view and focus it, instead of taking the
-    visitor to another page. Somebody already signed in follows the link.
+    workspace bring that field into view and focus it, opening the page that
+    has one first (the home page before any other), instead of taking the
+    visitor to another screen. Only a site with no field anywhere sends them
+    to /login. Somebody already signed in follows the link.
   */
   const [joinAsk, setJoinAsk] = useState(0);
-  const askToJoin = useCallback(() => setJoinAsk((n) => n + 1), []);
   const joinAnswered = useRef(0);
   const join = useHomeJoin(router as { replace: (href: string) => void });
   // A stage is a recording of the app, with no email field in it.
   const joinSlot = useJoinSlot();
   const showJoin = stage === null;
   const joinCard = <JoinCard flow={join} ask={joinAsk} answered={joinAnswered} />;
+  const askToJoin = useCallback(() => {
+    if (joinSlot === null) {
+      const route = joinPage(notes, routeOf, pathOf("/"));
+      if (route === undefined) {
+        router.push("/login");
+        return;
+      }
+      openRoute(route);
+    }
+    setJoinAsk((n) => n + 1);
+  }, [joinSlot, notes, routeOf, pathOf, openRoute, router]);
   const followLink = useCallback(
     (href: string) => {
       const link = homeLink(href);
@@ -302,7 +317,6 @@ export function HomeShell() {
       signedIn: auth.isAuthenticated,
       signIn: askToJoin,
       openApp: () => router.push("/console"),
-      join: joinSlot === null && showJoin ? joinCard : null,
       linkFor: (path) => {
         const route = routeOf(path);
         if (route === undefined) return null;
@@ -472,3 +486,14 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     // A reading column, the width a chat app gives its words, however wide the frame.
     chatOverColumn: { flex: 1, width: "100%", maxWidth: 760 },
   });
+
+/** The page with the site's email field, the home page first, or `undefined` when none has one. */
+function joinPage(
+  notes: Readonly<Record<string, string>>,
+  routeOf: (path: string) => string | undefined,
+  home: string | undefined,
+): string | undefined {
+  const paths = Object.keys(notes).filter((path) => hasWebsiteJoin(notes[path]!) && routeOf(path) !== undefined);
+  const path = home !== undefined && paths.includes(home) ? home : paths.sort()[0];
+  return path === undefined ? undefined : routeOf(path);
+}
