@@ -8,6 +8,7 @@
  * public function here is a path to the provider credential.
  */
 
+import { sitesSubdomainHandle } from "@context/shared";
 import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -20,6 +21,7 @@ import { isLive } from "../shares/standing";
 import { roleAtLeast, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { customDomainsDeployment } from "./config";
 import { mintOwnershipToken, ownershipRecordName, ownershipRecordValue } from "./dns";
+import { sitesDomainBinding } from "./sitesDomain";
 import { describeHostnameRejection, normalizeHostname, relativeRecordName } from "./hostname";
 import {
   applyCheck,
@@ -449,6 +451,8 @@ export async function resolveHostHandler(
   ctx: QueryCtx,
   args: { hostname: string },
 ): Promise<Infer<typeof resolvedHostValidator>> {
+  const handle = sitesSubdomainHandle(args.hostname);
+  if (handle !== null) return await sitesDomainBinding(ctx, handle);
   const normalized = normalizeHostname(args.hostname);
   if (!normalized.ok) return null;
   const row = await ctx.db

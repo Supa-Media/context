@@ -633,3 +633,9 @@ the row or its count goes, or an unclosed block swallows the note again.
 _Decided by the owner, 2026-10-02._ `layout.html.md`, named layouts,
 `*.css.md` and HTML pages, sanitized twice and never run on context.lc:
 [websites/code-notes.md](./websites/code-notes.md).
+
+## Every website is also at `<handle>.ctxlc.site`
+
+_Decided by the owner, 2026-10-02._ The same release, by the same resolver,
+on a domain of its own:
+[websites/sites-domain.md](./websites/sites-domain.md).
