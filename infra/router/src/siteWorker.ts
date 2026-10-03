@@ -11,6 +11,10 @@
  * A root domain's `www.` serves nothing of its own: the control plane answers
  * it with the root, and every request is sent there with a permanent redirect,
  * path and query kept.
+ *
+ * The sites domain (`<handle>.ctxlc.site`) is served here too, by the same
+ * question: the control plane answers a workspace's handle for it. The bare
+ * domain and its `www.` have no site of their own and go to context.lc.
  */
 
 import type { Env } from "./index";
@@ -22,6 +26,12 @@ const RESOLVE_TIMEOUT_MS = 1_500;
 const BINDING_CACHE_SECONDS = 60;
 /** Short, so a browser stops redirecting soon after a domain is removed. */
 const WWW_REDIRECT_CACHE_SECONDS = 300;
+
+/**
+ * Restated from `@context/shared` (`sitesDomain.ts`), which this Worker does
+ * not depend on.
+ */
+const SITES_DOMAIN = "ctxlc.site";
 
 /** A `www.` host, and the root domain it sends visitors to. */
 export interface WwwRedirect {
@@ -154,7 +164,13 @@ export async function siteResponse(
   if (request.method !== "GET" && request.method !== "HEAD") {
     return plain(405, "Method not allowed\n", "text/plain; charset=utf-8");
   }
-  const binding = await bindingFor(url.hostname.toLowerCase(), env, ctx);
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === SITES_DOMAIN || hostname === `www.${SITES_DOMAIN}`) {
+    const response = plain(301, "", "text/plain; charset=utf-8", "public, max-age=3600");
+    response.headers.set("Location", "https://context.lc/");
+    return response;
+  }
+  const binding = await bindingFor(hostname, env, ctx);
   if (binding === "unavailable") {
     return plain(503, "This site is temporarily unavailable. Try again in a moment.\n", "text/plain; charset=utf-8");
   }

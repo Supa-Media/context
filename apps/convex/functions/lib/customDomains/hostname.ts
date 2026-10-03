@@ -16,6 +16,8 @@ const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** A top-level label: letters, or an IDN's `xn--` form. Never all digits. */
 const TLD_RE = /^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/;
 
+import { SITES_DOMAIN } from "@context/shared";
+
 /**
  * Names no customer may bring, because they are ours or nobody's.
  *
@@ -25,6 +27,8 @@ const TLD_RE = /^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/;
  */
 const REFUSED_SUFFIXES = [
   "context.lc",
+  // Every name here is a workspace's own address (`sitesDomain.ts`).
+  SITES_DOMAIN,
   "localhost",
   "local",
   "internal",
