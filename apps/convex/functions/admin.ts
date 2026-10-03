@@ -76,6 +76,7 @@ import {
   waitlistRowValidator,
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
+import { getSignupAlertsHandler, setSignupAlertsHandler } from "./lib/adminFns/signupAlerts";
 import {
   communityKindValidator,
   communityLinkValidator,
@@ -283,6 +284,36 @@ export const addToWaitlist = mutation({
       throw toConvexError(error);
     }
     return await addEmailsHandler(ctx, args.emails, actor);
+  },
+});
+
+/** Whether the caller is mailed about each new signup, and at which address. */
+export const getSignupAlerts = query({
+  args: {},
+  returns: v.object({ on: v.boolean(), email: v.string() }),
+  handler: async (ctx) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await getSignupAlertsHandler(ctx, actor);
+  },
+});
+
+/** Turn the caller's signup alerts on or off. See `signupAlerts.ts`. */
+export const setSignupAlerts = mutation({
+  args: { on: v.boolean() },
+  returns: v.object({ on: v.boolean(), email: v.string() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setSignupAlertsHandler(ctx, actor, args.on);
   },
 });
 
