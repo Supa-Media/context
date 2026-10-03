@@ -69,7 +69,6 @@ export interface PageLike {
   goto(url: string, options: { waitUntil: "networkidle0" | "networkidle2" | "load"; timeout: number }): Promise<unknown>;
   waitForSelector(selector: string, options: { timeout: number }): Promise<unknown>;
   evaluate<T>(source: string): Promise<T>;
-  addStyleTag(options: { content: string }): Promise<unknown>;
   screenshot(options: { type: "jpeg"; quality: number; encoding: "base64"; fullPage: boolean }): Promise<string | Uint8Array>;
   on(event: "pageerror" | "console", handler: (value: unknown) => void): unknown;
   close(): Promise<void>;
@@ -174,14 +173,27 @@ export const MEASURE_SOURCE = `(() => {
 })()`;
 
 /**
- * For the full-length picture, the site's own scroll box is opened out so the
- * page is as tall as its content. Measurements are taken before this, on the
- * page as a visitor gets it.
+ * How many pixels of the page are still out of sight below the screen: the
+ * document's own overflow, or the tallest scroll box that fills most of the
+ * screen (a designed site scrolls in its own box; the app's pages scroll in
+ * theirs). The full-length picture grows the screen by this much rather than
+ * restyling the page: the app lays itself out to the screen's height, so
+ * forcing its boxes open collapses it to nothing.
  */
-export const UNROLL_CSS = [
-  'html, body, #root { height: auto !important; min-height: 0 !important; overflow: visible !important; }',
-  '[data-testid="site-scroll"] { height: auto !important; max-height: none !important; overflow: visible !important; flex: none !important; }',
-].join("\n");
+export const HIDDEN_HEIGHT_SOURCE = `(() => {
+  const screen = window.innerHeight;
+  let hidden = document.documentElement.scrollHeight - screen;
+  for (const el of document.querySelectorAll("body *")) {
+    if (el.clientHeight < screen / 2) continue;
+    const overflowY = getComputedStyle(el).overflowY;
+    if (overflowY !== "auto" && overflowY !== "scroll") continue;
+    hidden = Math.max(hidden, el.scrollHeight - el.clientHeight);
+  }
+  return Math.max(0, Math.round(hidden));
+})()`;
+
+/** Lets the page finish easing in, and lay itself out again after the screen grows. */
+const SETTLE_SOURCE = "new Promise((resolve) => setTimeout(resolve, 600))";
 
 function base64(data: string | Uint8Array): string {
   if (typeof data === "string") return data;
@@ -213,13 +225,26 @@ async function shootOne(browser: BrowserLike, url: string, size: SizeName): Prom
     await page.goto(url, { waitUntil: "networkidle0", timeout: LOAD_TIMEOUT_MS });
     // A site draws into `.ctx-site`; the default look into the app's own page.
     await page.waitForSelector(".ctx-site, main, h1", { timeout: 8_000 }).catch(() => undefined);
+    // Pages ease in (`Reveal`); let them finish before anything is measured.
+    await page.evaluate(SETTLE_SOURCE);
     const measurements = await page.evaluate<Measurements>(MEASURE_SOURCE);
-    await page.addStyleTag({ content: UNROLL_CSS });
-    const fullHeight = Math.max(viewport.height, await page.evaluate<number>("document.documentElement.scrollHeight"));
-    const height = Math.min(fullHeight, MAX_SHOT_HEIGHT);
-    await page.setViewport({ width: viewport.width, height, deviceScaleFactor: 1, isMobile: size === "phone", hasTouch: size !== "desktop" });
+    // Grow the screen until nothing is hidden below it, or the cap: a page
+    // that lays out to the screen's height may reveal more as it grows.
+    let height: number = viewport.height;
+    let truncated = false;
+    for (let round = 0; round < 3; round += 1) {
+      const hidden = await page.evaluate<number>(HIDDEN_HEIGHT_SOURCE);
+      if (hidden <= 0) break;
+      if (height >= MAX_SHOT_HEIGHT) {
+        truncated = true;
+        break;
+      }
+      height = Math.min(height + hidden, MAX_SHOT_HEIGHT);
+      await page.setViewport({ width: viewport.width, height, deviceScaleFactor: 1, isMobile: size === "phone", hasTouch: size !== "desktop" });
+      await page.evaluate(SETTLE_SOURCE);
+    }
     const jpeg = base64(await page.screenshot({ type: "jpeg", quality: 60, encoding: "base64", fullPage: false }));
-    return { size, width: viewport.width, height, truncated: fullHeight > MAX_SHOT_HEIGHT, jpeg, measurements, errors };
+    return { size, width: viewport.width, height, truncated, jpeg, measurements, errors };
   } finally {
     await page.close().catch(() => undefined);
   }

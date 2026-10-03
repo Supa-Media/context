@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as entry from "./index";
 import {
   MAX_SHOT_HEIGHT,
+  HIDDEN_HEIGHT_SOURCE,
   MEASURE_SOURCE,
   SIZES,
   parseShootRequest,
@@ -30,8 +31,10 @@ function fakeBrowser(options: { pageHeight?: number; failOn?: number } = {}) {
   const browser: BrowserLike = {
     async newPage() {
       const index = opened++;
+      let screen = 0;
       const page: PageLike = {
         async setViewport(viewport) {
+          screen = viewport.height;
           calls.push(`viewport ${viewport.width}x${viewport.height}`);
         },
         async goto(url) {
@@ -40,10 +43,10 @@ function fakeBrowser(options: { pageHeight?: number; failOn?: number } = {}) {
         },
         async waitForSelector() {},
         async evaluate<T>(source: string) {
-          return (source === MEASURE_SOURCE ? MEASURED : options.pageHeight ?? 1500) as T;
-        },
-        async addStyleTag() {
-          calls.push("unroll");
+          if (source === MEASURE_SOURCE) return MEASURED as T;
+          // Like the app: content as tall as the page, laid out to the screen.
+          if (source === HIDDEN_HEIGHT_SOURCE) return Math.max(0, (options.pageHeight ?? 1500) - screen) as T;
+          return undefined as T;
         },
         async screenshot() {
           return new Uint8Array([0xff, 0xd8, 0xff]);
@@ -107,8 +110,9 @@ describe("photographing a page", () => {
     ]);
     expect(result.shots[0]!.measurements).toEqual(MEASURED);
     expect(result.shots[0]!.jpeg).toBe(btoa(String.fromCharCode(0xff, 0xd8, 0xff)));
-    // Measured before the scroll box is opened out, and every page closed.
-    expect(fake.calls.slice(0, 4)).toEqual(["viewport 390x844", "goto https://context.lc/@atlas", "unroll", "viewport 390x1500"]);
+    // Measured at the visitor's screen, then the screen grown to the content
+    // (never the page restyled, which collapses the app), and every page closed.
+    expect(fake.calls.slice(0, 4)).toEqual(["viewport 390x844", "goto https://context.lc/@atlas", "viewport 390x1500", "page closed"]);
     expect(fake.calls.filter((call) => call === "page closed")).toHaveLength(2);
     expect(fake.closed()).toBe(true);
   });
