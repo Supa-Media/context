@@ -749,8 +749,10 @@ http.route({ path: "/site/page", method: "POST", handler: sitePage });
 /**
  * The router's question for a request that arrived at a customer's domain.
  *
- * Always 200, always `{ "handle": string | null, "homeSlug": string | null }`:
- * unknown, pending, suspended and removed domains are all the null shape, so
+ * Always 200, always `{ "handle": string | null, "homeSlug": string | null }`,
+ * plus `"redirect": "<root>"` for a root domain's live `www.`, which serves
+ * nothing of its own. Unknown, pending, suspended and removed domains are all
+ * the null shape, so
  * the router fails closed on every one of them the same way. It discloses what
  * the domain itself publishes and nothing else. POST, like the share routes,
  * so a hostname does not land in an outbound URL.
@@ -762,6 +764,9 @@ export const domainResolve = httpAction(async (ctx, request) => {
   const result = await ctx.runQuery(api.functions.customDomains.resolveHost, {
     hostname,
   });
+  if (result !== null && "redirect" in result) {
+    return json({ handle: null, homeSlug: null, redirect: result.redirect });
+  }
   return json({
     handle: result?.handle ?? null,
     homeSlug: result?.homeSlug ?? null,

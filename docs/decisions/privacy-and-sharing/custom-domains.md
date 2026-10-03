@@ -138,9 +138,38 @@ unvalidated hostname after seven days. Dropping the record strands every root
 domain at "Connecting"; `apps/convex/__tests__/customDomains/apex.test.ts`
 fails.
 
+### A root domain brings its `www.`, which only redirects
+
+_Decided 2026-10-03, after the owner noticed `www.` addresses served nothing._
+People type `www.acme.com` as often as `acme.com`, so connecting a root domain
+also registers `www.<root>` (`lib/customDomains/www.ts`): a second row with
+`wwwOf` set, its own Cloudflare registration, and one more record on the card,
+`CNAME www → <target>`. It never serves a page. The control plane answers it
+with `{ redirect: "<root>" }`, and the router sends every request to the root
+with a 301 that keeps path and query and is cached for five minutes, so
+removing the domain stops it soon after. One canonical address keeps links,
+cards and analytics in agreement.
+
+- **Proved by the root, never alone.** The companion carries the root's claim
+  token and counts as owned only once the root's `_context.<root>` record has
+  been seen for that claim. Control of the zone's apex is control of the zone,
+  so no second TXT is asked for, and a record left behind cannot verify it.
+- **Never anybody else's.** A `www.` another workspace already claimed is left
+  to them; once ours exists, nobody else can claim it. The router redirects
+  only `www.<root>` to `<root>`, whatever the answer says.
+- **Goes with its root.** It is not a second domain against the one-domain
+  limit, it lapses and is removed with the root (removing it by its own id
+  removes the root, since the sweep would only add it back), and the sweep
+  adds one to any root domain connected before this existed.
+
+The tests that fail if this is reversed are in
+`apps/convex/__tests__/customDomains/www.test.ts` and `infra/router/src/site.test.ts`
+(`a root domain's www.`).
+
 ### Not built yet
 
-- `www` alongside an apex, or more than one domain per workspace.
+- More than one domain per workspace, and the reverse pairing (a root that
+  redirects to a connected `www.`), which needs apex proxying.
 - Apex proxying for DNS providers without ALIAS, ANAME or CNAME flattening. The
   screen suggests `www.` instead.
 - Forms on a customer domain. The human check's widget is hostname-bound, and

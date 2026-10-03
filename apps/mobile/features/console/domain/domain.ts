@@ -22,7 +22,7 @@ export type DomainProblem =
   | "TIMED_OUT";
 
 export interface DnsRecord {
-  purpose: "ownership" | "routing" | "hostname";
+  purpose: "ownership" | "routing" | "hostname" | "www";
   type: string;
   name: string;
   host: string;
@@ -47,6 +47,8 @@ export interface DomainView {
   records: DnsRecord[];
   /** Owner only, while records are missing: the provider can add them for you. */
   oneClick: OneClick | null;
+  /** A root domain's `www.`, which sends visitors to the root once it is live. */
+  www: { hostname: string; live: boolean } | null;
 }
 
 export interface OneClick {
@@ -238,6 +240,7 @@ export function registrableDomain(hostname: string): string {
 
 export function recordPurpose(record: DnsRecord): string {
   if (record.purpose === "hostname") return "Lets us serve your root domain";
+  if (record.purpose === "www") return "Sends www visitors to your domain";
   return record.purpose === "routing" ? "Points your domain at Context" : "Proves the domain is yours";
 }
 
@@ -325,4 +328,14 @@ export function describeDomainFailure(error: unknown): { field?: string; form?: 
 /** The address a live domain serves a short link at. */
 export function domainUrl(hostname: string, slug?: string): string {
   return slug === undefined ? `https://${hostname}` : `https://${hostname}/${slug}`;
+}
+
+/** Under a live root domain: what its `www.` does, or what it still needs. */
+export function wwwSentence(domain: DomainView): string | null {
+  if (domain.www === null) return null;
+  if (domain.www.live) return `${domain.www.hostname} sends visitors to ${domain.hostname}.`;
+  const record = domain.records.find((candidate) => candidate.purpose === "www");
+  return record === undefined
+    ? `${domain.www.hostname} is being connected.`
+    : `To send ${domain.www.hostname} here too, add a CNAME for ${record.host} pointing at ${record.value}.`;
 }
