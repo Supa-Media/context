@@ -47,6 +47,16 @@ from the other side:
   where the agent put it rather than an `![[…]]` line after the fence that
   the site never draws. Only a value that is exactly an attached name is
   touched.
+- **A label says where a picture came from, and it lives in the note.**
+  `images[].label` ("original photograph", "AI-assisted concept", "early
+  draft") is written as the embed's Markdown title, `![alt](leaf "label")`,
+  so it is plain text that leaves with the note and is visible to exactly the
+  people who can read it. A record beside the picture would need a
+  visibility of its own and a new place in the bucket's layout; the title
+  needs neither. A `![[…]]` embed has no title, so a label on one is refused
+  with the form that keeps it; a picture named only in code is stored and the
+  answer says its label was not kept. A site check lists each picture's
+  labels (`docs/decisions/websites/agent-tools.md`).
 - **An encrypted note, and a drawing, refuse images.** An encrypted note's
   text is sealed and an image's bytes would not be, which is the paste's rule.
 

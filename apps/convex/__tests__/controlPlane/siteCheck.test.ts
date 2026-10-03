@@ -82,7 +82,7 @@ async function checkFixture() {
 type Check = {
   routes: Array<{ address: string; path: string; status: string }>;
   links: Array<{ path: string; line: number; target: string; problem: string }>;
-  pictures: Array<{ name: string; bytes: number | null; usedBy: string[]; problem: string | null }>;
+  pictures: Array<{ name: string; bytes: number | null; usedBy: string[]; labels: string[]; problem: string | null }>;
   code: Array<{ path: string; removed: Array<{ line: number | null; what: string; why: string }> }>;
   warnings: Array<{ path: string; why: string }>;
   inspected: { path: string; output: string } | null;
@@ -143,7 +143,7 @@ describe("/gateway/site check", () => {
   test("pictures: sizes, users, and why the broken ones will not draw", async () => {
     const f = await checkFixture();
     const pictures = new Map((await check(f, EDITOR))!.pictures.map((picture) => [picture.name, picture]));
-    expect(pictures.get("logo.png")).toEqual({ name: "logo.png", bytes: PNG.byteLength, usedBy: ["website/layout.html.md"], problem: null });
+    expect(pictures.get("logo.png")).toEqual({ name: "logo.png", bytes: PNG.byteLength, usedBy: ["website/layout.html.md"], labels: [], problem: null });
     expect(pictures.get("hero.png")!.problem).toMatch(/over the 2 MB a site draws/);
     expect(pictures.get("gone.png")).toMatchObject({ usedBy: ["website/about.md"], problem: "no picture is stored under this exact name" });
     expect(pictures.get("https://cdn.test/a.png")!.problem).toMatch(/never loads/);
@@ -168,6 +168,16 @@ describe("/gateway/site check", () => {
     );
   });
 
+  test("pictures carry the labels their embeds give them, so an agent knows which are real photographs", async () => {
+    const f = await checkFixture();
+    f.backend.seed(`${IMAGES}team.png`, PNG);
+    f.backend.seed("website/news.md", '---\ntitle: News\n---\n\n![Team](team.png "original photograph")\n');
+    f.backend.seed("website/team.md", '---\ntitle: Team\n---\n\n![Again](team.png "original photograph") ![Mock](team.png \'early draft\')\n');
+    const pictures = new Map((await check(f, EDITOR))!.pictures.map((picture) => [picture.name, picture]));
+    expect(pictures.get("team.png")).toMatchObject({ usedBy: ["website/news.md", "website/team.md"], labels: ["early draft", "original photograph"] });
+    expect(pictures.get("logo.png")!.labels).toEqual([]);
+  });
+
   test("given a code note's path, the check returns what the site draws, and publishes nothing", async () => {
     const f = await checkFixture();
     const before = await f.t.query(api.functions.websites.siteRevision, { handle: "atlas" });
@@ -178,5 +188,14 @@ describe("/gateway/site check", () => {
     expect(layout.output).not.toMatch(/onclick|<template/);
     expect((await check(f, EDITOR, "website/nope.md"))!.inspected!.output).toMatch(/nothing to show/);
     expect(await f.t.query(api.functions.websites.siteRevision, { handle: "atlas" })).toEqual(before);
+  });
+
+  test("a site that says base: off is inspected without the base sheet", async () => {
+    const f = await checkFixture();
+    f.backend.seed("website/reset.css.md", "---\nbase: off\n---\n\n```css\n.c { margin: 0; }\n```\n");
+    const sheet = (await check(f, EDITOR, "website/site.css.md"))!.inspected!;
+    expect(sheet.output).not.toContain("Context's base sheet");
+    expect(sheet.output).not.toContain("--bg: #ffffff");
+    expect(sheet.output).toContain(".ctx-site .a { color: red; }");
   });
 });

@@ -18,6 +18,7 @@ export function createSiteMethods({ post, required }) {
         action: request.action,
         ...(typeof request.draft === "string" ? { draft: request.draft } : {}),
         ...(typeof request.inspect === "string" ? { path: request.inspect } : {}),
+        ...(typeof request.page === "string" ? { path: request.page } : {}),
       });
       const site = required(parsed, "site");
       if (site === null) return null;

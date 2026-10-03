@@ -55,7 +55,8 @@ export function noteWriteToolDefinitions() {
         "\n\nTHIS TOOL ALSO PUBLISHES THE WEBSITE, for the workspace's owners and editors. Saving a note under website/ publishes nothing. " +
         "Pass site: { action: \"status\" } (with path \"website/index.md\" and no content) to see the draft Publish would release, what changed since the last publish, the problems that would stop it and the site's addresses. " +
         "Pass site: { action: \"check\" } before publishing: it lists every address and its file, links that go nowhere (note and line), every picture with its size and users, what the HTML/CSS cleaner removes from your layouts and stylesheets and why, and pages that would draw nothing; add inspect: \"website/layout.html.md\" to see that note exactly as the site draws it. " +
-        "Then pass site: { action: \"publish\", draft } with the draft that status or check named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses.",
+        "Then pass site: { action: \"publish\", draft } with the draft that status or check named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses. " +
+        "After publishing, site: { action: \"screenshot\", page: \"/about\" } photographs a public page as a signed-out visitor sees it at phone, tablet and desktop widths, and reports sideways scroll, whether the bottom can be scrolled to, boxes that hide content and pictures that did not load.",
       inputSchema: {
         type: "object",
         properties: {
@@ -70,8 +71,14 @@ export function noteWriteToolDefinitions() {
             properties: {
               // A plain string, not an enum: a client that cached this list
               // keeps it, and a new action has to reach it all the same.
-              action: { type: "string", description: "status, check or publish." },
+              action: { type: "string", description: "status, check, publish or screenshot." },
               draft: { type: "string", description: "publish: the draft a status or check returned, so only what you checked goes live." },
+              page: { type: "string", description: "screenshot: the published address to photograph, e.g. \"/\" or \"/about\"." },
+              sizes: {
+                type: "array",
+                items: { type: "string", enum: ["phone", "tablet", "desktop"] },
+                description: "screenshot: which widths; all three when left out.",
+              },
               inspect: {
                 type: "string",
                 description: "check: a layout, HTML page or stylesheet under website/, returned as the site draws it (cleaned, and scoped under .ctx-site).",
@@ -133,6 +140,11 @@ export function noteWriteToolDefinitions() {
                 data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this or url." },
                 url: { type: "string", description: "An https URL to fetch the image from once. Pass this or data." },
                 alt: { type: "string", description: "Alt text, used when the image is appended rather than embedded by name" },
+                label: {
+                  type: "string",
+                  description:
+                    "Where the picture came from, e.g. original photograph, AI-assisted concept, early draft. Written into the note as the embed's title, ![alt](name \"label\"), so embed it that way rather than as ![[name]]; a site check lists it.",
+                },
               },
               required: ["name"],
               additionalProperties: false,

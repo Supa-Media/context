@@ -45,6 +45,9 @@ import { websiteLinkDestination, type WebsiteLinkCatalogEntry } from "./links";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { scanWebsiteRoutes } from "./routes";
 
+/** `![alt](target "title")`: a picture embed with a title, which is where a label lives. */
+const PICTURE_TITLE = /!\[[^\]\n]*\]\(\s*<?([^\s()<>]+)>?\s+(?:"([^"\n]*)"|'([^'\n]*)')\s*\)/g;
+
 /** Pictures read for their size in one check; past this they are listed unread. */
 export const MAX_CHECKED_PICTURES = 40;
 const PICTURE_READS_AT_ONCE = 4;
@@ -64,6 +67,8 @@ export interface SiteCheckPicture {
   name: string;
   bytes: number | null;
   usedBy: string[];
+  /** Where it came from, as its embeds' titles say (`![alt](x.png "original photograph")`). */
+  labels: string[];
   problem: string | null;
 }
 
@@ -241,9 +246,21 @@ export function analyzeSite(input: SiteCheckInput): Omit<SiteCheck, "enabled" | 
     users.add(path);
     pictureUse.set(name, users);
   };
+  const pictureLabels = new Map<string, Set<string>>();
+  const labelPicture = (name: string, label: string) => {
+    const labels = pictureLabels.get(name) ?? new Set<string>();
+    labels.add(label);
+    pictureLabels.set(name, labels);
+  };
   const code: SiteCheckCode[] = [];
   const warnings: Array<{ path: string; why: string }> = [];
   let inspected: SiteCheck["inspected"] = null;
+  // The frame or a stylesheet saying `base: off` takes the base sheet off every page.
+  const baseOff = live.some(
+    (status) =>
+      (status.code === "frame" || status.code === "style") &&
+      !parseWebsitePage(text.get(status.objectKey) ?? "").base,
+  );
   for (const status of live) {
     if (status.code === undefined || status.code === "script") continue;
     const note = text.get(status.objectKey);
@@ -319,7 +336,7 @@ export function analyzeSite(input: SiteCheckInput): Omit<SiteCheck, "enabled" | 
     if (removed.length > 0) code.push({ path: status.objectKey, role: status.code, removed });
     if (input.inspect === status.objectKey) {
       const full =
-        status.code === "style" ? `/* Context's base sheet, drawn before yours */\n${SITE_BASE_CSS}\n\n/* ${status.objectKey} */\n${output}` : output;
+        status.code === "style" && !baseOff ? `/* Context's base sheet, drawn before yours */\n${SITE_BASE_CSS}\n\n/* ${status.objectKey} */\n${output}` : output;
       inspected = {
         path: status.objectKey,
         output: full.slice(0, MAX_INSPECTED_OUTPUT),
@@ -336,6 +353,10 @@ export function analyzeSite(input: SiteCheckInput): Omit<SiteCheck, "enabled" | 
     if (markdown === undefined) continue;
     const leaves = publishedImageLeaves(markdown);
     for (const leaf of leaves) usePicture(leaf, page.objectKey);
+    for (const match of markdown.matchAll(PICTURE_TITLE)) {
+      const label = (match[2] ?? match[3] ?? "").trim();
+      if (label !== "" && leaves.includes(match[1]!)) labelPicture(match[1]!, label);
+    }
     if (leaves.length > MAX_PUBLISHED_IMAGES) {
       warnings.push({
         path: page.objectKey,
@@ -354,6 +375,7 @@ export function analyzeSite(input: SiteCheckInput): Omit<SiteCheck, "enabled" | 
     name,
     bytes: null,
     usedBy: [...users].sort(),
+    labels: [...(pictureLabels.get(name) ?? [])].sort(),
     problem: null,
   }));
   for (const { path, name } of remote) {
@@ -361,6 +383,7 @@ export function analyzeSite(input: SiteCheckInput): Omit<SiteCheck, "enabled" | 
       name,
       bytes: null,
       usedBy: [path],
+      labels: [],
       problem: "a picture from another site never loads on yours; attach it with write_note images",
     });
   }

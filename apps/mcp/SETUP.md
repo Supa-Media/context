@@ -164,6 +164,14 @@ bucket by default and that is deliberate — storage arrives per request from th
 control plane. Read its comments before editing; the cron and native-binding
 sections are commented out because they are self-host-only.
 
+The `SITE_SHOTS` service binding names the Worker in `infra/site-shots`, which
+photographs a published website for an agent (`write_note` `site: { action:
+"screenshot" }`). Cloudflare refuses to deploy a binding to a Worker that does
+not exist, so either deploy that one first (`wrangler deploy` in
+`infra/site-shots`; it needs Browser Rendering, part of Workers Paid), or delete
+the `[[services]]` block. Without it, screenshots answer "not available" and
+everything else works as before.
+
 Set `PUBLIC_ORIGIN` in `[vars]` to the origin you will serve on. Every URL in
 both discovery documents is built from it, including the authorization endpoint
 a client sends a person's browser to, so a wrong value is a security problem and

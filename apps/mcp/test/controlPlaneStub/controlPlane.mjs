@@ -687,7 +687,7 @@ export function createControlPlaneStub(options = {}) {
         // its answer as `options.site(cleared, body)`, and every call is kept.
         const cleared = await clearedEditor(body);
         siteCalls.push({ ...body, cleared });
-        if (!cleared || !["status", "check", "publish"].includes(body.action)) return ok({ site: null });
+        if (!cleared || !["status", "check", "publish", "screenshot"].includes(body.action)) return ok({ site: null });
         return ok({ site: typeof options.site === "function" ? await options.site(cleared, body) : null });
       }
 

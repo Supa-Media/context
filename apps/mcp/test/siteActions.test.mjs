@@ -86,6 +86,22 @@ async function call(env, token, args) {
   return { text: body?.result?.content?.[0]?.text ?? JSON.stringify(body), isError: body?.result?.isError === true };
 }
 
+async function rawCall(env, token, args) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "write_note", arguments: args } }),
+    }),
+    env,
+    ctx,
+  );
+  const body = await response.json();
+  await settle();
+  return body?.result?.content ?? [];
+}
+
 export async function runSiteActionChecks(check) {
   const bucket = createBucket();
   bucket.seed(
@@ -122,11 +138,19 @@ export async function runSiteActionChecks(check) {
       clientId: "mcp_client_site_member",
       userId: "user_member",
     });
+    const shots = [];
+    let shotAnswer = null;
     const env = {
       CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
       GATEWAY_SECRET,
       NATIVE_BINDINGS: "SITE_BUCKET",
       SITE_BUCKET: bucket,
+      SITE_SHOTS: {
+        async fetch(url, init) {
+          shots.push({ url, body: JSON.parse(init.body) });
+          return new Response(JSON.stringify(shotAnswer), { status: shotAnswer ? 200 : 503 });
+        },
+      },
     };
     const before = JSON.stringify([...bucket.objects.entries()]);
     const sent = () => controlPlane.siteCalls.at(-1);
@@ -172,7 +196,8 @@ export async function runSiteActionChecks(check) {
       pageProblems: [],
       links: [{ path: "website/layout.html.md", line: 4, target: "/abuot", problem: "no page has the address /abuot; did you mean /about?" }],
       pictures: [
-        { name: "logo.png", bytes: 2048, usedBy: ["website/layout.html.md"], problem: null },
+        { name: "logo.png", bytes: 2048, usedBy: ["website/layout.html.md"], labels: [], problem: null },
+        { name: "team.jpg", bytes: 4096, usedBy: ["website/about.md"], labels: ["original photograph"], problem: null },
         { name: "gone.png", bytes: null, usedBy: ["website/about.md"], problem: "no picture is stored under this exact name" },
       ],
       code: [{ path: "website/layout.html.md", role: "frame", removed: [{ line: 6, what: "<template> and everything inside it", why: "a <template> is never drawn, so nothing inside it shows" }] }],
@@ -186,7 +211,8 @@ export async function runSiteActionChecks(check) {
       checked.text.includes("/ ← website/index.md; /contact ← website/contact.md (draft)"));
     check("...links that go nowhere by note and line, pictures by size and use",
       checked.text.includes("- website/layout.html.md:4 → /abuot: no page has the address /abuot; did you mean /about?") &&
-      checked.text.includes("- logo.png (2 KB), used by website/layout.html.md") &&
+      checked.text.includes("- logo.png (2 KB), used by website/layout.html.md\n") &&
+      checked.text.includes('- team.jpg (4 KB), "original photograph", used by website/about.md') &&
       checked.text.includes("- gone.png, used by website/about.md: no picture is stored under this exact name"));
     check("...what the cleaner removed, by line, and what draws nothing",
       checked.text.includes("- website/layout.html.md:6 <template> and everything inside it: a <template> is never drawn") &&
@@ -198,6 +224,55 @@ export async function runSiteActionChecks(check) {
     const inspectOnStatus = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "status", inspect: "website/a.md" } });
     check("inspect names a note under website/, and only goes with check",
       badInspect.isError && inspectOnStatus.isError && sent()?.path === "website/layout.html.md");
+
+    // -- screenshot
+    const measured = (overrides = {}) => ({
+      overflowX: 0, wide: [], bottomReachable: true, scrollHeight: 2400, viewportHeight: 844,
+      clipped: [], brokenImages: [], headings: ["h1 Welcome"], textLength: 300, ...overrides,
+    });
+    answer = { action: "screenshot", url: "https://context.lc/@studio/about", address: "/about", revision: 5 };
+    shotAnswer = {
+      shots: [
+        { size: "phone", width: 390, height: 2400, truncated: false, jpeg: "AAAA", measurements: measured({ overflowX: 42, wide: [{ element: "header.masthead", by: 42 }] }), errors: [] },
+        { size: "desktop", width: 1280, height: 5000, truncated: true, jpeg: "BBBB", measurements: measured({ bottomReachable: false, clipped: [{ element: "div.hero", hidden: 300 }], brokenImages: ["Logo"] }), errors: ["TypeError: x"] },
+      ],
+      failures: [{ size: "tablet", reason: "Navigation timeout" }],
+    };
+    const photo = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot", page: "/about", sizes: ["phone", "tablet", "desktop"] } });
+    const raw = await rawCall(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot", page: "/about" } });
+    check("a screenshot asks the control plane for that page, then photographs only the address it built",
+      sent()?.action === "screenshot" && sent()?.path === "/about" &&
+      shots.length === 2 && shots[0].url === "https://site-shots/shoot" &&
+      shots[0].body.url === "https://context.lc/@studio/about" &&
+      JSON.stringify(shots[0].body.sizes) === JSON.stringify(["phone", "tablet", "desktop"]));
+    check("...and reports each width's sideways scroll, bottom, hidden boxes, broken pictures and errors",
+      !photo.isError &&
+      photo.text.includes("published revision 5") &&
+      photo.text.includes("sideways scroll: content is 42px wider than the screen (widest: header.masthead +42px)") &&
+      photo.text.includes("the bottom of the page cannot be scrolled to") &&
+      photo.text.includes("div.hero hides 300px") &&
+      photo.text.includes("pictures that did not load: Logo") &&
+      photo.text.includes("errors in the page: TypeError: x") &&
+      photo.text.includes("tablet: failed: Navigation timeout"));
+    check("...with each picture as an image the agent can look at",
+      raw.filter((part) => part.type === "image").map((part) => part.data).join() === "AAAA,BBBB" &&
+      raw.every((part) => part.type !== "image" || part.mimeType === "image/jpeg"));
+
+    answer = { action: "screenshot", url: null, address: null, revision: null, message: "/members is for members only, and the browser that takes screenshots is not signed in, so it would only see the sign-in page." };
+    const refusedShot = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot", page: "/members" } });
+    check("a page the control plane will not hand over is refused with its reason, and no browser is opened",
+      refusedShot.isError && refusedShot.text.includes("members only") && shots.length === 2);
+    answer = { action: "screenshot", url: "https://context.lc/@studio", address: "/", revision: 5 };
+    shotAnswer = null;
+    const busy = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot" } });
+    check("a browser that cannot answer is an error, never an empty success", busy.isError && busy.text.startsWith("no screenshot"));
+    const badSize = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot", sizes: ["watch"] } });
+    const badPage = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot", page: "https://evil.test/" } });
+    const pageOnCheck = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "check", page: "/" } });
+    check("an unknown size, a page that is not an address, and a page on another action are refused before anything is sent",
+      badSize.isError && badPage.isError && pageOnCheck.isError && shots.length === 3);
+    const unbound = await call({ ...env, SITE_SHOTS: undefined }, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot" } });
+    check("a deployment with no browser says so", unbound.isError && unbound.text.includes("not available on this deployment"));
 
     // -- publish
     answer = { action: "publish", published: true, draft: DRAFT, revision: 5, addresses: STATUS.addresses, problems: [] };

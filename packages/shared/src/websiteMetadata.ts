@@ -28,6 +28,11 @@ export interface ParsedWebsitePage {
   nav: number | null;
   /** `layout: cards`: draw the page with `website/cards.html.md`. */
   layout: string | null;
+  /**
+   * `base: off` on a code note: pages drawn with it start from nothing, not
+   * from Context's base sheet (`siteDesign/baseCss.ts`). True unless off.
+   */
+  base: boolean;
   /** Markdown after frontmatter, normalized to LF but otherwise unchanged. */
   body: string;
   problems: WebsiteRouteProblem[];
@@ -38,7 +43,7 @@ export interface WebsitePageSource {
   markdown: string;
 }
 
-type ControlledField = "audience" | "draft" | "title" | "description" | "nav" | "layout";
+type ControlledField = "audience" | "draft" | "title" | "description" | "nav" | "layout" | "base";
 
 const CONTROLLED_FIELDS = new Set<ControlledField>([
   "audience",
@@ -47,6 +52,7 @@ const CONTROLLED_FIELDS = new Set<ControlledField>([
   "description",
   "nav",
   "layout",
+  "base",
 ]);
 
 function invalid(message: string): WebsiteRouteProblem {
@@ -94,6 +100,7 @@ function base(body: string): Omit<ParsedWebsitePage, "problems"> {
     description: null,
     nav: null,
     layout: null,
+    base: true,
     body,
   };
 }
@@ -135,7 +142,7 @@ export function parseWebsitePage(markdown: string): ParsedWebsitePage {
   for (const line of frontmatter) {
     const match = /^([A-Za-z][A-Za-z0-9_-]*):(?:[ \t]*(.*))?$/.exec(line);
     if (match === null) {
-      const possible = /^\s*(audience|draft|title|description|nav|layout)\b/.exec(
+      const possible = /^\s*(audience|draft|title|description|nav|layout|base)\b/.exec(
         line,
       )?.[1];
       if (possible !== undefined) {
@@ -176,6 +183,13 @@ export function parseWebsitePage(markdown: string): ParsedWebsitePage {
         };
       }
       parsed.draft = value === "true";
+      continue;
+    }
+    if (field === "base") {
+      if (value !== "on" && value !== "off") {
+        return { ...parsed, problems: [invalid("Website base must be on or off.")] };
+      }
+      parsed.base = value === "on";
       continue;
     }
     if (field === "nav") {

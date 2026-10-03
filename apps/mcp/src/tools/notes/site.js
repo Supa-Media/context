@@ -16,16 +16,59 @@
 
 import { toolError, toolText } from "../results.js";
 
-const ACTIONS = new Set(["status", "check", "publish"]);
+const ACTIONS = new Set(["status", "check", "publish", "screenshot"]);
+const SIZES = ["phone", "tablet", "desktop"];
 
 /** One sentence for every refusal, so it says nothing about why. */
 const REFUSED =
   "only this workspace's owners and editors can see a website's status or publish it, from a connection that can write.";
 
+/** One width's measurements, as lines an agent can act on. */
+function describeShot(shot) {
+  const m = shot.measurements;
+  const lines = [`${shot.size} (${shot.width}px wide, ${shot.height}px shown${shot.truncated ? ", cut short" : ""}):`];
+  lines.push(
+    m.overflowX > 0
+      ? `- sideways scroll: content is ${m.overflowX}px wider than the screen${m.wide.length ? ` (widest: ${m.wide.map((w) => `${w.element} +${w.by}px`).join(", ")})` : ""}`
+      : "- no sideways scroll",
+  );
+  lines.push(
+    m.bottomReachable
+      ? `- the bottom of the page can be scrolled to (${m.scrollHeight}px of content in a ${m.viewportHeight}px screen)`
+      : `- the bottom of the page cannot be scrolled to: ${m.scrollHeight}px of content, scrolling stops short`,
+  );
+  if (m.clipped.length > 0) lines.push(`- boxes hiding content: ${m.clipped.map((c) => `${c.element} hides ${c.hidden}px`).join(", ")}`);
+  if (m.brokenImages.length > 0) lines.push(`- pictures that did not load: ${m.brokenImages.join(", ")}`);
+  if (m.textLength === 0) lines.push("- the page shows no text at all");
+  if (m.headings.length > 0) lines.push(`- outline: ${m.headings.join(" · ")}`);
+  if (shot.errors.length > 0) lines.push(`- errors in the page: ${shot.errors.join(" | ")}`);
+  return lines.join("\n");
+}
+
+async function photograph(store, target, sizes) {
+  if (target.url === null) return toolError(target.message ?? REFUSED);
+  const result = await store.shootSite({ url: target.url, sizes });
+  if (result.error) return toolError(`no screenshot: ${result.error}`);
+  const header = `${target.url} (published revision ${target.revision ?? "?"}), as a signed-out visitor sees it:`;
+  const text = [header, ...result.shots.map(describeShot), ...result.failures.map((f) => `${f.size}: failed: ${f.reason}`)];
+  return {
+    content: [
+      { type: "text", text: text.join("\n\n") },
+      ...result.shots.flatMap((shot) => [
+        { type: "text", text: `${shot.size}, ${shot.width}px:` },
+        { type: "image", data: shot.jpeg, mimeType: "image/jpeg" },
+      ]),
+    ],
+    ...(result.shots.length === 0 ? { isError: true } : {}),
+  };
+}
+
 export async function toolSiteAction(store, args) {
   const request = args.site;
   if (!request || typeof request !== "object" || !ACTIONS.has(request.action)) {
-    return toolError('site must be { action: "status" }, { action: "check", inspect? } or { action: "publish", draft? }');
+    return toolError(
+      'site must be { action: "status" }, { action: "check", inspect? }, { action: "publish", draft? } or { action: "screenshot", page?, sizes? }',
+    );
   }
   if (args.content !== undefined || args.comment !== undefined || args.images !== undefined) {
     return toolError("pass site on its own: it reads or publishes the website and writes no note");
@@ -41,15 +84,35 @@ export async function toolSiteAction(store, args) {
   ) {
     return toolError('inspect goes with action "check" and names a note under website/, e.g. "website/layout.html.md"');
   }
+  if (
+    request.page !== undefined &&
+    (request.action !== "screenshot" || typeof request.page !== "string" || !/^\/[^\0]{0,300}$/.test(request.page))
+  ) {
+    return toolError('page goes with action "screenshot" and is an address on the site, e.g. "/" or "/about"');
+  }
+  if (
+    request.sizes !== undefined &&
+    (request.action !== "screenshot" ||
+      !Array.isArray(request.sizes) ||
+      request.sizes.length === 0 ||
+      !request.sizes.every((size) => SIZES.includes(size)))
+  ) {
+    return toolError('sizes goes with action "screenshot" and lists phone, tablet and/or desktop');
+  }
   if (typeof store.site !== "function") {
     return toolError("websites are not available on this deployment");
+  }
+  if (request.action === "screenshot" && typeof store.shootSite !== "function") {
+    return toolError("screenshots are not available on this deployment; a site check needs no browser.");
   }
   const answer = await store.site({
     action: request.action,
     ...(request.draft ? { draft: request.draft } : {}),
     ...(request.inspect ? { inspect: request.inspect } : {}),
+    ...(request.action === "screenshot" ? { page: request.page ?? "/" } : {}),
   });
   if (answer === null) return toolError(REFUSED);
+  if (request.action === "screenshot") return await photograph(store, answer, request.sizes ?? SIZES);
   if (request.action === "check") return describeCheck(answer);
   return request.action === "status" ? describeStatus(answer) : describePublish(answer);
 }
@@ -120,7 +183,8 @@ function describeCheck(check) {
   if (check.pictures.length > 0) {
     lines.push(`pictures (${check.pictures.length}):`);
     for (const picture of check.pictures) {
-      lines.push(`- ${picture.name}${size(picture.bytes)}, used by ${picture.usedBy.join(", ")}${picture.problem ? `: ${picture.problem}` : ""}`);
+      const labels = (picture.labels ?? []).map((label) => `, "${label}"`).join("");
+      lines.push(`- ${picture.name}${size(picture.bytes)}${labels}, used by ${picture.usedBy.join(", ")}${picture.problem ? `: ${picture.problem}` : ""}`);
     }
   }
   const removed = check.code.flatMap((note) =>

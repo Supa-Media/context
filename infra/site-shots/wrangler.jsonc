@@ -1,0 +1,48 @@
+{
+  // context-site-shots: photographs a published website page for an agent.
+  // See src/index.ts for what it does and why it can keep nothing.
+  //
+  // ── ONLY THE GATEWAY CAN REACH IT ─────────────────────────────────────────
+  //
+  // `workers_dev` is false and there are no routes, so this Worker has no
+  // address at all. The gateway (apps/mcp/wrangler.toml) reaches it through a
+  // service binding, which is why it holds no secret: there is nothing to
+  // authenticate against when nobody else can call it.
+  //
+  // ── DEPLOY THIS BEFORE THE GATEWAY ────────────────────────────────────────
+  //
+  // Cloudflare refuses a Worker whose service binding names a script that does
+  // not exist, so the gateway's deploy jobs (deploy-staging.yml's `mcp` case
+  // and deploy-mcp.yml) deploy this first, in the same job. A self-hoster
+  // without Browser Rendering removes the gateway's SITE_SHOTS binding
+  // instead; screenshots then answer "not available" and nothing else changes.
+  //
+  // ── BROWSER RENDERING IS A BINDING, NOT THE REST API ──────────────────────
+  //
+  // As with Workers AI in infra/transcribe-worker: a binding needs no API
+  // token, so there is no credential here to leak. It needs the account on
+  // Workers Paid; each run is billed by browser time, and the control plane
+  // limits how often a workspace may ask (lib/websites/siteShots.ts).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-site-shots",
+  "main": "src/index.ts",
+  // A stable past date rather than "today": a clock-skewed runner rejects a
+  // compatibility_date in the future.
+  "compatibility_date": "2026-07-01",
+  // @cloudflare/puppeteer needs Node's buffer and events.
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "context-site-shots-staging",
+      "workers_dev": false,
+      "browser": { "binding": "BROWSER" }
+    }
+  }
+}
