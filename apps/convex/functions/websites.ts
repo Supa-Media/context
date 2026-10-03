@@ -38,6 +38,7 @@ import {
   siteFactsValidator,
 } from "./lib/websites/agentSite";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import { siteShotTargetHandler } from "./lib/websites/siteShots";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
   markWebsitePublicationEnsuredHandler,
@@ -335,6 +336,16 @@ export const siteFacts = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: siteFactsValidator,
   handler: siteFactsHandler,
+});
+
+/** The one public page an agent may have photographed, counted against the hour's budget. INTERNAL. */
+export const siteShotTarget = internalMutation({
+  args: { workspaceId: v.id("workspaces"), page: v.string() },
+  returns: v.union(
+    v.object({ url: v.string(), address: v.string(), revision: v.union(v.number(), v.null()) }),
+    v.object({ message: v.string() }),
+  ),
+  handler: siteShotTargetHandler,
 });
 
 /** `/gateway/site`: status, check and publish for an owner's or editor's agent. INTERNAL. */

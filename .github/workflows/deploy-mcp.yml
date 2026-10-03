@@ -224,7 +224,18 @@ jobs:
       # Install the gateway, wrangler, and the shared collaboration engine.
       - name: Install gateway dependencies
         if: steps.config.outputs.found == 'true'
-        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
+        run: pnpm install --filter "@context/mcp..." --filter "@context/site-shots..." --frozen-lockfile
+
+      # The gateway binds the screenshot browser (infra/site-shots) as a
+      # service, and Cloudflare refuses a binding to a script that does not
+      # exist, so that Worker deploys first, in this same job.
+      - name: Deploy the gateway's screenshot Worker
+        if: steps.config.outputs.found == 'true'
+        working-directory: infra/site-shots
+        run: pnpm exec wrangler deploy --env=""
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # DEPLOY FIRST, secrets after — the ordering `deploy-router.yml` and
       # `deploy-email-worker.yml` fixed for the same reason (#302).

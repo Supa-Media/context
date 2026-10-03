@@ -95,7 +95,9 @@ export const TARGETS = {
       transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
-      mcp: { packages: ["@context/mcp"], worker: "apps/mcp" },
+      // The gateway's job deploys its screenshot Worker first (a service
+      // binding needs its target), so either one changing deploys both.
+      mcp: { packages: ["@context/mcp", "@context/site-shots"], worker: "apps/mcp" },
       // Staging publishes the app export inside this Worker's Static Assets
       // version, so an app input is also a router input.
       router: { packages: ["@context/router", "@context/mobile"], worker: "infra/router" },
@@ -110,7 +112,7 @@ export const TARGETS = {
     workflow: "deploy-production.yml",
     components: {
       convex: { packages: ["@context/convex"], files: ["convex.json", workflow("deploy-convex")] },
-      gateway: { packages: ["@context/mcp"], files: [workflow("deploy-mcp")] },
+      gateway: { packages: ["@context/mcp", "@context/site-shots"], files: [workflow("deploy-mcp")] },
       email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },

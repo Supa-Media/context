@@ -262,6 +262,7 @@ export type GatewaySiteAnswer =
   | null
   | (SiteStatus & { action: "status" })
   | (SiteCheck & { action: "check" })
+  | { action: "screenshot"; url: string | null; address: string | null; revision: number | null; message?: string }
   | {
       action: "publish";
       published: boolean;
@@ -282,7 +283,7 @@ export async function gatewaySiteHandler(
   ctx: ActionCtx,
   args: { hashedAccessToken: string; expectedWorkspaceId: string; action: string; draft?: string; path?: string },
 ): Promise<GatewaySiteAnswer> {
-  if (args.action !== "status" && args.action !== "publish" && args.action !== "check") return null;
+  if (!["status", "publish", "check", "screenshot"].includes(args.action)) return null;
   const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
     hashedAccessToken: args.hashedAccessToken,
     expectedWorkspaceId: args.expectedWorkspaceId,
@@ -292,6 +293,15 @@ export async function gatewaySiteHandler(
   if (args.action === "status") {
     const status = await siteStatusFor(ctx, cleared.workspaceId);
     return status === null ? null : { action: "status", ...status };
+  }
+  if (args.action === "screenshot") {
+    const target = await ctx.runMutation(internal.functions.websites.siteShotTarget, {
+      workspaceId: cleared.workspaceId,
+      page: args.path ?? "/",
+    });
+    return "message" in target
+      ? { action: "screenshot", url: null, address: null, revision: null, message: target.message }
+      : { action: "screenshot", ...target };
   }
   if (args.action === "check") {
     const check = await siteCheckFor(ctx, cleared.workspaceId, draftFingerprint, args.path);
@@ -376,6 +386,13 @@ const siteCheckAnswerValidator = v.object({
 export const gatewaySiteValidator = v.union(
   v.null(),
   siteCheckAnswerValidator,
+  v.object({
+    action: v.literal("screenshot"),
+    url: nullableString,
+    address: nullableString,
+    revision: nullableNumber,
+    message: v.optional(v.string()),
+  }),
   v.object({
     action: v.literal("status"),
     enabled: v.boolean(),

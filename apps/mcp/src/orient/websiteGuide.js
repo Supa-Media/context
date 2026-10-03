@@ -12,7 +12,7 @@ export const WEBSITE_GUIDE = [
   "",
   "`website/` is this context's website. Every file in it is a note.",
   "",
-  "- **Saving is not publishing.** Owners and editors use write_note `site`: `{ action: \"check\" }` lists addresses, broken links (note and line), pictures, what the cleaner removed and why, and empty pages (`inspect: \"website/x.css.md\"` shows a note as drawn); `{ action: \"publish\", draft }` releases the draft you checked. Others ask someone to press Publish.",
+  "- **Saving is not publishing.** Owners and editors use write_note `site`: `{ action: \"check\" }` lists addresses, broken links (note and line), pictures, what the cleaner removed and why, and empty pages (`inspect: \"website/x.css.md\"` shows a note as drawn); `{ action: \"publish\", draft }` releases the draft you checked; `{ action: \"screenshot\", page: \"/\" }` then shows it at phone, tablet and desktop width. Others ask someone to press Publish.",
   "- **Pages** are ordinary notes: `index.md` is `/`, `about.md` is `/about`. Words go here, in Markdown. Frontmatter: `title`, `description`, `nav: 1` (menu order), `layout: cards`, `draft: true`. Link to a page by its address (`/`, `/about`), not its file (`/index`).",
   "- **`layout.html.md`** is the frame around every page: header, logo, nav, footer, and `{ content }` where the page goes.",
   "- **`<name>.html.md`** is a layout a page picks with `layout: <name>`; one no page names is an all-HTML page at `/<name>`.",

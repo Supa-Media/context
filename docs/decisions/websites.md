@@ -181,6 +181,30 @@ routes Publish would release. A check reads at the publication clearance
 through the one barrier, writes nothing and publishes nothing
 (`controlPlane/siteCheck.test.ts`).
 
+### A screenshot is of a published public page, taken as a stranger
+
+_Asked for by the owner, 2026-10-03, who chose Cloudflare's Browser Rendering
+over another vendor._ `site: { action: "screenshot", page }` photographs one
+page at phone, tablet and desktop widths and measures what a picture cannot
+say: sideways overflow, whether the bottom can be scrolled to, boxes that hide
+content, pictures that did not load, errors the page threw.
+
+The browser is its own Worker (`infra/site-shots`), because the gateway stays
+free of dependencies other than the collaboration engine and puppeteer is one.
+The gateway reaches it through a service binding, so it has no address and no
+secret. The control plane decides everything first (`lib/websites/siteShots.ts`):
+an owner's or editor's connection, a **live, public** page from the route index
+Publish wrote, the deployment's own https address for it, and a budget of
+`SITE_SHOTS_PER_HOUR` per workspace that a refusal does not spend. The browser
+carries no session, so it sees what any visitor sees: a members-only page or a
+draft is refused rather than photographed as a sign-in screen. The Worker
+re-checks the address is public https as a second lock, and keeps nothing.
+
+The simplification to resist is letting the agent pass a URL: the browser runs
+inside our account, and an arbitrary address is a request forgery against
+whatever it can reach. `siteShots.test.ts` and `infra/site-shots/src/shoot.test.ts`
+fail if anything but the site's own published public page reaches it.
+
 ## Every site's pages are kept at the edge per Publish
 
 _Decided by the owner, 2026-09-26: "same functionality for all the websites

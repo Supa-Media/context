@@ -256,7 +256,7 @@ export async function route(request, env, ctx) {
       // with the request, so a reused isolate carries nothing across tenants.
       store.searchSubrequestBudget = searchBudgetFor(env);
       attachGatewayJobQueue(store, session, controlPlane, env);
-      attachLinkCalls(store, session, controlPlane);
+      attachLinkCalls(store, session, controlPlane, env);
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -466,7 +466,7 @@ export async function route(request, env, ctx) {
         const targetStore = await storeForSession(target, env, controlPlane);
         targetStore.searchSubrequestBudget = searchBudgetFor(env);
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
-        attachLinkCalls(targetStore, target, controlPlane);
+        attachLinkCalls(targetStore, target, controlPlane, env);
         targetStore.defer = store.defer;
         // The same binding, keyed later by the *target's* workspace id: a
         // write routed into another context is announced in that context's
