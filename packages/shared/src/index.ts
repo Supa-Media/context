@@ -146,6 +146,7 @@ export {
   type WebsiteRouteDiagnostic,
   type WebsiteRouteDiagnosticCode,
   type WebsiteRouteOptions,
+  websiteFileAddressAlias,
 } from "./websiteRoutes";
 export { SITES_DOMAIN, sitesDomainAddress, sitesSubdomainHandle } from "./sitesDomain";
 export {

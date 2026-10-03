@@ -4,6 +4,7 @@ import {
   indexByName,
   parseLinks,
   resolveLink,
+  websiteFileAddressAlias,
   websiteRouteLookupKey,
   type Link,
 } from "@context/shared";
@@ -159,7 +160,10 @@ function destinationResolver(options: WebsiteLinkOptions) {
   return (link: Link): Destination | null => {
     const direct = directRoute(link, options.handle, ownedHosts);
     if (direct !== null) {
-      const entry = routesByHref.get(websiteRouteLookupKey(direct.routePath));
+      const alias = websiteFileAddressAlias(direct.routePath);
+      const entry =
+        routesByHref.get(websiteRouteLookupKey(direct.routePath)) ??
+        (alias === null ? undefined : routesByHref.get(websiteRouteLookupKey(alias)));
       return entry === undefined ? null : { ...entry, anchor: direct.anchor };
     }
 

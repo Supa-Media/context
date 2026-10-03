@@ -71,6 +71,17 @@ describe("a designed site page", () => {
     expect(container.querySelector("style")!.textContent).toContain(".ctx-site {");
   });
 
+  test("the page scrolls itself, from the top of each new page", () => {
+    // The app turns the document's own scrolling off, so a site that did not
+    // bring a scroller of its own could never be read past the first screen.
+    const { container } = render();
+    const scroller = container.querySelector<HTMLElement>("[data-testid='site-scroll']")!;
+    expect(scroller).not.toBeNull();
+    expect(scroller.querySelector(".ctx-site")).not.toBeNull();
+    expect(scroller.style.overflowY).toBe("auto");
+    expect(scroller.style.height).toBe("100%");
+  });
+
   test("nothing a site wrote runs", () => {
     const { container } = render();
     expect(container.innerHTML).not.toMatch(/onerror|<script/);

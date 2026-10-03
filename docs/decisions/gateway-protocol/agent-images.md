@@ -41,6 +41,12 @@ from the other side:
   failure leaves an unreferenced object rather than a note pointing at
   nothing. A conflict after that point can leave such an object; a retry
   writes the same key.
+- **A site's code names a picture the way code does.** `src="logo.png"` and
+  `url(logo.png)` (quoted or not, optionally `./`) are pointed at the stored
+  leaf too, and count as embedding it, so an HTML layout gets its picture
+  where the agent put it rather than an `![[…]]` line after the fence that
+  the site never draws. Only a value that is exactly an attached name is
+  touched.
 - **An encrypted note, and a drawing, refuse images.** An encrypted note's
   text is sealed and an image's bytes would not be, which is the paste's rule.
 

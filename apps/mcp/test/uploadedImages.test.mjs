@@ -90,6 +90,49 @@ export async function runUploadedImageChecks() {
     (await noteText("1-projects/portable/diagram-note-2.md"))?.endsWith(`![[${leaf}|the  same  chart]]\n`)
   );
 
+  // -- a picture an HTML layout or a stylesheet names, the way a site's code notes do
+  const layout = await call("priv-token", "write_note", {
+    path: "1-projects/portable/layout.html.md",
+    content: [
+      "The site's frame.",
+      "",
+      "```html",
+      '<header><img src="logo.png" alt="Logo"><img src="./logo.png"><img src="big-logo.png"></header>',
+      "<div class=\"hero\" style=\"background: url('hero.jpg')\"></div>",
+      "```",
+      "",
+      "```css",
+      ".hero { background-image: url(hero.jpg); } .alt { background: url( \"hero.jpg\" ); }",
+      "```",
+      "",
+    ].join("\n"),
+    images: [
+      { name: "logo.png", data: PNG_B64 },
+      { name: "hero.jpg", data: Buffer.from(JPEG).toString("base64") },
+    ],
+  });
+  const layoutBody = await noteText("1-projects/portable/layout.html.md");
+  const heroLeaf = text(layout).match(/hero\.jpg → (upload-[0-9a-f]{16}\.jpg)/)?.[1];
+  check(
+    "an img src naming an attached picture points at the stored copy, and only an exact name does",
+    !layout.isError &&
+      layoutBody?.includes(`<img src="${leaf}" alt="Logo">`) &&
+      layoutBody?.includes(`<img src="./${leaf}">`) &&
+      layoutBody?.includes('<img src="big-logo.png">')
+  );
+  check(
+    "a url() naming an attached picture points at the stored copy, quoted or not",
+    Boolean(heroLeaf) &&
+      layoutBody?.includes(`url('${heroLeaf}')`) &&
+      layoutBody?.includes(`url(${heroLeaf})`) &&
+      layoutBody?.includes(`url( "${heroLeaf}" )`) &&
+      !layoutBody?.includes("hero.jpg")
+  );
+  check(
+    "a picture the code already names is not also appended as a Markdown embed",
+    !layoutBody?.includes("![[")
+  );
+
   // -- the type comes from the bytes
   const lying = await call("priv-token", "write_note", {
     path: "1-projects/portable/svg-note.md",
