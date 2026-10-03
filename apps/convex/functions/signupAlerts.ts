@@ -50,7 +50,7 @@ export async function scheduleSignupAlert(ctx: MutationCtx, alert: Alert): Promi
     console.log(JSON.stringify({ event: "signup_alert_skipped", kind: alert.kind, reason: "rate_limited" }));
     return;
   }
-  await ctx.scheduler.runAfter(0, internal.functions.signupAlerts.send, alert);
+  await ctx.scheduler.runAfter(0, internal.functions.signupAlerts.send, { alert });
 }
 
 /** Who to mail, and what about. `null` when the row has gone since. */
@@ -95,9 +95,9 @@ export const facts = internalQuery({
  * address.
  */
 export const send = internalAction({
-  args: alertValidator,
+  args: { alert: alertValidator },
   returns: v.null(),
-  handler: async (ctx, alert) => {
+  handler: async (ctx, { alert }) => {
     const log = (event: string, extra: Record<string, unknown> = {}) =>
       console.log(JSON.stringify({ event: `signup_alert_${event}`, kind: alert.kind, ...extra }));
     const apiKey = process.env.RESEND_API_KEY;
