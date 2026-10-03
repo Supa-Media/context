@@ -27,12 +27,19 @@
  */
 
 import { decodeEntities, escapeHtml } from "./entities";
-import { SITE_ID_PREFIX, googleFontsUrl, isPictureData, sanitizeStyleAttribute } from "./css";
+import { SITE_ID_PREFIX, googleFontsUrl, isPictureData, sanitizeStyleAttribute, type SiteRemoval } from "./css";
 
 export interface SiteHtmlOptions {
   /** A relative picture name to a `data:image/…` URL, or null to drop it. */
   image?: (name: string) => string | null;
+  /**
+   * Told about everything the sanitizer leaves out, with where it started in
+   * the input, so a site check can say what was removed and why. Reporting
+   * never changes the output.
+   */
+  removed?: (removal: SiteRemoval) => void;
 }
+
 
 export interface SanitizedHtml {
   html: string;
@@ -106,7 +113,7 @@ const BOOLEAN = new Set(["hidden", "reversed", "open"]);
 
 type Token =
   | { kind: "text"; text: string }
-  | { kind: "start"; name: string; attributes: Array<[string, string]> }
+  | { kind: "start"; name: string; attributes: Array<[string, string]>; at: number }
   | { kind: "end"; name: string };
 
 function isLetter(char: string | undefined): boolean {
@@ -169,7 +176,7 @@ function tokenize(html: string): { tokens: Token[]; raw: Map<number, string> } {
     // A tag cut off by the end of the document is dropped, as a browser drops it.
     if (tag === null) break;
     flush();
-    tokens.push({ kind: "start", name: tag.name, attributes: tag.attributes });
+    tokens.push({ kind: "start", name: tag.name, attributes: tag.attributes, at: index });
     index = tag.end;
     if (RAW_TEXT.has(tag.name)) {
       if (tag.name === "plaintext") {
@@ -296,12 +303,25 @@ function writeStart(
   name: string,
   attributes: Array<[string, string]>,
   options: SiteHtmlOptions,
+  at = 0,
 ): string {
+  const report = options.removed;
+  // A style attribute's own removals are reported where its tag starts.
+  const valueOptions: SiteHtmlOptions =
+    report === undefined ? options : { ...options, removed: (removal) => report({ ...removal, at }) };
   let out = `<${name}`;
   for (const [attribute, raw] of attributes) {
-    if (!allowedAttribute(name, attribute)) continue;
-    const value = attributeValue(name, attribute, raw, options);
-    if (value === null) continue;
+    if (!allowedAttribute(name, attribute)) {
+      report?.({ what: `${attribute} on <${name}>`, why: attributeRefusal(name, attribute), at });
+      continue;
+    }
+    const value = attributeValue(name, attribute, raw, valueOptions);
+    if (value === null) {
+      if (report !== undefined && attribute !== "style") {
+        report({ what: `${attribute}="${raw.slice(0, 120)}" on <${name}>`, why: valueRefusal(attribute, raw), at });
+      }
+      continue;
+    }
     out += value === "" && BOOLEAN.has(attribute) ? ` ${attribute}` : ` ${attribute}="${escapeHtml(value)}"`;
   }
   if (name === "a" && attributes.some(([attribute, value]) => attribute === "target" && ENUMERATED.target!.test(value.trim()))) {
@@ -310,11 +330,41 @@ function writeStart(
   return `${out}>`;
 }
 
+function attributeRefusal(element: string, attribute: string): string {
+  if (/^on/.test(attribute)) return "event handlers never run on a site";
+  if (attribute === "srcset") return "a picture has one src, the name of a picture stored in this workspace";
+  if (attribute.startsWith("data-ctx")) return "data-ctx-* attributes are Context's own";
+  return `not an attribute a site can use on <${element}>`;
+}
+
+function valueRefusal(attribute: string, raw: string): string {
+  if (attribute === "href") {
+    return "a link may be http, https, mailto, tel, an in-page #anchor or a relative address";
+  }
+  if (attribute === "src") {
+    const value = urlText(raw);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//")) {
+      return "pictures load only from this workspace: attach it with write_note images and use the name it was stored as";
+    }
+    return `no picture called "${value.replace(/^\.?\//, "")}" is stored in this workspace, under that exact name`;
+  }
+  if (attribute === "id") return "an id is one word of up to 100 characters";
+  return `"${raw.slice(0, 60)}" is not a value ${attribute} takes here`;
+}
+
 /** Rebuild `html` from the tokens that survive. */
 export function sanitizeSiteHtml(html: string, options: SiteHtmlOptions = {}): SanitizedHtml {
   const styles: string[] = [];
   const fonts: string[] = [];
-  if (html.length > MAX_HTML) return { html: "", styles, fonts };
+  const report = options.removed;
+  if (html.length > MAX_HTML) {
+    report?.({
+      what: "everything",
+      why: `site code is at most ${MAX_HTML.toLocaleString("en-US")} characters, and this is ${html.length.toLocaleString("en-US")}`,
+      at: 0,
+    });
+    return { html: "", styles, fonts };
+  }
   const { tokens, raw } = tokenize(html);
   const open: string[] = [];
   let out = "";
@@ -344,16 +394,31 @@ export function sanitizeSiteHtml(html: string, options: SiteHtmlOptions = {}): S
         const rel = token.attributes.find(([name]) => name === "rel")?.[1].trim().toLowerCase();
         const href = token.attributes.find(([name]) => name === "href")?.[1];
         const font = rel === "stylesheet" && href !== undefined ? googleFontsUrl(href) : null;
-        if (font !== null && !fonts.includes(font) && fonts.length < 4) fonts.push(font);
+        if (font === null) {
+          report?.({ what: `<link${href === undefined ? "" : ` href="${href.slice(0, 120)}"`}>`, why: LINK_REFUSAL, at: token.at });
+        } else if (!fonts.includes(font)) {
+          if (fonts.length < 4) fonts.push(font);
+          else report?.({ what: `<link href="${font}">`, why: "a site loads at most 4 Google Fonts stylesheets", at: token.at });
+        }
         continue;
       }
       if (DROPPED_WITH_CONTENT.has(token.name)) {
+        if (token.name !== "style") {
+          report?.({ what: `<${token.name}> and everything inside it`, why: droppedElementRefusal(token.name), at: token.at });
+        }
         // A raw-text element's content was never tokenized; its end tag follows.
         dropping = { name: token.name, depth: 1 };
         continue;
       }
-      if (!ELEMENTS.has(token.name) || open.length >= MAX_DEPTH) continue;
-      out += writeStart(token.name, token.attributes, options);
+      if (!ELEMENTS.has(token.name)) {
+        report?.({ what: `<${token.name}>`, why: "not an element a site can use; the text inside it is kept", at: token.at });
+        continue;
+      }
+      if (open.length >= MAX_DEPTH) {
+        report?.({ what: `<${token.name}>`, why: `elements nest at most ${MAX_DEPTH} deep`, at: token.at });
+        continue;
+      }
+      out += writeStart(token.name, token.attributes, options, token.at);
       if (!VOID.has(token.name)) open.push(token.name);
       continue;
     }
@@ -366,4 +431,18 @@ export function sanitizeSiteHtml(html: string, options: SiteHtmlOptions = {}): S
   }
   while (open.length > 0) out += `</${open.pop()!}>`;
   return { html: out, styles, fonts };
+}
+
+const LINK_REFUSAL = "a site links only Google Fonts stylesheets; put other CSS in a stylesheet note or a <style> element";
+
+function droppedElementRefusal(name: string): string {
+  if (name === "script" || name === "noscript") return "scripts never run on a site";
+  if (name === "svg" || name === "math") return "inline SVG and MathML can run code; attach the picture as a PNG, JPEG, GIF or WebP instead";
+  if (name === "template") return "a <template> is never drawn, so nothing inside it shows";
+  if (name === "iframe" || name === "frame" || name === "frameset" || name === "object" || name === "embed" || name === "applet") {
+    return "a site cannot embed another page or plugin";
+  }
+  if (name === "audio" || name === "video" || name === "canvas") return "sites do not play media or draw on a canvas yet";
+  if (name === "select" || name === "textarea") return "a site has no form fields; use a form note for answers";
+  return "this element is removed with its content";
 }

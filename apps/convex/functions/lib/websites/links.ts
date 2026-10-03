@@ -148,6 +148,15 @@ function catalogMaps(catalog: readonly WebsiteLinkCatalogEntry[]) {
   return { routesByHref, byObject };
 }
 
+/**
+ * Where a page's link goes: a published route or share, or null for a link
+ * that goes nowhere a visitor can follow. The site check (`./siteCheck.ts`)
+ * asks the same question the rewrite does, so the two cannot disagree.
+ */
+export function websiteLinkDestination(options: WebsiteLinkOptions): (link: Link) => Destination | null {
+  return destinationResolver(options);
+}
+
 function destinationResolver(options: WebsiteLinkOptions) {
   const { routesByHref, byObject } = catalogMaps(options.catalog);
   const ownedHosts = new Set(

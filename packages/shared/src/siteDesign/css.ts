@@ -34,6 +34,15 @@ export interface SiteCssOptions {
   scope: string;
   /** A relative picture name to a `data:image/…` URL, or null to drop it. */
   image?: (name: string) => string | null;
+  /** Told about every rule and declaration left out, and why. Never changes the output. */
+  removed?: (removal: SiteRemoval) => void;
+}
+
+/** One thing a sanitizer left out of a site's code: what, why, and its offset in the input when known. */
+export interface SiteRemoval {
+  what: string;
+  why: string;
+  at?: number;
 }
 
 export interface SanitizedCss {
@@ -99,6 +108,53 @@ function serializeToken(token: CssToken): string {
     case "bad":
       return "";
   }
+}
+
+/** Tokens as an author wrote them, near enough to find in their sheet. */
+function sourceText(tokens: CssToken[]): string {
+  const text = tokens
+    .map((token) => (token.t === "url" ? `url(${token.v})` : token.t === "bad" ? "" : serializeToken(token)))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+/** Why `sanitizeValue` refused a value, in words an author can act on. */
+function valueRefusal(tokens: CssToken[]): string {
+  const picture = (raw: string): string => {
+    const value = raw.trim();
+    if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//")) {
+      return "pictures load only from this workspace: attach it with write_note images and use the name it was stored as";
+    }
+    const name = pictureName(value);
+    return name === null
+      ? `"${value.slice(0, 80)}" is not a picture name`
+      : `no picture called "${name}" is stored in this workspace, under that exact name`;
+  };
+  let depth = 0;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token.t === "bad") return "the value is malformed";
+    if (token.t === "at") return "an @-rule cannot sit inside a value";
+    if (token.t === "url") return picture(token.v);
+    if (token.t === "function") {
+      const name = token.v.toLowerCase();
+      if (name === "url") {
+        const read = urlFromFunction(tokens, index);
+        return read === null ? "url() takes one quoted picture name" : picture(read.value);
+      }
+      if (!FUNCTIONS.has(name)) return `${name}() is not a CSS function a site can use`;
+      depth += 1;
+    }
+    if (token.t === "punct" && (token.v === "{" || token.v === "}" || token.v === ";")) {
+      return "braces and semicolons cannot sit inside a value";
+    }
+    if (token.t === "punct" && token.v === "(") depth += 1;
+    if (token.t === "punct" && token.v === ")") depth -= 1;
+    if (token.t === "delim" && !VALUE_DELIMS.has(token.v)) return `"${token.v}" cannot appear in a value`;
+  }
+  return depth !== 0 ? "its brackets do not balance" : "it has no value";
 }
 
 function trim(tokens: CssToken[]): CssToken[] {
@@ -218,21 +274,38 @@ export function isPictureData(value: string): boolean {
 /** `prop: value; …` with every declaration that does not survive dropped. */
 function sanitizeDeclarationList(tokens: CssToken[], options: SiteCssOptions): string[] {
   const declarations: string[] = [];
+  const report = options.removed;
   for (const part of splitTop(tokens, ";")) {
     const chunk = trim(part);
     if (chunk.length === 0) continue;
     // A nested rule (`&:hover { … }`) is not a declaration.
-    if (chunk.some((token) => token.t === "punct" && (token.v === "{" || token.v === "}"))) continue;
+    if (chunk.some((token) => token.t === "punct" && (token.v === "{" || token.v === "}"))) {
+      report?.({ what: sourceText(chunk), why: "nested rules are not supported: write each rule with its full selector" });
+      continue;
+    }
     const name = chunk[0];
-    if (name?.t !== "ident" || !PROPERTY.test(name.v)) continue;
+    if (name?.t !== "ident" || !PROPERTY.test(name.v)) {
+      report?.({ what: sourceText(chunk), why: "not a declaration (property: value)" });
+      continue;
+    }
     let cursor = 1;
     while (chunk[cursor]?.t === "ws") cursor += 1;
     const colon = chunk[cursor];
-    if (colon?.t !== "punct" || colon.v !== ":") continue;
+    if (colon?.t !== "punct" || colon.v !== ":") {
+      report?.({ what: sourceText(chunk), why: "not a declaration (property: value)" });
+      continue;
+    }
     const property = name.v.startsWith("--") ? name.v : name.v.toLowerCase();
-    if (BLOCKED_PROPERTIES.has(property)) continue;
-    const value = sanitizeValue(trim(chunk.slice(cursor + 1)), options);
-    if (value === null) continue;
+    if (BLOCKED_PROPERTIES.has(property)) {
+      report?.({ what: sourceText(chunk), why: "this property once ran code, so no site may use it" });
+      continue;
+    }
+    const valueTokens = trim(chunk.slice(cursor + 1));
+    const value = sanitizeValue(valueTokens, options);
+    if (value === null) {
+      report?.({ what: sourceText(chunk), why: valueRefusal(valueTokens) });
+      continue;
+    }
     declarations.push(`${property}: ${value}`);
   }
   return declarations;
@@ -416,40 +489,93 @@ function importedFont(prelude: CssToken[]): string | null {
   return null;
 }
 
+/** Why a selector was refused. */
+function selectorRefusal(raw: CssToken[]): string {
+  const tokens = trim(raw);
+  if (tokens.length === 0) return "it is empty";
+  if (tokens.length > 200) return "it is longer than a site's selectors may be";
+  const first = tokens[0]!;
+  if (first.t === "delim" && (first.v === ">" || first.v === "+" || first.v === "~")) {
+    return "a selector cannot start with a combinator";
+  }
+  if (tokens.some((token) => token.t === "delim" && token.v === "&")) {
+    return "nested rules are not supported: write the full selector";
+  }
+  return "it uses url(), an @-rule, a backslash or a character a site's selectors cannot";
+}
+
+const AT_RULE_REFUSALS: Record<string, string> = {
+  "font-face": "load fonts with a Google Fonts @import or <link> instead",
+  import: "only Google Fonts stylesheets can be imported",
+  charset: "",
+};
+
 function sanitizeRules(rules: Rule[], options: SiteCssOptions, fonts: string[], depth: number): string[] {
   const out: string[] = [];
+  const report = options.removed;
+  const dropAt = (rule: Extract<Rule, { kind: "at" }>, why: string) => {
+    if (why === "") return;
+    const prelude = sourceText(rule.prelude);
+    report?.({ what: `@${rule.name}${prelude === "" ? "" : ` ${prelude}`}`, why });
+  };
   for (const rule of rules) {
     if (rule.kind === "style") {
-      const selectors = splitTop(rule.prelude, ",")
-        .map((selector) => sanitizeSelector(selector, options.scope))
-        .filter((selector): selector is string => selector !== null);
+      const parts = splitTop(rule.prelude, ",");
+      const selectors: string[] = [];
+      for (const part of parts) {
+        const selector = sanitizeSelector(part, options.scope);
+        if (selector !== null) selectors.push(selector);
+        else if (parts.length > 1) report?.({ what: `selector ${sourceText(part)}`, why: selectorRefusal(part) });
+      }
+      if (selectors.length === 0) {
+        report?.({ what: `${sourceText(rule.prelude)} { … }`, why: selectorRefusal(parts[0] ?? []) });
+        continue;
+      }
       const declarations = sanitizeDeclarationList(rule.block, options);
-      if (selectors.length === 0 || declarations.length === 0) continue;
+      if (declarations.length === 0) continue;
       out.push(`${selectors.join(", ")} { ${declarations.join("; ")}; }`);
       continue;
     }
     if (rule.name === "import" && depth === 0) {
       const font = importedFont(rule.prelude);
-      if (font !== null && !fonts.includes(font) && fonts.length < MAX_FONTS) fonts.push(font);
+      if (font === null) dropAt(rule, AT_RULE_REFUSALS.import!);
+      else if (!fonts.includes(font)) {
+        if (fonts.length < MAX_FONTS) fonts.push(font);
+        else dropAt(rule, `a site loads at most ${MAX_FONTS} Google Fonts stylesheets`);
+      }
       continue;
     }
-    if (rule.block === null) continue;
+    if (rule.block === null) {
+      dropAt(rule, AT_RULE_REFUSALS[rule.name] ?? `@${rule.name} is not supported on a site`);
+      continue;
+    }
     if (GROUPS.has(rule.name) && depth < 4) {
       const prelude = sanitizePrelude(trim(rule.prelude));
-      if (prelude === null) continue;
+      if (prelude === null) {
+        dropAt(rule, "its condition uses something a site's CSS cannot");
+        continue;
+      }
       const inner = sanitizeRules(parseRules(rule.block), options, fonts, depth + 1);
       if (inner.length === 0) continue;
       out.push(`@${rule.name}${prelude === "" ? "" : ` ${prelude}`} { ${inner.join(" ")} }`);
       continue;
     }
+    if (GROUPS.has(rule.name)) {
+      dropAt(rule, "groups nest at most 4 deep");
+      continue;
+    }
     if (KEYFRAMES.has(rule.name)) {
       const name = trim(rule.prelude);
-      if (name.length !== 1 || name[0]!.t !== "ident") continue;
+      if (name.length !== 1 || name[0]!.t !== "ident") {
+        dropAt(rule, "a @keyframes name is one plain word");
+        continue;
+      }
       const frames: string[] = [];
       for (const frame of parseRules(rule.block)) {
         if (frame.kind !== "style") continue;
         const stops = splitTop(frame.prelude, ",").map((stop) => trim(stop));
         if (!stops.every((stop) => stop.length === 1 && (stop[0]!.t === "number" ? /%$/.test(stop[0]!.v) : isBare(stop[0], "from") || isBare(stop[0], "to")))) {
+          report?.({ what: `${sourceText(frame.prelude)} { … } in @keyframes ${(name[0] as { v: string }).v}`, why: "a keyframe is from, to or a percentage" });
           continue;
         }
         const declarations = sanitizeDeclarationList(frame.block, options);
@@ -457,15 +583,23 @@ function sanitizeRules(rules: Rule[], options: SiteCssOptions, fonts: string[], 
         frames.push(`${stops.map((stop) => serializeToken(stop[0]!)).join(", ")} { ${declarations.join("; ")}; }`);
       }
       if (frames.length > 0) out.push(`@keyframes ${(name[0] as { v: string }).v} { ${frames.join(" ")} }`);
+      continue;
     }
     // `@font-face`, `@namespace`, `@page`, `@property` and anything newer: dropped.
+    dropAt(rule, AT_RULE_REFUSALS[rule.name] ?? `@${rule.name} is not supported on a site`);
   }
   return out;
 }
 
 /** Rebuild a stylesheet from tokens, scoped and with nothing that loads. */
 export function sanitizeSiteCss(css: string, options: SiteCssOptions): SanitizedCss {
-  if (css.length > MAX_CSS) return { css: "", fonts: [] };
+  if (css.length > MAX_CSS) {
+    options.removed?.({
+      what: "the whole stylesheet",
+      why: `a stylesheet is at most ${MAX_CSS.toLocaleString("en-US")} characters, and this is ${css.length.toLocaleString("en-US")}`,
+    });
+    return { css: "", fonts: [] };
+  }
   const fonts: string[] = [];
   const rules = sanitizeRules(parseRules(tokenizeCss(css)), options, fonts, 0);
   return { css: rules.join("\n"), fonts };

@@ -25,6 +25,7 @@ import { APP_ORIGIN_ENV_VAR } from "../gatewayAuth";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { commitPublicationSnapshot } from "./releases";
 import { scanWebsiteRoutes } from "./routes";
+import { siteCheckFor, type SiteCheck } from "./siteCheck";
 
 type Snapshot = Awaited<ReturnType<typeof scanWebsiteRoutes>>;
 
@@ -260,6 +261,7 @@ export async function siteStatusFor(
 export type GatewaySiteAnswer =
   | null
   | (SiteStatus & { action: "status" })
+  | (SiteCheck & { action: "check" })
   | {
       action: "publish";
       published: boolean;
@@ -278,9 +280,9 @@ export type GatewaySiteAnswer =
  */
 export async function gatewaySiteHandler(
   ctx: ActionCtx,
-  args: { hashedAccessToken: string; expectedWorkspaceId: string; action: string; draft?: string },
+  args: { hashedAccessToken: string; expectedWorkspaceId: string; action: string; draft?: string; path?: string },
 ): Promise<GatewaySiteAnswer> {
-  if (args.action !== "status" && args.action !== "publish") return null;
+  if (args.action !== "status" && args.action !== "publish" && args.action !== "check") return null;
   const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
     hashedAccessToken: args.hashedAccessToken,
     expectedWorkspaceId: args.expectedWorkspaceId,
@@ -290,6 +292,10 @@ export async function gatewaySiteHandler(
   if (args.action === "status") {
     const status = await siteStatusFor(ctx, cleared.workspaceId);
     return status === null ? null : { action: "status", ...status };
+  }
+  if (args.action === "check") {
+    const check = await siteCheckFor(ctx, cleared.workspaceId, draftFingerprint, args.path);
+    return check === null ? null : { action: "check", ...check };
   }
 
   let outcome: PublishOutcome;
@@ -343,8 +349,33 @@ export const siteFactsValidator = v.union(
   }),
 );
 
+const pathAndWhy = v.object({ path: v.string(), why: v.string() });
+
+const siteCheckAnswerValidator = v.object({
+  action: v.literal("check"),
+  enabled: v.boolean(),
+  draft: nullableString,
+  routes: v.array(v.object({ address: v.string(), path: v.string(), status: v.string(), audience: v.string() })),
+  pageProblems: v.array(v.object({ path: v.string(), problems: v.array(v.string()) })),
+  links: v.array(v.object({ path: v.string(), line: v.number(), target: v.string(), problem: v.string() })),
+  pictures: v.array(
+    v.object({ name: v.string(), bytes: nullableNumber, usedBy: v.array(v.string()), problem: nullableString }),
+  ),
+  code: v.array(
+    v.object({
+      path: v.string(),
+      role: v.string(),
+      removed: v.array(v.object({ line: nullableNumber, what: v.string(), why: v.string() })),
+    }),
+  ),
+  warnings: v.array(pathAndWhy),
+  more: v.object({ links: v.number(), removed: v.number() }),
+  inspected: v.union(v.null(), v.object({ path: v.string(), output: v.string(), truncated: v.boolean() })),
+});
+
 export const gatewaySiteValidator = v.union(
   v.null(),
+  siteCheckAnswerValidator,
   v.object({
     action: v.literal("status"),
     enabled: v.boolean(),

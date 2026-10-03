@@ -54,7 +54,8 @@ export function noteWriteToolDefinitions() {
         "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here. " +
         "\n\nTHIS TOOL ALSO PUBLISHES THE WEBSITE, for the workspace's owners and editors. Saving a note under website/ publishes nothing. " +
         "Pass site: { action: \"status\" } (with path \"website/index.md\" and no content) to see the draft Publish would release, what changed since the last publish, the problems that would stop it and the site's addresses. " +
-        "Then pass site: { action: \"publish\", draft } with the draft that status named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses.",
+        "Pass site: { action: \"check\" } before publishing: it lists every address and its file, links that go nowhere (note and line), every picture with its size and users, what the HTML/CSS cleaner removes from your layouts and stylesheets and why, and pages that would draw nothing; add inspect: \"website/layout.html.md\" to see that note exactly as the site draws it. " +
+        "Then pass site: { action: \"publish\", draft } with the draft that status or check named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses.",
       inputSchema: {
         type: "object",
         properties: {
@@ -64,11 +65,17 @@ export function noteWriteToolDefinitions() {
             type: "object",
             additionalProperties: false,
             description:
-              "Read or publish this context's website instead of writing a note; pass it with path \"website/index.md\" and no content. " +
-              "status names the draft Publish would release; publish releases it, and given that draft refuses if the folder changed since.",
+              "Read, check or publish this context's website instead of writing a note; pass it with path \"website/index.md\" and no content. " +
+              "status names the draft Publish would release; check finds broken links, missing pictures and code the cleaner removes; publish releases the draft, and given that draft refuses if the folder changed since.",
             properties: {
-              action: { type: "string", enum: ["status", "publish"] },
-              draft: { type: "string", description: "publish: the draft a status returned, so only what you checked goes live." },
+              // A plain string, not an enum: a client that cached this list
+              // keeps it, and a new action has to reach it all the same.
+              action: { type: "string", description: "status, check or publish." },
+              draft: { type: "string", description: "publish: the draft a status or check returned, so only what you checked goes live." },
+              inspect: {
+                type: "string",
+                description: "check: a layout, HTML page or stylesheet under website/, returned as the site draws it (cleaned, and scoped under .ctx-site).",
+              },
             },
             required: ["action"],
           },

@@ -337,13 +337,14 @@ export const siteFacts = internalQuery({
   handler: siteFactsHandler,
 });
 
-/** `/gateway/site`: status and publish for an owner's or editor's agent. INTERNAL. */
+/** `/gateway/site`: status, check and publish for an owner's or editor's agent. INTERNAL. */
 export const gatewaySite = internalAction({
   args: {
     hashedAccessToken: v.string(),
     expectedWorkspaceId: v.string(),
     action: v.string(),
     draft: v.optional(v.string()),
+    path: v.optional(v.string()),
   },
   returns: gatewaySiteValidator,
   handler: gatewaySiteHandler,

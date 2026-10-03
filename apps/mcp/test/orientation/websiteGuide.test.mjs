@@ -59,7 +59,8 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
       withSite.includes("scrolls by itself") &&
       withSite.includes("not its file (`/index`)") &&
       withSite.includes("Saving is not publishing") &&
-      withSite.includes('action: "publish", draft'),
+      withSite.includes('action: "publish", draft') &&
+      withSite.includes('action: "check"'),
   );
 
   const withoutSite = await site("ws_nositegd", { "1-projects/a.md": "# A\n" });
