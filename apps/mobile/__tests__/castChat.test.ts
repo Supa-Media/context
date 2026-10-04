@@ -108,6 +108,20 @@ describe("asking and answering", () => {
       { kind: "answer", id: 1, text: "On it.", done: true },
     ]);
   });
+  test("an assistant giving up (a usage limit, an overload) is marked, so it can show in red", () => {
+    const show = scene("@sam asks Claude: fix the refund bug\nClaude answers: Weekly usage limit reached.\nCodex answers: Fixed it.", { instant: true });
+    show.playTo(show.ended);
+    expect(show.chats().map((window) => window.messages.filter((message) => message.kind === "answer"))).toEqual([
+      [{ kind: "answer", id: 1, text: "Weekly usage limit reached.", done: true, failed: true }],
+      [{ kind: "answer", id: 2, text: "Fixed it.", done: true }],
+    ]);
+  });
+
+  test("it is marked from its first word, not once it has finished arriving", () => {
+    const show = scene("@sam asks Claude: fix it\nClaude answers: Weekly usage limit reached.");
+    show.playTo(() => show.chats()[0]?.messages[1]?.kind === "answer");
+    expect(show.chats()[0]!.messages[1]).toMatchObject({ text: "Weekly", done: false, failed: true });
+  });
 });
 
 describe("what the assistant does, beside its chat", () => {

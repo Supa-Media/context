@@ -220,7 +220,7 @@ function Message({ message, look }: { message: ChatMessage; look: CastChatLookCo
       </View>
     );
   }
-  if (message.kind === "answer") return <Text style={[styles.words, ink]}>{message.text}</Text>;
+  if (message.kind === "answer") return <Text style={[styles.words, ink, message.failed ? { color: look.fail } : null]}>{message.text}</Text>;
   // A command, an edit or a question about one is a terminal's; a chat has none to show.
   if (message.kind !== "tools") return null;
   const done = message.tools.filter((tool) => tool.done).length;
