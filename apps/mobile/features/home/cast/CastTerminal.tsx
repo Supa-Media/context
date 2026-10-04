@@ -147,7 +147,7 @@ function Entry({ message, look, text, compact }: { message: ChatMessage; look: C
       return (
         <View style={styles.row}>
           <Bullet look={look} text={text} />
-          <Text style={[text, styles.grow, { color: look.ink, fontFamily: SYSTEM_FONT, fontSize: text.fontSize + 1 }]}>{message.text}</Text>
+          <Text style={[text, styles.grow, { color: message.failed ? look.fail : look.ink, fontFamily: SYSTEM_FONT, fontSize: text.fontSize + 1 }]}>{message.text}</Text>
         </View>
       );
     case "tools":

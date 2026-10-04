@@ -563,15 +563,17 @@ export function playCast(
   function answer(step: Extract<CastStep, { kind: "answer" }>, then: () => void) {
     chats.add(step.actor.name.toLowerCase());
     const id = (said += 1);
-    host.cue?.(givesUp(step.text) ? "error" : "writes");
+    // Giving up shows in red and sounds like an error (Dev2, 2026-10-03/04).
+    const failed = givesUp(step.text) ? { failed: true as const } : {};
+    host.cue?.("failed" in failed ? "error" : "writes");
     if (host.instant()) {
-      host.chat?.({ kind: "answer", agent: step.actor.name, id, text: step.text, done: true });
+      host.chat?.({ kind: "answer", agent: step.actor.name, id, text: step.text, done: true, ...failed });
       return then();
     }
     const words = step.text.match(/\s*\S+/g) ?? [step.text];
     const grow = (n: number) => {
       const done = n >= words.length;
-      host.chat?.({ kind: "answer", agent: step.actor.name, id, text: words.slice(0, n).join(""), done });
+      host.chat?.({ kind: "answer", agent: step.actor.name, id, text: words.slice(0, n).join(""), done, ...failed });
       if (done) return then();
       later(pace.keyMs * 2, () => grow(n + 1));
     };

@@ -22,7 +22,7 @@ export type CastChatEvent =
   /** The words sent: a message of the asker's. */
   | { kind: "ask"; agent: string; from: string; text: string }
   /** The assistant's answer so far; `id` is the same while it grows. */
-  | { kind: "answer"; agent: string; id: number; text: string; done: boolean }
+  | { kind: "answer"; agent: string; id: number; text: string; done: boolean; failed?: true }
   /** Something it did to the workspace, working and then done. */
   | { kind: "tool"; agent: string; id: number; verb: string; what: string; done: boolean }
   /** A command in its terminal, and what it has printed so far; `id` is the same while it prints. */
@@ -44,7 +44,7 @@ export interface ChatTool {
 
 export type ChatMessage =
   | { kind: "asked"; from: string; text: string }
-  | { kind: "answer"; id: number; text: string; done: boolean }
+  | { kind: "answer"; id: number; text: string; done: boolean; failed?: true }
   /** Steps taken one after another, drawn as one "Used Context" card. */
   | { kind: "tools"; tools: ChatTool[] }
   | { kind: "run"; id: number; command: string; output: readonly string[]; done: boolean }
@@ -80,7 +80,7 @@ function applyTo(window: ChatWindow, event: CastChatEvent): ChatWindow {
     case "ask":
       return { ...window, draft: "", messages: [...messages, { kind: "asked", from: event.from, text: event.text }] };
     case "answer":
-      return upsert(window, { kind: "answer", id: event.id, text: event.text, done: event.done });
+      return upsert(window, { kind: "answer", id: event.id, text: event.text, done: event.done, ...(event.failed ? { failed: true as const } : {}) });
     case "run":
       return upsert(window, { kind: "run", id: event.id, command: event.command, output: event.output, done: event.done });
     case "edit":

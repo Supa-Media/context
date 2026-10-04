@@ -550,7 +550,8 @@ export const presenceColors = {
  * a look that is no product's in particular, so none of these are ours to
  * choose from the palette. `mark` is the round badge beside its name;
  * `landing` tints a step whose change is landing in the workspace, in the
- * workspace's own accent, so the eye joins the two.
+ * workspace's own accent, so the eye joins the two. `fail` is an assistant
+ * giving up, a usage limit or an overload.
  */
 export const castChatLooks = {
   warm: {
@@ -562,6 +563,7 @@ export const castChatLooks = {
     bubble: "#EAE4D9",
     field: "#FFFDF9",
     ok: "#3E7A4E",
+    fail: "#B4362C",
     landing: "rgba(14,108,105,0.12)",
   },
   plain: {
@@ -573,6 +575,7 @@ export const castChatLooks = {
     bubble: "#EEF1F6",
     field: "#FFFDF9",
     ok: "#3E7A4E",
+    fail: "#C0392B",
     landing: "rgba(14,108,105,0.12)",
   },
   dark: {
@@ -584,6 +587,7 @@ export const castChatLooks = {
     bubble: "#2C3038",
     field: "#23262C",
     ok: "#82C98E",
+    fail: "#F2A3A3",
     landing: "rgba(107,200,193,0.16)",
   },
 } as const;
