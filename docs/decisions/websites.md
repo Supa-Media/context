@@ -200,20 +200,22 @@ _Decided by the owner, 2026-09-26._
 A rebuild that meets a broken page publishes nothing new. It still applies
 the narrowing half of what it read (`lib/websites/narrowing.ts`): a live row
 whose page was deleted, moved, drafted, made members-only, encrypted or held
-back by `privacy.md` is dropped. Its copy in the current release is deleted,
-and the grace release, which duplicates it, is retired. New pages and other
+back by `privacy.md` is dropped, and a page that is encrypted or held back
+loses its copies from every kept release (see the next section). New pages and other
 widening changes wait for a clean scan, and the reconciled generation does
 not advance. Without this, one half-finished page anywhere in the site froze
 every restriction behind it. A menu kept the title of a page just made
 members-only, and a release kept the plaintext of a page just encrypted,
 for as long as the other page stayed broken.
 
-A clean rebuild applies the same rule to the release it demotes to grace: the
-copies of narrowed pages are deleted at once rather than a generation later.
-**A release copy must not outlive the plaintext it copies.** The copies are a
-derivative in the customer's bucket under the same credential as the note, so
-the argument in [encryption](./encryption/format-and-search.md) against a
-plaintext index of an encrypted note applies to them unchanged.
+A clean rebuild applies the same rule. **A release copy must not outlive the
+plaintext it copies** when that plaintext is still in the bucket but withheld:
+the copies are a derivative in the customer's bucket under the same credential
+as the note, so the argument in
+[encryption](./encryption/format-and-search.md) against a plaintext index of an
+encrypted note applies to them unchanged. A deleted or moved page is different
+since 2026-10-03: its words were public when published and are kept for a
+rollback until they age out.
 
 Ciphertext is not a broken page. A publication scan skips it the way it skips
 a private note, so an encrypted note under `website/` is unpublished rather
@@ -229,20 +231,21 @@ rebuild reads the bytes.
 `websiteNarrowing.test.ts` makes one page narrower while another stays broken,
 and checks the narrowing landed and the widening did not.
 
-## Release bytes stay in the customer's bucket, with one generation of grace
+## Release bytes stay in the customer's bucket; the last five are kept
 
-Convex stores only the release id and page id beside routing metadata. Markdown
-never enters a control-plane table. The page copies live in the reserved
-customer-owned `.context/` tree and are read through the single existing
-credential barrier.
+Convex stores only release ids, page ids and paths beside routing metadata.
+Markdown never enters a control-plane table. The page copies live in the
+reserved customer-owned `.context/` tree and are read through the single
+existing credential barrier.
 
 A new release is staged under random, bounded object names and verified before
 the route-index transaction points at it. Failed staging deletes its unreachable
-objects best-effort and leaves the previous rows untouched. The current release
-and one previous release are retained; the release older than that is cleaned
-up only after a successful commit. The grace generation prevents a request
-that planned against the old index from losing its bytes during the same
-cutover.
+objects best-effort and leaves the previous rows untouched. The last five
+published releases are kept (decided by the owner, 2026-10-03, so an agent can
+roll back; [agent tools](./websites/agent-tools.md)), and a release older than
+that is cleaned up only after a successful commit, so a request that planned
+against the old index never loses its bytes during the cutover. A grace release
+from before releases were kept has no page list and goes whole.
 
 Conditional create is used when the connected store has verified it. Older
 bindings without that recorded capability use random object names plus a

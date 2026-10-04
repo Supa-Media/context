@@ -1,5 +1,6 @@
 /**
- * `write_note` `site` — a website's status, a check, and Publish, from an agent.
+ * `write_note` `site` — a website's status, a check, Publish, screenshots and
+ * the kept versions to roll back to, from an agent.
  *
  * On `write_note` rather than a tool of its own because clients cache the
  * tool list: an argument reaches every connected client the day it ships, a
@@ -16,7 +17,7 @@
 
 import { toolError, toolText } from "../results.js";
 
-const ACTIONS = new Set(["status", "check", "publish", "screenshot"]);
+const ACTIONS = new Set(["status", "check", "publish", "screenshot", "history"]);
 const SIZES = ["phone", "tablet", "desktop"];
 
 /** One sentence for every refusal, so it says nothing about why. */
@@ -67,7 +68,7 @@ export async function toolSiteAction(store, args) {
   const request = args.site;
   if (!request || typeof request !== "object" || !ACTIONS.has(request.action)) {
     return toolError(
-      'site must be { action: "status" }, { action: "check", inspect? }, { action: "publish", draft? } or { action: "screenshot", page?, sizes? }',
+      'site must be { action: "status" }, { action: "check", inspect? }, { action: "publish", draft? }, { action: "screenshot", page?, sizes? } or { action: "history", revision?, inspect? }',
     );
   }
   if (args.content !== undefined || args.comment !== undefined || args.images !== undefined) {
@@ -78,11 +79,20 @@ export async function toolSiteAction(store, args) {
   }
   if (
     request.inspect !== undefined &&
-    (request.action !== "check" ||
+    (!["check", "history"].includes(request.action) ||
       typeof request.inspect !== "string" ||
-      !/^website\/[^\0]{1,300}\.md$/.test(request.inspect))
+      !(request.action === "check" ? /^website\/[^\0]{1,300}\.md$/ : /^[^\0]{1,300}\.md$/).test(request.inspect) ||
+      (request.action === "history" && request.revision === undefined))
   ) {
-    return toolError('inspect goes with action "check" and names a note under website/, e.g. "website/layout.html.md"');
+    return toolError(
+      'inspect goes with action "check" and names a note under website/, e.g. "website/layout.html.md", or with "history" and a revision, naming one page of that version',
+    );
+  }
+  if (
+    request.revision !== undefined &&
+    (request.action !== "history" || !Number.isSafeInteger(request.revision) || request.revision < 0)
+  ) {
+    return toolError('revision goes with action "history" and is a revision number a history listed, e.g. 12');
   }
   if (
     request.page !== undefined &&
@@ -109,11 +119,13 @@ export async function toolSiteAction(store, args) {
     action: request.action,
     ...(request.draft ? { draft: request.draft } : {}),
     ...(request.inspect ? { inspect: request.inspect } : {}),
+    ...(request.revision !== undefined ? { revision: request.revision } : {}),
     ...(request.action === "screenshot" ? { page: request.page ?? "/" } : {}),
   });
   if (answer === null) return toolError(REFUSED);
   if (request.action === "screenshot") return await photograph(store, answer, request.sizes ?? SIZES);
   if (request.action === "check") return describeCheck(answer);
+  if (request.action === "history") return describeHistory(answer);
   return request.action === "status" ? describeStatus(answer) : describePublish(answer);
 }
 
@@ -234,5 +246,41 @@ function describePublish(result) {
   }
   const lines = [`published draft ${result.draft} as revision ${result.revision ?? "?"}.`];
   if (result.addresses.length > 0) lines.push(`live at: ${result.addresses.join(", ")}`);
+  return toolText(lines.join("\n"));
+}
+
+/**
+ * The kept versions, or one version's files to write back. Rolling back is
+ * writing them: they become the draft, and the same Publish releases them.
+ */
+function describeHistory(history) {
+  if (history.message) return toolError(history.message);
+  if (history.version === null) {
+    if (history.versions.length === 0) return toolText("no published versions are kept yet; each Publish keeps one, the last 5.");
+    const lines = ["published versions kept (newest first; each Publish keeps one, the last 5):"];
+    for (const version of history.versions) {
+      lines.push(`- revision ${version.revision}${when(version.publishedAt)}: ${version.pages} pages${version.live ? " (live now)" : ""}`);
+    }
+    lines.push('to see one version\'s files: write_note { path: "website/index.md", site: { action: "history", revision: N } }');
+    return toolText(lines.join("\n"));
+  }
+  const version = history.version;
+  const lines = [
+    `revision ${version.revision}${when(version.publishedAt)}, as it was published. To roll back, write each file below with write_note ` +
+      "(read the note first and pass its etag where it still exists). That makes it the draft; check it, then publish it. Nothing goes live before.",
+  ];
+  if (version.addedSince.length > 0) {
+    lines.push(`added since this version (draft or delete them to match it): ${version.addedSince.join(", ")}`);
+  }
+  if (version.withheld > 0) {
+    lines.push(`${version.withheld} page${version.withheld === 1 ? " is" : "s are"} not shown: privacy.md holds them back now, or they are encrypted.`);
+  }
+  if (version.more.length > 0) {
+    lines.push(`too long for one answer; ask for each with inspect: ${version.more.join(", ")}`);
+  }
+  for (const file of version.files) {
+    const fence = "`".repeat(Math.max(4, ...[...file.text.matchAll(/`{3,}/g)].map((run) => run[0].length + 1)));
+    lines.push("", `${file.path}:`, `${fence}markdown`, file.text.replace(/\n$/, ""), fence);
+  }
   return toolText(lines.join("\n"));
 }

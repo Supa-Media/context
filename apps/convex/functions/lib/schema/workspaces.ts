@@ -201,7 +201,10 @@ export const workspaceTables = {
     routeAttemptedAt: v.optional(v.number()),
     /** Set while an unpublished change may have narrowed a public route. */
     routeUnsafeGeneration: v.optional(v.number()),
-    /** Current and one grace release; page bytes remain in the customer bucket. */
+    /**
+     * The release visitors are served, and the one before it. Which releases
+     * are kept is `websiteReleaseHistory`'s; page bytes stay in the bucket.
+     */
     publishedReleaseId: v.optional(v.string()),
     previousReleaseId: v.optional(v.string()),
     /** When someone last pressed Publish and a release landed. */
@@ -215,6 +218,22 @@ export const workspaceTables = {
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_state_attempted", ["state", "routeAttemptedAt"]),
+
+  /**
+   * The last five published versions of a site, so an agent can roll back
+   * (decided by the owner, 2026-10-03). Which page copies each Publish kept
+   * under `.context/website/releases/<releaseId>/`, by path: the words stay
+   * in the customer's bucket and never here. A page `privacy.md` holds back,
+   * or that is encrypted, is removed from every row with its copies.
+   */
+  websiteReleaseHistory: defineTable({
+    workspaceId: v.id("workspaces"),
+    releaseId: v.string(),
+    /** The `siteRevision` this Publish moved the site to. */
+    revision: v.number(),
+    publishedAt: v.number(),
+    pages: v.array(v.object({ path: v.string(), pageId: v.string() })),
+  }).index("by_workspace", ["workspaceId"]),
 
   /**
    * Disposable website routing metadata, rebuilt from the workspace bucket.

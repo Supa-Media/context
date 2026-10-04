@@ -92,6 +92,13 @@ describe("deleteWorkspace", () => {
         problems: [],
         updatedAt: Date.now(),
       });
+      await ctx.db.insert("websiteReleaseHistory", {
+        workspaceId,
+        releaseId: "00000000-0000-4000-8000-000000000001",
+        revision: 1,
+        publishedAt: Date.now(),
+        pages: [{ path: "website/index.md", pageId: "00000000-0000-4000-8000-000000000002" }],
+      });
       await ctx.db.insert("organizerSettings", {
         workspaceId,
         autopilot: { done: false, archive: false, file: false },
@@ -141,6 +148,11 @@ describe("deleteWorkspace", () => {
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .collect();
       expect(websiteRoutes).toEqual([]);
+      const keptVersions = await ctx.db
+        .query("websiteReleaseHistory")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      expect(keptVersions).toEqual([]);
       const organizer = await ctx.db
         .query("organizerSettings")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
