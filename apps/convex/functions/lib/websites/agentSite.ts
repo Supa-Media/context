@@ -26,6 +26,7 @@ import { PUBLICATION_CLEARANCE } from "./publication";
 import { commitPublicationSnapshot } from "./releases";
 import { scanWebsiteRoutes } from "./routes";
 import { siteCheckFor, type SiteCheck } from "./siteCheck";
+import { siteHistoryFor, type SiteHistory } from "./siteHistory";
 
 type Snapshot = Awaited<ReturnType<typeof scanWebsiteRoutes>>;
 
@@ -262,6 +263,7 @@ export type GatewaySiteAnswer =
   | null
   | (SiteStatus & { action: "status" })
   | (SiteCheck & { action: "check" })
+  | (SiteHistory & { action: "history" })
   | { action: "screenshot"; url: string | null; address: string | null; revision: number | null; message?: string }
   | {
       action: "publish";
@@ -281,9 +283,16 @@ export type GatewaySiteAnswer =
  */
 export async function gatewaySiteHandler(
   ctx: ActionCtx,
-  args: { hashedAccessToken: string; expectedWorkspaceId: string; action: string; draft?: string; path?: string },
+  args: {
+    hashedAccessToken: string;
+    expectedWorkspaceId: string;
+    action: string;
+    draft?: string;
+    path?: string;
+    revision?: number;
+  },
 ): Promise<GatewaySiteAnswer> {
-  if (!["status", "publish", "check", "screenshot"].includes(args.action)) return null;
+  if (!["status", "publish", "check", "screenshot", "history"].includes(args.action)) return null;
   const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
     hashedAccessToken: args.hashedAccessToken,
     expectedWorkspaceId: args.expectedWorkspaceId,
@@ -302,6 +311,13 @@ export async function gatewaySiteHandler(
     return "message" in target
       ? { action: "screenshot", url: null, address: null, revision: null, message: target.message }
       : { action: "screenshot", ...target };
+  }
+  if (args.action === "history") {
+    const history = await siteHistoryFor(ctx, cleared.workspaceId, {
+      ...(args.revision === undefined ? {} : { revision: args.revision }),
+      ...(args.path === undefined ? {} : { path: args.path }),
+    });
+    return { action: "history", ...history };
   }
   if (args.action === "check") {
     const check = await siteCheckFor(ctx, cleared.workspaceId, draftFingerprint, args.path);
@@ -383,9 +399,27 @@ const siteCheckAnswerValidator = v.object({
   inspected: v.union(v.null(), v.object({ path: v.string(), output: v.string(), truncated: v.boolean() })),
 });
 
+const siteHistoryAnswerValidator = v.object({
+  action: v.literal("history"),
+  versions: v.array(v.object({ revision: v.number(), publishedAt: v.number(), pages: v.number(), live: v.boolean() })),
+  version: v.union(
+    v.null(),
+    v.object({
+      revision: v.number(),
+      publishedAt: v.number(),
+      files: v.array(v.object({ path: v.string(), text: v.string() })),
+      more: v.array(v.string()),
+      withheld: v.number(),
+      addedSince: v.array(v.string()),
+    }),
+  ),
+  message: v.optional(v.string()),
+});
+
 export const gatewaySiteValidator = v.union(
   v.null(),
   siteCheckAnswerValidator,
+  siteHistoryAnswerValidator,
   v.object({
     action: v.literal("screenshot"),
     url: nullableString,

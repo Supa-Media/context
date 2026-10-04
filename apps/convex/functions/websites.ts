@@ -39,6 +39,7 @@ import {
 } from "./lib/websites/agentSite";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
 import { siteShotTargetHandler } from "./lib/websites/siteShots";
+import { forgetKeptPagesHandler, keptVersionsHandler } from "./lib/websites/history";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
   markWebsitePublicationEnsuredHandler,
@@ -79,6 +80,8 @@ const indexedStatusValidator = v.object({
   releaseId: v.optional(v.string()),
   releasePageId: v.optional(v.string()),
 });
+const keptPagesValidator = v.array(v.object({ path: v.string(), pageId: v.string() }));
+const absentCopiesValidator = v.array(v.object({ releaseId: v.string(), pages: keptPagesValidator }));
 const navigationValidator = v.array(
   v.object({ routePath: v.string(), title: v.string() }),
 );
@@ -349,7 +352,7 @@ export const siteShotTarget = internalMutation({
   handler: siteShotTargetHandler,
 });
 
-/** `/gateway/site`: status, check and publish for an owner's or editor's agent. INTERNAL. */
+/** `/gateway/site`: status, check, publish, screenshot and history for an owner's or editor's agent. INTERNAL. */
 export const gatewaySite = internalAction({
   args: {
     hashedAccessToken: v.string(),
@@ -357,6 +360,7 @@ export const gatewaySite = internalAction({
     action: v.string(),
     draft: v.optional(v.string()),
     path: v.optional(v.string()),
+    revision: v.optional(v.number()),
   },
   returns: gatewaySiteValidator,
   handler: gatewaySiteHandler,
@@ -386,13 +390,11 @@ export const commitRouteReconciliation = internalMutation({
     releaseId: v.optional(v.string()),
     enabledOnly: v.optional(v.boolean()),
     problemsOnlyIfUnpublished: v.optional(v.boolean()),
-    restricted: v.optional(v.array(v.string())),
   },
   returns: v.object({
     committed: v.boolean(),
-    cleanupReleaseId: v.union(v.string(), v.null()),
-    retiredReleaseId: v.union(v.string(), v.null()),
-    retiredPageIds: v.array(v.string()),
+    cleanupReleaseIds: v.array(v.string()),
+    absent: absentCopiesValidator,
   }),
   handler: commitRouteReconciliationHandler,
 });
@@ -406,11 +408,29 @@ export const narrowRouteIndex = internalMutation({
     enabledOnly: v.optional(v.boolean()),
   },
   returns: v.object({
-    releaseId: v.union(v.string(), v.null()),
-    pageIds: v.array(v.string()),
     previousReleaseId: v.union(v.string(), v.null()),
+    absent: absentCopiesValidator,
   }),
   handler: narrowRouteIndexHandler,
+});
+
+/** The site's kept versions, newest first, for an agent's rollback. INTERNAL. */
+export const siteVersions = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    publishedReleaseId: v.union(v.string(), v.null()),
+    versions: v.array(
+      v.object({ releaseId: v.string(), revision: v.number(), publishedAt: v.number(), pages: keptPagesValidator }),
+    ),
+  }),
+  handler: keptVersionsHandler,
+});
+
+/** Take wiped pages out of a kept version; see `lib/websites/history.ts`. INTERNAL. */
+export const forgetKeptPages = internalMutation({
+  args: { workspaceId: v.id("workspaces"), releaseId: v.string(), paths: v.array(v.string()) },
+  returns: v.null(),
+  handler: forgetKeptPagesHandler,
 });
 
 export const invalidateRouteIndex = internalMutation({

@@ -23,6 +23,13 @@ export async function finalizeWorkspaceDeletion(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const route of websiteRoutes) await ctx.db.delete(route._id);
+  // Which page copies each kept version holds, by path; the copies themselves
+  // are in the customer's bucket and stay there.
+  const keptVersions = await ctx.db
+    .query("websiteReleaseHistory")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of keptVersions) await ctx.db.delete(row._id);
 
   // Website notes remain in the bucket; only the explicit lifecycle switch
   // is control-plane metadata that dies with the workspace.

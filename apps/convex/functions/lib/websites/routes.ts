@@ -23,6 +23,12 @@ import {
   type IndexedRoute,
 } from "./releases";
 import { ensureWebsiteStarter } from "./state";
+import {
+  absentCopies,
+  adoptPublishedRelease,
+  keepPublishedRelease,
+  type AbsentCopies,
+} from "./history";
 
 const MAX_WEBSITE_ROUTES = 500;
 
@@ -33,10 +39,10 @@ type Clearance = {
 
 type ReconciliationCommit = {
   committed: boolean;
-  cleanupReleaseId: string | null;
-  /** The release this commit demoted to grace, and its pages that go now. */
-  retiredReleaseId: string | null;
-  retiredPageIds: string[];
+  /** Releases to delete whole: versions past the fifth, and a legacy grace release. */
+  cleanupReleaseIds: string[];
+  /** Kept pages this snapshot lacks, for the wipe to sort deleted from withheld. */
+  absent: AbsentCopies;
 };
 
 
@@ -258,7 +264,6 @@ export async function commitRouteReconciliationHandler(
     releaseId?: string;
     enabledOnly?: boolean;
     problemsOnlyIfUnpublished?: boolean;
-    restricted?: string[];
   },
 ): Promise<ReconciliationCommit> {
   const state = await websiteState(ctx, args.workspaceId);
@@ -268,27 +273,15 @@ export async function commitRouteReconciliationHandler(
     (args.problemsOnlyIfUnpublished === true &&
       state.routeReconciledGeneration !== undefined)
   ) {
-    return {
-      committed: false,
-      cleanupReleaseId: null,
-      retiredReleaseId: null,
-      retiredPageIds: [],
-    };
+    return { committed: false, cleanupReleaseIds: [], absent: [] };
   }
   const existing = await ctx.db
     .query("websiteRouteIndex")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .collect();
-  // The release this commit demotes to grace keeps a copy of every page it
-  // held; the ones this snapshot narrowed go now, not a generation later.
-  const retiredPageIds =
-    args.releaseId === undefined
-      ? []
-      : narrowedRows(existing, args.routes, new Set(args.restricted ?? []))
-          .filter((row) => row.releaseId === state.publishedReleaseId)
-          .flatMap((row) =>
-            row.releasePageId === undefined ? [] : [row.releasePageId],
-          );
+  // The release this commit demotes stays one of the kept versions; a site
+  // published before versions were kept gets its row from this index first.
+  if (args.releaseId !== undefined) await adoptPublishedRelease(ctx, state, existing);
   for (const row of existing) await ctx.db.delete(row._id);
   const now = Date.now();
   for (const route of args.routes) {
@@ -314,13 +307,25 @@ export async function commitRouteReconciliationHandler(
       updatedAt: now,
     });
   }
-  const cleanupReleaseId =
-    args.releaseId === undefined ? null : (state.previousReleaseId ?? null);
+  const siteRevision = (state.siteRevision ?? 0) + 1;
+  const cleanupReleaseIds =
+    args.releaseId === undefined
+      ? []
+      : await keepPublishedRelease(ctx, state, {
+          releaseId: args.releaseId,
+          revision: siteRevision,
+          publishedAt: now,
+          pages: args.routes.flatMap((route) =>
+            route.releaseId === args.releaseId && route.releasePageId !== undefined
+              ? [{ path: route.objectKey, pageId: route.releasePageId }]
+              : [],
+          ),
+        });
   await ctx.db.patch(state._id, {
     routeReconciledGeneration: args.generation,
     routeReconciledAt: now,
     routeUnsafeGeneration: undefined,
-    siteRevision: (state.siteRevision ?? 0) + 1,
+    siteRevision,
     ...(args.releaseId === undefined
       ? {}
       : {
@@ -331,17 +336,20 @@ export async function commitRouteReconciliationHandler(
   });
   return {
     committed: true,
-    cleanupReleaseId,
-    retiredReleaseId:
-      retiredPageIds.length > 0 ? (state.publishedReleaseId ?? null) : null,
-    retiredPageIds,
+    cleanupReleaseIds,
+    absent:
+      args.releaseId === undefined
+        ? []
+        : await absentCopies(ctx, args.workspaceId, new Set(args.routes.map((route) => route.objectKey))),
   };
 }
 
 /**
  * The narrowing half of a scan that does not publish. Fenced like a commit;
- * drops the rows `narrowedRows` names without adding any, and retires the
- * grace release (which holds a copy of every page the current one does).
+ * drops the rows `narrowedRows` names without adding any. Their copies stay in
+ * the kept versions unless the wipe finds them withheld (`./history.ts`); a
+ * grace release from before versions were kept holds a copy of every page and
+ * has no page list, so it still goes whole.
  *
  * The scan is then complete for everything it may change, so the reconciled
  * generation advances and the unsafe marker lifts: widening is no longer a
@@ -356,28 +364,25 @@ export async function narrowRouteIndexHandler(
     restricted: string[];
     enabledOnly?: boolean;
   },
-): Promise<{
-  releaseId: string | null;
-  pageIds: string[];
-  previousReleaseId: string | null;
-}> {
-  const nothing = {
-    releaseId: null,
-    pageIds: [] as string[],
-    previousReleaseId: null,
-  };
+): Promise<{ previousReleaseId: string | null; absent: AbsentCopies }> {
   const state = await websiteState(ctx, args.workspaceId);
   if (
     state?.routeGeneration !== args.generation ||
     state.routeReconciledGeneration === undefined ||
     (args.enabledOnly === true && state.state !== "enabled")
   ) {
-    return nothing;
+    return { previousReleaseId: null, absent: [] };
   }
   const existing = await ctx.db
     .query("websiteRouteIndex")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .collect();
+  await adoptPublishedRelease(ctx, state, existing);
+  const absent = await absentCopies(
+    ctx,
+    args.workspaceId,
+    new Set(args.routes.map((route) => route.objectKey)),
+  );
   const narrowed = narrowedRows(existing, args.routes, new Set(args.restricted));
   const liftUnsafe =
     state.routeUnsafeGeneration !== undefined &&
@@ -393,18 +398,23 @@ export async function narrowRouteIndexHandler(
   };
   if (narrowed.length === 0) {
     await ctx.db.patch(state._id, reconciled);
-    return nothing;
+    return { previousReleaseId: null, absent };
   }
   for (const row of narrowed) await ctx.db.delete(row._id);
-  const pageIds = narrowed
-    .filter((row) => row.releaseId === state.publishedReleaseId)
-    .flatMap((row) => (row.releasePageId === undefined ? [] : [row.releasePageId]));
-  await ctx.db.patch(state._id, { ...reconciled, previousReleaseId: undefined });
-  return {
-    releaseId: pageIds.length > 0 ? (state.publishedReleaseId ?? null) : null,
-    pageIds,
-    previousReleaseId: state.previousReleaseId ?? null,
-  };
+  const grace = state.previousReleaseId;
+  const legacyGrace =
+    grace !== undefined &&
+    !(
+      await ctx.db
+        .query("websiteReleaseHistory")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .collect()
+    ).some((row) => row.releaseId === grace);
+  await ctx.db.patch(state._id, {
+    ...reconciled,
+    ...(legacyGrace ? { previousReleaseId: undefined } : {}),
+  });
+  return { previousReleaseId: legacyGrace ? grace : null, absent };
 }
 
 /** Mark a complete derivative stale after a runtime source mismatch. */

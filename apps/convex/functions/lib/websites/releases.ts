@@ -11,6 +11,7 @@ import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
+import { wipeWithheldCopies } from "./history";
 
 export const READ_BATCH = 50;
 
@@ -30,29 +31,15 @@ async function deleteReleaseObjects(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   releaseId: string,
-  pageIds?: string[],
 ): Promise<void> {
-  if (pageIds !== undefined && pageIds.length === 0) return;
-  for (
-    let offset = 0;
-    offset < (pageIds?.length ?? 1);
-    offset += READ_BATCH
-  ) {
-    await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: {
-          kind: "deleteWebsiteRelease",
-          releaseId,
-          ...(pageIds === undefined
-            ? {}
-            : { pageIds: pageIds.slice(offset, offset + READ_BATCH) }),
-        },
-      })
-      .catch(() => {});
-  }
+  await ctx
+    .runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      grantedNames: [],
+      operation: { kind: "deleteWebsiteRelease", releaseId },
+    })
+    .catch(() => {});
 }
 
 /**
@@ -62,7 +49,8 @@ async function deleteReleaseObjects(
  * snapshot becomes the new release. Every other scan, and a publish that met
  * a broken page, applies only the narrowing half: pages deleted, drafted,
  * made members-only, encrypted or held back leave the site now, and nothing
- * new reaches it until the next Publish.
+ * new reaches it until the next Publish. Either way, a page that is encrypted
+ * or held back loses its copies from every kept version (`./history.ts`).
  */
 export async function commitPublicationSnapshot(
   ctx: ActionCtx,
@@ -79,7 +67,6 @@ export async function commitPublicationSnapshot(
       workspaceId,
       generation,
       snapshot.indexed,
-      snapshot.restricted,
       enabledOnly,
     );
   }
@@ -109,12 +96,10 @@ export async function commitPublicationSnapshot(
       ...(enabledOnly ? { enabledOnly: true } : {}),
     },
   );
-  if (narrowed.releaseId !== null) {
-    await deleteReleaseObjects(ctx, workspaceId, narrowed.releaseId, narrowed.pageIds);
-  }
   if (narrowed.previousReleaseId !== null) {
     await deleteReleaseObjects(ctx, workspaceId, narrowed.previousReleaseId);
   }
+  await wipeWithheldCopies(ctx, workspaceId, narrowed.absent);
   return false;
 }
 
@@ -178,7 +163,6 @@ async function finishWebsiteRelease(
   workspaceId: Id<"workspaces">,
   generation: number,
   routes: IndexedRoute[],
-  restricted: string[],
   enabledOnly: boolean,
 ): Promise<boolean> {
   const release = await stageWebsiteRelease(ctx, workspaceId, routes);
@@ -189,7 +173,6 @@ async function finishWebsiteRelease(
       generation,
       routes: release.routes,
       releaseId: release.releaseId,
-      restricted,
       ...(enabledOnly ? { enabledOnly: true } : {}),
     },
   );
@@ -197,16 +180,9 @@ async function finishWebsiteRelease(
     await deleteReleaseObjects(ctx, workspaceId, release.releaseId);
     return false;
   }
-  if (result.retiredReleaseId !== null) {
-    await deleteReleaseObjects(
-      ctx,
-      workspaceId,
-      result.retiredReleaseId,
-      result.retiredPageIds,
-    );
+  for (const releaseId of result.cleanupReleaseIds) {
+    await deleteReleaseObjects(ctx, workspaceId, releaseId);
   }
-  if (result.cleanupReleaseId !== null) {
-    await deleteReleaseObjects(ctx, workspaceId, result.cleanupReleaseId);
-  }
+  await wipeWithheldCopies(ctx, workspaceId, result.absent);
   return true;
 }

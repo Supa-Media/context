@@ -61,7 +61,8 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
       withSite.includes("Saving is not publishing") &&
       withSite.includes('action: "publish", draft') &&
       withSite.includes('action: "check"') &&
-      withSite.includes("`base: off`"),
+      withSite.includes("`base: off`") &&
+      withSite.includes('action: \"history\"'),
   );
 
   const withoutSite = await site("ws_nositegd", { "1-projects/a.md": "# A\n" });

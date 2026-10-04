@@ -274,6 +274,57 @@ export async function runSiteActionChecks(check) {
     const unbound = await call({ ...env, SITE_SHOTS: undefined }, EDITOR_TOKEN, { path: "website/index.md", site: { action: "screenshot" } });
     check("a deployment with no browser says so", unbound.isError && unbound.text.includes("not available on this deployment"));
 
+    // -- history
+    answer = {
+      action: "history",
+      versions: [
+        { revision: 7, publishedAt: Date.UTC(2026, 9, 3, 9, 0), pages: 3, live: true },
+        { revision: 5, publishedAt: Date.UTC(2026, 9, 3, 7, 30), pages: 2, live: false },
+      ],
+      version: null,
+    };
+    const listed = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "history" } });
+    check("history lists the kept versions newest first, and which is live",
+      !listed.isError && sent()?.action === "history" && !("revision" in sent()) &&
+      listed.text.includes("- revision 7 (2026-10-03 09:00 UTC): 3 pages (live now)") &&
+      listed.text.includes("- revision 5 (2026-10-03 07:30 UTC): 2 pages\n"));
+    answer = {
+      action: "history",
+      versions: answer.versions,
+      version: {
+        revision: 5,
+        publishedAt: Date.UTC(2026, 9, 3, 7, 30),
+        files: [
+          { path: "website/index.md", text: "# Home\n\nOld words\n" },
+          { path: "website/site.css.md", text: "```css\nbody { color: red; }\n```\n" },
+        ],
+        more: ["website/long.md"],
+        withheld: 1,
+        addedSince: ["website/new.md"],
+      },
+    };
+    const version = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "history", revision: 5 } });
+    check("a version's files come back fenced so a code note's own fence survives, with how to roll back",
+      !version.isError && sent()?.revision === 5 &&
+      version.text.includes("website/index.md:\n````markdown\n# Home\n\nOld words\n````") &&
+      version.text.includes("website/site.css.md:\n````markdown\n```css\nbody { color: red; }\n```\n````") &&
+      version.text.includes("makes it the draft") && version.text.includes("then publish it"));
+    check("...naming the pages added since, the ones too long, and counting what is withheld without naming it",
+      version.text.includes("added since this version (draft or delete them to match it): website/new.md") &&
+      version.text.includes("ask for each with inspect: website/long.md") &&
+      version.text.includes("1 page is not shown"));
+    await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "history", revision: 5, inspect: "website/long.md" } });
+    check("one page of a version is asked for as path", sent()?.revision === 5 && sent()?.path === "website/long.md");
+    answer = { action: "history", versions: [], version: null, message: "revision 99 is not one of the kept versions." };
+    const unknown = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "history", revision: 99 } });
+    check("an unknown revision is an error with the control plane's words", unknown.isError && unknown.text.includes("not one of the kept versions"));
+    const historyCalls = controlPlane.siteCalls.length;
+    const badRevision = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "history", revision: "latest" } });
+    const revisionOnStatus = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "status", revision: 5 } });
+    const inspectWithoutRevision = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "history", inspect: "website/a.md" } });
+    check("a revision that is not a number, a revision on another action, and inspect with no revision are refused before anything is sent",
+      badRevision.isError && revisionOnStatus.isError && inspectWithoutRevision.isError && controlPlane.siteCalls.length === historyCalls);
+
     // -- publish
     answer = { action: "publish", published: true, draft: DRAFT, revision: 5, addresses: STATUS.addresses, problems: [] };
     const published = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "publish", draft: DRAFT } });

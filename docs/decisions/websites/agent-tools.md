@@ -71,3 +71,41 @@ The simplification to resist is letting the agent pass a URL: the browser runs
 inside our account, and an arbitrary address is a request forgery against
 whatever it can reach. `siteShots.test.ts` and `infra/site-shots/src/shoot.test.ts`
 fail if anything but the site's own published public page reaches it.
+
+## Rolling back is writing an old version back as the draft
+
+_Decided by the owner, 2026-10-03: "Keep last 5"._ Every Publish already copied
+each page it released into `.context/website/releases/`. The last five
+publishes' copies are now kept rather than one, and `websiteReleaseHistory`
+records which pages each holds, by path and copy id, never their words
+(`lib/websites/history.ts`). `site: { action: "history" }` lists them;
+with `revision` it returns that version's files as they were published, and
+the agent writes them back with `write_note`. They become the draft, so
+`privacy.md` still decides what is published and nothing goes live before the
+same Publish. There is no "restore" that publishes, because that would be a
+second way past the check an agent is meant to run.
+
+What a kept version may hold is the point of the decision:
+
+- A **deleted or moved** page keeps its copies until its version ages out. It
+  was public when published, and bringing it back is what rolling back is for.
+- A **drafted or members-only** page is still in the folder, so its copies stay.
+- A page **held back by `privacy.md` or encrypted** loses its copies from every
+  kept version at once. Both are absent from the publication snapshot while
+  still in the bucket; the wipe reads the path at private scope to tell them
+  from a deleted page, and wipes anything present or unreadable. Every scan
+  re-checks every kept page its snapshot lacks, so a delete the bucket refused
+  is retried by the next scan rather than left until it ages out. A note
+  outside `website/` that a page stopped naming with `folder:` reads the same
+  as a held-back one and is wiped too; it is still a note, and naming the
+  folder again publishes it from the bucket.
+
+Handing a version back re-checks each page as it is now, as a second lock: only
+a page published to the workspace now, or gone from the bucket altogether, is
+returned. A held-back one is counted and never named.
+
+The simplification to resist is keeping copies of every narrowed page "for
+rollback": a copy of a page someone just made private or encrypted is the
+plaintext they asked to withdraw. `websiteHistory.test.ts`,
+`websiteNarrowing.test.ts` and `controlPlane/siteHistory.test.ts` fail if a
+held-back or encrypted page survives in any kept version or is handed back.

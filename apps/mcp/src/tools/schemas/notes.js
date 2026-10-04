@@ -56,7 +56,8 @@ export function noteWriteToolDefinitions() {
         "Pass site: { action: \"status\" } (with path \"website/index.md\" and no content) to see the draft Publish would release, what changed since the last publish, the problems that would stop it and the site's addresses. " +
         "Pass site: { action: \"check\" } before publishing: it lists every address and its file, links that go nowhere (note and line), every picture with its size and users, what the HTML/CSS cleaner removes from your layouts and stylesheets and why, and pages that would draw nothing; add inspect: \"website/layout.html.md\" to see that note exactly as the site draws it. " +
         "Then pass site: { action: \"publish\", draft } with the draft that status or check named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses. " +
-        "After publishing, site: { action: \"screenshot\", page: \"/about\" } photographs a public page as a signed-out visitor sees it at phone, tablet and desktop widths, and reports sideways scroll, whether the bottom can be scrolled to, boxes that hide content and pictures that did not load.",
+        "After publishing, site: { action: \"screenshot\", page: \"/about\" } photographs a public page as a signed-out visitor sees it at phone, tablet and desktop widths, and reports sideways scroll, whether the bottom can be scrolled to, boxes that hide content and pictures that did not load. " +
+        "To roll back, site: { action: \"history\" } lists the last 5 published versions and site: { action: \"history\", revision } returns one's files as they were published: write them back with write_note to make them the draft, then check and publish.",
       inputSchema: {
         type: "object",
         properties: {
@@ -67,11 +68,11 @@ export function noteWriteToolDefinitions() {
             additionalProperties: false,
             description:
               "Read, check or publish this context's website instead of writing a note; pass it with path \"website/index.md\" and no content. " +
-              "status names the draft Publish would release; check finds broken links, missing pictures and code the cleaner removes; publish releases the draft, and given that draft refuses if the folder changed since.",
+              "status names the draft Publish would release; check finds broken links, missing pictures and code the cleaner removes; publish releases the draft, and given that draft refuses if the folder changed since; history lists and returns the last 5 published versions, to roll back.",
             properties: {
               // A plain string, not an enum: a client that cached this list
               // keeps it, and a new action has to reach it all the same.
-              action: { type: "string", description: "status, check, publish or screenshot." },
+              action: { type: "string", description: "status, check, publish, screenshot or history." },
               draft: { type: "string", description: "publish: the draft a status or check returned, so only what you checked goes live." },
               page: { type: "string", description: "screenshot: the published address to photograph, e.g. \"/\" or \"/about\"." },
               sizes: {
@@ -81,8 +82,11 @@ export function noteWriteToolDefinitions() {
               },
               inspect: {
                 type: "string",
-                description: "check: a layout, HTML page or stylesheet under website/, returned as the site draws it (cleaned, and scoped under .ctx-site).",
+                description:
+                  "check: a layout, HTML page or stylesheet under website/, returned as the site draws it (cleaned, and scoped under .ctx-site). " +
+                  "history with a revision: one page of that version, when the version is too long for one answer.",
               },
+              revision: { type: "integer", description: "history: the published revision whose files to return." },
             },
             required: ["action"],
           },

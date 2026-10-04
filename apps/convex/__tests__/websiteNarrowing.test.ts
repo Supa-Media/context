@@ -107,7 +107,10 @@ describe("a restriction lands even while another page is broken", () => {
     expect(await menu(f)).toEqual(["/"]);
   });
 
-  test("a deleted page loses its release copies", async () => {
+  test("a deleted page leaves the site, and its copies stay for a rollback", async () => {
+    // Until 2026-10-03 its copies went too. The owner chose to keep the last
+    // five published versions, deleted pages included, so an agent can bring
+    // one back; only a page still in the bucket but withheld loses them.
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/old.md", `---\ntitle: Old\n---\n\n${SECRET}\n`);
@@ -118,7 +121,7 @@ describe("a restriction lands even while another page is broken", () => {
     f.backend.objects.delete("website/old.md");
     await rebuild(f);
 
-    expect(releaseBytes(f)).not.toContain(SECRET);
+    expect(releaseBytes(f)).toContain(SECRET);
     await expect(resolve(f, "/old")).resolves.toMatchObject({ kind: "unavailable" });
   });
 
