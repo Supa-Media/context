@@ -34,16 +34,19 @@ import {
 } from "../../../../mcp/src/organizer/questions.js";
 import { archiveSuggestion, doneSuggestion, fileSuggestion } from "../../../../mcp/src/organizer/suggest.js";
 import {
+  CARD_KINDS,
   clearPending,
   mergeSweep,
   readOrganizerState,
   rememberRevert,
   resolveSuggestion,
+  setRouting,
   writeOrganizerState,
 } from "../../../../mcp/src/organizer/state.js";
 import { setNoteProperty } from "../../../../mcp/src/lists/setProperty.js";
 import { type ChangeStep, type ChangeWork, type FieldUndo, applyChange, gatherChangeWork, restoreField } from "./changeOps";
 import { noteProperties } from "../../../../mcp/src/lists/properties.js";
+import { deliverRoute, outlineTeam, withdrawRoute } from "./routeOps";
 import { resolveStatusList } from "../../../../mcp/src/lists/statuses.js";
 
 /** The name on what the organizer does by itself, in `activity.md`. */
@@ -58,8 +61,11 @@ export type OrganizerKind = "done" | "archive" | "file";
 
 export interface OrganizerSuggestion {
   id: string;
-  /** "change" is a What changed card (`./changeOps.ts`): never done without asking. */
-  kind: OrganizerKind | "change";
+  /**
+   * "change" is a What changed card (`./changeOps.ts`), "route" a note for one
+   * of the owner's teams (`./routeOps.ts`): never done without asking.
+   */
+  kind: OrganizerKind | "change" | "route";
   path: string;
   title: string;
   reason: string;
@@ -73,6 +79,22 @@ export interface OrganizerSuggestion {
   source?: { path: string; title: string; kind: string };
   steps?: ChangeStep[];
   at?: number;
+  /** Kind "route": the team, the folder there, the note, and what it held back. */
+  route?: RouteCard;
+}
+
+export interface RouteCard {
+  team: string;
+  folder: string;
+  folderTitle: string;
+  body: string;
+  leftOut: { what: string; why: "people" | "personal" | "meeting" | "owner" }[];
+}
+
+/** Which teams the owner switched off, and what they keep to themselves. */
+export interface Routing {
+  off: string[];
+  keep: string;
 }
 
 /** One question for Jev, and what the answer will be judged against. */
@@ -99,9 +121,11 @@ export interface SweepWork {
   ready: OrganizerSuggestion[];
   /** What changed: arrivals to read, when the sweep asked for them. */
   changes: ChangeWork | null;
+  /** The owner's team switches and rule, read with the arrivals. */
+  routing: Routing | null;
 }
 
-async function listEverything(store: FileStore, clearance: Clearance) {
+export async function listEverything(store: FileStore, clearance: Clearance) {
   const entries: { path: string; updatedAt?: number; etag?: string }[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_MANIFEST_PAGES; page += 1) {
@@ -181,8 +205,10 @@ export async function gatherOrganizerWork(
     }
   }
   let changes: ChangeWork | null = null;
+  let routing: Routing | null = null;
   if (options.changes === true) {
     const { state } = await readOrganizerState(store);
+    routing = state.routing as Routing;
     changes = await gatherChangeWork((paths) => readTexts(store, clearance, paths), {
       entries,
       inboxRoot: (plan.roots as { inbox?: string | null }).inbox ?? null,
@@ -193,7 +219,7 @@ export async function gatherOrganizerWork(
       now,
     });
   }
-  return { total: entries.length, items, destinations: plan.destinations, ready, changes };
+  return { total: entries.length, items, destinations: plan.destinations, ready, changes, routing };
 }
 
 /**
@@ -237,14 +263,14 @@ export async function recordOrganizerSweep(
   return { pending: all.length, changes: countChanges(all), suggestions: all };
 }
 
-/** What changed cards waiting, for the count beside "What changed". */
+/** Cards on the What changed page (changes, and notes for teams), for its count. */
 export function countChanges(pending: readonly unknown[]): number {
-  return (pending as OrganizerSuggestion[]).filter((item) => item.kind === "change").length;
+  return (pending as OrganizerSuggestion[]).filter((item) => (CARD_KINDS as readonly string[]).includes(item.kind)).length;
 }
 
 export async function readOrganizerPending(store: FileStore) {
   const { state } = await readOrganizerState(store);
-  return { suggestions: state.pending as OrganizerSuggestion[], sweptAt: state.sweptAt as number | null };
+  return { suggestions: state.pending as OrganizerSuggestion[], sweptAt: state.sweptAt as number | null, routing: state.routing as Routing };
 }
 
 export async function clearOrganizerPending(store: FileStore): Promise<{ pending: number }> {
@@ -256,7 +282,9 @@ export type OrganizerUndo =
   | { kind: "move"; from: string; to: string }
   | { kind: "status"; path: string; value: string }
   | FieldUndo
-  | { kind: "batch"; undos: ({ kind: "move"; from: string; to: string } | FieldUndo)[] };
+  | { kind: "batch"; undos: ({ kind: "move"; from: string; to: string } | FieldUndo)[] }
+  /** A note sent to a team: Undo trashes it there (`organizer.unsendRoute`). */
+  | { kind: "sent"; team: string; path: string };
 
 /** Carry out one accepted suggestion with the operations a person would use. */
 async function apply(
@@ -266,7 +294,14 @@ async function apply(
   now: number,
   actor: ActivityActor | null,
   steps: readonly string[] | null,
+  sent: { team: string; path: string } | null,
 ): Promise<OrganizerUndo> {
+  if (suggestion.kind === "route") {
+    // The note was written in the team's own workspace before this; here the
+    // card is only taken off the list. Without proof of that, nothing is done.
+    if (!sent || sent.team !== suggestion.route?.team) throw new FileOpError("CONFLICT", "That note wasn't sent.");
+    return { kind: "sent", team: sent.team, path: sent.path };
+  }
   if (suggestion.kind === "change") {
     const done = await applyChange(store, clearance, { title: suggestion.title, steps: suggestion.steps ?? [] }, steps, now, actor);
     if (done.undos.length === 0) throw new FileOpError("CONFLICT", "Those notes changed since. Nothing was done.");
@@ -313,7 +348,7 @@ export interface ResolveOutcome {
 export async function resolveOrganizerSuggestion(
   store: FileStore,
   clearance: Clearance,
-  args: { id: string; decision: "accept" | "dismiss"; steps?: readonly string[] | null },
+  args: { id: string; decision: "accept" | "dismiss"; steps?: readonly string[] | null; sent?: { team: string; path: string } | null },
   now: number,
   actor: ActivityActor | null,
 ): Promise<ResolveOutcome> {
@@ -334,7 +369,7 @@ export async function resolveOrganizerSuggestion(
   let error: string | null = null;
   if (args.decision === "accept") {
     try {
-      undo = await apply(store, clearance, suggestion, now, actor, args.steps ?? null);
+      undo = await apply(store, clearance, suggestion, now, actor, args.steps ?? null, args.sent ?? null);
     } catch (thrown) {
       error = thrown instanceof FileOpError ? thrown.message : "That couldn't be done. The note may have changed.";
     }
@@ -350,7 +385,7 @@ export async function resolveOrganizerSuggestion(
   });
   return {
     applied: undo !== null,
-    offer: offer && suggestion.kind !== "change" ? suggestion.kind : null,
+    offer: offer && suggestion.kind !== "change" && suggestion.kind !== "route" ? suggestion.kind : null,
     pending: next.pending.length,
     changes: countChanges(next.pending),
     undo,
@@ -373,7 +408,18 @@ export async function restoreOrganizerStatus(
   await recordActivity(store, { action: "file.write", paths: [written.path], details: { organizer: "undo" }, actor });
 }
 
-export type OrganizerAction = "gather" | "record" | "read" | "resolve" | "clear" | "autopilot" | "undo";
+export type OrganizerAction =
+  | "gather"
+  | "record"
+  | "read"
+  | "resolve"
+  | "clear"
+  | "autopilot"
+  | "undo"
+  | "routing"
+  | "outline"
+  | "deliver"
+  | "withdraw";
 
 function parseInput(input: string): Record<string, unknown> {
   try {
@@ -423,8 +469,24 @@ export async function runOrganizerOperation(
       const decision = input.decision === "accept" ? "accept" : input.decision === "dismiss" ? "dismiss" : null;
       if (!decision) throw new FileOpError("PATH_INVALID", "Accept or dismiss, nothing else.");
       const steps = Array.isArray(input.steps) ? input.steps.filter((step): step is string => typeof step === "string").slice(0, 32) : null;
-      return JSON.stringify(await resolveOrganizerSuggestion(store, clearance, { id: text(input.id, "suggestion"), decision, steps }, now, acting));
+      const sentInput = input.sent as Record<string, unknown> | undefined;
+      const sent = sentInput && typeof sentInput === "object" ? { team: text(sentInput.team, "team"), path: text(sentInput.path, "path") } : null;
+      return JSON.stringify(await resolveOrganizerSuggestion(store, clearance, { id: text(input.id, "suggestion"), decision, steps, sent }, now, acting));
     }
+    case "routing": {
+      const change = {
+        ...(typeof input.team === "string" && typeof input.on === "boolean" ? { team: input.team, on: input.on } : {}),
+        ...(typeof input.keep === "string" ? { keep: input.keep } : {}),
+      };
+      const next = await updateState(store, (state) => setRouting(state, change));
+      return JSON.stringify({ routing: next.routing });
+    }
+    case "outline":
+      return JSON.stringify(await outlineTeam(store, await listEverything(store, clearance), now));
+    case "deliver":
+      return JSON.stringify(await deliverRoute(store, clearance, input, now, acting));
+    case "withdraw":
+      return JSON.stringify(await withdrawRoute(store, clearance, input, now, acting));
     case "autopilot": {
       const kinds = new Set(Array.isArray(input.kinds) ? input.kinds.filter((kind): kind is OrganizerKind => kind === "done" || kind === "archive" || kind === "file") : []);
       return JSON.stringify(await runAutopilot(store, clearance, kinds, now));
@@ -440,7 +502,7 @@ async function runAutopilot(store: FileStore, clearance: Clearance, kinds: Set<O
   if (kinds.size === 0) return { applied };
   const { state } = await readOrganizerState(store);
   for (const suggestion of state.pending as OrganizerSuggestion[]) {
-    if (suggestion.kind === "change" || !kinds.has(suggestion.kind)) continue;
+    if (suggestion.kind === "change" || suggestion.kind === "route" || !kinds.has(suggestion.kind)) continue;
     const outcome = await resolveOrganizerSuggestion(store, clearance, { id: suggestion.id, decision: "accept" }, now, ORGANIZER_ACTOR);
     if (outcome.applied) applied += 1;
   }
