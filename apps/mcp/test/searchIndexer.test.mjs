@@ -129,6 +129,35 @@ export async function runSearchIndexerChecks(check) {
     check("a link that does not resolve to .md is dropped", !fields.links.some((l) => l.includes("pic.png")));
   }
 
+  /*
+    Sabotage record (Task 2, shared link reader): with the old WIKILINK_RE /
+    MDLINK_RE loop restored in `extractLinks`, "links inside a fenced block and
+    inline code do not count" fails (it indexes the fenced and code-span
+    targets) and the other new checks still pass.
+  */
+  {
+    const content =
+      "# Note\n\n" +
+      "Real [[live]] link and [inline](./inline.md).\n\n" +
+      "Code span `[[spanned]]` and `[x](./spanned-md.md)` stay out.\n\n" +
+      "```\n[[fenced]]\n[x](./fenced-md.md)\n```\n\n" +
+      "Definition below is ignored.\n\n[ref]: ./defined.md\n";
+    const fields = extractFields("1-projects/note.md", content);
+    check(
+      "links inside a fenced block and inline code do not count",
+      fields.links.join("|") === "1-projects/live.md|1-projects/inline.md"
+    );
+  }
+
+  {
+    const content = "# Note\n\n" + "x".repeat(3000) + " [[late]] and [far](./far.md)\n";
+    const fields = extractFields("1-projects/note.md", content);
+    check(
+      "a link past 2,048 characters still counts",
+      fields.links.join("|") === "1-projects/late.md|1-projects/far.md"
+    );
+  }
+
   // -- add / replace / remove --------------------------------------------
 
   {

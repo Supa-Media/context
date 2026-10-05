@@ -19,6 +19,7 @@
 
 import comments from "../../../../packages/shared/src/comments.cjs";
 import { termsOf } from "./text.js";
+import { extractReferences } from "../links.js";
 import {
   drawingSearchText,
   isDrawingPath,
@@ -37,8 +38,6 @@ export function emptyIndex() {
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---[ \t]*(?:\n|$)/;
 const HEADING_LINE_RE = /^#{1,6}[ \t]+.*$/;
 const HEADING_TEXT_RE = /^#{1,6}[ \t]+(.*)$/gm;
-const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
-const MDLINK_RE = /\[([^\]]*)\]\(([^)\s]+)(?:[ \t]+"[^"]*")?\)/g;
 const LINK_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /** `'x'` / `"x"` → `x`; anything else passed through trimmed. */
@@ -115,20 +114,21 @@ function resolveLink(folder, rawTarget) {
   return resolved.endsWith(".md") ? resolved : null;
 }
 
-/** Every resolved `.md` link target in `text`, deduplicated, order preserved. */
+/**
+ * Every resolved `.md` link target in `text`, deduplicated, order preserved.
+ * Occurrences come from the shared reader (`links.js`), so code is ignored and
+ * there is no length cap; reference definitions are not counted, as before.
+ * Resolution is this file's own (PageRank reads the field, so it is unchanged).
+ */
 function extractLinks(text, folder) {
   const seen = new Set();
-  const push = (resolved) => {
-    if (resolved && !seen.has(resolved)) seen.add(resolved);
-  };
-  for (const m of text.matchAll(WIKILINK_RE)) {
-    let target = m[1].trim();
+  for (const ref of extractReferences(text)) {
+    if (ref.kind === "definition") continue;
+    let target = ref.target.trim();
     if (!target) continue;
-    if (!target.endsWith(".md")) target += ".md";
-    push(resolveLink(folder, target));
-  }
-  for (const m of text.matchAll(MDLINK_RE)) {
-    push(resolveLink(folder, m[2].trim()));
+    if (ref.kind === "wiki" && !target.endsWith(".md")) target += ".md";
+    const resolved = resolveLink(folder, target);
+    if (resolved) seen.add(resolved);
   }
   return [...seen];
 }
