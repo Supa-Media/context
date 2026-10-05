@@ -260,9 +260,10 @@ describe("the shared link engine and the gateway's agree", () => {
   describe("the shared reader answers the gateway's fixture table", () => {
     for (const { name, text, fromPath, catalog, expected } of referenceCases) {
       test(name, () => {
+        const fixture: { byName: Record<string, string[]>; paths?: string[] } = catalog;
         const cat = {
-          byName: new Map(Object.entries(catalog.byName)) as Map<string, string[]>,
-          ...(catalog.paths ? { paths: new Set<string>(catalog.paths) } : {}),
+          byName: new Map(Object.entries(fixture.byName)),
+          ...(fixture.paths ? { paths: new Set<string>(fixture.paths) } : {}),
         };
         const actual = shared
           .extractReferences(text)
