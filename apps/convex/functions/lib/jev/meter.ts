@@ -11,9 +11,9 @@ import { planFor, statusOf } from "../billing/plan";
 import { planIsPaying } from "../premium";
 import { ALL_JEV_FEATURES, JEV_FEATURES, type JevFeatureName } from "./features";
 
-/** Jev's published price: input tokens only, output free (TypeSafe, 2026-09). */
-export const DEFAULT_USD_PER_MTOK = 0.042;
-/** Four characters a token is the usual English estimate; Jev does not report its count. */
+/** Clef's published price: input tokens (Cloudflare's model page, 2026-10-05). Was Jev's $0.042. */
+export const DEFAULT_USD_PER_MTOK = 0.24;
+/** Four characters a token is the usual English estimate; the Worker does not pass on the model's count. */
 export const CHARS_PER_TOKEN = 4;
 
 export type JevRefusal = "disabled" | "switched_off" | "not_premium" | "daily_cap";

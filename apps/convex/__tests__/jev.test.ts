@@ -25,7 +25,7 @@ import { type TestConvex, addMember, asUser, createUser, createWorkspace, setupT
 const FUNCTIONS_ROOT = join(__dirname, "..", "functions");
 const JEV_DIR = join(FUNCTIONS_ROOT, "lib", "jev");
 /** What only `lib/jev/` may say: the route and the model. */
-const JEV_MARKERS = [/["'`/]decide["'`]/, /\/decide\b/, /typesafe\/jev/];
+const JEV_MARKERS = [/["'`/]decide["'`]/, /\/decide\b/, /typesafe\/jev/, /cloudflare\/clef/];
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -104,6 +104,7 @@ describe("nothing reaches Jev except through lib/jev", () => {
   test("the scan is live: it catches a direct call and the worker file itself", () => {
     expect(reachesJevDirectly('await fetch(`${url}/decide`, { method: "POST" })')).toBe(true);
     expect(reachesJevDirectly('env.AI.run("typesafe/jev", input)')).toBe(true);
+    expect(reachesJevDirectly('env.AI.run("@cf/cloudflare/clef", input)')).toBe(true);
     expect(reachesJevDirectly(readFileSync(join(JEV_DIR, "worker.ts"), "utf8"))).toBe(true);
     expect(reachesJevDirectly("const decided = decide(request);")).toBe(false);
   });
