@@ -201,6 +201,15 @@ describe("a team card waits for a person", () => {
     await runOrganizerOperation(store, OWNER, { action: "record", input: JSON.stringify({ suggestions: [card] }) }, NOW, null);
     const out = JSON.parse(await runOrganizerOperation(store, OWNER, { action: "resolve", input: JSON.stringify({ id: card!.id, decision: "accept" }) }, NOW, null));
     expect(out).toMatchObject({ applied: false, pending: 0, error: "That note wasn't sent." });
+    // A note sent to another team doesn't settle this team's card.
+    await runOrganizerOperation(store, OWNER, { action: "record", input: JSON.stringify({ suggestions: [{ ...card, id: "route-wrong" }] }) }, NOW, null);
+    const wrong = JSON.parse(
+      await runOrganizerOperation(store, OWNER, {
+        action: "resolve",
+        input: JSON.stringify({ id: "route-wrong", decision: "accept", sent: { team: "@public-worship", path: "x.md" } }),
+      }, NOW, null),
+    );
+    expect(wrong).toMatchObject({ applied: false, error: "That note wasn't sent." });
     const sent = { team: "@supa", path: "1-projects/context-private-beta/x.md" };
     await runOrganizerOperation(store, OWNER, { action: "record", input: JSON.stringify({ suggestions: [{ ...card, id: "route-other" }] }) }, NOW, null);
     const ok = JSON.parse(

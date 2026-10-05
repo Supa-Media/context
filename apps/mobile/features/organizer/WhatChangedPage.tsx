@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Button, PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
@@ -9,6 +9,9 @@ import { type Colors, useColors, useThemedStyles } from "../design/theme";
 import { relativeTime } from "../console/format";
 import { ChangeCards } from "./Changes";
 import { changesCopy } from "./changeCopy";
+import { TeamCards, TeamNotePreview, TeamSettings } from "./TeamNotes";
+import { teamsCopy } from "./teamCopy";
+import type { RouteCard } from "./types";
 import type { OrganizerView } from "./useOrganizer";
 
 /**
@@ -19,6 +22,9 @@ import type { OrganizerView } from "./useOrganizer";
  * and opening a note from there leaves it. A heading that says where the
  * cards come from and when the inbox was last read, Check now, then the
  * cards waiting, each with its source, its quote and its ticked steps.
+ *
+ * In a personal workspace, notes for the owner's teams follow (boards 5–7):
+ * Add opens the note as the team would read it, in place of the page.
  */
 export function WhatChangedPage({
   organizer,
@@ -39,11 +45,32 @@ export function WhatChangedPage({
     loadSuggestions();
   }, [loadSuggestions]);
 
-  const { changes, loading, failed, busy } = organizer.suggestions;
+  const { changes, routes, teams, keep, loading, failed, busy } = organizer.suggestions;
   const cards = changes ?? [];
+  const forTeams = routes ?? [];
+  const [sending, setSending] = useState<RouteCard | null>(null);
+  // A card answered elsewhere (another device, Keep it here) closes its preview.
+  const open = sending !== null && forTeams.some((card) => card.id === sending.id) ? sending : null;
   const sweep = organizer.status?.sweep ?? null;
   const running = sweep?.state === "running";
   const checked = sweep?.finishedAt ?? null;
+
+  if (open) {
+    return (
+      <TeamNotePreview
+        key={open.id}
+        card={open}
+        pending={busy.has(open.id)}
+        touch={compact}
+        onCancel={() => setSending(null)}
+        onSend={(title, body) => {
+          void organizer.sendRoute(open, title, body).then((sent) => {
+            if (sent) setSending(null);
+          });
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.page} testID="what-changed-page">
@@ -77,18 +104,37 @@ export function WhatChangedPage({
         </View>
       </View>
 
-      {cards.length > 0 ? (
+      {cards.length > 0 || forTeams.length > 0 ? (
         <>
-          <Text variant="eyebrow" style={styles.eyebrow} testID="what-changed-waiting">
-            {changesCopy.waiting(cards.length)}
-          </Text>
-          <ChangeCards
-            cards={cards}
-            busy={busy}
-            touch={compact}
-            onResolve={organizer.resolveChange}
-            onOpenSource={onOpenSource}
-          />
+          {cards.length > 0 ? (
+            <>
+              <Text variant="eyebrow" style={styles.eyebrow} testID="what-changed-waiting">
+                {changesCopy.waiting(cards.length)}
+              </Text>
+              <ChangeCards
+                cards={cards}
+                busy={busy}
+                touch={compact}
+                onResolve={organizer.resolveChange}
+                onOpenSource={onOpenSource}
+              />
+            </>
+          ) : null}
+          {forTeams.length > 0 ? (
+            <>
+              <Text variant="eyebrow" style={styles.eyebrow} testID="what-changed-teams">
+                {teamsCopy.section(forTeams.length)}
+              </Text>
+              <TeamCards
+                routes={forTeams}
+                busy={busy}
+                touch={compact}
+                onPreview={setSending}
+                onKeep={organizer.dismissRoute}
+                onOpenSource={onOpenSource}
+              />
+            </>
+          ) : null}
         </>
       ) : (
         <View style={styles.empty} testID="what-changed-empty">
@@ -98,6 +144,7 @@ export function WhatChangedPage({
           </Text>
         </View>
       )}
+      <TeamSettings teams={teams} keep={keep} onToggle={organizer.setTeamOn} onKeep={organizer.setKeep} />
     </View>
   );
 }

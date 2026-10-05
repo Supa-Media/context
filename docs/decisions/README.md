@@ -123,6 +123,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A root domain carries Cloudflare's TXT as a third record
 - A root domain brings its `www.`, which only redirects
 - An incident note is metadata, never a summary of vendor text
+- A team gets a new note from someone's inbox, never the meeting or email itself
 
 ## [Per-note encryption](./encryption.md)
 

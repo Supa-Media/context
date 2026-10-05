@@ -121,3 +121,43 @@ decision would copy vendor-held customer data into a shared workspace and give
 it a second retention policy. `infra/sentry-worker/test/worker.test.mjs` sends
 an email, note path, capability URL, and private-text marker through the vendor
 fields and fails if any reaches the note.
+
+### A team gets a new note from someone's inbox, never the meeting or email itself
+
+_Decided by the owner, 2026-10-05._
+
+Everything a person captures lands in their personal workspace's inbox, and
+some of it is about a team they belong to. What changed may suggest a **new
+note** for that team: a short, freshly written summary of the product and
+priority content, ending with a line saying it came from one of the person's
+meetings or emails and that only they can open it. The meeting, email or note
+it came from never moves, is never copied, and is never linked in a way the
+team can follow.
+
+The rules are the product's, not the model's, so the code holds them:
+
+- Nothing reaches a team until its owner presses Add on the preview, which
+  shows the exact note, editable, beside what was left out and why. No
+  autopilot sends one.
+- Teams are shared workspaces where the person is an owner or editor; the
+  write goes through the same per-workspace barrier at `editor`, and the
+  destination folder must be `team`-visible under the live `privacy.md` at
+  send time. A path with `..`, dot segments or a leading `/` is refused, and
+  the write is create-only, so it never overwrites a team's note.
+- A suggested note that copies a twelve-word run of its source, or names the
+  source's file, is dropped before it is shown. Links, images, HTML and URLs
+  are stripped from it.
+- The model is told that meetings stay private, that people's roles,
+  employment and personal lives stay private, and whatever the owner wrote in
+  "Anything else to keep to yourself?"; the preview lists what was held back.
+- Undo puts the team's note in its trash.
+
+Moving the original would have been simpler, and is what a "simplification"
+would reach for. It would put a meeting transcript, with everything said
+about people in it, into a workspace the speakers never chose. Copying it
+with a redaction pass has the same problem with a filter in front of it.
+`apps/convex/__tests__/organizerRoutes.test.ts` fails if a copied run or a
+non-team folder gets through, if a card sends to a team it wasn't written for,
+or if a scheduled sweep can send anything;
+`organizerRoutesTeams.test.ts` fails if a member, a viewer of a personal
+workspace, or a non-owner can route at all.
