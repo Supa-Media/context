@@ -55,8 +55,10 @@ export interface OrganizerStatus {
   /** The first sweep runs no earlier than this (ms), or `null` when none is scheduled. */
   startsAt: number | null;
   sweep: OrganizerSweep | null;
-  /** Suggestions waiting, for "11 suggestions". */
+  /** Suggestions waiting, What changed cards included. */
   pending: number;
+  /** The What changed cards among them. Absent from a server older than the page. */
+  changes?: number;
   /** "Without asking", per kind. */
   autopilot: Record<OrganizerKind, boolean>;
 }

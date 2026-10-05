@@ -29,6 +29,7 @@ import { demoPremiumView } from "../features/console/settings/panels/premium";
 import { ToastHost } from "../features/design/components/Toast";
 import { ORGANIZER_ACTOR } from "../features/organizer/copy";
 import { sourceLine } from "../features/organizer/changeCopy";
+import { WhatChangedPage } from "../features/organizer/WhatChangedPage";
 import { OrganizerNotices } from "../features/organizer/Notices";
 import { OrganizerProvider } from "../features/organizer/OrganizerContext";
 import { usePremiumSlotsFor } from "../features/organizer/PremiumParts";
@@ -90,6 +91,7 @@ interface Calls {
   acknowledged: boolean[];
   undone: number;
   swept: number;
+  pages: number;
 }
 
 function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | null } = {}, calls?: Calls): OrganizerView {
@@ -112,6 +114,11 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
       if (calls) calls.swept += 1;
     },
     openSettings: () => {},
+    pageOpen: false,
+    openPage: () => {
+      if (calls) calls.pages += 1;
+    },
+    closePage: () => {},
     toasts: [],
     dismissToast: () => {},
     undoFor: () => undefined,
@@ -119,7 +126,7 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
   };
 }
 
-const fresh = (): Calls => ({ opened: [], resolved: [], changed: [], autopilot: [], enabled: [], acknowledged: [], undone: 0, swept: 0 });
+const fresh = (): Calls => ({ opened: [], resolved: [], changed: [], autopilot: [], enabled: [], acknowledged: [], undone: 0, swept: 0, pages: 0 });
 
 function browser(): FileBrowser {
   return {
@@ -210,11 +217,43 @@ describe("the explorer's foot", () => {
 });
 
 describe("What changed", () => {
-  const withCards = (calls: Calls) =>
-    organizer({ reviewOpen: true, suggestions: { list: [], changes: [PEOPLE], loading: false, failed: false, busy: new Set() } }, calls);
+  const WAITING: OrganizerStatus = { ...STATUS, pending: 3, changes: 1 };
+  const withCards = (calls: Calls, over: Partial<OrganizerView> = {}) =>
+    organizer(
+      {
+        status: WAITING,
+        pageOpen: true,
+        suggestions: { list: [DONE, FILE], changes: [PEOPLE], loading: false, failed: false, busy: new Set() },
+        ...over,
+      },
+      calls,
+    );
+  const page = (view: OrganizerView, opened: string[] = []) =>
+    createElement(WhatChangedPage, { organizer: view, compact: false, now: 0, onOpenSource: (path: string) => opened.push(path) });
 
-  test("a card says what changed, quotes where it read it, and lists its steps ticked", () => {
-    const container = mount(explorer(), withCards(fresh()));
+  test("the tree has its own line, with the cards waiting, and it opens the page", () => {
+    const calls = fresh();
+    const container = mount(explorer(), withCards(calls, { pageOpen: false }));
+    const line = byId(container, "explorer-what-changed");
+    expect(line?.textContent).toContain("What changed");
+    expect(line?.textContent).toContain("1");
+    press(line);
+    expect(calls.pages).toBe(1);
+    // The suggestions line counts organizing suggestions only.
+    expect(byId(container, "explorer-suggestions")?.textContent).toContain("2 suggestions");
+  });
+
+  test("the line is there before anything has arrived, and not for a member", () => {
+    const none = mount(explorer(), organizer({ status: { ...STATUS, changes: 0 } }));
+    expect(byId(none, "explorer-what-changed")?.textContent).toBe("What changed");
+    expect(byId(mount(explorer(), organizer({ status: { ...WAITING, isOwner: false } })), "explorer-what-changed")).toBeNull();
+  });
+
+  test("the page says what changed, quotes where it read it, and lists its steps ticked", () => {
+    const opened: string[] = [];
+    const container = mount(page(withCards(fresh()), opened));
+    expect(byId(container, "what-changed-page")?.textContent).toContain("What changed");
+    expect(byId(container, "what-changed-waiting")?.textContent).toBe("Waiting for you (1)");
     const card = byId(container, "organizer-change-c1");
     expect(card?.textContent).toContain("People");
     expect(card?.textContent).toContain("Dana Reyes has left the team");
@@ -227,11 +266,13 @@ describe("What changed", () => {
     expect(card?.textContent).toContain("High → Low");
     expect(byId(container, "organizer-change-step-s1")?.getAttribute("aria-checked")).toBe("true");
     expect(byId(container, "organizer-change-apply-c1")?.textContent).toBe("Apply 3 changes");
+    press(byId(container, "organizer-change-source-c1"));
+    expect(opened).toEqual([PEOPLE.source.path]);
   });
 
   test("unticking a step leaves it out of Apply; This is wrong puts the card away", () => {
     const calls = fresh();
-    const container = mount(explorer(), withCards(calls));
+    const container = mount(page(withCards(calls)));
     press(byId(container, "organizer-change-step-s2"));
     expect(byId(container, "organizer-change-step-s2")?.getAttribute("aria-checked")).toBe("false");
     expect(byId(container, "organizer-change-apply-c1")?.textContent).toBe("Apply 2 changes");
@@ -243,10 +284,18 @@ describe("What changed", () => {
     ]);
   });
 
-  test("with only change cards waiting, the list shows them rather than saying nothing waits", () => {
-    const container = mount(explorer(), withCards(fresh()));
-    expect(byId(container, "organizer-review-note")).toBeNull();
-    expect(byId(container, "organizer-changes")).not.toBeNull();
+  test("nothing waiting says so, and Check now asks for a sort", () => {
+    const calls = fresh();
+    const container = mount(page(withCards(calls, { suggestions: { list: [], changes: [], loading: false, failed: false, busy: new Set() } })));
+    expect(byId(container, "what-changed-empty")?.textContent).toContain("Nothing waiting");
+    press(byId(container, "what-changed-check"));
+    expect(calls.swept).toBe(1);
+  });
+
+  test("the suggestions popover no longer carries the cards", () => {
+    const container = mount(explorer(), withCards(fresh(), { pageOpen: false, reviewOpen: true }));
+    expect(byId(container, "explorer-suggestions-list")).not.toBeNull();
+    expect(byId(container, "organizer-changes")).toBeNull();
   });
 
   test("a source's name comes out of somebody's bucket, so it is contained", () => {

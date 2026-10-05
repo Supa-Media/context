@@ -21,6 +21,7 @@ export function DocumentSurface({
   openDocument,
   notices,
   pathBar,
+  page = false,
 }: {
   selected: ReturnType<typeof entryAt>;
   compact: boolean;
@@ -29,6 +30,11 @@ export function DocumentSurface({
   openDocument: ReactNode;
   notices: ReactNode;
   pathBar: ReactNode;
+  /**
+   * A page that is not the selection is on screen (What changed): it rides the
+   * page scroller whatever is selected under it, since it brings none of its own.
+   */
+  page?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   /**
@@ -72,6 +78,7 @@ export function DocumentSurface({
    *    they are the only two things a `file` selection can draw.
    */
   const documentOwnsScroller =
+    !page &&
     selected !== null &&
     (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
 
@@ -105,7 +112,7 @@ export function DocumentSurface({
           slide can see (`PageSlide`).
         */
         <PageSlide pageKey={selected?.path ?? ""} directionOf={slideDirection} testID="page-slide">
-          {selected !== null && selected.kind === "file" ? (
+          {!page && selected !== null && selected.kind === "file" ? (
             openDocument
           ) : (
             /*

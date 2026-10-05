@@ -58,6 +58,8 @@ export const organizerTables = {
     ),
     /** Suggestions waiting, as last counted. Drives "11 suggestions". */
     pending: v.number(),
+    /** The What changed cards among them. Absent on rows from before it. */
+    changes: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])

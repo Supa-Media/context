@@ -8,7 +8,6 @@ import { useColors, useThemedStyles } from "../design/theme";
 import { makeStyles as explorerStyles } from "../console/files/explorer/styles";
 import { acceptButton, acceptLabel, actionLine, dismissLabel, reviewCopy, skipButton, suggestionsLine, whereLine } from "./copy";
 import { groupSuggestions } from "./rules";
-import { ChangeCards } from "./Changes";
 import { makeSheetStyles, makeStyles } from "./styles";
 import type { OrganizerSuggestion } from "./types";
 import type { OrganizerView } from "./useOrganizer";
@@ -21,10 +20,10 @@ import type { OrganizerView } from "./useOrganizer";
 export function ReviewList({ organizer, touch = false }: { organizer: OrganizerView; touch?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const { list, changes, loading, failed, busy } = organizer.suggestions;
-  const cards = changes ?? [];
+  // What changed cards are not here: they have their own page (`WhatChangedPage`).
+  const { list, loading, failed, busy } = organizer.suggestions;
 
-  if ((list === null || list.length === 0) && cards.length === 0) {
+  if (list === null || list.length === 0) {
     return (
       <View style={styles.reviewNote} testID="organizer-review-note">
         {loading ? (
@@ -86,7 +85,6 @@ export function ReviewList({ organizer, touch = false }: { organizer: OrganizerV
 
   return (
     <View style={styles.reviewList} testID="organizer-review-list">
-      <ChangeCards cards={cards} busy={busy} touch={touch} onResolve={organizer.resolveChange} />
       {groupSuggestions(list ?? []).map((group) => (
         <View key={group.key}>
           <View style={styles.divider}>

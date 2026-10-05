@@ -234,8 +234,12 @@ export async function recordOrganizerSweep(
 ): Promise<{ pending: number; changes: number; suggestions: OrganizerSuggestion[] }> {
   const next = await updateState(store, (state) => mergeSweep(state, suggestions, now, changesReadUpTo));
   const all = next.pending as OrganizerSuggestion[];
-  const changes = all.filter((item) => item.kind === "change").length;
-  return { pending: all.length, changes, suggestions: all };
+  return { pending: all.length, changes: countChanges(all), suggestions: all };
+}
+
+/** What changed cards waiting, for the count beside "What changed". */
+export function countChanges(pending: readonly unknown[]): number {
+  return (pending as OrganizerSuggestion[]).filter((item) => item.kind === "change").length;
 }
 
 export async function readOrganizerPending(store: FileStore) {
@@ -295,6 +299,8 @@ export interface ResolveOutcome {
   offer: OrganizerKind | null;
   /** Everything waiting for the owner, change cards included. */
   pending: number;
+  /** The What changed cards among them. */
+  changes: number;
   undo: OrganizerUndo | null;
   error: string | null;
 }
@@ -313,7 +319,16 @@ export async function resolveOrganizerSuggestion(
 ): Promise<ResolveOutcome> {
   const { state } = await readOrganizerState(store);
   const suggestion = (state.pending as OrganizerSuggestion[]).find((item) => item.id === args.id);
-  if (!suggestion) return { applied: false, offer: null, pending: state.pending.length, undo: null, error: "That suggestion is no longer waiting." };
+  if (!suggestion) {
+    return {
+      applied: false,
+      offer: null,
+      pending: state.pending.length,
+      changes: countChanges(state.pending),
+      undo: null,
+      error: "That suggestion is no longer waiting.",
+    };
+  }
 
   let undo: OrganizerUndo | null = null;
   let error: string | null = null;
@@ -337,6 +352,7 @@ export async function resolveOrganizerSuggestion(
     applied: undo !== null,
     offer: offer && suggestion.kind !== "change" ? suggestion.kind : null,
     pending: next.pending.length,
+    changes: countChanges(next.pending),
     undo,
     error,
   };

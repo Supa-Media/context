@@ -41,8 +41,10 @@ export interface OrganizerFixture {
   status: OrganizerStatus;
   reviewOpen?: boolean;
   toasts?: ToastSpec[];
-  /** What changed cards waiting above the list. */
+  /** What changed cards waiting on their page. */
   changes?: ChangeCard[];
+  /** The What changed page is open. */
+  pageOpen?: boolean;
 }
 
 /** A still view of auto-organize, in the frame's state. Nothing on it does anything. */
@@ -64,6 +66,9 @@ export function fixtureView(fixture: OrganizerFixture, list: OrganizerSuggestion
     acknowledgeNotice: noop,
     sweepNow: noop,
     openSettings: noop,
+    pageOpen: fixture.pageOpen === true,
+    openPage: noop,
+    closePage: noop,
     toasts: fixture.toasts ?? [],
     dismissToast: noop,
     undoFor: (entry) => (entry.by === ORGANIZER_ACTOR ? noop : undefined),
@@ -267,8 +272,8 @@ export const FRAMES: ReadonlyArray<ShotFrame> = [
   {
     id: "04c-what-changed",
     at: listAt,
-    organizer: () => ({ status: STATUS, reviewOpen: true, changes: WHAT_CHANGED }),
-    assert: ["What changed", "Dana Reyes has left the team", "Apply 3 changes", "This is wrong"],
+    organizer: () => ({ status: { ...STATUS, changes: WHAT_CHANGED.length }, pageOpen: true, changes: WHAT_CHANGED }),
+    assert: ["What changed", "Waiting for you", "Dana Reyes has left the team", "Apply 3 changes", "This is wrong"],
     schemes: ["light", "dark"],
   },
   {

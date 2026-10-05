@@ -75,6 +75,8 @@ jest.mock("expo-router", () => {
       slug: mockUrl.pathname.replace("/console/", ""),
       note: mockUrl.note,
       settings: mockUrl.settings,
+      // A frame with the What changed page open is at `?changes=1`.
+      changes: mockFrame.organizer?.pageOpen ? "1" : undefined,
     }),
     useNavigation: () => ({
       setParams: ({ note }: { note?: string }) => {

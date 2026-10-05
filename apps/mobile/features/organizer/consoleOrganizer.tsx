@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { ToastSpec } from "../design/components/Toast";
 import type { ConsoleRouter } from "../console/layout/types";
 import { ReviewSheet } from "./Review";
+import { changesCount } from "./rules";
 import { ORGANIZER_TOAST_PREFIX, type OrganizerView } from "./useOrganizer";
 
 /**
@@ -16,14 +17,23 @@ import { ORGANIZER_TOAST_PREFIX, type OrganizerView } from "./useOrganizer";
 export function useConsoleOrganizer(
   organizer: OrganizerView | undefined,
   router: ConsoleRouter,
+  changesOpen = false,
 ): OrganizerView | undefined {
-  return useMemo(() => (organizer === undefined ? undefined : routeOrganizer(organizer, router)), [organizer, router]);
+  return useMemo(
+    () => (organizer === undefined ? undefined : routeOrganizer(organizer, router, changesOpen)),
+    [organizer, router, changesOpen],
+  );
 }
 
-/** Settings is a query parameter: Show me closes it over the list, the list's foot opens it. */
+/**
+ * Settings and What changed are query parameters: Show me closes Settings
+ * over the list, the list's foot opens it, and What changed rides beside the
+ * open note as `?changes=1` so Back and a shared link both find it.
+ */
 export function routeOrganizer(
   organizer: OrganizerView,
   router: Pick<ConsoleRouter, "setParams">,
+  changesOpen = false,
 ): OrganizerView {
   return {
     ...organizer,
@@ -32,6 +42,12 @@ export function routeOrganizer(
       if (options?.closeSettings) router.setParams({ settings: undefined });
     },
     openSettings: () => router.setParams({ settings: "premium" }),
+    pageOpen: changesOpen && changesCount(organizer.status) !== null,
+    openPage: () => {
+      organizer.closeReview();
+      router.setParams({ changes: "1", settings: undefined });
+    },
+    closePage: () => router.setParams({ changes: undefined }),
   };
 }
 

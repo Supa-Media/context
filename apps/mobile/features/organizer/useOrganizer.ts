@@ -46,6 +46,10 @@ export interface OrganizerView {
   openReview: (options?: { closeSettings?: boolean }) => void;
   closeReview: () => void;
   resolve: (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => void;
+  /** The What changed page is on screen (`?changes=1`); the layout routes these. */
+  pageOpen: boolean;
+  openPage: () => void;
+  closePage: () => void;
   /** Apply a What changed card's ticked steps, or say it is wrong. */
   resolveChange: (card: ChangeCard, decision: OrganizerDecision, steps: readonly string[]) => void;
   setEnabled: (on: boolean) => void;
@@ -329,6 +333,9 @@ export function useOrganizer({
     acknowledgeNotice,
     sweepNow,
     openSettings: () => {},
+    pageOpen: false,
+    openPage: () => {},
+    closePage: () => {},
     toasts,
     dismissToast,
     undoFor,

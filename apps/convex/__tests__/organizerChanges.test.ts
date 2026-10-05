@@ -268,6 +268,8 @@ describe("a change card waits for a person", () => {
     const raise = focus.steps!.filter((step) => step.value === "p0" || step.value === "p1").map((step) => step.id);
     const outcome = await resolve(store, { id: focus.id, decision: "accept", steps: raise });
     expect(outcome.applied).toBe(true);
+    // The count beside What changed drops with the card.
+    expect(outcome).toMatchObject({ pending: 2, changes: 2 });
     const snap = store.snapshot();
     expect(snap["1-projects/referral-campaign/overview.md"]).toContain("priority: p0");
     expect(snap["1-projects/dark-mode/overview.md"]).toContain("priority: p1");
