@@ -248,7 +248,7 @@ describe("a change card waits for a person", () => {
     expect(cards).toHaveLength(3);
     const { recordOrganizerSweep } = await import("../functions/lib/organizer/sweepOps");
     const next = await recordOrganizerSweep(store, [], NOW + DAY);
-    expect(next).toMatchObject({ pending: 0, changes: 3 });
+    expect(next).toMatchObject({ pending: 3, changes: 3 });
     // Nothing moved by being suggested.
     expect(store.snapshot()["2-areas/team/dana-reyes.md"]).toBeDefined();
   });
@@ -268,6 +268,8 @@ describe("a change card waits for a person", () => {
     const raise = focus.steps!.filter((step) => step.value === "p0" || step.value === "p1").map((step) => step.id);
     const outcome = await resolve(store, { id: focus.id, decision: "accept", steps: raise });
     expect(outcome.applied).toBe(true);
+    // The count beside What changed drops with the card.
+    expect(outcome).toMatchObject({ pending: 2, changes: 2 });
     const snap = store.snapshot();
     expect(snap["1-projects/referral-campaign/overview.md"]).toContain("priority: p0");
     expect(snap["1-projects/dark-mode/overview.md"]).toContain("priority: p1");

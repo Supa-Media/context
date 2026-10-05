@@ -41,9 +41,23 @@ function suggesting(status: OrganizerStatus | null): status is OrganizerStatus {
   return status !== null && status.available && status.isOwner && status.on;
 }
 
-/** The explorer foot's "11 suggestions", or `null` for no line. */
+/**
+ * The explorer foot's "11 suggestions", or `null` for no line. What changed
+ * cards are not among them: they have their own page and their own count.
+ */
 export function footCount(status: OrganizerStatus | null): number | null {
-  return suggesting(status) && status.pending > 0 ? status.pending : null;
+  if (!suggesting(status)) return null;
+  const organizing = status.pending - (status.changes ?? 0);
+  return organizing > 0 ? organizing : null;
+}
+
+/**
+ * What changed's entry: the cards waiting (0 is still an entry, so the page
+ * can be found before anything has arrived), or `null` where the person never
+ * sees a suggestion at all.
+ */
+export function changesCount(status: OrganizerStatus | null): number | null {
+  return suggesting(status) ? (status.changes ?? 0) : null;
 }
 
 /** The phone's "11 suggestions to look over", on the workspace's own page. */
@@ -52,6 +66,15 @@ export function phoneEntryCount(
   where: { compact: boolean; atRoot: boolean },
 ): number | null {
   return where.compact && where.atRoot ? footCount(status) : null;
+}
+
+/** The phone's "2 things changed" on the workspace's own page, to the What changed page. */
+export function phoneChangesCount(
+  status: OrganizerStatus | null,
+  where: { compact: boolean; atRoot: boolean },
+): number | null {
+  const count = changesCount(status);
+  return where.compact && where.atRoot && count !== null && count > 0 ? count : null;
 }
 
 /** The one-time notice for people who were on Premium before this existed. */

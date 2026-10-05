@@ -5,7 +5,7 @@ import type { PremiumStatus, PremiumView } from "../../features/console/settings
 import type { ToastSpec } from "../../features/design/components/Toast";
 import { ORGANIZER_ACTOR, offerAction, offerToast } from "../../features/organizer/copy";
 import { usePremiumOrganizerSlots } from "../../features/organizer/PremiumParts";
-import type { OrganizerStatus, OrganizerSuggestion } from "../../features/organizer/types";
+import type { ChangeCard, OrganizerStatus, OrganizerSuggestion } from "../../features/organizer/types";
 import type { OrganizerView } from "../../features/organizer/useOrganizer";
 import { NOW } from "./workspace";
 
@@ -41,6 +41,10 @@ export interface OrganizerFixture {
   status: OrganizerStatus;
   reviewOpen?: boolean;
   toasts?: ToastSpec[];
+  /** What changed cards waiting on their page. */
+  changes?: ChangeCard[];
+  /** The What changed page is open. */
+  pageOpen?: boolean;
 }
 
 /** A still view of auto-organize, in the frame's state. Nothing on it does anything. */
@@ -50,17 +54,21 @@ export function fixtureView(fixture: OrganizerFixture, list: OrganizerSuggestion
     state: { kind: "ready", status: fixture.status },
     status: fixture.status,
     slug: "seyi",
-    suggestions: { list, loading: false, failed: false, busy: new Set() },
+    suggestions: { list, changes: fixture.changes ?? [], loading: false, failed: false, busy: new Set() },
     loadSuggestions: noop,
     reviewOpen: fixture.reviewOpen === true,
     openReview: noop,
     closeReview: noop,
     resolve: noop,
+    resolveChange: noop,
     setEnabled: noop,
     setAutopilot: noop,
     acknowledgeNotice: noop,
     sweepNow: noop,
     openSettings: noop,
+    pageOpen: fixture.pageOpen === true,
+    openPage: noop,
+    closePage: noop,
     toasts: fixture.toasts ?? [],
     dismissToast: noop,
     undoFor: (entry) => (entry.by === ORGANIZER_ACTOR ? noop : undefined),
@@ -189,6 +197,35 @@ export const ORGANIZER_ACTIVITY: ActivityEntry[] = [
   },
 ];
 
+/** Two cards from a week of arrivals: someone left, and the focus moved. Invented people. */
+const WHAT_CHANGED: ChangeCard[] = [
+  {
+    id: "c-people",
+    topic: "people",
+    headline: "Dana Reyes has left the team",
+    quote: "We parted ways with Dana Reyes on Friday; her last day was October 1.",
+    source: { path: "0-inbox/meetings/2026-10-02-leadership-sync.md", title: "Leadership sync", kind: "meeting" },
+    at: NOW,
+    steps: [
+      { id: "s0", do: "archive", path: "3-teams/dana-reyes.md", title: "Dana Reyes", about: "person" },
+      { id: "s1", do: "set", path: "1-projects/onboarding-emails/overview.md", title: "Onboarding emails", field: "owner", value: "Sam Patel", was: "Dana Reyes" },
+      { id: "s2", do: "set", path: "1-projects/partner-program/overview.md", title: "Partner program", field: "owner", value: "Priya Shah", was: "Dana Reyes" },
+    ],
+  },
+  {
+    id: "c-focus",
+    topic: "focus",
+    headline: "New features are paused; growth comes first",
+    quote: "For the rest of the year we are pausing new product features and putting everything into marketing and user growth.",
+    source: { path: "0-inbox/email/ana-at-northwind-test/2026-10-03.md", title: "2026 10 03", kind: "messages" },
+    at: NOW,
+    steps: [
+      { id: "s0", do: "set", path: "1-projects/referral-campaign/overview.md", title: "Referral campaign", field: "priority", value: "p0", was: "p2" },
+      { id: "s1", do: "set", path: "1-projects/dark-mode/overview.md", title: "Dark mode", field: "priority", value: "p3", was: "p1" },
+    ],
+  },
+];
+
 const settingsAt = { pathname: "/console/@seyi", settings: "premium" };
 const listAt = { pathname: "/console/@seyi", note: "1-projects/README.md" };
 const openRoot: ShotFrame["prepare"] = async ({ density, settle, press }) => {
@@ -230,6 +267,13 @@ export const FRAMES: ReadonlyArray<ShotFrame> = [
     organizer: () => ({ status: STATUS, reviewOpen: true }),
     hover: "incident",
     assert: ["Move to Custom domains", "Mark as done", "Skip"],
+    schemes: ["light", "dark"],
+  },
+  {
+    id: "04c-what-changed",
+    at: listAt,
+    organizer: () => ({ status: { ...STATUS, changes: WHAT_CHANGED.length }, pageOpen: true, changes: WHAT_CHANGED }),
+    assert: ["What changed", "Waiting for you", "Dana Reyes has left the team", "Apply 3 changes", "This is wrong"],
     schemes: ["light", "dark"],
   },
   {

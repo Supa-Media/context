@@ -97,13 +97,16 @@ there is no notice, no sweep and no write.
 in the inbox (meetings, mail and chat days, saved AI chats) and work out what
 changed: somebody left, the focus moved, a project finished. Clef cannot say
 that; it only picks from options it is given. So "What changed" uses a
-generative model, the cheapest capable one the owner asked for: Google's
-Gemma 4 26B on Workers AI (`@cf/google/gemma-4-26b-a4b-it`, $0.10 per million
-tokens in and $0.30 out, a 256K window; Cloudflare's price list, checked
-2026-10-05). It runs on Cloudflare's own GPUs from open weights, so no third
-party sees the text, and Cloudflare states it does not train on or keep
-Workers AI requests (its data-usage page, checked 2026-10-05). GLM-4.7 Flash
-($0.06 / $0.40) is the measured alternative.
+generative model, the cheapest capable one the owner asked for, chosen by
+score rather than by name: GLM-4.7 Flash on Workers AI
+(`@cf/zai-org/glm-4.7-flash`, $0.06 per million tokens in and $0.40 out, a
+131K window; Cloudflare's price list, checked 2026-10-05). On the live What
+changed score it answered every arrival and scored 100%; Gemma 4 26B ($0.10 /
+$0.30), the first pick on price, returned unreadable answers for half of them
+and scored 33%. Both run on Cloudflare's own GPUs from open weights, so no
+third party sees the text, and Cloudflare states it does not train on or keep
+Workers AI requests (its data-usage page, checked 2026-10-05). A model only
+becomes the default by clearing the live score's bar.
 
 What is the same as for Clef: the text goes through the inference Worker
 (its `/extract` route), in flight, logged as counts only, never echoed in an

@@ -85,6 +85,7 @@ const changeValidator = v.object({
       do: v.union(v.literal("archive"), v.literal("set")),
       path: v.string(),
       title: v.string(),
+      about: v.optional(v.union(v.literal("person"), v.literal("project"))),
       field: v.optional(fieldValidator),
       value: v.optional(v.string()),
       was: v.optional(v.string()),
@@ -126,6 +127,8 @@ export const status = query({
         }),
       ),
       pending: v.number(),
+      /** What changed cards waiting, for the count beside its page. */
+      changes: v.number(),
       autopilot: countsValidatorBooleans(),
     }),
   ),
@@ -147,6 +150,7 @@ export const status = query({
       startsAt: on ? (row?.startsAt ?? null) : null,
       sweep: row?.sweep ?? null,
       pending: on ? (row?.pending ?? 0) : 0,
+      changes: on ? (row?.changes ?? 0) : 0,
       autopilot: row?.autopilot ?? { done: false, archive: false, file: false },
     };
   },
@@ -185,7 +189,7 @@ export const setEnabled = mutation({
     } else {
       // Off stops sweeps and clears what was waiting; the list is in the
       // bucket, so clearing it is a trip through the barrier.
-      await patchOrganizerRow(ctx, args.workspaceId, { off: true, noticeAt: row?.noticeAt ?? now, pending: 0 });
+      await patchOrganizerRow(ctx, args.workspaceId, { off: true, noticeAt: row?.noticeAt ?? now, pending: 0, changes: 0 });
       await ctx.scheduler.runAfter(0, internal.functions.organizer.clearPending, { workspaceId: args.workspaceId, userId });
     }
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -343,6 +347,7 @@ export const changes = action({
           do: step.do,
           path: step.path,
           title: step.title,
+          ...(step.about ? { about: step.about } : {}),
           ...(step.field ? { field: step.field } : {}),
           ...(typeof step.value === "string" ? { value: step.value } : {}),
           ...(typeof step.was === "string" ? { was: step.was } : {}),
@@ -391,11 +396,12 @@ export const resolve = action({
     const outcome = (await organizerOp(ctx, args.workspaceId, userId, {
       action: "resolve",
       input: { id: args.id, decision: args.decision, ...(args.steps ? { steps: args.steps } : {}) },
-    })) as { applied: boolean; offer: OrganizerKind | null; pending: number; undo: OrganizerUndo | null; error: string | null };
+    })) as { applied: boolean; offer: OrganizerKind | null; pending: number; changes: number; undo: OrganizerUndo | null; error: string | null };
     const autopilot: Record<OrganizerKind, boolean> = await ctx.runMutation(internal.functions.organizer.noteResolved, {
       workspaceId: args.workspaceId,
       userId,
       pending: outcome.pending,
+      changes: outcome.changes,
       decision: args.decision,
       applied: outcome.applied,
     });
@@ -414,12 +420,16 @@ export const noteResolved = internalMutation({
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
     pending: v.number(),
+    changes: v.optional(v.number()),
     decision: v.union(v.literal("accept"), v.literal("dismiss")),
     applied: v.boolean(),
   },
   returns: countsValidatorBooleans(),
   handler: async (ctx, args) => {
-    await patchOrganizerRow(ctx, args.workspaceId, { pending: args.pending });
+    await patchOrganizerRow(ctx, args.workspaceId, {
+      pending: args.pending,
+      ...(args.changes === undefined ? {} : { changes: args.changes }),
+    });
     await ctx.runMutation(internal.functions.audit.recordEvent, {
       workspaceId: args.workspaceId,
       actorUserId: args.userId,
@@ -515,6 +525,7 @@ export const sweepProgress = internalMutation({
     finished: v.optional(v.union(v.literal("done"), v.literal("failed"))),
     found: v.optional(countsValidator),
     pending: v.optional(v.number()),
+    changes: v.optional(v.number()),
     why: v.optional(sweepWhyValidator),
   },
   returns: v.null(),
@@ -533,6 +544,7 @@ export const sweepProgress = internalMutation({
         ...(args.finished === "failed" && args.why ? { why: args.why } : {}),
       },
       ...(args.pending === undefined ? {} : { pending: args.pending }),
+      ...(args.changes === undefined ? {} : { changes: args.changes }),
       updatedAt: now,
     });
     return null;
@@ -598,7 +610,7 @@ export const runSweep = internalAction({
       if (kinds.length > 0 && pending > 0) {
         await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "autopilot", input: { kinds }, autopilot: true });
         const after = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "read" })) as { suggestions: OrganizerSuggestion[] };
-        pending = after.suggestions.filter(isOrganizing).length;
+        pending = after.suggestions.length;
       }
       const counts = { done: 0, archive: 0, file: 0 };
       for (const suggestion of found.filter(isOrganizing)) counts[suggestion.kind] += 1;
@@ -612,6 +624,8 @@ export const runSweep = internalAction({
         finished: sweepFinish(total, answered),
         found: counts,
         pending,
+        // Autopilot never applies a change card, so the recorded count stands.
+        changes: recorded.changes,
         ...(why ? { why } : {}),
       });
       if (why) console.error(JSON.stringify({ event: "organizer_sweep_unanswered", workspaceId, read, total, why }));

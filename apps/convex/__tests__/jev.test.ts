@@ -229,9 +229,9 @@ describe("withJev", () => {
     expect(sent).toHaveLength(2);
     const row = await usage(t, workspaceId);
     expect(row).toMatchObject({ calls: 2, failed: 0 });
-    // A million tokens in at $0.10 and a hundred thousand out at $0.30, plus the question's estimate.
+    // A million tokens in at $0.06 and a hundred thousand out at $0.40, plus the question's estimate.
     const asked = row!.tokens - 1_100_000;
-    expect(row!.costMicroUsd).toBe(100_000 + 30_000 + costMicroUsd(asked));
+    expect(row!.costMicroUsd).toBe(60_000 + 40_000 + costMicroUsd(asked));
   });
 
   test("a failed write is counted as failed, and a transport that cannot write is refused", async () => {

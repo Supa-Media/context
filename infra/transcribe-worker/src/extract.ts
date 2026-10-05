@@ -28,15 +28,17 @@ import type { Env } from "./index";
 /**
  * Prices per million tokens, in then out (Cloudflare's Workers AI pricing
  * page, checked 2026-10-05): Gemma 4 26B $0.10 / $0.30, a 256K window;
- * GLM-4.7 Flash $0.06 / $0.40, a 131K window. Gemma is the default because it
- * is the cheaper of the two once an answer is written, and the newer.
+ * GLM-4.7 Flash $0.06 / $0.40, a 131K window. GLM is the default because it
+ * is the one that passes: on the live What changed score (2026-10-05) GLM
+ * answered 6 of 6 and scored 100%, while half of Gemma's answers were not
+ * readable JSON. Gemma stays on the list so the score can keep measuring it.
  */
 export const WRITING_MODELS = {
   gemma: "@cf/google/gemma-4-26b-a4b-it",
   glm: "@cf/zai-org/glm-4.7-flash",
 } as const;
 export type WritingModel = keyof typeof WRITING_MODELS;
-export const DEFAULT_WRITING_MODEL: WritingModel = "gemma";
+export const DEFAULT_WRITING_MODEL: WritingModel = "glm";
 
 /** About 30K tokens of text: one long meeting, one busy day of mail. Bounds a call's cost. */
 export const MAX_TEXT_CHARS = 120_000;
@@ -90,14 +92,20 @@ export function readExtractRequest(body: unknown): Parsed {
 }
 
 function parseObject(raw: string): Record<string, unknown> | null {
-  const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  // Some models think out loud before the answer, or fence it; the answer is
+  // the outermost object either way.
+  const unthought = raw.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const trimmed = unthought.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   if (!trimmed) return null;
-  try {
-    const value: unknown = JSON.parse(trimmed);
-    return isRecord(value) ? value : null;
-  } catch {
-    return null;
+  for (const candidate of [trimmed, trimmed.slice(trimmed.indexOf("{"), trimmed.lastIndexOf("}") + 1)]) {
+    try {
+      const value: unknown = JSON.parse(candidate);
+      if (isRecord(value)) return value;
+    } catch {
+      // try the next reading
+    }
   }
+  return null;
 }
 
 function count(value: unknown): number {

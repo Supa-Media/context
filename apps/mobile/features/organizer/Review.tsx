@@ -20,6 +20,7 @@ import type { OrganizerView } from "./useOrganizer";
 export function ReviewList({ organizer, touch = false }: { organizer: OrganizerView; touch?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  // What changed cards are not here: they have their own page (`WhatChangedPage`).
   const { list, loading, failed, busy } = organizer.suggestions;
 
   if (list === null || list.length === 0) {
@@ -84,7 +85,7 @@ export function ReviewList({ organizer, touch = false }: { organizer: OrganizerV
 
   return (
     <View style={styles.reviewList} testID="organizer-review-list">
-      {groupSuggestions(list).map((group) => (
+      {groupSuggestions(list ?? []).map((group) => (
         <View key={group.key}>
           <View style={styles.divider}>
             <Text variant="eyebrow" style={styles.dayLabel}>

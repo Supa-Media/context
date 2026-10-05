@@ -76,6 +76,7 @@ import { consoleBarDialogs } from "./layout/barDialogs";
 import { consoleCreateButton, consolePhoneChat } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
 import { OrganizerProvider } from "../organizer/OrganizerContext";
+import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
 import {
   consoleReviewSheet,
   consoleToasts,
@@ -120,6 +121,8 @@ export function ConsoleFrame({
     openSettingsSection: ReturnType<typeof settingsFromQuery>;
     checkoutReturn: CheckoutOutcome | null;
     connectAgent: SetupAgent | null;
+    /** `?changes=1`: the What changed page. Absent on the homepage. */
+    changesOpen?: boolean;
   };
   /** The pane: the route's `<Slot/>`, or the homepage's `BrowsePane`. */
   children: ReactNode;
@@ -271,7 +274,9 @@ export function ConsoleFrame({
 
   const contextLabel = atName(current?.slug ?? "your context");
   // Auto-organize, for the surfaces that draw it; absent-as-nothing everywhere else.
-  const organizer = useConsoleOrganizer(data.organizer, router);
+  const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
+  // Opening a note or folder from the tree leaves the page for it.
+  useLeavePageOnOpen(organizer, data.files.selectedPath);
 
   const { selectedEntry, readable } = noteTargetsFor({ browsing, data });
   const reading = useReadMode();

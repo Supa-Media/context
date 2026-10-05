@@ -12,7 +12,8 @@ import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
 import { useOrganizerView } from "../../../organizer/OrganizerContext";
 import { SuggestionsLine } from "../../../organizer/Review";
-import { footCount } from "../../../organizer/rules";
+import { changesCount, footCount } from "../../../organizer/rules";
+import { WhatChangedLine } from "../../../organizer/WhatChangedPage";
 
 /**
  * The foot of the column: the agents line when there are any, and the one
@@ -49,6 +50,7 @@ export function ExplorerFoot({
   */
   const organizer = useOrganizerView();
   const suggestions = footCount(organizer?.status ?? null);
+  const changes = changesCount(organizer?.status ?? null);
   const closeReview = organizer?.closeReview;
   return (
     <>
@@ -126,6 +128,19 @@ export function ExplorerFoot({
         </PressRow>
       ) : null}
       </Reveal>
+
+      {organizer !== undefined && changes !== null ? (
+        <WhatChangedLine
+          count={changes}
+          open={organizer.pageOpen}
+          onPress={() => {
+            setActivityOpen(null);
+            setAgentsOpen(null);
+            if (organizer.pageOpen) organizer.closePage();
+            else organizer.openPage();
+          }}
+        />
+      ) : null}
 
       <Reveal open={organizer !== undefined && suggestions !== null}>
       {organizer !== undefined && suggestions !== null ? (

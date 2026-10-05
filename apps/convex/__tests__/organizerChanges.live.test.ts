@@ -4,8 +4,8 @@
  * `organizerChanges.test.ts` proves the pipeline with a stand-in reader. This
  * sends the same invented workspace's arrivals to the deployed Worker's
  * `/extract`, once per writing model it offers, presses Apply on every card,
- * and scores the result. The default model (Gemma) must reach the bar; the
- * other is scored and logged beside it, with what each run cost, so the
+ * and scores the result. The default model (GLM) must reach the bar; the
+ * other (Gemma) is scored and logged beside it, with what each run cost, so the
  * choice of model stays a measured one.
  *
  * Skipped unless ORGANIZER_LIVE_URL and ORGANIZER_LIVE_SECRET are set. The
@@ -21,7 +21,7 @@ const secret = process.env.ORGANIZER_LIVE_SECRET ?? "";
 const PASS = Number(process.env.ORGANIZER_LIVE_PASS ?? "0.9");
 
 /** Per million tokens, in then out: Cloudflare's price list, 2026-10-05. */
-const PRICES = { gemma: WRITING_USD_PER_MTOK, glm: { input: 0.06, output: 0.4 } } as const;
+const PRICES = { glm: WRITING_USD_PER_MTOK, gemma: { input: 0.1, output: 0.3 } } as const;
 
 async function scoreWith(model: "gemma" | "glm") {
   const store = changingWorkspace();
@@ -36,14 +36,14 @@ async function scoreWith(model: "gemma" | "glm") {
 }
 
 describe.skipIf(url === "" || secret === "")("the What changed score, live", () => {
-  test(`Gemma catches the workspace up to ${Math.round(PASS * 100)}% or better`, async () => {
-    const { score, items, report } = await scoreWith("gemma");
+  test(`GLM catches the workspace up to ${Math.round(PASS * 100)}% or better`, async () => {
+    const { score, items, report } = await scoreWith("glm");
     expect(report.refusals, "the Worker refused or failed these requests").toEqual([]);
     expect(score, changeMisses(items)).toBeGreaterThanOrEqual(PASS);
   }, 300_000);
 
-  test("GLM is scored beside it, for the record", async () => {
-    const { report } = await scoreWith("glm");
-    expect(report.answered).toBeGreaterThan(0);
+  test("Gemma is scored beside it, for the record", async () => {
+    const { report } = await scoreWith("gemma");
+    expect(report.read).toBeGreaterThan(0);
   }, 300_000);
 });
