@@ -111,3 +111,34 @@ export interface ChangeCard {
   at: number;
   steps: ChangeStep[];
 }
+
+/** Why a team note held something back; `LEFT_OUT_WHY` in the engine says it out loud. */
+export type LeftOutReason = "people" | "personal" | "meeting" | "owner";
+
+/**
+ * A note for one of the owner's teams, written from an arrival in their own
+ * inbox, waiting until they press Add. Mirrors `organizerRoutes.routes`
+ * (`apps/convex/functions/organizerRoutes.ts`).
+ */
+export interface RouteCard {
+  id: string;
+  /** "@supa". */
+  team: string;
+  /** The team's display name. */
+  teamTitle: string;
+  /** Where in the team it goes; "" for the team's top level. */
+  folder: string;
+  folderTitle: string;
+  title: string;
+  body: string;
+  leftOut: { what: string; why: LeftOutReason }[];
+  source: { path: string; title: string; kind: string };
+  at: number;
+}
+
+/** One of the owner's teams, and whether notes are written for it. */
+export interface RouteTeam {
+  name: string;
+  title: string;
+  on: boolean;
+}

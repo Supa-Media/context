@@ -100,13 +100,17 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
     state: status === null ? { kind: "unavailable" } : { kind: "ready", status },
     status,
     slug: "seyi",
-    suggestions: { list: [DONE, FILE], changes: [], loading: false, failed: false, busy: new Set() },
+    suggestions: { list: [DONE, FILE], changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
     loadSuggestions: () => {},
     reviewOpen: false,
     openReview: (options) => calls?.opened.push(options ?? {}),
     closeReview: () => {},
     resolve: (s, decision) => calls?.resolved.push([s.id, decision]),
     resolveChange: (card, decision, steps) => calls?.changed.push([card.id, decision, steps]),
+    sendRoute: async () => false,
+    dismissRoute: () => {},
+    setTeamOn: () => {},
+    setKeep: () => {},
     setEnabled: (on) => calls?.enabled.push(on),
     setAutopilot: (kind, on) => calls?.autopilot.push([kind, on]),
     acknowledgeNotice: (turnOff) => calls?.acknowledged.push(turnOff),
@@ -223,7 +227,7 @@ describe("What changed", () => {
       {
         status: WAITING,
         pageOpen: true,
-        suggestions: { list: [DONE, FILE], changes: [PEOPLE], loading: false, failed: false, busy: new Set() },
+        suggestions: { list: [DONE, FILE], changes: [PEOPLE], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
         ...over,
       },
       calls,
@@ -286,7 +290,7 @@ describe("What changed", () => {
 
   test("nothing waiting says so, and Check now asks for a sort", () => {
     const calls = fresh();
-    const container = mount(page(withCards(calls, { suggestions: { list: [], changes: [], loading: false, failed: false, busy: new Set() } })));
+    const container = mount(page(withCards(calls, { suggestions: { list: [], changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() } })));
     expect(byId(container, "what-changed-empty")?.textContent).toContain("Nothing waiting");
     press(byId(container, "what-changed-check"));
     expect(calls.swept).toBe(1);

@@ -8,6 +8,8 @@ import type {
   OrganizerStatus,
   OrganizerSuggestion,
   ResolveResult,
+  RouteCard,
+  RouteTeam,
   UndoToken,
 } from "./types";
 
@@ -61,4 +63,24 @@ export interface OrganizerApi {
  */
 export function organizerApi(): OrganizerApi | undefined {
   return (api.functions as unknown as { organizer?: OrganizerApi }).organizer;
+}
+
+/**
+ * `api.functions.organizerRoutes.*`: "For your teams", on the What changed
+ * page of a personal workspace. A shim for the same reason as `organizerApi`.
+ */
+export interface RoutesApi {
+  routes: FunctionReference<"action", "public", Workspace, { routes: RouteCard[]; teams: RouteTeam[]; keep: string }>;
+  /** The note as the owner last saw it, edits included. */
+  sendRoute: FunctionReference<
+    "action",
+    "public",
+    Workspace & { id: string; title: string; body: string },
+    { applied: boolean; undo: UndoToken | null; error?: string }
+  >;
+  setRouting: FunctionReference<"action", "public", Workspace & { team?: string; on?: boolean; keep?: string }, null>;
+}
+
+export function routesApi(): RoutesApi | undefined {
+  return (api.functions as unknown as { organizerRoutes?: RoutesApi }).organizerRoutes;
 }
