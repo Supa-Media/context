@@ -24,7 +24,8 @@
  *   - `[label](folder/note.md)` — CommonMark inline links, which is what
  *     everything else emits.
  *
- * Reference definitions (`[id]: target`) are deliberately not handled. They are
+ * Reference definitions (`[id]: target`) are deliberately not handled by
+ * `parseLinks` or the rewrite; only `extractReferences` reports them. They are
  * absent from these buckets, and a rewriter that half-understands a form is
  * worse than one that leaves it alone: the unhandled half goes stale silently
  * while the handled half looks maintained.
@@ -263,6 +264,90 @@ function safeDecode(value) {
   } catch {
     return value;
   }
+}
+
+/* ------------------------------- reading --------------------------------- */
+
+/*
+  `[label]: target` on a line of its own. A footnote (`[^1]: text`) is not one,
+  and the target is `<…>` or a run with no whitespace; a title after it is left
+  unread because nothing here needs it.
+*/
+const DEFINITION = /^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)/gm;
+
+/**
+ * Every reference in `text` for a *reader* ("what does this note point at"),
+ * in document order, with no length cap.
+ *
+ * Built on `parseLinks`, so the wiki and inline forms are the ones a move
+ * rewrites. Reference definitions are the addition: reported with
+ * `kind: "definition"` so a caller can see they exist, and never touched by
+ * `parseLinks` or `rewriteLinks`, which keep the half-understood-form rule in
+ * the module comment. `fragment` is the anchor with its `#`; `style` is the
+ * written shape of the file part, `null` when there is no file to shape.
+ */
+export function extractReferences(text) {
+  const skip = codeRanges(text);
+  const inCode = (index) => skip.some(([from, to]) => index >= from && index < to);
+  const found = parseLinks(text);
+
+  for (const match of text.matchAll(DEFINITION)) {
+    if (inCode(match.index)) continue;
+    const raw = match[1];
+    const bracketed = raw.startsWith("<") && raw.endsWith(">");
+    const target = bracketed ? raw.slice(1, -1) : raw;
+    const start = match.index + match[0].length - raw.length + (bracketed ? 1 : 0);
+    found.push({ kind: "definition", embed: false, target, start, end: start + target.length });
+  }
+
+  return found
+    .sort((a, b) => a.start - b.start)
+    .map((link) => {
+      const target = link.target.trim();
+      const { file, anchor } = splitAnchor(target);
+      const external = isExternal(target);
+      return {
+        ...link,
+        fragment: external ? "" : anchor,
+        style: external || file === "" ? null : styleOf(decodeFor(link, file)),
+      };
+    });
+}
+
+/** Wikilinks are written as-is; inline links and definitions are URL-encoded. */
+function decodeFor(link, file) {
+  return link.kind === "wiki" ? file : safeDecode(file);
+}
+
+/**
+ * What an occurrence points at, as a verdict rather than a path-or-null.
+ *
+ * `catalog.byName` is `indexByName`'s map; `catalog.paths`, when the caller has
+ * the full list of notes, is what turns "a path was computed" into "that note
+ * exists". Without it a path or an unmatched bare name is `unknown`, not
+ * `missing`: absence of a list is not absence of a note. A bare name with one
+ * candidate is `resolved` either way, because `byName` is built from real paths.
+ * Never throws on anything `extractReferences` produces.
+ */
+export function resolveReference(occurrence, fromPath, catalog) {
+  const target = occurrence.target.trim();
+  if (isExternal(target)) return { state: "external" };
+  if (occurrence.kind === "definition") return { state: "unsupported" };
+  const { file } = splitAnchor(target);
+  if (file === "") return { state: "invalid" };
+
+  const absent = catalog.paths ? "missing" : "unknown";
+  const decoded = decodeFor(occurrence, file);
+  if (styleOf(decoded) === "bare") {
+    const candidates = catalog.byName?.get(decoded.replace(/\.md$/, ""));
+    if (candidates?.length === 1) return { state: "resolved", path: candidates[0] };
+    return { state: candidates?.length > 1 ? "ambiguous" : absent };
+  }
+
+  const path = resolveLink(occurrence, fromPath, catalog.byName);
+  if (path === null) return { state: "invalid" };
+  if (!catalog.paths) return { state: "unknown" };
+  return catalog.paths.has(path) ? { state: "resolved", path } : { state: "missing" };
 }
 
 /* ---------------------------- re-expression ------------------------------ */
