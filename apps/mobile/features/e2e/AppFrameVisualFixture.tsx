@@ -331,7 +331,7 @@ export function AppFrameVisualFixture({
           dead, which is what a phone actually looks like.
         */
         bottomBar={
-          <ConsoleBottomBar data={data} onSearch={() => {}} onCreate={() => {}} />
+          <ConsoleBottomBar data={data} onSearch={() => {}} onCreate={() => {}} onAskWhere={() => {}} />
         }
         /*
           The tab strip in the frame's own slot, which is the point of putting

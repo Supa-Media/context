@@ -279,6 +279,7 @@ export function consoleBottomBar({
         onCreate={
           canCreate ? (folder) => setBarDialog({ kind: "create", folder }) : null
         }
+        onAskWhere={() => setBarDialog({ kind: "newNoteWhere" })}
       />
     ) : undefined
   );

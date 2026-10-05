@@ -17,6 +17,8 @@ import { buildHome, countLabel, openedLabel, whenLabel, type HomeInput } from ".
  *  5. Tag filter ignored for folders.              → "a tag narrows every section"
  *  6. Recent sorted oldest first.                  → "recent is newest first, three of them"
  *  7. Top notes taken from every folder.           → "every note outside a folder is listed…"
+ *  8. Tagged notes left to the root rule.         → "a tagged Home lists every note carrying the tag…"
+ *  9. Archived notes counted under a tag.         → "a tagged Home lists every note carrying the tag…"
  */
 
 const HOUR = 60 * 60 * 1000;
@@ -89,7 +91,8 @@ describe("notes at the top", () => {
         notes: [...input().notes, { path: "todo.md", updatedAt: NOW, title: "Todo", lede: null, tags: ["launch"] }],
       }),
     );
-    expect(home.notes.map((n) => n.path)).toEqual(["todo.md"]);
+    expect(home.notes.map((n) => n.path)).toContain("todo.md");
+    expect(home.notes.map((n) => n.path)).not.toContain("index.md");
   });
 });
 
@@ -172,11 +175,31 @@ describe("you open most", () => {
 });
 
 describe("tags", () => {
-  test("the chips are the tags on notes, most used first", () => {
-    expect(buildHome(input()).tags).toEqual([
-      { tag: "client", count: 2 },
-      { tag: "launch", count: 2 },
+  test("no tag, nothing tagged", () => {
+    expect(buildHome(input()).tagged).toBeNull();
+  });
+
+  /*
+    The bug behind removing the chips (2026-10-05): "Galatians 7", and the
+    seven were nowhere — the count took every note, archived ones too, and the
+    narrowed page listed three recent notes and some folders. A tag's count and
+    its list are now the same notes.
+  */
+  test("a tagged Home lists every note carrying the tag, and counts exactly those", () => {
+    const home = buildHome(
+      input({
+        tag: "launch",
+        notes: [
+          ...input().notes,
+          { path: "4-archive/2026-09-30/old-launch.md", updatedAt: NOW, title: "Old launch", lede: null, tags: ["launch"] },
+        ],
+      }),
+    );
+    expect(home.notes.map((n) => [n.path, n.place])).toEqual([
+      ["1-projects/launch.md", "projects"],
+      ["1-projects/site/copy.md", "site"],
     ]);
+    expect(home.tagged).toEqual({ tag: "launch", count: home.notes.length });
   });
 
   test("a tag narrows every section", () => {
