@@ -31,7 +31,8 @@ export const jevTables = {
   })
     .index("by_day_feature_workspace", ["day", "feature", "workspaceId"])
     .index("by_feature_day", ["feature", "day"])
-    .index("by_workspace", ["workspaceId"]),
+    // Ranged per workspace for the staff roster's AI column (`lib/jev/spend.ts`).
+    .index("by_workspace_day", ["workspaceId", "day"]),
 
   /**
    * Kill switches. `feature: "*"` is every feature at once. A missing row is

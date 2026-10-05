@@ -25,6 +25,7 @@ import {
   totalOf,
   type AccountFacts,
 } from "../census";
+import { aiSpendByWorkspace } from "../jev/spend";
 import { managedBucketName } from "../managedStorage";
 import { activeEntitlements, type PlanStatus } from "../premium";
 import { clampReportDays, dayKey, dayRange } from "../usage";
@@ -315,6 +316,16 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     ownedByAccount.set(account, owned);
   }
 
+  // AI spend for the roster's accounts only, summed over the workspaces each
+  // one owns — `lib/jev/spend.ts` says why owned, and how the read is bounded.
+  const aiSpend = await aiSpendByWorkspace(
+    ctx,
+    accountsPage.rows
+      .slice(0, ROSTER_LIMIT)
+      .flatMap((account) => ownedByAccount.get(keyOf(account._id)) ?? []),
+    window[0] ?? dayKey(Date.now()),
+  );
+
   const facts: AccountFacts[] = [];
   const roster: {
     joinedAt: number;
@@ -325,6 +336,8 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     clients: number;
     plan: string;
     lastSeenAt: number | null;
+    aiSpendMicroUsd: number;
+    aiSpendPartial: boolean;
   }[] = [];
 
   for (const account of accountsPage.rows) {
@@ -358,6 +371,11 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
           ownedKeys.map((id) => planByContext.get(id) ?? "none"),
         ),
         lastSeenAt: lastSeenByAccount.get(key) ?? null,
+        aiSpendMicroUsd: ownedKeys.reduce(
+          (sum, id) => sum + (aiSpend.spend.get(id) ?? 0),
+          0,
+        ),
+        aiSpendPartial: ownedKeys.some((id) => aiSpend.partial.has(id)),
       });
     }
   }

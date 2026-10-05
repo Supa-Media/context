@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from "react";
-import { StyleSheet, View, type ViewStyle } from "react-native";
+import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
 import { Text, leading, space, useThemedStyles, type Colors } from "../design";
 import { pointerType } from "../design/tokens";
 import { useCompact } from "./AdminKit";
@@ -19,6 +19,8 @@ export interface Column {
   flex?: number;
   width?: number;
   align?: "left" | "right";
+  /** What the header means, as a tooltip on web and to a screen reader. */
+  hint?: string;
 }
 
 /** The header row of a pointer-layout table, in the eyebrow voice. */
@@ -28,7 +30,14 @@ export function TableHead({ columns }: { columns: readonly Column[] }) {
     <View style={[styles.tr, styles.th]}>
       {columns.map((column) => (
         <View key={column.label} style={cellBox(column)}>
-          <Text variant="eyebrow" numberOfLines={1} style={alignText(column)}>
+          <Text
+            variant="eyebrow"
+            numberOfLines={1}
+            style={alignText(column)}
+            accessibilityLabel={column.hint ? `${column.label}. ${column.hint}` : undefined}
+            // RN-Web forwards `title` to the DOM node: the cheapest honest tooltip.
+            {...(Platform.OS === "web" && column.hint ? ({ title: column.hint } as object) : null)}
+          >
             {column.label}
           </Text>
         </View>

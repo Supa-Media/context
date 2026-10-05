@@ -197,7 +197,11 @@ export function GrowthSection({
             </Panel>
             <NudgeCard roster={census.roster} />
           </TwoUp>
-          <RosterCard roster={census.roster} total={formatTotal(accounts.total)} />
+          <RosterCard
+            roster={census.roster}
+            total={formatTotal(accounts.total)}
+            days={census.days}
+          />
         </>
       )}
     </View>

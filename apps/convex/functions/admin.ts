@@ -521,6 +521,10 @@ export const censusReport = query({
         clients: v.number(),
         plan: v.string(),
         lastSeenAt: v.union(v.number(), v.null()),
+        /** Jev cost in the census window, over owned workspaces (`lib/jev/spend.ts`). */
+        aiSpendMicroUsd: v.number(),
+        /** The read hit its budget, so `aiSpendMicroUsd` is a floor. */
+        aiSpendPartial: v.boolean(),
       }),
     ),
   }),
