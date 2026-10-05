@@ -39,7 +39,7 @@ describe("the privacy policy describes early-beta diagnostics", () => {
 describe("the privacy policy describes X ads' pixel", () => {
   test("says where it runs and that only a hash of the address is sent", () => {
     const text = privacyContent.sections.flatMap((section) => section.body).join("\n");
-    expect(text).toContain("X's (Twitter's) advertising pixel");
+    expect(text).toContain("advertising pixels of X (Twitter) and Meta (Facebook and Instagram)");
     expect(text).toContain("never inside the app or on your notes");
     expect(text).toContain("one-way hash of your email address");
   });
