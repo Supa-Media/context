@@ -23,6 +23,8 @@
  *   "full" returned as "budget"; corrupt-page refusal dropped; planned-writes
  *   budget preflight dropped; readPostings dedupe dropped
  *
+ * Fix round 2: refusal narrowed from `status !== "end"` back to corrupt only  3 failing
+ *
  * Process note: the module was drafted before this file; RED was shown by
  * moving the modules aside (every import failed), then restoring them.
  */
@@ -255,9 +257,10 @@ test("walker: a self-referencing page is read once", async () => {
   assert.deepEqual(r.entries.length, 1);
   assert.equal(r.complete, false);
   const w = spy(b);
-  assert.equal(await add(w.store, "x.md"), "done");
-  assert.ok(w.gets <= 2);
-  assert.deepEqual(await sources(b), ["a0.md", "x.md"]);
+  const before = JSON.stringify([...b.objects]);
+  assert.equal(await add(w.store, "x.md"), "conflict");
+  assert.ok(w.gets <= 3);
+  assert.equal(JSON.stringify([...b.objects]), before);
 });
 
 test("walker: a backward next never revisits a page", async () => {
@@ -280,8 +283,28 @@ test("walker: a skipping next is not followed", async () => {
   assert.equal(s.gets, 1);
   assert.deepEqual(r.entries.map((e) => e.source), ["a0.md"]);
   assert.equal(r.complete, false);
-  assert.equal(await add(b, "x.md"), "done");
-  assert.deepEqual(await sources(b), ["a0.md", "x.md"]);
+  const before = JSON.stringify([...b.objects]);
+  assert.equal(await add(b, "x.md"), "conflict");
+  assert.equal(await remove(b, "c0.md"), "conflict"); // lives only behind the bad link
+  assert.equal(await remove(b, "ghost.md"), "conflict");
+  assert.equal(JSON.stringify([...b.objects]), before);
+});
+
+test("a malformed walk refuses writes: bad next \"5\" and a chain truncated at the read cap", async () => {
+  const b = memoryBucket();
+  await seed(b, 0, fill("a", 1), "5");
+  await seed(b, 5, fill("e", 1));
+  const before = JSON.stringify([...b.objects]);
+  assert.equal(await add(b, "x.md"), "conflict");
+  assert.equal(await remove(b, "e0.md"), "conflict");
+  assert.equal(await remove(b, "ghost.md"), "conflict");
+  assert.equal(JSON.stringify([...b.objects]), before);
+  const c = memoryBucket();
+  for (let n = 0; n < MAX_POSTING_PAGES + 2; n += 1) await seed(c, n, fill(`p${n}-`, 1), String(n + 1));
+  const cBefore = JSON.stringify([...c.objects]);
+  assert.equal(await add(c, "x.md"), "conflict");
+  assert.equal(await remove(c, "p0-0.md"), "conflict");
+  assert.equal(JSON.stringify([...c.objects]), cBefore);
 });
 
 test("walker: a chain longer than the cap stops at the cap", async () => {

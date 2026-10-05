@@ -51,8 +51,8 @@ async function walk(store, budget, { gen, family, hash }) {
 
 /**
  * Set (present) or clear (not present) `source` in the posting. Returns
- * "done", "conflict" (refused MAX_ATTEMPTS times, or an unparseable page
- * stands in the chain: nothing is written and reconciliation must repair it),
+ * "done", "conflict" (refused MAX_ATTEMPTS times, or the walk did not reach a clean
+ * end of chain, an unparseable page or a bad `next` or the read cap: nothing is written and reconciliation must repair it),
  * "budget" (the budget cannot cover the read or every planned write; nothing
  * from this attempt is written) or "full" (the chain is at MAX_POSTING_PAGES
  * and the entry cannot be added; callers mark coverage partial).
@@ -63,7 +63,9 @@ export async function setMembership(store, budget, { gen, family, hash, source, 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const { slots, status } = await walk(store, budget, { gen, family, hash });
     if (status === "budget") return "budget";
-    if (status === "corrupt") return "conflict";
+    // Anything but a clean end of chain (corrupt page, bad `next`, read cap):
+    // the walk may not have reached `source`, so write nothing.
+    if (status !== "end") return "conflict";
     const mine = slots.flatMap((s) => s.entries.filter((e) => e.source === source));
     if (mine.length === 1 && present && sameEntry(mine[0], entry)) return "done";
     if (mine.length === 0 && !present) return "done";
