@@ -307,7 +307,9 @@ export interface ItemScore {
 
 /** The share of fixture notes in their right end state, 0..1, with each one's verdict. */
 export function organizationScore(snapshot: Record<string, string>): { score: number; items: ItemScore[] } {
-  const keys = Object.keys(snapshot);
+  // A real bucket store deletes by leaving a tombstone at the old key
+  // (`store/logicalDelete.js`): a key holding one is not a note.
+  const keys = Object.keys(snapshot).filter((key) => !String(snapshot[key]).startsWith("context.logical-delete."));
   const list = defaultStatusList();
   const items: ItemScore[] = [];
   for (const fixture of NOTES) {

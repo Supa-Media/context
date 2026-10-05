@@ -14,60 +14,9 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { NOTES, messyWorkspace, misses, organizationScore } from "./organizerEval/workspace.helpers";
-import { type AiBinding, localWorker, runSweep } from "./organizerEval/sweep.helpers";
-
-function humanize(segment: string): string {
-  const words = segment.replace(/\.md$/i, "").replace(/^\d+-/, "").replace(/[-_]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function headingOf(text: string): string {
-  return /^# (.+)$/m.exec(text)?.[1]?.trim() ?? "";
-}
-
-/**
- * A reader that knows the right answer to every question, from the fixture.
- * It answers in Clef's output shape, probabilities and all.
- */
-const knowsTheAnswers: AiBinding = {
-  async run(_model, input) {
-    const { state, questions } = input as { state: string; questions: Record<string, { criteria: Record<string, string> }> };
-    const first = state.split("\n")[0] ?? "";
-    const heading = first.replace(/^(Project|Note): /, "");
-    const fixture = NOTES.find((note) => headingOf(note.text) === heading);
-    if (!fixture?.expected) throw new Error(`no fixture for ${first}`);
-    const expected = fixture.expected;
-    if (first.startsWith("Project: ")) {
-      const done = expected.kind === "done";
-      const stage = done ? "done" : /status: blocked/.test(fixture.text) ? "blocked" : "active";
-      const probabilities = { active: 0.05, blocked: 0.05, done: 0.05, unclear: 0.05, [stage]: 0.85 };
-      return {
-        model: "clef",
-        answers: {
-          stage: { type: "choice", choice: stage, confidence: 0.85, probabilities },
-          shipped: { type: "noul", noul: done ? 0.9 : 0.1 },
-          open_steps: { type: "noul", noul: done ? 0.1 : 0.9 },
-        },
-        usage: { input_tokens: 400, output_tokens: 3 },
-      };
-    }
-    const options = questions.destination!.criteria;
-    const choice =
-      expected.kind === "file"
-        ? Object.keys(options).find((key) => options[key]!.startsWith(`${humanize(expected.folder.split("/").pop()!)} (`))
-        : "stay";
-    if (!choice) throw new Error(`no option for ${expected.kind === "file" ? expected.folder : "stay"}`);
-    const keys = Object.keys(options);
-    const rest = (1 - 0.8) / (keys.length - 1);
-    const probabilities = Object.fromEntries(keys.map((key) => [key, key === choice ? 0.8 : rest]));
-    return {
-      model: "clef",
-      answers: { destination: { type: "choice", choice, confidence: 0.8, probabilities } },
-      usage: { input_tokens: 300, output_tokens: 1 },
-    };
-  },
-};
+import { NOTES, NOW, OWNER, messyWorkspace, misses, organizationScore } from "./organizerEval/workspace.helpers";
+import { gatherOrganizerWork } from "../functions/lib/organizer/sweepOps";
+import { type AiBinding, knowsTheAnswers, localWorker, runSweep } from "./organizerEval/sweep.helpers";
 
 const failsEveryTime: AiBinding = {
   async run() {
@@ -105,5 +54,18 @@ describe("the organization score", () => {
       if (fixture.expected?.kind === "archive") continue;
       expect(after[fixture.path], fixture.path).toBe(before[fixture.path]);
     }
+  });
+});
+
+describe("what a sweep reads", () => {
+  test("inbox notes past one batch's byte budget are still read, not silently skipped", async () => {
+    const { store } = messyWorkspace();
+    // Three notes of 1.5 MB: a batch reads two before its 4 MB budget is spent.
+    for (const name of ["big-a", "big-b", "big-c"]) {
+      store.seed(`0-inbox/${name}.md`, `# ${name}\n\n${"word ".repeat(300_000)}\n`);
+    }
+    const work = await gatherOrganizerWork(store, OWNER, NOW);
+    const inbox = work.items.filter((item) => item.kind === "inbox").map((item) => (item as { note: { path: string } }).note.path);
+    expect(inbox).toEqual(expect.arrayContaining(["0-inbox/big-a.md", "0-inbox/big-b.md", "0-inbox/big-c.md"]));
   });
 });
