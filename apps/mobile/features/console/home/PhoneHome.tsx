@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
@@ -12,9 +12,12 @@ import {
   type HomeNoteTile,
   type HomeOpened,
   type HomePin,
+  type HomeRecent,
 } from "./homeModel";
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
+
+const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
 /**
  * The phone's Home: the workspace's own page, Apple Notes style.
@@ -39,6 +42,8 @@ export function PhoneHome({
   source,
   pins,
   opened,
+  recents,
+  onShown,
   onOpen,
   onNewFolder,
   onActions,
@@ -49,6 +54,10 @@ export function PhoneHome({
   source: HomeSource;
   pins: readonly HomePin[];
   opened: readonly HomeOpened[];
+  /** This person's own recent notes; `null` for a visitor, who has no account. */
+  recents: readonly HomeRecent[] | null;
+  /** Home came on screen: read the person's places again, written on any device since. */
+  onShown?: () => void;
   onOpen: (path: string) => void;
   /** `undefined` for who may not make folders here. */
   onNewFolder?: () => void;
@@ -64,11 +73,16 @@ export function PhoneHome({
   // A tag pressed in search or a folder's tags lands here (`homeTag.ts`).
   const [tag, setTag] = useHomeTag();
   const [now] = useState(() => Date.now());
+  // Once per arrival on Home, not on every redraw.
+  const shown = useRef(onShown);
+  useEffect(() => {
+    shown.current?.();
+  }, []);
   const home = useMemo(() => {
-    const built = buildHome({ ...source, pins, opened, tag, now });
+    const built = buildHome({ ...source, pins, opened, recents, tag, now });
     // A tag gone from every note would narrow Home to nothing: show everything instead.
-    return built.tagged?.count === 0 ? buildHome({ ...source, pins, opened, tag: null, now }) : built;
-  }, [source, pins, opened, tag, now]);
+    return built.tagged?.count === 0 ? buildHome({ ...source, pins, opened, recents, tag: null, now }) : built;
+  }, [source, pins, opened, recents, tag, now]);
   const activeTag = home.tagged?.tag ?? null;
   const hold = (path: string, kind: "note" | "folder") =>
     onTogglePin === null ? undefined : () => onTogglePin(path, kind);
@@ -177,7 +191,7 @@ export function PhoneHome({
               <NoteRow
                 key={note.path}
                 note={note}
-                when={note.updatedAt === undefined ? "" : whenLabel(note.updatedAt, now)}
+                when={whenOf(note.seenAt ?? note.updatedAt, now)}
                 onPress={() => onOpen(note.path)}
                 onLongPress={hold(note.path, "note")}
               />
