@@ -16,6 +16,13 @@ import { ORGANIZER_PREFIX } from "../../../../packages/shared/src/storageLayout.
 
 export const ORGANIZER_STATE_KEY = `${ORGANIZER_PREFIX}state.json`;
 export const ORGANIZER_KINDS = Object.freeze(["done", "archive", "file"]);
+/**
+ * "What changed" cards (`./changes.js`). Waiting like the rest, but never done
+ * without asking, so they have no streak and no autopilot.
+ */
+export const CHANGE_KIND = "change";
+/** A change card nobody answered goes away after this long. */
+export const CHANGE_MEMORY_MS = 30 * 24 * 60 * 60 * 1000;
 /** A dismissed suggestion stays dismissed this long, then may come back. */
 export const DISMISS_MEMORY_MS = 90 * 24 * 60 * 60 * 1000;
 const MAX_PENDING = 200;
@@ -27,11 +34,11 @@ const STATE_BYTE_CAP = 256_000;
 export const OFFER_AFTER_ACCEPTS = 3;
 
 export function emptyOrganizerState() {
-  return { version: 1, sweptAt: null, pending: [], dismissed: {}, streaks: { done: 0, archive: 0, file: 0 }, reverts: {} };
+  return { version: 1, sweptAt: null, pending: [], dismissed: {}, streaks: { done: 0, archive: 0, file: 0 }, reverts: {}, changesReadUpTo: null };
 }
 
 function isKind(value) {
-  return ORGANIZER_KINDS.includes(value);
+  return ORGANIZER_KINDS.includes(value) || value === CHANGE_KIND;
 }
 
 /** Read it back, forgiving anything malformed rather than failing the sweep. */
@@ -67,6 +74,7 @@ export function parseOrganizerState(text) {
     dismissed,
     streaks,
     reverts,
+    changesReadUpTo: typeof raw.changesReadUpTo === "number" ? raw.changesReadUpTo : null,
   };
 }
 
@@ -97,18 +105,27 @@ function forgetOldDismissals(dismissed, now) {
   return Object.fromEntries(kept);
 }
 
-/** A finished sweep replaces the pending list, minus anything dismissed. */
-export function mergeSweep(state, fresh, now) {
+/**
+ * A finished sweep replaces the pending list, minus anything dismissed. Change
+ * cards are the exception: each comes from one arrival that is read once, so
+ * those still waiting stay (for `CHANGE_MEMORY_MS`) beside the new ones.
+ * `readUpTo` moves the mark of what has been read for changes.
+ */
+export function mergeSweep(state, fresh, now, readUpTo) {
   const dismissed = forgetOldDismissals(state.dismissed, now);
   const seen = new Set();
   const pending = [];
-  for (const suggestion of fresh) {
+  const waiting = state.pending.filter(
+    (item) => item.kind === CHANGE_KIND && typeof item.at === "number" && now - item.at < CHANGE_MEMORY_MS,
+  );
+  for (const suggestion of [...waiting, ...fresh]) {
     if (dismissed[suggestion.id] !== undefined || seen.has(suggestion.id)) continue;
     seen.add(suggestion.id);
     pending.push(suggestion);
     if (pending.length >= MAX_PENDING) break;
   }
-  return { ...state, sweptAt: now, pending, dismissed };
+  const changesReadUpTo = typeof readUpTo === "number" ? Math.max(readUpTo, state.changesReadUpTo ?? 0) : state.changesReadUpTo ?? null;
+  return { ...state, sweptAt: now, pending, dismissed, changesReadUpTo };
 }
 
 /**
@@ -122,13 +139,14 @@ export function resolveSuggestion(state, id, decision, now) {
   const pending = state.pending.filter((item) => item.id !== id);
   const streaks = { ...state.streaks };
   const dismissed = { ...state.dismissed };
+  const counted = ORGANIZER_KINDS.includes(suggestion.kind);
   if (decision === "accept") {
-    streaks[suggestion.kind] = (streaks[suggestion.kind] ?? 0) + 1;
+    if (counted) streaks[suggestion.kind] = (streaks[suggestion.kind] ?? 0) + 1;
   } else {
-    streaks[suggestion.kind] = 0;
+    if (counted) streaks[suggestion.kind] = 0;
     dismissed[id] = now;
   }
-  const offer = decision === "accept" && streaks[suggestion.kind] === OFFER_AFTER_ACCEPTS;
+  const offer = counted && decision === "accept" && streaks[suggestion.kind] === OFFER_AFTER_ACCEPTS;
   return { state: { ...state, pending, streaks, dismissed: forgetOldDismissals(dismissed, now) }, suggestion, offer };
 }
 

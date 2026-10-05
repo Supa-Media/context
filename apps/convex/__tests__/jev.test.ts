@@ -25,7 +25,7 @@ import { type TestConvex, addMember, asUser, createUser, createWorkspace, setupT
 const FUNCTIONS_ROOT = join(__dirname, "..", "functions");
 const JEV_DIR = join(FUNCTIONS_ROOT, "lib", "jev");
 /** What only `lib/jev/` may say: the route and the model. */
-const JEV_MARKERS = [/["'`/]decide["'`]/, /\/decide\b/, /typesafe\/jev/, /cloudflare\/clef/];
+const JEV_MARKERS = [/["'`/]decide["'`]/, /\/decide\b/, /\/extract["'`]/, /typesafe\/jev/, /cloudflare\/clef/, /google\/gemma/, /zai-org\/glm/];
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -44,12 +44,22 @@ function reachesJevDirectly(text: string): boolean {
 const ADMIN = "staff@example.invalid";
 const REQUEST = { state: "Shipped the fix on Tuesday.", questions: { shipped: { type: "noul", instructions: "Did it ship?", criteria: { true: "yes", false: "no" } } } };
 
-function fakeTransport(answer: Record<string, unknown> | null = { shipped: { type: "noul", noul: 0.9 } }) {
+const WRITE = { instructions: "What changed?", text: "Dana left on Friday.", schema: { type: "object" } };
+const WRITTEN = { output: { changes: [] }, usage: { input: 1_000_000, output: 100_000 } };
+
+function fakeTransport(
+  answer: Record<string, unknown> | null = { shipped: { type: "noul", noul: 0.9 } },
+  written: typeof WRITTEN | null = WRITTEN,
+) {
   const sent: unknown[] = [];
   const transport: JevTransport = {
     async send(request) {
       sent.push(request);
       return answer;
+    },
+    async write(request) {
+      sent.push(request);
+      return written;
     },
   };
   return { transport, sent };
@@ -105,6 +115,8 @@ describe("nothing reaches Jev except through lib/jev", () => {
     expect(reachesJevDirectly('await fetch(`${url}/decide`, { method: "POST" })')).toBe(true);
     expect(reachesJevDirectly('env.AI.run("typesafe/jev", input)')).toBe(true);
     expect(reachesJevDirectly('env.AI.run("@cf/cloudflare/clef", input)')).toBe(true);
+    expect(reachesJevDirectly('await fetch(`${url}/extract`, { method: "POST" })')).toBe(true);
+    expect(reachesJevDirectly('env.AI.run("@cf/google/gemma-4-26b-a4b-it", input)')).toBe(true);
     expect(reachesJevDirectly(readFileSync(join(JEV_DIR, "worker.ts"), "utf8"))).toBe(true);
     expect(reachesJevDirectly("const decided = decide(request);")).toBe(false);
   });
@@ -203,6 +215,39 @@ describe("withJev", () => {
       expect(await jev!.decide(REQUEST)).toBeNull();
     });
     expect(await usage(t, workspaceId)).toMatchObject({ calls: 0, failed: 1 });
+  });
+
+  test("a written answer is counted and priced from the model's own token counts", async () => {
+    const t = setupTest();
+    const { workspaceId } = await payingWorkspace(t);
+    await switchOn(t, "organizer");
+    const { transport, sent } = fakeTransport();
+    await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport }, async (jev) => {
+      expect(await jev!.write(WRITE)).toEqual(WRITTEN);
+      expect(await jev!.decide(REQUEST)).not.toBeNull();
+    });
+    expect(sent).toHaveLength(2);
+    const row = await usage(t, workspaceId);
+    expect(row).toMatchObject({ calls: 2, failed: 0 });
+    // A million tokens in at $0.10 and a hundred thousand out at $0.30, plus the question's estimate.
+    const asked = row!.tokens - 1_100_000;
+    expect(row!.costMicroUsd).toBe(100_000 + 30_000 + costMicroUsd(asked));
+  });
+
+  test("a failed write is counted as failed, and a transport that cannot write is refused", async () => {
+    const t = setupTest();
+    const { workspaceId } = await payingWorkspace(t);
+    await switchOn(t, "organizer");
+    const failing = fakeTransport(undefined, null);
+    await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport: failing.transport }, async (jev) => {
+      expect(await jev!.write(WRITE)).toBeNull();
+    });
+    expect(await usage(t, workspaceId)).toMatchObject({ calls: 0, failed: 1 });
+    const askOnly: JevTransport = { send: async () => ({}) };
+    await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport: askOnly }, async (jev) => {
+      expect(await jev!.write(WRITE)).toBeNull();
+    });
+    expect(await usage(t, workspaceId)).toMatchObject({ calls: 0, failed: 1, refused: 1 });
   });
 
   test("usage is written even when the feature throws", async () => {

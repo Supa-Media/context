@@ -8,6 +8,10 @@
 # every pull request (organizerEval.test.ts); this is the half that checks the
 # model reads well enough.
 #
+# The second step does the same for "What changed": a week of invented
+# arrivals read by the writing models on the Worker's /extract route
+# (organizerChanges.live.test.ts), scored, with what each model cost.
+#
 # No customer note is ever sent: the workspace is in the test. A run asks a
 # few dozen questions. Manual, and weekly, so a change in the model's answers
 # shows up without anybody having to look.
@@ -56,3 +60,7 @@ jobs:
       - name: Sweep the messy workspace with the real model
         working-directory: apps/convex
         run: npx vitest run __tests__/organizerEval.live.test.ts
+      - name: Read a week of arrivals for what changed, with each writing model
+        if: ${{ !cancelled() }}
+        working-directory: apps/convex
+        run: npx vitest run __tests__/organizerChanges.live.test.ts
