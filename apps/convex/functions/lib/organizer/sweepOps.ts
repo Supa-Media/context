@@ -58,6 +58,16 @@ const READ_BATCH = 50;
 const STATE_WRITE_ATTEMPTS = 3;
 
 export type OrganizerKind = "done" | "archive" | "file";
+const ORGANIZER_KINDS: readonly string[] = ["done", "archive", "file"];
+
+/**
+ * An organizing suggestion (the suggestions list), not a card for a page of
+ * its own. An allow-list: a new card kind stays off the list until the list
+ * can draw it, rather than failing the whole list's reply.
+ */
+export function isOrganizing(suggestion: OrganizerSuggestion): suggestion is OrganizerSuggestion & { kind: OrganizerKind } {
+  return ORGANIZER_KINDS.includes(suggestion.kind);
+}
 
 export interface OrganizerSuggestion {
   id: string;

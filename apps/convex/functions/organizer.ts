@@ -46,7 +46,7 @@ import {
   sweepIsDue,
   organizerAvailable,
 } from "./lib/organizer/settings";
-import { type OrganizerSuggestion, type OrganizerUndo, type SweepWork, suggestionFor } from "./lib/organizer/sweepOps";
+import { type OrganizerSuggestion, type OrganizerUndo, type SweepWork, isOrganizing, suggestionFor } from "./lib/organizer/sweepOps";
 import { readWhatChanged } from "./lib/organizer/whatChanged";
 import { organizerOp, ownerOf } from "./lib/organizer/trip";
 import { teamOutlines, unsendRoute } from "./lib/organizer/routeTrips";
@@ -318,10 +318,6 @@ export const changes = action({
     return { changes: cards };
   },
 });
-
-function isOrganizing(suggestion: OrganizerSuggestion): suggestion is OrganizerSuggestion & { kind: OrganizerKind } {
-  return suggestion.kind !== "change";
-}
 
 /** The app's shape: no etag, nothing undefined. */
 function forApp(suggestion: OrganizerSuggestion & { kind: OrganizerKind }) {
