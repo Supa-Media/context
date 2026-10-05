@@ -16,6 +16,7 @@
  *   cap truncation reports complete coverage                     1 (over-cap)
  *   non-.md relative target given incoming/                      1 (non-.md)
  *   definition occurrences given memberships                     1 (definition)
+ *   fragment parameters not checked in urlKey                    1 (urlKey)
  *   bare name membership dropped                                 2 (bare, duplicate)
  */
 
@@ -159,4 +160,22 @@ test("urlKey rules", () => {
   assert.equal(urlKey("mailto:a@b.test"), null);
   assert.equal(urlKey("not a url"), null);
   assert.equal(urlKey("//cdn.test/x"), null);
+});
+
+test("urlKey: secrets in the fragment and extra signed-URL markers are excluded", () => {
+  assert.equal(urlKey("https://e.test/#access_token=abc"), null);
+  assert.equal(urlKey("https://e.test/#state=x&ID_TOKEN=abc"), null);
+  assert.equal(urlKey("https://e.test/?X-Goog-Signature=abc"), null);
+  assert.equal(urlKey("https://e.test/?Policy=abc&Key-Pair-Id=K"), null);
+  assert.equal(urlKey("https://e.test/?jwt=abc"), null);
+  assert.equal(urlKey("https://e.test/#section-2").key, "https://e.test/#section-2");
+  assert.ok(urlKey("https://e.test/?code=python"));
+});
+
+test("a single occurrence over the cap yields partial, zero occurrences, full memberships", async () => {
+  const r = await build(FROM, `[x](./${"a".repeat(GRAPH_RECORD_BYTE_CAP + 10)}.md)`);
+  assert.equal(r.record.coverage, "partial");
+  assert.equal(r.record.occurrences.length, 0);
+  assert.equal(r.memberships.size, 2);
+  assert.deepEqual(parseNode(serializeNode(r.record), FROM), r.record);
 });
