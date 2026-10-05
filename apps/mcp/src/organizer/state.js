@@ -79,8 +79,11 @@ export async function readOrganizerState(store) {
 }
 
 export async function writeOrganizerState(store, state, etag) {
+  // No content type: the store writes only from an allow-list
+  // (`store/contentTypes.js`) and JSON is not on it, so naming one refused
+  // every write in production. Plumbing JSON goes in as the default, like
+  // `.context/forwarding.json` and every other state file.
   const result = await store.put(ORGANIZER_STATE_KEY, JSON.stringify(state), {
-    contentType: "application/json",
     onlyIf: etag ? { etagMatches: etag } : { absent: true },
   });
   return result ? result.etag : null;

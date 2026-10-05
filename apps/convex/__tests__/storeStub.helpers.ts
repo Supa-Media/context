@@ -329,6 +329,8 @@ export interface MemoryS3Options {
    * provider says about a credential does not end up stored.
    */
   errorMessage?: string;
+  /** When a listing says a key was last saved. Every key says 2026-08-01 otherwise. */
+  modifiedAt?: (key: string) => Date | undefined;
 }
 
 export interface MemoryS3 {
@@ -405,7 +407,7 @@ export function memoryS3(
         startAfter: url.searchParams.get("start-after") ?? undefined,
         limit: Number(url.searchParams.get("max-keys")) || undefined,
       });
-      return new Response(listXml(page), {
+      return new Response(listXml(page, options.modifiedAt), {
         headers: { "content-type": "application/xml" },
       });
     }
@@ -539,7 +541,7 @@ export function memoryS3(
   };
 }
 
-function listXml(page: ReturnType<typeof listPage>): string {
+function listXml(page: ReturnType<typeof listPage>, modifiedAt?: (key: string) => Date | undefined): string {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
@@ -551,7 +553,7 @@ function listXml(page: ReturnType<typeof listPage>): string {
       .map(
         (object) =>
           `<Contents><Key>${xmlEscape(object.key)}</Key>` +
-          `<LastModified>2026-08-01T10:00:00.000Z</LastModified>` +
+          `<LastModified>${(modifiedAt?.(object.key) ?? new Date("2026-08-01T10:00:00.000Z")).toISOString()}</LastModified>` +
           `<ETag>&quot;${object.etag}&quot;</ETag><Size>${object.size}</Size></Contents>`,
       )
       .join("") +

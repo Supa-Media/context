@@ -108,8 +108,13 @@ async function listEverything(store: FileStore, clearance: Clearance) {
 
 async function readTexts(store: FileStore, clearance: Clearance, paths: string[]) {
   const texts = new Map<string, { text: string; etag: string }>();
-  for (let at = 0; at < paths.length; at += READ_BATCH) {
-    const batch = await readFiles(store, { paths: paths.slice(at, at + READ_BATCH), clearance });
+  let queue = paths;
+  while (queue.length > 0) {
+    const batch = await readFiles(store, { paths: queue.slice(0, READ_BATCH), clearance });
+    // Past a batch's byte budget the rest come back `deferred`, unread: ask
+    // again. The first path of a batch is always read, so this ends.
+    const deferred = batch.filter((read) => read.outcome === "deferred").map((read) => read.path);
+    queue = [...deferred, ...queue.slice(READ_BATCH)];
     for (const read of batch) {
       // An encrypted note is ciphertext here, and stays unread: the control
       // plane holds no key, and a locked note reaches no AI feature at all.
