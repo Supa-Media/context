@@ -88,6 +88,50 @@ export function previewWhy(s: OrganizerSuggestion): string {
   return reviewMeta(s);
 }
 
+/** "0-inbox/meetings" → "Inbox › Meetings": a folder as a person names it. */
+export function placeName(path: string): string {
+  const folders = path.split("/").slice(0, -1);
+  if (folders.length === 0) return "the top level";
+  return folders
+    .map((segment) => {
+      const words = segment.replace(/^\d+-/, "").replace(/[-_]+/g, " ").trim();
+      return words.charAt(0).toUpperCase() + words.slice(1);
+    })
+    .join(" › ");
+}
+
+/** The row's heading: what will happen, as a verb. */
+export function actionLine(s: OrganizerSuggestion): string {
+  switch (s.kind) {
+    case "done":
+      return "Mark as done";
+    case "archive":
+      return "Move to Archive";
+    case "file":
+      return s.target === undefined ? "File it" : `Move to ${s.target.title}`;
+  }
+}
+
+/** The row's last line: from where to where, or why. */
+export function whereLine(s: OrganizerSuggestion): string {
+  switch (s.kind) {
+    case "done":
+      return s.reason;
+    case "archive":
+      return s.reason ? `${s.reason.replace(/[.!?]?$/, ".")} Nothing is deleted.` : "Nothing is deleted.";
+    case "file":
+      return s.target === undefined
+        ? s.reason
+        : `From ${placeName(s.path)} to ${placeName(`${s.target.path}/x`)}`;
+  }
+}
+
+/** The row's buttons, said as what they do. */
+export function acceptButton(s: OrganizerSuggestion): string {
+  return s.kind === "done" ? "Mark done" : s.kind === "archive" ? "Archive" : "Move";
+}
+export const skipButton = "Skip";
+
 export function acceptLabel(s: OrganizerSuggestion): string {
   switch (s.kind) {
     case "done":
