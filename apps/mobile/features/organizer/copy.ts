@@ -143,6 +143,25 @@ export const settingsCopy = {
   off: "Off",
 };
 
+/** The card's status line: whether it is sorting, and when it last did. */
+export const sortCopy = {
+  never: "Hasn’t sorted yet.",
+  failed: (ago: string) => `The last sort didn’t finish (${ago}).`,
+  sortNow: "Sort now",
+  tryAgain: "Try again",
+  lookOver: "Look over",
+};
+
+export function sortRunning({ read, total }: { read: number; total: number }): string {
+  return total === 0 ? "Sorting now…" : `Sorting now · ${sweepCount({ read, total })}`;
+}
+
+/** "Sorted 3 hours ago. 4 suggestions waiting." */
+export function sortDone(ago: string, pending: number): string {
+  const waiting = pending > 0 ? `${suggestionsLine(pending)} waiting.` : "Nothing waiting.";
+  return `Sorted ${ago}. ${waiting}`;
+}
+
 /** The "Without asking" switches, in the order they are drawn. */
 export const KIND_LABELS: Record<OrganizerKind, string> = {
   done: "Mark finished projects done",

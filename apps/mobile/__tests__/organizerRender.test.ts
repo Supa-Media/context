@@ -73,6 +73,7 @@ interface Calls {
   enabled: boolean[];
   acknowledged: boolean[];
   undone: number;
+  swept: number;
 }
 
 function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | null } = {}, calls?: Calls): OrganizerView {
@@ -90,7 +91,9 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
     setEnabled: (on) => calls?.enabled.push(on),
     setAutopilot: (kind, on) => calls?.autopilot.push([kind, on]),
     acknowledgeNotice: (turnOff) => calls?.acknowledged.push(turnOff),
-    sweepNow: () => {},
+    sweepNow: () => {
+      if (calls) calls.swept += 1;
+    },
     openSettings: () => {},
     toasts: [],
     dismissToast: () => {},
@@ -99,7 +102,7 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
   };
 }
 
-const fresh = (): Calls => ({ opened: [], resolved: [], autopilot: [], enabled: [], acknowledged: [], undone: 0 });
+const fresh = (): Calls => ({ opened: [], resolved: [], autopilot: [], enabled: [], acknowledged: [], undone: 0, swept: 0 });
 
 function browser(): FileBrowser {
   return {
@@ -205,6 +208,39 @@ describe("Settings › Premium", () => {
     press(byId(container, "organizer-switch"));
     expect(calls.autopilot).toEqual([["done", true]]);
     expect(calls.enabled).toEqual([false]);
+  });
+
+  test("the owner can tell whether it is sorting: never yet, now, when it last did, and a sort that failed", () => {
+    const calls = fresh();
+    const never = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: null } }, calls), returned: null }));
+    expect(byId(never, "organizer-sort-never")?.textContent).toContain("Hasn’t sorted yet.");
+    press(byId(never, "organizer-sort-now"));
+    expect(calls.swept).toBe(1);
+
+    const now = Date.now();
+    const running = { state: "running" as const, startedAt: now - 60_000, finishedAt: null, read: 12, total: 40, found: { done: 0, archive: 0, file: 0 } };
+    const sorting = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: running } }), returned: null }));
+    expect(byId(sorting, "organizer-sort-running")?.textContent).toContain("Sorting now · 12 of 40 notes");
+    // Nothing to press while it runs.
+    expect(byId(sorting, "organizer-sort-now")).toBeNull();
+
+    const done = { ...running, state: "done" as const, finishedAt: now - 3 * 3_600_000, read: 40 };
+    const sorted = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done, pending: 2 } }, calls), returned: null }));
+    expect(byId(sorted, "organizer-sort-done")?.textContent).toContain("Sorted 3 hours ago. 2 suggestions waiting.");
+    press(byId(sorted, "organizer-sort-review"));
+    expect(calls.opened).toEqual([{ closeSettings: true }]);
+
+    const failed = { ...done, state: "failed" as const };
+    const broke = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: failed } }, calls), returned: null }));
+    expect(byId(broke, "organizer-sort-failed")?.textContent).toContain("The last sort didn’t finish (3 hours ago).");
+    press(byId(broke, "organizer-sort-now"));
+    expect(calls.swept).toBe(2);
+  });
+
+  test("switched off, there is no sort line to read", () => {
+    const container = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, on: false } }), returned: null }));
+    expect(byId(container, "organizer-settings")).not.toBeNull();
+    expect(container.querySelector('[data-testid^="organizer-sort-"]')).toBeNull();
   });
 
   test("a member reads it and is offered nothing to press", () => {
