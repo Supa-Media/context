@@ -60,6 +60,9 @@ folder and the Worker. `__tests__/jev.test.ts` fails if you do.
   and ms.
 - Staff read `api.functions.admin.jevUsageReport({ days })`, which gives
   totals and daily series per feature, with each switch's state.
+- The staff roster (`admin.censusReport`) shows each account's cost over the
+  census window, summed over the workspaces it owns (`spend.ts`, read through
+  the `by_workspace_day` index under one row budget).
 - `JEV_USD_PER_MTOK` in the Convex environment overrides the price.
 
 ## Turning it off

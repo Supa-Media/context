@@ -225,6 +225,8 @@ function census(over: Record<string, unknown> = {}) {
         clients: 1,
         plan: "active",
         lastSeenAt: Date.now(),
+        aiSpendMicroUsd: 420_000,
+        aiSpendPartial: false,
       },
     ],
     ...over,
@@ -328,8 +330,8 @@ describe("growth is what the page opens on", () => {
   test("needs a nudge reads the roster person by person", () => {
     asAdmin({
       roster: [
-        { joinedAt: 1, email: "a@example.test", contexts: 1, owned: 1, connectedStorage: 0, clients: 0, plan: "none", lastSeenAt: null },
-        { joinedAt: 2, email: "b@example.test", contexts: 1, owned: 1, connectedStorage: 1, clients: 1, plan: "past_due", lastSeenAt: 2 },
+        { joinedAt: 1, email: "a@example.test", contexts: 1, owned: 1, connectedStorage: 0, clients: 0, plan: "none", lastSeenAt: null, aiSpendMicroUsd: 0, aiSpendPartial: false },
+        { joinedAt: 2, email: "b@example.test", contexts: 1, owned: 1, connectedStorage: 1, clients: 1, plan: "past_due", lastSeenAt: 2, aiSpendMicroUsd: 0, aiSpendPartial: false },
       ],
     });
     const container = mount();
@@ -347,6 +349,15 @@ describe("growth is what the page opens on", () => {
     expect(has(container, "admin-funnel")).toBe(true);
     expect(has(container, "admin-roster")).toBe(true);
     expect(container.textContent).toContain("someone@example.test");
+  });
+
+  test("the roster shows each account's AI spend for the census window", () => {
+    const container = mount();
+    const roster = find("admin-roster")?.textContent ?? "";
+    expect(roster).toContain("$0.42");
+    // The table's header, or the phone row's fact: either way, the window.
+    expect(roster).toMatch(/AI \(2d\)|AI \$0\.42 \(2d\)/);
+    expect(container.textContent).not.toContain("NaN");
   });
 
   test("the credential form is NOT here", () => {

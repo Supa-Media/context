@@ -1,9 +1,11 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   CURVE_BOX,
+  aiSpendLabel,
   arrivalDays,
   curveGeometry,
   daysSinceLastArrival,
+  formatAiSpend,
   formatDaysAgo,
   niceTop,
   nudgeCounts,
@@ -127,6 +129,8 @@ describe("who needs a nudge", () => {
     clients: 1,
     plan: "none",
     lastSeenAt: 1,
+    aiSpendMicroUsd: 0,
+    aiSpendPartial: false,
     ...over,
   });
 
@@ -148,5 +152,25 @@ describe("who needs a nudge", () => {
     expect(storageState(row({}))).toBe("connected");
     expect(storageState(row({ connectedStorage: 0 }))).toBe("pending");
     expect(storageState(row({ connectedStorage: 0, owned: 0 }))).toBe("none");
+  });
+});
+
+describe("the roster's AI spend", () => {
+  test("dollars to the cent, a floor under a cent, a dash for none", () => {
+    expect(formatAiSpend(0, false)).toBe("—");
+    expect(formatAiSpend(1, false)).toBe("<$0.01");
+    expect(formatAiSpend(9_999, false)).toBe("<$0.01");
+    expect(formatAiSpend(10_000, false)).toBe("$0.01");
+    expect(formatAiSpend(420_000, false)).toBe("$0.42");
+    expect(formatAiSpend(1_234_567_890, false)).toBe("$1,234.57");
+  });
+
+  test("a figure the server could not finish reading is printed as a floor", () => {
+    expect(formatAiSpend(420_000, true)).toBe("$0.42+");
+    expect(formatAiSpend(0, true)).toBe("$0.00+");
+  });
+
+  test("the label names the window it covers", () => {
+    expect(aiSpendLabel(30)).toBe("AI (30d)");
   });
 });
