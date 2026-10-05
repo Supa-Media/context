@@ -19,6 +19,7 @@
  *     /_expo/[...]     -> the Expo web app, cacheable forever
  *     /og/card.png     -> the Worker's own OpenGraph card
  *     /favicon.ico etc -> the Worker's own icons (icons.ts)
+ *     /robots.txt      -> allow everything, plain text (icons.ts)
  *     everything else  -> a link-preview crawler gets server-rendered meta
  *                         tags; everyone else gets the Expo web app on EAS
  *                         Hosting, path unchanged
@@ -46,7 +47,7 @@ import {
   type PreviewMeta,
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
-import { iconFor, type IconName } from "./icons";
+import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
 export type Upstream = "expo" | "convex";
@@ -95,6 +96,8 @@ export type RouteDecision =
   | { kind: "og-card" }
   // The site's favicons, served from the bundle. See `icons.ts`.
   | { kind: "icon"; name: IconName }
+  // The apex's robots.txt, plain text from the Worker. See `icons.ts`.
+  | { kind: "robots" }
   // `path` is the full path + query to request from the upstream. It is never
   // rewritten today, but naming it separately keeps the tests honest about
   // that and makes a future prefix rule a one-line change.
@@ -191,6 +194,10 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // and a crawler asking for an icon wants the icon, not an HTML card.
   const icon = iconFor(pathname);
   if (icon !== null) return { kind: "icon", name: icon };
+
+  // robots.txt too: it is the first thing Googlebot fetches, and the crawler
+  // branch below would answer it with the HTML product card.
+  if (pathname === ROBOTS_PATH) return { kind: "robots" };
 
   // Before the crawler check, like `/og/card.png` above and for the same
   // reason: this is the image the preview tags point at, and it is requested

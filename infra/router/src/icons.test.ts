@@ -113,6 +113,22 @@ describe("the icon paths", () => {
   });
 });
 
+describe("robots.txt", () => {
+  it("allows every crawler everything, as plain text, without an upstream", async () => {
+    for (const ua of [GOOGLEBOT, BROWSER]) {
+      const response = await get("https://context.lc/robots.txt", ua);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+      const body = await response.text();
+      expect(body).toMatch(/^User-agent: \*$/m);
+      expect(body).toMatch(/^Allow: \/$/m);
+      expect(body).not.toMatch(/Disallow:\s*\//);
+      expect(body).not.toContain("<");
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("icoFromPng", () => {
   it("writes a one-image ICO directory in front of the PNG", () => {
     const png = new Uint8Array([...PNG_SIGNATURE, 1, 2, 3]).buffer;

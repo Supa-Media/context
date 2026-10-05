@@ -15,7 +15,7 @@ import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
 import { isHomeDocument, withHomeSite } from "./homeSite";
-import { iconResponse, staticAsset } from "./icons";
+import { iconResponse, robotsResponse, staticAsset } from "./icons";
 import { originFor, readOrigin, VAR_NAME } from "./upstream";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
@@ -187,6 +187,9 @@ async function respond(
 
       case "icon":
         return iconResponse(decision.name);
+
+      case "robots":
+        return robotsResponse();
 
       case "redirect":
         // Deterministic (host-only) redirects are safe to cache. A plain
