@@ -18,6 +18,10 @@ import {
   previewWhy,
   reviewMeta,
   sortCopy,
+  actionLine,
+  whereLine,
+  acceptButton,
+  placeName,
   suggestionsLine,
   sweepCount,
   sweepFoundTitle,
@@ -108,6 +112,18 @@ describe("copy", () => {
     expect(reviewMeta(ARCHIVE)).toBe("Archive? Quiet for 3 weeks");
     expect(reviewMeta(FILE)).toBe("File in Custom domains?");
     expect(reviewMeta({ ...FILE, target: undefined })).toBe("Sayo's DNS questions");
+  });
+
+  test("a review row says what it will do and from where to where, in folder names", () => {
+    expect(actionLine(FILE)).toBe("Move to Custom domains");
+    expect(whereLine(FILE)).toBe("From Inbox to Projects › Custom domains");
+    expect(actionLine(DONE)).toBe("Mark as done");
+    expect(whereLine(DONE)).toBe("Every step is ticked off");
+    expect(actionLine(ARCHIVE)).toBe("Move to Archive");
+    expect(whereLine(ARCHIVE)).toBe("Quiet for 3 weeks. Nothing is deleted.");
+    expect(acceptButton(FILE)).toBe("Move");
+    expect(placeName("0-inbox/meetings/standup.md")).toBe("Inbox › Meetings");
+    expect(placeName("index.md")).toBe("the top level");
   });
 
   test("the sweep's preview states the finding rather than asking", () => {

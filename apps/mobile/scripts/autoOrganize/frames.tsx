@@ -229,7 +229,7 @@ export const FRAMES: ReadonlyArray<ShotFrame> = [
     at: listAt,
     organizer: () => ({ status: STATUS, reviewOpen: true }),
     hover: "incident",
-    assert: ["File in Custom domains?", "Mark done?"],
+    assert: ["Move to Custom domains", "Mark as done", "Skip"],
     schemes: ["light", "dark"],
   },
   {

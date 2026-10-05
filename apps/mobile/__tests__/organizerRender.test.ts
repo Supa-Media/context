@@ -169,14 +169,19 @@ describe("the explorer's foot", () => {
     expect(calls.opened).toHaveLength(1);
   });
 
-  test("the popover groups the list, and ✓ and ✕ answer one row each", () => {
+  test("the popover says what each row will do, to which note, and answers one row each", () => {
     const calls = fresh();
     const container = mount(explorer(), organizer({ reviewOpen: true }, calls));
     const list = byId(container, "explorer-suggestions-list");
     expect(list?.textContent).toContain("Projects · 1");
     expect(list?.textContent).toContain("Inbox · 1");
-    expect(list?.textContent).toContain("Mark done? Every step is ticked off");
-    expect(list?.textContent).toContain("File in Custom domains?");
+    expect(list?.textContent).toContain("Mark as done");
+    expect(list?.textContent).toContain("Every step is ticked off");
+    expect(list?.textContent).toContain("Move to Custom domains");
+    expect(list?.textContent).toContain("From Inbox to Projects › Custom domains");
+    // The answers are words on the row, not icons that light up on hover.
+    expect(byId(container, "organizer-accept-f1")?.textContent).toBe("Move");
+    expect(byId(container, "organizer-dismiss-f1")?.textContent).toBe("Skip");
     press(byId(container, "organizer-accept-d1"));
     press(byId(container, "organizer-dismiss-f1"));
     expect(calls.resolved).toEqual([
