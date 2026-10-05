@@ -129,7 +129,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "packages/shared/src/comments.cjs": "67ea8cf56cc97c8ed363882f9044d624be79ba06009c6d3be9b9dbbedcef8639",
   "packages/shared/src/customEmoji.ts": "b50a2c833859bf8f32bee58f47db570db310f70c7b2ffba849a2904204708c43",
   "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
-  "packages/shared/src/links.ts": "0c9cdadea3905d11d1f6d5ad12e142c6e481ead8dbaacd488be5aa0815a978c1",
+  "packages/shared/src/links.ts": "9e388c33b37a1c54df87d3a93c1886f2b0ced19c80d7b21b7d4a3d448eb138e3",
   "packages/shared/src/websiteCast.ts": "8a84c0e78e67a0d4c3cba3e66944f1d2bd9ce1cc15316af30f709c7521971e8e",
   "packages/shared/src/websiteJoin.ts": "932bada3c41ead60f1f0236eaefabb2ebbefc7ec50bc1e8a27aa205929561235"
 };
