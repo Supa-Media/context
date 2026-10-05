@@ -207,3 +207,60 @@ describe("the files the origin serves from `public/`", () => {
     }
   });
 });
+
+/**
+ * X ADS' PIXEL (Dev2, 2026-10-05): on context.lc's landing page, and only there.
+ *
+ * This document is every route, and X's script reports the address it loads
+ * on — so a pixel that ran everywhere would hand X console, note and
+ * invitation URLs (`/invite/<token>?code=…` among them). The snippet is run
+ * here against a stand-in window to prove where it loads and where it does not.
+ */
+describe("the X pixel", () => {
+  const start = shell.indexOf("<!-- X conversion tracking base code -->");
+  const end = shell.indexOf("<!-- End X conversion tracking base code -->");
+  const block = shell.slice(start, end);
+  const script = block.slice(block.indexOf("<script>") + "<script>".length, block.indexOf("</script>"));
+
+  function runAt(href: string): { loaded: string[]; queue: unknown[][] } {
+    const url = new URL(href);
+    const loaded: string[] = [];
+    const win: Record<string, unknown> = {};
+    const doc = {
+      createElement: () => ({}) as { src?: string },
+      getElementsByTagName: () => [
+        { parentNode: { insertBefore: (el: { src?: string }) => loaded.push(el.src ?? "") } },
+      ],
+    };
+    const twq = (...args: unknown[]) => (win.twq as (...a: unknown[]) => void)(...args);
+    new Function("window", "document", "location", "twq", script)(win, doc, url, twq);
+    const queue = ((win.twq as { queue?: unknown[][] } | undefined)?.queue ?? []).map((a) => [...a]);
+    return { loaded, queue };
+  }
+
+  test("is X's base code with the rgib5 config, once, before the head closes", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(end).toBeLessThan(shell.indexOf("</head>"));
+    expect(shell.split("twq('config','rgib5')")).toHaveLength(2);
+  });
+
+  test("loads on the landing page, ad click id or page param included", () => {
+    for (const href of ["https://context.lc/", "https://context.lc/?page=pricing&twclid=abc"]) {
+      const { loaded, queue } = runAt(href);
+      expect(loaded).toEqual(["https://static.ads-twitter.com/uwt.js"]);
+      expect(queue).toEqual([["config", "rgib5"]]);
+    }
+  });
+
+  test.each([
+    "https://context.lc/console/@someone",
+    "https://context.lc/invite/tok?code=123456",
+    "https://context.lc/login",
+    "https://context.lc/@someone/website",
+    "https://staging.context.invalid/",
+    "http://localhost:8081/",
+  ])("does not load at %s", (href) => {
+    expect(runAt(href)).toEqual({ loaded: [], queue: [] });
+  });
+});

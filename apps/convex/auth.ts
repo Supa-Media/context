@@ -5,6 +5,7 @@ import { mayCreateUser } from "./functions/lib/waitlist";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { scheduleSignupAlert } from "./functions/signupAlerts";
+import { scheduleXConversion } from "./functions/xConversions";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -34,9 +35,12 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   },
   // Staff who switched on signup alerts hear about each brand-new account.
   // Same transaction as the user row, so an alert never outlives a failed
-  // sign-in. See `functions/signupAlerts.ts`.
-  onUserCreated: (ctx, { userId }) =>
-    scheduleSignupAlert(ctx as never, { kind: "account", userId: userId as Id<"users"> }),
+  // sign-in. See `functions/signupAlerts.ts`. The same moment is the account
+  // conversion X ads count (`functions/xConversions.ts`).
+  onUserCreated: async (ctx, { userId }) => {
+    await scheduleSignupAlert(ctx as never, { kind: "account", userId: userId as Id<"users"> });
+    await scheduleXConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
+  },
   resend: {
     fromAddress: process.env.AUTH_EMAIL_FROM ?? "auth@context.com",
     emailSubject: (code) => `${code} is your Context code`,

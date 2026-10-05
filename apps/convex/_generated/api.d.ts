@@ -106,6 +106,7 @@ import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
+import type * as functions_xConversions from "../functions/xConversions.js";
 import type * as functions_referrals from "../functions/referrals.js";
 import type * as functions_usage from "../functions/usage.js";
 import type * as functions_websites from "../functions/websites.js";
@@ -218,6 +219,7 @@ declare const fullApi: ApiFromModules<{
   "functions/usage": typeof functions_usage;
   "functions/waitlist": typeof functions_waitlist;
   "functions/signupAlerts": typeof functions_signupAlerts;
+  "functions/xConversions": typeof functions_xConversions;
   "functions/referrals": typeof functions_referrals;
   "functions/websites": typeof functions_websites;
   "functions/workspaces": typeof functions_workspaces;
