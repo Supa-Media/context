@@ -18,11 +18,11 @@ export const CHARS_PER_TOKEN = 4;
 
 /**
  * The writing model's published prices, input then output, in US dollars per
- * million tokens (Gemma 4 26B on Cloudflare's Workers AI pricing page,
+ * million tokens (GLM-4.7 Flash, the default writing model, on Cloudflare's Workers AI pricing page,
  * 2026-10-05). The Worker passes on the model's own counts, so a written
  * answer is priced exactly rather than estimated.
  */
-export const WRITING_USD_PER_MTOK = { input: 0.1, output: 0.3 } as const;
+export const WRITING_USD_PER_MTOK = { input: 0.06, output: 0.4 } as const;
 
 export function writingCostMicroUsd(usage: { input: number; output: number }): number {
   return Math.round(usage.input * WRITING_USD_PER_MTOK.input + usage.output * WRITING_USD_PER_MTOK.output);

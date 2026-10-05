@@ -175,3 +175,12 @@ describe("readOutput", () => {
     expect(readOutput({ choices: [] })).toBeNull();
   });
 });
+
+describe("readOutput, for models that think out loud", () => {
+  it("reads the answer after a thinking block, or from inside prose", () => {
+    const thought = { choices: [{ message: { content: `<think>Dana left, so…</think>\n${JSON.stringify(OUTPUT)}` } }] };
+    expect(readOutput(thought)?.output).toEqual(OUTPUT);
+    const wrapped = { choices: [{ message: { content: `Here is the answer: ${JSON.stringify(OUTPUT)} Hope that helps.` } }] };
+    expect(readOutput(wrapped)?.output).toEqual(OUTPUT);
+  });
+});
