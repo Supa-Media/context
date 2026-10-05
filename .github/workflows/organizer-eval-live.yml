@@ -1,0 +1,58 @@
+# Does auto-organize actually tidy a workspace, with the real model?
+#
+# Runs apps/convex/__tests__/organizerEval.live.test.ts: an invented, messy
+# workspace (apps/convex/__tests__/organizerEval/workspace.helpers.ts) goes
+# through a whole sweep, and every question is answered by the deployed
+# inference Worker, so by Clef itself. It passes when 90% or more of the
+# notes end up where they belong. The same sweep runs with a stand-in model on
+# every pull request (organizerEval.test.ts); this is the half that checks the
+# model reads well enough.
+#
+# No customer note is ever sent: the workspace is in the test. A run asks a
+# few dozen questions. Manual, and weekly, so a change in the model's answers
+# shows up without anybody having to look.
+name: Organizer Eval (live)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pass:
+        description: "Score to pass, 0 to 1"
+        required: false
+        default: "0.9"
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: organizer-eval-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Organization score against the deployed Worker
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      ORGANIZER_LIVE_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+      ORGANIZER_LIVE_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+      ORGANIZER_LIVE_PASS: ${{ inputs.pass || '0.9' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Refuse to run without the Worker's address and secret
+        run: |
+          for var in ORGANIZER_LIVE_URL ORGANIZER_LIVE_SECRET; do
+            if [ -z "${!var}" ]; then echo "::error::$var is empty in the production environment."; exit 1; fi
+          done
+      - name: Sweep the messy workspace with the real model
+        working-directory: apps/convex
+        run: npx vitest run __tests__/organizerEval.live.test.ts

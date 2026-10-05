@@ -32,7 +32,7 @@ import {
   projectFacts,
   projectRequest,
 } from "../../../../mcp/src/organizer/questions.js";
-import { archiveSuggestion } from "../../../../mcp/src/organizer/suggest.js";
+import { archiveSuggestion, doneSuggestion, fileSuggestion } from "../../../../mcp/src/organizer/suggest.js";
 import {
   clearPending,
   mergeSweep,
@@ -166,6 +166,23 @@ export async function gatherOrganizerWork(
     }
   }
   return { total: entries.length, items, destinations: plan.destinations, ready };
+}
+
+/**
+ * What one answered question suggests, or null. The sweep and the
+ * organization-score suite both call this, so the suite judges the rules the
+ * sweep actually applies.
+ */
+export function suggestionFor(
+  item: WorkItem,
+  destinations: SweepWork["destinations"],
+  answers: Record<string, unknown>,
+): OrganizerSuggestion | null {
+  const suggestion =
+    item.kind === "project"
+      ? doneSuggestion(item.project, item.facts, answers)
+      : fileSuggestion(item.note, item.title, destinations, answers);
+  return (suggestion as OrganizerSuggestion | null) ?? null;
 }
 
 /** Read, change, write back on the etag; a lost race re-reads and retries. */
