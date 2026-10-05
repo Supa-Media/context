@@ -36,7 +36,9 @@ import {
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 import { requireUserId } from "./lib/billing/plan";
-import { eachLimited, withJev } from "./lib/jev/client";
+import { withJev } from "./lib/jev/client";
+import { type SweepWhy, askEach } from "./lib/organizer/ask";
+import { sweepWhyValidator } from "./lib/schema/organizer";
 import {
   NOTICE_GRACE_MS,
   type OrganizerKind,
@@ -94,6 +96,7 @@ export const status = query({
           read: v.number(),
           total: v.number(),
           found: countsValidator,
+          why: v.optional(sweepWhyValidator),
         }),
       ),
       pending: v.number(),
@@ -445,19 +448,22 @@ export const sweepProgress = internalMutation({
     finished: v.optional(v.union(v.literal("done"), v.literal("failed"))),
     found: v.optional(countsValidator),
     pending: v.optional(v.number()),
+    why: v.optional(sweepWhyValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row: Doc<"organizerSettings"> | null = await organizerRow(ctx, args.workspaceId);
     if (!row?.sweep) return null;
     const now = Date.now();
+    const { why: _earlier, ...sweep } = row.sweep;
     await ctx.db.patch(row._id, {
       sweep: {
-        ...row.sweep,
+        ...sweep,
         read: args.read,
         total: args.total,
         ...(args.found ? { found: args.found } : {}),
         ...(args.finished ? { state: args.finished, finishedAt: now } : {}),
+        ...(args.finished === "failed" && args.why ? { why: args.why } : {}),
       },
       ...(args.pending === undefined ? {} : { pending: args.pending }),
       updatedAt: now,
@@ -476,6 +482,7 @@ export const runSweep = internalAction({
     let read = 0;
     let answered = 0;
     let total = 0;
+    let why: SweepWhy | null = null;
     try {
       const work = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "gather" })) as SweepWork;
       total = work.items.length;
@@ -484,22 +491,22 @@ export const runSweep = internalAction({
       const found: OrganizerSuggestion[] = [...work.ready];
       // Every question goes through Jev smarts: switched off, over the day's
       // cap or not Premium means no session, and the sweep records only the
-      // suggestions that needed no question.
-      await withJev(ctx, { feature: "organizer", workspaceId }, async (jev) => {
-        if (!jev) return;
-        await eachLimited(work.items, DECIDE_CONCURRENCY, async (item) => {
-          const answers = await jev.decide(item.request);
-          read += 1;
-          if (answers) {
-            answered += 1;
+      // suggestions that needed no question, and why.
+      const asked = await withJev(ctx, { feature: "organizer", workspaceId }, (jev, refusal) =>
+        askEach(jev, refusal, work.items, {
+          concurrency: DECIDE_CONCURRENCY,
+          onAnswer: (item, answers) => {
             const suggestion = suggestionFor(item, work.destinations, answers);
             if (suggestion) found.push(suggestion);
-          }
-          if (read % 10 === 0) {
-            await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });
-          }
-        });
-      });
+          },
+          onRead: async (count) => {
+            await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read: count, total });
+          },
+        }),
+      );
+      read = asked.read;
+      answered = asked.answered;
+      why = asked.why;
 
       const recorded = (await organizerOp(ctx, workspaceId, claim.ownerUserId, {
         action: "record",
@@ -520,11 +527,14 @@ export const runSweep = internalAction({
         finished: sweepFinish(total, answered),
         found: counts,
         pending,
+        ...(why ? { why } : {}),
       });
-    } catch {
-      // Numbers only: the error may quote a path.
-      console.error(JSON.stringify({ event: "organizer_sweep_failed", workspaceId, read, total }));
-      await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total, finished: "failed" });
+      if (why) console.error(JSON.stringify({ event: "organizer_sweep_unanswered", workspaceId, read, total, why }));
+    } catch (error) {
+      // Numbers and a code only: the message may quote a path.
+      const code = error instanceof ConvexError ? String((error.data as { code?: unknown })?.code ?? "convex") : error instanceof Error ? error.name : "unknown";
+      console.error(JSON.stringify({ event: "organizer_sweep_failed", workspaceId, read, total, code }));
+      await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total, finished: "failed", why: "error" });
     }
     return null;
   },

@@ -152,7 +152,7 @@ export function SortStatus({
       : line.kind === "never"
         ? sortCopy.never
         : line.kind === "failed"
-          ? sortCopy.failed(relativeTime(line.at, now))
+          ? sortCopy.failed(relativeTime(line.at, now), line.why)
           : sortDone(relativeTime(line.at, now), line.pending);
   return (
     <View style={styles.sort} testID={`organizer-sort-${line.kind}`}>

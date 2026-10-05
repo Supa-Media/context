@@ -20,6 +20,7 @@ import {
   suggestionFor,
 } from "../../functions/lib/organizer/sweepOps";
 import { sweepFinish } from "../../functions/lib/organizer/settings";
+import { type SweepWhy, askEach } from "../../functions/lib/organizer/ask";
 import type { FileStore } from "../../functions/lib/fileOps";
 import { NOW, OWNER } from "./workspace.helpers";
 
@@ -71,6 +72,7 @@ export interface SweepReport {
   refusals: string[];
   suggestions: OrganizerSuggestion[];
   finish: "done" | "failed";
+  why: SweepWhy | null;
 }
 
 /** Gather, ask, suggest, record, and carry out every kind "without asking". */
@@ -78,22 +80,25 @@ export async function runSweep(store: FileStore, decide: Decide, concurrency = 4
   const work = await gatherOrganizerWork(store, OWNER, NOW);
   const found: OrganizerSuggestion[] = [...work.ready];
   const refusals: string[] = [];
-  let answered = 0;
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, work.items.length) }, async () => {
-      while (next < work.items.length) {
-        const item = work.items[next++]!;
-        const { answers, status } = await decide(item.request);
-        if (!answers) {
-          refusals.push(status);
-          continue;
-        }
-        answered += 1;
+  // The sweep's own loop, so an early stop or a lost answer shows up here too.
+  const asked = await askEach(
+    {
+      remaining: Number.POSITIVE_INFINITY,
+      async decide(request) {
+        const { answers, status } = await decide(request);
+        if (!answers) refusals.push(status);
+        return answers;
+      },
+    },
+    null,
+    work.items,
+    {
+      concurrency,
+      onAnswer: (item, answers) => {
         const suggestion = suggestionFor(item, work.destinations, answers);
         if (suggestion) found.push(suggestion);
-      }
-    }),
+      },
+    },
   );
   await recordOrganizerSweep(store, found, NOW);
   await runOrganizerOperation(
@@ -103,5 +108,12 @@ export async function runSweep(store: FileStore, decide: Decide, concurrency = 4
     NOW,
     null,
   );
-  return { asked: work.items.length, answered, refusals, suggestions: found, finish: sweepFinish(work.items.length, answered) };
+  return {
+    asked: work.items.length,
+    answered: asked.answered,
+    refusals,
+    suggestions: found,
+    finish: sweepFinish(work.items.length, asked.answered),
+    why: asked.why,
+  };
 }

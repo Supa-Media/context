@@ -1,6 +1,17 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
+/** `SweepWhy` in `lib/organizer/ask.ts`. */
+export const sweepWhyValidator = v.union(
+  v.literal("disabled"),
+  v.literal("switched_off"),
+  v.literal("not_premium"),
+  v.literal("daily_cap"),
+  v.literal("unconfigured"),
+  v.literal("no_answers"),
+  v.literal("error"),
+);
+
 /**
  * Auto-organize: one row per workspace, holding switches and counters only.
  *
@@ -41,6 +52,8 @@ export const organizerTables = {
         read: v.number(),
         total: v.number(),
         found: v.object({ done: v.number(), archive: v.number(), file: v.number() }),
+        /** Why a failed sweep got no answers (`lib/organizer/ask.ts`). */
+        why: v.optional(sweepWhyValidator),
       }),
     ),
     /** Suggestions waiting, as last counted. Drives "11 suggestions". */

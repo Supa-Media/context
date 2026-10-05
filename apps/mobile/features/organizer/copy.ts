@@ -7,7 +7,7 @@
  * fix merged 2 days ago"); this file frames them.
  */
 
-import type { OrganizerKind, OrganizerSuggestion } from "./types";
+import type { OrganizerKind, OrganizerSuggestion, SweepWhy } from "./types";
 
 /** The name automatic changes are recorded under in Activity. */
 export const ORGANIZER_ACTOR = "Context organizer";
@@ -143,10 +143,24 @@ export const settingsCopy = {
   off: "Off",
 };
 
+/** Why it didn't finish, in the owner's terms. */
+export const sortWhy: Record<SweepWhy, string> = {
+  daily_cap: "It reached today’s limit and will carry on tomorrow.",
+  no_answers: "The sorting service didn’t answer.",
+  error: "It couldn’t read your notes.",
+  switched_off: "Sorting is paused on our side.",
+  disabled: "Sorting is paused on our side.",
+  unconfigured: "Sorting is paused on our side.",
+  not_premium: "Sorting comes with Premium.",
+};
+
 /** The card's status line: whether it is sorting, and when it last did. */
 export const sortCopy = {
   never: "Hasn’t sorted yet.",
-  failed: (ago: string) => `The last sort didn’t finish (${ago}).`,
+  failed: (ago: string, why?: SweepWhy) => {
+    const line = `The last sort didn’t finish (${ago}).`;
+    return why ? `${line} ${sortWhy[why]}` : line;
+  },
   sortNow: "Sort now",
   tryAgain: "Try again",
   lookOver: "Look over",

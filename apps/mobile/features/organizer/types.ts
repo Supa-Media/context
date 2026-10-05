@@ -37,7 +37,12 @@ export interface OrganizerSweep {
   read: number;
   total: number;
   found: Record<OrganizerKind, number>;
+  /** Why a failed sweep got no answers. */
+  why?: SweepWhy;
 }
+
+/** The server's `SweepWhy` (`convex/functions/lib/organizer/ask.ts`). */
+export type SweepWhy = "disabled" | "switched_off" | "not_premium" | "daily_cap" | "unconfigured" | "no_answers" | "error";
 
 export interface OrganizerStatus {
   /** The workspace is on a paying Premium plan. */
