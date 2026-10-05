@@ -53,6 +53,8 @@ export const mockConsoleState: {
   selectedPath: string | null;
   /** The bucket's search, where a test wants one; none by default, as before. */
   search?: (query: string, prefix?: string) => Promise<never>;
+  /** The context on screen: `w1` is the owner's own, `w2` one where this person is an editor. */
+  selectedContextId?: string;
 } = {
   pathname: "/console/@seyi",
   modelConnected: true,
@@ -232,7 +234,7 @@ function mockConsoleData(): never {
         status: "ok",
       },
     ],
-    selectedContextId: "w1",
+    selectedContextId: mockConsoleState.selectedContextId ?? "w1",
     selectContext: () => {},
     graph: { nodes: [], edges: [] },
     stats: [],
@@ -298,6 +300,7 @@ afterEach(() => {
   mockConsoleState.modelConnected = true;
   mockConsoleState.selectedPath = null;
   delete mockConsoleState.search;
+  delete mockConsoleState.selectedContextId;
   navigated.length = 0;
 });
 

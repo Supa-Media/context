@@ -26,6 +26,7 @@ export function PlacePicker({
   onBack,
   confirmLabel,
   onPick,
+  top = true,
 }: {
   folders: readonly string[];
   rootLabel: string;
@@ -38,6 +39,8 @@ export function PlacePicker({
   /** The confirm button's words for a place, given its name. */
   confirmLabel: (name: string) => string;
   onPick: (folder: string) => void;
+  /** Offer the top of the workspace. Off where nothing may be put there (`NewNoteWhere`). */
+  top?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -46,8 +49,8 @@ export function PlacePicker({
   const [open, setOpen] = useState<ReadonlySet<string>>(() => openTo(initial));
   const [picked, setPicked] = useState(initial);
   const rows = useMemo(
-    () => pickerRows({ folders, open, query, rootLabel }),
-    [folders, open, query, rootLabel],
+    () => pickerRows({ folders, open, query, rootLabel, top }),
+    [folders, open, query, rootLabel, top],
   );
   const toggle = (folder: string) =>
     setOpen((current) => {

@@ -3,7 +3,8 @@ import { drainOtherContexts, type BackgroundDrainReport, type DrainAllDeps } fro
 import { currentEpoch } from "./epoch";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
-import { forgetMirroredNote, moveMirroredBody } from "./mirror";
+import { forgetMirroredNote } from "./mirror";
+import { moveMirroredBody } from "./mirrorMove";
 import type { PendingOp } from "./outbox";
 import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";

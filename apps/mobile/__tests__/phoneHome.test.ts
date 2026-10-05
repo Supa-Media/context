@@ -17,6 +17,10 @@ import { buildHome, countLabel, openedLabel, whenLabel, type HomeInput } from ".
  *  5. Tag filter ignored for folders.              → "a tag narrows every section"
  *  6. Recent sorted oldest first.                  → "recent is newest first, three of them"
  *  7. Top notes taken from every folder.           → "every note outside a folder is listed…"
+ *  8. Tagged notes left to the root rule.         → "a tagged Home lists every note carrying the tag…"
+ *  9. Archived notes counted under a tag.         → "a tagged Home lists every note carrying the tag…"
+ * 10. Recent from updatedAt when the person has rows. → "with an account, recent is the notes this person was in…"
+ * 11. Recent rows not intersected with the tree.   → "a recent note that is gone, archived or hidden is not drawn"
  */
 
 const HOUR = 60 * 60 * 1000;
@@ -38,6 +42,7 @@ function input(overrides: Partial<HomeInput> = {}): HomeInput {
     shared: new Set(["clients"]),
     pins: [],
     opened: [],
+    recents: null,
     tag: null,
     now: NOW,
     ...overrides,
@@ -89,11 +94,53 @@ describe("notes at the top", () => {
         notes: [...input().notes, { path: "todo.md", updatedAt: NOW, title: "Todo", lede: null, tags: ["launch"] }],
       }),
     );
-    expect(home.notes.map((n) => n.path)).toEqual(["todo.md"]);
+    expect(home.notes.map((n) => n.path)).toContain("todo.md");
+    expect(home.notes.map((n) => n.path)).not.toContain("index.md");
   });
 });
 
 describe("recent", () => {
+  test("with an account, recent is the notes this person was in, not the ones changed last", () => {
+    const home = buildHome(
+      input({
+        recents: [
+          { path: "index.md", at: NOW - 5 * HOUR },
+          { path: "clients/bloom.md", at: NOW - 10 * 60 * 1000 },
+          { path: "1-projects/site/copy.md", at: NOW - HOUR },
+          { path: "0-inbox/hiring.md", at: NOW - 9 * HOUR },
+        ],
+      }),
+    );
+    // Acme brief changed last, by somebody else, and is not in this person's Recent.
+    expect(home.recent.map((n) => [n.path, n.seenAt])).toEqual([
+      ["clients/bloom.md", NOW - 10 * 60 * 1000],
+      ["1-projects/site/copy.md", NOW - HOUR],
+      ["index.md", NOW - 5 * HOUR],
+    ]);
+  });
+
+  test("a recent note that is gone, archived or hidden is not drawn", () => {
+    const home = buildHome(
+      input({
+        notes: [
+          ...input().notes,
+          { path: "4-archive/1-projects/old.md", updatedAt: NOW, title: "Old", lede: null, tags: [] },
+        ],
+        recents: [
+          { path: "1-projects/moved-away.md", at: NOW },
+          { path: "4-archive/1-projects/old.md", at: NOW - 1 },
+          { path: "privacy.md", at: NOW - 2 },
+          { path: "1-projects/launch.md", at: NOW - 3 },
+        ],
+      }),
+    );
+    expect(home.recent.map((n) => n.path)).toEqual(["1-projects/launch.md"]);
+  });
+
+  test("an account with no rows yet has an empty Recent, never somebody else's edits", () => {
+    expect(buildHome(input({ recents: [] })).recent).toEqual([]);
+  });
+
   test("recent is newest first, three of them", () => {
     expect(buildHome(input()).recent.map((n) => n.path)).toEqual([
       "clients/acme/brief.md",
@@ -172,11 +219,31 @@ describe("you open most", () => {
 });
 
 describe("tags", () => {
-  test("the chips are the tags on notes, most used first", () => {
-    expect(buildHome(input()).tags).toEqual([
-      { tag: "client", count: 2 },
-      { tag: "launch", count: 2 },
+  test("no tag, nothing tagged", () => {
+    expect(buildHome(input()).tagged).toBeNull();
+  });
+
+  /*
+    The bug behind removing the chips (2026-10-05): "Galatians 7", and the
+    seven were nowhere — the count took every note, archived ones too, and the
+    narrowed page listed three recent notes and some folders. A tag's count and
+    its list are now the same notes.
+  */
+  test("a tagged Home lists every note carrying the tag, and counts exactly those", () => {
+    const home = buildHome(
+      input({
+        tag: "launch",
+        notes: [
+          ...input().notes,
+          { path: "4-archive/2026-09-30/old-launch.md", updatedAt: NOW, title: "Old launch", lede: null, tags: ["launch"] },
+        ],
+      }),
+    );
+    expect(home.notes.map((n) => [n.path, n.place])).toEqual([
+      ["1-projects/launch.md", "projects"],
+      ["1-projects/site/copy.md", "site"],
     ]);
+    expect(home.tagged).toEqual({ tag: "launch", count: home.notes.length });
   });
 
   test("a tag narrows every section", () => {

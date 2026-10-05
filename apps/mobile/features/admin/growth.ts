@@ -122,6 +122,34 @@ export interface RosterRow {
   clients: number;
   plan: string;
   lastSeenAt: number | null;
+  /**
+   * Jev (AI) cost in micro-USD over the census window, summed over the
+   * workspaces this account owns: usage is metered per workspace, not per
+   * person (`apps/convex/functions/lib/jev/spend.ts`).
+   */
+  aiSpendMicroUsd: number;
+  /** The server's read hit its budget, so the figure is a floor. */
+  aiSpendPartial: boolean;
+}
+
+/** The roster's AI column header: the window is part of the figure's meaning. */
+export function aiSpendLabel(days: number): string {
+  return `AI (${days}d)`;
+}
+
+/** What the AI column's header says on hover, and to a screen reader. */
+export const AI_SPEND_HINT =
+  "AI (Jev) cost in the selected window, summed over every workspace this account owns.";
+
+/** `0` → "—", under a cent → "<$0.01", else dollars to the cent; a floor gets "+". */
+export function formatAiSpend(microUsd: number, partial: boolean): string {
+  if (!partial && microUsd <= 0) return "—";
+  if (!partial && microUsd < 10_000) return "<$0.01";
+  const dollars = (Math.max(0, microUsd) / 1e6).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `$${dollars}${partial ? "+" : ""}`;
 }
 
 export interface NudgeCounts {

@@ -3,10 +3,10 @@ import { v } from "convex/values";
 
 /**
  * The places one person keeps going back to in one workspace: what they pinned
- * to Home, and how often they open each folder.
+ * to Home, how often they open each folder, and the notes they were in last.
  *
  * Paths and counts, never note text: the same kind of metadata `noteShares`
- * already holds. Both tables are private to the person who wrote them — no
+ * already holds. Every table here is private to the person who wrote them — no
  * function reads another person's rows — and are deleted with the account
  * (`personalRows.ts`), with the workspace (`finalizeWorkspaceDeletion.ts`) and
  * when the person leaves or is removed (`workspaces/members.ts`). Decided by
@@ -39,6 +39,24 @@ export const placeTables = {
     /** Opens per UTC day, newest last, never older than the window. */
     days: v.array(v.object({ day: v.number(), n: v.number() })),
     lastAt: v.number(),
+  })
+    .index("by_user_workspace", ["userId", "workspaceId"])
+    .index("by_user_workspace_path", ["userId", "workspaceId", "path"])
+    .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_user", ["userId"]),
+
+  /**
+   * The notes this person opened or edited lately, for the phone's Recent
+   * (owner, 2026-10-05: Recent "doesn't actually show the notes that I've
+   * personally recently opened/edited" — it listed whatever anybody in the
+   * workspace changed last). One row per note, its latest open or edit.
+   */
+  placeRecents: defineTable({
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    /** A note path. */
+    path: v.string(),
+    at: v.number(),
   })
     .index("by_user_workspace", ["userId", "workspaceId"])
     .index("by_user_workspace_path", ["userId", "workspaceId", "path"])

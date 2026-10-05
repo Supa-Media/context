@@ -28,11 +28,27 @@ import { PremiumBody } from "../features/console/settings/panels/PremiumPanel";
 import { demoPremiumView } from "../features/console/settings/panels/premium";
 import { ToastHost } from "../features/design/components/Toast";
 import { ORGANIZER_ACTOR } from "../features/organizer/copy";
+import { sourceLine } from "../features/organizer/changeCopy";
+import { WhatChangedPage } from "../features/organizer/WhatChangedPage";
 import { OrganizerNotices } from "../features/organizer/Notices";
 import { OrganizerProvider } from "../features/organizer/OrganizerContext";
 import { usePremiumSlotsFor } from "../features/organizer/PremiumParts";
-import type { OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
+import type { ChangeCard, OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
 import type { OrganizerView } from "../features/organizer/useOrganizer";
+
+const PEOPLE: ChangeCard = {
+  id: "c1",
+  topic: "people",
+  headline: "Dana Reyes has left the team",
+  quote: "We parted ways with Dana Reyes on Friday.",
+  source: { path: "0-inbox/meetings/2026-10-02-leadership-sync.md", title: "Leadership sync", kind: "meeting" },
+  at: 0,
+  steps: [
+    { id: "s0", do: "archive", path: "2-areas/team/dana-reyes.md", title: "Dana Reyes", about: "person" },
+    { id: "s1", do: "set", path: "1-projects/emails/overview.md", title: "Onboarding emails", field: "owner", value: "Sam Patel", was: "Dana Reyes" },
+    { id: "s2", do: "set", path: "1-projects/dark-mode/overview.md", title: "Dark mode", field: "priority", value: "p3", was: "p1" },
+  ],
+};
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 1280, height: 900 },
@@ -69,10 +85,13 @@ const FILE: OrganizerSuggestion = {
 interface Calls {
   opened: unknown[];
   resolved: [string, string][];
+  changed: [string, string, readonly string[]][];
   autopilot: [string, boolean][];
   enabled: boolean[];
   acknowledged: boolean[];
   undone: number;
+  swept: number;
+  pages: number;
 }
 
 function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | null } = {}, calls?: Calls): OrganizerView {
@@ -81,17 +100,25 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
     state: status === null ? { kind: "unavailable" } : { kind: "ready", status },
     status,
     slug: "seyi",
-    suggestions: { list: [DONE, FILE], loading: false, failed: false, busy: new Set() },
+    suggestions: { list: [DONE, FILE], changes: [], loading: false, failed: false, busy: new Set() },
     loadSuggestions: () => {},
     reviewOpen: false,
     openReview: (options) => calls?.opened.push(options ?? {}),
     closeReview: () => {},
     resolve: (s, decision) => calls?.resolved.push([s.id, decision]),
+    resolveChange: (card, decision, steps) => calls?.changed.push([card.id, decision, steps]),
     setEnabled: (on) => calls?.enabled.push(on),
     setAutopilot: (kind, on) => calls?.autopilot.push([kind, on]),
     acknowledgeNotice: (turnOff) => calls?.acknowledged.push(turnOff),
-    sweepNow: () => {},
+    sweepNow: () => {
+      if (calls) calls.swept += 1;
+    },
     openSettings: () => {},
+    pageOpen: false,
+    openPage: () => {
+      if (calls) calls.pages += 1;
+    },
+    closePage: () => {},
     toasts: [],
     dismissToast: () => {},
     undoFor: () => undefined,
@@ -99,7 +126,7 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
   };
 }
 
-const fresh = (): Calls => ({ opened: [], resolved: [], autopilot: [], enabled: [], acknowledged: [], undone: 0 });
+const fresh = (): Calls => ({ opened: [], resolved: [], changed: [], autopilot: [], enabled: [], acknowledged: [], undone: 0, swept: 0, pages: 0 });
 
 function browser(): FileBrowser {
   return {
@@ -166,14 +193,19 @@ describe("the explorer's foot", () => {
     expect(calls.opened).toHaveLength(1);
   });
 
-  test("the popover groups the list, and ✓ and ✕ answer one row each", () => {
+  test("the popover says what each row will do, to which note, and answers one row each", () => {
     const calls = fresh();
     const container = mount(explorer(), organizer({ reviewOpen: true }, calls));
     const list = byId(container, "explorer-suggestions-list");
     expect(list?.textContent).toContain("Projects · 1");
     expect(list?.textContent).toContain("Inbox · 1");
-    expect(list?.textContent).toContain("Mark done? Every step is ticked off");
-    expect(list?.textContent).toContain("File in Custom domains?");
+    expect(list?.textContent).toContain("Mark as done");
+    expect(list?.textContent).toContain("Every step is ticked off");
+    expect(list?.textContent).toContain("Move to Custom domains");
+    expect(list?.textContent).toContain("From Inbox to Projects › Custom domains");
+    // The answers are words on the row, not icons that light up on hover.
+    expect(byId(container, "organizer-accept-f1")?.textContent).toBe("Move");
+    expect(byId(container, "organizer-dismiss-f1")?.textContent).toBe("Skip");
     press(byId(container, "organizer-accept-d1"));
     press(byId(container, "organizer-dismiss-f1"));
     expect(calls.resolved).toEqual([
@@ -181,6 +213,101 @@ describe("the explorer's foot", () => {
       ["f1", "dismiss"],
     ]);
     expect(byId(container, "organizer-accept-d1")?.getAttribute("aria-label")).toBe("Mark done: Code decomposition");
+  });
+});
+
+describe("What changed", () => {
+  const WAITING: OrganizerStatus = { ...STATUS, pending: 3, changes: 1 };
+  const withCards = (calls: Calls, over: Partial<OrganizerView> = {}) =>
+    organizer(
+      {
+        status: WAITING,
+        pageOpen: true,
+        suggestions: { list: [DONE, FILE], changes: [PEOPLE], loading: false, failed: false, busy: new Set() },
+        ...over,
+      },
+      calls,
+    );
+  const page = (view: OrganizerView, opened: string[] = []) =>
+    createElement(WhatChangedPage, { organizer: view, compact: false, now: 0, onOpenSource: (path: string) => opened.push(path) });
+
+  test("the tree has its own line, with the cards waiting, and it opens the page", () => {
+    const calls = fresh();
+    const container = mount(explorer(), withCards(calls, { pageOpen: false }));
+    const line = byId(container, "explorer-what-changed");
+    expect(line?.textContent).toContain("What changed");
+    expect(line?.textContent).toContain("1");
+    press(line);
+    expect(calls.pages).toBe(1);
+    // The suggestions line counts organizing suggestions only.
+    expect(byId(container, "explorer-suggestions")?.textContent).toContain("2 suggestions");
+  });
+
+  test("the line is there before anything has arrived, and not for a member", () => {
+    const none = mount(explorer(), organizer({ status: { ...STATUS, changes: 0 } }));
+    expect(byId(none, "explorer-what-changed")?.textContent).toBe("What changed");
+    expect(byId(mount(explorer(), organizer({ status: { ...WAITING, isOwner: false } })), "explorer-what-changed")).toBeNull();
+  });
+
+  test("the page says what changed, quotes where it read it, and lists its steps ticked", () => {
+    const opened: string[] = [];
+    const container = mount(page(withCards(fresh()), opened));
+    expect(byId(container, "what-changed-page")?.textContent).toContain("What changed");
+    expect(byId(container, "what-changed-waiting")?.textContent).toBe("Waiting for you (1)");
+    const card = byId(container, "organizer-change-c1");
+    expect(card?.textContent).toContain("People");
+    expect(card?.textContent).toContain("Dana Reyes has left the team");
+    expect(card?.textContent).toContain("“We parted ways with Dana Reyes on Friday.”");
+    expect(card?.textContent).toContain("Meeting, Oct 2: Leadership sync");
+    expect(card?.textContent).toContain("Archive Dana Reyes’s page");
+    expect(card?.textContent).toContain("Give Onboarding emails to Sam Patel");
+    expect(card?.textContent).toContain("Was Dana Reyes");
+    expect(card?.textContent).toContain("Lower Dark mode");
+    expect(card?.textContent).toContain("High → Low");
+    expect(byId(container, "organizer-change-step-s1")?.getAttribute("aria-checked")).toBe("true");
+    expect(byId(container, "organizer-change-apply-c1")?.textContent).toBe("Apply 3 changes");
+    press(byId(container, "organizer-change-source-c1"));
+    expect(opened).toEqual([PEOPLE.source.path]);
+  });
+
+  test("unticking a step leaves it out of Apply; This is wrong puts the card away", () => {
+    const calls = fresh();
+    const container = mount(page(withCards(calls)));
+    press(byId(container, "organizer-change-step-s2"));
+    expect(byId(container, "organizer-change-step-s2")?.getAttribute("aria-checked")).toBe("false");
+    expect(byId(container, "organizer-change-apply-c1")?.textContent).toBe("Apply 2 changes");
+    press(byId(container, "organizer-change-apply-c1"));
+    press(byId(container, "organizer-change-wrong-c1"));
+    expect(calls.changed).toEqual([
+      ["c1", "accept", ["s0", "s1"]],
+      ["c1", "dismiss", []],
+    ]);
+  });
+
+  test("nothing waiting says so, and Check now asks for a sort", () => {
+    const calls = fresh();
+    const container = mount(page(withCards(calls, { suggestions: { list: [], changes: [], loading: false, failed: false, busy: new Set() } })));
+    expect(byId(container, "what-changed-empty")?.textContent).toContain("Nothing waiting");
+    press(byId(container, "what-changed-check"));
+    expect(calls.swept).toBe(1);
+  });
+
+  test("the suggestions popover no longer carries the cards", () => {
+    const container = mount(explorer(), withCards(fresh(), { pageOpen: false, reviewOpen: true }));
+    expect(byId(container, "explorer-suggestions-list")).not.toBeNull();
+    expect(byId(container, "organizer-changes")).toBeNull();
+  });
+
+  test("a source's name comes out of somebody's bucket, so it is contained", () => {
+    const flip = "\u202E";
+    const dated = sourceLine({ kind: "meeting", path: `meetings/2026-10-02 sync${flip}fdp.md`, title: "x" });
+    expect(dated).toBe(`Meeting, Oct 2: \u2068Sync${flip}fdp\u2069`);
+    const plain = sourceLine({ kind: "note", path: "0-inbox/idea.md", title: `idea${flip}` });
+    expect(plain).toBe(`Note: \u2068idea${flip}\u2069`);
+    // The control: an ordinary name is drawn byte for byte.
+    expect(sourceLine({ kind: "meeting", path: "meetings/2026-10-02-leadership-sync.md", title: "x" })).toBe(
+      "Meeting, Oct 2: Leadership sync",
+    );
   });
 });
 
@@ -205,6 +332,39 @@ describe("Settings › Premium", () => {
     press(byId(container, "organizer-switch"));
     expect(calls.autopilot).toEqual([["done", true]]);
     expect(calls.enabled).toEqual([false]);
+  });
+
+  test("the owner can tell whether it is sorting: never yet, now, when it last did, and a sort that failed", () => {
+    const calls = fresh();
+    const never = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: null } }, calls), returned: null }));
+    expect(byId(never, "organizer-sort-never")?.textContent).toContain("Hasn’t sorted yet.");
+    press(byId(never, "organizer-sort-now"));
+    expect(calls.swept).toBe(1);
+
+    const now = Date.now();
+    const running = { state: "running" as const, startedAt: now - 60_000, finishedAt: null, read: 12, total: 40, found: { done: 0, archive: 0, file: 0 } };
+    const sorting = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: running } }), returned: null }));
+    expect(byId(sorting, "organizer-sort-running")?.textContent).toContain("Sorting now · 12 of 40 notes");
+    // Nothing to press while it runs.
+    expect(byId(sorting, "organizer-sort-now")).toBeNull();
+
+    const done = { ...running, state: "done" as const, finishedAt: now - 3 * 3_600_000, read: 40 };
+    const sorted = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done, pending: 2 } }, calls), returned: null }));
+    expect(byId(sorted, "organizer-sort-done")?.textContent).toContain("Sorted 3 hours ago. 2 suggestions waiting.");
+    press(byId(sorted, "organizer-sort-review"));
+    expect(calls.opened).toEqual([{ closeSettings: true }]);
+
+    const failed = { ...done, state: "failed" as const };
+    const broke = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: failed } }, calls), returned: null }));
+    expect(byId(broke, "organizer-sort-failed")?.textContent).toContain("The last sort didn’t finish (3 hours ago).");
+    press(byId(broke, "organizer-sort-now"));
+    expect(calls.swept).toBe(2);
+  });
+
+  test("switched off, there is no sort line to read", () => {
+    const container = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, on: false } }), returned: null }));
+    expect(byId(container, "organizer-settings")).not.toBeNull();
+    expect(container.querySelector('[data-testid^="organizer-sort-"]')).toBeNull();
   });
 
   test("a member reads it and is offered nothing to press", () => {

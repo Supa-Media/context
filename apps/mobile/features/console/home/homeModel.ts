@@ -4,9 +4,19 @@ import { baseName, displayName, folderLabel, isUnlistedFile, parentPath, restore
  * The phone's Home: what each section holds.
  *
  * The board the owner approved on 2026-09-30 (Apple Notes as the reference):
- * the workspace's name and size, tag chips, **Pinned** tiles, a **You open
- * most** rail, the three most **Recent** notes, and **All folders** with what
- * each holds. Everything here is arithmetic over two things the phone already
+ * the workspace's name and size, **Pinned** tiles, a **You open most** rail,
+ * the three most **Recent** notes, and **All folders** with what each holds.
+ *
+ * ## No tag chips (2026-10-05)
+ *
+ * The board also had a row of tag chips, "Galatians 7", and it went after the
+ * owner's team tried it on a phone (`mobile-feedback-2026-10-02`, item 3). The
+ * number was every note carrying the tag, archived ones included, but pressing
+ * the chip never listed those notes: it narrowed the sections, which show
+ * three recent notes and the top-level folders holding the rest. Nobody could
+ * find the seven. A tag still opens here from search or a folder's tags
+ * (`homeTag.ts`), and then `tagged` names it and **Notes** lists every note
+ * that carries it, so the count and the list are the same notes. Everything here is arithmetic over two things the phone already
  * has — its copy of the workspace (`useHomeSource`) and the person's own pins
  * and opens from Convex (`functions/places.ts`) — so it is a pure function and
  * the component only draws it.
@@ -42,6 +52,12 @@ export interface HomeOpened {
   lastAt: number;
 }
 
+/** A note this person opened or edited, and when (`functions/places.ts`). */
+export interface HomeRecent {
+  path: string;
+  at: number;
+}
+
 export interface HomeInput {
   notes: readonly HomeNote[];
   /** Every folder the device knows of, empty ones included. */
@@ -50,6 +66,12 @@ export interface HomeInput {
   shared: ReadonlySet<string>;
   pins: readonly HomePin[];
   opened: readonly HomeOpened[];
+  /**
+   * The notes this person opened or edited last, newest first. `null` where
+   * there is no account (the homepage's visitor): Recent is then the notes
+   * changed last, by anybody.
+   */
+  recents: readonly HomeRecent[] | null;
   /** The chosen tag chip; `null` is All. */
   tag: string | null;
   now: number;
@@ -69,6 +91,8 @@ export interface HomeNoteTile {
   path: string;
   title: string;
   updatedAt?: number;
+  /** When this person last opened or edited it: set on Recent's tiles only. */
+  seenAt?: number;
   /** The folder it is in, drawn under a recent note: `projects`. */
   place: string;
   lede: string | null;
@@ -80,18 +104,21 @@ export interface HomeOpenedFolder extends HomeFolder {
 
 export interface Home {
   totals: { folders: number; notes: number };
-  tags: { tag: string; count: number }[];
+  /** The tag Home is narrowed to and how many notes carry it; `null` for none. */
+  tagged: { tag: string; count: number } | null;
   pinned: (HomeFolder | HomeNoteTile)[];
   openMost: HomeOpenedFolder[];
   recent: HomeNoteTile[];
   folders: HomeFolder[];
-  /** The notes outside every folder, by title: Home is the only page that lists them. */
+  /**
+   * The notes outside every folder, by title: Home is the only page that lists
+   * them. Narrowed to a tag, every note carrying it, wherever it is filed.
+   */
   notes: HomeNoteTile[];
 }
 
 export const RECENT_COUNT = 3;
 export const OPEN_MOST_COUNT = 6;
-export const TAG_CHIPS = 8;
 
 /** Context's own files and anything under a dot folder: never a row anybody wrote. */
 function isPlumbing(path: string): boolean {
@@ -121,8 +148,11 @@ export function buildHome(input: HomeInput): Home {
   }
   const folders = [...folderSet].sort((a, b) => a.localeCompare(b));
 
+  // Archived notes are out of every section, so a tag's count leaves them out too.
   const tagged =
-    input.tag === null ? notes : notes.filter((note) => note.tags.includes(input.tag as string));
+    input.tag === null
+      ? notes
+      : notes.filter((note) => note.tags.includes(input.tag as string) && !isArchived(note.path));
   const taggedFolders = new Set<string>();
   for (const note of tagged) {
     for (let at = parentPath(note.path); at !== ""; at = parentPath(at)) taggedFolders.add(at);
@@ -164,29 +194,38 @@ export function buildHome(input: HomeInput): Home {
     .slice(0, OPEN_MOST_COUNT)
     .map((row) => ({ ...folderOf(row.path), label: openedLabel(row) }));
 
-  const recent = tagged
-    .filter((note) => !isArchived(note.path))
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, RECENT_COUNT)
-    .map(noteTile);
-
-  const counts = new Map<string, number>();
-  for (const note of notes) for (const tag of note.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  const tags = [...counts]
-    .map(([tag, count]) => ({ tag, count }))
-    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
-    .slice(0, TAG_CHIPS);
+  /*
+    Recent is the person's own: the notes they opened or edited last, on any
+    device (owner, 2026-10-05). It used to be the notes changed last by
+    anybody, so in a busy shared workspace a teammate's or an agent's edits
+    pushed out the note you had just been in. A row is a pointer, and the
+    tree decides it is drawn, as for pins.
+  */
+  const recent =
+    input.recents === null
+      ? tagged
+          .filter((note) => !isArchived(note.path))
+          .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+          .slice(0, RECENT_COUNT)
+          .map(noteTile)
+      : [...input.recents]
+          .sort((a, b) => b.at - a.at)
+          .flatMap((row) => {
+            const note = noteByPath.get(row.path);
+            return note === undefined || isArchived(note.path) ? [] : [{ ...noteTile(note), seenAt: row.at }];
+          })
+          .slice(0, RECENT_COUNT);
 
   const topLevel = folders.filter((folder) => !folder.includes("/"));
   return {
     totals: { folders: topLevel.length, notes: notes.length },
-    tags,
+    tagged: input.tag === null ? null : { tag: input.tag, count: tagged.length },
     pinned,
     openMost,
     recent,
     folders: topLevel.filter(folderShown).map(folderOf),
     notes: tagged
-      .filter((note) => parentPath(note.path) === "")
+      .filter((note) => input.tag !== null || parentPath(note.path) === "")
       .sort((a, b) => a.title.localeCompare(b.title))
       .map(noteTile),
   };

@@ -37,6 +37,8 @@ export const recordUsage = internalMutation({
     questions: v.number(),
     tokens: v.number(),
     ms: v.number(),
+    writtenMicroUsd: v.optional(v.number()),
+    writtenTokens: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, { feature, workspaceId, ...delta }) => {

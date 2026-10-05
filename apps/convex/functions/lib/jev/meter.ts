@@ -11,10 +11,22 @@ import { planFor, statusOf } from "../billing/plan";
 import { planIsPaying } from "../premium";
 import { ALL_JEV_FEATURES, JEV_FEATURES, type JevFeatureName } from "./features";
 
-/** Jev's published price: input tokens only, output free (TypeSafe, 2026-09). */
-export const DEFAULT_USD_PER_MTOK = 0.042;
-/** Four characters a token is the usual English estimate; Jev does not report its count. */
+/** Clef's published price: input tokens (Cloudflare's model page, 2026-10-05). Was Jev's $0.042. */
+export const DEFAULT_USD_PER_MTOK = 0.24;
+/** Four characters a token is the usual English estimate; the Worker does not pass on the model's count. */
 export const CHARS_PER_TOKEN = 4;
+
+/**
+ * The writing model's published prices, input then output, in US dollars per
+ * million tokens (GLM-4.7 Flash, the default writing model, on Cloudflare's Workers AI pricing page,
+ * 2026-10-05). The Worker passes on the model's own counts, so a written
+ * answer is priced exactly rather than estimated.
+ */
+export const WRITING_USD_PER_MTOK = { input: 0.06, output: 0.4 } as const;
+
+export function writingCostMicroUsd(usage: { input: number; output: number }): number {
+  return Math.round(usage.input * WRITING_USD_PER_MTOK.input + usage.output * WRITING_USD_PER_MTOK.output);
+}
 
 export type JevRefusal = "disabled" | "switched_off" | "not_premium" | "daily_cap";
 
@@ -98,6 +110,13 @@ export interface UsageDelta {
   questions: number;
   tokens: number;
   ms: number;
+  /**
+   * Cost already known exactly, from written answers' own token counts. Added
+   * to the estimate for `tokens` that were not written ones.
+   */
+  writtenMicroUsd?: number;
+  /** Of `tokens`, those already priced in `writtenMicroUsd`. */
+  writtenTokens?: number;
 }
 
 export async function addUsage(
@@ -108,20 +127,21 @@ export async function addUsage(
   now: number,
 ): Promise<void> {
   const day = utcDay(now);
-  const cost = costMicroUsd(delta.tokens);
+  const { writtenMicroUsd = 0, writtenTokens = 0, ...counts } = delta;
+  const cost = costMicroUsd(Math.max(0, counts.tokens - writtenTokens)) + writtenMicroUsd;
   const row = await usageRow(ctx, day, feature, workspaceId);
   if (row) {
     await ctx.db.patch(row._id, {
-      calls: row.calls + delta.calls,
-      failed: row.failed + delta.failed,
-      refused: row.refused + delta.refused,
-      questions: row.questions + delta.questions,
-      tokens: row.tokens + delta.tokens,
+      calls: row.calls + counts.calls,
+      failed: row.failed + counts.failed,
+      refused: row.refused + counts.refused,
+      questions: row.questions + counts.questions,
+      tokens: row.tokens + counts.tokens,
       costMicroUsd: row.costMicroUsd + cost,
-      ms: row.ms + delta.ms,
+      ms: row.ms + counts.ms,
       updatedAt: now,
     });
     return;
   }
-  await ctx.db.insert("jevUsage", { day, feature, workspaceId, ...delta, costMicroUsd: cost, updatedAt: now });
+  await ctx.db.insert("jevUsage", { day, feature, workspaceId, ...counts, costMicroUsd: cost, updatedAt: now });
 }

@@ -3,10 +3,10 @@
  *
  * **A roster is the honest dashboard at this size**, and it is control-plane
  * metadata only — an address, when they arrived, how many contexts, whether
- * storage verified, how many clients, what they pay. Nothing about what they
- * wrote: `functions/admin.ts` carries the standing rule, and this card is the
- * thing most likely to tempt somebody to break it. Do not add a column that
- * names a note, a folder, or a search.
+ * storage verified, how many clients, what their AI use cost, what they pay.
+ * Nothing about what they wrote: `functions/admin.ts` carries the standing
+ * rule, and this card is the thing most likely to tempt somebody to break it.
+ * Do not add a column that names a note, a folder, or a search.
  *
  * It used to be four filled pills per person, thirty-two chips in green,
  * amber and grey, which made the one thing worth seeing — who is stuck — the
@@ -29,28 +29,46 @@ import {
   TableRow,
   type Column,
 } from "./AdminTable";
-import { storageState, type RosterRow } from "./growth";
+import {
+  AI_SPEND_HINT,
+  aiSpendLabel,
+  formatAiSpend,
+  storageState,
+  type RosterRow,
+} from "./growth";
 import { formatCount, formatLastUsed, planLabel, planTone, relativeTime } from "./report";
 
-const COLUMNS: readonly Column[] = [
-  { label: "Account", flex: 2.4 },
-  { label: "Joined", flex: 1 },
-  { label: "Last seen", flex: 1 },
-  { label: "Contexts", flex: 0.9, align: "right" },
-  { label: "Storage", flex: 1.2 },
-  { label: "Clients", flex: 0.8, align: "right" },
-  { label: "Plan", flex: 0.9 },
-];
+/**
+ * The AI column is cost, not content: one dollar figure per account, summed
+ * over the workspaces it owns, for the census window — the attribution rule
+ * lives in `apps/convex/functions/lib/jev/spend.ts`.
+ */
+function columnsFor(days: number): readonly Column[] {
+  return [
+    { label: "Account", flex: 2.4 },
+    { label: "Joined", flex: 1 },
+    { label: "Last seen", flex: 1 },
+    { label: "Contexts", flex: 0.9, align: "right" },
+    { label: "Storage", flex: 1.2 },
+    { label: "Clients", flex: 0.8, align: "right" },
+    { label: aiSpendLabel(days), flex: 0.9, align: "right", hint: AI_SPEND_HINT },
+    { label: "Plan", flex: 0.9 },
+  ];
+}
 
 export function RosterCard({
   roster,
   total,
+  days,
 }: {
   roster: readonly RosterRow[];
   /** Every account, as `formatTotal` spells it, for "8 of 14". */
   total: string;
+  /** The census window the AI column covers. */
+  days: number;
 }) {
   const compact = useCompact();
+  const columns = columnsFor(days);
 
   if (roster.length === 0) {
     return (
@@ -74,17 +92,17 @@ export function RosterCard({
             first={index === 0}
             title={row.email ?? "no address"}
             sub={`joined ${relativeTime(row.joinedAt)} · seen ${formatLastUsed(row.lastSeenAt)}`}
-            extra={<PhoneFacts row={row} />}
+            extra={<PhoneFacts row={row} days={days} />}
             trailing={<Plan plan={row.plan} />}
           />
         ))
       ) : (
         <View>
-          <TableHead columns={COLUMNS} />
+          <TableHead columns={columns} />
           {roster.map((row, index) => (
             <TableRow
               key={`${row.email ?? "anon"}-${row.joinedAt}`}
-              columns={COLUMNS}
+              columns={columns}
               last={index === roster.length - 1}
               cells={[
                 <Text key="who" variant="rowTitle" numberOfLines={1}>
@@ -99,6 +117,7 @@ export function RosterCard({
                 <Count key="contexts" value={row.contexts} />,
                 <Storage key="storage" row={row} />,
                 <Count key="clients" value={row.clients} />,
+                <AiSpend key="ai" row={row} />,
                 <Plan key="plan" plan={row.plan} />,
               ]}
             />
@@ -148,6 +167,17 @@ function Storage({ row }: { row: RosterRow }) {
   return <Count value={0} />;
 }
 
+/** Dollars, or a muted dash for none: spending nothing is not a warning. */
+function AiSpend({ row }: { row: RosterRow }) {
+  const styles = useThemedStyles(makeStyles);
+  const none = row.aiSpendMicroUsd <= 0 && !row.aiSpendPartial;
+  return (
+    <Text style={none ? styles.plain : styles.num}>
+      {formatAiSpend(row.aiSpendMicroUsd, row.aiSpendPartial)}
+    </Text>
+  );
+}
+
 function Plan({ plan }: { plan: string }) {
   const styles = useThemedStyles(makeStyles);
   // Free is the default and the common case; a pill on every free row would
@@ -158,8 +188,11 @@ function Plan({ plan }: { plan: string }) {
   return <Pill tone={planTone(plan)}>{planLabel(plan)}</Pill>;
 }
 
-/** A phone row's third line: the three counts, what is missing in warn. */
-function PhoneFacts({ row }: { row: RosterRow }) {
+/**
+ * A phone row's third line: the three counts, what is missing in warn, then
+ * AI spend only where there is some — none is not something missing.
+ */
+function PhoneFacts({ row, days }: { row: RosterRow; days: number }) {
   const styles = useThemedStyles(makeStyles);
   const state = storageState(row);
   const parts: { text: string; missing: boolean }[] = [
@@ -173,6 +206,12 @@ function PhoneFacts({ row }: { row: RosterRow }) {
       ? { text: `${formatCount(row.clients)} ${row.clients === 1 ? "client" : "clients"}`, missing: false }
       : { text: "no client", missing: true },
   ];
+  if (row.aiSpendMicroUsd > 0 || row.aiSpendPartial) {
+    parts.push({
+      text: `AI ${formatAiSpend(row.aiSpendMicroUsd, row.aiSpendPartial)} (${days}d)`,
+      missing: false,
+    });
+  }
   return (
     <Text style={styles.phoneFacts}>
       {parts.map((part, index) => (

@@ -32,7 +32,7 @@ import {
   projectFacts,
   projectRequest,
 } from "../../../../mcp/src/organizer/questions.js";
-import { archiveSuggestion } from "../../../../mcp/src/organizer/suggest.js";
+import { archiveSuggestion, doneSuggestion, fileSuggestion } from "../../../../mcp/src/organizer/suggest.js";
 import {
   clearPending,
   mergeSweep,
@@ -42,6 +42,7 @@ import {
   writeOrganizerState,
 } from "../../../../mcp/src/organizer/state.js";
 import { setNoteProperty } from "../../../../mcp/src/lists/setProperty.js";
+import { type ChangeStep, type ChangeWork, type FieldUndo, applyChange, gatherChangeWork, restoreField } from "./changeOps";
 import { noteProperties } from "../../../../mcp/src/lists/properties.js";
 import { resolveStatusList } from "../../../../mcp/src/lists/statuses.js";
 
@@ -57,7 +58,8 @@ export type OrganizerKind = "done" | "archive" | "file";
 
 export interface OrganizerSuggestion {
   id: string;
-  kind: OrganizerKind;
+  /** "change" is a What changed card (`./changeOps.ts`): never done without asking. */
+  kind: OrganizerKind | "change";
   path: string;
   title: string;
   reason: string;
@@ -66,6 +68,11 @@ export interface OrganizerSuggestion {
   to?: string;
   target?: { path: string; title: string };
   etag?: string | null;
+  /** Kind "change": what it is about, where it was read, and its steps. */
+  topic?: "people" | "focus" | "project";
+  source?: { path: string; title: string; kind: string };
+  steps?: ChangeStep[];
+  at?: number;
 }
 
 /** One question for Jev, and what the answer will be judged against. */
@@ -90,6 +97,8 @@ export interface SweepWork {
   destinations: { path: string; title: string; group: string }[];
   /** Suggestions that need no question: closed projects gone quiet. */
   ready: OrganizerSuggestion[];
+  /** What changed: arrivals to read, when the sweep asked for them. */
+  changes: ChangeWork | null;
 }
 
 async function listEverything(store: FileStore, clearance: Clearance) {
@@ -108,8 +117,13 @@ async function listEverything(store: FileStore, clearance: Clearance) {
 
 async function readTexts(store: FileStore, clearance: Clearance, paths: string[]) {
   const texts = new Map<string, { text: string; etag: string }>();
-  for (let at = 0; at < paths.length; at += READ_BATCH) {
-    const batch = await readFiles(store, { paths: paths.slice(at, at + READ_BATCH), clearance });
+  let queue = paths;
+  while (queue.length > 0) {
+    const batch = await readFiles(store, { paths: queue.slice(0, READ_BATCH), clearance });
+    // Past a batch's byte budget the rest come back `deferred`, unread: ask
+    // again. The first path of a batch is always read, so this ends.
+    const deferred = batch.filter((read) => read.outcome === "deferred").map((read) => read.path);
+    queue = [...deferred, ...queue.slice(READ_BATCH)];
     for (const read of batch) {
       // An encrypted note is ciphertext here, and stays unread: the control
       // plane holds no key, and a locked note reaches no AI feature at all.
@@ -125,6 +139,7 @@ export async function gatherOrganizerWork(
   store: FileStore,
   clearance: Clearance,
   now: number,
+  options: { changes?: boolean } = {},
 ): Promise<SweepWork> {
   const entries = await listEverything(store, clearance);
   const plan = planSweep(entries, now);
@@ -165,7 +180,37 @@ export async function gatherOrganizerWork(
       items.push({ kind: "inbox", note: { ...note, etag: read.etag }, title: note.title, request });
     }
   }
-  return { total: entries.length, items, destinations: plan.destinations, ready };
+  let changes: ChangeWork | null = null;
+  if (options.changes === true) {
+    const { state } = await readOrganizerState(store);
+    changes = await gatherChangeWork((paths) => readTexts(store, clearance, paths), {
+      entries,
+      inboxRoot: (plan.roots as { inbox?: string | null }).inbox ?? null,
+      readUpTo: (state as { changesReadUpTo?: number | null }).changesReadUpTo ?? null,
+      projects: plan.projects,
+      projectTexts: texts,
+      statuses: Object.values(statusList as Record<string, string[]>).flat(),
+      now,
+    });
+  }
+  return { total: entries.length, items, destinations: plan.destinations, ready, changes };
+}
+
+/**
+ * What one answered question suggests, or null. The sweep and the
+ * organization-score suite both call this, so the suite judges the rules the
+ * sweep actually applies.
+ */
+export function suggestionFor(
+  item: WorkItem,
+  destinations: SweepWork["destinations"],
+  answers: Record<string, unknown>,
+): OrganizerSuggestion | null {
+  const suggestion =
+    item.kind === "project"
+      ? doneSuggestion(item.project, item.facts, answers)
+      : fileSuggestion(item.note, item.title, destinations, answers);
+  return (suggestion as OrganizerSuggestion | null) ?? null;
 }
 
 /** Read, change, write back on the etag; a lost race re-reads and retries. */
@@ -185,9 +230,16 @@ export async function recordOrganizerSweep(
   store: FileStore,
   suggestions: OrganizerSuggestion[],
   now: number,
-): Promise<{ pending: number; suggestions: OrganizerSuggestion[] }> {
-  const next = await updateState(store, (state) => mergeSweep(state, suggestions, now));
-  return { pending: next.pending.length, suggestions: next.pending as OrganizerSuggestion[] };
+  changesReadUpTo?: number,
+): Promise<{ pending: number; changes: number; suggestions: OrganizerSuggestion[] }> {
+  const next = await updateState(store, (state) => mergeSweep(state, suggestions, now, changesReadUpTo));
+  const all = next.pending as OrganizerSuggestion[];
+  return { pending: all.length, changes: countChanges(all), suggestions: all };
+}
+
+/** What changed cards waiting, for the count beside "What changed". */
+export function countChanges(pending: readonly unknown[]): number {
+  return (pending as OrganizerSuggestion[]).filter((item) => item.kind === "change").length;
 }
 
 export async function readOrganizerPending(store: FileStore) {
@@ -202,7 +254,9 @@ export async function clearOrganizerPending(store: FileStore): Promise<{ pending
 
 export type OrganizerUndo =
   | { kind: "move"; from: string; to: string }
-  | { kind: "status"; path: string; value: string };
+  | { kind: "status"; path: string; value: string }
+  | FieldUndo
+  | { kind: "batch"; undos: ({ kind: "move"; from: string; to: string } | FieldUndo)[] };
 
 /** Carry out one accepted suggestion with the operations a person would use. */
 async function apply(
@@ -211,7 +265,13 @@ async function apply(
   suggestion: OrganizerSuggestion,
   now: number,
   actor: ActivityActor | null,
+  steps: readonly string[] | null,
 ): Promise<OrganizerUndo> {
+  if (suggestion.kind === "change") {
+    const done = await applyChange(store, clearance, { title: suggestion.title, steps: suggestion.steps ?? [] }, steps, now, actor);
+    if (done.undos.length === 0) throw new FileOpError("CONFLICT", "Those notes changed since. Nothing was done.");
+    return { kind: "batch", undos: done.undos };
+  }
   if (suggestion.kind === "done") {
     const note = await readFile(store, { path: suggestion.path, clearance });
     if (note.encrypted || note.readOnly) throw new FileOpError("CONFLICT", "This note can't be changed here.");
@@ -237,7 +297,10 @@ async function apply(
 export interface ResolveOutcome {
   applied: boolean;
   offer: OrganizerKind | null;
+  /** Everything waiting for the owner, change cards included. */
   pending: number;
+  /** The What changed cards among them. */
+  changes: number;
   undo: OrganizerUndo | null;
   error: string | null;
 }
@@ -250,19 +313,28 @@ export interface ResolveOutcome {
 export async function resolveOrganizerSuggestion(
   store: FileStore,
   clearance: Clearance,
-  args: { id: string; decision: "accept" | "dismiss" },
+  args: { id: string; decision: "accept" | "dismiss"; steps?: readonly string[] | null },
   now: number,
   actor: ActivityActor | null,
 ): Promise<ResolveOutcome> {
   const { state } = await readOrganizerState(store);
   const suggestion = (state.pending as OrganizerSuggestion[]).find((item) => item.id === args.id);
-  if (!suggestion) return { applied: false, offer: null, pending: state.pending.length, undo: null, error: "That suggestion is no longer waiting." };
+  if (!suggestion) {
+    return {
+      applied: false,
+      offer: null,
+      pending: state.pending.length,
+      changes: countChanges(state.pending),
+      undo: null,
+      error: "That suggestion is no longer waiting.",
+    };
+  }
 
   let undo: OrganizerUndo | null = null;
   let error: string | null = null;
   if (args.decision === "accept") {
     try {
-      undo = await apply(store, clearance, suggestion, now, actor);
+      undo = await apply(store, clearance, suggestion, now, actor, args.steps ?? null);
     } catch (thrown) {
       error = thrown instanceof FileOpError ? thrown.message : "That couldn't be done. The note may have changed.";
     }
@@ -278,8 +350,9 @@ export async function resolveOrganizerSuggestion(
   });
   return {
     applied: undo !== null,
-    offer: offer ? suggestion.kind : null,
+    offer: offer && suggestion.kind !== "change" ? suggestion.kind : null,
     pending: next.pending.length,
+    changes: countChanges(next.pending),
     undo,
     error,
   };
@@ -336,10 +409,11 @@ export async function runOrganizerOperation(
   const acting = operation.autopilot === true ? ORGANIZER_ACTOR : actor;
   switch (operation.action) {
     case "gather":
-      return JSON.stringify(await gatherOrganizerWork(store, clearance, now));
+      return JSON.stringify(await gatherOrganizerWork(store, clearance, now, { changes: input.changes === true }));
     case "record": {
       const suggestions = Array.isArray(input.suggestions) ? (input.suggestions as OrganizerSuggestion[]) : [];
-      return JSON.stringify(await recordOrganizerSweep(store, suggestions, now));
+      const readUpTo = typeof input.changesReadUpTo === "number" ? input.changesReadUpTo : undefined;
+      return JSON.stringify(await recordOrganizerSweep(store, suggestions, now, readUpTo));
     }
     case "read":
       return JSON.stringify(await readOrganizerPending(store));
@@ -348,7 +422,8 @@ export async function runOrganizerOperation(
     case "resolve": {
       const decision = input.decision === "accept" ? "accept" : input.decision === "dismiss" ? "dismiss" : null;
       if (!decision) throw new FileOpError("PATH_INVALID", "Accept or dismiss, nothing else.");
-      return JSON.stringify(await resolveOrganizerSuggestion(store, clearance, { id: text(input.id, "suggestion"), decision }, now, acting));
+      const steps = Array.isArray(input.steps) ? input.steps.filter((step): step is string => typeof step === "string").slice(0, 32) : null;
+      return JSON.stringify(await resolveOrganizerSuggestion(store, clearance, { id: text(input.id, "suggestion"), decision, steps }, now, acting));
     }
     case "autopilot": {
       const kinds = new Set(Array.isArray(input.kinds) ? input.kinds.filter((kind): kind is OrganizerKind => kind === "done" || kind === "archive" || kind === "file") : []);
@@ -365,7 +440,7 @@ async function runAutopilot(store: FileStore, clearance: Clearance, kinds: Set<O
   if (kinds.size === 0) return { applied };
   const { state } = await readOrganizerState(store);
   for (const suggestion of state.pending as OrganizerSuggestion[]) {
-    if (!kinds.has(suggestion.kind)) continue;
+    if (suggestion.kind === "change" || !kinds.has(suggestion.kind)) continue;
     const outcome = await resolveOrganizerSuggestion(store, clearance, { id: suggestion.id, decision: "accept" }, now, ORGANIZER_ACTOR);
     if (outcome.applied) applied += 1;
   }
@@ -395,6 +470,14 @@ async function undoOrganizerChange(
   if (token && typeof token === "object") {
     if (token.kind === "move") undo = { kind: "move", from: text(token.from, "path"), to: text(token.to, "path") };
     else if (token.kind === "status") undo = { kind: "status", path: text(token.path, "path"), value: typeof token.value === "string" ? token.value : "" };
+    else if (token.kind === "field") undo = readFieldUndo(token);
+    else if (token.kind === "batch" && Array.isArray(token.undos)) {
+      const undos = token.undos.slice(0, 32).map((one: unknown) => {
+        const part = (one ?? {}) as Record<string, unknown>;
+        return part.kind === "move" ? { kind: "move" as const, from: text(part.from, "path"), to: text(part.to, "path") } : readFieldUndo(part);
+      });
+      undo = { kind: "batch", undos };
+    }
   } else if (entry && typeof entry === "object" && Array.isArray(entry.paths)) {
     const paths = entry.paths.filter((path): path is string => typeof path === "string");
     const rows = await readActivity(store, { scope: clearance.scope, names: [...clearance.names] });
@@ -410,7 +493,22 @@ async function undoOrganizerChange(
   }
   if (!undo) return { applied: false, error: "That change can't be undone from here." };
   try {
-    if (undo.kind === "status") {
+    if (undo.kind === "batch") {
+      // Each part on its own: one note changed since must not keep the rest.
+      let applied = 0;
+      for (const part of undo.undos) {
+        try {
+          await undoOne(store, clearance, part, now, actor);
+          applied += 1;
+        } catch (thrown) {
+          if (!(thrown instanceof FileOpError)) throw thrown;
+        }
+      }
+      return applied > 0 ? { applied: true } : { applied: false, error: "Those notes changed since. Nothing was undone." };
+    }
+    if (undo.kind === "field") {
+      await restoreField(store, clearance, undo, now, actor);
+    } else if (undo.kind === "status") {
       await restoreOrganizerStatus(store, clearance, { path: undo.path, value: undo.value }, now, actor);
       const path = undo.path;
       await updateState(store, (state) => rememberRevert(state, path, undefined));
@@ -422,4 +520,29 @@ async function undoOrganizerChange(
   } catch (thrown) {
     return { applied: false, error: thrown instanceof FileOpError ? thrown.message : "That couldn't be undone. The note may have changed." };
   }
+}
+
+const UNDO_FIELDS = new Set(["owner", "priority", "status"]);
+
+/** A field to put back. Only the three fields a change card ever sets. */
+function readFieldUndo(token: Record<string, unknown>): FieldUndo {
+  if (typeof token.field !== "string" || !UNDO_FIELDS.has(token.field)) {
+    throw new FileOpError("PATH_INVALID", "That change can't be undone from here.");
+  }
+  return { kind: "field", path: text(token.path, "path"), field: token.field as FieldUndo["field"], value: typeof token.value === "string" ? token.value : "" };
+}
+
+async function undoOne(
+  store: FileStore,
+  clearance: Clearance,
+  part: { kind: "move"; from: string; to: string } | FieldUndo,
+  now: number,
+  actor: ActivityActor | null,
+) {
+  if (part.kind === "field") {
+    await restoreField(store, clearance, part, now, actor);
+    return;
+  }
+  const moved = await movePath(store, { from: part.from, to: part.to, clearance, now });
+  await recordActivity(store, { action: "file.move", paths: [moved.from, moved.to], details: { count: moved.paths.length, organizer: "undo" }, actor });
 }

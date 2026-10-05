@@ -3,14 +3,21 @@ import { useConvex } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { parentPath } from "../files/paths";
-import type { HomeOpened, HomePin } from "./homeModel";
+import type { HomeOpened, HomePin, HomeRecent } from "./homeModel";
 
 const NO_PINS: readonly HomePin[] = [];
 const NO_OPENS: readonly HomeOpened[] = [];
+const NO_RECENTS: readonly HomeRecent[] = [];
+/** A note kept open and typed in counts again at most this often. */
+export const RECENT_EDIT_EVERY_MS = 60_000;
 
 export interface HomePlaces {
   pins: readonly HomePin[];
   opened: readonly HomeOpened[];
+  /** The notes this person opened or edited last, newest first. */
+  recents: readonly HomeRecent[];
+  /** Ask the server again: Home calls it each time it is shown. */
+  refresh: () => void;
   /** `null` where there is no account to pin to: a visitor, or no workspace. */
   togglePin: ((path: string, kind: "note" | "folder") => void) | null;
   /**
@@ -22,7 +29,7 @@ export interface HomePlaces {
 }
 
 /**
- * The signed-in person's own pins and most-opened folders in one workspace,
+ * The signed-in person's own pins, most-opened folders and recent notes in one workspace,
  * saved on their account (`functions/places.ts`) so every device shows the
  * same Home. `enabled` is false for a visitor on the homepage and for a
  * workspace the console has no role in; nothing is asked for then.
@@ -37,6 +44,7 @@ export function useHomePlaces(workspaceId: string | null | undefined, enabled: b
   const ws = enabled && workspaceId != null ? (workspaceId as Id<"workspaces">) : null;
   const [pins, setPins] = useState<readonly HomePin[]>(NO_PINS);
   const [opened, setOpened] = useState<readonly HomeOpened[]>(NO_OPENS);
+  const [recents, setRecents] = useState<readonly HomeRecent[]>(NO_RECENTS);
   const generation = useRef(0);
 
   const load = useCallback(async () => {
@@ -44,17 +52,20 @@ export function useHomePlaces(workspaceId: string | null | undefined, enabled: b
     if (ws === null) {
       setPins(NO_PINS);
       setOpened(NO_OPENS);
+      setRecents(NO_RECENTS);
       return;
     }
     try {
-      const [nextPins, nextOpened] = await Promise.all([
+      const [nextPins, nextOpened, nextRecents] = await Promise.all([
         convex.query(api.functions.places.listPins, { workspaceId: ws }),
         convex.query(api.functions.places.mostOpened, { workspaceId: ws }),
+        convex.query(api.functions.places.recentNotes, { workspaceId: ws }),
       ]);
       // A newer read, or another workspace, has started since: this answer is stale.
       if (mine !== generation.current) return;
       setPins(nextPins ?? NO_PINS);
       setOpened(nextOpened ?? NO_OPENS);
+      setRecents(nextRecents ?? NO_RECENTS);
     } catch {
       // Home without pins is still Home; the next visit asks again.
     }
@@ -88,7 +99,9 @@ export function useHomePlaces(workspaceId: string | null | undefined, enabled: b
     [setPin, pins],
   );
 
-  return { pins, opened, togglePin: ws === null ? null : togglePin, setPin: ws === null ? null : setPin };
+  const refresh = useCallback(() => void load(), [load]);
+
+  return { pins, opened, recents, refresh, togglePin: ws === null ? null : togglePin, setPin: ws === null ? null : setPin };
 }
 
 /**
@@ -123,4 +136,42 @@ export function useRecordOpen(
       }
     })();
   }, [convex, enabled, workspaceId, folder]);
+}
+
+/**
+ * Put the open note at the top of this person's Recent: when it is opened,
+ * and again while they type in it (at most once a minute). Every layout
+ * counts, so a note written on a laptop is in Recent on the phone. Somebody
+ * else changing a note never moves it here — that is the whole point of
+ * Recent (owner, 2026-10-05: "the notes that I've personally recently
+ * opened/edited").
+ */
+export function useRecordRecent(
+  workspaceId: string | null | undefined,
+  enabled: boolean,
+  notePath: string | null,
+  /** The unsaved text while they type, `null` when nothing is unsaved: each change may count. */
+  typed: string | null,
+): void {
+  const convex = useConvex();
+  const last = useRef<{ key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!enabled || workspaceId == null || notePath === null) return;
+    const key = `${workspaceId}\u001f${notePath}`;
+    const now = Date.now();
+    const previous = last.current;
+    // Arriving counts at once; staying counts again only for typing, once a minute.
+    if (previous !== null && previous.key === key && (typed === null || now - previous.at < RECENT_EDIT_EVERY_MS)) return;
+    last.current = { key, at: now };
+    void (async () => {
+      try {
+        await convex.mutation(api.functions.places.recordRecent, {
+          workspaceId: workspaceId as Id<"workspaces">,
+          path: notePath,
+        });
+      } catch {
+        // Recent is a convenience; a note that was not recorded changes nothing on screen.
+      }
+    })();
+  }, [convex, enabled, workspaceId, notePath, typed]);
 }

@@ -1,5 +1,6 @@
 import { getNote, putNote } from "../cache";
-import { forgetMirroredNote, mirroredNote, moveMirroredBody, putMirroredNotes } from "../mirror";
+import { forgetMirroredNote, mirroredNote, putMirroredNotes } from "../mirror";
+import { moveMirroredBody } from "../mirrorMove";
 import { neededEtags } from "../mirrorHolds";
 import { openMirrorStore } from "../mirrorStore";
 import type { KeyValueStore } from "../memory";

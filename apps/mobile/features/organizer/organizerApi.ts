@@ -2,6 +2,7 @@ import type { FunctionReference } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type {
+  ChangeCard,
   OrganizerDecision,
   OrganizerKind,
   OrganizerStatus,
@@ -34,10 +35,13 @@ export interface OrganizerApi {
     Workspace,
     { suggestions: OrganizerSuggestion[]; sweptAt: number | null }
   >;
+  /** What changed: the cards waiting for the owner, newest first. */
+  changes: FunctionReference<"action", "public", Workspace, { changes: ChangeCard[] }>;
+  /** `steps` only for a change card: the ticked ones. */
   resolve: FunctionReference<
     "action",
     "public",
-    Workspace & { id: string; decision: OrganizerDecision },
+    Workspace & { id: string; decision: OrganizerDecision; steps?: string[] },
     ResolveResult
   >;
   undo: FunctionReference<

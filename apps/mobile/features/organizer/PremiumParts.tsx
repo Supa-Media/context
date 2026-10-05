@@ -13,13 +13,17 @@ import {
   includedLine,
   previewWhy,
   settingsCopy,
+  sortCopy,
+  sortDone,
+  sortRunning,
   sweepCopy,
   sweepCount,
   sweepFoundTitle,
   sweepReadingTitle,
 } from "./copy";
 import { useOrganizerView } from "./OrganizerContext";
-import { previewSuggestions, settingsCard, shouldStartSweep, sweepPhase } from "./rules";
+import { relativeTime } from "../console/format";
+import { type SortLine, previewSuggestions, settingsCard, shouldStartSweep, sortLine, sweepPhase } from "./rules";
 import { makeStyles } from "./styles";
 import { ORGANIZER_KINDS, type OrganizerStatus, type OrganizerSuggestion } from "./types";
 import type { OrganizerView } from "./useOrganizer";
@@ -124,18 +128,70 @@ export function SweepCard({
   );
 }
 
+/**
+ * Whether it is sorting right now, and when it last did, with the press that
+ * follows from it. Before this line the switch said On while a workspace that
+ * had never seen the notice was never swept, and nothing on screen said so.
+ */
+export function SortStatus({
+  line,
+  now,
+  onSortNow,
+  onReview,
+}: {
+  line: SortLine;
+  now: number;
+  onSortNow: () => void;
+  onReview: () => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const text =
+    line.kind === "running"
+      ? sortRunning(line)
+      : line.kind === "never"
+        ? sortCopy.never
+        : line.kind === "failed"
+          ? sortCopy.failed(relativeTime(line.at, now), line.why)
+          : sortDone(relativeTime(line.at, now), line.pending);
+  return (
+    <View style={styles.sort} testID={`organizer-sort-${line.kind}`}>
+      {line.kind === "running" ? <ActivityIndicator size="small" color={colors.muted} /> : null}
+      <Text variant="rowSub" role="status" style={styles.sortText}>
+        {text}
+      </Text>
+      {line.kind === "done" && line.pending > 0 ? (
+        <Button label={sortCopy.lookOver} variant="mini" onPress={onReview} testID="organizer-sort-review" />
+      ) : null}
+      {line.kind === "running" ? null : (
+        <Button
+          label={line.kind === "failed" ? sortCopy.tryAgain : sortCopy.sortNow}
+          onPress={onSortNow}
+          testID="organizer-sort-now"
+        />
+      )}
+    </View>
+  );
+}
+
 /** 06 — the owner's switches, after the includes card; a member's read-out. */
 export function AutoOrganizeSettings({
   status,
   onEnabled,
   onAutopilot,
+  onSortNow,
+  onReview,
 }: {
   status: OrganizerStatus;
   onEnabled: (on: boolean) => void;
   onAutopilot: (kind: (typeof ORGANIZER_KINDS)[number], on: boolean) => void;
+  onSortNow?: () => void;
+  onReview?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const member = !status.isOwner;
+  const now = Date.now();
+  const line = sortLine(status, now);
   return (
     <Card style={styles.card} testID="organizer-settings">
       <View style={styles.head}>
@@ -159,6 +215,9 @@ export function AutoOrganizeSettings({
         </Hint>
       ) : (
         <>
+          {line !== null && onSortNow !== undefined && onReview !== undefined ? (
+            <SortStatus line={line} now={now} onSortNow={onSortNow} onReview={onReview} />
+          ) : null}
           {status.on ? (
             <View style={styles.section}>
               <Text variant="eyebrow">{settingsCopy.withoutAsking}</Text>
@@ -243,7 +302,13 @@ export function usePremiumSlotsFor(organizer: OrganizerView | undefined, returne
       ),
     afterIncludes:
       card === null ? undefined : (
-        <AutoOrganizeSettings status={status} onEnabled={organizer.setEnabled} onAutopilot={organizer.setAutopilot} />
+        <AutoOrganizeSettings
+          status={status}
+          onEnabled={organizer.setEnabled}
+          onAutopilot={organizer.setAutopilot}
+          onSortNow={organizer.sweepNow}
+          onReview={() => organizer.openReview({ closeSettings: true })}
+        />
       ),
   };
 }

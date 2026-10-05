@@ -28,8 +28,10 @@ import { PhoneHome } from "../../home/PhoneHome";
 import { folderTagTarget } from "../../home/folderTags";
 import { showTagOnHome } from "../../home/homeTag";
 import type { HomeSource } from "../../home/useHomeSource";
-import { useRecordOpen } from "../../home/useHomePlaces";
+import { useRecordOpen, useRecordRecent } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
+import { useOrganizerView } from "../../../organizer/OrganizerContext";
+import { WhatChangedPage } from "../../../organizer/WhatChangedPage";
 
 /**
  * Whatever is in front of somebody: the empty state or the phone's landing
@@ -215,6 +217,8 @@ export function BrowseDocument({
       source={homeSource}
       pins={places.pins}
       opened={places.opened}
+      recents={data.visitor === undefined ? places.recents : null}
+      onShown={places.refresh}
       onOpen={files.select}
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
       onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
@@ -255,11 +259,35 @@ export function BrowseDocument({
     data.visitor === undefined && current?.role !== undefined && settled,
     selected === null ? null : { path: selected.path, kind: selected.kind },
   );
+  // And for Recent: the note on screen, again while this person types in it.
+  useRecordRecent(
+    current?.id,
+    data.visitor === undefined && current?.role !== undefined && settled,
+    selected?.kind === "file" ? selected.path : null,
+    files.editor.path === selected?.path && files.editor.draft !== files.editor.baseline ? files.editor.draft : null,
+  );
 
   // In storage but can't be opened: drawn with no editor, so nothing saves over it.
   const unreadable = files.unreadable ?? null;
+  const organizer = useOrganizerView();
   const openDocument =
-    unreadable !== null && unreadable === files.selectedPath ? (
+    organizer?.pageOpen ? (
+      /*
+        What changed (`?changes=1`), where a note would be: the tree stays
+        beside it, and opening one of its sources is opening that note.
+      */
+      <DocumentPage>
+        <WhatChangedPage
+          organizer={organizer}
+          compact={compact}
+          now={Date.now()}
+          onOpenSource={(path) => {
+            organizer.closePage();
+            files.select(path);
+          }}
+        />
+      </DocumentPage>
+    ) : unreadable !== null && unreadable === files.selectedPath ? (
       <UnreadableNote
         onRetry={() => files.select(unreadable)}
         pathBar={pathBar}

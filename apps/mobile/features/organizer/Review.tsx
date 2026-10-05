@@ -1,13 +1,12 @@
-import { useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { PressRow } from "../design/components/Button";
+import { Button, PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useColors, useThemedStyles } from "../design/theme";
 import { makeStyles as explorerStyles } from "../console/files/explorer/styles";
-import { acceptLabel, dismissLabel, reviewCopy, reviewMeta, suggestionsLine } from "./copy";
+import { acceptButton, acceptLabel, actionLine, dismissLabel, reviewCopy, skipButton, suggestionsLine, whereLine } from "./copy";
 import { groupSuggestions } from "./rules";
 import { makeSheetStyles, makeStyles } from "./styles";
 import type { OrganizerSuggestion } from "./types";
@@ -16,14 +15,12 @@ import type { OrganizerView } from "./useOrganizer";
 /**
  * 04 — the one review list: the popover's over the tree and the phone's sheet.
  *
- * Accepting one never removes the rest; each row goes on its own answer. On a
- * pointer the ✓ and ✕ are lit on the row under it (present and focusable at
- * rest, as the explorer's toolbar is), and on a phone always.
+ * Accepting one never removes the rest; each row goes on its own answer.
  */
 export function ReviewList({ organizer, touch = false }: { organizer: OrganizerView; touch?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const [hovered, setHovered] = useState<string | null>(null);
+  // What changed cards are not here: they have their own page (`WhatChangedPage`).
   const { list, loading, failed, busy } = organizer.suggestions;
 
   if (list === null || list.length === 0) {
@@ -45,57 +42,42 @@ export function ReviewList({ organizer, touch = false }: { organizer: OrganizerV
     );
   }
 
+  // Every row says what it will do, to which note, from where to where, and
+  // carries its two answers as words, always shown. Icons that lit only under
+  // the pointer left a person asking what the card wanted (Dev2, 2026-10-05).
   const row = (item: OrganizerSuggestion) => {
-    const lit = touch || hovered === item.id;
     const pending = busy.has(item.id);
     return (
-      <View
-        key={item.id}
-        onPointerEnter={() => setHovered(item.id)}
-        onPointerLeave={() => setHovered((current) => (current === item.id ? null : current))}
-        style={[styles.reviewRow, touch && styles.reviewRowTouch, !touch && hovered === item.id && styles.reviewRowHover]}
-        testID={`organizer-suggestion-${item.id}`}
-      >
-        <View style={styles.reviewBody}>
-          <Text variant={touch ? "rowTitle" : "tree"} numberOfLines={1} style={styles.reviewTitle}>
-            {item.title}
+      <View key={item.id} style={[styles.reviewRow, touch && styles.reviewRowTouch]} testID={`organizer-suggestion-${item.id}`}>
+        <Text variant={touch ? "rowTitle" : "tree"} style={styles.reviewAction}>
+          {actionLine(item)}
+        </Text>
+        <Text variant={touch ? "rowSub" : "treeMeta"} numberOfLines={2} style={styles.reviewTitle}>
+          {item.title}
+        </Text>
+        {whereLine(item) ? (
+          <Text variant={touch ? "rowSub" : "treeMeta"} style={styles.reviewMeta}>
+            {whereLine(item)}
           </Text>
-          <Text variant={touch ? "rowSub" : "treeMeta"} numberOfLines={1} style={styles.reviewMeta}>
-            {reviewMeta(item)}
-          </Text>
-        </View>
-        {/*
-          At rest on a pointer the pair is out of the flow and unlit, so the
-          titles keep the column's width; the row under the pointer, or holding
-          focus, takes it back. Still mounted, so a keyboard can reach it.
-        */}
-        <View
-          onFocus={() => setHovered(item.id)}
-          onBlur={() => setHovered((current) => (current === item.id ? null : current))}
-          style={[styles.acts, touch && styles.actsTouch, lit ? styles.actsShown : styles.actsResting]}
-        >
-          <PressRow
+        ) : null}
+        <View style={styles.acts}>
+          <Button
+            label={acceptButton(item)}
             accessibilityLabel={acceptLabel(item)}
             onPress={() => organizer.resolve(item, "accept")}
             disabled={pending}
-            radius={radii.sm}
-            style={[styles.act, touch && styles.actTouch]}
-            hoverStyle={styles.actHover}
+            variant="dialogPrimary"
+            style={touch ? undefined : styles.actSmall}
             testID={`organizer-accept-${item.id}`}
-          >
-            <Icon name="check" size={touch ? 16 : 13} color={colors.accentText} />
-          </PressRow>
-          <PressRow
+          />
+          <Button
+            label={skipButton}
             accessibilityLabel={dismissLabel(item)}
             onPress={() => organizer.resolve(item, "dismiss")}
             disabled={pending}
-            radius={radii.sm}
-            style={[styles.act, touch && styles.actTouch]}
-            hoverStyle={styles.actHover}
+            variant={touch ? "dialog" : "mini"}
             testID={`organizer-dismiss-${item.id}`}
-          >
-            <Icon name="close" size={touch ? 15 : 12} color={colors.chromeMuted} />
-          </PressRow>
+          />
         </View>
       </View>
     );
@@ -103,7 +85,7 @@ export function ReviewList({ organizer, touch = false }: { organizer: OrganizerV
 
   return (
     <View style={styles.reviewList} testID="organizer-review-list">
-      {groupSuggestions(list).map((group) => (
+      {groupSuggestions(list ?? []).map((group) => (
         <View key={group.key}>
           <View style={styles.divider}>
             <Text variant="eyebrow" style={styles.dayLabel}>
