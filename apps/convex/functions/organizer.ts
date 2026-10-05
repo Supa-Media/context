@@ -46,8 +46,7 @@ import {
   sweepIsDue,
   organizerAvailable,
 } from "./lib/organizer/settings";
-import type { OrganizerSuggestion, OrganizerUndo, SweepWork } from "./lib/organizer/sweepOps";
-import { doneSuggestion, fileSuggestion } from "../../mcp/src/organizer/suggest.js";
+import { type OrganizerSuggestion, type OrganizerUndo, type SweepWork, suggestionFor } from "./lib/organizer/sweepOps";
 
 const kindValidator = v.union(v.literal("done"), v.literal("archive"), v.literal("file"));
 const countsValidator = v.object({ done: v.number(), archive: v.number(), file: v.number() });
@@ -493,11 +492,8 @@ export const runSweep = internalAction({
           read += 1;
           if (answers) {
             answered += 1;
-            const suggestion =
-              item.kind === "project"
-                ? doneSuggestion(item.project, item.facts, answers)
-                : fileSuggestion(item.note, item.title, work.destinations, answers);
-            if (suggestion) found.push(suggestion as OrganizerSuggestion);
+            const suggestion = suggestionFor(item, work.destinations, answers);
+            if (suggestion) found.push(suggestion);
           }
           if (read % 10 === 0) {
             await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });
