@@ -93,6 +93,34 @@ export function shouldStartSweep(
   return status.startsAt === null || status.startsAt <= now;
 }
 
+/** A sweep that has said "running" this long has died (the server's `SWEEP_STALE_MS`). */
+const SWEEP_STALE_MS = 30 * 60 * 1000;
+
+/** Settings' answer to "is it sorting, and when did it last?" */
+export type SortLine =
+  | { kind: "running"; read: number; total: number }
+  | { kind: "never" }
+  | { kind: "done"; at: number; pending: number }
+  | { kind: "failed"; at: number };
+
+/**
+ * The owner's sort status, on the Auto-organize card. Only where suggestions
+ * reach this person at all; a sweep still "running" past the server's stale
+ * mark died, and reads as one that did not finish.
+ */
+export function sortLine(status: OrganizerStatus | null, now: number): SortLine | null {
+  if (!suggesting(status)) return null;
+  const sweep = status.sweep;
+  if (sweep === null) return { kind: "never" };
+  if (sweep.state === "running") {
+    if (now - sweep.startedAt < SWEEP_STALE_MS) return { kind: "running", read: sweep.read, total: sweep.total };
+    return { kind: "failed", at: sweep.startedAt };
+  }
+  const at = sweep.finishedAt ?? sweep.startedAt;
+  if (sweep.state === "failed") return { kind: "failed", at };
+  return { kind: "done", at, pending: status.pending };
+}
+
 export interface SuggestionGroup {
   key: "projects" | "inbox";
   label: string;

@@ -7,6 +7,14 @@ text to Jev (TypeSafe's decision model, `typesafe/jev` on Cloudflare Workers
 AI) to ask typed questions about it, and the feature is on by default for
 Premium.
 
+**Model changed by the owner, 2026-10-05:** from Jev to Clef, Cloudflare's own
+decision model (`@cf/cloudflare/clef`). Same typed questions and answers, a
+64K-token window, and Cloudflare states it does not read, store or train on
+requests or responses (Cloudflare's Clef announcement, checked 2026-10-05).
+It costs $0.24 per million input tokens against Jev's $0.042. The framework
+below keeps the name "Jev" (`withJev`, `jevUsage`, the switches), because
+usage rows and switches are keyed by it.
+
 What happens to the text, in order:
 
 1. A sweep reads notes inside the one credential barrier
@@ -14,10 +22,11 @@ What happens to the text, in order:
 2. The control plane posts one note's text and a few questions to the
    inference Worker's `/decide` route (`infra/transcribe-worker`). The
    Worker passes them to Workers AI and returns typed answers: a yes/no
-   probability, one of the offered options, or a score. **Jev cannot write
-   text back.**
+   probability, one of the offered options, or a score. **The model cannot
+   write text back.**
 3. The Worker logs counts only. Workers AI retains nothing for this model
-   (zero data retention, checked on Cloudflare's model page on 2026-09-26).
+   (zero data retention: checked for Jev on 2026-09-26, and for Clef in
+   Cloudflare's announcement on 2026-10-05).
 4. What the feature concludes, which names notes, is written to the customer's
    own bucket (`.context/organizer/state.json`). The control plane keeps
    switches and counters, never a path or a title.
@@ -67,8 +76,8 @@ goes through it, and it can collect usage and cost and be switched off.
   typecheck and is refused by the validators.
 - **Usage** is kept per day, feature and workspace: calls, failures, refusals,
   questions, estimated tokens, and estimated cost at `JEV_USD_PER_MTOK`
-  (default $0.042 per million input tokens, TypeSafe's published price; output
-  is free). Staff read it through `admin.jevUsageReport`.
+  (default $0.24 per million input tokens, Clef's published price; Jev's was
+  $0.042). Staff read it through `admin.jevUsageReport`.
 - **Kill switches:**
   - `admin.setJevSwitch` sets a feature, or `"*"` for all of them, and a
     missing switch means the registry default;

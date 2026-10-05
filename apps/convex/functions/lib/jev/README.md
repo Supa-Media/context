@@ -1,13 +1,17 @@
 # Jev smarts
 
-Every feature that asks Jev anything goes through this folder. The reasons
-are in `docs/decisions/storage-and-credentials/inference.md`.
+Every feature that asks the decision model anything goes through this folder.
+The reasons are in `docs/decisions/storage-and-credentials/inference.md`.
 
-## What Jev is
+"Jev" is the framework's name: the switches, the `jevUsage` table and these
+files keep it. The model behind it has been Cloudflare's Clef since
+2026-10-05; it was TypeSafe's Jev before that.
 
-`typesafe/jev` on Cloudflare Workers AI, with zero data retention. You give
-it text (`state`, up to about 100,000 characters) and up to 16 typed
-questions. It returns answers and never writes text:
+## What the model is
+
+`@cf/cloudflare/clef` on Cloudflare Workers AI, which reads, stores and trains
+on nothing it is sent. You give it text (`state`, up to about 100,000
+characters) and up to 16 typed questions. It returns answers and never writes text:
 
 | type | criteria | answer |
 | --- | --- | --- |
@@ -15,8 +19,8 @@ questions. It returns answers and never writes text:
 | `choice` | `{ key: "description", … }`, up to 64 | `{ type: "choice", choice, confidence, probabilities }` |
 | `score` | `["level 1", "level 2", …]`, up to 10 | `{ type: "score", score, confidence, legend, probabilities }` |
 
-Each question is `{ type, instructions, criteria }`. It costs $0.042 per
-million input tokens, and output is free.
+Each question is `{ type, instructions, criteria }`. It costs $0.24 per
+million input tokens.
 
 ## Adding a feature
 
@@ -47,7 +51,7 @@ million input tokens, and output is free.
 5. Flip `onByDefault` to `true` in the PR that ships the feature's screens.
 
 Do not call `fetch` on `/decide`, and do not name the model outside this
-folder. `__tests__/jev.test.ts` fails if you do.
+folder and the Worker. `__tests__/jev.test.ts` fails if you do.
 
 ## Usage and cost
 

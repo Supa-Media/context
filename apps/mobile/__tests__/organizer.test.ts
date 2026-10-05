@@ -33,6 +33,7 @@ import {
   resolveToast,
   settingsCard,
   shouldStartSweep,
+  sortLine,
   sweepPhase,
 } from "../features/organizer/rules";
 import type { OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
@@ -307,5 +308,40 @@ describe("auto-organize's rows in Activity", () => {
 
   test("anybody else's revision still reads as a revision", () => {
     expect(rowText(entry({ by: "@seyi", via: "Claude" })).title).toBe("@seyi's Claude revised overview");
+  });
+});
+
+describe("the sort line", () => {
+  const NOW = 10 * 60 * 60 * 1000;
+  const sweep = (over: Partial<NonNullable<OrganizerStatus["sweep"]>>) => ({
+    state: "done" as const,
+    startedAt: NOW - 60_000,
+    finishedAt: NOW - 30_000,
+    read: 40,
+    total: 40,
+    found: { done: 0, archive: 0, file: 0 },
+    ...over,
+  });
+
+  test("on with no sweep ever is said, not hidden behind an On switch", () => {
+    expect(sortLine(with_({ sweep: null }), NOW)).toEqual({ kind: "never" });
+  });
+
+  test("a live sweep is sorting now; one past the stale mark did not finish", () => {
+    expect(sortLine(with_({ sweep: sweep({ state: "running", finishedAt: null, read: 3 }) }), NOW)).toEqual({ kind: "running", read: 3, total: 40 });
+    const dead = sweep({ state: "running", startedAt: NOW - 31 * 60_000, finishedAt: null });
+    expect(sortLine(with_({ sweep: dead }), NOW)).toEqual({ kind: "failed", at: NOW - 31 * 60_000 });
+  });
+
+  test("a finished sweep says when, and what is waiting", () => {
+    expect(sortLine(with_({ sweep: sweep({}), pending: 4 }), NOW)).toEqual({ kind: "done", at: NOW - 30_000, pending: 4 });
+    expect(sortLine(with_({ sweep: sweep({ state: "failed" }) }), NOW)).toEqual({ kind: "failed", at: NOW - 30_000 });
+  });
+
+  test("off, not paying, or not the owner: no line", () => {
+    expect(sortLine(with_({ on: false }), NOW)).toBeNull();
+    expect(sortLine(with_({ available: false }), NOW)).toBeNull();
+    expect(sortLine(with_({ isOwner: false }), NOW)).toBeNull();
+    expect(sortLine(null, NOW)).toBeNull();
   });
 });

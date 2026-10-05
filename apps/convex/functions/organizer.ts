@@ -42,6 +42,7 @@ import {
   type OrganizerKind,
   organizerRow,
   patchOrganizerRow,
+  sweepFinish,
   sweepIsDue,
   organizerAvailable,
 } from "./lib/organizer/settings";
@@ -474,6 +475,7 @@ export const runSweep = internalAction({
     if (!claim) return null;
     const { workspaceId } = args;
     let read = 0;
+    let answered = 0;
     let total = 0;
     try {
       const work = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "gather" })) as SweepWork;
@@ -490,6 +492,7 @@ export const runSweep = internalAction({
           const answers = await jev.decide(item.request);
           read += 1;
           if (answers) {
+            answered += 1;
             const suggestion =
               item.kind === "project"
                 ? doneSuggestion(item.project, item.facts, answers)
@@ -518,7 +521,7 @@ export const runSweep = internalAction({
         workspaceId,
         read,
         total,
-        finished: "done",
+        finished: sweepFinish(total, answered),
         found: counts,
         pending,
       });

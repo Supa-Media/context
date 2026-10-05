@@ -2,9 +2,9 @@
  * `POST /decide` — one piece of note text and a few typed questions in, typed
  * answers out, nothing kept.
  *
- * The auto-organize sweep's only way to reach Jev, TypeSafe's decision model,
- * which Workers AI serves as `typesafe/jev` with zero data retention. Jev never
- * writes text: it answers yes/no (`noul`), picks one of the options it was
+ * The auto-organize sweep's only way to reach Clef, Cloudflare's decision
+ * model, which Workers AI serves as `@cf/cloudflare/clef` and which reads,
+ * stores and trains on nothing it is sent. Clef never writes text: it answers yes/no (`noul`), picks one of the options it was
  * given (`choice`), or places the text on a scale (`score`). The reasoning for
  * running it at all, and the bounds that make it allowed, are in
  * docs/decisions/storage-and-credentials/inference.md.
@@ -28,9 +28,15 @@ import { CALLER_HEADER, readCaller } from "./rateLimit";
 import { readBoundedBody } from "./transcribe";
 import type { Env } from "./index";
 
-export const JEV_MODEL = "typesafe/jev";
+/**
+ * The Workers AI model id, and the selector Clef's own input names it by. Was
+ * TypeSafe's `typesafe/jev` until 2026-10-05; the question and answer shapes
+ * are the same, so nothing above this Worker changed.
+ */
+export const DECISION_MODEL = "@cf/cloudflare/clef";
+export const DECISION_MODEL_SELECTOR = "clef";
 
-/** Jev's window is 32K tokens; four bytes a token with room for the questions. */
+/** Kept at Jev's 32K-token sizing though Clef reads 64K: four bytes a token, with room for the questions. */
 export const MAX_STATE_CHARS = 100_000;
 export const MAX_DECIDE_BODY_BYTES = 160_000;
 export const MAX_QUESTIONS = 16;
@@ -125,7 +131,7 @@ function readProbabilities(value: unknown): Record<string, number> | null {
 }
 
 /**
- * Jev's answer, re-read against what was asked. A missing question, a type
+ * Clef's answer, re-read against what was asked. A missing question, a type
  * that disagrees, or a choice outside the offered options is unreadable, and
  * the caller treats unreadable as "no suggestion", never as a guess.
  */
@@ -226,7 +232,7 @@ export async function handleDecide(request: Request, env: Env): Promise<Response
   const started = Date.now();
   let raw: unknown;
   try {
-    raw = await env.AI.run(JEV_MODEL, { state, questions });
+    raw = await env.AI.run(DECISION_MODEL, { model: DECISION_MODEL_SELECTOR, state, questions });
   } catch {
     // The upstream error may quote the state back; none of it leaves here.
     log({ event: "decide_failed", caller, questions: Object.keys(questions).length });

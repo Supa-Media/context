@@ -18,6 +18,17 @@ export const makeStyles = (colors: Colors) =>
     blurb: { marginTop: 4 },
     muted: { color: colors.chromeMuted },
     reading: { flexDirection: "row", alignItems: "center", gap: 8 },
+    sort: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: 8,
+      marginTop: 14,
+      paddingTop: 14,
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+    },
+    sortText: { flex: 1, minWidth: 160, color: colors.chromeMuted },
     readingBelow: { marginTop: 10 },
     actions: { marginTop: 14, gap: 8, alignItems: "center" },
     preview: {
