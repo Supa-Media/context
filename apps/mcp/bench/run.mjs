@@ -127,7 +127,9 @@ async function buildB0(notes, latency, budget) {
         isIndexable: (key) => key.endsWith(".md"),
         query,
         budget: spend,
-        refreshOnMiss: false,
+        // As production runs it (src/search/visibleNotes.js): an empty answer
+        // over a converged index buys a listing and asks again.
+        refreshOnMiss: true,
       });
       return { paths: (answer.hits ?? []).map((hit) => hit.key), subrequests: spend.spent };
     },
