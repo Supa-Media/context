@@ -170,6 +170,9 @@ jobs:
           # working state: the deployment takes no reports and the app hides
           # its report button.
           FEEDBACK_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+          # X ads' Conversion API token (`functions/xConversions.ts`), generated in
+          # X Ads Manager. Absent is a working state: no sign-up is reported to X.
+          X_PIXEL_TOKEN: ${{ secrets.X_PIXEL_TOKEN }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -192,7 +195,7 @@ jobs:
                      STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
                      TURNSTILE_SECRET_KEY \
                      CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
-                     REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN; do
+                     REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.
