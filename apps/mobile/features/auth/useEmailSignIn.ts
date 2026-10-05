@@ -5,6 +5,8 @@ import { ConvexError } from "convex/values";
 import { api } from "@context/convex/_generated/api";
 import { adClickId } from "./adClickId";
 import { reportWaitlistSignUp } from "./xPixel";
+import { metaBrowserIds } from "./metaBrowserIds";
+import { reportMetaLead } from "./metaPixel";
 import { OTP_LENGTH } from "./CodeBoxes";
 import { normalizeSignInEmail, signInProviderForEmail } from "./email";
 
@@ -65,10 +67,14 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
         email: normalized,
         source: options.source,
         ...(twclid === undefined ? {} : { twclid }),
+        ...metaBrowserIds(),
       });
       if (status === "admitted") await sendCode(normalized, false);
       else {
-        if (status === "joined") reportWaitlistSignUp(conversionId);
+        if (status === "joined") {
+          reportWaitlistSignUp(conversionId);
+          reportMetaLead(conversionId);
+        }
         setStep(status);
       }
     } catch (caught) {

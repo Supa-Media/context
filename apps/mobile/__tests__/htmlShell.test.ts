@@ -264,3 +264,59 @@ describe("the X pixel", () => {
     expect(runAt(href)).toEqual({ loaded: [], queue: [] });
   });
 });
+
+/**
+ * META'S PIXEL (Dev2, 2026-10-05): the same one condition as X's, plus an id.
+ * Until the id is filled in it loads nothing anywhere.
+ */
+describe("the Meta pixel", () => {
+  const start = shell.indexOf("<!-- Meta Pixel Code -->");
+  const end = shell.indexOf("<!-- End Meta Pixel Code -->");
+  const block = shell.slice(start, end);
+  const script = block.slice(block.indexOf("<script>") + "<script>".length, block.indexOf("</script>"));
+  const pageId = /var metaPixelId = "(\d*)";/.exec(script)?.[1];
+
+  function runAt(href: string, id: string): { loaded: string[]; queue: unknown[][] } {
+    const url = new URL(href);
+    const loaded: string[] = [];
+    const win: Record<string, unknown> = {};
+    const doc = {
+      createElement: () => ({}) as { src?: string },
+      getElementsByTagName: () => [
+        { parentNode: { insertBefore: (el: { src?: string }) => loaded.push(el.src ?? "") } },
+      ],
+    };
+    const fbq = (...args: unknown[]) => (win.fbq as (...a: unknown[]) => void)(...args);
+    const withId = script.replace(/var metaPixelId = "\d*";/, `var metaPixelId = "${id}";`);
+    new Function("window", "document", "location", "fbq", withId)(win, doc, url, fbq);
+    const queue = ((win.fbq as { queue?: unknown[][] } | undefined)?.queue ?? []).map((a) => [...a]);
+    return { loaded, queue };
+  }
+
+  test("sits before the head closes, and its id is the server's", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeLessThan(shell.indexOf("</head>"));
+    expect(pageId).toBeDefined();
+    const server = readFileSync(join(mobileRoot, "../convex/functions/lib/metaConversion.ts"), "utf8");
+    const serverId = /META_PIXEL: \{ id: string \| null \} = \{ id: (null|"\d+") \}/.exec(server)?.[1];
+    expect(serverId).toBe(pageId === "" ? "null" : `"${pageId}"`);
+  });
+
+  test("with an id, loads on the landing page and tracks one PageView", () => {
+    const { loaded, queue } = runAt("https://context.lc/?fbclid=abc", "123456789012345");
+    expect(loaded).toEqual(["https://connect.facebook.net/en_US/fbevents.js"]);
+    expect(queue).toEqual([["init", "123456789012345"], ["track", "PageView"]]);
+  });
+
+  test.each([
+    "https://context.lc/console/@someone",
+    "https://context.lc/invite/tok?code=123456",
+    "https://staging.context.invalid/",
+  ])("with an id, does not load at %s", (href) => {
+    expect(runAt(href, "123456789012345")).toEqual({ loaded: [], queue: [] });
+  });
+
+  test("without an id, loads nothing even on the landing page", () => {
+    expect(runAt("https://context.lc/", "")).toEqual({ loaded: [], queue: [] });
+  });
+});
