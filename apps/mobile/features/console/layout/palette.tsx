@@ -132,7 +132,7 @@ export function consolePalette({
 
 /**
  * Where a folder or a tag found by a phone's search goes: the folder's page,
- * or Home with that tag's chip on (`homeTag.ts`). Search closes first either way.
+ * or Home narrowed to that tag (`homeTag.ts`). Search closes first either way.
  */
 export function placeOpeners(data: ConsoleData, close: () => void) {
   return {

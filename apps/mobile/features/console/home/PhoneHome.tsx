@@ -20,15 +20,17 @@ import { useHomeTag } from "./homeTag";
  * The phone's Home: the workspace's own page, Apple Notes style.
  *
  * Approved by the owner on 2026-09-30 (the mobile Home artboards, board 01).
- * Top to bottom: the workspace's name and size with a New folder button, tag
- * chips that narrow everything below them, **Pinned** tiles, a **You open
- * most** rail, the three most **Recent** notes, **All folders** with what
- * each holds, then the **Notes** outside every folder — Home is the only page
+ * Top to bottom: the workspace's name and size with a New folder button,
+ * **Pinned** tiles, a **You open most** rail, the three most **Recent**
+ * notes, **All folders** with what each holds, then the **Notes** outside every folder — Home is the only page
  * that lists those, so without it they would be out of reach. Search and a new note are the bottom bar's (`ConsoleBottomBar`),
  * on every screen, so this page has neither.
  *
  * What goes in each section is `homeModel.ts`'s, from the device's copy of the
- * workspace and the person's own places; this file only draws it. It renders
+ * workspace and the person's own places; this file only draws it. The tag
+ * chips the board drew are gone (owner's team, 2026-10-05; `homeModel.ts`
+ * says why): a tag opened from search shows as one "Tagged" line with a way
+ * back to everything, over the notes that carry it. It renders
  * where the phone used to draw the workspace's root folder listing, so a
  * visitor on the homepage gets it too, with no pins and no opens.
  */
@@ -59,15 +61,15 @@ export function PhoneHome({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  // A tag pressed in search lands here with its chip on (`homeTag.ts`).
+  // A tag pressed in search or a folder's tags lands here (`homeTag.ts`).
   const [tag, setTag] = useHomeTag();
   const [now] = useState(() => Date.now());
-  const home = useMemo(
-    () => buildHome({ ...source, pins, opened, tag, now }),
-    [source, pins, opened, tag, now],
-  );
-  // A chip whose tag has gone from every note would filter to nothing: back to All.
-  const activeTag = tag !== null && home.tags.some((chip) => chip.tag === tag) ? tag : null;
+  const home = useMemo(() => {
+    const built = buildHome({ ...source, pins, opened, tag, now });
+    // A tag gone from every note would narrow Home to nothing: show everything instead.
+    return built.tagged?.count === 0 ? buildHome({ ...source, pins, opened, tag: null, now }) : built;
+  }, [source, pins, opened, tag, now]);
+  const activeTag = home.tagged?.tag ?? null;
   const hold = (path: string, kind: "note" | "folder") =>
     onTogglePin === null ? undefined : () => onTogglePin(path, kind);
 
@@ -106,24 +108,22 @@ export function PhoneHome({
         )}
       </View>
 
-      {home.tags.length === 0 ? null : (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-          style={styles.chipsRow}
-        >
-          <Chip label="All" selected={activeTag === null} onPress={() => setTag(null)} />
-          {home.tags.map((chip) => (
-            <Chip
-              key={chip.tag}
-              label={chip.tag}
-              count={chip.count}
-              selected={activeTag === chip.tag}
-              onPress={() => setTag(activeTag === chip.tag ? null : chip.tag)}
-            />
-          ))}
-        </ScrollView>
+      {home.tagged === null ? null : (
+        <View style={styles.tagged} testID="phone-home-tagged">
+          <Icon name="tag" size={18} color={colors.accentText} />
+          <Text style={styles.taggedText} numberOfLines={1}>
+            {`Tagged ${home.tagged.tag} · ${countLabel(home.tagged.count, 0)}`}
+          </Text>
+          <Pressable
+            onPress={() => setTag(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Show everything"
+            style={({ pressed }) => [styles.taggedClear, pressed ? styles.pressed : null]}
+            testID="phone-home-tagged-clear"
+          >
+            <Text style={styles.taggedClearText}>Show all</Text>
+          </Pressable>
+        </View>
       )}
 
       {home.pinned.length === 0 ? null : (
@@ -253,34 +253,6 @@ function Card({ children }: { children: ReactNode[] }) {
         </Fragment>
       ))}
     </View>
-  );
-}
-
-function Chip({
-  label,
-  count,
-  selected,
-  onPress,
-}: {
-  label: string;
-  count?: number;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      accessibilityLabel={count === undefined ? label : `${label}, ${count} notes`}
-      style={({ pressed }) => [styles.chip, selected ? styles.chipOn : null, pressed ? styles.pressed : null]}
-    >
-      <Text style={[styles.chipText, selected ? styles.chipTextOn : null]}>{label}</Text>
-      {count === undefined ? null : (
-        <Text style={[styles.chipCount, selected ? styles.chipTextOn : null]}>{count}</Text>
-      )}
-    </Pressable>
   );
 }
 
@@ -428,23 +400,18 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       boxShadow: shadows.floating,
     },
     pressed: { opacity: 0.6 },
-    chipsRow: { marginHorizontal: -layout.readingMargin, flexGrow: 0 },
-    chips: { gap: space.x2, paddingHorizontal: layout.readingMargin },
-    chip: {
+    tagged: {
       flexDirection: "row",
       alignItems: "center",
-      gap: space.x1 + 2,
-      minHeight: 36,
-      paddingHorizontal: space.x4,
+      gap: space.x2,
+      minHeight: 44,
+      paddingLeft: space.x4,
       borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.accentDim,
     },
-    chipOn: { backgroundColor: colors.accentDim, borderColor: colors.accent },
-    chipText: { fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text2 },
-    chipCount: { fontFamily: fonts.body, fontSize: touchType.meta, color: colors.muted },
-    chipTextOn: { color: colors.accentText },
+    taggedText: { flex: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.accentText },
+    taggedClear: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.x4 },
+    taggedClearText: { fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "600", color: colors.accentText },
     section: { gap: space.x2 },
     sectionLabel: { paddingHorizontal: space.x1 },
     grid: { flexDirection: "row", flexWrap: "wrap", gap: space.x3 },
