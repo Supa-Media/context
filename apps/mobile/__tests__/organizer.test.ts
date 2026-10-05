@@ -17,6 +17,7 @@ import {
   phoneLine,
   previewWhy,
   reviewMeta,
+  sortCopy,
   suggestionsLine,
   sweepCount,
   sweepFoundTitle,
@@ -336,6 +337,16 @@ describe("the sort line", () => {
   test("a finished sweep says when, and what is waiting", () => {
     expect(sortLine(with_({ sweep: sweep({}), pending: 4 }), NOW)).toEqual({ kind: "done", at: NOW - 30_000, pending: 4 });
     expect(sortLine(with_({ sweep: sweep({ state: "failed" }) }), NOW)).toEqual({ kind: "failed", at: NOW - 30_000 });
+  });
+
+  test("a failed sweep says why, when the server knows", () => {
+    expect(sortLine(with_({ sweep: sweep({ state: "failed", why: "daily_cap" }) }), NOW)).toEqual({
+      kind: "failed",
+      at: NOW - 30_000,
+      why: "daily_cap",
+    });
+    expect(sortCopy.failed("just now", "no_answers")).toBe("The last sort didn’t finish (just now). The sorting service didn’t answer.");
+    expect(sortCopy.failed("just now")).toBe("The last sort didn’t finish (just now).");
   });
 
   test("off, not paying, or not the owner: no line", () => {

@@ -98,6 +98,7 @@ describe("the organization score", () => {
     const report = await runSweep(store, localWorker(failsEveryTime));
     expect(report.answered).toBe(0);
     expect(report.finish).toBe("failed");
+    expect(report.why).toBe("no_answers");
     const after = store.snapshot();
     // Archiving a finished, quiet project asks no question, so only it still happens.
     for (const fixture of NOTES) {

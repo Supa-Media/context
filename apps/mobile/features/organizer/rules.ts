@@ -20,6 +20,7 @@ import type {
   OrganizerStatus,
   OrganizerSuggestion,
   ResolveResult,
+  SweepWhy,
 } from "./types";
 
 export type OrganizerState =
@@ -101,7 +102,7 @@ export type SortLine =
   | { kind: "running"; read: number; total: number }
   | { kind: "never" }
   | { kind: "done"; at: number; pending: number }
-  | { kind: "failed"; at: number };
+  | { kind: "failed"; at: number; why?: SweepWhy };
 
 /**
  * The owner's sort status, on the Auto-organize card. Only where suggestions
@@ -117,7 +118,7 @@ export function sortLine(status: OrganizerStatus | null, now: number): SortLine 
     return { kind: "failed", at: sweep.startedAt };
   }
   const at = sweep.finishedAt ?? sweep.startedAt;
-  if (sweep.state === "failed") return { kind: "failed", at };
+  if (sweep.state === "failed") return sweep.why ? { kind: "failed", at, why: sweep.why } : { kind: "failed", at };
   return { kind: "done", at, pending: status.pending };
 }
 
