@@ -116,8 +116,10 @@ function resolveLink(folder, rawTarget) {
 
 /**
  * Every resolved `.md` link target in `text`, deduplicated, order preserved.
- * Occurrences come from the shared reader (`links.js`), so code is ignored and
- * there is no length cap; reference definitions are not counted, as before.
+ * Occurrences come from the shared reader (`links.js`), so code is ignored;
+ * reference definitions are not counted, as before. The reader has no length
+ * cap of its own, but `text` is already cut to `NOTE_INDEX_CHAR_CAP` by the
+ * callers (`maintain.js`, `commsIndex.js`), so a link past the cut is not seen.
  * Resolution is this file's own (PageRank reads the field, so it is unchanged).
  */
 function extractLinks(text, folder) {

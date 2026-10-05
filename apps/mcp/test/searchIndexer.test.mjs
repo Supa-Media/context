@@ -22,6 +22,8 @@ import {
 import { exceedsUtf8Bytes } from "../src/search/maintain.js";
 import { noteTitle, snippetLinesFor } from "../src/search/visible.js";
 import { termsOf, tokenize } from "../src/search/text.js";
+import { extractReferences } from "../src/links.js";
+import { referenceCases } from "./fixtures/linkReferences.mjs";
 
 export async function runSearchIndexerChecks(check) {
   // -- field extraction --------------------------------------------------
@@ -130,10 +132,14 @@ export async function runSearchIndexerChecks(check) {
   }
 
   /*
-    Sabotage record (Task 2, shared link reader): with the old WIKILINK_RE /
-    MDLINK_RE loop restored in `extractLinks`, "links inside a fenced block and
-    inline code do not count" fails (it indexes the fenced and code-span
-    targets) and the other new checks still pass.
+    Sabotage record (Task 2, shared link reader; recounted in the final
+    review): with the old WIKILINK_RE / MDLINK_RE loop restored in
+    `extractLinks`, three checks in this section fail: "links inside a fenced
+    block and inline code do not count", "an angle-bracket inline target is
+    stored" and "inline and wiki links are stored in document order" (the old
+    loop read all wikilinks before any inline link). "a link past 2,048
+    characters still counts" still passes. The table check below adds four
+    more failures.
   */
   {
     const content =
@@ -169,6 +175,58 @@ export async function runSearchIndexerChecks(check) {
       "inline and wiki links are stored in document order",
       ordered.links.join("|") === "1-projects/first.md|1-projects/second.md"
     );
+  }
+
+  /*
+    The stored `links` against the shared fixture table. For every text in
+    `referenceCases`, the expected list is rebuilt here from `extractReferences`
+    by the indexer's documented rule: definitions are skipped, a wiki target
+    gains `.md`, the target resolves against the note's folder with `.`/`..`
+    normalized (nothing that escapes the root, nothing with a scheme), only
+    `.md` results are kept, deduplicated, in document order. The resolver below
+    is deliberately a second copy, so a change to either side shows up as a
+    disagreement rather than as two files drifting together.
+
+    Sabotage record (final review, item 2): with the old WIKILINK_RE /
+    MDLINK_RE loop restored in `extractLinks`, this check fails for exactly
+    four table cases: angle-bracketed target, links inside inline code, links
+    inside a fenced block, and the unterminated fence. The definition
+    and 2,048-character cases still pass, because the old loop already skipped
+    definitions and had no cap of its own.
+  */
+  {
+    const folder = "1-projects/alpha";
+    const resolveExpected = (rawTarget) => {
+      if (!rawTarget || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawTarget)) return null;
+      const stack = [];
+      for (const segment of [...folder.split("/"), ...rawTarget.split("/")]) {
+        if (segment === "" || segment === ".") continue;
+        if (segment === "..") {
+          if (stack.length === 0) return null;
+          stack.pop();
+          continue;
+        }
+        stack.push(segment);
+      }
+      const resolved = stack.join("/");
+      return resolved.endsWith(".md") ? resolved : null;
+    };
+    for (const { name, text } of referenceCases) {
+      const expected = new Set();
+      for (const ref of extractReferences(text)) {
+        if (ref.kind === "definition") continue;
+        let target = ref.target.trim();
+        if (!target) continue;
+        if (ref.kind === "wiki" && !target.endsWith(".md")) target += ".md";
+        const resolved = resolveExpected(target);
+        if (resolved) expected.add(resolved);
+      }
+      const stored = extractFields(`${folder}/note.md`, text).links;
+      check(
+        `stored links match the shared reader's occurrences: ${name}`,
+        stored.join("|") === [...expected].join("|")
+      );
+    }
   }
 
   // -- add / replace / remove --------------------------------------------

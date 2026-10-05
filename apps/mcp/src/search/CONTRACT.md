@@ -107,7 +107,10 @@ index is a rebuild, never a throw and never a partial read.
   — title is scored separately as its own field).
 - **body**: everything else.
 - **links**: read by the shared reader in `apps/mcp/src/links.js`
-  (`extractReferences`) over the whole body with no length cap. Links inside
+  (`extractReferences`) over the text `extractFields` receives. The reader applies
+  no cap of its own, but that text is already cut to `NOTE_INDEX_CHAR_CAP`
+  characters by the callers (see "What is indexed of a note"), so a link past
+  the cut is not stored. Links inside
   fenced blocks and inline code are ignored, and reference definitions
   (`[id]: target`) are not counted. Stored in document order, deduplicated.
   Resolution is unchanged: a `[[target]]` / `[[target|alias]]` target gains
