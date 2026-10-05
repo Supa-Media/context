@@ -24,8 +24,8 @@ const sameEntry = (a, b) => a.source === b.source && a.referenceSetVersion === b
  * and stops at MAX_POSTING_PAGES. A missing page that the previous page links
  * to (or a missing head) is an empty slot with `etag: null`.
  * Returns `{ slots, status }`, status one of "end", "budget", "malformed"
- * (bad `next`, unparseable page, or cap hit). Unparseable pages are empty slots
- * that keep their etag, so a conditional write replaces them.
+ * (bad `next` or cap hit) or "corrupt" (an unparseable page, kept as an empty
+ * slot; writers must not write through it, it would drop its `next`).
  */
 async function walk(store, budget, { gen, family, hash }) {
   const slots = [];
@@ -41,7 +41,7 @@ async function walk(store, budget, { gen, family, hash }) {
     const page = parsePage(await got.text(), key);
     if (!page) {
       slots.push({ n, key, etag: got.etag, entries: [] });
-      return { slots, status: "malformed" };
+      return { slots, status: "corrupt" };
     }
     slots.push({ n, key, etag: got.etag, entries: page.entries, next: page.next });
     if (page.next === undefined) return { slots, status: "end" };
@@ -51,8 +51,11 @@ async function walk(store, budget, { gen, family, hash }) {
 
 /**
  * Set (present) or clear (not present) `source` in the posting. Returns
- * "done", "conflict" (refused MAX_ATTEMPTS times) or "budget" (an op was
- * refused, or a full chain cannot grow; pages already written stay parseable).
+ * "done", "conflict" (refused MAX_ATTEMPTS times, or an unparseable page
+ * stands in the chain: nothing is written and reconciliation must repair it),
+ * "budget" (the budget cannot cover the read or every planned write; nothing
+ * from this attempt is written) or "full" (the chain is at MAX_POSTING_PAGES
+ * and the entry cannot be added; callers mark coverage partial).
  */
 export async function setMembership(store, budget, { gen, family, hash, source, referenceSetVersion, present, mode }) {
   const conditional = mode === "conditional";
@@ -60,6 +63,7 @@ export async function setMembership(store, budget, { gen, family, hash, source, 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const { slots, status } = await walk(store, budget, { gen, family, hash });
     if (status === "budget") return "budget";
+    if (status === "corrupt") return "conflict";
     const mine = slots.flatMap((s) => s.entries.filter((e) => e.source === source));
     if (mine.length === 1 && present && sameEntry(mine[0], entry)) return "done";
     if (mine.length === 0 && !present) return "done";
@@ -82,7 +86,7 @@ export async function setMembership(store, budget, { gen, family, hash, source, 
       } else {
         // Every walked page is full. Past the cap a new page would be unreachable.
         const last = slots[slots.length - 1];
-        if (last.n + 1 >= MAX_POSTING_PAGES) return "budget";
+        if (last.n + 1 >= MAX_POSTING_PAGES) return "full";
         const n = last.n + 1;
         const fresh = { n, key: postingPageKey(gen, family, hash, n), etag: null, entries: [entry] };
         last.next = String(n);
@@ -95,6 +99,8 @@ export async function setMembership(store, budget, { gen, family, hash, source, 
       ordered = [...changed];
     }
 
+    // Never start a multi-page change the budget cannot finish.
+    if (budget.remaining < ordered.length) return "budget";
     let refused = false;
     for (const s of ordered) {
       if (!budget.take()) return "budget";
@@ -122,14 +128,16 @@ export async function readPostings(store, budget, { gen, family, hash, canSee, v
   const { slots, status } = await walk(store, budget, { gen, family, hash });
   let complete = status === "end";
   const entries = [];
-  for (const s of slots) {
-    for (const e of s.entries) {
-      if (!(await canSee(e.source))) continue;
-      try {
-        if (await validate(e)) entries.push({ source: e.source, referenceSetVersion: e.referenceSetVersion });
-      } catch {
-        complete = false;
-      }
+  // One entry per source, the last in chain order winning (a transient
+  // duplicate exists while a re-add moves between pages).
+  const latest = new Map();
+  for (const s of slots) for (const e of s.entries) latest.set(e.source, e);
+  for (const e of latest.values()) {
+    if (!(await canSee(e.source))) continue;
+    try {
+      if (await validate(e)) entries.push({ source: e.source, referenceSetVersion: e.referenceSetVersion });
+    } catch {
+      complete = false;
     }
   }
   return { entries, complete };

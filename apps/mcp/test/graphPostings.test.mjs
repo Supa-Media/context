@@ -19,6 +19,10 @@
  *   page create written before the link to it                               1
  *   graphMode needs only conditionalWrite                                   1
  *
+ * Fix round 1 (red first for each; each sabotage then failed 1 test):
+ *   "full" returned as "budget"; corrupt-page refusal dropped; planned-writes
+ *   budget preflight dropped; readPostings dedupe dropped
+ *
  * Process note: the module was drafted before this file; RED was shown by
  * moving the modules aside (every import failed), then restoring them.
  */
@@ -141,17 +145,45 @@ test("an exhausted budget returns budget and leaves pages parseable", async () =
   assert.equal(await set(createSearchBudget(0)), "budget");
   assert.equal(await set(createSearchBudget(1)), "budget"); // read allowed, write refused
   assert.equal(b.objects.size, 0);
-  // Overflow needs two writes (link then create); allow reads plus one.
+  // Overflow plans two writes (link then create); a budget that covers the read
+  // and only one of them must write nothing.
   await seed(b, 0, fill("f", POSTING_PAGE_SIZE));
+  const before = JSON.stringify([...b.objects]);
   assert.equal(await set(createSearchBudget(2)), "budget");
-  const head = JSON.parse(await (await b.get(key(0))).text());
-  assert.equal(head.next, "1");
-  assert.equal(head.entries.length, POSTING_PAGE_SIZE);
-  assert.equal(b.objects.has(key(1)), false);
-  // The dangling link is harmless to readers and repaired by the next writer.
+  assert.equal(JSON.stringify([...b.objects]), before);
+  assert.equal(await set(createSearchBudget(3)), "done");
+});
+
+test("a dangling link left by a failed create is harmless and repaired by the next writer", async () => {
+  const b = memoryBucket();
+  await seed(b, 0, fill("f", POSTING_PAGE_SIZE), "1");
   assert.equal((await read(b)).entries.length, POSTING_PAGE_SIZE);
   assert.equal(await add(b, "a.md"), "done");
   assert.equal((await read(b)).entries.length, POSTING_PAGE_SIZE + 1);
+});
+
+test("an unparseable page: setMembership writes nothing and returns conflict", async () => {
+  const b = memoryBucket();
+  await seed(b, 0, fill("a", 1), "1");
+  await b.put(key(1), "{not json");
+  await seed(b, 2, fill("c", 1));
+  const before = JSON.stringify([...b.objects]);
+  assert.equal(await add(b, "new.md"), "conflict");
+  assert.equal(await remove(b, "a0.md"), "conflict");
+  assert.equal(await remove(b, "ghost.md"), "conflict");
+  assert.equal(JSON.stringify([...b.objects]), before);
+  assert.equal((await read(b)).complete, false);
+});
+
+test("readPostings deduplicates by source, the last entry in chain order winning", async () => {
+  const b = memoryBucket();
+  await seed(b, 0, [{ source: "a.md", referenceSetVersion: "old" }, { source: "b.md", referenceSetVersion: "v1" }], "1");
+  await seed(b, 1, [{ source: "a.md", referenceSetVersion: "new" }]);
+  const r = await read(b);
+  assert.deepEqual(r.entries.sort((x, y) => x.source.localeCompare(y.source)), [
+    { source: "a.md", referenceSetVersion: "new" },
+    { source: "b.md", referenceSetVersion: "v1" },
+  ]);
 });
 
 test("conditional refusal past the retry bound returns conflict", async () => {
@@ -264,7 +296,7 @@ test("walker: a chain longer than the cap stops at the cap", async () => {
   const f = memoryBucket();
   for (let n = 0; n < MAX_POSTING_PAGES; n += 1) await seed(f, n, fill(`q${n}-`, POSTING_PAGE_SIZE), n + 1 < MAX_POSTING_PAGES ? String(n + 1) : undefined);
   const g = spy(f);
-  assert.equal(await add(g.store, "new.md"), "budget");
+  assert.equal(await add(g.store, "new.md"), "full");
   assert.equal(g.gets, MAX_POSTING_PAGES);
   assert.equal(g.puts.length, 0);
   assert.equal(await remove(f, "q0-0.md"), "done");
