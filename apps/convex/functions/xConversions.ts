@@ -20,6 +20,7 @@ import {
   hashEmail,
   normalizeTwclid,
   validEventId,
+  waitlistConversionId,
   X_CONVERSIONS_URL,
   X_EVENT_IDS,
   X_PIXEL_TOKEN_ENV_VAR,
@@ -91,7 +92,7 @@ export const send = internalAction({
     const body = conversionBody({
       eventId,
       at,
-      conversionId: conversion.kind === "waitlist" ? `waitlist-${conversion.waitlistId}` : `account-${conversion.userId}`,
+      conversionId: conversion.kind === "waitlist" ? waitlistConversionId(conversion.waitlistId) : `account-${conversion.userId}`,
       hashedEmail: await hashEmail(email),
       twclid: conversion.kind === "waitlist" ? normalizeTwclid(conversion.twclid) : null,
       sourceUrl: conversion.kind === "waitlist" && origin !== null ? new URL("/", origin).toString() : null,

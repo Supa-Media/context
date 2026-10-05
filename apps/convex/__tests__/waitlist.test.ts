@@ -87,7 +87,7 @@ async function admitted(t: TestConvex, email: string) {
 describe("the one email field", () => {
   test("a stranger joins once, and hears 'already' after that", async () => {
     const t = setupTest();
-    expect(await t.mutation(api.functions.waitlist.enter, { email: " Jon@Studio.test " })).toEqual({
+    expect(await t.mutation(api.functions.waitlist.enter, { email: " Jon@Studio.test " })).toMatchObject({
       status: "joined",
     });
     expect((await row(t, "jon@studio.test"))?.status).toBe("waiting");

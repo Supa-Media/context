@@ -4,6 +4,7 @@ import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "@context/convex/_generated/api";
 import { adClickId } from "./adClickId";
+import { reportWaitlistSignUp } from "./xPixel";
 import { OTP_LENGTH } from "./CodeBoxes";
 import { normalizeSignInEmail, signInProviderForEmail } from "./email";
 
@@ -60,13 +61,16 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
         return;
       }
       const twclid = adClickId();
-      const { status } = await enter({
+      const { status, conversionId } = await enter({
         email: normalized,
         source: options.source,
         ...(twclid === undefined ? {} : { twclid }),
       });
       if (status === "admitted") await sendCode(normalized, false);
-      else setStep(status);
+      else {
+        if (status === "joined") reportWaitlistSignUp(conversionId);
+        setStep(status);
+      }
     } catch (caught) {
       const code = caught instanceof ConvexError ? (caught.data as { code?: string } | undefined)?.code : undefined;
       setError(code === "RATE_LIMITED" ? BUSY : SEND_FAILED);

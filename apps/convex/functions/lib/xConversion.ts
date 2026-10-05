@@ -24,11 +24,19 @@ export type XConversionKind = "waitlist" | "account";
  * wrong name.
  */
 export const X_EVENT_IDS: Record<XConversionKind, string | null> = {
-  waitlist: null,
+  // "Waitlist Sign Up" (Lead), created by Dev2 2026-10-05. The browser fires
+  // the same event with the same `conversion_id` (`features/auth/xPixel.ts`),
+  // so X counts it once.
+  waitlist: "tw-rgib5-rgic8",
   account: null,
 };
 
 const EVENT_ID = new RegExp(`^tw-${X_PIXEL_ID}-[a-z0-9]+$`);
+
+/** One sign-up's id, shared by the server call and the browser's pixel event. */
+export function waitlistConversionId(waitlistId: string): string {
+  return `waitlist-${waitlistId}`;
+}
 
 export function validEventId(id: string | null): id is string {
   return id !== null && EVENT_ID.test(id);

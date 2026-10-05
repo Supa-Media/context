@@ -115,6 +115,10 @@ afterEach(() => {
 });
 
 describe("the request body", () => {
+  test("the waitlist event is the one Dev2 created in Events Manager", () => {
+    expect(previousEvents.waitlist).toBe("tw-rgib5-rgic8");
+  });
+
   test("follows X's format, with the hash and the click id as one identifier", async () => {
     const body = JSON.parse(
       conversionBody({
@@ -169,7 +173,7 @@ describe("the request body", () => {
 describe("a new waitlist signup", () => {
   test("sends one conversion with the hashed address and the ad's click id", async () => {
     const t = setupTest();
-    await t.mutation(api.functions.waitlist.enter, { email: "Jon@Studio.test", twclid: "clk_42" });
+    const joined = await t.mutation(api.functions.waitlist.enter, { email: "Jon@Studio.test", twclid: "clk_42" });
     await drainScheduled(t);
 
     expect(sent).toHaveLength(1);
@@ -177,7 +181,9 @@ describe("a new waitlist signup", () => {
     expect(only!.token).toBe(TOKEN);
     const conversion = only!.body.conversions[0]!;
     expect(conversion.event_id).toBe(WAITLIST_EVENT);
+    // The page's pixel event reports this same id, so X counts it once.
     expect(conversion.conversion_id).toMatch(/^waitlist-/);
+    expect(joined.conversionId).toBe(conversion.conversion_id);
     expect(conversion.event_source_url).toBe(`${ORIGIN}/`);
     expect(conversion.identifiers).toEqual([{ hashed_email: await hashEmail("jon@studio.test"), twclid: "clk_42" }]);
     expect(only!.raw.toLowerCase()).not.toContain("jon@studio.test");
@@ -203,7 +209,7 @@ describe("a new waitlist signup", () => {
   test("without a token nothing is scheduled or sent", async () => {
     delete process.env.X_PIXEL_TOKEN;
     const t = setupTest();
-    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" })).toEqual({ status: "joined" });
+    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" })).toMatchObject({ status: "joined" });
     await drainScheduled(t);
     expect(sent).toHaveLength(0);
   });

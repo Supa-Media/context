@@ -22,6 +22,7 @@ import { renderWaitlistEmail } from "./lib/waitlistEmail";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { scheduleSignupAlert } from "./signupAlerts";
 import { scheduleXConversion } from "./xConversions";
+import { waitlistConversionId } from "./lib/xConversion";
 
 /** New waitlist rows per window, across every caller. */
 export const WAITLIST_JOINS_PER_HOUR = 300;
@@ -40,6 +41,9 @@ export const enter = mutation({
   },
   returns: v.object({
     status: v.union(v.literal("admitted"), v.literal("joined"), v.literal("already")),
+    // On `joined` only: the id the page's X pixel event reports, matching the
+    // server's conversion so X counts the sign-up once.
+    conversionId: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const email = waitlistEmail(args.email);
@@ -68,7 +72,7 @@ export const enter = mutation({
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, { waitlistId: id, kind: "joined" });
     await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
     await scheduleXConversion(ctx, { kind: "waitlist", waitlistId: id, twclid: args.twclid });
-    return { status: "joined" as const };
+    return { status: "joined" as const, conversionId: waitlistConversionId(id) };
   },
 });
 
