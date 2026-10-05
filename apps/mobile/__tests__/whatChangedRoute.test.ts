@@ -17,7 +17,7 @@ import { afterEach, describe, expect, test } from "@jest/globals";
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { changesFromQuery, changesHref } from "../features/console/nav";
+import { changesFromQuery, changesHref } from "../features/organizer/changesRoute";
 import { routeOrganizer } from "../features/organizer/consoleOrganizer";
 import { changesCount, footCount, phoneChangesCount } from "../features/organizer/rules";
 import type { OrganizerStatus } from "../features/organizer/types";

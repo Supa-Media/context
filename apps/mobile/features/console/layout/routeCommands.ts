@@ -5,7 +5,8 @@ import {
   useOptionalGlobalSearchParams,
   useOptionalLocalSearchParams,
 } from "../../app/useOptionalLocalSearchParams";
-import { changesFromQuery, resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
+import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
+import { changesFromQuery } from "../../organizer/changesRoute";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 
