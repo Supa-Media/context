@@ -8,6 +8,8 @@ const AUDIT_PREFIX = `${CONTEXT_ROOT}audit/`;
 const HISTORY_PREFIX = `${CONTEXT_ROOT}history/`;
 const IMAGE_PREFIX = `${CONTEXT_ROOT}assets/images/`;
 const SEARCH_PREFIX = `${CONTEXT_ROOT}search/`;
+/** Link-graph derivative: new in v1 with no legacy location, so no mapping. */
+const GRAPH_PREFIX = `${CONTEXT_ROOT}graph/`;
 const MEETING_PREFIX = `${CONTEXT_ROOT}meetings/sessions/`;
 const NOTE_ACL_PREFIX = `${CONTEXT_ROOT}access/note-acl/`;
 const GRANOLA_EVENTS_PREFIX = `${CONTEXT_ROOT}integrations/granola/events/`;
@@ -52,6 +54,7 @@ module.exports = {
   HISTORY_PREFIX,
   IMAGE_PREFIX,
   SEARCH_PREFIX,
+  GRAPH_PREFIX,
   MEETING_PREFIX,
   NOTE_ACL_PREFIX,
   GRANOLA_EVENTS_PREFIX,
