@@ -20,6 +20,7 @@ import type {
   OrganizerStatus,
   OrganizerSuggestion,
   ResolveResult,
+  SweepWhy,
 } from "./types";
 
 export type OrganizerState =
@@ -40,9 +41,23 @@ function suggesting(status: OrganizerStatus | null): status is OrganizerStatus {
   return status !== null && status.available && status.isOwner && status.on;
 }
 
-/** The explorer foot's "11 suggestions", or `null` for no line. */
+/**
+ * The explorer foot's "11 suggestions", or `null` for no line. What changed
+ * cards are not among them: they have their own page and their own count.
+ */
 export function footCount(status: OrganizerStatus | null): number | null {
-  return suggesting(status) && status.pending > 0 ? status.pending : null;
+  if (!suggesting(status)) return null;
+  const organizing = status.pending - (status.changes ?? 0);
+  return organizing > 0 ? organizing : null;
+}
+
+/**
+ * What changed's entry: the cards waiting (0 is still an entry, so the page
+ * can be found before anything has arrived), or `null` where the person never
+ * sees a suggestion at all.
+ */
+export function changesCount(status: OrganizerStatus | null): number | null {
+  return suggesting(status) ? (status.changes ?? 0) : null;
 }
 
 /** The phone's "11 suggestions to look over", on the workspace's own page. */
@@ -51,6 +66,15 @@ export function phoneEntryCount(
   where: { compact: boolean; atRoot: boolean },
 ): number | null {
   return where.compact && where.atRoot ? footCount(status) : null;
+}
+
+/** The phone's "2 things changed" on the workspace's own page, to the What changed page. */
+export function phoneChangesCount(
+  status: OrganizerStatus | null,
+  where: { compact: boolean; atRoot: boolean },
+): number | null {
+  const count = changesCount(status);
+  return where.compact && where.atRoot && count !== null && count > 0 ? count : null;
 }
 
 /** The one-time notice for people who were on Premium before this existed. */
@@ -91,6 +115,34 @@ export function shouldStartSweep(
   if (asked || returned !== "done" || !suggesting(status)) return false;
   if (status.sweep !== null) return false;
   return status.startsAt === null || status.startsAt <= now;
+}
+
+/** A sweep that has said "running" this long has died (the server's `SWEEP_STALE_MS`). */
+const SWEEP_STALE_MS = 30 * 60 * 1000;
+
+/** Settings' answer to "is it sorting, and when did it last?" */
+export type SortLine =
+  | { kind: "running"; read: number; total: number }
+  | { kind: "never" }
+  | { kind: "done"; at: number; pending: number }
+  | { kind: "failed"; at: number; why?: SweepWhy };
+
+/**
+ * The owner's sort status, on the Auto-organize card. Only where suggestions
+ * reach this person at all; a sweep still "running" past the server's stale
+ * mark died, and reads as one that did not finish.
+ */
+export function sortLine(status: OrganizerStatus | null, now: number): SortLine | null {
+  if (!suggesting(status)) return null;
+  const sweep = status.sweep;
+  if (sweep === null) return { kind: "never" };
+  if (sweep.state === "running") {
+    if (now - sweep.startedAt < SWEEP_STALE_MS) return { kind: "running", read: sweep.read, total: sweep.total };
+    return { kind: "failed", at: sweep.startedAt };
+  }
+  const at = sweep.finishedAt ?? sweep.startedAt;
+  if (sweep.state === "failed") return sweep.why ? { kind: "failed", at, why: sweep.why } : { kind: "failed", at };
+  return { kind: "done", at, pending: status.pending };
 }
 
 export interface SuggestionGroup {

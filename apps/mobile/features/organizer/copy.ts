@@ -7,7 +7,7 @@
  * fix merged 2 days ago"); this file frames them.
  */
 
-import type { OrganizerKind, OrganizerSuggestion } from "./types";
+import type { OrganizerKind, OrganizerSuggestion, SweepWhy } from "./types";
 
 /** The name automatic changes are recorded under in Activity. */
 export const ORGANIZER_ACTOR = "Context organizer";
@@ -88,6 +88,50 @@ export function previewWhy(s: OrganizerSuggestion): string {
   return reviewMeta(s);
 }
 
+/** "0-inbox/meetings" → "Inbox › Meetings": a folder as a person names it. */
+export function placeName(path: string): string {
+  const folders = path.split("/").slice(0, -1);
+  if (folders.length === 0) return "the top level";
+  return folders
+    .map((segment) => {
+      const words = segment.replace(/^\d+-/, "").replace(/[-_]+/g, " ").trim();
+      return words.charAt(0).toUpperCase() + words.slice(1);
+    })
+    .join(" › ");
+}
+
+/** The row's heading: what will happen, as a verb. */
+export function actionLine(s: OrganizerSuggestion): string {
+  switch (s.kind) {
+    case "done":
+      return "Mark as done";
+    case "archive":
+      return "Move to Archive";
+    case "file":
+      return s.target === undefined ? "File it" : `Move to ${s.target.title}`;
+  }
+}
+
+/** The row's last line: from where to where, or why. */
+export function whereLine(s: OrganizerSuggestion): string {
+  switch (s.kind) {
+    case "done":
+      return s.reason;
+    case "archive":
+      return s.reason ? `${s.reason.replace(/[.!?]?$/, ".")} Nothing is deleted.` : "Nothing is deleted.";
+    case "file":
+      return s.target === undefined
+        ? s.reason
+        : `From ${placeName(s.path)} to ${placeName(`${s.target.path}/x`)}`;
+  }
+}
+
+/** The row's buttons, said as what they do. */
+export function acceptButton(s: OrganizerSuggestion): string {
+  return s.kind === "done" ? "Mark done" : s.kind === "archive" ? "Archive" : "Move";
+}
+export const skipButton = "Skip";
+
 export function acceptLabel(s: OrganizerSuggestion): string {
   switch (s.kind) {
     case "done":
@@ -142,6 +186,39 @@ export const settingsCopy = {
   on: "On",
   off: "Off",
 };
+
+/** Why it didn't finish, in the owner's terms. */
+export const sortWhy: Record<SweepWhy, string> = {
+  daily_cap: "It reached today’s limit and will carry on tomorrow.",
+  no_answers: "The sorting service didn’t answer.",
+  error: "It couldn’t read your notes.",
+  switched_off: "Sorting is paused on our side.",
+  disabled: "Sorting is paused on our side.",
+  unconfigured: "Sorting is paused on our side.",
+  not_premium: "Sorting comes with Premium.",
+};
+
+/** The card's status line: whether it is sorting, and when it last did. */
+export const sortCopy = {
+  never: "Hasn’t sorted yet.",
+  failed: (ago: string, why?: SweepWhy) => {
+    const line = `The last sort didn’t finish (${ago}).`;
+    return why ? `${line} ${sortWhy[why]}` : line;
+  },
+  sortNow: "Sort now",
+  tryAgain: "Try again",
+  lookOver: "Look over",
+};
+
+export function sortRunning({ read, total }: { read: number; total: number }): string {
+  return total === 0 ? "Sorting now…" : `Sorting now · ${sweepCount({ read, total })}`;
+}
+
+/** "Sorted 3 hours ago. 4 suggestions waiting." */
+export function sortDone(ago: string, pending: number): string {
+  const waiting = pending > 0 ? `${suggestionsLine(pending)} waiting.` : "Nothing waiting.";
+  return `Sorted ${ago}. ${waiting}`;
+}
 
 /** The "Without asking" switches, in the order they are drawn. */
 export const KIND_LABELS: Record<OrganizerKind, string> = {

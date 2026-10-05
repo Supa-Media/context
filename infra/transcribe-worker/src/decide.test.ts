@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleRequest } from "./index";
-import { JEV_MODEL, MAX_DECIDE_BODY_BYTES, readDecideRequest } from "./decide";
+import { DECISION_MODEL, DECISION_MODEL_SELECTOR, MAX_DECIDE_BODY_BYTES, readDecideRequest } from "./decide";
 import { CALLER, SECRET, envWith, fakeAi } from "./worker/fixtures";
 
 /**
  * `POST /decide`: one piece of text and a handful of typed questions in,
  * typed answers out, nothing kept. The auto-organize sweep's only way to reach
- * Jev — see docs/decisions/storage-and-credentials/inference.md.
+ * Clef — see docs/decisions/storage-and-credentials/inference.md.
  */
 
 const STATE = "Status: fix-in-review. Fix: Supa-Media/context#908. The PR merged two days ago.";
@@ -25,7 +25,7 @@ const QUESTIONS = {
 };
 
 const ANSWER = {
-  model: "jev-1.13.0",
+  model: "clef",
   answers: {
     shipped: { type: "noul", noul: 0.93 },
     stage: {
@@ -52,7 +52,7 @@ function decide(body: unknown, headers: Record<string, string> = {}) {
 }
 
 describe("POST /decide", () => {
-  it("asks Jev and answers with the typed answers only", async () => {
+  it("asks Clef and answers with the typed answers only", async () => {
     const ai = fakeAi(ANSWER);
     const response = await handleRequest(decide({ state: STATE, questions: QUESTIONS }), envWith(ai.binding));
     expect(response.status).toBe(200);
@@ -68,7 +68,7 @@ describe("POST /decide", () => {
         },
       },
     });
-    expect(ai.calls).toEqual([{ model: JEV_MODEL, input: { state: STATE, questions: QUESTIONS } }]);
+    expect(ai.calls).toEqual([{ model: DECISION_MODEL, input: { model: DECISION_MODEL_SELECTOR, state: STATE, questions: QUESTIONS } }]);
   });
 
   it("refuses without the secret, before reading anything or spending inference", async () => {
@@ -106,7 +106,7 @@ describe("POST /decide", () => {
     expect(await response.json()).toEqual({ error: "workers ai is not bound" });
   });
 
-  it("answers 502 when Jev fails, and never echoes the note text", async () => {
+  it("answers 502 when Clef fails, and never echoes the note text", async () => {
     const ai = fakeAi(new Error(`upstream said: ${STATE}`));
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const response = await handleRequest(decide({ state: STATE, questions: QUESTIONS }), envWith(ai.binding));
@@ -117,7 +117,7 @@ describe("POST /decide", () => {
     log.mockRestore();
   });
 
-  it("answers 502 when Jev answers a choice that was not offered", async () => {
+  it("answers 502 when Clef answers a choice that was not offered", async () => {
     const ai = fakeAi({
       answers: {
         shipped: { type: "noul", noul: 0.4 },

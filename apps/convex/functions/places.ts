@@ -1,5 +1,6 @@
 /**
- * Places: what the caller pinned to Home, and which folders they open most.
+ * Places: what the caller pinned to Home, which folders they open most, and
+ * the notes they were in last.
  *
  * Paths and counts, never note text, and only ever the caller's own rows —
  * nothing here takes a user id. A workspace the caller is not in answers
@@ -16,6 +17,7 @@ import { normalizePath } from "./lib/fileOps/paths";
 import {
   OPEN_ROWS_PER_WORKSPACE,
   PINS_PER_WORKSPACE,
+  RECENT_ROWS_PER_WORKSPACE,
   daysInWindow,
   dayOf,
   retargetPlaces as retarget,
@@ -216,6 +218,57 @@ export const mostOpened = query({
       .filter((row) => row.opens > 0)
       .sort((a, b) => b.opens - a.opens || b.lastAt - a.lastAt)
       .slice(0, limit);
+  },
+});
+
+const recentValidator = v.object({ path: v.string(), at: v.number() });
+
+/**
+ * This note was just opened or edited by the caller: it goes to the top of
+ * their Recent. One row per note, so opening it again only moves it up.
+ */
+export const recordRecent = mutation({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await writerIn(ctx, args.workspaceId);
+    const path = placePath(args.path);
+    const now = Date.now();
+    const row = await ctx.db
+      .query("placeRecents")
+      .withIndex("by_user_workspace_path", (q) =>
+        q.eq("userId", userId).eq("workspaceId", args.workspaceId).eq("path", path),
+      )
+      .first();
+    if (row !== null) {
+      await ctx.db.patch(row._id, { at: now });
+      return null;
+    }
+    const rows = await ctx.db
+      .query("placeRecents")
+      .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", args.workspaceId))
+      .collect();
+    if (rows.length >= RECENT_ROWS_PER_WORKSPACE) {
+      const oldest = rows.sort((a, b) => a.at - b.at).slice(0, rows.length - RECENT_ROWS_PER_WORKSPACE + 1);
+      for (const old of oldest) await ctx.db.delete(old._id);
+    }
+    await ctx.db.insert("placeRecents", { userId, workspaceId: args.workspaceId, path, at: now });
+    return null;
+  },
+});
+
+/** The notes the caller opened or edited last, newest first; empty when signed out. */
+export const recentNotes = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(recentValidator),
+  handler: async (ctx, args) => {
+    const userId = await readerIn(ctx, args.workspaceId);
+    if (userId === null) return [];
+    const rows = await ctx.db
+      .query("placeRecents")
+      .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", args.workspaceId))
+      .collect();
+    return rows.sort((a, b) => b.at - a.at).map(({ path, at }) => ({ path, at }));
   },
 });
 

@@ -73,6 +73,24 @@
  * reduced to what a Markdown note in a bucket actually uses — this is not a
  * parser, and it does not need to be: over-masking costs one un-rewritten link,
  * and the failure it exists to prevent is corrupting somebody's code sample.
+ *
+ * ## Why this is written out rather than left to a regex
+ *
+ * The inline span used to be `/(`+)(?:[^`]|(?!\1)`)*?\1/g`, and the membership
+ * test below used to be `ranges.some`. Both are **quadratic**: an unclosed
+ * backtick run makes the regex rescan from every position in it, and `some`
+ * walks the whole list once per span. Nothing caps the text that arrives here
+ * — reading a note, rewriting links on a move and serving a website page all
+ * hand over a whole one, and content reaches a workspace from outside it
+ * through ingestion — so 64 KB of backticks was seconds of CPU and 128 KB was
+ * tens of seconds. `test/linkScanCost.test.mjs` holds both halves of the fix:
+ * the cost bound, and a differential fuzz against the regexes this replaced,
+ * because a faster scanner that masks something else would corrupt notes.
+ *
+ * The rule it implements is the regex's, stated plainly: an opening run of `k`
+ * backticks closes at the first position after it carrying `k` or more
+ * backticks, and `k` counts down from the whole run's length — the first `k`
+ * that can close is the one that does.
  */
 export function codeRanges(text) {
   const ranges = [];
@@ -99,26 +117,99 @@ export function codeRanges(text) {
   // Markdown renderer does with one and what makes a half-written note safe.
   if (fence !== null) ranges.push([fence.start, text.length]);
 
-  // Inline spans, outside the fenced ranges. A run of N backticks closes on the
-  // next run of exactly N.
-  const spans = /(`+)(?:[^`]|(?!\1)`)*?\1/g;
-  for (const match of text.matchAll(spans)) {
-    const start = match.index;
-    if (ranges.some(([from, to]) => start >= from && start < to)) continue;
-    ranges.push([start, start + match[0].length]);
+  // Inline spans, outside the fenced ranges.
+  const runs = backtickRuns(text);
+  if (runs.length > 0) {
+    // The longest run at or after each one, so "can a run of k close?" is a
+    // comparison rather than a search.
+    const longestAfter = new Array(runs.length);
+    let longest = 0;
+    for (let r = runs.length - 1; r >= 0; r -= 1) {
+      longest = Math.max(longest, runs[r].length);
+      longestAfter[r] = longest;
+    }
+    // The fenced ranges as they stand, so the spans pushed below cannot move
+    // this cursor. They never contain a later span's start anyway — the spans
+    // do not overlap — but a snapshot says so rather than relying on it.
+    const fenced = within(ranges.slice());
+    let at = 0; // the run holding the position being tried
+    let position = runs[0].start;
+    while (at < runs.length) {
+      if (position >= runs[at].start + runs[at].length) {
+        at += 1;
+        if (at === runs.length) break;
+        position = runs[at].start;
+        continue;
+      }
+      const span = closingSpan(runs, at, position, longestAfter);
+      if (span === null) {
+        position += 1;
+        continue;
+      }
+      if (!fenced(position)) ranges.push([position, span.end]);
+      // Where the regex's lastIndex would land: past the whole match.
+      position = span.end;
+      while (at < runs.length && position >= runs[at].start + runs[at].length) at += 1;
+      if (at === runs.length) break;
+      if (position < runs[at].start) position = runs[at].start;
+    }
   }
   return ranges.sort((a, b) => a[0] - b[0]);
 }
 
-const WIKILINK = /(!?)\[\[([^\]\n]+)\]\]/g;
-/*
-  `[label](target)`, where the target is either `<…>` or a run with no
-  whitespace and no closing paren, optionally followed by a title. Deliberately
-  not a balanced-paren matcher: a target containing `)` has to be written
-  `<…>` to be a link at all in most renderers, and pretending otherwise is how
-  a rewriter eats the rest of a paragraph.
-*/
-const INLINE = /\[([^\]\n]*)\]\((<[^>\n]*>|[^\s()]*)\s*(?:"[^"\n]*"|'[^'\n]*')?\)/g;
+/** The maximal runs of backticks in `text`, in order. */
+function backtickRuns(text) {
+  const runs = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "`") continue;
+    const start = i;
+    while (i < text.length && text[i] === "`") i += 1;
+    runs.push({ start, length: i - start });
+    i -= 1;
+  }
+  return runs;
+}
+
+/**
+ * The span an inline code opener at `position` closes, or `null`.
+ *
+ * `at` is the run holding `position`. The opener is the backticks from
+ * `position` to the end of that run, and shorter openers are tried after
+ * longer ones, which is what `(`+)` backtracking does.
+ */
+function closingSpan(runs, at, position, longestAfter) {
+  const available = runs[at].start + runs[at].length - position;
+  for (let k = available; k >= 1; k -= 1) {
+    const after = position + k;
+    // Inside the opener's own run first: what is left of it can close the span.
+    const leftHere = runs[at].start + runs[at].length - after;
+    if (leftHere >= k) return { end: after + k };
+    if (at + 1 < runs.length && longestAfter[at + 1] >= k) {
+      for (let r = at + 1; r < runs.length; r += 1) {
+        if (runs[r].length >= k) return { end: runs[r].start + k };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * `index => is it inside one of `ranges``, for indices asked in increasing
+ * order. Ranges are sorted by start but may overlap — an inline span can begin
+ * before a fence opener and end after it — so this carries the furthest end
+ * seen rather than comparing against one range.
+ */
+function within(ranges) {
+  let next = 0;
+  let furthest = -1;
+  return (index) => {
+    while (next < ranges.length && ranges[next][0] <= index) {
+      furthest = Math.max(furthest, ranges[next][1]);
+      next += 1;
+    }
+    return index < furthest;
+  };
+}
 
 /**
  * Every link in `text`, in document order, with the span of its *target*.
@@ -136,28 +227,29 @@ const INLINE = /\[([^\]\n]*)\]\((<[^>\n]*>|[^\s()]*)\s*(?:"[^"\n]*"|'[^'\n]*')?\
  */
 export function parseLinks(text) {
   const skip = codeRanges(text);
-  const inCode = (index) => skip.some(([from, to]) => index >= from && index < to);
   const found = [];
 
-  for (const match of text.matchAll(WIKILINK)) {
-    if (inCode(match.index)) continue;
-    const inner = match[2];
+  const wikiInCode = within(skip);
+  for (const link of wikilinkMatches(text)) {
+    if (wikiInCode(link.index)) continue;
+    const inner = link.inner;
     const bar = inner.indexOf("|");
     const target = bar === -1 ? inner : inner.slice(0, bar);
     // `[[` plus the embed marker's width.
-    const start = match.index + match[1].length + 2;
-    found.push({ kind: "wiki", embed: match[1] === "!", target, start, end: start + target.length });
+    const start = link.index + (link.bang ? 1 : 0) + 2;
+    found.push({ kind: "wiki", embed: link.bang, target, start, end: start + target.length });
   }
 
-  for (const match of text.matchAll(INLINE)) {
-    if (inCode(match.index)) continue;
-    const raw = match[2];
+  const inlineInCode = within(skip);
+  for (const link of inlineMatches(text)) {
+    if (inlineInCode(link.index)) continue;
+    const raw = link.raw;
     const bracketed = raw.startsWith("<") && raw.endsWith(">");
     const target = bracketed ? raw.slice(1, -1) : raw;
-    const start = match.index + match[1].length + 3 + (bracketed ? 1 : 0);
+    const start = link.index + link.label.length + 3 + (bracketed ? 1 : 0);
     found.push({
       kind: "inline",
-      embed: match.index > 0 && text[match.index - 1] === "!",
+      embed: link.index > 0 && text[link.index - 1] === "!",
       target,
       start,
       end: start + target.length,
@@ -165,6 +257,81 @@ export function parseLinks(text) {
   }
 
   return found.sort((a, b) => a.start - b.start);
+}
+
+/**
+ * The wikilinks in `text`, in order, as `/(!?)\[\[([^\]\n]+)\]\]/g`
+ * matched them.
+ *
+ * `[^\]\n]+` can only end where the first `]` or newline at or after the
+ * brackets is, because a shorter run would need `]]` to start before it. So the
+ * whole match is decided by that one position, which a cursor walking forward
+ * with the candidates finds in one pass over the note — where the regex rescanned
+ * to the end of the line from every `[[`, and `[[` repeated is a `[[` at every
+ * other character. See `codeRanges` above for why that mattered.
+ */
+function* wikilinkMatches(text) {
+  let from = 0;
+  let stop = 0; // the first `]` or newline at or after `stop`, kept moving
+  for (;;) {
+    const open = text.indexOf("[[", from);
+    if (open === -1) return;
+    const inner = open + 2;
+    if (stop < inner) stop = inner;
+    while (stop < text.length && text[stop] !== "]" && text[stop] !== "\n") stop += 1;
+    if (stop > inner && text[stop] === "]" && text[stop + 1] === "]") {
+      // `(!?)` takes the `!` only when it has not already been consumed, which
+      // is what the regex's lastIndex decided and `open > from` decides here.
+      const bang = open > from && text[open - 1] === "!";
+      yield { index: bang ? open - 1 : open, bang, inner: text.slice(inner, stop) };
+      from = stop + 2;
+    } else {
+      from = open + 1;
+    }
+  }
+}
+
+/**
+ * The inline links in `text`, in order, as
+ * `/\[([^\]\n]*)\]\((<[^>\n]*>|[^\s()]*)\s*(?:"[^"\n]*"|'[^'\n]*')?\)/g`
+ * matched them.
+ *
+ * Only the label's `[^\]\n]*` is replaced by a cursor: it is the quadratic
+ * half, scanning to the end of the line from every `[`. The tail keeps the
+ * pattern it always had, anchored at the `(`, and backtracks no further than
+ * the one run it is looking at.
+ */
+function* inlineMatches(text) {
+  /*
+    The target, an optional title and the closing paren. The target is either
+    `<…>` or a run with no whitespace and no closing paren. Deliberately not a
+    balanced-paren matcher: a target containing `)` has to be written `<…>` to
+    be a link at all in most renderers, and pretending otherwise is how a
+    rewriter eats the rest of a paragraph.
+
+    Built per call, so a partly-consumed generator cannot clobber another's
+    `lastIndex`.
+  */
+  const tailAt = /\((<[^>\n]*>|[^\s()]*)\s*(?:"[^"\n]*"|'[^'\n]*')?\)/y;
+  let from = 0;
+  let stop = 0;
+  for (;;) {
+    const open = text.indexOf("[", from);
+    if (open === -1) return;
+    const label = open + 1;
+    if (stop < label) stop = label;
+    while (stop < text.length && text[stop] !== "]" && text[stop] !== "\n") stop += 1;
+    if (text[stop] === "]" && text[stop + 1] === "(") {
+      tailAt.lastIndex = stop + 1;
+      const tail = tailAt.exec(text);
+      if (tail !== null) {
+        yield { index: open, label: text.slice(label, stop), raw: tail[1] };
+        from = tailAt.lastIndex;
+        continue;
+      }
+    }
+    from = open + 1;
+  }
 }
 
 /* ------------------------------ resolution ------------------------------- */
@@ -328,13 +495,17 @@ function decodeFor(link, file) {
  * `missing`: absence of a list is not absence of a note. A bare name with one
  * candidate is `resolved` either way, because `byName` is built from real paths.
  * Never throws on anything `extractReferences` produces.
+ *
+ * `catalog` must contain only targets the caller may see; built from anything
+ * wider, `ambiguous`/`missing` versus `resolved` reveals notes the caller cannot
+ * see (architecture README section 7.3).
  */
 export function resolveReference(occurrence, fromPath, catalog) {
   const target = occurrence.target.trim();
   if (isExternal(target)) return { state: "external" };
   if (occurrence.kind === "definition") return { state: "unsupported" };
   const { file } = splitAnchor(target);
-  if (file === "") return { state: "invalid" };
+  if (file === "" || file === "." || file === "..") return { state: "invalid" };
 
   const absent = catalog.paths ? "missing" : "unknown";
   const decoded = decodeFor(occurrence, file);

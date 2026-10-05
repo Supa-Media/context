@@ -41,6 +41,19 @@ export const JEV_FEATURES = {
     dailyCallsPerWorkspace: 300,
     plan: "premium",
   },
+  /**
+   * "What changed": reads what arrived in the inbox (meetings, mail, saved AI
+   * chats) and proposes the changes it implies. The only feature that uses the
+   * writing model. `functions/lib/organizer/changes.ts`.
+   */
+  whatChanged: {
+    label: "What changed",
+    // On for Premium (Dev2, 2026-10-05). Cards only propose; nothing applies without a press.
+    onByDefault: true,
+    // One sweep reads at most MAX_CHANGE_SOURCES (40) arrivals; room for Sort now.
+    dailyCallsPerWorkspace: 100,
+    plan: "premium",
+  },
 } as const satisfies Record<string, JevFeature>;
 
 export type JevFeatureName = keyof typeof JEV_FEATURES;

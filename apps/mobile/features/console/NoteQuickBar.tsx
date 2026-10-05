@@ -1,7 +1,6 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, type IconName } from "../design/components/Icon";
-import { Text } from "../design/components/Text";
-import { radii, space, touchType } from "../design/tokens";
+import { radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import type { NoteActionId } from "./layout/noteActions";
 
@@ -50,6 +49,13 @@ export function noteQuickActions(available: readonly NoteActionId[], canAsk: boo
  *
  * Formatting is not here: it is the keyboard's own accessory bar, which is up
  * whenever there is a caret to format at (`NoteAccessory`).
+ *
+ * **Icons only, in a capsule that fits them (owner, 2026-10-05: "the bottom
+ * row looks so stupid right now").** It used to stretch the full width with a
+ * caption under each icon, so two actions became a wide white slab with two
+ * small words floating in it. The same short row of round keys Obsidian and
+ * Notion keep at a phone's bottom edge (the owner's reference, 2026-09-27);
+ * each key still says its name to a screen reader.
  */
 export function NoteQuickBar({
   actions,
@@ -61,42 +67,43 @@ export function NoteQuickBar({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   return (
-    <View style={styles.capsule} testID="note-quick-bar" role="toolbar" aria-label="Note actions">
-      {actions.map((action) => (
-        <Pressable
-          key={action.id}
-          onPress={() => onAction(action.id)}
-          accessibilityRole="button"
-          accessibilityLabel={action.label}
-          style={({ pressed }) => [styles.key, pressed ? styles.pressed : null]}
-          testID={`note-quick-${action.id}`}
-        >
-          <Icon name={action.icon} size={20} color={colors.text} />
-          <Text variant="meta" style={styles.caption} numberOfLines={1}>
-            {action.label}
-          </Text>
-        </Pressable>
-      ))}
+    <View style={styles.row}>
+      <View style={styles.capsule} testID="note-quick-bar" role="toolbar" aria-label="Note actions">
+        {actions.map((action) => (
+          <Pressable
+            key={action.id}
+            onPress={() => onAction(action.id)}
+            accessibilityRole="button"
+            accessibilityLabel={action.label}
+            style={({ pressed }) => [styles.key, pressed ? styles.pressed : null]}
+            testID={`note-quick-${action.id}`}
+          >
+            <Icon name={action.icon} size={21} color={colors.text} />
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }
 
 const FIELD_HEIGHT = 50;
+/** A round key, inside the capsule's 3pt rim: the 44pt touch floor. */
+const KEY = 44;
 
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
+    // Takes the bar's room so the compose button stays at the far end.
+    row: { flex: 1, flexDirection: "row", alignItems: "center" },
     capsule: {
-      flex: 1,
       flexDirection: "row",
-      alignItems: "stretch",
+      alignItems: "center",
+      gap: space.x1,
       height: FIELD_HEIGHT,
-      paddingHorizontal: space.x2,
+      paddingHorizontal: (FIELD_HEIGHT - KEY) / 2,
       borderRadius: radii.pill,
-      overflow: "hidden",
       backgroundColor: colors.pageSurface,
       boxShadow: shadows.floating,
     },
-    key: { flex: 1, alignItems: "center", justifyContent: "center", gap: 1, borderRadius: radii.pill },
+    key: { width: KEY, height: KEY, alignItems: "center", justifyContent: "center", borderRadius: KEY / 2 },
     pressed: { backgroundColor: colors.surface2 },
-    caption: { fontSize: touchType.label, color: colors.text2 },
   });

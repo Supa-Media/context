@@ -60,6 +60,9 @@ const bare0 = "[[nowhere]]";
 const rootedAndRelative = "[[1-projects/alpha/plan]] [[./plan]] [[../../2-areas/health]] [[1-projects/gone]]";
 const extension = "[img](./pic.png)";
 const dotsOnly = "[x](./)";
+const dotWiki = "[[.]]";
+const dotDotWiki = "[[..]]";
+const dotDotInline = "[x](..)";
 
 const wikiBase = { kind: "wiki", style: "bare" };
 
@@ -196,6 +199,27 @@ export const referenceCases = [
     fromPath: "top.md",
     catalog,
     expected: [occ(dotsOnly, "./", { kind: "inline", style: "relative", resolution: { state: "invalid" } })],
+  },
+  {
+    name: "a bare dot is invalid, not a missing name",
+    text: dotWiki,
+    fromPath: from,
+    catalog,
+    expected: [occ(dotWiki, ".", { ...wikiBase, resolution: { state: "invalid" } })],
+  },
+  {
+    name: "a bare double dot is invalid, not a missing name",
+    text: dotDotWiki,
+    fromPath: from,
+    catalog,
+    expected: [occ(dotDotWiki, "..", { ...wikiBase, resolution: { state: "invalid" } })],
+  },
+  {
+    name: "an inline link to a bare double dot is invalid",
+    text: dotDotInline,
+    fromPath: from,
+    catalog,
+    expected: [occ(dotDotInline, "..", { kind: "inline", style: "bare", resolution: { state: "invalid" } })],
   },
   {
     name: "anchor-only targets are invalid",

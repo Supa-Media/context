@@ -11,9 +11,18 @@
    where the same lists were accepted. What the rule reports here is refs and
    state setters that arrive through `deps`, so it cannot see they are stable. */
 import { isDrawingPath, newDrawing } from "@context/drawings";
+import { ConvexError } from "convex/values";
 import { useCallback, useRef } from "react";
 import { toFileError } from "../browser";
-import { describeNameProblem, displayName, drawingFileName, ensureMarkdown, joinPath } from "../paths";
+import {
+  baseName,
+  describeNameProblem,
+  displayName,
+  drawingFileName,
+  ensureMarkdown,
+  folderLabel,
+  joinPath,
+} from "../paths";
 import { applyNoteCreate, undoNoteCreate } from "../optimistic";
 import { untitledName, type UntitledKind } from "../untitled";
 import type { OpenNote } from "../types";
@@ -40,6 +49,15 @@ type NoteCreateDeps =
  * bucket said was not — more than a handful in a row is not a stale listing.
  */
 const UNTITLED_RETRIES = 5;
+
+/** The refusal a create into somebody else's private folder shows. */
+function cannotAddTo(folder: string): ConvexError<{ code: string; message: string }> {
+  const place = folder === "" ? "the top of this workspace" : folderLabel(baseName(folder));
+  return new ConvexError({
+    code: "FILE_NOT_FOUND",
+    message: `You can't add notes to ${place}. Pick a folder that is shared with you.`,
+  });
+}
 
 /** What a new note or drawing starts as. */
 function seedFor(name: string): string {
@@ -152,6 +170,14 @@ export function useNoteCreate(deps: NoteCreateDeps) {
                 refusal about it is noise; the next one is chosen instead. A
                 name somebody *typed* is theirs, and its refusal is shown.
               */
+              /*
+                Refused as missing: a create can only be that where the folder
+                is not this person's to write in — the server answers a private
+                path exactly as an absent one, rightly. "That file does not
+                exist." said nothing a person could act on, about a file they
+                had not named yet (the owner's team, 2026-10-02).
+              */
+              if (toFileError(error).code === "FILE_NOT_FOUND") throw cannotAddTo(folder);
               const taken = untitled !== undefined && toFileError(error).code === "CONFLICT";
               if (!taken || refused.length >= UNTITLED_RETRIES) throw error;
               refused.push(current);

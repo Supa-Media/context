@@ -254,6 +254,28 @@ describe("the phone reaches a destination with nothing opened first", () => {
   });
 
   /**
+   * SOMEBODY ELSE'S INBOX IS NOT WHERE YOUR NOTE GOES.
+   *
+   * An editor in a workspace whose top level is private (here, the fixture's
+   * root reads `private` and lists no Inbox) cannot write in its Inbox, and
+   * the server refused the quick note as "That file does not exist." with no
+   * note opened (the owner's team on a phone, 2026-10-02). The round button
+   * now asks which folder instead, offering folders and never the top.
+   */
+  test("an editor whose Inbox is not theirs is asked where, and the note goes there", () => {
+    mockConsoleState.selectedContextId = "w2";
+    const app = mountConsole(390);
+    created.length = 0;
+    app.press(app.find("notes-bar-compose"));
+    expect(created).toEqual([]);
+    const rows = [...document.body.querySelectorAll<HTMLElement>('[data-testid="place-row"]')];
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["projects, picked"]);
+    app.press(document.body.querySelector<HTMLElement>('[data-testid="place-confirm"]'));
+    expect(created).toEqual(["note:1-projects"]);
+    app.unmount();
+  });
+
+  /**
    * A PHONE CAN ASK ITS CONTEXT A QUESTION.
    *
    * It could not, and the absence was never decided — it was a fact about the

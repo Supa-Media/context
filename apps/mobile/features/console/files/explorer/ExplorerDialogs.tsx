@@ -7,6 +7,7 @@ import {
   NamePrompt,
 } from "../Dialogs";
 import { NewFolderForm } from "../NewFolderForm";
+import { NewNoteWhere } from "../NewNoteWhere";
 import { TagsSheet } from "../TagsSheet";
 import {
   bulkTagTargets,
@@ -167,6 +168,18 @@ export function ExplorerDialogs({
           onCreate={(place, name) => {
             onClose();
             files.createFolder(place, name, { open: compact });
+          }}
+        />
+      );
+    case "newNoteWhere":
+      return (
+        <NewNoteWhere
+          folders={pickable}
+          rootLabel={rootLabel}
+          onCancel={onClose}
+          onPick={(folder) => {
+            onClose();
+            files.createUntitled(folder, "note");
           }}
         />
       );

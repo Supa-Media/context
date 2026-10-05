@@ -345,7 +345,7 @@ export function updateIndex(
  * was refused by the barrier — the session ended — so the caller abandons the
  * index write that would have named it.
  */
-async function placeBody(
+export async function placeBody(
   store: MirrorStore,
   epoch: number,
   scope: CacheScope,
@@ -454,62 +454,6 @@ export function putMirroredNotes(
     extra?.(index);
     return true;
   });
-}
-
-/**
- * Move a mirrored note onto text and an etag that were just written.
- *
- * For a save that landed and a queued write that drained — the person's own
- * text, now in the bucket at `etag`. Only a note the mirror already holds is
- * moved, at every clearance that holds it: a save result carries none of the
- * visibility fields, so inventing an entry would put wrong access markers on a
- * note read offline, and the next sync lists it properly. Writing a person's
- * own text into a `team` copy discloses nothing: the entry being there is the
- * proof that clearance could read that path.
- */
-export async function moveMirroredBody(
-  store: MirrorStore,
-  epoch: number,
-  workspaceId: string,
-  body: { path: string; text: string; etag: string; rawEtag?: string },
-  needed: Needed,
-  now: number,
-): Promise<void> {
-  for (const scope of CACHE_SCOPES) {
-    await updateIndex(
-      store,
-      epoch,
-      scope,
-      workspaceId,
-      async (index) => {
-        const existing = index.entries.get(body.path);
-        if (existing === undefined || !existing.body) return false;
-        const placed = await placeBody(
-          store,
-          epoch,
-          scope,
-          workspaceId,
-          index,
-          { ...body, encrypted: existing.encrypted === true },
-          needed,
-        );
-        if (placed === false) return false;
-        const { base: _previousBase, ...rest } = existing;
-        const rawEtag = body.rawEtag ??
-          (body.etag.startsWith("c2.") ? existing.rawEtag : body.etag);
-        index.entries.set(body.path, {
-          ...rest,
-          etag: body.etag,
-          ...(rawEtag === undefined ? {} : { rawEtag }),
-          size: utf8Length(body.text),
-          syncedAt: now,
-          ...(placed.base !== undefined ? { base: placed.base } : {}),
-        });
-        return true;
-      },
-      { create: false },
-    );
-  }
 }
 
 /**

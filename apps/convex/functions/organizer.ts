@@ -36,17 +36,20 @@ import {
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 import { requireUserId } from "./lib/billing/plan";
-import { eachLimited, withJev } from "./lib/jev/client";
+import { withJev } from "./lib/jev/client";
+import { type SweepWhy, askEach } from "./lib/organizer/ask";
+import { sweepWhyValidator } from "./lib/schema/organizer";
 import {
   NOTICE_GRACE_MS,
   type OrganizerKind,
   organizerRow,
   patchOrganizerRow,
+  sweepFinish,
   sweepIsDue,
   organizerAvailable,
 } from "./lib/organizer/settings";
-import type { OrganizerSuggestion, OrganizerUndo, SweepWork } from "./lib/organizer/sweepOps";
-import { doneSuggestion, fileSuggestion } from "../../mcp/src/organizer/suggest.js";
+import { type OrganizerSuggestion, type OrganizerUndo, type SweepWork, suggestionFor } from "./lib/organizer/sweepOps";
+import { readWhatChanged } from "./lib/organizer/whatChanged";
 
 const kindValidator = v.union(v.literal("done"), v.literal("archive"), v.literal("file"));
 const countsValidator = v.object({ done: v.number(), archive: v.number(), file: v.number() });
@@ -59,10 +62,36 @@ const suggestionValidator = v.object({
   target: v.optional(v.object({ path: v.string(), title: v.string() })),
   status: v.optional(v.string()),
 });
+const fieldValidator = v.union(v.literal("owner"), v.literal("priority"), v.literal("status"));
+const moveUndo = v.object({ kind: v.literal("move"), from: v.string(), to: v.string() });
+const fieldUndo = v.object({ kind: v.literal("field"), path: v.string(), field: fieldValidator, value: v.string() });
 const undoValidator = v.union(
-  v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
+  moveUndo,
   v.object({ kind: v.literal("status"), path: v.string(), value: v.string() }),
+  fieldUndo,
+  v.object({ kind: v.literal("batch"), undos: v.array(v.union(moveUndo, fieldUndo)) }),
 );
+/** A What changed card, for the app: what changed, the sentence that says so, and its steps. */
+const changeValidator = v.object({
+  id: v.string(),
+  topic: v.union(v.literal("people"), v.literal("focus"), v.literal("project")),
+  headline: v.string(),
+  quote: v.string(),
+  source: v.object({ path: v.string(), title: v.string(), kind: v.string() }),
+  at: v.number(),
+  steps: v.array(
+    v.object({
+      id: v.string(),
+      do: v.union(v.literal("archive"), v.literal("set")),
+      path: v.string(),
+      title: v.string(),
+      about: v.optional(v.union(v.literal("person"), v.literal("project"))),
+      field: v.optional(fieldValidator),
+      value: v.optional(v.string()),
+      was: v.optional(v.string()),
+    }),
+  ),
+});
 
 /** Questions in flight at once, per sweep. */
 const DECIDE_CONCURRENCY = 4;
@@ -94,9 +123,12 @@ export const status = query({
           read: v.number(),
           total: v.number(),
           found: countsValidator,
+          why: v.optional(sweepWhyValidator),
         }),
       ),
       pending: v.number(),
+      /** What changed cards waiting, for the count beside its page. */
+      changes: v.number(),
       autopilot: countsValidatorBooleans(),
     }),
   ),
@@ -118,6 +150,7 @@ export const status = query({
       startsAt: on ? (row?.startsAt ?? null) : null,
       sweep: row?.sweep ?? null,
       pending: on ? (row?.pending ?? 0) : 0,
+      changes: on ? (row?.changes ?? 0) : 0,
       autopilot: row?.autopilot ?? { done: false, archive: false, file: false },
     };
   },
@@ -156,7 +189,7 @@ export const setEnabled = mutation({
     } else {
       // Off stops sweeps and clears what was waiting; the list is in the
       // bucket, so clearing it is a trip through the barrier.
-      await patchOrganizerRow(ctx, args.workspaceId, { off: true, noticeAt: row?.noticeAt ?? now, pending: 0 });
+      await patchOrganizerRow(ctx, args.workspaceId, { off: true, noticeAt: row?.noticeAt ?? now, pending: 0, changes: 0 });
       await ctx.scheduler.runAfter(0, internal.functions.organizer.clearPending, { workspaceId: args.workspaceId, userId });
     }
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -282,18 +315,54 @@ export const isOwnerOnPlan = internalQuery({
 export const suggestions = action({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ suggestions: v.array(suggestionValidator), sweptAt: v.union(v.number(), v.null()) }),
-  handler: async (ctx, args): Promise<{ suggestions: OrganizerSuggestion[]; sweptAt: number | null }> => {
+  handler: async (ctx, args): Promise<{ suggestions: ReturnType<typeof forApp>[]; sweptAt: number | null }> => {
     const userId = await ownerOf(ctx, args.workspaceId);
     const read = (await organizerOp(ctx, args.workspaceId, userId, { action: "read" })) as {
       suggestions: OrganizerSuggestion[];
       sweptAt: number | null;
     };
-    return { suggestions: read.suggestions.map(forApp), sweptAt: read.sweptAt };
+    return { suggestions: read.suggestions.filter(isOrganizing).map(forApp), sweptAt: read.sweptAt };
   },
 });
 
+/** The What changed cards waiting for the owner, newest first. */
+export const changes = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ changes: v.array(changeValidator) }),
+  handler: async (ctx, args) => {
+    const userId = await ownerOf(ctx, args.workspaceId);
+    const read = (await organizerOp(ctx, args.workspaceId, userId, { action: "read" })) as { suggestions: OrganizerSuggestion[] };
+    const cards = read.suggestions
+      .filter((item) => item.kind === "change" && item.topic && item.source && Array.isArray(item.steps))
+      .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+      .map((item) => ({
+        id: item.id,
+        topic: item.topic!,
+        headline: item.title,
+        quote: item.reason ?? "",
+        source: { path: item.source!.path, title: item.source!.title, kind: item.source!.kind },
+        at: item.at ?? 0,
+        steps: item.steps!.map((step) => ({
+          id: step.id,
+          do: step.do,
+          path: step.path,
+          title: step.title,
+          ...(step.about ? { about: step.about } : {}),
+          ...(step.field ? { field: step.field } : {}),
+          ...(typeof step.value === "string" ? { value: step.value } : {}),
+          ...(typeof step.was === "string" ? { was: step.was } : {}),
+        })),
+      }));
+    return { changes: cards };
+  },
+});
+
+function isOrganizing(suggestion: OrganizerSuggestion): suggestion is OrganizerSuggestion & { kind: OrganizerKind } {
+  return suggestion.kind !== "change";
+}
+
 /** The app's shape: no etag, nothing undefined. */
-function forApp(suggestion: OrganizerSuggestion) {
+function forApp(suggestion: OrganizerSuggestion & { kind: OrganizerKind }) {
   return {
     id: suggestion.id,
     kind: suggestion.kind,
@@ -306,7 +375,13 @@ function forApp(suggestion: OrganizerSuggestion) {
 }
 
 export const resolve = action({
-  args: { workspaceId: v.id("workspaces"), id: v.string(), decision: v.union(v.literal("accept"), v.literal("dismiss")) },
+  args: {
+    workspaceId: v.id("workspaces"),
+    id: v.string(),
+    decision: v.union(v.literal("accept"), v.literal("dismiss")),
+    /** A change card: the ticked steps. Absent means all of them. */
+    steps: v.optional(v.array(v.string())),
+  },
   returns: v.object({
     applied: v.boolean(),
     offer: v.union(kindValidator, v.null()),
@@ -320,12 +395,13 @@ export const resolve = action({
     const userId = await ownerOf(ctx, args.workspaceId);
     const outcome = (await organizerOp(ctx, args.workspaceId, userId, {
       action: "resolve",
-      input: { id: args.id, decision: args.decision },
-    })) as { applied: boolean; offer: OrganizerKind | null; pending: number; undo: OrganizerUndo | null; error: string | null };
+      input: { id: args.id, decision: args.decision, ...(args.steps ? { steps: args.steps } : {}) },
+    })) as { applied: boolean; offer: OrganizerKind | null; pending: number; changes: number; undo: OrganizerUndo | null; error: string | null };
     const autopilot: Record<OrganizerKind, boolean> = await ctx.runMutation(internal.functions.organizer.noteResolved, {
       workspaceId: args.workspaceId,
       userId,
       pending: outcome.pending,
+      changes: outcome.changes,
       decision: args.decision,
       applied: outcome.applied,
     });
@@ -344,12 +420,16 @@ export const noteResolved = internalMutation({
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
     pending: v.number(),
+    changes: v.optional(v.number()),
     decision: v.union(v.literal("accept"), v.literal("dismiss")),
     applied: v.boolean(),
   },
   returns: countsValidatorBooleans(),
   handler: async (ctx, args) => {
-    await patchOrganizerRow(ctx, args.workspaceId, { pending: args.pending });
+    await patchOrganizerRow(ctx, args.workspaceId, {
+      pending: args.pending,
+      ...(args.changes === undefined ? {} : { changes: args.changes }),
+    });
     await ctx.runMutation(internal.functions.audit.recordEvent, {
       workspaceId: args.workspaceId,
       actorUserId: args.userId,
@@ -445,21 +525,26 @@ export const sweepProgress = internalMutation({
     finished: v.optional(v.union(v.literal("done"), v.literal("failed"))),
     found: v.optional(countsValidator),
     pending: v.optional(v.number()),
+    changes: v.optional(v.number()),
+    why: v.optional(sweepWhyValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row: Doc<"organizerSettings"> | null = await organizerRow(ctx, args.workspaceId);
     if (!row?.sweep) return null;
     const now = Date.now();
+    const { why: _earlier, ...sweep } = row.sweep;
     await ctx.db.patch(row._id, {
       sweep: {
-        ...row.sweep,
+        ...sweep,
         read: args.read,
         total: args.total,
         ...(args.found ? { found: args.found } : {}),
         ...(args.finished ? { state: args.finished, finishedAt: now } : {}),
+        ...(args.finished === "failed" && args.why ? { why: args.why } : {}),
       },
       ...(args.pending === undefined ? {} : { pending: args.pending }),
+      ...(args.changes === undefined ? {} : { changes: args.changes }),
       updatedAt: now,
     });
     return null;
@@ -474,58 +559,81 @@ export const runSweep = internalAction({
     if (!claim) return null;
     const { workspaceId } = args;
     let read = 0;
+    let answered = 0;
     let total = 0;
+    let why: SweepWhy | null = null;
     try {
-      const work = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "gather" })) as SweepWork;
+      // What changed reads the inbox's arrivals only when its switch, the plan
+      // and the day's cap allow, so a refused feature costs no reads.
+      const changesGate = await ctx.runQuery(internal.functions.jev.gate, { feature: "whatChanged", workspaceId });
+      const work = (await organizerOp(ctx, workspaceId, claim.ownerUserId, {
+        action: "gather",
+        input: { changes: changesGate.allowed },
+      })) as SweepWork;
+      // First, before anything is filed away: what the arrivals say changed.
+      const changed =
+        work.changes && work.changes.sources.length > 0
+          ? await withJev(ctx, { feature: "whatChanged", workspaceId }, (jev) => readWhatChanged(jev, work.changes, Date.now()))
+          : null;
       total = work.items.length;
       await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });
 
       const found: OrganizerSuggestion[] = [...work.ready];
       // Every question goes through Jev smarts: switched off, over the day's
       // cap or not Premium means no session, and the sweep records only the
-      // suggestions that needed no question.
-      await withJev(ctx, { feature: "organizer", workspaceId }, async (jev) => {
-        if (!jev) return;
-        await eachLimited(work.items, DECIDE_CONCURRENCY, async (item) => {
-          const answers = await jev.decide(item.request);
-          read += 1;
-          if (answers) {
-            const suggestion =
-              item.kind === "project"
-                ? doneSuggestion(item.project, item.facts, answers)
-                : fileSuggestion(item.note, item.title, work.destinations, answers);
-            if (suggestion) found.push(suggestion as OrganizerSuggestion);
-          }
-          if (read % 10 === 0) {
-            await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });
-          }
-        });
-      });
+      // suggestions that needed no question, and why.
+      const asked = await withJev(ctx, { feature: "organizer", workspaceId }, (jev, refusal) =>
+        askEach(jev, refusal, work.items, {
+          concurrency: DECIDE_CONCURRENCY,
+          onAnswer: (item, answers) => {
+            const suggestion = suggestionFor(item, work.destinations, answers);
+            if (suggestion) found.push(suggestion);
+          },
+          onRead: async (count) => {
+            await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read: count, total });
+          },
+        }),
+      );
+      read = asked.read;
+      answered = asked.answered;
+      why = asked.why;
 
       const recorded = (await organizerOp(ctx, workspaceId, claim.ownerUserId, {
         action: "record",
-        input: { suggestions: found },
-      })) as { pending: number };
+        input: {
+          suggestions: [...found, ...(changed?.found ?? [])],
+          ...(changed && changed.readUpTo !== null ? { changesReadUpTo: changed.readUpTo } : {}),
+        },
+      })) as { pending: number; changes: number };
       let pending = recorded.pending;
       const kinds = (["done", "archive", "file"] as const).filter((kind) => claim.autopilot[kind]);
       if (kinds.length > 0 && pending > 0) {
         await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "autopilot", input: { kinds }, autopilot: true });
-        pending = ((await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "read" })) as { suggestions: unknown[] }).suggestions.length;
+        const after = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "read" })) as { suggestions: OrganizerSuggestion[] };
+        pending = after.suggestions.length;
       }
       const counts = { done: 0, archive: 0, file: 0 };
-      for (const suggestion of found) counts[suggestion.kind] += 1;
+      for (const suggestion of found.filter(isOrganizing)) counts[suggestion.kind] += 1;
+      if (changed) {
+        console.log(JSON.stringify({ event: "organizer_changes_read", workspaceId, read: changed.read, answered: changed.answered, found: changed.found.length }));
+      }
       await ctx.runMutation(internal.functions.organizer.sweepProgress, {
         workspaceId,
         read,
         total,
-        finished: "done",
+        finished: sweepFinish(total, answered),
         found: counts,
         pending,
+        // Autopilot never applies a change card, so the recorded count stands.
+        changes: recorded.changes,
+        ...(why ? { why } : {}),
       });
-    } catch {
-      // Numbers only: the error may quote a path.
-      console.error(JSON.stringify({ event: "organizer_sweep_failed", workspaceId, read, total }));
-      await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total, finished: "failed" });
+      if (why) console.error(JSON.stringify({ event: "organizer_sweep_unanswered", workspaceId, read, total, why }));
+    } catch (error) {
+      // Numbers and a code only: the message may quote a path.
+      const code = error instanceof ConvexError ? String((error.data as { code?: unknown })?.code ?? "convex") : error instanceof Error ? error.name : "unknown";
+      console.error(JSON.stringify({ event: "organizer_sweep_failed", workspaceId, read, total, code }));
+      await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total, finished: "failed", why: "error" });
     }
     return null;
   },

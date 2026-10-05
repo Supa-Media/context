@@ -24,6 +24,7 @@ import { makeStyles } from "./browsePane/styles";
 import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
 import { useShownEntry } from "./browsePane/useShownEntry";
+import { useOrganizerView } from "../../organizer/OrganizerContext";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -288,6 +289,8 @@ export function BrowsePane({
    * each other by construction.
    */
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
+  // What changed draws where the document would (`BrowseDocument`).
+  const organizerPage = useOrganizerView()?.pageOpen === true;
 
   const handleOpenComms =
     onOpenComms ??
@@ -441,6 +444,7 @@ export function BrowsePane({
         openDocument={openDocument}
         notices={notices}
         pathBar={pathBar}
+        page={organizerPage}
       />
 
       {/*

@@ -9,6 +9,7 @@ import { useSelectBar } from "./files/selectActions";
 import { scopeLabel } from "./layout/SearchScope";
 import { NoteQuickBar, type NoteQuick, type NoteQuickId } from "./NoteQuickBar";
 import type { ConsoleData } from "./types";
+import { visibilityTierForRole } from "./visibility";
 
 /** Where a quick note from Home lands (Dev2, 2026-09-30: "inbox is the default folder"). */
 export const QUICK_NOTE_FOLDER = "0-inbox";
@@ -18,10 +19,44 @@ export const QUICK_NOTE_FOLDER = "0-inbox";
  * note on screen, and from Home — the workspace's own page — the Inbox. A
  * workspace with no Inbox gets one with its first quick note, because a
  * folder in a bucket is only the notes in it.
+ *
+ * `null` when that Inbox is not this person's to write in, and the button
+ * then asks where (`NewNoteWhere`). See `inboxTakesNotes`.
  */
-export function quickNoteFolder(data: ConsoleData): string {
+export function quickNoteFolder(data: ConsoleData): string | null {
   const folder = targetFolder(data.files.listings, data.files.selectedPath);
-  return folder === "" ? QUICK_NOTE_FOLDER : folder;
+  if (folder !== "") return folder;
+  return inboxTakesNotes(data) ? QUICK_NOTE_FOLDER : null;
+}
+
+/**
+ * Whether a note written to the Inbox would land, for the person pressing.
+ *
+ * An owner writes anywhere in their workspace. Anybody else writes only where
+ * the workspace is shared with them, and an Inbox is usually the owner's own:
+ * private by rule, or absent with a private top level, which is how
+ * @context-lc is (the owner's team, 2026-10-02). The server refused that
+ * write as "That file does not exist." — rightly, since a private path must
+ * read as missing — and nothing opened.
+ *
+ * Read off what the device has already listed: the Inbox's own listing, its
+ * row at the top, or else the top's default, which an absent Inbox would
+ * take. A listing of a folder this person may not see reports its nearest
+ * visible ancestor's default (`listing.ts` on the server), so this learns
+ * nothing about a private Inbox that the person's own tree did not show.
+ * With nothing listed yet it says yes and leaves the server to answer, as
+ * before.
+ */
+export function inboxTakesNotes(data: ConsoleData): boolean {
+  const role = data.contexts.find((context) => context.id === data.selectedContextId)?.role;
+  // An owner, a visitor's demo, or a role not known yet: the Inbox, as always.
+  if (visibilityTierForRole(role) !== "team") return true;
+  const { listings } = data.files;
+  const inbox =
+    listings[QUICK_NOTE_FOLDER]?.folderDefault ??
+    listings[""]?.entries.find((entry) => entry.kind === "folder" && entry.path === QUICK_NOTE_FOLDER)?.visibility ??
+    listings[""]?.folderDefault;
+  return inbox !== "private";
 }
 
 /**
@@ -59,6 +94,7 @@ export function ConsoleBottomBar({
   data,
   onSearch,
   onCreate,
+  onAskWhere,
   note,
 }: {
   data: ConsoleData;
@@ -71,6 +107,8 @@ export function ConsoleBottomBar({
    * where that sheet would have no rows at all (`files/createSheet.ts`).
    */
   onCreate: ((folder: string) => void) | null;
+  /** Asks which folder a new note goes in, where the Inbox is not this person's (`NewNoteWhere`). */
+  onAskWhere: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -115,8 +153,14 @@ export function ConsoleBottomBar({
       )}
       {!canNote && onCreate === null ? null : (
         <Pressable
-          onPress={canNote ? () => data.files.createUntitled(folder, "note") : () => onCreate?.(folder)}
-          onLongPress={onCreate === null ? undefined : () => onCreate(folder)}
+          onPress={
+            !canNote
+              ? () => onCreate?.(folder ?? "")
+              : folder === null
+                ? onAskWhere
+                : () => data.files.createUntitled(folder, "note")
+          }
+          onLongPress={onCreate === null ? undefined : () => onCreate(folder ?? QUICK_NOTE_FOLDER)}
           accessibilityRole="button"
           accessibilityLabel={canNote ? "New note" : "Create"}
           accessibilityHint={canNote && onCreate !== null ? "Hold for a drawing, a folder or a meeting" : undefined}
