@@ -37,7 +37,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { clearanceOf } from "../functions/lib/clearance";
 import { deliverRoute, outlineTeam, withdrawRoute } from "../functions/lib/organizer/routeOps";
-import { listEverything, runOrganizerOperation, type OrganizerSuggestion } from "../functions/lib/organizer/sweepOps";
+import { isOrganizing, listEverything, runOrganizerOperation, type OrganizerSuggestion } from "../functions/lib/organizer/sweepOps";
 import { readWhatChanged } from "../functions/lib/organizer/whatChanged";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { NOW, OWNER } from "./organizerEval/workspace.helpers";
@@ -216,6 +216,20 @@ describe("a team card waits for a person", () => {
       await runOrganizerOperation(store, OWNER, { action: "resolve", input: JSON.stringify({ id: "route-other", decision: "accept", sent }) }, NOW, null),
     );
     expect(ok).toMatchObject({ applied: true, undo: { kind: "sent", ...sent }, changes: 0 });
+  });
+
+  test("the suggestions list never carries a team card: its reply can't draw one", async () => {
+    // Production, 2026-10-05: a waiting team card reached the suggestions
+    // list, whose reply allows only done/archive/file, and the whole What
+    // changed page failed to load.
+    const store = personalStore();
+    const [card] = read([GOOD]);
+    const filing = { id: "file-1", kind: "file", path: "0-inbox/idea.md", title: "Idea", reason: "", at: NOW };
+    await runOrganizerOperation(store, OWNER, { action: "record", input: JSON.stringify({ suggestions: [card, filing] }) }, NOW, null);
+    const recorded = JSON.parse(await runOrganizerOperation(store, OWNER, { action: "read", input: "{}" }, NOW, null));
+    const listed = (recorded.suggestions as OrganizerSuggestion[]).filter(isOrganizing).map((item) => item.kind);
+    expect(listed).toEqual(["file"]);
+    expect(isOrganizing({ ...filing, kind: "change" } as OrganizerSuggestion)).toBe(false);
   });
 
   test("the switches never send a team card", async () => {
