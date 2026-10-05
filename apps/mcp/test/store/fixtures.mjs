@@ -114,6 +114,8 @@ export function memoryBucket({
       if (expected && rejectAllIfMatch) return null;
       // Etags this bucket issues look like "m3"; anything else is malformed.
       if (expected && shapeOnlyIfMatch && !/^m\d+$/.test(expected)) return null;
+      // `absent: true` refuses an existing key; B2 and Wasabi ignore it too.
+      if (options?.onlyIf?.absent === true && !ignoreIfMatch && objects.has(key)) return null;
       // A backend that "supports" If-Match by ignoring it — B2 and Wasabi.
       if (expected && !ignoreIfMatch && !shapeOnlyIfMatch && objects.get(key)?.etag !== expected) {
         return null;
