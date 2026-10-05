@@ -6,7 +6,8 @@ import { useColors, useThemedStyles } from "../design/theme";
 import { makeStyles as browseStyles } from "../console/panes/browsePane/styles";
 import { existingCopy, phoneLine, reviewCopy } from "./copy";
 import { useOrganizerView } from "./OrganizerContext";
-import { existingNoticeVisible, phoneEntryCount } from "./rules";
+import { existingNoticeVisible, phoneChangesCount, phoneEntryCount } from "./rules";
+import { changesCopy } from "./changeCopy";
 import type { OrganizerView } from "./useOrganizer";
 import { useMessageSlot } from "../messages/useInAppMessage";
 
@@ -45,10 +46,11 @@ function organizerNotices(
   organizer: OrganizerView | undefined,
   place: NoticePlace,
   existing: boolean,
-): ("existing" | "entry")[] {
+): ("existing" | "changes" | "entry")[] {
   const status = organizer?.status ?? null;
-  const lines: ("existing" | "entry")[] = [];
+  const lines: ("existing" | "changes" | "entry")[] = [];
   if (existing) lines.push("existing");
+  if (phoneChangesCount(status, place) !== null) lines.push("changes");
   if (phoneEntryCount(status, place) !== null) lines.push("entry");
   return lines;
 }
@@ -66,6 +68,7 @@ export function OrganizerNotices(place: NoticePlace) {
   if (organizer === undefined) return null;
   const lines = organizerNotices(organizer, place, existing);
   const count = phoneEntryCount(organizer.status, place);
+  const changed = phoneChangesCount(organizer.status, place);
   return (
     <>
       {lines.includes("existing") ? (
@@ -83,6 +86,15 @@ export function OrganizerNotices(place: NoticePlace) {
               testID="organizer-notice-ok"
             />
           </View>
+        </View>
+      ) : null}
+      {lines.includes("changes") && changed !== null ? (
+        <View style={[styles.notice, phoneRow]} testID="organizer-phone-changes">
+          <Icon name="sparkle" size={14} color={colors.accent} />
+          <Text variant="hint" style={phoneText}>
+            {changesCopy.phoneLine(changed)}
+          </Text>
+          <Button label={changesCopy.phoneOpen} onPress={organizer.openPage} testID="organizer-phone-changes-open" />
         </View>
       ) : null}
       {lines.includes("entry") && count !== null ? (

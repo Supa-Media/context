@@ -94,6 +94,16 @@ export function sweepIsDue(
 }
 
 /**
+ * How a sweep ends. Notes to ask about and not one answer back means the
+ * questions never got through (the model failing, the day's cap, no inference
+ * Worker): that is a sweep that did not happen, and saying "done, nothing to
+ * tidy" would tell the owner their notes were read when they were not.
+ */
+export function sweepFinish(asked: number, answered: number): "done" | "failed" {
+  return asked > 0 && answered === 0 ? "failed" : "done";
+}
+
+/**
  * Called from the billing mutations on every plan change. On the move into a
  * paying plan, somebody who was told at checkout gets their first sweep now,
  * which is the "this is so great" moment the feature is on by default for.

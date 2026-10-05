@@ -42,6 +42,7 @@ import { untitledStem } from "../features/console/files/untitled";
  *   opened by `select` (a read) instead of from the write's answer       1
  *   no retry on a taken name                                             1
  *   the drawn row left behind when the write is refused                  1
+ *   a create refused as missing shown as "That file does not exist."     1
  */
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -292,5 +293,25 @@ describe("a quick note", () => {
     expect(rows()).not.toContain(MADE);
     expect(browser.notice).toBe("You cannot write here.");
     expect(browser.selectedPath).toBeNull();
+  });
+
+  /*
+    The server answers a write into a folder this person may not see exactly
+    as it answers a missing file. For a note nobody has named yet that read
+    as nonsense (the owner's team on a phone, 2026-10-02).
+  */
+  test("a create refused as missing says the folder is not theirs to add to", async () => {
+    unmount = await ready();
+    actions[name("writeNote")] = async () => {
+      throw new ConvexError({ code: "FILE_NOT_FOUND", message: "That file does not exist." });
+    };
+
+    await act(async () => {
+      browser.createUntitled(FOLDER, "note");
+    });
+    await settle();
+
+    expect(rows()).not.toContain(MADE);
+    expect(browser.notice).toBe("You can't add notes to inbox. Pick a folder that is shared with you.");
   });
 });

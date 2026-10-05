@@ -54,11 +54,14 @@ export function pickerRows({
   open,
   query,
   rootLabel,
+  top = true,
 }: {
   folders: readonly string[];
   open: ReadonlySet<string>;
   query: string;
   rootLabel: string;
+  /** Offer the top of the workspace as a place. Off where nothing may be put there. */
+  top?: boolean;
 }): PickerRow[] {
   const children = childrenOf(folders);
   const typed = query.trim().toLocaleLowerCase();
@@ -79,9 +82,9 @@ export function pickerRows({
         };
       });
   }
-  const rows: PickerRow[] = [
-    { path: "", label: rootLabel, depth: 0, sub: "Top level", opens: false, open: true },
-  ];
+  const rows: PickerRow[] = top
+    ? [{ path: "", label: rootLabel, depth: 0, sub: "Top level", opens: false, open: true }]
+    : [];
   const walk = (folder: string, depth: number) => {
     for (const child of children.get(folder) ?? []) {
       const opens = (children.get(child)?.length ?? 0) > 0;
@@ -90,7 +93,7 @@ export function pickerRows({
       if (isOpen) walk(child, depth + 1);
     }
   };
-  walk("", 1);
+  walk("", top ? 1 : 0);
   return rows;
 }
 

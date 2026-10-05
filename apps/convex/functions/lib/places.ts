@@ -1,5 +1,5 @@
 /**
- * The storage-side rules for `placePins` and `placeOpens`, shared by the
+ * The storage-side rules for `placePins`, `placeOpens` and `placeRecents`, shared by the
  * functions in `functions/places.ts` and by the sweeps and moves that must
  * keep them honest. The tables themselves are described in
  * `lib/schema/places.ts`.
@@ -15,6 +15,8 @@ export const OPENS_WINDOW_DAYS = 14;
 export const PINS_PER_WORKSPACE = 60;
 /** One row per folder opened; the stalest makes room past this. */
 export const OPEN_ROWS_PER_WORKSPACE = 300;
+/** One row per note opened or edited; the oldest makes room past this. */
+export const RECENT_ROWS_PER_WORKSPACE = 50;
 
 export const dayOf = (at: number) => Math.floor(at / DAY_MS);
 
@@ -102,6 +104,25 @@ export async function retargetPlaces(
     byPath.set(path, { ...existing, ...merged });
     await ctx.db.delete(row._id);
   }
+
+  const recents = await ctx.db
+    .query("placeRecents")
+    .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
+    .collect();
+  const recentAt = new Map(recents.map((row) => [row.path, row]));
+  for (const row of recents) {
+    if (!isAtOrUnder(row.path, from)) continue;
+    const path = rename(row.path);
+    const existing = recentAt.get(path);
+    recentAt.delete(row.path);
+    if (existing === undefined) {
+      await ctx.db.patch(row._id, { path });
+      recentAt.set(path, { ...row, path });
+      continue;
+    }
+    if (row.at > existing.at) await ctx.db.patch(existing._id, { at: row.at });
+    await ctx.db.delete(row._id);
+  }
 }
 
 /** One person's places in one workspace: when they leave it or are removed. */
@@ -110,7 +131,7 @@ export async function deleteMemberPlaces(
   workspaceId: Id<"workspaces">,
   userId: Id<"users">,
 ): Promise<void> {
-  for (const table of ["placePins", "placeOpens"] as const) {
+  for (const table of ["placePins", "placeOpens", "placeRecents"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
@@ -121,7 +142,7 @@ export async function deleteMemberPlaces(
 
 /** Every place of one person's, in every workspace: with their account. */
 export async function deleteUserPlaces(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
-  for (const table of ["placePins", "placeOpens"] as const) {
+  for (const table of ["placePins", "placeOpens", "placeRecents"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -132,7 +153,7 @@ export async function deleteUserPlaces(ctx: MutationCtx, userId: Id<"users">): P
 
 /** Every member's places in one workspace: with the workspace. */
 export async function deleteWorkspacePlaces(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
-  for (const table of ["placePins", "placeOpens"] as const) {
+  for (const table of ["placePins", "placeOpens", "placeRecents"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))

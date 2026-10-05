@@ -83,3 +83,25 @@ Boards 07, 07b and 08 of the same artboards.
 
 Reversing the reset means a search from Home that silently skips most of the
 workspace. `consoleChrome/phoneSearchScope.test.ts` fails.
+
+## Recent is yours (2026-10-05)
+
+The owner, on a phone: *"the recent page doesnt actually show the notes that
+I've personally recently opened/edited"*. Recent was the three notes changed
+last, by anybody, so in a busy shared workspace a teammate's or an agent's
+edits pushed out the note you had just been in.
+
+- **Recent is a fourth kind of place**, `placeRecents`: a path and a time per
+  note, on the account, private to the person, at most 50 per workspace (the
+  oldest goes). The same rules as pins and opens: paths never text, only the
+  mover's rows follow a move, the tree decides what is drawn.
+- **Opening a note counts, and so does typing in it**, at most once a minute
+  (`useRecordRecent`), on every layout, so a note written on a laptop is in
+  Recent on the phone. Another person, or an agent, changing a note never
+  moves it in your Recent.
+- **An account with no rows has an empty Recent**, not the old list: showing
+  somebody else's edits under "Recent" is the bug. Only the homepage's
+  visitor, who has no account, still gets the notes changed last.
+
+Reversing it brings back the bug. `phoneHome.test.ts`,
+`recordRecent.test.ts` and `apps/convex/__tests__/placeRecents.test.ts` fail.

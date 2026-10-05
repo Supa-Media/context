@@ -49,6 +49,8 @@ export type Dialog =
    */
   | { kind: "create"; folder: string }
   | { kind: "newFolder"; folder: string }
+  /** A quick note from Home where the Inbox is not this person's to write in (`NewNoteWhere`). */
+  | { kind: "newNoteWhere" }
   | { kind: "rename"; path: string }
   | { kind: "move"; path: string }
   | { kind: "archive"; path: string }
