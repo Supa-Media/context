@@ -351,6 +351,10 @@ function decodeFor(link: Pick<LinkOccurrence, "kind">, file: string): string {
  * Without `catalog.paths` a computed path or an unmatched bare name is
  * `unknown`, not `missing`: absence of a list is not absence of a note. Never
  * throws on anything `extractReferences` produces.
+ *
+ * `catalog` must contain only targets the caller may see; built from anything
+ * wider, `ambiguous`/`missing` versus `resolved` reveals notes the caller cannot
+ * see (architecture README section 7.3).
  */
 export function resolveReference(
   occurrence: Pick<LinkOccurrence, "kind" | "target">,
@@ -361,7 +365,7 @@ export function resolveReference(
   if (isExternal(target)) return { state: "external" };
   if (occurrence.kind === "definition") return { state: "unsupported" };
   const { file } = splitAnchor(target);
-  if (file === "") return { state: "invalid" };
+  if (file === "" || file === "." || file === "..") return { state: "invalid" };
 
   const absent = catalog.paths ? "missing" : "unknown";
   const decoded = decodeFor(occurrence, file);

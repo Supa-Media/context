@@ -328,13 +328,17 @@ function decodeFor(link, file) {
  * `missing`: absence of a list is not absence of a note. A bare name with one
  * candidate is `resolved` either way, because `byName` is built from real paths.
  * Never throws on anything `extractReferences` produces.
+ *
+ * `catalog` must contain only targets the caller may see; built from anything
+ * wider, `ambiguous`/`missing` versus `resolved` reveals notes the caller cannot
+ * see (architecture README section 7.3).
  */
 export function resolveReference(occurrence, fromPath, catalog) {
   const target = occurrence.target.trim();
   if (isExternal(target)) return { state: "external" };
   if (occurrence.kind === "definition") return { state: "unsupported" };
   const { file } = splitAnchor(target);
-  if (file === "") return { state: "invalid" };
+  if (file === "" || file === "." || file === "..") return { state: "invalid" };
 
   const absent = catalog.paths ? "missing" : "unknown";
   const decoded = decodeFor(occurrence, file);
