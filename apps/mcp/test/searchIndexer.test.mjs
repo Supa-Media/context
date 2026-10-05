@@ -158,6 +158,19 @@ export async function runSearchIndexerChecks(check) {
     );
   }
 
+  {
+    const fields = extractFields("1-projects/note.md", "# N\n\n[x](<./a.md>)\n");
+    check(
+      "an angle-bracket inline target is stored",
+      fields.links.join("|") === "1-projects/a.md"
+    );
+    const ordered = extractFields("1-projects/note.md", "# N\n\n[x](./first.md) then [[second]]\n");
+    check(
+      "inline and wiki links are stored in document order",
+      ordered.links.join("|") === "1-projects/first.md|1-projects/second.md"
+    );
+  }
+
   // -- add / replace / remove --------------------------------------------
 
   {

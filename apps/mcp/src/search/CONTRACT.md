@@ -106,10 +106,14 @@ index is a rebuild, never a throw and never a partial read.
 - **headings**: text of every ATX heading line (all levels, title's line included
   — title is scored separately as its own field).
 - **body**: everything else.
-- **links**: `[[target]]` / `[[target|alias]]` (target gains `.md` if missing)
-  and `[text](relative/path.md)` resolved against the note's folder with `.`/`..`
-  segments normalized; keep only paths that stay inside the bucket root and end
-  in `.md`; drop URLs with a scheme.
+- **links**: read by the shared reader in `apps/mcp/src/links.js`
+  (`extractReferences`) over the whole body with no length cap. Links inside
+  fenced blocks and inline code are ignored, and reference definitions
+  (`[id]: target`) are not counted. Stored in document order, deduplicated.
+  Resolution is unchanged: a `[[target]]` / `[[target|alias]]` target gains
+  `.md` if missing, and wiki and `[text](relative/path.md)` targets resolve
+  against the note's folder with `.`/`..` segments normalized; keep only paths
+  that stay inside the bucket root and end in `.md`; drop URLs with a scheme.
 
 ## Scoring (query.js) — pinned constants
 
