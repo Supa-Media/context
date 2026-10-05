@@ -52,6 +52,12 @@ export interface HomeOpened {
   lastAt: number;
 }
 
+/** A note this person opened or edited, and when (`functions/places.ts`). */
+export interface HomeRecent {
+  path: string;
+  at: number;
+}
+
 export interface HomeInput {
   notes: readonly HomeNote[];
   /** Every folder the device knows of, empty ones included. */
@@ -60,6 +66,12 @@ export interface HomeInput {
   shared: ReadonlySet<string>;
   pins: readonly HomePin[];
   opened: readonly HomeOpened[];
+  /**
+   * The notes this person opened or edited last, newest first. `null` where
+   * there is no account (the homepage's visitor): Recent is then the notes
+   * changed last, by anybody.
+   */
+  recents: readonly HomeRecent[] | null;
   /** The chosen tag chip; `null` is All. */
   tag: string | null;
   now: number;
@@ -79,6 +91,8 @@ export interface HomeNoteTile {
   path: string;
   title: string;
   updatedAt?: number;
+  /** When this person last opened or edited it: set on Recent's tiles only. */
+  seenAt?: number;
   /** The folder it is in, drawn under a recent note: `projects`. */
   place: string;
   lede: string | null;
@@ -180,11 +194,27 @@ export function buildHome(input: HomeInput): Home {
     .slice(0, OPEN_MOST_COUNT)
     .map((row) => ({ ...folderOf(row.path), label: openedLabel(row) }));
 
-  const recent = tagged
-    .filter((note) => !isArchived(note.path))
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, RECENT_COUNT)
-    .map(noteTile);
+  /*
+    Recent is the person's own: the notes they opened or edited last, on any
+    device (owner, 2026-10-05). It used to be the notes changed last by
+    anybody, so in a busy shared workspace a teammate's or an agent's edits
+    pushed out the note you had just been in. A row is a pointer, and the
+    tree decides it is drawn, as for pins.
+  */
+  const recent =
+    input.recents === null
+      ? tagged
+          .filter((note) => !isArchived(note.path))
+          .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+          .slice(0, RECENT_COUNT)
+          .map(noteTile)
+      : [...input.recents]
+          .sort((a, b) => b.at - a.at)
+          .flatMap((row) => {
+            const note = noteByPath.get(row.path);
+            return note === undefined || isArchived(note.path) ? [] : [{ ...noteTile(note), seenAt: row.at }];
+          })
+          .slice(0, RECENT_COUNT);
 
   const topLevel = folders.filter((folder) => !folder.includes("/"));
   return {

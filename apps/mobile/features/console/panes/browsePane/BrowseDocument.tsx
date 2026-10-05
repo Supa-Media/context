@@ -28,7 +28,7 @@ import { PhoneHome } from "../../home/PhoneHome";
 import { folderTagTarget } from "../../home/folderTags";
 import { showTagOnHome } from "../../home/homeTag";
 import type { HomeSource } from "../../home/useHomeSource";
-import { useRecordOpen } from "../../home/useHomePlaces";
+import { useRecordOpen, useRecordRecent } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
 
 /**
@@ -215,6 +215,8 @@ export function BrowseDocument({
       source={homeSource}
       pins={places.pins}
       opened={places.opened}
+      recents={data.visitor === undefined ? places.recents : null}
+      onShown={places.refresh}
       onOpen={files.select}
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
       onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
@@ -254,6 +256,13 @@ export function BrowseDocument({
     current?.id,
     data.visitor === undefined && current?.role !== undefined && settled,
     selected === null ? null : { path: selected.path, kind: selected.kind },
+  );
+  // And for Recent: the note on screen, again while this person types in it.
+  useRecordRecent(
+    current?.id,
+    data.visitor === undefined && current?.role !== undefined && settled,
+    selected?.kind === "file" ? selected.path : null,
+    files.editor.path === selected?.path && files.editor.draft !== files.editor.baseline ? files.editor.draft : null,
   );
 
   // In storage but can't be opened: drawn with no editor, so nothing saves over it.
