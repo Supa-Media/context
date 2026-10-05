@@ -6,6 +6,8 @@
  * never as a field and a value.
  */
 
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { baseName } from "../console/files/paths";
 import { PRIORITY_LABELS, NO_PRIORITY_LABEL, type Priority } from "../console/files/folderPage/tasks/taskWords";
 import type { ChangeCard, ChangeStep } from "./types";
 
@@ -40,16 +42,17 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  */
 export function sourceLine(source: ChangeCard["source"]): string {
   const kind = SOURCE_KINDS[source.kind] ?? "Note";
-  const file = source.path.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+  const file = baseName(source.path).replace(/\.md$/i, "");
   const dated = /^(\d{4})-(\d{2})-(\d{2})(.*)$/.exec(file);
-  if (!dated) return `${kind}: ${source.title}`;
+  // The name comes out of somebody's bucket: contained, like every other one.
+  if (!dated) return `${kind}: ${isolateForDisplay(source.title)}`;
   const month = MONTHS[Number(dated[2]) - 1];
   const day = Number(dated[3]);
   const when = month ? `${month} ${day}` : "";
   // A time stamp after the date (a saved chat) is not a name.
   const rest = (dated[4] ?? "").replace(/^T[\d-]+Z?$/i, "").replace(/^[-_\s]+/, "").replace(/[-_]+/g, " ").trim();
   const name = rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : "";
-  return [kind, when].filter(Boolean).join(", ") + (name ? `: ${name}` : "");
+  return [kind, when].filter(Boolean).join(", ") + (name ? `: ${isolateForDisplay(name)}` : "");
 }
 
 function priorityWord(value: string | undefined): string {

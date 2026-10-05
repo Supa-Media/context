@@ -28,6 +28,7 @@ import { PremiumBody } from "../features/console/settings/panels/PremiumPanel";
 import { demoPremiumView } from "../features/console/settings/panels/premium";
 import { ToastHost } from "../features/design/components/Toast";
 import { ORGANIZER_ACTOR } from "../features/organizer/copy";
+import { sourceLine } from "../features/organizer/changeCopy";
 import { OrganizerNotices } from "../features/organizer/Notices";
 import { OrganizerProvider } from "../features/organizer/OrganizerContext";
 import { usePremiumSlotsFor } from "../features/organizer/PremiumParts";
@@ -246,6 +247,18 @@ describe("What changed", () => {
     const container = mount(explorer(), withCards(fresh()));
     expect(byId(container, "organizer-review-note")).toBeNull();
     expect(byId(container, "organizer-changes")).not.toBeNull();
+  });
+
+  test("a source's name comes out of somebody's bucket, so it is contained", () => {
+    const flip = "\u202E";
+    const dated = sourceLine({ kind: "meeting", path: `meetings/2026-10-02 sync${flip}fdp.md`, title: "x" });
+    expect(dated).toBe(`Meeting, Oct 2: \u2068Sync${flip}fdp\u2069`);
+    const plain = sourceLine({ kind: "note", path: "0-inbox/idea.md", title: `idea${flip}` });
+    expect(plain).toBe(`Note: \u2068idea${flip}\u2069`);
+    // The control: an ordinary name is drawn byte for byte.
+    expect(sourceLine({ kind: "meeting", path: "meetings/2026-10-02-leadership-sync.md", title: "x" })).toBe(
+      "Meeting, Oct 2: Leadership sync",
+    );
   });
 });
 
