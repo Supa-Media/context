@@ -85,6 +85,7 @@ const changeValidator = v.object({
       do: v.union(v.literal("archive"), v.literal("set")),
       path: v.string(),
       title: v.string(),
+      about: v.optional(v.union(v.literal("person"), v.literal("project"))),
       field: v.optional(fieldValidator),
       value: v.optional(v.string()),
       was: v.optional(v.string()),
@@ -343,6 +344,7 @@ export const changes = action({
           do: step.do,
           path: step.path,
           title: step.title,
+          ...(step.about ? { about: step.about } : {}),
           ...(step.field ? { field: step.field } : {}),
           ...(typeof step.value === "string" ? { value: step.value } : {}),
           ...(typeof step.was === "string" ? { was: step.was } : {}),
@@ -598,7 +600,7 @@ export const runSweep = internalAction({
       if (kinds.length > 0 && pending > 0) {
         await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "autopilot", input: { kinds }, autopilot: true });
         const after = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "read" })) as { suggestions: OrganizerSuggestion[] };
-        pending = after.suggestions.filter(isOrganizing).length;
+        pending = after.suggestions.length;
       }
       const counts = { done: 0, archive: 0, file: 0 };
       for (const suggestion of found.filter(isOrganizing)) counts[suggestion.kind] += 1;

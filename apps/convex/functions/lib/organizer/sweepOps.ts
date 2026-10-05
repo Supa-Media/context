@@ -235,7 +235,7 @@ export async function recordOrganizerSweep(
   const next = await updateState(store, (state) => mergeSweep(state, suggestions, now, changesReadUpTo));
   const all = next.pending as OrganizerSuggestion[];
   const changes = all.filter((item) => item.kind === "change").length;
-  return { pending: all.length - changes, changes, suggestions: all };
+  return { pending: all.length, changes, suggestions: all };
 }
 
 export async function readOrganizerPending(store: FileStore) {
@@ -293,7 +293,7 @@ async function apply(
 export interface ResolveOutcome {
   applied: boolean;
   offer: OrganizerKind | null;
-  /** Pending organizing suggestions; change cards are counted apart. */
+  /** Everything waiting for the owner, change cards included. */
   pending: number;
   undo: OrganizerUndo | null;
   error: string | null;
@@ -336,7 +336,7 @@ export async function resolveOrganizerSuggestion(
   return {
     applied: undo !== null,
     offer: offer && suggestion.kind !== "change" ? suggestion.kind : null,
-    pending: (next.pending as OrganizerSuggestion[]).filter((item) => item.kind !== "change").length,
+    pending: next.pending.length,
     undo,
     error,
   };

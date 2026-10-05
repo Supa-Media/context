@@ -76,3 +76,36 @@ export interface ResolveResult {
 }
 
 export type OrganizerDecision = "accept" | "dismiss";
+
+/** One step of a What changed card: archive a note, or set one field on a project. */
+export interface ChangeStep {
+  id: string;
+  do: "archive" | "set";
+  path: string;
+  /** The person's or project's name. */
+  title: string;
+  /** An archive step: a person's page or a project. */
+  about?: "person" | "project";
+  field?: "owner" | "priority" | "status";
+  value?: string;
+  /** What the field holds now, for "Medium → High". */
+  was?: string;
+}
+
+/**
+ * A What changed card: something an arrival in the inbox says changed, the
+ * sentence that says so, and the steps that would catch the workspace up.
+ * Mirrors `organizer.changes` (`apps/convex/functions/organizer.ts`).
+ */
+export interface ChangeCard {
+  id: string;
+  topic: "people" | "focus" | "project";
+  /** "Dana Reyes has left the team". */
+  headline: string;
+  /** The arrival's own sentence, word for word. */
+  quote: string;
+  source: { path: string; title: string; kind: string };
+  /** When it was read (ms). */
+  at: number;
+  steps: ChangeStep[];
+}

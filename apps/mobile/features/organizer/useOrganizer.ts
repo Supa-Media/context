@@ -3,6 +3,7 @@ import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { ToastSpec } from "../design/components/Toast";
 import { offerAction, undoFailed } from "./copy";
+import { changesCopy } from "./changeCopy";
 import { organizerApi } from "./organizerApi";
 import {
   isOrganizerEntry,
@@ -12,6 +13,7 @@ import {
   type OrganizerToast,
 } from "./rules";
 import type {
+  ChangeCard,
   OrganizerDecision,
   OrganizerKind,
   OrganizerStatus,
@@ -22,6 +24,8 @@ import type {
 export interface OrganizerSuggestions {
   /** `null` until they have been asked for. */
   list: OrganizerSuggestion[] | null;
+  /** What changed cards, read with the list; `null` until then. */
+  changes: ChangeCard[] | null;
   loading: boolean;
   failed: boolean;
   /** Rows with a press in flight, so ✓ and ✕ cannot be pressed twice. */
@@ -42,6 +46,8 @@ export interface OrganizerView {
   openReview: (options?: { closeSettings?: boolean }) => void;
   closeReview: () => void;
   resolve: (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => void;
+  /** Apply a What changed card's ticked steps, or say it is wrong. */
+  resolveChange: (card: ChangeCard, decision: OrganizerDecision, steps: readonly string[]) => void;
   setEnabled: (on: boolean) => void;
   setAutopilot: (kind: OrganizerKind, on: boolean) => void;
   acknowledgeNotice: (turnOff: boolean) => void;
@@ -56,7 +62,7 @@ export interface OrganizerView {
 
 type ActivityRow = { at: string; kind: string; paths: string[]; by: string | null; via: string | null };
 
-const EMPTY: OrganizerSuggestions = { list: null, loading: false, failed: false, busy: new Set() };
+const EMPTY: OrganizerSuggestions = { list: null, changes: null, loading: false, failed: false, busy: new Set() };
 
 /** Toast ids carry this, so the console's one host can hand a dismiss back to its owner. */
 export const ORGANIZER_TOAST_PREFIX = "organizer-";
@@ -142,12 +148,19 @@ export function useOrganizer({
   const loadSuggestions = useCallback(() => {
     const ticket = ++asking.current;
     setSuggestions((current) => ({ ...current, loading: true, failed: false }));
-    void call((functions, workspace) => convex.action(functions.suggestions, { workspaceId: workspace }))
+    void call((functions, workspace) =>
+      Promise.all([
+        convex.action(functions.suggestions, { workspaceId: workspace }),
+        // A deployment without What changed answers nothing here; the list still shows.
+        convex.action(functions.changes, { workspaceId: workspace }).catch(() => ({ changes: [] as ChangeCard[] })),
+      ]),
+    )
       .then((answer) => {
         if (ticket !== asking.current) return;
         setSuggestions((current) => ({
           ...current,
-          list: answer?.suggestions ?? [],
+          list: answer?.[0].suggestions ?? [],
+          changes: answer?.[1].changes ?? [],
           loading: false,
           failed: answer === undefined,
         }));
@@ -225,6 +238,47 @@ export function useOrganizer({
     [call, convex, say, setAutopilot, spendUndo, warn],
   );
 
+  const resolveChange = useCallback(
+    (card: ChangeCard, decision: OrganizerDecision, steps: readonly string[]) => {
+      setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, card.id]) }));
+      const settle = (removed: boolean) =>
+        setSuggestions((current) => {
+          const busy = new Set(current.busy);
+          busy.delete(card.id);
+          const changes = removed && current.changes !== null ? current.changes.filter((c) => c.id !== card.id) : current.changes;
+          return { ...current, busy, changes };
+        });
+      void call((functions, workspace) =>
+        convex.action(functions.resolve, {
+          workspaceId: workspace,
+          id: card.id,
+          decision,
+          ...(decision === "accept" ? { steps: [...steps] } : {}),
+        }),
+      )
+        .then((result) => {
+          if (decision === "dismiss") {
+            settle(true);
+            say({ message: changesCopy.dismissed });
+            return;
+          }
+          if (!result?.applied) {
+            settle(false);
+            warn(changesCopy.failed);
+            return;
+          }
+          settle(true);
+          const token = result.undo;
+          say({ message: changesCopy.applied(card), undo: token ? () => spendUndo({ token }) : undefined });
+        })
+        .catch(() => {
+          settle(false);
+          warn(changesCopy.failed);
+        });
+    },
+    [call, convex, say, spendUndo, warn],
+  );
+
   const setEnabled = useCallback(
     (on: boolean) => {
       void call((functions, workspace) => convex.mutation(functions.setEnabled, { workspaceId: workspace, on })).catch(
@@ -269,6 +323,7 @@ export function useOrganizer({
     openReview,
     closeReview,
     resolve,
+    resolveChange,
     setEnabled,
     setAutopilot,
     acknowledgeNotice,

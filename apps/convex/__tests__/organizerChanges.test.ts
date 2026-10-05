@@ -248,7 +248,7 @@ describe("a change card waits for a person", () => {
     expect(cards).toHaveLength(3);
     const { recordOrganizerSweep } = await import("../functions/lib/organizer/sweepOps");
     const next = await recordOrganizerSweep(store, [], NOW + DAY);
-    expect(next).toMatchObject({ pending: 0, changes: 3 });
+    expect(next).toMatchObject({ pending: 3, changes: 3 });
     // Nothing moved by being suggested.
     expect(store.snapshot()["2-areas/team/dana-reyes.md"]).toBeDefined();
   });
