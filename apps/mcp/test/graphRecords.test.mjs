@@ -11,6 +11,14 @@
  *   parsePage drops the key check                               1 (page)
  *   byte cap skipped in parseObject                             2 (manifest, node)
  *   parseNode accepts formatVersion 2                           1 (node)
+ *
+ * Fix round 1 (each 1 failing test):
+ *   manifest generation/mode check dropped; health check dropped;
+ *   building check dropped
+ *   page entries check dropped; page next check dropped; page formatVersion
+ *   check dropped
+ *   node coverage check dropped
+ *   key builders: gen check dropped; hash check dropped; page check dropped
  */
 
 import assert from "node:assert/strict";
@@ -39,6 +47,7 @@ import {
   serializePage,
 } from "../src/graph/records.js";
 
+const H = "a".repeat(64);
 const manifest = () => ({
   formatVersion: 1,
   generation: "1",
@@ -134,9 +143,56 @@ test("node round trip and null cases", () => {
 test("page round trip and null cases", async () => {
   const key = postingPageKey("1", "incoming", await pathHash("b.md"), 0);
   const page = { key, entries: [{ source: "notes/a.md", referenceSetVersion: "abc" }], next: "1" };
-  assert.deepEqual(parsePage(serializePage(page), key), page);
+  const withVersion = { ...page, formatVersion: 1 };
+  assert.deepEqual(parsePage(serializePage(page), key), withVersion);
+  assert.equal(JSON.parse(serializePage(page)).formatVersion, 1);
   const last = { key, entries: [] };
-  assert.deepEqual(parsePage(serializePage(last), key), last);
+  assert.deepEqual(parsePage(serializePage(last), key), { ...last, formatVersion: 1 });
+  const raw = (o) => JSON.stringify({ formatVersion: 1, ...o });
+  assert.equal(parsePage(JSON.stringify({ key, entries: [] }), key), null);
+  assert.equal(parsePage(JSON.stringify({ formatVersion: 2, key, entries: [] }), key), null);
+  assert.equal(parsePage(raw({ key, entries: ["x"] }), key), null);
+  assert.equal(parsePage(raw({ key, entries: [null] }), key), null);
+  assert.equal(parsePage(raw({ key, entries: [{ source: 1, referenceSetVersion: "a" }] }), key), null);
+  assert.equal(parsePage(raw({ key, entries: [{ source: "a.md" }] }), key), null);
+  assert.equal(parsePage(raw({ key, entries: [], next: "../x" }), key), null);
+  assert.equal(parsePage(raw({ key, entries: [], next: 3 }), key), null);
   assert.equal(parsePage("{not json", key), null);
   assert.equal(parsePage(serializePage(page), key.replace("/0.json", "/1.json")), null);
+});
+
+test("manifest rejects malformed fields", () => {
+  const m = manifest();
+  const bad = [
+    { generation: "../x" }, { generation: 1 }, { generation: "" }, { generation: undefined },
+    { mode: "other" }, { mode: undefined },
+    { health: null }, { health: "ready" }, { health: { ...m.health, state: "weird" } },
+    { building: {} }, { building: { generation: "x", startedAt: "t" } },
+    { building: { generation: "2" } }, { building: undefined }, { building: "no" },
+  ];
+  for (const patch of bad) assert.equal(parseManifest(JSON.stringify({ ...m, ...patch })), null, JSON.stringify(patch));
+  const ok = { ...m, building: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" } };
+  assert.deepEqual(parseManifest(serializeManifest(ok)), ok);
+});
+
+test("node rejects malformed fields", () => {
+  const n = node();
+  for (const patch of [{ occurrences: {} }, { occurrences: undefined }, { externalReferences: "x" },
+    { externalReferences: undefined }, { coverage: "full" }, { coverage: undefined }]) {
+    assert.equal(parseNode(JSON.stringify({ ...n, ...patch }), "notes/a.md"), null, JSON.stringify(patch));
+  }
+});
+
+test("key builders throw on bad segments and never leave the graph prefix", () => {
+  assert.throws(() => nodeKey("../../../x", H), TypeError);
+  assert.throws(() => nodeKey("1", "../../x"), TypeError);
+  assert.throws(() => nodeKey("1", "A".repeat(64)), TypeError);
+  assert.throws(() => nodeKey(1, H), TypeError);
+  assert.throws(() => nodeKey("", H), TypeError);
+  assert.throws(() => postingPageKey("../x", "incoming", H, 0), TypeError);
+  assert.throws(() => postingPageKey("1", "incoming", "../x", 0), TypeError);
+  for (const page of [-1, 1.5, "0", "../0", NaN, undefined]) {
+    assert.throws(() => postingPageKey("1", "incoming", H, page), TypeError, String(page));
+  }
+  assert.ok(nodeKey("12", H).startsWith(GRAPH_PREFIX));
 });
