@@ -86,3 +86,24 @@ export function staticAsset(body: ArrayBuffer, type: string): Response {
     },
   });
 }
+
+export const ROBOTS_PATH = "/robots.txt";
+
+/**
+ * The apex allows every crawler everything: what reaches a crawler is already
+ * decided per path (`route.ts`), and private pages are behind sign-in, not
+ * behind this file. It exists so the answer is rules rather than HTML, which
+ * is what both the crawler card and the SPA fallback returned for it.
+ */
+const ROBOTS_TXT = "User-agent: *\nAllow: /\n";
+
+export function robotsResponse(): Response {
+  return new Response(ROBOTS_TXT, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}

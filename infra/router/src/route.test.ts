@@ -235,6 +235,18 @@ describe("route: machine endpoints are decided before the crawler check", () => 
     });
   });
 
+  it("robots.txt is the Worker's own plain text, crawler or not", () => {
+    // Googlebot reads it before anything else. Left to the crawler branch it
+    // was handed the HTML product card, and a person's browser got the SPA
+    // shell: Google reads neither as rules, so a real file says it plainly.
+    const googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+    for (const ua of [googlebot, SLACKBOT_UA, BROWSER_UA, undefined]) {
+      expect(at("https://context.lc/robots.txt", ua)).toEqual({ kind: "robots" });
+    }
+    expect(at("https://context.lc/robots.txt?x=1", BROWSER_UA)).toEqual({ kind: "robots" });
+    expect(at("https://context.lc/x/robots.txt", BROWSER_UA).kind).toBe("proxy");
+  });
+
   it("a crawler on an auth route still goes to Convex", () => {
     expect(at("https://context.lc/api/auth/callback/github", SLACKBOT_UA)).toEqual(
       { kind: "proxy", upstream: "convex", path: "/api/auth/callback/github" },
