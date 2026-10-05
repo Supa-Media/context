@@ -17,14 +17,27 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { JevFeatureName } from "./features";
-import { type JevRefusal, type UsageDelta, estimateTokens } from "./meter";
-import { type JevAnswers, type JevRequest, type JevTransport, workerTransport } from "./worker";
+import { type JevRefusal, type UsageDelta, estimateTokens, writingCostMicroUsd } from "./meter";
+import {
+  type JevAnswers,
+  type JevRequest,
+  type JevTransport,
+  type JevWriteRequest,
+  type JevWritten,
+  workerTransport,
+} from "./worker";
 
-export type { JevAnswers, JevRequest } from "./worker";
+export type { JevAnswers, JevRequest, JevWriteRequest, JevWritten } from "./worker";
 
 export interface JevSession {
   /** Ask once. `null` means no answer: failed, refused, or the cap was reached mid-run. */
   decide(request: JevRequest): Promise<JevAnswers | null>;
+  /**
+   * Have the writing model answer in the given JSON shape. Counted against the
+   * same cap as `decide`, and priced from the model's own token counts.
+   * `null` is no answer, as above; the caller re-checks every field.
+   */
+  write(request: JevWriteRequest): Promise<JevWritten | null>;
   /** Requests left today before the cap, as of now. */
   readonly remaining: number;
 }
@@ -45,7 +58,7 @@ export async function withJev<T>(
   work: (jev: JevSession | null, refusal: JevRefusal | "unconfigured" | null) => Promise<T>,
 ): Promise<T> {
   const { feature, workspaceId } = options;
-  const delta: UsageDelta = { calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, ms: 0 };
+  const delta: Required<UsageDelta> = { calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, ms: 0, writtenMicroUsd: 0, writtenTokens: 0 };
   const flush = async () => {
     if (delta.calls + delta.failed + delta.refused === 0) return;
     await ctx.runMutation(internal.functions.jev.recordUsage, { feature, workspaceId, ...delta });
@@ -85,6 +98,26 @@ export async function withJev<T>(
       delta.questions += Object.keys(request.questions).length;
       delta.tokens += estimateTokens(request.state.length + JSON.stringify(request.questions).length);
       return answers;
+    },
+    async write(request) {
+      if (remaining <= 0 || !transport.write) {
+        delta.refused += 1;
+        return null;
+      }
+      remaining -= 1;
+      const started = Date.now();
+      const written = await transport.write(request);
+      delta.ms += Date.now() - started;
+      if (written === null) {
+        delta.failed += 1;
+        return null;
+      }
+      delta.calls += 1;
+      const spent = written.usage.input + written.usage.output;
+      delta.tokens += spent;
+      delta.writtenTokens += spent;
+      delta.writtenMicroUsd += writingCostMicroUsd(written.usage);
+      return written;
     },
   };
   try {

@@ -90,3 +90,46 @@ A feature ships with `onByDefault: false` until its screens are live.
 Auto-organize shipped off in the registry until its app screens merged, then on. While a
 feature is off it does not exist: `organizerAvailable` reads the switch, so
 there is no notice, no sweep and no write.
+
+## "What changed" uses a writing model, and nothing it writes is trusted
+
+**Decided by the owner, 2026-10-05:** organizing should follow what arrives
+in the inbox (meetings, mail and chat days, saved AI chats) and work out what
+changed: somebody left, the focus moved, a project finished. Clef cannot say
+that; it only picks from options it is given. So "What changed" uses a
+generative model, the cheapest capable one the owner asked for: Google's
+Gemma 4 26B on Workers AI (`@cf/google/gemma-4-26b-a4b-it`, $0.10 per million
+tokens in and $0.30 out, a 256K window; Cloudflare's price list, checked
+2026-10-05). It runs on Cloudflare's own GPUs from open weights, so no third
+party sees the text, and Cloudflare states it does not train on or keep
+Workers AI requests (its data-usage page, checked 2026-10-05). GLM-4.7 Flash
+($0.06 / $0.40) is the measured alternative.
+
+What is the same as for Clef: the text goes through the inference Worker
+(its `/extract` route), in flight, logged as counts only, never echoed in an
+error, and every call goes through `withJev` (feature `whatChanged`: off
+until its cards ship, 100 calls per workspace per day, priced from the model's
+own token counts). What the feature concludes is written to the customer's
+own bucket (`.context/organizer/state.json`), never to the control plane.
+
+What is new, because a model that writes can write anything:
+
+- **The model's answer is re-checked field by field**
+  (`mcp/src/organizer/changes.js`, `readChanges`). A step may only name a note
+  the map listed, only archive or set `owner`, `priority` or `status`, and only
+  to a value from the lists the model was shown. A step that changes nothing
+  is dropped.
+- **Every change quotes the arrival, word for word, or it is dropped.** The
+  quote is what a person reads before pressing Apply.
+- **A change card is only ever a proposal.** The "without asking" switches
+  never apply one. Mail is written by strangers, and the arrival is marked as
+  data the model must not take orders from, but the guarantee is the press,
+  not the prompt.
+- **Each arrival is read once.** A mark in the state file moves past an
+  arrival only when it and everything before it was answered.
+
+**What a simplification would cost:** trusting a step's path or value would
+let a sentence in an email archive or reassign any project; letting a card be
+applied without a press would make that automatic. The tests that fail are in
+`apps/convex/__tests__/organizerChanges.test.ts`; the score against the real
+models is `organizerChanges.live.test.ts`, run by "Organizer Eval (live)".

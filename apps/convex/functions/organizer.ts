@@ -49,6 +49,7 @@ import {
   organizerAvailable,
 } from "./lib/organizer/settings";
 import { type OrganizerSuggestion, type OrganizerUndo, type SweepWork, suggestionFor } from "./lib/organizer/sweepOps";
+import { readWhatChanged } from "./lib/organizer/whatChanged";
 
 const kindValidator = v.union(v.literal("done"), v.literal("archive"), v.literal("file"));
 const countsValidator = v.object({ done: v.number(), archive: v.number(), file: v.number() });
@@ -61,10 +62,35 @@ const suggestionValidator = v.object({
   target: v.optional(v.object({ path: v.string(), title: v.string() })),
   status: v.optional(v.string()),
 });
+const fieldValidator = v.union(v.literal("owner"), v.literal("priority"), v.literal("status"));
+const moveUndo = v.object({ kind: v.literal("move"), from: v.string(), to: v.string() });
+const fieldUndo = v.object({ kind: v.literal("field"), path: v.string(), field: fieldValidator, value: v.string() });
 const undoValidator = v.union(
-  v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
+  moveUndo,
   v.object({ kind: v.literal("status"), path: v.string(), value: v.string() }),
+  fieldUndo,
+  v.object({ kind: v.literal("batch"), undos: v.array(v.union(moveUndo, fieldUndo)) }),
 );
+/** A What changed card, for the app: what changed, the sentence that says so, and its steps. */
+const changeValidator = v.object({
+  id: v.string(),
+  topic: v.union(v.literal("people"), v.literal("focus"), v.literal("project")),
+  headline: v.string(),
+  quote: v.string(),
+  source: v.object({ path: v.string(), title: v.string(), kind: v.string() }),
+  at: v.number(),
+  steps: v.array(
+    v.object({
+      id: v.string(),
+      do: v.union(v.literal("archive"), v.literal("set")),
+      path: v.string(),
+      title: v.string(),
+      field: v.optional(fieldValidator),
+      value: v.optional(v.string()),
+      was: v.optional(v.string()),
+    }),
+  ),
+});
 
 /** Questions in flight at once, per sweep. */
 const DECIDE_CONCURRENCY = 4;
@@ -285,18 +311,53 @@ export const isOwnerOnPlan = internalQuery({
 export const suggestions = action({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ suggestions: v.array(suggestionValidator), sweptAt: v.union(v.number(), v.null()) }),
-  handler: async (ctx, args): Promise<{ suggestions: OrganizerSuggestion[]; sweptAt: number | null }> => {
+  handler: async (ctx, args): Promise<{ suggestions: ReturnType<typeof forApp>[]; sweptAt: number | null }> => {
     const userId = await ownerOf(ctx, args.workspaceId);
     const read = (await organizerOp(ctx, args.workspaceId, userId, { action: "read" })) as {
       suggestions: OrganizerSuggestion[];
       sweptAt: number | null;
     };
-    return { suggestions: read.suggestions.map(forApp), sweptAt: read.sweptAt };
+    return { suggestions: read.suggestions.filter(isOrganizing).map(forApp), sweptAt: read.sweptAt };
   },
 });
 
+/** The What changed cards waiting for the owner, newest first. */
+export const changes = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ changes: v.array(changeValidator) }),
+  handler: async (ctx, args) => {
+    const userId = await ownerOf(ctx, args.workspaceId);
+    const read = (await organizerOp(ctx, args.workspaceId, userId, { action: "read" })) as { suggestions: OrganizerSuggestion[] };
+    const cards = read.suggestions
+      .filter((item) => item.kind === "change" && item.topic && item.source && Array.isArray(item.steps))
+      .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+      .map((item) => ({
+        id: item.id,
+        topic: item.topic!,
+        headline: item.title,
+        quote: item.reason ?? "",
+        source: { path: item.source!.path, title: item.source!.title, kind: item.source!.kind },
+        at: item.at ?? 0,
+        steps: item.steps!.map((step) => ({
+          id: step.id,
+          do: step.do,
+          path: step.path,
+          title: step.title,
+          ...(step.field ? { field: step.field } : {}),
+          ...(typeof step.value === "string" ? { value: step.value } : {}),
+          ...(typeof step.was === "string" ? { was: step.was } : {}),
+        })),
+      }));
+    return { changes: cards };
+  },
+});
+
+function isOrganizing(suggestion: OrganizerSuggestion): suggestion is OrganizerSuggestion & { kind: OrganizerKind } {
+  return suggestion.kind !== "change";
+}
+
 /** The app's shape: no etag, nothing undefined. */
-function forApp(suggestion: OrganizerSuggestion) {
+function forApp(suggestion: OrganizerSuggestion & { kind: OrganizerKind }) {
   return {
     id: suggestion.id,
     kind: suggestion.kind,
@@ -309,7 +370,13 @@ function forApp(suggestion: OrganizerSuggestion) {
 }
 
 export const resolve = action({
-  args: { workspaceId: v.id("workspaces"), id: v.string(), decision: v.union(v.literal("accept"), v.literal("dismiss")) },
+  args: {
+    workspaceId: v.id("workspaces"),
+    id: v.string(),
+    decision: v.union(v.literal("accept"), v.literal("dismiss")),
+    /** A change card: the ticked steps. Absent means all of them. */
+    steps: v.optional(v.array(v.string())),
+  },
   returns: v.object({
     applied: v.boolean(),
     offer: v.union(kindValidator, v.null()),
@@ -323,7 +390,7 @@ export const resolve = action({
     const userId = await ownerOf(ctx, args.workspaceId);
     const outcome = (await organizerOp(ctx, args.workspaceId, userId, {
       action: "resolve",
-      input: { id: args.id, decision: args.decision },
+      input: { id: args.id, decision: args.decision, ...(args.steps ? { steps: args.steps } : {}) },
     })) as { applied: boolean; offer: OrganizerKind | null; pending: number; undo: OrganizerUndo | null; error: string | null };
     const autopilot: Record<OrganizerKind, boolean> = await ctx.runMutation(internal.functions.organizer.noteResolved, {
       workspaceId: args.workspaceId,
@@ -484,7 +551,18 @@ export const runSweep = internalAction({
     let total = 0;
     let why: SweepWhy | null = null;
     try {
-      const work = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "gather" })) as SweepWork;
+      // What changed reads the inbox's arrivals only when its switch, the plan
+      // and the day's cap allow, so a refused feature costs no reads.
+      const changesGate = await ctx.runQuery(internal.functions.jev.gate, { feature: "whatChanged", workspaceId });
+      const work = (await organizerOp(ctx, workspaceId, claim.ownerUserId, {
+        action: "gather",
+        input: { changes: changesGate.allowed },
+      })) as SweepWork;
+      // First, before anything is filed away: what the arrivals say changed.
+      const changed =
+        work.changes && work.changes.sources.length > 0
+          ? await withJev(ctx, { feature: "whatChanged", workspaceId }, (jev) => readWhatChanged(jev, work.changes, Date.now()))
+          : null;
       total = work.items.length;
       await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });
 
@@ -510,16 +588,23 @@ export const runSweep = internalAction({
 
       const recorded = (await organizerOp(ctx, workspaceId, claim.ownerUserId, {
         action: "record",
-        input: { suggestions: found },
-      })) as { pending: number };
+        input: {
+          suggestions: [...found, ...(changed?.found ?? [])],
+          ...(changed && changed.readUpTo !== null ? { changesReadUpTo: changed.readUpTo } : {}),
+        },
+      })) as { pending: number; changes: number };
       let pending = recorded.pending;
       const kinds = (["done", "archive", "file"] as const).filter((kind) => claim.autopilot[kind]);
       if (kinds.length > 0 && pending > 0) {
         await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "autopilot", input: { kinds }, autopilot: true });
-        pending = ((await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "read" })) as { suggestions: unknown[] }).suggestions.length;
+        const after = (await organizerOp(ctx, workspaceId, claim.ownerUserId, { action: "read" })) as { suggestions: OrganizerSuggestion[] };
+        pending = after.suggestions.filter(isOrganizing).length;
       }
       const counts = { done: 0, archive: 0, file: 0 };
-      for (const suggestion of found) counts[suggestion.kind] += 1;
+      for (const suggestion of found.filter(isOrganizing)) counts[suggestion.kind] += 1;
+      if (changed) {
+        console.log(JSON.stringify({ event: "organizer_changes_read", workspaceId, read: changed.read, answered: changed.answered, found: changed.found.length }));
+      }
       await ctx.runMutation(internal.functions.organizer.sweepProgress, {
         workspaceId,
         read,
