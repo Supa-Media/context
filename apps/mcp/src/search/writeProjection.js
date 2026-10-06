@@ -63,7 +63,7 @@ export async function indexWrittenNotes(store, notes) {
 }
 
 /** Run `work` behind the response where the host can, in front of it where it cannot. */
-async function afterResponse(store, work) {
+export async function afterResponse(store, work) {
   if (typeof store.defer === "function") {
     try {
       store.defer(work());

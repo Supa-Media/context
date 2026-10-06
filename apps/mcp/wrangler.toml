@@ -82,6 +82,8 @@ APP_ORIGIN = "https://context.lc"
 # one invocation finishes, not how long the caller waits. The whole invocation,
 # deferred half included, still stays inside it.
 SEARCH_SUBREQUEST_BUDGET = "600"
+# Store ops one write may spend on link-graph work behind its response (default 8).
+WRITE_ENRICH_SUBREQUEST_BUDGET = "80"
 
 # ── Presence: who else has this note open ───────────────────────────────────
 #
@@ -210,6 +212,8 @@ PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"
 SEARCH_SUBREQUEST_BUDGET = "600"
+# Store ops one write may spend on link-graph work behind its response (default 8).
+WRITE_ENRICH_SUBREQUEST_BUDGET = "80"
 
 [[env.staging.durable_objects.bindings]]
 name = "PRESENCE_ROOM"

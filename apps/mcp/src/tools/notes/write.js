@@ -33,6 +33,9 @@ import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.j
 import { parseFormBlocks } from "../../forms.js";
 import { pathUnderActiveMovedSource } from "../../moves/jobs.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
+import { projectNoteAfterWriteDeferred } from "../../graph/afterWrite.js";
+import { createSearchBudget } from "../../search/maintain.js";
+import { WRITE_ENRICH_SUBREQUEST_BUDGET } from "../../search/budget.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
@@ -416,6 +419,13 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     content: body,
     version: put.etag,
     visibility: desiredVisibility,
+  });
+  // The link graph's derivative of the committed body; never fails the write.
+  await projectNoteAfterWriteDeferred(store, {
+    path,
+    body,
+    version: put.etag,
+    budget: createSearchBudget(store.writeEnrichBudget ?? WRITE_ENRICH_SUBREQUEST_BUDGET),
   });
   // And anybody who has this note open right now, so an agent's write appears
   // in their editor as it lands rather than as a conflict later.

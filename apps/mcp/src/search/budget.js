@@ -41,6 +41,23 @@ export function searchBudgetFor(env) {
 }
 
 /**
+ * Store ops one write may spend on graph work behind its response (P5): the
+ * default assumes the free tier; the hosted deployment sets 80. The floor is 0
+ * so a deployment can turn the work off; the cap is the search cap, leaving the
+ * rest of the invocation under the paid limit (OPEN-11).
+ */
+export const WRITE_ENRICH_SUBREQUEST_BUDGET = 8;
+const WRITE_ENRICH_MAX = 900;
+
+/** The per-deployment write budget: `env.WRITE_ENRICH_SUBREQUEST_BUDGET` or the default; never throws. */
+export function writeEnrichBudgetFor(env) {
+  const raw = env?.WRITE_ENRICH_SUBREQUEST_BUDGET;
+  const parsed = typeof raw === "string" || typeof raw === "number" ? Number(raw) : NaN;
+  if (raw === "" || !Number.isFinite(parsed)) return WRITE_ENRICH_SUBREQUEST_BUDGET;
+  return Math.min(WRITE_ENRICH_MAX, Math.max(0, Math.floor(parsed)));
+}
+
+/**
  * Budget exhaustion inside the fallback, as a thrown sentinel the scan's own
  * callers catch and report as truncation — never as a dead request.
  */
