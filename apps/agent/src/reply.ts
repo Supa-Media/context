@@ -43,6 +43,8 @@ export const COPY = {
     "Hi! I'm the Context assistant. To use me, open Context, go to Settings › Texts, and text me the code it shows you.",
   noModel:
     "I can't answer yet because no AI model is connected to your Context. Connect one in Settings, then text me again.",
+  dailyLimit:
+    "That's all the questions I can answer for you today. Text me again tomorrow, or connect your own AI account in Context under Settings for no limit.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
 };
 
@@ -76,6 +78,7 @@ export async function replyTo(message: Message, deps: ReplyDeps): Promise<string
     const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text);
     if (answer.kind === "answer") return answer.text;
     if (answer.kind === "no_model") return COPY.noModel;
+    if (answer.kind === "daily_limit") return COPY.dailyLimit;
     return COPY.unavailable;
   } catch (error) {
     if (error instanceof ServiceError) return COPY.unavailable;

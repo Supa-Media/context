@@ -61,6 +61,7 @@ import { runReferenceRewriteAuditChecks } from "./auditReferenceRewrite.test.mjs
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
+import { runAgentBuiltinChecks } from "./agentBuiltin.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
@@ -136,6 +137,7 @@ await suite("runProviderCredentialChecks", () => runProviderCredentialChecks(che
 // backend and fake model, so — like the tenancy suite — it swaps globalThis.fetch
 // and restores it.
 await suite("runAgentChecks", () => runAgentChecks(check));
+await suite("runAgentBuiltinChecks", () => runAgentBuiltinChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.
 // Its own control plane and bucket, like orientation, because the fixture is a

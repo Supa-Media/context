@@ -110,6 +110,17 @@ describe("replyTo", () => {
     expect(reply).toBe(COPY.noModel);
   });
 
+  it("says today's questions are used up when the built-in model's cap is reached", async () => {
+    const reply = await replyTo(
+      message("hi"),
+      deps({
+        "/agent-texts/session": () => [200, { status: "linked", accessToken: "t" }],
+        "/agent": () => [429, { error: "daily_limit" }],
+      }),
+    );
+    expect(reply).toBe(COPY.dailyLimit);
+  });
+
   it("says something went wrong when the control plane or gateway fails", async () => {
     expect(await replyTo(message("hi"), deps({ "/agent-texts/session": () => [500, {}] }))).toBe(
       COPY.unavailable,

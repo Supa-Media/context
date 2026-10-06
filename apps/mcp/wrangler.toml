@@ -197,6 +197,13 @@ service = "context-site-shots"
 # Daily 05:00 UTC calendar refresh, plus a retry pass over pending Granola
 # events. Does nothing unless `LOCAL_CONTEXT_BUCKET` is bound.
 #
+# The texting assistant's built-in model (`src/agent/builtin.js`), spent only
+# after the control plane allows the turn and metered there. Self-hosting
+# without Workers AI: delete this block; a turn with no connected model account
+# is then refused as "no account connected", exactly as before.
+[ai]
+binding = "AI"
+
 # [triggers]
 # crons = ["0 5 * * *"]
 
@@ -227,3 +234,6 @@ max_batch_timeout = 5
 [[env.staging.services]]
 binding = "SITE_SHOTS"
 service = "context-site-shots-staging"
+
+[env.staging.ai]
+binding = "AI"

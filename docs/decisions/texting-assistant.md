@@ -92,3 +92,37 @@ exception to two rules, bounded as follows:
 The vault is not built yet. When it is, the tests must prove both bounds: a
 bucket read never yields plaintext, and no model request ever carries a vault
 value.
+
+### The built-in model is for Premium, capped, and metered like Jev
+
+Decided by the owner, 2026-10-06 ("Premium, capped"). When a texter has
+connected no Anthropic or OpenAI account of their own, a Premium workspace's
+texts are answered by a cheap open model on Workers AI (GLM-4.7 Flash by
+default, `AGENT_BUILTIN_MODEL` to swap it), up to 100 questions a day. Anyone
+else is told to connect an account.
+
+- A connected key always wins: the built-in model is asked for only after
+  every account of the person's own came back empty.
+- The gateway makes the call, because the turn's tools run there, but the
+  control plane decides whether it may (`functions/builtinModel.ts`), through
+  the same switches and `jevUsage` meter as every other paid inference
+  feature. The kill switch is `admin.setJevSwitch({ feature: "assistant",
+  off: true })`. The turn is counted when it is allowed, before anything is
+  spent, and its token counts are reported afterwards; never its text.
+- Only a grant for the texting client may start one. The app's agent panel
+  still needs a connected account until the owner says otherwise.
+- The model is ours to pick on our bill: a `model` named in the request is
+  ignored for a built-in turn.
+- A gateway with no `AI` binding (self-hosting without Workers AI) has no
+  built-in model and refuses the turn as "no account connected".
+
+Note text read by tools reaches the model in flight and is kept nowhere, the
+same seam as [inference](./storage-and-credentials/inference.md).
+
+**What a simplification would cost:** gating in the gateway instead of the
+control plane would put the cap and the switch where a bug can skip them;
+honouring the caller's `model` would let a capped cheap turn run on the most
+expensive model on the account. The tests that fail are
+`apps/convex/__tests__/builtinModel.test.ts` and
+`apps/mcp/test/agentBuiltin.test.mjs` ("the caller cannot choose the model we
+pay for").

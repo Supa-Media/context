@@ -105,6 +105,7 @@ import type * as functions_messages from "../functions/messages.js";
 import type * as functions_places from "../functions/places.js";
 import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
+import type * as functions_builtinModel from "../functions/builtinModel.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
@@ -220,6 +221,7 @@ declare const fullApi: ApiFromModules<{
   "functions/places": typeof functions_places;
   "functions/telemetry": typeof functions_telemetry;
   "functions/textLinks": typeof functions_textLinks;
+  "functions/builtinModel": typeof functions_builtinModel;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
   "functions/waitlist": typeof functions_waitlist;

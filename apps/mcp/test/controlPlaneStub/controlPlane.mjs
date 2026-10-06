@@ -59,6 +59,8 @@ export function createControlPlaneStub(options = {}) {
    * reaches the wrong tenant's key here exactly as it would there.
    */
   const providerCredentials = new Map();
+  const builtinVerdicts = new Map();
+  const builtinReports = [];
   /**
    * workspaceId → the rotation in progress, or `null` — mutated by
    * `startEncryptionRotation`/`completeEncryptionRotation` on `/gateway/binding`,
@@ -482,6 +484,20 @@ export function createControlPlaneStub(options = {}) {
         return ok({ credential: { provider: body.provider, apiKey } });
       }
 
+      case "/gateway/builtin-model":
+      case "/gateway/builtin-model/usage": {
+        // The control plane's gate and meter for the built-in model, reduced to
+        // what a test sets: a verdict per workspace, and the reports it got.
+        const grant = await grantForAccessToken(body.accessToken);
+        const known = grant && (body.expectedWorkspaceId ?? grant.workspaceId) === grant.workspaceId;
+        if (path === "/gateway/builtin-model/usage") {
+          if (known) builtinReports.push({ workspaceId: grant.workspaceId, ...body, accessToken: undefined });
+          return ok({ recorded: Boolean(known) });
+        }
+        if (!known) return ok({ verdict: null });
+        return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
+      }
+
       case "/gateway/clients/register": {
         // `calls` above already recorded what was forwarded; a test reads the
         // registrant key off that. This flag models the one answer the real
@@ -867,6 +883,11 @@ export function createControlPlaneStub(options = {}) {
     providerCredentials.set(`${workspaceId}:${provider}`, apiKey);
   }
 
+  /** What `/gateway/builtin-model` answers for one workspace. */
+  function setBuiltinVerdict(workspaceId, verdict) {
+    builtinVerdicts.set(workspaceId, verdict);
+  }
+
   return {
     gatewayCalls,
     origin,
@@ -878,6 +899,8 @@ export function createControlPlaneStub(options = {}) {
     revoke,
     issueCode,
     connectProvider,
+    setBuiltinVerdict,
+    builtinReports,
     providerCredentials,
     grants,
     clients,

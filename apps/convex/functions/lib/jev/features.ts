@@ -54,6 +54,19 @@ export const JEV_FEATURES = {
     dailyCallsPerWorkspace: 100,
     plan: "premium",
   },
+  /**
+   * The texting assistant's built-in model, when the person has connected no
+   * model account of their own. One call is one texted question, whatever
+   * number of model rounds it takes. `functions/builtinModel.ts`.
+   */
+  assistant: {
+    label: "Texting assistant (built-in model)",
+    // Premium, capped (decided by the owner, 2026-10-06).
+    onByDefault: true,
+    // A busy day of texting; a turn is at most eight model rounds.
+    dailyCallsPerWorkspace: 100,
+    plan: "premium",
+  },
 } as const satisfies Record<string, JevFeature>;
 
 export type JevFeatureName = keyof typeof JEV_FEATURES;
