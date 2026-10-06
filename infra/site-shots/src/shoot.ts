@@ -80,14 +80,10 @@ export interface BrowserLike {
 }
 
 /**
- * The address must be an https page on a public host. The gateway only ever
- * sends the site's own address, built by the control plane, and nothing else
- * can reach this Worker; this is the second lock, so a mistake upstream can
- * never point a browser at a private network.
+ * An https address on a public host, normalized, or null. Shared by every
+ * route here: no credentials, no port, no bare IP, no local or internal name.
  */
-export function parseShootRequest(body: unknown): ShootRequest | null {
-  if (!body || typeof body !== "object") return null;
-  const { url, sizes } = body as { url?: unknown; sizes?: unknown };
+export function publicHttpsUrl(url: unknown): string | null {
   if (typeof url !== "string" || url.length > 2_000) return null;
   let parsed: URL;
   try {
@@ -111,10 +107,24 @@ export function parseShootRequest(body: unknown): ShootRequest | null {
   ) {
     return null;
   }
+  return parsed.toString();
+}
+
+/**
+ * The address must be an https page on a public host. The gateway only ever
+ * sends the site's own address, built by the control plane, and nothing else
+ * can reach this Worker; this is the second lock, so a mistake upstream can
+ * never point a browser at a private network.
+ */
+export function parseShootRequest(body: unknown): ShootRequest | null {
+  if (!body || typeof body !== "object") return null;
+  const { url, sizes } = body as { url?: unknown; sizes?: unknown };
+  const parsed = publicHttpsUrl(url);
+  if (parsed === null) return null;
   const wanted = Array.isArray(sizes) ? sizes : Object.keys(SIZES);
   const valid = [...new Set(wanted)].filter((size): size is SizeName => typeof size === "string" && size in SIZES);
   if (valid.length === 0) return null;
-  return { url: parsed.toString(), sizes: valid };
+  return { url: parsed, sizes: valid };
 }
 
 /**

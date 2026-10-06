@@ -15,9 +15,13 @@ import { callToolForSession } from "../tools/session.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER } from "./builtin.js";
+import { computerFor, webSession } from "./computer.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
 import { appendConversation, conversationPath, readConversation } from "./conversation.js";
+
+/** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
+const TEXTS_CLIENT_ID = "context_texts";
 
 /**
  * One agent turn over HTTP.
@@ -118,6 +122,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
 
+  /*
+    The computer is the texting assistant's for now (the owner's decision is
+    about texting), behind the address guard in `computer.js`. Widening it to
+    the app's agent panel is one condition here.
+  */
+  const computer = session.actorClientId === TEXTS_CLIENT_ID ? computerFor(env) : null;
+  const web = computer === null ? null : webSession(computer, question);
+
   const builtin = credential.provider === BUILTIN_PROVIDER;
   const started = Date.now();
   /*
@@ -157,6 +169,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       env,
       model: typeof body.model === "string" ? body.model : undefined,
       providerOptions: builtin ? { ai: env.AI } : undefined,
+      web,
       history,
     });
     await meter(turn.usage, false);
