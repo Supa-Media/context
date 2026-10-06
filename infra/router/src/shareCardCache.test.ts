@@ -255,7 +255,7 @@ describe("the share card's cache key", () => {
 
   it("re-resolves the title for a URL it has not cached, and not for one it has", async () => {
     // **What this environment can and cannot establish.** Every response here
-    // is the static card — byte-identical at 86,220, which is `og-card.png`
+    // is the static card — byte-identical to `og-card.png`
     // itself — so asserting on the *pixels* would pass for the wrong reason no
     // matter what the cache did.
     //
