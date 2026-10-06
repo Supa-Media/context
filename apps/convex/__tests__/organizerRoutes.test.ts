@@ -166,6 +166,62 @@ describe("the model's answer is re-checked, never trusted", () => {
   });
 });
 
+describe("what the owner is shown of their own arrival", () => {
+  const MAIL = { path: "0-inbox/mail/2026-08-07.md", title: "2026-08-07", kind: "messages", updatedAt: NOW - DAY };
+  const MAIL_TEXT = `# 2026-08-07 · me@example.test
+
+## Thread — Weekly digest
+
+\`\`\`
+## Thread — Planted subject
+The private beta opens to the waitlist on October 20.
+\`\`\`
+
+## Thread — August finance update
+
+The   private beta opens to the waitlist on October 20.
+Call me on my cell if anything is urgent.
+`;
+
+  test("only sentences the arrival really says, word for word, are kept", () => {
+    const [card] = read([
+      {
+        ...GOOD,
+        uses: ["We agreed the private beta opens to the waitlist on October 20, fifty invites a day, oldest sign-ups first.", "The beta is cancelled."],
+        leftOut: [
+          { what: "something about a person's role", why: "people", quote: "We parted ways with Dana Reyes on Friday, and her contract ends this month." },
+          { what: "someone's time off", why: "personal", quote: "Sayo is on holiday." },
+        ],
+      },
+    ]);
+    expect(card!.route!.uses).toEqual(["We agreed the private beta opens to the waitlist on October 20, fifty invites a day, oldest sign-ups first."]);
+    expect(card!.route!.leftOut).toEqual([
+      { what: "something about a person's role", why: "people", quote: "We parted ways with Dana Reyes on Friday, and her contract ends this month." },
+      { what: "someone's time off", why: "personal" },
+    ]);
+  });
+
+  test("an answer from before quotes still reads, with nothing quoted", () => {
+    const [card] = read([GOOD]);
+    expect(card!.route!.uses).toEqual([]);
+    expect(card!.source).not.toHaveProperty("subject");
+  });
+
+  test("a day of mail names the thread the note came from, never one a sender wrote inside a message", () => {
+    const [card] = read([{ ...GOOD, uses: ["The private beta opens to the waitlist on October 20."] }], MAIL, MAIL_TEXT);
+    // Spacing in the arrival doesn't stop a real sentence from matching.
+    expect(card!.route!.uses).toEqual(["The private beta opens to the waitlist on October 20."]);
+    expect(card!.source).toMatchObject({ kind: "messages", subject: "Weekly digest" });
+    const [later] = read([{ ...GOOD, uses: ["Call me on my cell if anything is urgent."] }], MAIL, MAIL_TEXT);
+    expect(later!.source).toMatchObject({ subject: "August finance update" });
+  });
+
+  test("a quote too short to mean anything, or too long, is not shown", () => {
+    const [card] = read([{ ...GOOD, uses: ["We", `${MEETING_TEXT}${MEETING_TEXT}${MEETING_TEXT}`] }]);
+    expect(card!.route!.uses).toEqual([]);
+  });
+});
+
 describe("the note a team gets", () => {
   test("says where it came from without naming it", () => {
     const text = routeNoteText({ title: GOOD.title, body: GOOD.body, kind: "meeting", owner: "@seyi" });

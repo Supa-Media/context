@@ -86,7 +86,8 @@ export interface OrganizerSuggestion {
   etag?: string | null;
   /** Kind "change": what it is about, where it was read, and its steps. */
   topic?: "people" | "focus" | "project";
-  source?: { path: string; title: string; kind: string };
+  /** `subject`: kind "route", the email thread its sentences sit under. */
+  source?: { path: string; title: string; kind: string; subject?: string };
   steps?: ChangeStep[];
   at?: number;
   /** Kind "route": the team, the folder there, the note, and what it held back. */
@@ -98,7 +99,10 @@ export interface RouteCard {
   folder: string;
   folderTitle: string;
   body: string;
-  leftOut: { what: string; why: "people" | "personal" | "meeting" | "owner" }[];
+  /** Sentences of the arrival the note is based on, word for word; shown to its owner only. Absent on cards from before. */
+  uses?: string[];
+  /** `quote`: the arrival's own sentence that was held back, when the model named one it really says. */
+  leftOut: { what: string; why: "people" | "personal" | "meeting" | "owner"; quote?: string }[];
 }
 
 /** Which teams the owner switched off, and what they keep to themselves. */

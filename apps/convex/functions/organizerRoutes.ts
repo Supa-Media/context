@@ -30,8 +30,9 @@ const routeValidator = v.object({
   folderTitle: v.string(),
   title: v.string(),
   body: v.string(),
-  leftOut: v.array(v.object({ what: v.string(), why: reasonValidator })),
-  source: v.object({ path: v.string(), title: v.string(), kind: v.string() }),
+  uses: v.array(v.string()),
+  leftOut: v.array(v.object({ what: v.string(), why: reasonValidator, quote: v.optional(v.string()) })),
+  source: v.object({ path: v.string(), title: v.string(), kind: v.string(), subject: v.optional(v.string()) }),
   at: v.number(),
 });
 
@@ -91,8 +92,20 @@ export const routes = action({
         folderTitle: item.route!.folderTitle,
         title: item.title,
         body: item.route!.body,
-        leftOut: item.route!.leftOut,
-        source: { path: item.source!.path, title: item.source!.title, kind: item.source!.kind },
+        // Read from the bucket's state file: anything that is not a string is
+        // dropped here, not left to fail the whole reply at the validator.
+        uses: Array.isArray(item.route!.uses) ? item.route!.uses.filter((line): line is string => typeof line === "string") : [],
+        leftOut: item.route!.leftOut.map((held) => ({
+          what: held.what,
+          why: held.why,
+          ...(typeof held.quote === "string" && held.quote ? { quote: held.quote } : {}),
+        })),
+        source: {
+          path: item.source!.path,
+          title: item.source!.title,
+          kind: item.source!.kind,
+          ...(typeof item.source!.subject === "string" && item.source!.subject ? { subject: item.source!.subject } : {}),
+        },
         at: item.at ?? 0,
       }));
     return {

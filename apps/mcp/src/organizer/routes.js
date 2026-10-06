@@ -29,6 +29,10 @@ export const MAX_ROUTE_TEAMS = 6;
 export const MAX_TEAM_FOLDERS = 40;
 const MAX_NOTES_PER_SOURCE = 3;
 const MAX_LEFT_OUT = 6;
+/** Sentences of the arrival a card may show its owner, and their bounds. */
+const MAX_USES = 6;
+const MIN_QUOTE = 8;
+export const MAX_QUOTE = 300;
 export const MAX_ROUTE_TITLE = 100;
 export const MAX_ROUTE_BODY = 1500;
 const MIN_ROUTE_BODY = 10;
@@ -59,11 +63,12 @@ Must NEVER go in, even when the new note says it:
 - health, family, time off, feelings, or anything else personal;
 - the meeting or message itself: who said what, quotes, its name, who was there, or that it happened;
 - anything the owner keeps to themselves (listed below, when they wrote a rule).
-Put each thing you held back in leftOut, in a few general words with no names ("something about a person's role"), with why: people, personal, meeting or owner.
+Put each thing you held back in leftOut, in a few general words with no names ("something about a person's role"), with why: people, personal, meeting or owner, and in quote the sentence of the new note that said it, copied exactly ("" if there is none).
+In uses, copy exactly the sentences of the new note your team note is based on. These are shown only to the owner, so they can see what went in and what stayed out.
 
 Rules:
 - Most new notes are not about any team. Then return {"notes": []}.
-- Write in your own plain words, as a short update for the team. Never copy sentences from the new note.
+- Write the title and body in your own plain words, as a short update for the team. Never copy sentences from the new note into them.
 - title: a short plain headline. body: one to six short sentences or a short list, in Markdown, with no links.
 - team: exactly one of the listed @names. folder: one of that team's listed folders that fits best, or "" when none fits.
 - At most one note per team.
@@ -81,20 +86,25 @@ export const ROUTE_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["team", "folder", "title", "body", "leftOut"],
+        required: ["team", "folder", "title", "body", "uses", "leftOut"],
         properties: {
           team: { type: "string" },
           folder: { type: "string" },
           title: { type: "string" },
           body: { type: "string" },
+          uses: { type: "array", maxItems: MAX_USES, items: { type: "string" } },
           leftOut: {
             type: "array",
             maxItems: MAX_LEFT_OUT,
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["what", "why"],
-              properties: { what: { type: "string" }, why: { type: "string", enum: [...LEFT_OUT_REASONS] } },
+              required: ["what", "why", "quote"],
+              properties: {
+                what: { type: "string" },
+                why: { type: "string", enum: [...LEFT_OUT_REASONS] },
+                quote: { type: "string" },
+              },
             },
           },
         },
@@ -203,6 +213,54 @@ export function plainTitle(value) {
   return oneLine(plainBody(value)).replace(/^#+\s*/, "").slice(0, MAX_ROUTE_TITLE).trim();
 }
 
+/** Text as compared for quoting: one kind of space and of apostrophe or quote mark. */
+function flat(text) {
+  return String(text).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The arrival flattened, with the email thread each stretch sits under.
+ * A day of mail is `## Thread — <subject>` (or `### ` under a space) above
+ * each thread; lines inside a fence are a sender's own words and never a
+ * heading, however they look.
+ */
+function arrivalIndex(text) {
+  let flatText = "";
+  const threads = [];
+  let fence = null;
+  for (const line of String(text).split("\n")) {
+    const marker = /^(`{3,}|~{3,})/.exec(line.trim());
+    if (marker) {
+      if (fence === null) fence = marker[1];
+      else if (marker[1].startsWith(fence)) fence = null;
+    } else if (fence === null) {
+      const thread = /^#{2,3} Thread — (.+)$/.exec(line);
+      if (thread) threads.push({ at: flatText.length, subject: oneLine(thread[1]).slice(0, 120) });
+    }
+    const piece = flat(line);
+    if (piece) flatText += `${piece} `;
+  }
+  return { text: flatText, threads };
+}
+
+/** `quote` as it stands in the arrival, or "" when the arrival never says it. */
+function quoted(index, quote) {
+  const said = flat(quote);
+  if (said.length < MIN_QUOTE || said.length > MAX_QUOTE) return { quote: "", at: -1 };
+  const at = index.text.indexOf(said);
+  return at === -1 ? { quote: "", at } : { quote: said, at };
+}
+
+/** The subject of the email thread at `at` in the arrival, or "". */
+function threadAt(index, at) {
+  let subject = "";
+  for (const thread of index.threads) {
+    if (thread.at > at) break;
+    subject = thread.subject;
+  }
+  return subject;
+}
+
 /** The arrival's own name, which a team note must never carry. */
 function sourceName(source) {
   return oneLine(String(source.title ?? "").replace(/^\d{4}[-\s]\d{2}[-\s]\d{2}[-\sT]*/, "")).toLowerCase();
@@ -218,6 +276,7 @@ export function readRoutes(output, { source, text, map, now }) {
   const cards = [];
   const served = new Set();
   const named = sourceName(source);
+  const index = arrivalIndex(text);
   for (const note of raw) {
     if (!note || typeof note !== "object") continue;
     const team = map.teams.get(teamName(note.team));
@@ -229,11 +288,24 @@ export function readRoutes(output, { source, text, map, now }) {
     if (title.length < 3 || body.length < MIN_ROUTE_BODY || body.length > MAX_ROUTE_BODY) continue;
     if (copiedFrom(`${title}\n${body}`, text)) continue;
     if (named.length >= 6 && `${title}\n${body}`.toLowerCase().includes(named)) continue;
+    // What the owner is shown of their own arrival: only sentences it really
+    // says, word for word. A sentence the model made up is not "the original".
+    const uses = [];
+    let first = -1;
+    for (const line of Array.isArray(note.uses) ? note.uses.slice(0, MAX_USES) : []) {
+      const found = quoted(index, line);
+      if (!found.quote || uses.includes(found.quote)) continue;
+      uses.push(found.quote);
+      if (first === -1 || found.at < first) first = found.at;
+    }
     const leftOut = [];
     for (const held of Array.isArray(note.leftOut) ? note.leftOut.slice(0, MAX_LEFT_OUT) : []) {
       const what = oneLine(held?.what).slice(0, 80);
-      if (what && LEFT_OUT_REASONS.includes(held?.why)) leftOut.push({ what, why: held.why });
+      if (!what || !LEFT_OUT_REASONS.includes(held?.why)) continue;
+      const found = quoted(index, held?.quote);
+      leftOut.push(found.quote ? { what, why: held.why, quote: found.quote } : { what, why: held.why });
     }
+    const subject = first === -1 ? "" : threadAt(index, first);
     served.add(team.name);
     const folder = asked === "" ? null : team.folders.get(asked);
     cards.push({
@@ -242,8 +314,8 @@ export function readRoutes(output, { source, text, map, now }) {
       path: source.path,
       title,
       reason: "",
-      source: { path: source.path, title: source.title, kind: source.kind },
-      route: { team: team.name, folder: folder ? folder.path : "", folderTitle: folder ? oneLine(folder.title) : "", body, leftOut },
+      source: { path: source.path, title: source.title, kind: source.kind, ...(subject ? { subject } : {}) },
+      route: { team: team.name, folder: folder ? folder.path : "", folderTitle: folder ? oneLine(folder.title) : "", body, uses, leftOut },
       at: now,
       etag: null,
     });

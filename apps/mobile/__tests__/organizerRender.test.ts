@@ -108,6 +108,8 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
     resolve: (s, decision) => calls?.resolved.push([s.id, decision]),
     resolveChange: (card, decision, steps) => calls?.changed.push([card.id, decision, steps]),
     sendRoute: async () => false,
+    sendRoutes: async () => 0,
+    dismissRoutes: () => {},
     dismissRoute: () => {},
     setTeamOn: () => {},
     setKeep: () => {},

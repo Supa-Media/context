@@ -63,8 +63,12 @@ export interface OrganizerView {
   resolveChange: (card: ChangeCard, decision: OrganizerDecision, steps: readonly string[]) => void;
   /** Add a team note, as edited on its preview. Resolves true once it is in the team. */
   sendRoute: (card: RouteCard, title: string, body: string) => Promise<boolean>;
-  /** "Keep it here": the note is not written, and the card goes away. */
+  /** Add every given note as written; resolves to how many went. */
+  sendRoutes: (cards: readonly RouteCard[]) => Promise<number>;
+  /** "Don't add": the note is not written, and the card goes away. */
   dismissRoute: (card: RouteCard) => void;
+  /** "Skip the rest": every given card goes, with one word said for them all. */
+  dismissRoutes: (cards: readonly RouteCard[]) => void;
   setTeamOn: (team: string, on: boolean) => void;
   setKeep: (keep: string) => void;
   setEnabled: (on: boolean) => void;
@@ -323,45 +327,91 @@ export function useOrganizer({
     [],
   );
 
-  const sendRoute = useCallback(
-    async (card: RouteCard, title: string, body: string) => {
+  /** One note to its team; says nothing, so a batch can say it once. */
+  const sendOne = useCallback(
+    async (card: RouteCard, title: string, body: string): Promise<{ sent: boolean; undo: UndoToken | null; error?: string }> => {
       const functions = routesApi();
-      if (id === null || functions === undefined) return false;
+      if (id === null || functions === undefined) return { sent: false, undo: null };
       setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, card.id]) }));
       try {
         const result = await convex.action(functions.sendRoute, { workspaceId: id, id: card.id, title, body });
-        if (!result.applied) {
-          settleRoute(card, false);
-          warn(result.error ?? teamsCopy.failed(card.team));
-          return false;
-        }
+        settleRoute(card, result.applied);
+        return { sent: result.applied, undo: result.undo, error: result.error };
+      } catch {
+        settleRoute(card, false);
+        return { sent: false, undo: null };
+      }
+    },
+    [convex, id, settleRoute],
+  );
+
+  const sendRoute = useCallback(
+    async (card: RouteCard, title: string, body: string) => {
+      const result = await sendOne(card, title, body);
+      if (!result.sent) {
+        warn(result.error ?? teamsCopy.failed(card.team));
+        return false;
+      }
+      const token = result.undo;
+      say({ message: teamsCopy.sent(card.team), undo: token ? () => spendUndo({ token }) : undefined });
+      return true;
+    },
+    [say, sendOne, spendUndo, warn],
+  );
+
+  /**
+   * Every ticked note, as written, one after another: each is checked and
+   * sent on its own, so one that fails stays on the page and the rest go.
+   * Each one sent has its own Undo in Activity.
+   */
+  const sendRoutes = useCallback(
+    async (cards: readonly RouteCard[]) => {
+      const sent: RouteCard[] = [];
+      for (const card of cards) {
+        const result = await sendOne(card, card.title, card.body);
+        if (result.sent) sent.push(card);
+      }
+      const missed = cards.length - sent.length;
+      if (sent.length > 0) say({ message: teamsCopy.sentMany(sent, missed) });
+      else if (missed > 0) warn(teamsCopy.failedMany(missed));
+      return sent.length;
+    },
+    [say, sendOne, warn],
+  );
+
+  /** One card dismissed; resolves whether it went. Says nothing, so a batch can say it once. */
+  const dismissOne = useCallback(
+    async (card: RouteCard) => {
+      setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, card.id]) }));
+      try {
+        await call((functions, workspace) => convex.action(functions.resolve, { workspaceId: workspace, id: card.id, decision: "dismiss" }));
         settleRoute(card, true);
-        const token = result.undo;
-        say({ message: teamsCopy.sent(card.team), undo: token ? () => spendUndo({ token }) : undefined });
         return true;
       } catch {
         settleRoute(card, false);
-        warn(teamsCopy.failed(card.team));
         return false;
       }
     },
-    [convex, id, say, settleRoute, spendUndo, warn],
+    [call, convex, settleRoute],
   );
 
   const dismissRoute = useCallback(
     (card: RouteCard) => {
-      setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, card.id]) }));
-      void call((functions, workspace) => convex.action(functions.resolve, { workspaceId: workspace, id: card.id, decision: "dismiss" }))
-        .then(() => {
-          settleRoute(card, true);
-          say({ message: teamsCopy.kept });
-        })
-        .catch(() => {
-          settleRoute(card, false);
-          warn(changesCopy.failed);
-        });
+      void dismissOne(card).then((gone) => (gone ? say({ message: teamsCopy.kept }) : warn(changesCopy.failed)));
     },
-    [call, convex, say, settleRoute, warn],
+    [dismissOne, say, warn],
+  );
+
+  const dismissRoutes = useCallback(
+    (cards: readonly RouteCard[]) => {
+      void (async () => {
+        let gone = 0;
+        for (const card of cards) if (await dismissOne(card)) gone += 1;
+        if (gone > 0) say({ message: teamsCopy.skipped(gone) });
+        if (gone < cards.length) warn(changesCopy.failed);
+      })();
+    },
+    [dismissOne, say, warn],
   );
 
   const setRouting = useCallback(
@@ -430,7 +480,9 @@ export function useOrganizer({
     resolve,
     resolveChange,
     sendRoute,
+    sendRoutes,
     dismissRoute,
+    dismissRoutes,
     setTeamOn,
     setKeep,
     setEnabled,

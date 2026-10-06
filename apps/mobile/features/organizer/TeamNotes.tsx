@@ -1,114 +1,20 @@
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Button, PressRow } from "../design/components/Button";
-import { Icon } from "../design/components/Icon";
+import { Button } from "../design/components/Button";
 import { TextField } from "../design/components/Input";
 import { Switch } from "../design/components/Switch";
 import { Text } from "../design/components/Text";
 import { radii, space } from "../design/tokens";
-import { type Colors, useColors, useThemedStyles } from "../design/theme";
+import { type Colors, useThemedStyles } from "../design/theme";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
-import { sourceLine } from "./changeCopy";
 import { LEFT_OUT_WHY, teamsCopy } from "./teamCopy";
 import type { RouteCard, RouteTeam } from "./types";
 
 /**
- * "For your teams": boards 5–7 of the What changed canvas, drawn on a
- * personal workspace's What changed page.
- *
- * A card says which team, the new note's headline and where it would go, the
- * meeting or email it came from (a link only its owner can follow), and how
- * much was held back. Add opens the note exactly as the team would read it,
- * editable, beside what was left out and why; only Add there sends it.
+ * "For your teams": boards 6–7 of the What changed canvas. The list itself is
+ * `TeamChecklist` (board 9); Edit the note opens the note here exactly as the
+ * team would read it, editable, beside what was left out and why.
  */
-export function TeamCards({
-  routes,
-  busy,
-  touch,
-  onPreview,
-  onKeep,
-  onOpenSource,
-}: {
-  routes: readonly RouteCard[];
-  busy: ReadonlySet<string>;
-  touch: boolean;
-  onPreview: (card: RouteCard) => void;
-  onKeep: (card: RouteCard) => void;
-  onOpenSource?: (path: string) => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  if (routes.length === 0) return null;
-  return (
-    <View testID="team-notes">
-      {routes.map((card) => {
-        const pending = busy.has(card.id);
-        const source = sourceLine(card.source);
-        return (
-          <View key={card.id} style={[styles.card, touch && styles.cardTouch]} role="group" aria-label={card.title} testID={`team-note-${card.id}`}>
-            <View style={[styles.head, touch && styles.headTouch]}>
-              <View style={styles.headText}>
-                <Text variant="eyebrow" style={styles.team}>
-                  {teamsCopy.forTeam(card.team)}
-                </Text>
-                <Text variant="noteTitle" role="heading" aria-level={2} style={styles.headline}>
-                  {isolateForDisplay(card.title)}
-                </Text>
-              </View>
-              <View style={styles.acts}>
-                <Button
-                  label={teamsCopy.keep}
-                  accessibilityLabel={`${teamsCopy.keep}: ${card.title}`}
-                  onPress={() => onKeep(card)}
-                  disabled={pending}
-                  variant="dialog"
-                  testID={`team-note-keep-${card.id}`}
-                />
-                <Button
-                  label={teamsCopy.add(card.team)}
-                  onPress={() => onPreview(card)}
-                  disabled={pending}
-                  variant="dialogPrimary"
-                  testID={`team-note-add-${card.id}`}
-                />
-              </View>
-            </View>
-            <Text variant="treeMeta" style={styles.muted}>
-              {`${teamsCopy.newNote} · ${teamsCopy.inFolder(card)}`}
-            </Text>
-            <View style={styles.sourceRow}>
-              {onOpenSource ? (
-                <PressRow
-                  role="link"
-                  accessibilityLabel={`${source}. Open it`}
-                  onPress={() => onOpenSource(card.source.path)}
-                  radius={radii.pill}
-                  style={styles.chip}
-                  hoverStyle={styles.chipHover}
-                  testID={`team-note-source-${card.id}`}
-                >
-                  <Icon name="lock" size={12} color={colors.text2} />
-                  <Text variant="treeMeta" numberOfLines={1} style={styles.chipText}>
-                    {source}
-                  </Text>
-                </PressRow>
-              ) : null}
-              <Text variant="treeMeta" style={styles.muted}>
-                {teamsCopy.stays}
-              </Text>
-            </View>
-            {card.leftOut.length > 0 ? (
-              <Text variant="treeMeta" style={styles.muted} testID={`team-note-left-out-${card.id}`}>
-                {teamsCopy.leftOut(card.leftOut.length)}
-              </Text>
-            ) : null}
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 /** Board 6: the note exactly as the team will read it, editable, before it goes. */
 export function TeamNotePreview({
   card,
@@ -261,37 +167,11 @@ export function TeamSettings({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: {
-      gap: space.x3,
-      padding: space.x6,
-      marginBottom: space.x4,
-      borderRadius: radii.card,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.surface,
-    },
-    cardTouch: { padding: space.x4 },
     head: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: space.x4, flexWrap: "wrap" },
     headTouch: { flexDirection: "column", alignItems: "stretch" },
     headText: { flex: 1, minWidth: 200, gap: space.x1 },
-    team: { color: colors.accent },
-    headline: { color: colors.text },
     acts: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.x2 },
     muted: { color: colors.chromeMuted },
-    sourceRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.x2 },
-    chip: {
-      alignSelf: "flex-start",
-      maxWidth: "100%",
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      paddingVertical: 5,
-      paddingHorizontal: 10,
-      borderRadius: radii.pill,
-      backgroundColor: colors.chipFill,
-    },
-    chipHover: { backgroundColor: colors.surface3 },
-    chipText: { color: colors.text2, flexShrink: 1 },
     preview: { paddingTop: space.x8, paddingBottom: space.x8, gap: space.x5 },
     // The note first, full width, then what was held back: the page column is
     // a note's width, too narrow to set the two side by side.
