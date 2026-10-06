@@ -22,7 +22,12 @@
  * itself: the person reads the exact note, can edit it, and presses Add.
  */
 
+import { FENCE_MARKER } from "../../../../packages/communications/src/note.js";
 import { suggestionId } from "./suggest.js";
+
+/** The renderer's own fence around a message body — see `arrivalIndex`. */
+const FENCE_BEGIN = `<!-- ${FENCE_MARKER} begin `;
+const FENCE_END = `<!-- ${FENCE_MARKER} end `;
 
 /** Teams one sweep writes for, and folders listed per team. */
 export const MAX_ROUTE_TEAMS = 6;
@@ -220,20 +225,34 @@ function flat(text) {
 
 /**
  * The arrival flattened, with the email thread each stretch sits under.
+ *
  * A day of mail is `## Thread — <subject>` (or `### ` under a space) above
- * each thread; lines inside a fence are a sender's own words and never a
- * heading, however they look.
+ * each thread, and **only the headings the renderer wrote count**: a sender
+ * who types one in the body of their own message is writing a line that looks
+ * exactly like one of ours, and a reader that believed it would label somebody
+ * else's note with a thread that does not exist.
+ *
+ * The fence that separates the two is the renderer's own: the `FENCE_MARKER`
+ * begin/end HTML comments `packages/communications/src/note.js` wraps every
+ * message body in. It is trustworthy for the reason it exists — `defangFence`
+ * breaks any copy of that marker a sender writes, so `FENCE_BEGIN` can never
+ * be matched from inside a real fence. `search/commsIndex.js` reads the same
+ * file by the same rule, and says so at length.
+ *
+ * A Markdown fence is **not** that boundary and must not be treated as one.
+ * The renderer never emits one, `defangFence` leaves a sender's ``` alone
+ * because inside the fence it is only text, and gating on it both believes a
+ * planted heading and lets one unclosed ``` swallow every real heading after
+ * it.
  */
 function arrivalIndex(text) {
   let flatText = "";
   const threads = [];
-  let fence = null;
+  let inFence = false;
   for (const line of String(text).split("\n")) {
-    const marker = /^(`{3,}|~{3,})/.exec(line.trim());
-    if (marker) {
-      if (fence === null) fence = marker[1];
-      else if (marker[1].startsWith(fence)) fence = null;
-    } else if (fence === null) {
+    if (line.startsWith(FENCE_BEGIN)) inFence = true;
+    else if (line.startsWith(FENCE_END)) inFence = false;
+    else if (!inFence) {
       const thread = /^#{2,3} Thread — (.+)$/.exec(line);
       if (thread) threads.push({ at: flatText.length, subject: oneLine(thread[1]).slice(0, 120) });
     }
