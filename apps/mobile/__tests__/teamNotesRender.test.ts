@@ -359,7 +359,7 @@ describe("the settings", () => {
 });
 
 describe("the words", () => {
-  const plain = (text: string) => text.replace(/[⁦-⁩]/g, "");
+  const plain = (text: string) => text.replace(/[\u2066-\u2069]/g, "");
 
   test("a gist is the note's Markdown read as plain words, cut at a word", () => {
     expect(plain(gist("## Dates\n- Invites start **Oct 20**\n- See [the plan](https://x.test/p)"))).toBe(
