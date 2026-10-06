@@ -19,10 +19,13 @@
  *   response and nowhere else.
  *
  *   POST /shoot   `{ url, sizes? }` → `{ shots, failures }` (see ./shoot.ts)
+ *   POST /read    `{ url }` → `{ page }`: title, visible text and links, for
+ *                 the texting assistant (see ./read.ts)
  *   anything else 404
  */
 
 import puppeteer from "@cloudflare/puppeteer";
+import { parseReadRequest, read } from "./read";
 import { parseShootRequest, shoot, type BrowserLike } from "./shoot";
 
 interface Env {
@@ -35,9 +38,13 @@ const json = (body: unknown, status = 200) =>
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method !== "POST" || url.pathname !== "/shoot") return new Response(null, { status: 404 });
-    const parsed = parseShootRequest(await request.json().catch(() => null));
-    if (parsed === null) return json({ error: "a public https address is required" }, 400);
+    if (request.method !== "POST" || (url.pathname !== "/shoot" && url.pathname !== "/read")) {
+      return new Response(null, { status: 404 });
+    }
+    const body = await request.json().catch(() => null);
+    const shootRequest = url.pathname === "/shoot" ? parseShootRequest(body) : null;
+    const readRequest = url.pathname === "/read" ? parseReadRequest(body) : null;
+    if (shootRequest === null && readRequest === null) return json({ error: "a public https address is required" }, 400);
     let browser: BrowserLike;
     try {
       browser = (await puppeteer.launch(env.BROWSER)) as unknown as BrowserLike;
@@ -46,6 +53,12 @@ export default {
       console.error(JSON.stringify({ event: "site_shots_launch_failed", reason: String(error).slice(0, 200) }));
       return json({ error: "no browser is free right now; try again in a minute" }, 503);
     }
-    return json(await shoot(browser, parsed));
+    if (shootRequest !== null) return json(await shoot(browser, shootRequest));
+    try {
+      return json({ page: await read(browser, readRequest!.url) });
+    } catch {
+      // The reason can quote the page; the gateway only needs to know it failed.
+      return json({ error: "that page could not be read" }, 502);
+    }
   },
 };
