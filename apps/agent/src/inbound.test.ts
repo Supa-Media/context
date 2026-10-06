@@ -11,6 +11,7 @@ function event(overrides: Record<string, unknown> = {}, data: Record<string, unk
       from: "+15555550100",
       to: ["+15555550199"],
       is_group: false,
+      service: "iMessage",
       message: { id: "msg_1", parts: [{ type: "text", value: "hello" }] },
       ...data,
     },
@@ -60,6 +61,24 @@ describe("parseInbound", () => {
     for (const from of ["someone@example.com", "5555550100", "+1 555 555 0100", "", 42]) {
       expect(parseInbound(event({}, { from }))).toEqual({ kind: "ignored", reason: "sender" });
     }
+  });
+
+  it("refuses SMS and RCS, whose sender numbers can be spoofed, and a message naming no service", () => {
+    for (const service of ["SMS", "RCS", "imessage", undefined]) {
+      expect(parseInbound(event({}, { service }))).toEqual({ kind: "ignored", reason: "service" });
+    }
+  });
+
+  it("finds the service on the message or the sender handle too", () => {
+    const onMessage = event({}, {
+      service: undefined,
+      message: { id: "m", service: "iMessage", parts: [{ type: "text", value: "hi" }] },
+    });
+    expect(parseInbound(onMessage).kind).toBe("message");
+    const onHandle = event({}, { service: undefined, sender_handle: { handle: "+15555550100", service: "iMessage" } });
+    expect(parseInbound(onHandle).kind).toBe("message");
+    const smsHandle = event({}, { service: undefined, sender_handle: { service: "SMS" } });
+    expect(parseInbound(smsHandle)).toEqual({ kind: "ignored", reason: "service" });
   });
 
   it("ignores a message with no text", () => {

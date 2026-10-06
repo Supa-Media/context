@@ -23,7 +23,7 @@ export type Inbound =
       messageId: string;
       text: string;
     }
-  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "empty" }
+  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" }
   | { kind: "invalid" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -32,6 +32,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * Where a message's transport may be named. Linq documents a `service` of
+ * `iMessage`, `RCS` or `SMS` on handles but does not show where it sits on an
+ * inbound event, so every plausible place is read.
+ *
+ * **Only iMessage is accepted, and a message that names no service is refused.**
+ * The sender's number is the whole of this Worker's authentication. Apple
+ * authenticates an iMessage sender; an SMS sender number can be spoofed by
+ * anyone with a cheap gateway, and a spoofed number here would be answered with
+ * somebody else's notes. Fail closed: confirm the field's real location against
+ * a live delivery before deploying, and narrow this list to it.
+ */
+function transportOf(data: Record<string, unknown>): unknown {
+  const message = isRecord(data.message) ? data.message : {};
+  for (const holder of [data, message, data.sender_handle, data.from_handle, message.sender_handle]) {
+    if (isRecord(holder) && typeof holder.service === "string") return holder.service;
+  }
+  return undefined;
 }
 
 export function parseInbound(payload: unknown): Inbound {
@@ -49,6 +69,7 @@ export function parseInbound(payload: unknown): Inbound {
 
   if (data.is_group === true) return { kind: "ignored", reason: "group" };
   if (typeof data.from !== "string" || !E164.test(data.from)) return { kind: "ignored", reason: "sender" };
+  if (transportOf(data) !== "iMessage") return { kind: "ignored", reason: "service" };
 
   const text = message.parts
     .filter((part): part is { type: string; value: string } =>

@@ -52,6 +52,7 @@ const received = (from: string, isGroup = false) =>
       chat_id: "chat_1",
       from,
       is_group: isGroup,
+      service: "iMessage",
       message: { id: "m1", parts: [{ type: "text", value: "hello" }] },
     },
   });

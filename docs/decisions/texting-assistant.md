@@ -34,6 +34,17 @@ personal context would read that person's notes into a room other people are
 in. Groups are dropped until shared workspaces have a group design of their
 own. Test: `inbound.test.ts`, "ignores group chats".
 
+### Only iMessage is answered, because the sender number is the login
+
+The sending phone number is all that identifies a person here. Apple
+authenticates an iMessage sender. An SMS sender number can be spoofed, and a
+spoofed number would be answered with somebody else's notes. So a message must
+name its service as `iMessage`, and one naming no service is refused. Linq's docs
+don't show where `service` sits on an inbound event, so the parser reads every
+plausible place. **Before deploying, confirm the real location from a live
+delivery and narrow the parser to it.** Test: `inbound.test.ts`, "refuses SMS
+and RCS".
+
 ### The Worker holds message text only while it is answering it
 
 Linq wants a quick 2xx and retries anything else, while an answer can take a
