@@ -91,7 +91,13 @@ export function publicHttpsUrl(url: unknown): string | null {
   } catch {
     return null;
   }
-  const host = parsed.hostname.toLowerCase();
+  // A trailing dot is the same name to a resolver — `localhost.` resolves
+  // exactly where `localhost` does — so it comes off before the rules below
+  // rather than after. Left on, that one character walks a local name past
+  // every test here at once: `host === "localhost"` stops matching, `.local`,
+  // `.internal` and `.localhost` stop being suffixes, and the dot itself
+  // satisfies the `includes(".")` that otherwise refuses a single-label host.
+  const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
   if (
     parsed.protocol !== "https:" ||
     parsed.username !== "" ||

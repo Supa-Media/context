@@ -6,6 +6,7 @@ import {
   MEASURE_SOURCE,
   SIZES,
   parseShootRequest,
+  publicHttpsUrl,
   shoot,
   type BrowserLike,
   type Measurements,
@@ -96,6 +97,36 @@ describe("which addresses a browser may be pointed at", () => {
     }
     expect(parseShootRequest({ url: "https://context.lc/", sizes: ["watch"] })).toBeNull();
     expect(parseShootRequest(null)).toBeNull();
+  });
+
+  /*
+    A TRAILING DOT IS THE SAME NAME, AND MUST NOT BE A DIFFERENT ANSWER.
+
+    `localhost.` is `localhost` to every resolver, but to the rules above it is
+    neither: `host === "localhost"` misses it, and the dot it carries satisfies
+    the `includes(".")` test that otherwise refuses a single-label host. The
+    same one character walks `.local`, `.internal` and `.localhost` past their
+    `endsWith` checks.
+
+    No private network is demonstrably reachable from this Worker, so this is
+    the second lock rather than the first — which is the whole reason to keep
+    it shut. A lock that only holds while the lock in front of it holds is not
+    a second lock, and the comment on `publicHttpsUrl` promises "no local or
+    internal name" without qualification.
+
+    Every name here is one the list above already refuses undotted; the point
+    is that a hostile list proves only the shapes it was written with.
+  */
+  it("refuses a local name however many dots trail it", () => {
+    for (const host of ["localhost", "foo.localhost", "printer.local", "metadata.internal"]) {
+      for (const suffix of ["", ".", "..", "..."]) {
+        const url = `https://${host}${suffix}/`;
+        expect(parseShootRequest({ url }), url).toBeNull();
+        expect(publicHttpsUrl(url), url).toBeNull();
+      }
+    }
+    // An ordinary public name keeps working, dot or no dot.
+    expect(publicHttpsUrl("https://context.lc./")).not.toBeNull();
   });
 });
 
