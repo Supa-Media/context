@@ -22,12 +22,14 @@
  *
  * ## What this is not
  *
- * **It is not a reference index.** Nothing here records who points at what.
- * Storing that would mean a second copy of every link in the bucket, kept in
- * sync with files that Obsidian and `rclone` also write, and a stale copy of a
- * reference is worse than no copy: it names a relationship that no longer
- * exists. The links stay in the files, where they are canonical and where the
- * customer can read them without us (non-negotiable #3).
+ * **It is not the reference index.** This ledger records path history only.
+ * The reference index is a separate, rebuildable graph under
+ * `.context/graph/`, approved and bounded in `docs/decisions/link-graph.md`
+ * (it is validated against each source's current record and is never the
+ * authority for a canonical edit). The links stay in the files, where they
+ * are canonical and where the customer can read them without us
+ * (non-negotiable #3). The ledger is not graph-owned, and a graph rebuild
+ * never deletes it.
  *
  * **It is not the only copy of anything.** Delete this file and the bucket is
  * unchanged: every in-bucket link still resolves, because those were rewritten
