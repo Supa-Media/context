@@ -26,7 +26,9 @@ function classify(occurrence, fromPath) {
   return { path, name };
 }
 
-async function membershipsFor(path, occurrences) {
+// Exported for project.js, which recovers a stored record's old memberships
+// from its occurrences (the record does not store the set itself).
+export async function membershipsFor(path, occurrences) {
   const out = new Set([`names:${await nameHash(baseName(path))}`]);
   const externalReferences = [];
   for (const o of occurrences) {
