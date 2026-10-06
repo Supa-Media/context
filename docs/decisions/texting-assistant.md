@@ -150,6 +150,18 @@ So the model never chooses an address:
 - Page text reaches the model marked as not written by the person.
 - Only the texting client gets a computer; the app's agent panel does not.
   `site-shots` refuses anything but a public https address, with no cookies.
+- Speed never loosens the lock (2026-10-06, after the owner asked for the
+  fastest computer use the research supports). `site-shots` first asks the
+  site for Markdown (`Accept: text/markdown`) and launches no browser when it
+  gets it; every redirect on that path passes the same public-https check.
+  Otherwise it reads in a fresh browser context of a warm browser, so no
+  cookie, storage or cache crosses from one read to the next, and closes only
+  the context. The model may open several pages in one call, in parallel; one
+  address it was not given refuses the whole call, and a link counts only
+  after every page in the call has come back.
+- Saved runs replayed later are deliberately not used: a page can plant
+  instructions in that memory. Any cache added later is per workspace and
+  holds no page or note text.
 - Web search, which needs queries the model writes, is not here. It needs its
   own decision, because a query is exactly the channel this guard closes.
 

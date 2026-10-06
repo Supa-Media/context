@@ -27,6 +27,8 @@ export interface PageRead {
   text: string;
   truncated: boolean;
   links: Array<{ text: string; href: string }>;
+  /** How it was read: the site's own Markdown (`./fetchText.ts`), or a browser. */
+  via: "markdown" | "browser";
 }
 
 export function parseReadRequest(body: unknown): { url: string } | null {
@@ -51,7 +53,12 @@ export const READ_SOURCE = `(() => {
   return { title: document.title || "", text, links };
 })()`;
 
-/** Open one page, read it, close the browser. Throws with a short reason. */
+/**
+ * Open one page, read it, release the browser. Throws with a short reason.
+ * `browser.close()` is whatever releasing means to the caller: `./index.ts`
+ * hands in one fresh, cookie-less context of a warm browser and closes only
+ * that context.
+ */
 export async function read(browser: BrowserLike, url: string): Promise<PageRead> {
   try {
     const page = await browser.newPage();
@@ -76,6 +83,7 @@ export async function read(browser: BrowserLike, url: string): Promise<PageRead>
         text: text.slice(0, MAX_TEXT_CHARS),
         truncated: text.length > MAX_TEXT_CHARS,
         links,
+        via: "browser",
       };
     } finally {
       await page.close().catch(() => undefined);

@@ -20,13 +20,16 @@
  *
  *   POST /shoot   `{ url, sizes? }` → `{ shots, failures }` (see ./shoot.ts)
  *   POST /read    `{ url }` → `{ page }`: title, visible text and links, for
- *                 the texting assistant (see ./read.ts)
+ *                 the texting assistant. The site's own Markdown when it will
+ *                 send it (./fetchText.ts), else a warm browser (./read.ts)
  *   anything else 404
  */
 
 import puppeteer from "@cloudflare/puppeteer";
+import { fetchMarkdown } from "./fetchText";
 import { parseReadRequest, read } from "./read";
-import { parseShootRequest, shoot, type BrowserLike } from "./shoot";
+import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
+import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
 
 interface Env {
   BROWSER: Parameters<typeof puppeteer.launch>[0];
@@ -45,20 +48,92 @@ export default {
     const shootRequest = url.pathname === "/shoot" ? parseShootRequest(body) : null;
     const readRequest = url.pathname === "/read" ? parseReadRequest(body) : null;
     if (shootRequest === null && readRequest === null) return json({ error: "a public https address is required" }, 400);
+    if (readRequest !== null) return await readPage(env, readRequest.url);
     let browser: BrowserLike;
     try {
       browser = (await puppeteer.launch(env.BROWSER)) as unknown as BrowserLike;
     } catch (error) {
-      // Out of browsers for the account, or Browser Rendering is not on it.
-      console.error(JSON.stringify({ event: "site_shots_launch_failed", reason: String(error).slice(0, 200) }));
-      return json({ error: "no browser is free right now; try again in a minute" }, 503);
+      return launchFailed(error);
     }
-    if (shootRequest !== null) return json(await shoot(browser, shootRequest));
-    try {
-      return json({ page: await read(browser, readRequest!.url) });
-    } catch {
-      // The reason can quote the page; the gateway only needs to know it failed.
-      return json({ error: "that page could not be read" }, 502);
-    }
+    return json(await shoot(browser, shootRequest!));
   },
 };
+
+/** Out of browsers for the account, or Browser Rendering is not on it. */
+function launchFailed(error: unknown): Response {
+  console.error(JSON.stringify({ event: "site_shots_launch_failed", reason: String(error).slice(0, 200) }));
+  return json({ error: "no browser is free right now; try again in a minute" }, 503);
+}
+
+/**
+ * How long an idle reading browser stays up for the next read. Starting one
+ * is most of a slow read, and one question's reads come seconds apart; idle
+ * time is billed as browser time, so this is minutes, not the ten allowed.
+ * Not exported: the entry module exports only its handler.
+ */
+const KEEP_WARM_MS = 180_000;
+
+async function readPage(env: Env, url: string): Promise<Response> {
+  const started = Date.now();
+  // The person's address and the page's text stay out of the log.
+  const log = (via: string) => console.log(JSON.stringify({ event: "site_shots_read", via, ms: Date.now() - started }));
+  const fast = await fetchMarkdown(url);
+  if (fast !== null) {
+    log("markdown");
+    return json({ page: fast });
+  }
+  let browser: BrowserLike;
+  try {
+    browser = await warmContext(env);
+  } catch (error) {
+    return launchFailed(error);
+  }
+  try {
+    const page = await read(browser, url);
+    log("browser");
+    return json({ page });
+  } catch {
+    // The reason can quote the page; the gateway only needs to know it failed.
+    return json({ error: "that page could not be read" }, 502);
+  }
+}
+
+/**
+ * A fresh browser context in a warm browser: an idle reading browser if one is
+ * up, else a new one kept alive for the next read. The context is the
+ * isolation: it starts with no cookie, storage or cache from any earlier read,
+ * and closing it leaves the browser up for the next one. Two reads that race
+ * for the same idle browser cannot both connect; the loser launches its own.
+ */
+async function warmContext(env: Env): Promise<BrowserLike> {
+  let browser: Browser | null = null;
+  try {
+    for (const session of await puppeteer.sessions(env.BROWSER)) {
+      if (session.connectionId) continue;
+      try {
+        browser = await puppeteer.connect(env.BROWSER, session.sessionId);
+        break;
+      } catch {
+        // Taken by another read a moment ago; try the next.
+      }
+    }
+  } catch {
+    // Listing sessions failed: launch instead.
+  }
+  browser ??= await puppeteer.launch(env.BROWSER, { keep_alive: KEEP_WARM_MS });
+  const warm = browser;
+  let context: BrowserContext;
+  try {
+    context = await warm.createBrowserContext();
+  } catch (error) {
+    await warm.close().catch(() => undefined);
+    throw error;
+  }
+  return {
+    newPage: async () => (await context.newPage()) as unknown as PageLike,
+    async close() {
+      await context.close().catch(() => undefined);
+      await warm.disconnect().catch(() => undefined);
+    },
+  };
+}

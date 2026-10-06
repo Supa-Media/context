@@ -114,13 +114,21 @@ export function addressesIn(text) {
 const OPEN_PAGE_DEFINITION = {
   name: OPEN_PAGE_TOOL,
   description:
-    "Open a web page and read its text and links. You can only open an address the person " +
-    "wrote in their message, or a link from a page you already opened. You cannot type a new " +
-    "address or add anything to one.",
+    "Open web pages and read their text and links. Pass every page you need at once in urls; " +
+    "they open together, which is much faster than one at a time. You can only open an address " +
+    "the person wrote in their message, or a link from a page you already opened. You cannot " +
+    "type a new address or add anything to one.",
   inputSchema: {
     type: "object",
-    properties: { url: { type: "string", description: "The page's full address." } },
-    required: ["url"],
+    properties: {
+      urls: {
+        type: "array",
+        items: { type: "string" },
+        maxItems: MAX_PAGES_PER_TURN,
+        description: "The pages' full addresses.",
+      },
+    },
+    required: ["urls"],
   },
   annotations: { readOnlyHint: true },
 };
@@ -158,28 +166,37 @@ export function webSession(computer, question) {
     tools: [OPEN_PAGE_DEFINITION],
     async call(name, args) {
       if (name !== OPEN_PAGE_TOOL) return text("There is no such tool.", true);
-      const url = canonicalUrl(args?.url);
-      if (url === null || !allowed.has(url)) {
+      // `url` alone is accepted too: models reach for the singular.
+      const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];
+      const wanted = [...new Set(asked.map(canonicalUrl))];
+      if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
           "You can only open an address the person wrote, or a link from a page you opened. Ask them for the address.",
           true,
         );
       }
-      if (opened >= MAX_PAGES_PER_TURN) {
-        return text(`That's the most pages one question can open (${MAX_PAGES_PER_TURN}). Answer with what you have.`, true);
+      if (opened + wanted.length > MAX_PAGES_PER_TURN) {
+        return text(
+          `That's more pages than one question can open (${MAX_PAGES_PER_TURN}, ${MAX_PAGES_PER_TURN - opened} left). Answer with what you have, or open fewer.`,
+          true,
+        );
       }
-      opened += 1;
-      let page;
-      try {
-        page = await computer.readPage(url);
-      } catch {
-        return text("That page could not be opened.", true);
+      opened += wanted.length;
+      const pages = await Promise.all(wanted.map((url) => computer.readPage(url).catch(() => null)));
+      // Links count only after every page in this call has come back: a page
+      // opened now cannot vouch for another opened in the same call.
+      for (const page of pages) {
+        for (const link of page?.links ?? []) {
+          const href = canonicalUrl(link?.href);
+          if (href) allowed.add(href);
+        }
       }
-      for (const link of page.links ?? []) {
-        const href = canonicalUrl(link?.href);
-        if (href) allowed.add(href);
-      }
-      return text(pageText(page));
+      if (pages.every((page) => page === null)) return text("That page could not be opened.", true);
+      return text(
+        pages
+          .map((page, i) => (page === null ? `${wanted[i]} could not be opened.` : pageText(page)))
+          .join("\n\n---\n\n"),
+      );
     },
   };
 }
