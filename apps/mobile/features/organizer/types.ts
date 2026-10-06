@@ -131,8 +131,12 @@ export interface RouteCard {
   folderTitle: string;
   title: string;
   body: string;
-  leftOut: { what: string; why: LeftOutReason }[];
-  source: { path: string; title: string; kind: string };
+  /** The arrival's own sentences the note is based on, word for word. Only its owner sees them. */
+  uses: string[];
+  /** `quote`: the arrival's own sentence that was held back, when there is one. */
+  leftOut: { what: string; why: LeftOutReason; quote?: string }[];
+  /** `subject`: for a day of email, the thread the note came from. */
+  source: { path: string; title: string; kind: string; subject?: string };
   at: number;
 }
 
