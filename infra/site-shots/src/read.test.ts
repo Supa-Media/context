@@ -63,6 +63,7 @@ describe("read", () => {
       text: "Line one\n\nLine two",
       truncated: false,
       links: [{ text: "Docs", href: "https://example.com/docs" }],
+      via: "browser",
     });
     expect(calls).toContain("browser closed");
   });

