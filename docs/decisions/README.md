@@ -569,4 +569,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Only iMessage is answered, because the sender number is the login
 - The Worker holds message text only while it is answering it
 - OPEN: messages pass through Linq
-- OPEN: where an autofill vault lives
+- The autofill vault lives sealed in the person's bucket

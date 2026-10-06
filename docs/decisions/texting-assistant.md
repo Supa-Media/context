@@ -63,11 +63,20 @@ is the same class of decision as a model provider reading note text in flight
 ([inference](./storage-and-credentials/inference.md)), and it needs the
 owner's sign-off before the Worker is deployed.
 
-### OPEN: where an autofill vault lives
+### The autofill vault lives sealed in the person's bucket
 
-The owner asked for the agent's saved passwords and cards to live in the
-person's own bucket instead of a database of ours. Non-negotiable #1 says
-credentials never live in the bucket, and the encryption decisions say no AI
-client reads an encrypted note. Both need an explicit exception before a vault
-is built: sealed entries, a key held outside the bucket, decrypted only by the
-fill step, and plaintext never shown to the model.
+Decided by the owner, 2026-10-06: the agent's saved passwords and cards live in
+the person's own bucket, not in a database of ours. This is an explicit
+exception to two rules, bounded as follows:
+
+- Non-negotiable #1 says credentials never live in the bucket. Vault entries
+  may, but only sealed, under Context-owned plumbing (`.context/vault/`), with
+  the key held outside the bucket, so the bucket alone never yields a secret.
+- The encryption decisions say no AI client reads an encrypted note. That still
+  holds. A vault entry is decrypted only by the browser's fill step, at the
+  moment it fills a form, and its plaintext is never put in a model's context,
+  a tool result, a log or a message.
+
+The vault is not built yet. When it is, the tests must prove both bounds: a
+bucket read never yields plaintext, and no model request ever carries a vault
+value.
