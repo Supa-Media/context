@@ -243,6 +243,9 @@ export async function openProvider(controlPlane, session, requested) {
  * @param {(name: string, args: object) => Promise<object>} options.callTool
  * @param {object} options.env the Worker environment, for the model default
  * @param {string} [options.model] a model this call names instead of the default
+ * @param {Array<{role: "user"|"assistant", text: string}>} [options.history]
+ *   earlier turns of the same conversation, oldest first — words only, never
+ *   a tool's result (see `conversation.js`)
  * @param {{fetchImpl?: Function}} [options.providerOptions]
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
@@ -256,12 +259,16 @@ export async function runTurn(options) {
     env,
     model: requestedModel,
     providerOptions = {},
+    history = [],
   } = options;
 
   const provider = credential.provider;
   const model = modelFor(provider, env, requestedModel);
   const system = systemPrompt(place);
-  const messages = [{ role: "user", text: question }];
+  const messages = [
+    ...history.map(({ role, text }) => ({ role, text })),
+    { role: "user", text: question },
+  ];
   /*
     What the turn did, by name only. The arguments a tool was called with can
     carry a path and a query — facts about what somebody is looking for in their

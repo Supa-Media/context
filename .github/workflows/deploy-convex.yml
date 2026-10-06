@@ -100,6 +100,9 @@ jobs:
           FORM_NOTIFY_EMAIL_FROM: ${{ secrets.FORM_NOTIFY_EMAIL_FROM }}
           APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+          # Opens only /agent-texts/*, for the Worker people text (apps/agent).
+          # Absent is a working state: those routes refuse every request.
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
           # Google communications connect. The client id is not itself secret,
@@ -188,7 +191,7 @@ jobs:
                      STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
                      STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS \
                      STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
-                     RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET \
+                     RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET \
                      DROPBOX_APP_KEY DROPBOX_APP_SECRET \
                      GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
                      MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \

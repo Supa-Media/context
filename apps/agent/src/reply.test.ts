@@ -55,13 +55,14 @@ describe("replyTo", () => {
           "/agent-texts/link": (body, auth) => {
             expect(body).toEqual({ phone: "+15555550100", code: "ABCD2345" });
             expect(auth).toBe("Bearer worker-secret");
-            return [200, { status: "linked" }];
+            return [200, { status: "linked", handle: "ada" }];
           },
         },
         seen,
       ),
     );
-    expect(reply).toBe(COPY.linked);
+    expect(reply).toBe(COPY.linked("ada"));
+    expect(reply).toContain("@ada");
     expect(seen).toEqual(["/agent-texts/link"]);
   });
 
