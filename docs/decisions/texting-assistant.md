@@ -32,7 +32,19 @@ everything instead of accepting unsigned calls. Tests: `signature.test.ts`,
 A group's messages come from several people. Answering one of them from a
 personal context would read that person's notes into a room other people are
 in. Groups are dropped until shared workspaces have a group design of their
-own. Test: `inbound.test.ts`, "ignores group chats".
+own.
+
+**The gate fails closed, and that is the load-bearing half.** A direct chat has
+to prove itself with an explicit `is_group: false`; anything else — a missing
+field, a string, a number — is a group. The reply goes to the chat the message
+came from, so a field a live delivery spells or types differently would read
+one person's notes out to everybody in the room, and the cost of being wrong is
+entirely one-sided: fail closed and the assistant stays quiet until the field is
+confirmed, which is the same bargain `service` already takes. Confirm this field
+against a real delivery before deploying.
+Tests: `inbound.test.ts`, "ignores group chats", "treats anything but an
+explicit is_group: false as a group", "...including an event with no is_group
+field at all".
 
 ### Only iMessage is answered, because the sender number is the login
 

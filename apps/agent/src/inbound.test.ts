@@ -57,6 +57,35 @@ describe("parseInbound", () => {
     expect(parseInbound(event({}, { is_group: true }))).toEqual({ kind: "ignored", reason: "group" });
   });
 
+  /*
+    THE GROUP GATE FAILS CLOSED, LIKE THE TWO GATES BESIDE IT.
+
+    A direct chat has to prove itself: only an explicit `is_group: false` is
+    answered. `service` already works this way and says why — the sender's
+    number is the whole of this Worker's authentication, and `apps/agent`'s own
+    note on Linq's inbound shape is that the docs do not show where every field
+    sits, so a field that is spelled or typed differently in a live delivery
+    must not turn a room into a direct chat.
+
+    The cost of being wrong is asymmetric and that is the whole argument. Fail
+    closed and the assistant stays quiet until the field is confirmed against a
+    real delivery. Fail open and `drain` sends the answer to `item.message
+    .chatId` — the group's own chat — so one person's private notes are read
+    out to everybody in the room, which is exactly what
+    `docs/decisions/texting-assistant.md` says must never happen.
+  */
+  it("treats anything but an explicit is_group: false as a group", () => {
+    for (const is_group of [true, "true", "false", "", 1, 0, null, undefined, {}, []]) {
+      expect(parseInbound(event({}, { is_group }))).toEqual({ kind: "ignored", reason: "group" });
+    }
+  });
+
+  it("...including an event with no is_group field at all", () => {
+    const payload = event();
+    delete (payload.data as Record<string, unknown>).is_group;
+    expect(parseInbound(payload)).toEqual({ kind: "ignored", reason: "group" });
+  });
+
   it("ignores a sender that is not an E.164 phone number (an email handle, a malformed value)", () => {
     for (const from of ["someone@example.com", "5555550100", "+1 555 555 0100", "", 42]) {
       expect(parseInbound(event({}, { from }))).toEqual({ kind: "ignored", reason: "sender" });

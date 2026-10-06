@@ -67,7 +67,14 @@ export function parseInbound(payload: unknown): Inbound {
   const message = data.message;
   if (!nonEmptyString(message.id) || !Array.isArray(message.parts)) return { kind: "invalid" };
 
-  if (data.is_group === true) return { kind: "ignored", reason: "group" };
+  // A direct chat proves itself: only an explicit `is_group: false` is
+  // answered, for the same reason `transportOf` refuses a message that names no
+  // service. A field spelled or typed differently in a live delivery must not
+  // turn a room into a direct chat, because the answer goes to the chat the
+  // message came from — see "Group chats never reach a personal context" in
+  // `docs/decisions/texting-assistant.md`. Confirm this field against a real
+  // delivery before deploying, the same as `service`.
+  if (data.is_group !== false) return { kind: "ignored", reason: "group" };
   if (typeof data.from !== "string" || !E164.test(data.from)) return { kind: "ignored", reason: "sender" };
   if (transportOf(data) !== "iMessage") return { kind: "ignored", reason: "service" };
 
