@@ -14,6 +14,7 @@ import {
 import { callToolForSession } from "../tools/session.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
+import { BUILTIN_PROVIDER } from "./builtin.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
 import { appendConversation, conversationPath, readConversation } from "./conversation.js";
@@ -75,8 +76,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
 
   let credential;
   try {
-    credential = await openProvider(controlPlane, session, body.provider);
+    credential = await openProvider(controlPlane, session, body.provider, env);
   } catch (error) {
+    if (error instanceof AgentRefusal && error.code === "daily_limit") {
+      return json(
+        { error: "daily_limit", error_description: "That's all the questions for today. Ask me again tomorrow." },
+        429,
+      );
+    }
     if (error instanceof AgentRefusal) {
       return json(
         {
@@ -111,6 +118,27 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
 
+  const builtin = credential.provider === BUILTIN_PROVIDER;
+  const started = Date.now();
+  /*
+    The built-in turn was counted when it was allowed; this adds what it spent.
+    Counts only, best effort: a meter that could not be reached costs us a
+    report, not the person their answer.
+  */
+  const meter = async (usage, failed) => {
+    if (!builtin) return;
+    try {
+      await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
+        input: usage?.input ?? 0,
+        output: usage?.output ?? 0,
+        failed,
+        ms: Date.now() - started,
+      });
+    } catch {
+      // See above.
+    }
+  };
+
   try {
     const turn = await runTurn({
       question,
@@ -128,8 +156,10 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         callToolForSession({ name, arguments: args }, store, session),
       env,
       model: typeof body.model === "string" ? body.model : undefined,
+      providerOptions: builtin ? { ai: env.AI } : undefined,
       history,
     });
+    await meter(turn.usage, false);
 
     if (conversation !== null && !turn.exhausted) {
       try {
@@ -148,6 +178,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       ...(turn.exhausted ? { exhausted: true } : {}),
     });
   } catch (error) {
+    await meter(null, true);
     if (error instanceof ProviderError) {
       // Logged for an operator, opaque to the caller. `reason` is a phrase this
       // worker wrote and a status; `providers.js` never puts a response body in

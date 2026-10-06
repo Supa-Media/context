@@ -37,6 +37,7 @@
  * engine decides, rather than being handed something the clamp never saw.
  */
 
+import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
 import { AGENT_PROVIDERS, ProviderError, modelFor, requestCompletion } from "./providers.js";
 
 /**
@@ -200,7 +201,7 @@ export function toolResultText(result) {
  * rows could both claim it, so "which provider" is a question the caller
  * answers and this is only the default for a caller that did not.
  */
-export async function openProvider(controlPlane, session, requested) {
+export async function openProvider(controlPlane, session, requested, env = {}) {
   if (requested !== undefined && requested !== null) {
     if (!AGENT_PROVIDERS.includes(requested)) {
       // The same refusal as "connected nothing". A distinguishable answer would
@@ -228,6 +229,26 @@ export async function openProvider(controlPlane, session, requested) {
       provider,
     );
     if (opened !== null) return opened;
+  }
+  return await openBuiltin(controlPlane, session, env);
+}
+
+/**
+ * The built-in model, when nothing of the person's own is connected.
+ *
+ * Only after every account of theirs came back empty, so a connected key always
+ * wins, and only when the control plane says this grant may (a texting grant on
+ * a Premium workspace under the daily cap). That answer also counts the turn,
+ * so it is asked once, here, and never per round.
+ */
+async function openBuiltin(controlPlane, session, env) {
+  if (!hasBuiltinModel(env)) {
+    throw new AgentRefusal("no_provider", "No model account is connected to this context.");
+  }
+  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId);
+  if (verdict?.allowed === true) return { provider: BUILTIN_PROVIDER, apiKey: null };
+  if (verdict?.reason === "daily_cap") {
+    throw new AgentRefusal("daily_limit", "Today's questions are used up.");
   }
   throw new AgentRefusal("no_provider", "No model account is connected to this context.");
 }
@@ -263,7 +284,10 @@ export async function runTurn(options) {
   } = options;
 
   const provider = credential.provider;
-  const model = modelFor(provider, env, requestedModel);
+  const builtin = provider === BUILTIN_PROVIDER;
+  // Ours to pick on our bill, never the caller's: see `builtin.js`.
+  const model = builtin ? builtinModel(env) : modelFor(provider, env, requestedModel);
+  const usage = { input: 0, output: 0 };
   const system = systemPrompt(place);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -298,14 +322,20 @@ export async function runTurn(options) {
   const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
 
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
-    const answer = await requestCompletion(
-      provider,
-      { model, system, messages, tools, apiKey: credential.apiKey },
-      providerOptions,
-    );
+    const answer = builtin
+      ? await requestBuiltin({ model, system, messages, tools }, providerOptions.ai)
+      : await requestCompletion(
+          provider,
+          { model, system, messages, tools, apiKey: credential.apiKey },
+          providerOptions,
+        );
+    if (answer.usage) {
+      usage.input += answer.usage.input;
+      usage.output += answer.usage.output;
+    }
 
     if (answer.toolCalls.length === 0) {
-      return { answer: answer.text, provider, model, steps };
+      return { answer: answer.text, provider, model, steps, usage };
     }
 
     messages.push({ role: "assistant", text: answer.text, toolCalls: answer.toolCalls });
@@ -367,6 +397,7 @@ export async function runTurn(options) {
     provider,
     model,
     steps,
+    usage,
     exhausted: true,
   };
 }

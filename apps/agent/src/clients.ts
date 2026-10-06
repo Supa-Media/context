@@ -142,6 +142,7 @@ export async function linkPhone(
 export type AgentAnswer =
   | { kind: "answer"; text: string }
   | { kind: "no_model" }
+  | { kind: "daily_limit" }
   | { kind: "unavailable" };
 
 /**
@@ -173,5 +174,6 @@ export async function askAgent(
     return { kind: "answer", text: body.answer.trim() };
   }
   if (result.status === 409) return { kind: "no_model" };
+  if (result.status === 429) return { kind: "daily_limit" };
   return { kind: "unavailable" };
 }

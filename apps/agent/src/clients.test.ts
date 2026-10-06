@@ -105,6 +105,7 @@ describe("askAgent", () => {
 
   it("says when no model is connected, and folds every other failure into unavailable", async () => {
     expect(await askAgent(fake(409, { error: "no_provider" }), "g", "t", "q")).toEqual({ kind: "no_model" });
+    expect(await askAgent(fake(429, { error: "daily_limit" }), "g", "t", "q")).toEqual({ kind: "daily_limit" });
     expect(await askAgent(fake(200, { answer: "  " }), "g", "t", "q")).toEqual({ kind: "unavailable" });
     expect(await askAgent(fake(503, {}), "g", "t", "q")).toEqual({ kind: "unavailable" });
     expect(await askAgent(throwing, "g", "t", "q")).toEqual({ kind: "unavailable" });
