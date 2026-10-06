@@ -90,6 +90,9 @@ export const startBuiltinTurn = internalMutation({
 /**
  * What a finished turn spent, priced from the model's own counts. Best effort
  * from the gateway's side: the turn was already counted against the cap.
+ * `decisionTokens` is what the turn read through Clef, which picks the next
+ * page to open (apps/mcp/src/agent/computer.js); it is priced at Clef's rate
+ * by `addUsage`, not the writing model's.
  */
 export const recordBuiltinUsage = internalMutation({
   args: {
@@ -97,6 +100,7 @@ export const recordBuiltinUsage = internalMutation({
     expectedWorkspaceId: v.union(v.string(), v.null()),
     inputTokens: v.number(),
     outputTokens: v.number(),
+    decisionTokens: v.optional(v.number()),
     failed: v.boolean(),
     ms: v.number(),
   },
@@ -106,7 +110,8 @@ export const recordBuiltinUsage = internalMutation({
     if (charged === null || "refused" in charged) return false;
     const clamp = (n: number) => (Number.isFinite(n) ? Math.min(MAX_REPORTED_TOKENS, Math.max(0, Math.floor(n))) : 0);
     const usage = { input: clamp(args.inputTokens), output: clamp(args.outputTokens) };
-    const tokens = usage.input + usage.output;
+    const written = usage.input + usage.output;
+    const tokens = written + clamp(args.decisionTokens ?? 0);
     await addUsage(
       ctx,
       BUILTIN_FEATURE,
@@ -119,7 +124,7 @@ export const recordBuiltinUsage = internalMutation({
         questions: 0,
         tokens,
         ms: Number.isFinite(args.ms) ? Math.max(0, Math.floor(args.ms)) : 0,
-        writtenTokens: tokens,
+        writtenTokens: written,
         writtenMicroUsd: writingCostMicroUsd(usage),
       },
       Date.now(),

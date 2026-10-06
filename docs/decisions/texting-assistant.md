@@ -164,6 +164,13 @@ So the model never chooses an address:
   the context. The model may open several pages in one call, in parallel; one
   address it was not given refuses the whole call, and a link counts only
   after every page in the call has come back.
+- On a built-in turn, Clef (the decision model behind Jev) is asked after
+  each open whether the pages answer the question and which of their links
+  does; a pick it is at least 60% sure of opens in the same call, saving the
+  writing model a round. It chooses only among links the guard already
+  allows, counts toward the 5 pages, and is re-checked by the guard. What it
+  reads is metered as `decisionTokens` at Clef's rate. A turn on the person's
+  own key never uses it, because nothing would meter it.
 - Saved runs replayed later are deliberately not used: a page can plant
   instructions in that memory. Any cache added later is per workspace and
   holds no page or note text.

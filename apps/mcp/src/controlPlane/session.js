@@ -153,12 +153,13 @@ export function createSessionMethods({ post, required }) {
     },
 
     /** What a finished built-in turn spent: token counts and a duration, never text. */
-    async recordBuiltinUsage(accessToken, expectedWorkspaceId, { input, output, failed, ms }) {
+    async recordBuiltinUsage(accessToken, expectedWorkspaceId, { input, output, decision = 0, failed, ms }) {
       await post("/gateway/builtin-model/usage", {
         accessToken,
         expectedWorkspaceId,
         inputTokens: input,
         outputTokens: output,
+        decisionTokens: decision,
         failed,
         ms,
       });

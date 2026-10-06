@@ -32,6 +32,7 @@ export async function gatewayBuiltinUsageHandler(ctx: ActionCtx, body: Record<st
     expectedWorkspaceId: expected.value,
     inputTokens: count("inputTokens"),
     outputTokens: count("outputTokens"),
+    decisionTokens: count("decisionTokens"),
     failed: body.failed === true,
     ms: count("ms"),
   });

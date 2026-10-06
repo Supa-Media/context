@@ -24,27 +24,42 @@ import {
   canonicalUrl,
   computerFor,
   webSession,
+  PREFETCH_CONFIDENCE,
 } from "../src/agent/computer.js";
+import { DECISION_MODEL } from "../src/agent/decide.js";
 
 const S3_ENDPOINT = "https://s3.example-computer.test";
 const TOKEN_TEXTS = `cat_computer_texts_${"0".repeat(21)}`;
 const TOKEN_APP = `cat_computer_app_${"0".repeat(23)}`;
+const TOKEN_KEYED = `cat_computer_keyed_${"0".repeat(21)}`;
 
+/**
+ * Workers AI with two models: the writing model follows a script; Clef answers
+ * with whatever `decide` returns (by default: the pages already answer it).
+ */
 function fakeAi() {
   const calls = [];
+  const decisions = [];
   let script = [];
-  return {
+  const ai = {
     calls,
+    decisions,
+    decide: () => ({ answers: { answered: { type: "noul", noul: 0.9 } } }),
     install(replies) {
       script = [...replies];
     },
     async run(model, input) {
+      if (model === DECISION_MODEL) {
+        decisions.push(input);
+        return ai.decide(input);
+      }
       calls.push({ model, input });
       const next = script.shift();
       if (!next) throw new Error("fake ai: the script ran out");
       return next;
     },
   };
+  return ai;
 }
 
 function chat(text, toolCalls = []) {
@@ -140,6 +155,36 @@ export async function runAgentComputerChecks(check) {
       });
     }
     controlPlane.setBuiltinVerdict("ws_computer", { allowed: true, remaining: 50 });
+    // A second person who connected their own Anthropic key.
+    controlPlane.addWorkspace("ws_keyed_computer", "keyed-computer", {
+      provider: "s3",
+      status: "active",
+      endpoint: S3_ENDPOINT,
+      region: "auto",
+      bucket: "tenant-keyed-computer",
+      accessKeyId: "AKIAEXAMPLEEXAMPLEAA",
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEAA",
+      forcePathStyle: true,
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+    });
+    await controlPlane.addGrant({
+      accessToken: TOKEN_KEYED,
+      workspaceId: "ws_keyed_computer",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "context_texts",
+      userId: "user_keyed_computer",
+    });
+    controlPlane.connectProvider("ws_keyed_computer", "anthropic", "sk-ant-api03-example-not-a-real-key");
+    const anthropicReplies = [];
+    const withStubs = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.startsWith("https://api.anthropic.com")) {
+        return new Response(JSON.stringify(anthropicReplies.shift()), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return withStubs(input, init);
+    };
     s3.bucketFor("tenant-computer").set("4-archive/salary.md", { body: "SALARY-MARKER 180k\n", etag: "g1" });
 
     const ai = fakeAi();
@@ -222,6 +267,64 @@ export async function runAgentComputerChecks(check) {
         toolReplies(ai.calls[1]).some((reply) => reply.includes("You can only open")) &&
         toolReplies(ai.calls[2]).filter((reply) => reply.includes("You can only open")).length === 2,
     );
+
+    /* ---------------- Clef picks the next page ---------------- */
+
+    const pick = (choice, confidence, noul = 0.1) => () => ({
+      answers: {
+        answered: { type: "noul", noul },
+        next: { type: "choice", choice, confidence, probabilities: { [choice]: confidence } },
+      },
+    });
+    ai.calls.length = 0;
+    ai.decisions.length = 0;
+    browser.asked.length = 0;
+    ai.decide = pick("l0", 0.9);
+    ai.install([chat("", [{ name: OPEN_PAGE_TOOL, args: { urls: ["https://example.com/pricing"] } }]), chat("Teams is $40.")]);
+    controlPlane.builtinReports.length = 0;
+    await ask(env, TOKEN_TEXTS, { question: "How much is the Teams plan on example.com/pricing?" });
+    check(
+      "when Clef is sure where the answer is, that link opens in the same step",
+      browser.asked.join(" ") === "https://example.com/pricing https://example.com/teams" &&
+        ai.calls.length === 2 &&
+        toolReplies(ai.calls[1]).some((reply) => reply.includes("Teams is $40")) &&
+        ai.decisions.length === 1 &&
+        ai.decisions[0].state.includes("How much is the Teams plan"),
+    );
+    check(
+      "what Clef read is reported to the meter, apart from the writing model",
+      controlPlane.builtinReports.at(-1)?.decisionTokens > 0,
+    );
+
+    for (const [label, decide] of [
+      ["unsure", pick("l0", PREFETCH_CONFIDENCE - 0.1)],
+      ["sure the answer is already here", pick("l0", 0.9, 0.8)],
+      ["naming a link that is not there", pick("l9", 0.9)],
+      ["down", () => { throw new Error("down"); }],
+    ]) {
+      browser.asked.length = 0;
+      ai.decide = decide;
+      ai.install([chat("", [{ name: OPEN_PAGE_TOOL, args: { urls: ["https://example.com/pricing"] } }]), chat("ok")]);
+      const reply = await ask(env, TOKEN_TEXTS, { question: "Check example.com/pricing" });
+      check(`when Clef is ${label}, nothing more opens and the turn still answers`, reply.status === 200 && browser.asked.length === 1);
+    }
+    // A turn on the person's own key is not on our meter, so Clef stays out of it.
+    browser.asked.length = 0;
+    ai.decisions.length = 0;
+    ai.decide = pick("l0", 0.9);
+    anthropicReplies.push(
+      {
+        content: [{ type: "tool_use", id: "t1", name: OPEN_PAGE_TOOL, input: { urls: ["https://example.com/pricing"] } }],
+        stop_reason: "tool_use",
+      },
+      { content: [{ type: "text", text: "Pro is $12." }], stop_reason: "end_turn" },
+    );
+    const keyed = await ask(env, TOKEN_KEYED, { question: "Check example.com/pricing" });
+    check(
+      "a turn on the person's own key opens pages but never spends our Clef",
+      keyed.status === 200 && keyed.body?.provider === "anthropic" && browser.asked.length === 1 && ai.decisions.length === 0,
+    );
+    ai.decide = () => ({ answers: { answered: { type: "noul", noul: 0.9 } } });
 
     /* ---------------- who gets a computer ---------------- */
 
