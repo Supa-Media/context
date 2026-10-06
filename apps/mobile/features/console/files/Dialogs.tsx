@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
@@ -10,6 +10,8 @@ import { baseName, describeNameProblem, folderLabel } from "./paths";
 import { Shell } from "./DialogShell";
 import { NewFolderForm } from "./NewFolderForm";
 import { PlacePicker } from "./PlacePicker";
+import { DestinationTree } from "./DestinationTree";
+import { useDestinationFolders, type FolderLoad } from "./useDestinationFolders";
 import { createRows, type CreateRow } from "./createSheet";
 import { useFieldFont } from "../../design/fieldFont";
 
@@ -264,6 +266,16 @@ export function NamePrompt({
 }
 
 /**
+ * A narrowing `typeof x === "object"` cannot do on its own.
+ *
+ * `typeof null` is `"object"`, so the obvious check reads `null` — this
+ * context, the case with no remote list at all — as a loaded one.
+ */
+function isFolderList(value: FolderLoad | null): value is Exclude<FolderLoad, string> {
+  return value !== null && typeof value === "object";
+}
+
+/**
  * Choose a destination folder.
  *
  * A list rather than drag-and-drop: React Native Web has no dependable
@@ -272,19 +284,6 @@ export function NamePrompt({
  * interaction that is worse on a phone anyway. A list is also the only version
  * that works with a keyboard.
  */
-/**
- * A narrowing `typeof x === "object"` cannot do on its own.
- *
- * `typeof null` is `"object"`, so the obvious check reads `null` — this
- * context, the case with no remote list at all — as a loaded one and asks it
- * for `.folders`.
- */
-function isFolderList(
-  value: { folders: readonly string[]; truncated: boolean } | "loading" | "failed" | null,
-): value is { folders: readonly string[]; truncated: boolean } {
-  return value !== null && typeof value === "object";
-}
-
 export function MovePicker({
   title,
   description,
@@ -313,8 +312,11 @@ export function MovePicker({
    * then absent rather than a single disabled option.
    */
   destinations?: readonly MoveDestination[];
-  /** Fetches a destination's folders, once, when it is first chosen. */
-  loadDestinationFolders?: (contextId: string) => Promise<{
+  /**
+   * Fetches the folders directly inside one folder of a destination: its top
+   * level when it is chosen, and each folder as it is opened.
+   */
+  loadDestinationFolders?: (contextId: string, folder: string) => Promise<{
     folders: readonly string[];
     truncated: boolean;
   }>;
@@ -325,17 +327,7 @@ export function MovePicker({
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<string | null>(null);
   const [context, setContext] = useState<string | null>(null);
-  /**
-   * Folders per destination, kept after the first fetch.
-   *
-   * A walk of somebody else's bucket per press would make flipping between two
-   * contexts to compare them cost a credential open each way. The dialog is
-   * short-lived, so "until it closes" is the right lifetime and there is
-   * nothing to invalidate.
-   */
-  const [remote, setRemote] = useState<
-    Record<string, { folders: readonly string[]; truncated: boolean } | "loading" | "failed">
-  >({});
+  const remote = useDestinationFolders(loadDestinationFolders);
 
   const pick = (contextId: string | null) => {
     setContext(contextId);
@@ -343,20 +335,11 @@ export function MovePicker({
     // across a switch would arm "Move here" with a path the other context may
     // not even have.
     setChosen(null);
-    if (contextId === null || remote[contextId] !== undefined) return;
-    setRemote((current) => ({ ...current, [contextId]: "loading" }));
-    void loadDestinationFolders?.(contextId)
-      .then((answer) => setRemote((current) => ({ ...current, [contextId]: answer })))
-      .catch(() => setRemote((current) => ({ ...current, [contextId]: "failed" })));
+    if (contextId !== null) remote.open(contextId, "");
   };
 
-  // `null` for this context, `undefined` for one nothing has been asked about
-  // yet, and the three loaded states otherwise. Kept apart because "not asked"
-  // and "asked and empty" draw differently.
-  const loaded: { folders: readonly string[]; truncated: boolean } | "loading" | "failed" | null =
-    context === null ? null : (remote[context] ?? "loading");
-  const available =
-    context === null ? folders : isFolderList(loaded) ? loaded.folders : [];
+  const there = useMemo(() => remote.view(context), [remote, context]);
+  const loaded = context === null ? null : (there.top ?? "loading");
   const elsewhere = destinations.find((one) => one.id === context) ?? null;
   const sheet = densityFor(useWindowDimensions().width) === "compact";
 
@@ -399,10 +382,8 @@ export function MovePicker({
       {loaded === "failed" ? (
         <Text variant="error">That context&apos;s folders could not be read.</Text>
       ) : null}
-      {isFolderList(loaded) && loaded.truncated ? (
-        <Text variant="paneSub">
-          Showing the first {loaded.folders.length} folders of that context.
-        </Text>
+      {there.truncated ? (
+        <Text variant="paneSub">Some of that context&apos;s folders are too big to list in full.</Text>
       ) : null}
       {sheet ? (
         /*
@@ -413,7 +394,10 @@ export function MovePicker({
         */
         <PlacePicker
           key={context ?? ""}
-          folders={available}
+          folders={context === null ? folders : there.folders}
+          unexplored={context === null ? undefined : there.unexplored}
+          loading={context === null ? undefined : there.loading}
+          onOpen={context === null ? undefined : (folder) => remote.open(context, folder)}
           rootLabel={elsewhere?.label ?? rootLabel}
           initial={context === null ? (currentFolder ?? "") : ""}
           here={context === null ? currentFolder : null}
@@ -424,32 +408,49 @@ export function MovePicker({
         />
       ) : (
         <>
-          <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-            {available.map((folder) => {
-              const here = context === null && folder === currentFolder;
-              return (
-                <PressRow
-                  key={folder || "/"}
-                  accessibilityLabel={folder === "" ? "the root of your context" : folder}
-                  selected={folder === chosen}
-                  onPress={() => setChosen(folder)}
-                  radius={radii.sm}
-                  style={styles.listRow}
-                  hoverStyle={styles.listRowHover}
-                  selectedStyle={styles.listRowOn}
-                >
-                  <Text variant="tree" style={folder === chosen ? styles.listRowOnLabel : undefined}>
-                    {folder === "" ? "/ (root)" : folder}
-                  </Text>
-                  {here ? (
-                    <Text variant="treeMeta" style={styles.listRowMeta}>
-                      where it is now
+          {elsewhere !== null ? (
+            /*
+              Keyed by context for the reason the phone's picker is: a switch
+              starts the tree over, closed, in that context's folders.
+            */
+            isFolderList(loaded) ? (
+              <DestinationTree
+                key={elsewhere.id}
+                label={elsewhere.label}
+                view={there}
+                chosen={chosen}
+                onChoose={setChosen}
+                onOpen={(folder) => remote.open(elsewhere.id, folder)}
+              />
+            ) : null
+          ) : (
+            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+              {folders.map((folder) => {
+                const here = folder === currentFolder;
+                return (
+                  <PressRow
+                    key={folder || "/"}
+                    accessibilityLabel={folder === "" ? "the root of your context" : folder}
+                    selected={folder === chosen}
+                    onPress={() => setChosen(folder)}
+                    radius={radii.sm}
+                    style={styles.listRow}
+                    hoverStyle={styles.listRowHover}
+                    selectedStyle={styles.listRowOn}
+                  >
+                    <Text variant="tree" style={folder === chosen ? styles.listRowOnLabel : undefined}>
+                      {folder === "" ? "/ (root)" : folder}
                     </Text>
-                  ) : null}
-                </PressRow>
-              );
-            })}
-          </ScrollView>
+                    {here ? (
+                      <Text variant="treeMeta" style={styles.listRowMeta}>
+                        where it is now
+                      </Text>
+                    ) : null}
+                  </PressRow>
+                );
+              })}
+            </ScrollView>
+          )}
           <View style={styles.actions}>
             <Button label="Cancel" variant="dialog" onPress={onCancel} />
             <Button

@@ -31,7 +31,7 @@ type ContextMovesDeps =
   & Pick<
     FileActionsValues,
     | "dismissContextMoveMutation"
-    | "folderPathsAction"
+    | "listFiles"
     | "resumeContextMoveAction"
     | "startContextMoveAction"
     | "workspaceId"
@@ -43,7 +43,7 @@ type ContextMovesDeps =
 
 export function useContextMoves(deps: ContextMovesDeps) {
   const {
-    options, dismissContextMoveMutation, dispatch, folderPathsAction, listingsRef, refresh,
+    options, dismissContextMoveMutation, dispatch, listFiles, listingsRef, refresh,
     resumeContextMoveAction, run, selectedPath, setNotice, setSelectedPath, startContextMoveAction,
     workspaceId,
   } = deps;
@@ -67,12 +67,19 @@ export function useContextMoves(deps: ContextMovesDeps) {
     [options.destinations, options.isOwner, workspaceId],
   );
 
+  /**
+   * One folder's folders in another context: the same `listFiles` the tree
+   * reads this context with, under the caller's clearance there.
+   */
   const destinationFolders = useCallback(
-    async (contextId: string) => {
-      const answer = await folderPathsAction({ workspaceId: contextId as Id<"workspaces"> });
-      return { folders: answer.folders, truncated: answer.truncated };
+    async (contextId: string, folder: string) => {
+      const listing = await listFiles({ workspaceId: contextId as Id<"workspaces">, path: folder });
+      return {
+        folders: listing.entries.filter((entry) => entry.kind === "folder").map((entry) => entry.path),
+        truncated: listing.truncated,
+      };
     },
-    [folderPathsAction],
+    [listFiles],
   );
 
   /**

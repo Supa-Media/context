@@ -482,14 +482,16 @@ export interface FileBrowser extends BesideEditing {
    */
   moveDestinations: readonly MoveDestination[];
   /**
-   * The folders of another context, for the destination picker.
+   * The folders directly inside one folder of another context, for the
+   * destination picker — `""` for its top level.
    *
-   * A promise rather than a field, because it is a bucket walk in a context
-   * this console is not standing in: fetching every destination's folders up
-   * front would open a credential per context on every render of a menu.
-   * Resolves to a floor when the walk hit a ceiling, and says so.
+   * A promise rather than a field, because it is a read in a context this
+   * console is not standing in: fetching every destination's folders up front
+   * would open a credential per context on every render of a menu. One level
+   * per call, because the picker opens like a tree and a whole-bucket walk
+   * kept it on "Reading its folders…" for as long as the walk took.
    */
-  destinationFolders: (contextId: string) => Promise<{
+  destinationFolders: (contextId: string, folder: string) => Promise<{
     folders: readonly string[];
     truncated: boolean;
   }>;
