@@ -156,6 +156,17 @@ describe("the meter", () => {
     expect(row?.calls).toBe(1);
   });
 
+  test("tokens read by the decision model are priced at its own rate", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    await ask(t, accessToken);
+    expect(await report(t, accessToken, { inputTokens: 0, outputTokens: 0, decisionTokens: 1_000_000, ms: 5 })).toBe(true);
+    const row = await usage(t, workspaceId);
+    expect(row?.tokens).toBe(1_000_000);
+    // Clef: $0.24 per million read, not GLM's $0.06.
+    expect(row?.costMicroUsd).toBe(240_000);
+  });
+
   test("a failed turn still counts once against the cap", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t);
@@ -169,8 +180,8 @@ describe("the meter", () => {
   test("absurd counts are clamped rather than billed", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t);
-    await report(t, accessToken, { inputTokens: 1e15, outputTokens: -5, ms: Number.NaN });
-    expect((await usage(t, workspaceId))?.tokens).toBe(2_000_000);
+    await report(t, accessToken, { inputTokens: 1e15, outputTokens: -5, decisionTokens: 1e15, ms: Number.NaN });
+    expect((await usage(t, workspaceId))?.tokens).toBe(4_000_000);
   });
 
   test("an unknown token records nothing", async () => {

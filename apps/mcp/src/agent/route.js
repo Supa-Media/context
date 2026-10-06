@@ -16,6 +16,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER } from "./builtin.js";
 import { computerFor, webSession } from "./computer.js";
+import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
 import { appendConversation, conversationPath, readConversation } from "./conversation.js";
@@ -127,10 +128,12 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     about texting), behind the address guard in `computer.js`. Widening it to
     the app's agent panel is one condition here.
   */
-  const computer = session.actorClientId === TEXTS_CLIENT_ID ? computerFor(env) : null;
-  const web = computer === null ? null : webSession(computer, question);
-
   const builtin = credential.provider === BUILTIN_PROVIDER;
+  const computer = session.actorClientId === TEXTS_CLIENT_ID ? computerFor(env) : null;
+  // Clef only on a built-in turn: that is the turn the meter covers.
+  const web =
+    computer === null ? null : webSession(computer, question, { decide: builtin ? decisionEngine(env.AI) : null });
+
   const started = Date.now();
   /*
     The built-in turn was counted when it was allowed; this adds what it spent.
@@ -143,6 +146,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
         input: usage?.input ?? 0,
         output: usage?.output ?? 0,
+        decision: web?.usage.decision ?? 0,
         failed,
         ms: Date.now() - started,
       });
