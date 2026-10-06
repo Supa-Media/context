@@ -151,9 +151,14 @@ So the model never chooses an address:
 - Only the texting client gets a computer; the app's agent panel does not.
   `site-shots` refuses anything but a public https address, with no cookies.
 - Speed never loosens the lock (2026-10-06, after the owner asked for the
-  fastest computer use the research supports). `site-shots` first asks the
-  site for Markdown (`Accept: text/markdown`) and launches no browser when it
-  gets it; every redirect on that path passes the same public-https check.
+  fastest computer use the research supports). `site-shots` first makes a
+  plain request (`Accept: text/markdown`, else HTML) and launches no browser
+  when that is readable; every redirect on that path passes the same
+  public-https check. HTML is read by defuddle (MIT) on linkedom, chosen over
+  writing our own extractor; its site extractors (YouTube, Reddit, X) fetch on
+  their own, so `useAsync: false` and a fetch that always refuses keep it off
+  the network. Browser Run's `guardrails` were left out: they are fixed when a
+  browser starts, and a warm browser serves many sites.
   Otherwise it reads in a fresh browser context of a warm browser, so no
   cookie, storage or cache crosses from one read to the next, and closes only
   the context. The model may open several pages in one call, in parallel; one
