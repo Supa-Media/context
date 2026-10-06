@@ -20,13 +20,14 @@
  *
  *   POST /shoot   `{ url, sizes? }` → `{ shots, failures }` (see ./shoot.ts)
  *   POST /read    `{ url }` → `{ page }`: title, visible text and links, for
- *                 the texting assistant. The site's own Markdown when it will
- *                 send it (./fetchText.ts), else a warm browser (./read.ts)
+ *                 the texting assistant. A plain request when the site sends
+ *                 Markdown or readable HTML (./fetchText.ts), else a warm
+ *                 browser (./read.ts)
  *   anything else 404
  */
 
 import puppeteer from "@cloudflare/puppeteer";
-import { fetchMarkdown } from "./fetchText";
+import { fetchPage } from "./fetchText";
 import { parseReadRequest, read } from "./read";
 import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
 import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
@@ -77,9 +78,9 @@ async function readPage(env: Env, url: string): Promise<Response> {
   const started = Date.now();
   // The person's address and the page's text stay out of the log.
   const log = (via: string) => console.log(JSON.stringify({ event: "site_shots_read", via, ms: Date.now() - started }));
-  const fast = await fetchMarkdown(url);
+  const fast = await fetchPage(url);
   if (fast !== null) {
-    log("markdown");
+    log(fast.via);
     return json({ page: fast });
   }
   let browser: BrowserLike;

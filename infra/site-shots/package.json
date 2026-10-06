@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cloudflare/puppeteer": "^1.4.0"
+    "@cloudflare/puppeteer": "^1.4.0",
+    "defuddle": "0.19.4",
+    "linkedom": "0.18.13"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260719.1",

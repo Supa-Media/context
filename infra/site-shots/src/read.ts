@@ -27,8 +27,8 @@ export interface PageRead {
   text: string;
   truncated: boolean;
   links: Array<{ text: string; href: string }>;
-  /** How it was read: the site's own Markdown (`./fetchText.ts`), or a browser. */
-  via: "markdown" | "browser";
+  /** How it was read: the site's Markdown or HTML (`./fetchText.ts`), or a browser. */
+  via: "markdown" | "html" | "browser";
 }
 
 export function parseReadRequest(body: unknown): { url: string } | null {

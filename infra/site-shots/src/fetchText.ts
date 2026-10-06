@@ -1,11 +1,13 @@
 /**
- * The fast way to read a page: ask the site for Markdown and skip the browser.
+ * The fast way to read a page: a plain request, and no browser.
  *
  * Starting a browser costs seconds; a request costs milliseconds. Sites behind
  * Cloudflare with "Markdown for Agents" on (and others that honour the same
- * header) answer `Accept: text/markdown` with the page's text, often a tenth of
- * the size of its HTML. When a site answers with anything else, this returns
- * null and `./index.ts` opens the page in a browser as before.
+ * header) answer `Accept: text/markdown` with the page's text. Any other site
+ * that sends ordinary HTML is read by defuddle (MIT, the extractor behind
+ * Obsidian's web clipper) on linkedom, inside this Worker. Only a page that
+ * yields almost no text that way, which is a page built in JavaScript, returns
+ * null, and `./index.ts` opens it in a browser as before.
  *
  * Every hop is held to the same lock as the browser: a redirect is followed by
  * hand, and only to another public https address (`publicHttpsUrl`). Nothing
@@ -13,6 +15,8 @@
  * page: the gateway marks it so before a model sees it.
  */
 
+import { Defuddle } from "defuddle/node";
+import { parseHTML } from "linkedom";
 import { MAX_LINKS, MAX_TEXT_CHARS, type PageRead } from "./read";
 import { publicHttpsUrl } from "./shoot";
 
@@ -20,23 +24,28 @@ import { publicHttpsUrl } from "./shoot";
 export const FETCH_TIMEOUT_MS = 5_000;
 /** Redirects followed before giving up on the fast path. */
 export const MAX_REDIRECTS = 5;
-/** The most of a response read; Markdown past this is cut anyway. */
+/** The most of a response read; text past this is cut anyway. */
 export const MAX_FETCH_BYTES = 1_000_000;
+/**
+ * Less readable text than this from HTML means the page draws itself with
+ * JavaScript, and only a browser will see it.
+ */
+export const MIN_HTML_TEXT_CHARS = 200;
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
-/** The page as Markdown, or null when the site would not send it. Never throws. */
 // Wrapped, not passed bare: the Workers runtime refuses a detached `fetch`
 // ("Illegal invocation").
 const workerFetch: FetchLike = (url, init) => fetch(url, init);
 
-export async function fetchMarkdown(url: string, fetchImpl: FetchLike = workerFetch): Promise<PageRead | null> {
+/** The page's text without a browser, or null when only a browser can read it. Never throws. */
+export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch): Promise<PageRead | null> {
   let current = publicHttpsUrl(url);
   for (let hop = 0; current !== null && hop <= MAX_REDIRECTS; hop += 1) {
     let response: Response;
     try {
       response = await fetchImpl(current, {
-        headers: { accept: "text/markdown" },
+        headers: { accept: "text/markdown, text/html;q=0.9" },
         redirect: "manual",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
@@ -50,12 +59,14 @@ export async function fetchMarkdown(url: string, fetchImpl: FetchLike = workerFe
       continue;
     }
     const type = response.headers.get("content-type") ?? "";
-    if (!response.ok || !/^text\/markdown\b/i.test(type)) {
+    const markdown = /^text\/markdown\b/i.test(type);
+    if (!response.ok || !(markdown || /^text\/html\b/i.test(type))) {
       await response.body?.cancel().catch(() => undefined);
       return null;
     }
     try {
-      return fromMarkdown(current, await readCapped(response, MAX_FETCH_BYTES));
+      const body = await readCapped(response, MAX_FETCH_BYTES);
+      return markdown ? fromMarkdown(current, body) : await fromHtml(current, body);
     } catch {
       return null;
     }
@@ -119,4 +130,60 @@ export function fromMarkdown(url: string, markdown: string): PageRead {
     links,
     via: "markdown",
   };
+}
+
+/**
+ * defuddle's own network reach, refused. Some of its extractors (YouTube,
+ * Reddit, X) fetch from third-party APIs, which would open addresses nobody
+ * gave the agent; `useAsync: false` turns them off and this is the second lock.
+ */
+const refuseFetch = (async () => {
+  throw new Error("site-shots: page extraction may not fetch");
+}) as typeof fetch;
+
+/** The readable part of an HTML page, or null when it has almost none. */
+export async function fromHtml(url: string, html: string): Promise<PageRead | null> {
+  const { document } = parseHTML(html);
+  // Every link on the page, read before extraction trims the page to its
+  // main content: the navigation is where the next page usually is.
+  const seen = new Set<string>();
+  const links: PageRead["links"] = [];
+  for (const anchor of document.querySelectorAll("a[href]")) {
+    const href = publicHttpsUrl(safeResolve(anchor.getAttribute("href") ?? "", url));
+    if (href === null || seen.has(href)) continue;
+    seen.add(href);
+    links.push({ text: (anchor.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 120), href });
+    if (links.length >= MAX_LINKS) break;
+  }
+  // Not `markdown: true`: its converter (turndown) needs a DOM parser the
+  // Workers runtime does not have, and fails there while passing in Node.
+  const result = await Defuddle(document as unknown as Parameters<typeof Defuddle>[0], url, {
+    useAsync: false,
+    fetch: refuseFetch,
+    removeImages: true,
+  });
+  const text = htmlToText(result.content ?? "");
+  if (text.length < MIN_HTML_TEXT_CHARS) return null;
+  return {
+    url,
+    title: (result.title ?? "").trim().slice(0, 300),
+    text: text.slice(0, MAX_TEXT_CHARS),
+    truncated: text.length > MAX_TEXT_CHARS,
+    links,
+    via: "html",
+  };
+}
+
+const BLOCK_END = /<\/(?:p|h[1-6]|li|tr|div|section|article|header|footer|pre|blockquote|ul|ol|table|figure|dl|dt|dd)\s*>|<br\s*\/?>/gi;
+
+/** The text of defuddle's cleaned HTML, one line per block, list items marked. */
+export function htmlToText(html: string): string {
+  const marked = html.replace(/<li\b[^>]*>/gi, "$&- ").replace(BLOCK_END, "$&\n");
+  const { document } = parseHTML(`<!doctype html><html><body>${marked}</body></html>`);
+  return (document.body?.textContent ?? "")
+    .split("\n")
+    .map((line: string) => line.replace(/[ \t\u00a0]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
