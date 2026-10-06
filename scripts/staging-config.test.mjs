@@ -52,6 +52,13 @@ test('staging sync supplies both backend deployment selectors', () => {
   assert.ok(backendKeys.includes('STAGING_CONVEX_DEPLOYMENT'));
 });
 
+test('staging gives the agent and control plane the same Worker credential', () => {
+  const workflow = read('.github/workflows/deploy-staging.yml');
+  assert.ok(backendKeys.includes('AGENT_WORKER_SECRET'));
+  assert.match(workflow, /AGENT_WORKER_SECRET: \$\{\{ secrets\.AGENT_WORKER_SECRET \}\}/);
+  assert.match(workflow, /secret put AGENT_WORKER_SECRET --env staging/);
+});
+
 test('staging custom domains require a complete isolated configuration', () => {
   const isolated = { CUSTOM_DOMAINS_ZONE_ID: 'a'.repeat(32), CUSTOM_DOMAINS_TARGET: 'customers.example.net' };
   assert.doesNotThrow(() => validateStaging({ ...valid, ...isolated }));

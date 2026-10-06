@@ -10,6 +10,7 @@ name: Deploy to Production
 #   validate ─┬─ web export ─────────────────────┐
 #             ├─ convex ─┬─ gateway ─────────────┼─ router + assets
 #             │          ├─ email ───────────────┤
+#             │          ├─ agent ───────────────┤
 #             │          ├─ transcribe ──────────┼─ mobile-update
 #             │          └─ egress ──────────────┘
 #             └─ sentry
@@ -49,6 +50,7 @@ jobs:
       convex: ${{ steps.plan.outputs.convex }}
       gateway: ${{ steps.plan.outputs.gateway }}
       email: ${{ steps.plan.outputs.email }}
+      agent: ${{ steps.plan.outputs.agent }}
       transcribe: ${{ steps.plan.outputs.transcribe }}
       egress: ${{ steps.plan.outputs.egress }}
       sentry: ${{ steps.plan.outputs.sentry }}
@@ -91,6 +93,12 @@ jobs:
     needs: [validate, convex]
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.email == 'true' }}
     uses: ./.github/workflows/deploy-email-worker.yml
+    secrets: inherit
+
+  agent:
+    needs: [validate, convex]
+    if: ${{ !cancelled() && !failure() && needs.validate.outputs.agent == 'true' }}
+    uses: ./.github/workflows/deploy-agent-worker.yml
     secrets: inherit
 
   transcribe:

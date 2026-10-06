@@ -1,0 +1,79 @@
+name: Deploy Agent Worker (production)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    name: Test agent Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./apps/agent..." --frozen-lockfile
+      - run: pnpm --dir apps/agent typecheck
+      - run: pnpm --dir apps/agent test
+
+  deploy:
+    name: Deploy and verify agent Worker
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+      LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
+      LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
+      AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Verify required secrets
+        run: |
+          set -euo pipefail
+          for key in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CONTROL_PLANE_URL LINQ_API_KEY LINQ_WEBHOOK_SECRET AGENT_WORKER_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required production secret: $key" >&2
+              exit 1
+            fi
+          done
+      - run: pnpm install --filter "./apps/agent..." --frozen-lockfile
+      - name: Deploy Worker
+        run: pnpm --dir apps/agent exec wrangler deploy --env=""
+      - name: Sync Worker secrets
+        run: |
+          set -euo pipefail
+          printf '%s' "$LINQ_WEBHOOK_SECRET" | pnpm --dir apps/agent exec wrangler secret put LINQ_WEBHOOK_SECRET --env=""
+          printf '%s' "$LINQ_API_KEY" | pnpm --dir apps/agent exec wrangler secret put LINQ_API_KEY --env=""
+          printf '%s' "$AGENT_WORKER_SECRET" | pnpm --dir apps/agent exec wrangler secret put AGENT_WORKER_SECRET --env=""
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/agent exec wrangler secret put CONTROL_PLANE_ORIGIN --env=""
+      - name: Verify Worker secret bindings
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/agent exec wrangler secret list --env="" --format json | node -e '
+            let source = "";
+            process.stdin.on("data", chunk => source += chunk);
+            process.stdin.on("end", () => {
+              const names = new Set(JSON.parse(source).map(item => item.name));
+              const required = ["LINQ_WEBHOOK_SECRET", "LINQ_API_KEY", "AGENT_WORKER_SECRET", "CONTROL_PLANE_ORIGIN"];
+              const missing = required.filter(name => !names.has(name));
+              if (missing.length) {
+                console.error(`Missing Worker secret bindings: ${missing.join(", ")}`);
+                process.exitCode = 1;
+              } else console.log("Agent Worker secret bindings verified.");
+            });'

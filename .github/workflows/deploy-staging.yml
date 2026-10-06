@@ -90,6 +90,7 @@ jobs:
       JWT_PRIVATE_KEY: ${{ secrets.JWT_PRIVATE_KEY }}
       JWKS: ${{ secrets.JWKS }}
       EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+      AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
       TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
       TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
       ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
@@ -189,6 +190,9 @@ jobs:
       CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
       GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
       EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+      AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+      LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
+      LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
       TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
       TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
       PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
@@ -207,6 +211,16 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
             | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(!JSON.parse(s).success)process.exit(1);console.log("Cloudflare Workers access verified.");});'
       - run: pnpm install --frozen-lockfile
+      - name: Verify agent secrets
+        if: ${{ matrix.worker.name == 'agent' }}
+        run: |
+          set -euo pipefail
+          for key in AGENT_WORKER_SECRET LINQ_API_KEY LINQ_WEBHOOK_SECRET CONTROL_PLANE_URL; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required staging secret: $key" >&2
+              exit 1
+            fi
+          done
       # The gateway binds the screenshot browser (infra/site-shots) as a
       # service, and Cloudflare refuses a binding to a script that does not
       # exist, so that Worker deploys first, in this same job.
@@ -229,6 +243,12 @@ jobs:
               printf '%s' "$EMAIL_WORKER_SECRET" | pnpm --dir infra/email-worker exec wrangler secret put EMAIL_WORKER_SECRET --env staging
               printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/email-worker exec wrangler secret put CONTROL_PLANE_URL --env staging
               ;;
+            agent)
+              printf '%s' "$LINQ_WEBHOOK_SECRET" | pnpm --dir apps/agent exec wrangler secret put LINQ_WEBHOOK_SECRET --env staging
+              printf '%s' "$LINQ_API_KEY" | pnpm --dir apps/agent exec wrangler secret put LINQ_API_KEY --env staging
+              printf '%s' "$AGENT_WORKER_SECRET" | pnpm --dir apps/agent exec wrangler secret put AGENT_WORKER_SECRET --env staging
+              printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/agent exec wrangler secret put CONTROL_PLANE_ORIGIN --env staging
+              ;;
             mcp)
               printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/mcp exec wrangler secret put CONTROL_PLANE_URL --env staging
               printf '%s' "$GATEWAY_SECRET" | pnpm --dir apps/mcp exec wrangler secret put GATEWAY_SECRET --env staging
@@ -240,6 +260,22 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Verify agent Worker secret bindings
+        if: ${{ matrix.worker.name == 'agent' }}
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/agent exec wrangler secret list --env staging --format json | node -e '
+            let source = "";
+            process.stdin.on("data", chunk => source += chunk);
+            process.stdin.on("end", () => {
+              const names = new Set(JSON.parse(source).map(item => item.name));
+              const required = ["LINQ_WEBHOOK_SECRET", "LINQ_API_KEY", "AGENT_WORKER_SECRET", "CONTROL_PLANE_ORIGIN"];
+              const missing = required.filter(name => !names.has(name));
+              if (missing.length) {
+                console.error(`Missing staging Worker secret bindings: ${missing.join(", ")}`);
+                process.exitCode = 1;
+              } else console.log("Staging agent Worker secret bindings verified.");
+            });'
 
   web-build:
     name: Export web

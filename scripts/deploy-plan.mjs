@@ -95,6 +95,7 @@ export const TARGETS = {
       transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
+      agent: { packages: ["@context/agent"], worker: "apps/agent" },
       // The gateway's job deploys its screenshot Worker first (a service
       // binding needs its target), so either one changing deploys both.
       mcp: { packages: ["@context/mcp", "@context/site-shots"], worker: "apps/mcp" },
@@ -114,6 +115,7 @@ export const TARGETS = {
       convex: { packages: ["@context/convex"], files: ["convex.json", workflow("deploy-convex")] },
       gateway: { packages: ["@context/mcp", "@context/site-shots"], files: [workflow("deploy-mcp")] },
       email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
+      agent: { packages: ["@context/agent"], files: [workflow("deploy-agent-worker")] },
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
       sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },

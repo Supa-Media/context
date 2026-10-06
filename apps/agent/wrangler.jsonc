@@ -2,8 +2,7 @@
   // context-agent: the Worker behind the Context assistant people text over
   // iMessage. See src/index.ts for the flow.
   //
-  // NOT DEPLOYED YET. It needs a Linq line and these secrets before it can run,
-  // and it is deliberately absent from scripts/deploy-plan.mjs until they exist:
+  // The deploy workflows require these secrets before publishing the Worker:
   //
   //   LINQ_WEBHOOK_SECRET   the `whsec_…` secret Linq returns when the webhook
   //                         subscription is created (shown once)
@@ -21,8 +20,19 @@
   },
   "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
   "vars": {
-    "CONTROL_PLANE_ORIGIN": "",
     "GATEWAY_ORIGIN": "https://context.lc"
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "name": "context-agent-staging",
+      "workers_dev": true,
+      "durable_objects": {
+        "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
+      },
+      "vars": {
+        "GATEWAY_ORIGIN": "https://mcp-staging.context.lc"
+      }
+    }
+  }
 }
