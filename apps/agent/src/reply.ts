@@ -35,7 +35,8 @@ export type ReplyDeps = {
 const LINK_COMMAND = /^\s*link\s+([a-z0-9]{6,10})\s*[.!]?\s*$/i;
 
 export const COPY = {
-  linked: "You're connected. Text me anything and I'll answer from your Context.",
+  linked: (handle: string) =>
+    `You're connected to @${handle}'s Context. Text me anything and I'll answer from it. If that isn't your account, open Context, go to Settings › Texts, and unlink this phone.`,
   linkRefused:
     "That code didn't work. Codes expire after 10 minutes, so make a new one in Context under Settings › Texts and text it here.",
   unlinked:
@@ -43,7 +44,7 @@ export const COPY = {
   noModel:
     "I can't answer yet because no AI model is connected to your Context. Connect one in Settings, then text me again.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
-} as const;
+};
 
 export function linkCode(text: string): string | null {
   const match = LINK_COMMAND.exec(text);
@@ -61,7 +62,7 @@ export async function replyTo(message: Message, deps: ReplyDeps): Promise<string
         message.from,
         code,
       );
-      return linked === "linked" ? COPY.linked : COPY.linkRefused;
+      return linked.status === "linked" ? COPY.linked(linked.handle) : COPY.linkRefused;
     }
 
     const session = await openSession(

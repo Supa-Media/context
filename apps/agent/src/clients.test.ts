@@ -81,9 +81,14 @@ describe("openSession", () => {
 
 describe("linkPhone", () => {
   it("reports linked only when the control plane says so", async () => {
-    expect(await linkPhone(fake(200, { status: "linked" }), "o", "s", "p", "123456")).toBe("linked");
-    expect(await linkPhone(fake(200, { status: "refused" }), "o", "s", "p", "123456")).toBe("refused");
-    expect(await linkPhone(fake(200, {}), "o", "s", "p", "123456")).toBe("refused");
+    expect(await linkPhone(fake(200, { status: "linked", handle: "ada" }), "o", "s", "p", "1")).toEqual({
+      status: "linked",
+      handle: "ada",
+    });
+    // A link with no handle, or one that is not a handle, is not trusted into a reply.
+    for (const body of [{ status: "linked" }, { status: "linked", handle: "<b>x</b>" }, { status: "refused" }, {}]) {
+      expect(await linkPhone(fake(200, body), "o", "s", "p", "1")).toEqual({ status: "refused" });
+    }
     await expect(linkPhone(fake(503, {}), "o", "s", "p", "1")).rejects.toBeInstanceOf(ServiceError);
   });
 });

@@ -491,6 +491,53 @@ export async function runAgentChecks(check) {
     });
     check("an unknown token reaches no turn", unauthenticated.status === 401);
 
+    /* ---------------------- 6b. a named conversation remembers --------------- */
+
+    // The texting assistant names `conversation: "texts"`. The second turn
+    // must carry the first one's words, and the history must live in this
+    // customer's bucket, not anywhere of ours.
+    model.requests.length = 0;
+    model.install([{ text: "The launch is on Friday." }, { text: "It moved from Thursday." }]);
+    await ask(env, TOKEN_OWNER, { question: "When is the launch?", conversation: "texts" });
+    const followUp = await ask(env, TOKEN_OWNER, { question: "Did it move?", conversation: "texts" });
+    const secondMessages = JSON.stringify(model.requests[1]?.body?.messages ?? []);
+    check(
+      "a follow-up in a named conversation carries the earlier question and answer",
+      followUp.status === 200 &&
+        secondMessages.includes("When is the launch?") &&
+        secondMessages.includes("The launch is on Friday."),
+    );
+    check(
+      "the conversation is kept in the customer's own bucket",
+      bucket.has(".context/agent/conversations/texts.json"),
+    );
+
+    model.requests.length = 0;
+    model.install([{ text: "ok" }]);
+    await ask(env, TOKEN_OWNER, { question: "Fresh question", conversation: "../../privacy.md" });
+    check(
+      "a conversation name that is not on the list is ignored, never used as a path",
+      !JSON.stringify(model.requests[0]?.body?.messages ?? []).includes("When is the launch?") &&
+        bucket.get("privacy.md")?.body === PRIVACY_MANIFEST,
+    );
+
+    model.requests.length = 0;
+    model.install([{ text: "ok" }]);
+    await ask(env, TOKEN_READONLY, { question: "Read-only question", conversation: "texts" });
+    check(
+      "a read-only grant gets no history and writes none",
+      !JSON.stringify(model.requests[0]?.body?.messages ?? []).includes("When is the launch?") &&
+        !bucket.get(".context/agent/conversations/texts.json")?.body?.includes("Read-only question"),
+    );
+
+    model.requests.length = 0;
+    model.install([{ text: "ok" }]);
+    await ask(env, TOKEN_OWNER, { question: "No conversation named" });
+    check(
+      "a turn that names no conversation carries no history",
+      !JSON.stringify(model.requests[0]?.body?.messages ?? []).includes("When is the launch?"),
+    );
+
     /* ---------------------- 7. the helpers, directly ----------------------- */
 
     check(

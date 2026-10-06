@@ -115,7 +115,8 @@ export async function openSession(
   throw new ServiceError("control_plane", status);
 }
 
-export type LinkAnswer = "linked" | "refused";
+/** On success, the handle whose Context now answers this phone. */
+export type LinkAnswer = { status: "linked"; handle: string } | { status: "refused" };
 
 export async function linkPhone(
   fetcher: Fetch,
@@ -129,7 +130,11 @@ export async function linkPhone(
     code,
   });
   if (status !== 200) throw new ServiceError("control_plane", status);
-  return record(json).status === "linked" ? "linked" : "refused";
+  const body = record(json);
+  if (body.status === "linked" && typeof body.handle === "string" && /^[a-z0-9-]{1,64}$/.test(body.handle)) {
+    return { status: "linked", handle: body.handle };
+  }
+  return { status: "refused" };
 }
 
 // ── Gateway ───────────────────────────────────────────────────────────────

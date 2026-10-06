@@ -13,8 +13,10 @@ import {
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
 import { json } from "../http/responses.js";
+import { hasScope, SCOPE_WRITE } from "../session.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
+import { appendConversation, conversationPath, readConversation } from "./conversation.js";
 
 /**
  * One agent turn over HTTP.
@@ -96,6 +98,19 @@ export async function handleAgent(request, env, store, session, controlPlane) {
 
   const offered = await toolsForSession(session, store);
 
+  /*
+    A named conversation carries its recent turns into this one. Only a name
+    from `conversation.js`'s fixed list, never a path, and only on a grant that
+    can write: the history is a file in the bucket, and a read-only grant writes
+    nothing, so it gets a turn with no memory rather than a write it does not
+    hold. Kept in the default context, the one this grant was approved against.
+  */
+  const conversation =
+    conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)
+      ? body.conversation
+      : null;
+  const history = conversation === null ? [] : await readConversation(store, conversation);
+
   try {
     const turn = await runTurn({
       question,
@@ -113,7 +128,17 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         callToolForSession({ name, arguments: args }, store, session),
       env,
       model: typeof body.model === "string" ? body.model : undefined,
+      history,
     });
+
+    if (conversation !== null && !turn.exhausted) {
+      try {
+        await appendConversation(store, conversation, history, question, turn.answer);
+      } catch {
+        // The answer is still owed. A history that failed to save costs the
+        // next turn some context, not this one its reply.
+      }
+    }
 
     return json({
       answer: turn.answer,
