@@ -28,8 +28,8 @@
  * (it is validated against each source's current record and is never the
  * authority for a canonical edit). The links stay in the files, where they
  * are canonical and where the customer can read them without us
- * (non-negotiable #3). The ledger is not graph-owned, and a graph rebuild
- * never deletes it.
+ * (non-negotiable #3). The ledger is not graph-owned, and graph work never
+ * touches anything outside `.context/graph/`.
  *
  * **It is not the only copy of anything.** Delete this file and the bucket is
  * unchanged: every in-bucket link still resolves, because those were rewritten

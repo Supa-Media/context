@@ -14,48 +14,60 @@ approved reversing that (decision O1), on conditions. The conditions are the
 decision; a tidy-up that drops one of them restores the failure the old
 position was written to prevent.
 
+The owner's three conditions (O1, `docs/design/link-graph/README.md`, Owner
+decisions):
+
 - **It is a rebuildable derivative under `.context/graph/v1/`.** Nothing in it
-  is the only copy of anything. The links stay in the notes. Deleting the
-  directory costs a rebuild and nothing else, and no graph code may write or
-  delete outside the graph prefix (the forwarding ledger and every other
-  `.context/` object are never touched, and a graph rebuild never deletes the
-  ledger).
-- **Every relationship is validated against the source's current forward
-  record before it is returned.** A posting entry carries the
-  `referenceSetVersion` of the record that wrote it, and `validateEntry`
-  drops an entry whose source is missing, unparseable, excluded, or has since
-  moved on to a different reference set. A delayed older write cannot make a
-  removed link reappear.
+  is the only copy of anything. The links stay in the notes, and deleting the
+  directory costs a rebuild and nothing else.
+- **Every relationship is validated against the source's current version before
+  it is returned.** A posting entry carries the `referenceSetVersion` of the
+  record that wrote it, and `validateEntry` drops an entry whose source is
+  missing, unparseable, excluded, or has since moved on to a different
+  reference set. A delayed older write cannot make a removed link reappear.
 - **It is never the authority for a canonical edit.** A later feature may use
   the graph to find candidate referrers. It must re-read the source and edit
   from the source, never from the index.
-- **Reads are filtered by `canSee`, per source, before validation.** A source
-  the caller cannot see never appears and never reaches `validate`. A posting
-  page holds paths of private notes, so the graph is subject to the same rule
-  as the search index.
-- **Encrypted notes are excluded entirely.** An encrypted body yields
-  `coverage: "excluded"`, no occurrences, and no memberships (not even a
-  bare-name entry). No hidden contents are inferred.
-- **The graph is bucket native and its health is stated, never assumed.** The
-  manifest, forward records and postings live in the customer's bucket. On a
-  store without conditional write and conditional create (the P4 behaviour)
-  the graph still runs, with unconditional writes, but `graphHealth` labels it
-  `possiblyIncomplete` and never `complete`, even after a clean sweep.
-- **Graph work never affects a write.** It runs behind the response where the
-  store can defer, spends a per-write storage budget
-  (`WRITE_ENRICH_SUBREQUEST_BUDGET`, 0 turns it off), and any failure is
-  swallowed. It never changes a write's result or body, and it is never a
-  reason a write fails.
-- **Moves and archive are left to reconciliation.** They go through
-  `recordChange`, which has no body, so the write hook does not run for them.
-  The same holds for referrers that a move rewrote and for form responses:
-  the reconciliation sweep, not the write path, brings the graph up to date
-  with them. Reconciliation shares the maintenance invocation with search,
-  runs only when `GRAPH_PASS_FLOOR` budget is left after the search sync, and
-  never changes the search sync's results or budget use.
-- **Deletion is confirmed twice.** A path leaves the graph only after a
-  complete census omits it and a direct read of the note returns not-found.
-  An incomplete census removes nothing.
+
+### How it is built (architecture and controller rulings, reversible at review)
+
+These follow from the conditions but are not themselves owner decisions. Each
+names its source, so a reader can tell what needs the owner and what needs only
+a reviewer.
+
+- **Graph code touches nothing outside `.context/graph/`** (architecture 2.2).
+  Reconciliation never writes or deletes the forwarding ledger or any other
+  `.context/` object. The rebuild (Phase 2 Task 11, not yet built) is bound by
+  the same rule.
+- **Reads are filtered by `canSee`, per source, before validation**
+  (architecture, same rule as the search index). A source the caller cannot
+  see never appears and never reaches `validate`, because a posting page holds
+  paths of private notes.
+- **Encrypted notes are excluded entirely** (architecture 7.6; controller
+  ruling OPEN-18). An encrypted body yields `coverage: "excluded"`, no
+  occurrences, and no memberships, not even a bare-name entry.
+- **The graph is bucket native and its health is stated, never assumed** (PLAN
+  decision P4; controller ruling OPEN-10 and OPEN-13). On a store without
+  conditional write and conditional create the graph still runs, with
+  unconditional writes, but `graphHealth` labels it `possiblyIncomplete` and
+  never `complete`, even after a clean sweep.
+- **Graph work never affects a write** (PLAN decision P5; controller ruling
+  OPEN-12 and OPEN-19). It runs behind the response where the store can defer,
+  spends a per-write storage budget (`WRITE_ENRICH_SUBREQUEST_BUDGET`, 0 turns
+  it off), and any failure is swallowed. It never changes a write's result or
+  body.
+- **Moves and archive are left to reconciliation** (controller ruling
+  OPEN-20). They go through `recordChange`, which has no body, so the write
+  hook does not run for them. The same holds for referrers that a move
+  rewrote and for form responses. Reconciliation shares the maintenance
+  invocation with search, runs only when `GRAPH_PASS_FLOOR` budget is left
+  after the search sync (controller ruling OPEN-21), and never changes the
+  search sync's results or budget use.
+- **A path leaves the graph only after a direct read of the note returns
+  not-found** (controller ruling OPEN-15). That read is triggered either by a
+  complete census that omits the path, or by a removal hint from the search
+  sync, which works on an incomplete census too. An incomplete census on its
+  own removes nothing.
 
 **What reversing it costs.** Phase 3 backlinks, related notes, and
 index-assisted move repair all read this index; they cannot be built on a
@@ -94,6 +106,7 @@ and an unfiltered posting read leaks the existence of private notes.
   the search sync's results and budget use are unchanged when graph work runs".
 - Moves and archive are left to reconciliation: `graphWrite.test.mjs`, "moves
   and archive do not call the hook (left to reconciliation)".
-- Deletion needs a complete census and a direct not-found: `graphReconcile.test.mjs`,
-  "a path absent from a complete census but present in the bucket is never
-  removed" and "an incomplete census never removes anything".
+- Deletion needs a direct not-found: `graphReconcile.test.mjs`, "a path absent
+  from a complete census but present in the bucket is never removed",
+  "removedHints are confirmed by a direct read before removal" and "an
+  incomplete census never removes anything".
