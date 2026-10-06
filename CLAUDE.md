@@ -30,7 +30,10 @@ breaking one, stop and say so rather than working around it.
    plan, still writable and exportable; it never deletes (decided by the
    owner, 2026-09-29). Credentials never live in Markdown, in the
    bucket, in logs, in URLs, or on a device: encrypted at rest, decrypted only
-   in the gateway at request time. See
+   in the gateway at request time. The one exception is the texting
+   assistant's autofill vault, sealed in the person's own bucket with the key
+   held outside it and never shown to a model (decided by the owner,
+   2026-10-06; [texting-assistant](./docs/decisions/texting-assistant.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
    a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note lives at
