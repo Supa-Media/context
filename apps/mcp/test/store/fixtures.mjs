@@ -125,7 +125,13 @@ export function memoryBucket({
       objects.set(key, { body, etag });
       return { etag };
     },
-    async delete(key) {
+    // Honours `onlyIf.etagMatches` like the R2 and S3 adapters (null on a
+    // mismatch or a missing key), with the same backend flags as `put`.
+    async delete(key, options = {}) {
+      const expected = options?.onlyIf?.etagMatches;
+      if (expected && rejectAllIfMatch) return null;
+      if (expected && shapeOnlyIfMatch && !/^m\d+$/.test(expected)) return null;
+      if (expected && !ignoreIfMatch && !shapeOnlyIfMatch && objects.get(key)?.etag !== expected) return null;
       objects.delete(key);
     },
     async list({ prefix, delimiter } = {}) {

@@ -10,7 +10,7 @@
 import { buildNodeRecord, membershipsFor } from "./facts.js";
 import { readGraphManifest, publishHealth } from "./manifest.js";
 import { nodeKey, pathHash } from "./keys.js";
-import { setMembership } from "./postings.js";
+import { MAX_ATTEMPTS, setMembership } from "./postings.js";
 import { GRAPH_FORMAT_VERSION, GRAPH_RECORD_BYTE_CAP, parseNode, serializeNode } from "./records.js";
 import { exceedsUtf8Bytes } from "../search/maintain.js";
 
@@ -90,11 +90,8 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
   // would hide a real backlink (a missed removal is rejected by validateEntry).
   const ordered = [...union].sort((a, b) => Number(memberships.has(b)) - Number(memberships.has(a)));
   const { published, overflow } = withObligations(record, ordered);
-  if (overflow) {
-    // Mark the dropped portion for a rebuild before the record that drops it.
-    const { manifest, etag } = await readGraphManifest(store, budget);
-    if (manifest) await publishHealth(store, budget, manifest, etag, { health: { rebuildHint: "reverse-repair-overflow" } });
-  }
+  // Mark the dropped portion for a rebuild before the record that drops it.
+  if (overflow) await flagRebuild(store, budget);
 
   if (!budget.take()) return { state: "pending" };
   const onlyIf = (etag) => (conditional ? { onlyIf: etag ? { etagMatches: etag } : { absent: true } } : undefined);
@@ -119,12 +116,44 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
   // observedSourceVersion and referenceSetVersion; a newer record and its
   // obligations are never erased.
   if (conditional && !put.etag) return { state: "pending" };
+  let done;
   if (remove && store.capabilities?.conditionalDelete === true) {
-    const deleted = await store.delete(read.key, conditional ? { onlyIf: { etagMatches: put.etag } } : undefined);
-    return { state: deleted === null ? "stale" : "projected" };
+    done = (await store.delete(read.key, conditional ? { onlyIf: { etagMatches: put.etag } } : undefined)) !== null;
+  } else {
+    const cleared = { ...record, reverseRepair: [], ...(full && { coverage: "partial" }) };
+    done = Boolean(await store.put(read.key, serializeNode(cleared), onlyIf(put.etag)));
   }
-  const cleared = { ...record, reverseRepair: [], ...(full && { coverage: "partial" }) };
-  return { state: (await store.put(read.key, serializeNode(cleared), onlyIf(put.etag))) ? "projected" : "stale" };
+  if (done) return { state: "projected" };
+  return conditional ? handBack(store, budget, read.key, path, ordered) : { state: "stale" };
+}
+
+/**
+ * A newer record replaced ours while our repairs ran, so those repairs may
+ * have overwritten postings the newer call already settled (setMembership
+ * matches by source). Hand our keys to the newest record so the next
+ * projection or sweep reconciles them against it. Returns "pending" whether
+ * the hand-back landed or gave up after MAX_ATTEMPTS, and "stale" when the
+ * record is gone or does not parse.
+ */
+async function handBack(store, budget, key, path, ordered) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    if (!budget.take()) return { state: "pending" };
+    const got = await store.get(key);
+    const node = got ? parseNode(await got.text(), path) : null;
+    if (!node) return { state: "stale" };
+    const keys = new Set(Array.isArray(node.reverseRepair) ? node.reverseRepair.map(fromRef).filter(Boolean) : []);
+    for (const m of ordered) keys.add(m);
+    const { published, overflow } = withObligations(node, [...keys]);
+    if (overflow) await flagRebuild(store, budget);
+    if (!budget.take()) return { state: "pending" };
+    if (await store.put(key, serializeNode(published), { onlyIf: { etagMatches: got.etag } })) return { state: "pending" };
+  }
+  return { state: "pending" };
+}
+
+async function flagRebuild(store, budget) {
+  const { manifest, etag } = await readGraphManifest(store, budget);
+  if (manifest) await publishHealth(store, budget, manifest, etag, { health: { rebuildHint: "reverse-repair-overflow" } });
 }
 
 /**
@@ -133,8 +162,9 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
  * outstanding work), "pending" (stopped by the budget or a posting conflict;
  * the record, if published, carries the outstanding work), "skipped" (the
  * stored record already observed `version` and has nothing outstanding) or
- * "stale" (a conditional write was refused: the caller re-reads the source
- * rather than retrying this body, arch 9.4).
+ * "stale" (the publish was refused: the caller re-reads the source rather
+ * than retrying this body, arch 9.4). A refused clear is "pending": this
+ * call's keys are handed to the newer record (see handBack).
  */
 export async function projectNote(store, path, body, version, { budget, gen, mode, now }) {
   // Read the record before using body/version (arch 9.4 last paragraph).

@@ -24,6 +24,11 @@
  *   delete used without conditionalDelete                                   1
  *
  * Process note: tests written first; RED was the missing module.
+ *
+ * Fix round 1 (red first: the two race tests and the fixture delete test):
+ *   refused clear/delete not handed back (returns "stale")                  3
+ *   hand-back keeps only the newer record's keys (drops ours)               2
+ *   memory fixture delete ignores onlyIf.etagMatches                        2
  */
 
 import assert from "node:assert/strict";
@@ -149,7 +154,8 @@ test("interrupted cleanup: the clear never erases a newer record's obligations",
   };
   const older = await project(s.store, "a.md", links("u.md"), "v2");
   assert.equal(newer.state, "pending");
-  assert.equal(older.state, "stale");
+  // Fix round 1 ruling: a refused clear hands its keys back and reports "pending".
+  assert.equal(older.state, "pending");
   const kept = await node(b, "a.md");
   assert.equal(kept.observedSourceVersion, "v3");
   assert.ok(kept.reverseRepair.length > 0);
@@ -306,4 +312,88 @@ test("best-effort mode projects with unconditional writes", async () => {
   assert.equal((await project(b, "a.md", links("t.md"), "v1", big(), { mode: "best-effort" })).state, "projected");
   assert.equal((await project(b, "a.md", "none", "v2", big(), { mode: "best-effort" })).state, "projected");
   assert.deepEqual(await incoming(b, "t.md"), []);
+});
+
+/** Validated incoming sources, the view a backlink reader gets. */
+const backlinks = async (store, target) => {
+  const { entries } = await readPostings(store, big(), {
+    gen, family: "incoming", hash: await pathHash(target), canSee: () => true, validate: validateEntry(store, big(), gen),
+  });
+  return entries.map((e) => e.source);
+};
+/**
+ * Runs `older` with its first node write paused until `newer` has settled,
+ * the interleaving where the older call's repairs land after the newer
+ * record was cleared.
+ */
+async function race(b, older, newer) {
+  const nk = nodeKey(gen, await pathHash("s.md"));
+  let release;
+  const gate = new Promise((r) => (release = r));
+  let paused = false;
+  const slow = {
+    capabilities: b.capabilities,
+    get: (k) => b.get(k),
+    delete: (k, o) => b.delete(k, o),
+    async put(k, v, o) {
+      const r = await b.put(k, v, o);
+      if (k === nk && !paused) {
+        paused = true;
+        await gate;
+      }
+      return r;
+    },
+  };
+  const pending = older(slow);
+  while (!paused) await new Promise((r) => setTimeout(r, 1));
+  const n = await newer(b);
+  release();
+  return { older: await pending, newer: n };
+}
+
+test("an older call racing a newer projection hands its keys to the newer record", async () => {
+  const b = memoryBucket();
+  const { older, newer } = await race(
+    b,
+    (s) => project(s, "s.md", links("t.md"), "v1"),
+    (s) => project(s, "s.md", links("t.md", "u.md"), "v2"),
+  );
+  assert.equal(newer.state, "projected");
+  assert.notEqual(older.state, "projected");
+  assert.ok((await node(b, "s.md")).reverseRepair.length > 0, "the newest record carries the older call's keys");
+  assert.notEqual((await project(b, "s.md", links("t.md", "u.md"), "v2")).state, "skipped");
+  assert.deepEqual(await backlinks(b, "t.md"), ["s.md"]);
+  assert.deepEqual(await backlinks(b, "u.md"), ["s.md"]);
+});
+
+test("removeNote racing a newer projection hands its keys to the newer record", async () => {
+  const b = memoryBucket();
+  b.capabilities = { conditionalDelete: true };
+  await project(b, "s.md", links("t.md"), "v1");
+  const { older, newer } = await race(
+    b,
+    (s) => removeNote(s, "s.md", { budget: big(), gen, mode }),
+    (s) => project(s, "s.md", links("t.md"), "v2"),
+  );
+  assert.equal(newer.state, "projected");
+  assert.notEqual(older.state, "projected");
+  assert.notEqual((await project(b, "s.md", links("t.md"), "v2")).state, "skipped");
+  assert.deepEqual(await backlinks(b, "t.md"), ["s.md"]);
+});
+
+test("the memory fixture refuses a delete whose etag does not match", async () => {
+  const b = memoryBucket();
+  const { etag } = await b.put("k", "x");
+  assert.equal(await b.delete("k", { onlyIf: { etagMatches: "m999" } }), null);
+  assert.ok(await b.get("k"));
+  assert.notEqual(await b.delete("k", { onlyIf: { etagMatches: etag } }), null);
+  assert.equal(await b.get("k"), null);
+});
+
+test("an edit from encrypted to plain adds the new memberships", async () => {
+  const b = memoryBucket();
+  await project(b, "a.md", "---\ncontext_encryption: v1\n---\nciphertext", "v1");
+  assert.equal((await project(b, "a.md", links("t.md"), "v2")).state, "projected");
+  assert.deepEqual(await backlinks(b, "t.md"), ["a.md"]);
+  assert.deepEqual((await node(b, "a.md")).reverseRepair, []);
 });
