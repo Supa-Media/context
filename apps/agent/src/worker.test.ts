@@ -74,6 +74,24 @@ describe("worker", () => {
     expect(routedTo).toEqual([]);
   });
 
+  it("reports which settings are present, and never a secret's value", async () => {
+    const { env: e } = env();
+    e.LINQ_WEBHOOK_SECRET = "";
+    const response = await worker.fetch(new Request("https://agent.example/health"), e);
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({
+      ok: true,
+      webhook: false,
+      replies: true,
+      workerSecret: true,
+      controlPlane: true,
+      gatewayOrigin: "https://gw.example",
+    });
+    expect(body).not.toContain("cp.example");
+    expect((await worker.fetch(new Request("https://agent.example/health", { method: "POST" }), e)).status).toBe(404);
+  });
+
   it("refuses everything when the deployment has no webhook secret", async () => {
     const { env: e, routedTo } = env();
     e.LINQ_WEBHOOK_SECRET = "";

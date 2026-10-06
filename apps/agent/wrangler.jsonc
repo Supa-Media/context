@@ -2,16 +2,28 @@
   // context-agent: the Worker behind the Context assistant people text over
   // iMessage. See src/index.ts for the flow.
   //
-  // NOT DEPLOYED YET. It needs a Linq line and these secrets before it can run,
-  // and it is deliberately absent from scripts/deploy-plan.mjs until they exist:
+  // Staging deploys on every merge that changes it (deploy-staging.yml); it
+  // is not in the production release until the owner signs off on Linq
+  // carrying message text (docs/decisions/texting-assistant.md).
+  //
+  // Secrets, set by the deploy from the GitHub environment, never committed:
   //
   //   LINQ_WEBHOOK_SECRET   the `whsec_…` secret Linq returns when the webhook
-  //                         subscription is created (shown once)
+  //                         subscription is created (shown once). Absent, every
+  //                         delivery is refused, which is the safe direction.
   //   LINQ_API_KEY          Linq Partner API key, for sending replies
   //   AGENT_WORKER_SECRET   opens the control plane's /agent-texts/* routes only
+  //   CONTROL_PLANE_ORIGIN  the Convex HTTP origin, from CONTROL_PLANE_URL. A
+  //                         secret rather than a var because this repository is
+  //                         public and the hostname names a deployment.
   //
   // The webhook subscription points at https://<this worker>/linq and subscribes
-  // to `message.received` only.
+  // to `message.received` only. `GET /health` reports which of the above are set
+  // (booleans only), and the deploy reads it.
+  //
+  // GATEWAY_ORIGIN is the gateway's own host (apps/mcp/wrangler.toml
+  // PUBLIC_ORIGIN), not the app's: context.lc is the router, and `/agent` there
+  // is a web page, not the gateway.
   "name": "context-agent",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
@@ -21,8 +33,20 @@
   },
   "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
   "vars": {
-    "CONTROL_PLANE_ORIGIN": "",
-    "GATEWAY_ORIGIN": "https://context.lc"
+    "GATEWAY_ORIGIN": "https://mcp.context.lc"
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "name": "context-agent-staging",
+      "workers_dev": true,
+      "durable_objects": {
+        "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
+      },
+      "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+      "vars": {
+        "GATEWAY_ORIGIN": "https://mcp-staging.context.lc"
+      }
+    }
+  }
 }

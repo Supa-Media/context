@@ -36,9 +36,28 @@ export interface Env {
 /** Linq's payloads are small; anything this big is not one of them. */
 const MAX_BODY_BYTES = 256 * 1024;
 
+/**
+ * What the deploy needs to know without a secret: which settings are present.
+ * Booleans only, never a value. The gateway origin is printed because it is
+ * already public (the gateway's own config names it), and the deploy job
+ * calls `/agent` there to prove it reaches the gateway and not the web app.
+ */
+function health(env: Env): Record<string, unknown> {
+  const set = (value: string | undefined) => typeof value === "string" && value.trim() !== "";
+  return {
+    ok: true,
+    webhook: set(env.LINQ_WEBHOOK_SECRET),
+    replies: set(env.LINQ_API_KEY),
+    workerSecret: set(env.AGENT_WORKER_SECRET),
+    controlPlane: set(env.CONTROL_PLANE_ORIGIN),
+    gatewayOrigin: set(env.GATEWAY_ORIGIN) ? env.GATEWAY_ORIGIN : null,
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/health" && request.method === "GET") return Response.json(health(env));
     if (url.pathname !== "/linq") return new Response(null, { status: 404 });
     if (request.method !== "POST") return new Response(null, { status: 405 });
 

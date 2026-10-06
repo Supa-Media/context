@@ -95,6 +95,7 @@ export const TARGETS = {
       transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
+      agent: { packages: ["@context/agent"], worker: "apps/agent" },
       // The gateway's job deploys its screenshot Worker first (a service
       // binding needs its target), so either one changing deploys both.
       mcp: { packages: ["@context/mcp", "@context/site-shots"], worker: "apps/mcp" },
@@ -130,7 +131,9 @@ export const TARGETS = {
       ota: { packages: ["@context/mobile"], files: [workflow("deploy-mobile-update")] },
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-production")],
-    ignored: SHARED_IGNORED,
+    // The texting assistant runs on staging only until the owner signs off on
+    // Linq carrying message text (docs/decisions/texting-assistant.md).
+    ignored: [...SHARED_IGNORED, "apps/agent/**"],
   },
 };
 

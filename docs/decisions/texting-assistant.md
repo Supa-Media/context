@@ -73,7 +73,12 @@ Linq is a third party that carries every message in both directions. Nothing of
 the bucket is stored there, but the text of a question and its answer is. This
 is the same class of decision as a model provider reading note text in flight
 ([inference](./storage-and-credentials/inference.md)), and it needs the
-owner's sign-off before the Worker is deployed.
+owner's sign-off before the Worker reaches production. Staging deploys on every
+merge that changes it, for a pilot on Linq's free test line, where only test
+contacts who text the line first are answered; `scripts/deploy-plan.mjs`
+leaves `apps/agent` out of production until the sign-off. Test:
+`deploy-plan.test.mjs`, "the texting assistant deploys only itself, and only
+to staging".
 
 ### The autofill vault lives sealed in the person's bucket
 
