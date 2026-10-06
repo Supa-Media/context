@@ -1,0 +1,66 @@
+# The texting assistant's own CI.
+#
+# Same gap email-worker.yml closes: the Supa framework's reusable pipeline
+# covers apps/mobile, apps/convex and packages/shared only, so without this
+# job the tests that hold this Worker's security properties — a webhook is
+# acted on only with Linq's signature, group chats never reach a personal
+# context, a redelivered webhook is answered once — would never run in CI.
+name: Agent
+
+# No `paths:` or `branches:` filter on pull_request, for the reasons in
+# mcp.yml: a filtered-out required check never reports, and a base-branch
+# filter skips stacked pull requests. `scripts/check-workflow-triggers.mjs`
+# enforces both.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "apps/agent/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/agent.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: agent-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/agent"
+          paths: ".github/workflows/agent.yml"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        if: steps.scope.outputs.affected == 'true'
+        run: pnpm install --filter @context/agent... --frozen-lockfile
+
+      - name: Typecheck
+        if: steps.scope.outputs.affected == 'true'
+        working-directory: apps/agent
+        run: npx tsc --noEmit
+
+      - name: Tests
+        if: steps.scope.outputs.affected == 'true'
+        working-directory: apps/agent
+        run: npx vitest run

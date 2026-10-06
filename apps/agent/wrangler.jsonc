@@ -1,0 +1,28 @@
+{
+  // context-agent: the Worker behind the Context assistant people text over
+  // iMessage. See src/index.ts for the flow.
+  //
+  // NOT DEPLOYED YET. It needs a Linq line and these secrets before it can run,
+  // and it is deliberately absent from scripts/deploy-plan.mjs until they exist:
+  //
+  //   LINQ_WEBHOOK_SECRET   the `whsec_…` secret Linq returns when the webhook
+  //                         subscription is created (shown once)
+  //   LINQ_API_KEY          Linq Partner API key, for sending replies
+  //   AGENT_WORKER_SECRET   opens the control plane's /agent-texts/* routes only
+  //
+  // The webhook subscription points at https://<this worker>/linq and subscribes
+  // to `message.received` only.
+  "name": "context-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
+  },
+  "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+  "vars": {
+    "CONTROL_PLANE_ORIGIN": "",
+    "GATEWAY_ORIGIN": "https://context.lc"
+  },
+  "observability": { "enabled": true }
+}

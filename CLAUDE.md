@@ -114,6 +114,8 @@ apps/convex/     control plane: accounts, workspaces, usernames, storage
                  bindings, OAuth clients + grants, audit events
 apps/mobile/     Expo (iOS/Android/web): onboarding, dashboard, health
 apps/web/        landing page
+apps/agent/      Cloudflare Worker: the assistant people text (Linq iMessage
+                 webhook → per-sender queue → gateway /agent)
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
 packages/shared/ types and constants shared across apps
