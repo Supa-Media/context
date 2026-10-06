@@ -21,12 +21,14 @@ import {
   D1_STANDALONE_FLOOR,
   DEFERRED_SYNC_FLOOR,
   FALLBACK_LIST_PAGE_CAP,
+  GRAPH_PASS_FLOOR,
   INDEX_RECONCILE_INTERVAL_MS,
   INTERACTIVE_PROJECT_NOTES,
 } from "./pacing.js";
 import { INTERACTIVE_BACKFILL_OPS } from "./visible.js";
 import { listBoundedKeys, listImmediateLayout } from "../notes/storage.js";
 import { syncShardedIndex } from "./shards.js";
+import { reconcileGraph } from "../graph/reconcile.js";
 
 /**
  * The fallback scan's key listing.
@@ -228,12 +230,29 @@ async function maintainNow(store, budget, isIndexable, found, visibilityOf, opti
     // projection still gets its turn below, because a failed listing is not a
     // reason to stop copying the notes that were already indexed.
   }
-  if (!projecting) return;
-  try {
-    await projectAfterSync(store, budget, synced, visibilityOf, options);
-  } catch {
-    // Same rule, one layer down. `projectPass` already turns every provider
-    // failure into a reported code; this is the belt to that pair of braces.
+  if (projecting) {
+    try {
+      await projectAfterSync(store, budget, synced, visibilityOf, options);
+    } catch {
+      // Same rule, one layer down. `projectPass` already turns every provider
+      // failure into a reported code; this is the belt to that pair of braces.
+    }
+  }
+  // The link graph last, on what search and D1 left, over the census this
+  // sync just produced. A derivative: its failure changes nothing above.
+  if (synced?.manifest && budget.remaining >= GRAPH_PASS_FLOOR) {
+    try {
+      const freshness = synced.manifest.freshness;
+      await reconcileGraph(store, budget, {
+        census: censusFromManifest(synced.manifest),
+        censusComplete: !synced.listingTruncated && Boolean(freshness?.listedAt) && !freshness?.truncated,
+        removedHints: synced.removed || [],
+        isIndexable,
+        now: Date.now(),
+      });
+    } catch {
+      // Reconciliation repairs it on a later pass.
+    }
   }
 }
 

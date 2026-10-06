@@ -50,29 +50,33 @@ async function walk(store, budget, { gen, family, hash }) {
 }
 
 /**
- * Set (present) or clear (not present) `source` in the posting. Returns
+ * Set (present) or clear (not present) `source` in the posting. With `exact`
+ * (clear only), only entries naming exactly this `referenceSetVersion` are
+ * removed, so the reconciliation audit never drops another entry of the same
+ * source that `validateEntry` may accept. Returns
  * "done", "conflict" (refused MAX_ATTEMPTS times, or the walk did not reach a clean
  * end of chain, an unparseable page or a bad `next` or the read cap: nothing is written and reconciliation must repair it),
  * "budget" (the budget cannot cover the read or every planned write; nothing
  * from this attempt is written) or "full" (the chain is at MAX_POSTING_PAGES
  * and the entry cannot be added; callers mark coverage partial).
  */
-export async function setMembership(store, budget, { gen, family, hash, source, referenceSetVersion, present, mode }) {
+export async function setMembership(store, budget, { gen, family, hash, source, referenceSetVersion, present, mode, exact = false }) {
   const conditional = mode === "conditional";
   const entry = { source, referenceSetVersion };
+  const match = !present && exact ? (e) => sameEntry(e, entry) : (e) => e.source === source;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const { slots, status } = await walk(store, budget, { gen, family, hash });
     if (status === "budget") return "budget";
     // Anything but a clean end of chain (corrupt page, bad `next`, read cap):
     // the walk may not have reached `source`, so write nothing.
     if (status !== "end") return "conflict";
-    const mine = slots.flatMap((s) => s.entries.filter((e) => e.source === source));
+    const mine = slots.flatMap((s) => s.entries.filter(match));
     if (mine.length === 1 && present && sameEntry(mine[0], entry)) return "done";
     if (mine.length === 0 && !present) return "done";
 
     const changed = new Set();
     for (const s of slots) {
-      const kept = s.entries.filter((e) => e.source !== source);
+      const kept = s.entries.filter((e) => !match(e));
       if (kept.length !== s.entries.length) {
         s.entries = kept;
         changed.add(s);

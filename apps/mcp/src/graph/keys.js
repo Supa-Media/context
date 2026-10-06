@@ -16,6 +16,9 @@ function seg(value, re, name) {
 const FAMILIES = new Set(["incoming", "bare", "names", "urls"]);
 
 export const graphManifestKey = () => `${GRAPH_ROOT}manifest.json`;
+/** Everything one generation holds; the reconciliation audit lists under it. */
+export const generationPrefix = (gen) => `${GRAPH_ROOT}g/${seg(gen, GEN, "gen")}/`;
+export const maintenanceCursorKey = (gen) => `${generationPrefix(gen)}maintenance/cursor.json`;
 export const nodeKey = (gen, pathHash) =>
   `${GRAPH_ROOT}g/${seg(gen, GEN, "gen")}/nodes/${seg(pathHash, HASH, "hash")}.json`;
 

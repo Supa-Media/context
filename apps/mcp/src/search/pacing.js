@@ -44,6 +44,14 @@ export const D1_OPS_PER_NOTE = 6;
  */
 export const D1_PASS_RESERVE_CAP = 4 + D1_PASS_NOTE_CAP * D1_OPS_PER_NOTE;
 /**
+ * Ops that must remain after the sync and the D1 projection before the graph
+ * reconciliation pass starts (OPEN-21): one stale note's worth (the graph
+ * manifest, the node read, the body read, the node write, two posting page
+ * read/write pairs, the clear). No reserve is taken before the sync: the graph
+ * gets only what search and D1 leave.
+ */
+export const GRAPH_PASS_FLOOR = 9;
+/**
  * Notes the projection may copy while somebody is waiting.
  *
  * Only reached on a host with no `waitUntil`, where maintenance runs inline
