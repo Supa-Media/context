@@ -560,3 +560,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - This repository is public and MIT licensed
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 - No handwritten file over 1,000 lines, and the allowance only shrinks
+
+## [The texting assistant](./texting-assistant.md)
+
+- The Worker decides nothing about access
+- A webhook is acted on only with Linq's signature
+- Group chats never reach a personal context
+- Only iMessage is answered, because the sender number is the login
+- The Worker holds message text only while it is answering it
+- OPEN: messages pass through Linq
+- The autofill vault lives sealed in the person's bucket
