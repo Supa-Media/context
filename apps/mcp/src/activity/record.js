@@ -39,6 +39,7 @@ export async function recordChange(store, action, actorScope, paths, details = {
   await recordActivity(store, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
   announceWebsiteChange(store, paths);
+  announceRoutineChange(store, paths);
   await indexChangedNotes(store, action, paths, details);
 }
 
@@ -183,6 +184,38 @@ function announceWebsiteChange(store, paths) {
   if (typeof store.reportWebsiteChange !== "function") return;
   if (!Array.isArray(paths) || !paths.some(touchesWebsite)) return;
   const work = Promise.resolve(store.reportWebsiteChange()).catch(() => {});
+  if (typeof store.defer !== "function") return;
+  try {
+    store.defer(work);
+  } catch {
+    // A host whose `waitUntil` refuses the work simply does not report.
+  }
+}
+
+/** The schedule folder (`packages/shared/src/routines.cjs`). */
+const ROUTINES_ROOT = "routines";
+
+/** At most this many paths go in one report; the control plane re-lists anyway. */
+export const MAX_ROUTINE_PATHS = 50;
+
+/**
+ * Tell the control plane a routine may have been added, changed, moved or
+ * deleted, and who did it: a routine runs as the person who last wrote it.
+ *
+ * Paths and the acting user, never text. The control plane re-reads the
+ * `routines/` folder itself before it schedules anything, so a report is a
+ * nudge and a writer, not a fact it trusts about the file. Deferred and
+ * best-effort like its neighbours; a missed one costs the freshness the
+ * control plane's periodic re-read restores.
+ */
+export function announceRoutineChange(store, paths) {
+  if (typeof store.reportRoutineChange !== "function" || !Array.isArray(paths)) return;
+  const touched = paths
+    .map((path) => String(path).replace(/^\/+|\/+$/g, ""))
+    .filter((path) => path === ROUTINES_ROOT || path.startsWith(`${ROUTINES_ROOT}/`))
+    .slice(0, MAX_ROUTINE_PATHS);
+  if (touched.length === 0) return;
+  const work = Promise.resolve(store.reportRoutineChange(touched, store.actor?.userId ?? null)).catch(() => {});
   if (typeof store.defer !== "function") return;
   try {
     store.defer(work);
