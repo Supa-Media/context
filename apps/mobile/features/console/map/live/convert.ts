@@ -174,6 +174,8 @@ export type CrossMove = {
 
 export function eventsFromCrossMoves(moves: readonly CrossMove[]): MapEvent[] {
   return moves
+    // A folder's move names folder paths, which are no dot on the map; its notes arrive with the next graph read.
+    .filter((m) => m.fromPath.endsWith(".md") && m.toPath.endsWith(".md"))
     .map((m): MapEvent => {
       const name = m.actorName ?? "Someone";
       const actor: ActorRef =

@@ -1,3 +1,4 @@
+import type { Id } from "@context/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { graphFromAnswer, type GraphAnswer } from "../convert";
@@ -37,7 +38,7 @@ export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boole
     const load = () => {
       for (const ws of workspaces) {
         void readRef
-          .current({ workspaceId: ws.id })
+          .current({ workspaceId: ws.id as Id<"workspaces"> })
           .then((answer) => {
             if (!stopped) setAnswers((prev) => new Map(prev).set(ws.id, answer));
           })

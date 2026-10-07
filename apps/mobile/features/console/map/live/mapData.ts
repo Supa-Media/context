@@ -1,33 +1,18 @@
-import { makeFunctionReference } from "convex/server";
-import type { CrossMove, GraphAnswer, HistoryEntry } from "./convert";
+import { api } from "@context/convex/_generated/api";
 
 /**
  * THE MAP'S CONTROL-PLANE CALLS, IN ONE PLACE.
  *
- * The three functions the map reads are being added to the control plane
- * beside this page (`files.workspaceGraph`, `files.listActivity`'s `since`, and
- * `workspaceMoves.list`), so they are named here by their string path rather
- * than through `api`, and typed by the shapes `convert.ts` reads. When they
- * land, these can become `api.functions.…` references with no change anywhere
- * else; if a name moves, this is the only file to touch.
+ * The three functions the map reads, so that a renamed function is one line
+ * here and the hooks never name `api` themselves. What each answer means, and
+ * how it becomes the engine's shapes, is `convert.ts`'s.
  */
 
-/** Every visible note of one workspace and the links between them. */
-export const workspaceGraphRef = makeFunctionReference<"action", { workspaceId: string }, GraphAnswer>(
-  "functions/files:workspaceGraph",
-);
+/** Every visible note of one workspace and the links between them (`files.workspaceGraph`). */
+export const workspaceGraphRef = api.functions.files.workspaceGraph;
 
-/** `activity.md`'s lines since `since` (epoch ms), newest first, each with its move pairs. */
-export const listActivityRef = makeFunctionReference<
-  "action",
-  { workspaceId: string; since?: number; limit?: number },
-  HistoryEntry[]
->("functions/files:listActivity");
+/** `activity.md`'s lines since `since` (epoch ms), each with its move pairs (`files.listActivity`). */
+export const listActivityRef = api.functions.files.listActivity;
 
-/** Notes moved between the caller's own workspaces in `[from, to]`. */
-export const workspaceMovesRef = makeFunctionReference<
-  "action",
-  { from: number; to: number },
-  { moves: CrossMove[]; truncated: boolean }
->("functions/workspaceMoves:list");
-
+/** Notes moved between the caller's own workspaces in `[from, to]`, at most 31 days (`workspaceMoves.list`). */
+export const workspaceMovesRef = api.functions.workspaceMoves.list;

@@ -106,6 +106,14 @@ describe("history for a replay", () => {
     expect(e).toEqual({ kind: "move", at: 5, workspaceId: "ws-a", from: "0-inbox/a.md", to: "1-projects/a.md", toWorkspaceId: "ws-b", actor: { id: "h:@seyi", kind: "person", name: "@seyi" } });
   });
 
+  test("a folder moved between workspaces is not drawn as one note flying", () => {
+    expect(
+      eventsFromCrossMoves([
+        { at: 5, fromWorkspaceId: "ws-a", toWorkspaceId: "ws-b", fromPath: "1-projects/old", toPath: "4-archive/old", actorName: null, via: "agent" },
+      ]),
+    ).toEqual([]);
+  });
+
   test("the same event from two sources is kept once", () => {
     const a = eventsFromHistory([{ at: "2026-10-07T10:00:00.000Z", kind: "added", paths: ["a.md"], by: "@m", via: null }], "w");
     expect(mergeEvents(a, a)).toHaveLength(1);

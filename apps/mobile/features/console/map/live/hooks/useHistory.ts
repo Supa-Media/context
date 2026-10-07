@@ -1,3 +1,4 @@
+import type { Id } from "@context/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { eventsFromCrossMoves, eventsFromHistory, mergeEvents } from "../convert";
@@ -32,7 +33,7 @@ export function useReplayHistory(span: { from: number; to: number } | null, work
     setEvents(null);
     const reads = workspaceIds.map((workspaceId) =>
       calls.current
-        .list({ workspaceId, since: from })
+        .list({ workspaceId: workspaceId as Id<"workspaces">, since: from })
         .then((entries) => eventsFromHistory(entries, workspaceId))
         .catch(() => [] as MapEvent[]),
     );

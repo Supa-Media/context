@@ -68,7 +68,7 @@ export function mapNotice(page: Pick<MapPageState, "graphs" | "historyLoading" |
   if (page.historyLoading) return "Gathering what happened…";
   const notes = page.data.graphs.reduce((n, g) => n + g.nodes.length, 0);
   if (notes === 0) return "No notes to draw here yet.";
-  if (page.graphs.partial.indexMissing) return "Some notes are still being indexed, so not all of them are on the map yet.";
+  if (page.graphs.partial.indexMissing) return "This workspace's map is still being built.";
   if (page.graphs.partial.truncated) return "This workspace is too big to draw every note; the map shows the first part of it.";
   if (page.graphs.partial.behind) return "The map is catching up with the latest changes.";
   return null;
