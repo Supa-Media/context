@@ -49,6 +49,11 @@ export const meaningTables = {
     indexName: v.optional(v.string()),
     /** Ours, from a closed set — never a provider's text. */
     errorCode: v.optional(v.string()),
+    /**
+     * Which call failed, from the same closed set as the log line (`http_400`,
+     * `timeout`, `internal`…), so the admin console can say it. Never text.
+     */
+    errorCause: v.optional(v.string()),
     /** Operator-facing detail. Never a credential. */
     error: v.optional(v.string()),
     /** Backfill progress, so the app can say how far it has got. */

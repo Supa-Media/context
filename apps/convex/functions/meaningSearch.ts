@@ -119,6 +119,7 @@ export const recordProvisionResult = internalMutation({
     ),
     indexName: v.optional(v.string()),
     errorCode: v.optional(v.string()),
+    errorCause: v.optional(v.string()),
     error: v.optional(v.string()),
     notesIndexed: v.optional(v.number()),
   },

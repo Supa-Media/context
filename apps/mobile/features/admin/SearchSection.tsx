@@ -8,6 +8,9 @@
  * whose chart it shares: its own window, a workspace filter, a tile per view
  * that also picks what the rest of the tab shows.
  *
+ * Above them, the search-by-meaning indexing panel (`./MeaningIndexPanel`):
+ * every workspace's index and a Restart button (the owner, 2026-10-07).
+ *
  * The figures are `searchReport` (`apps/convex/functions/lib/adminFns/
  * searchReport.ts`); the words for them are `./search`.
  */
@@ -21,6 +24,7 @@ import { pointerType } from "../design/tokens";
 import { EmptyNote, NoticeLine, Panel, Skeleton, TwoUp, useCompact } from "./AdminKit";
 import { ListRow, RowValue, TableHead, TableRow, type Column } from "./AdminTable";
 import { AgentChart } from "./AgentChart";
+import { MeaningIndexPanel } from "./MeaningIndexPanel";
 import { whenLabel } from "./agent";
 import { Segments } from "./Segments";
 import {
@@ -52,6 +56,7 @@ export function SearchSection() {
 
   return (
     <View style={styles.section} testID="admin-search">
+      <MeaningIndexPanel />
       <View style={styles.filters}>
         <Segments options={SEARCH_WINDOWS} value={days} onChange={setDays} label="Window" testID="admin-search-days" />
         <TextField

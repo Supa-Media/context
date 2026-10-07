@@ -119,8 +119,8 @@ export function meaningDiff(census, notes) {
  * @param {number} [options.noteCap]
  * @param {number} [options.indexPending] notes the R2 index itself has not reached
  * @returns {Promise<{embedded: number, deleted: number, notesIndexed: number,
- *   notesPending: number, ready: boolean, moved: boolean, failure: string|null}>}
- *   counts only: no path, no title, no text.
+ *   notesPending: number, ready: boolean, moved: boolean, failure: string|null,
+ *   failureCause: string|null}>} counts only: no path, no title, no text.
  */
 export async function meaningPass(
   store,
@@ -128,7 +128,7 @@ export async function meaningPass(
 ) {
   const notes = await readMeaningState(store, generation);
   const { changed, removed } = meaningDiff(census, notes);
-  const result = { embedded: 0, deleted: 0, failure: null };
+  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null };
   let dirty = false;
 
   const finish = async () => {
@@ -138,7 +138,10 @@ export async function meaningPass(
       } catch {
         // The vectors landed; the map did not. The next pass re-embeds what
         // this one did, which costs a model call and changes no answer.
-        result.failure = result.failure ?? "STORE_FAILED";
+        if (result.failure === null) {
+          result.failure = "STORE_FAILED";
+          result.failureCause = "store";
+        }
       }
     }
     const left = meaningDiff(census, notes);
@@ -153,6 +156,7 @@ export async function meaningPass(
       ready: result.failure === null && notesPending === 0 && indexPending === 0,
       moved: result.embedded > 0 || result.deleted > 0,
       failure: result.failure,
+      failureCause: result.failureCause,
     };
   };
 
@@ -208,6 +212,9 @@ export async function meaningPass(
     await flush();
   } catch (error) {
     result.failure = error instanceof MeaningError ? error.code : "REFUSED";
+    // Our closed set of causes, or "internal" for an error of our own code:
+    // which call failed is what an operator needs, and never its message.
+    result.failureCause = error instanceof MeaningError ? (error.failureCause ?? null) : "internal";
   }
   return await finish();
 }

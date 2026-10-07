@@ -34,8 +34,16 @@ const MEANING_RESPONSE_BYTE_CAP = 1_000_000;
 /** Vectors per upsert request. The HTTP API takes 5,000; a refused one stays small. */
 export const UPSERT_BATCH = 500;
 
-/** Ids per delete request. */
-export const DELETE_BATCH = 500;
+/**
+ * Ids per delete request. Vectorize refuses more than 20 ids in one request
+ * with a 400 ("max id count is 20", code 40007; measured on `get_by_ids`
+ * 2026-10-07). At 500, every catch-up pass that cleared old passages was
+ * refused after its upsert landed, and the walk stopped after one pass.
+ */
+export const DELETE_BATCH = 20;
+
+/** Delete requests in flight at once. */
+export const DELETE_CONCURRENCY = 5;
 
 /**
  * Most matches one query asks for. Vectorize returns at most 50 with metadata;
@@ -140,8 +148,18 @@ export function createMeaningClient(descriptor, options = {}) {
   /** Remove passages by id. An id that is not there is not an error. */
   async function deleteByIds(ids) {
     const list = (Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && id);
+    const groups = [];
     for (let start = 0; start < list.length; start += DELETE_BATCH) {
-      await post("/delete_by_ids", JSON.stringify({ ids: list.slice(start, start + DELETE_BATCH) }));
+      groups.push(list.slice(start, start + DELETE_BATCH));
+    }
+    // A few at a time: the cap makes many small requests, and one after
+    // another they would add seconds to every catch-up pass.
+    for (let start = 0; start < groups.length; start += DELETE_CONCURRENCY) {
+      await Promise.all(
+        groups
+          .slice(start, start + DELETE_CONCURRENCY)
+          .map((group) => post("/delete_by_ids", JSON.stringify({ ids: group }))),
+      );
     }
     return list.length;
   }

@@ -140,3 +140,13 @@ that one is being set up or has failed, so a missing permission costs one
 failed row, retried every six hours, rather than one per workspace.
 `MEANING_SEARCH_ROLLOUT=disabled` on the deployment stops the walk without a
 deploy. Tests: `apps/convex/__tests__/meaningRollout.test.ts`.
+
+**A delete carries at most 20 ids.** Vectorize refuses more in one request with
+a 400 (code 40007). At 500, the first production rollout (2026-10-07) stopped
+every workspace larger than one 40-note pass: the upsert landed, the cleanup
+delete was refused, the row went `failed` on a code the sweep waits six hours
+on, and the map was never written. `DELETE_BATCH` is 20, sent five at a time.
+The row now keeps which call failed (`errorCause`, our closed set), and the
+admin console's Search tab lists every index with a Restart button that keeps
+the generation and never overrides an owner's off. Tests:
+`apps/mcp/test/meaningCatchup.test.mjs`, `apps/convex/__tests__/meaningAdmin.test.ts`.

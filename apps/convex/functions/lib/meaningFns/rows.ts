@@ -61,6 +61,7 @@ export async function enableMeaningHandler(
       enabledAt: now,
       status: "provisioning",
       errorCode: undefined,
+      errorCause: undefined,
       error: undefined,
       updatedAt: now,
     });
@@ -144,6 +145,7 @@ export async function recordMeaningProvisionHandler(
     status: Exclude<MeaningRowStatus, "releasing" | "off">;
     indexName?: string;
     errorCode?: string;
+    errorCause?: string;
     error?: string;
     notesIndexed?: number;
   },
@@ -160,6 +162,7 @@ export async function recordMeaningProvisionHandler(
     status: args.status,
     ...(args.indexName !== undefined ? { indexName: args.indexName } : {}),
     errorCode: args.status === "failed" ? args.errorCode : undefined,
+    errorCause: args.status === "failed" ? args.errorCause : undefined,
     error: args.status === "failed" ? args.error : undefined,
     ...(args.notesIndexed !== undefined ? { notesIndexed: args.notesIndexed } : {}),
     updatedAt: Date.now(),
@@ -260,7 +263,13 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
   for (const row of await due("failed", MEANING_RETRY_MS)) {
     if (!row.enabled) continue;
     if (!isRetryableMeaningError(row.errorCode) && row.updatedAt >= now - MEANING_CONFIG_RETRY_MS) continue;
-    await ctx.db.patch(row._id, { status: "provisioning", errorCode: undefined, error: undefined, updatedAt: now });
+    await ctx.db.patch(row._id, {
+      status: "provisioning",
+      errorCode: undefined,
+      errorCause: undefined,
+      error: undefined,
+      updatedAt: now,
+    });
     await ctx.scheduler.runAfter(0, internal.functions.meaningProvision.provisionMeaningIndex, {
       workspaceId: row.workspaceId,
     });
