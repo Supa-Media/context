@@ -5,6 +5,8 @@
 // overwritten, so an older client cannot clear state it does not understand.
 import { graphManifestKey } from "./keys.js";
 import { graphMode } from "./mode.js";
+import { PARSER_VERSION, RESOLVER_VERSION } from "./facts.js";
+import { URL_KEY_VERSION } from "./urlKey.js";
 import { GRAPH_FORMAT_VERSION, parseManifest, serializeManifest } from "./records.js";
 
 /**
@@ -18,6 +20,9 @@ export async function readGraphManifest(store, budget) {
   if (!got) return { manifest: null, etag: null, absent: true };
   return { manifest: parseManifest(await got.text()), etag: got.etag ?? null, absent: false };
 }
+
+/** The versions the running code projects with; a manifest naming others is rebuilt (arch 9.6). */
+export const codeVersions = () => ({ parserVersion: PARSER_VERSION, resolverVersion: RESOLVER_VERSION, urlKeyVersion: URL_KEY_VERSION });
 
 export async function loadGraphManifest(store, budget) {
   return (await readGraphManifest(store, budget)).manifest;
@@ -33,6 +38,7 @@ export async function initGraphManifest(store, budget, { mode, now }) {
     formatVersion: GRAPH_FORMAT_VERSION,
     generation: "1",
     building: null,
+    ...codeVersions(),
     mode,
     health: { state: "partial", sweepComplete: false },
     createdAt: new Date(now).toISOString(),
@@ -53,21 +59,18 @@ export async function initGraphManifest(store, budget, { mode, now }) {
 }
 
 /**
- * Conditional update of health (shallow merge) and, when given, generation or
- * building. Returns true when written. A refused write is dropped: the next
+ * Conditional update of health (shallow merge) and, when given, any other
+ * top-level field (generation, building, the cutover fields of rebuild.js).
+ * Returns true when written. A refused write is dropped: the next
  * pass recomputes. Refuses a manifest that did not parse, and in best-effort
  * mode re-reads first so an unconditional put never replaces a manifest this
  * client cannot parse.
  */
 export async function publishHealth(store, budget, manifest, etag, patch) {
   if (!manifest || parseManifest(JSON.stringify(manifest)) === null) return false;
-  const { health, generation, building } = patch;
-  const next = {
-    ...manifest,
-    ...(generation !== undefined && { generation }),
-    ...(building !== undefined && { building }),
-    health: { ...manifest.health, ...health },
-  };
+  const { health, ...fields } = patch;
+  const given = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+  const next = { ...manifest, ...given, health: { ...manifest.health, ...health } };
   if (parseManifest(JSON.stringify(next)) === null) return false;
   let options;
   if (graphMode(store) === "conditional") {

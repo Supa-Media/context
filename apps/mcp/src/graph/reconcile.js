@@ -30,6 +30,13 @@
 // before the removal lands is lost; the node audit re-asserts it on the next
 // audit cycle. And `ready` means "as of the last wrap": nothing was pending
 // when the sweep last wrapped, not that every node is settled right now.
+//
+// Generations (rebuild.js): while the manifest names a `building` generation,
+// every piece above runs on it instead of the active one, in the sweep-first
+// order, and its wraps publish no health; two consecutive clean wraps on a
+// complete census cut over. The active generation gets only pinned writes
+// until then (removal hints included go to the building one). A `collect`
+// generation is garbage-collected first, on at most half the pass.
 import { membershipsFor } from "./facts.js";
 import { generationPrefix, maintenanceCursorKey, nodeKey, pathHash } from "./keys.js";
 import { initGraphManifest, publishHealth, readGraphManifest } from "./manifest.js";
@@ -37,6 +44,7 @@ import { graphMode } from "./mode.js";
 import { setMembership } from "./postings.js";
 import { projectNote, readNode, removeNote, validateEntry } from "./project.js";
 import { parseNode, parsePage } from "./records.js";
+import { collectGarbage, cutover, needsRebuild, startRebuild } from "./rebuild.js";
 
 // Kept back for the end of the pass: manifest read, health put, cursor put,
 // plus publishHealth's re-read in best-effort mode.
@@ -56,7 +64,8 @@ const capped = (budget, keep) => ({
   take: (reserve = 0) => budget.take(reserve + keep),
 });
 
-const freshCursor = () => ({ sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, auditTurn: false });
+// `recheck`: the building generation's last wrap was clean; the next clean one cuts over.
+const freshCursor = () => ({ sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, auditTurn: false, recheck: false });
 
 async function readCursor(store, budget, gen) {
   if (!budget.take()) return null;
@@ -79,6 +88,7 @@ async function readCursor(store, budget, gen) {
         auditCursor: value.auditCursor,
         sweepPending: value.sweepPending,
         auditTurn: value.auditTurn === true,
+        recheck: value.recheck === true,
       }
     : freshCursor();
   return { cursor, etag: got.etag ?? null };
@@ -285,16 +295,22 @@ async function audit(store, budget, ctx, cursor, out) {
 
 /**
  * One bounded reconciliation pass. Returns `{ projected, pending,
- * sweepComplete }` (internal, never printed to a caller). `sweepComplete` is
- * true when this pass wrapped the sweep over a complete census.
+ * sweepComplete, cutover? }` (internal, never printed to a caller).
+ * `sweepComplete` is true when this pass wrapped the sweep over a complete
+ * census; `cutover` is true when it swapped to the building generation.
  */
 export async function reconcileGraph(store, budget, { census, censusComplete, removedHints = [], isIndexable, now }) {
   const out = { projected: 0, pending: 0, sweepComplete: false };
   const mode = graphMode(store);
-  let { manifest, absent } = await readGraphManifest(store, budget);
+  let { manifest, etag, absent } = await readGraphManifest(store, budget);
   if (!manifest && absent) manifest = await initGraphManifest(store, budget, { mode, now });
   if (!manifest) return out;
-  const gen = manifest.generation;
+  if (!manifest.building && needsRebuild(manifest)) {
+    await startRebuild(store, budget, manifest, etag, now); // the next pass builds
+    return out;
+  }
+  const building = manifest.building !== null;
+  const gen = building ? manifest.building.generation : manifest.generation;
   const read = await readCursor(store, budget, gen);
   if (!read) return out;
   const { cursor } = read;
@@ -303,6 +319,7 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   const reserve = wrapReserve(mode);
   const work = capped(budget, reserve);
   ctx.validate = validateEntry(store, work, gen);
+  await collectGarbage(store, work, manifest);
 
   for (const path of removedHints) {
     if (typeof path !== "string" || !isIndexable(path) || census.has(path)) continue;
@@ -314,20 +331,33 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   // the whole remainder on its turn; a split share could fall below the
   // audit's smallest unit and livelock it. Before ready the sweep comes first
   // and the audit gets what it leaves.
-  const auditFirst = censusComplete && manifest.health.state === "ready" && cursor.auditTurn;
-  if (censusComplete && manifest.health.state === "ready") cursor.auditTurn = !cursor.auditTurn;
+  // The active generation's health says nothing about a building one.
+  const ready = !building && manifest.health.state === "ready";
+  const auditFirst = censusComplete && ready && cursor.auditTurn;
+  if (censusComplete && ready) cursor.auditTurn = !cursor.auditTurn;
   if (auditFirst) await audit(store, work, ctx, cursor, out);
   const wrapped = await sweep(store, work, ctx, cursor, out);
   if (censusComplete && !auditFirst) await audit(store, work, ctx, cursor, out);
 
   if (wrapped) {
     if (censusComplete) {
-      const fresh = await readGraphManifest(store, budget);
       // Ready only when the whole wrap found nothing pending.
       const state = cursor.sweepPending ? "behind" : "ready";
       const health = { sweepComplete: true, lastSweepAt: new Date(now).toISOString(), state };
-      if (fresh.manifest?.generation === gen) await publishHealth(store, budget, fresh.manifest, fresh.etag, { health });
+      if (!building) {
+        const fresh = await readGraphManifest(store, budget);
+        if (fresh.manifest?.generation === gen) await publishHealth(store, budget, fresh.manifest, fresh.etag, { health });
+      } else if (state === "ready" && cursor.recheck) {
+        // This clean wrap was the re-check (OPEN-16): cut over.
+        const fresh = await readGraphManifest(store, budget);
+        if (fresh.manifest?.building?.generation === gen) out.cutover = await cutover(store, budget, fresh, health);
+        cursor.recheck = false;
+      } else {
+        cursor.recheck = state === "ready";
+      }
       out.sweepComplete = true;
+    } else {
+      cursor.recheck = false;
     }
     Object.assign(cursor, { sweepCursor: "", sweepStartedAt: "", sweepPending: false });
   }

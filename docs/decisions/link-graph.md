@@ -37,8 +37,10 @@ a reviewer.
 
 - **Graph code touches nothing outside `.context/graph/`** (architecture 2.2).
   Reconciliation never writes or deletes the forwarding ledger or any other
-  `.context/` object. The rebuild (Phase 2 Task 11, not yet built) is bound by
-  the same rule.
+  `.context/` object. The rebuild (`rebuild.js`) is bound by the same rule:
+  garbage collection deletes only the collected generation's own
+  `g/<gen>/` prefix, never the serving, building or retained one, and only on
+  a store with `conditionalDelete` (controller ruling OPEN-22).
 - **Reads are filtered by `canSee`, per source, before validation**
   (architecture, same rule as the search index). A source the caller cannot
   see never appears and never reaches `validate`, because a posting page holds
@@ -88,7 +90,10 @@ and an unfiltered posting read leaks the existence of private notes.
 - Disposable and confined to its prefix: `graphReconcile.test.mjs`, "nothing
   outside .context/graph/ is ever written or deleted"; `graphRecords.test.mjs`,
   "every key keys.js produces is plumbing and never indexable" and "key
-  builders throw on bad segments and never leave the graph prefix".
+  builders throw on bad segments and never leave the graph prefix";
+  `graphRebuild.test.mjs`, "GC after the second cutover deletes only g/<old>/
+  in bounded pages and nothing else" and "nothing outside .context/graph/ is
+  written or deleted through a rebuild, two cutovers and GC".
 - Encrypted notes excluded: `graphFacts.test.mjs`, "encrypted body is excluded
   with no memberships at all"; `graphProject.test.mjs`, "an edit to encrypted
   removes every prior membership"; `graphReconcile.test.mjs`, "an encrypted
