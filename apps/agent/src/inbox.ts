@@ -16,11 +16,13 @@
  * - `chat` holds the Linq chat id of this sender's last accepted text, never
  *   text, so a routine can text them unprompted (routines.ts). Linq's line
  *   only reaches people who texted it first, and this is the record of that.
+ * - `card` holds a timestamp, never text: when this sender was last offered
+ *   the line's contact card, so it is offered at most once a day.
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
  */
 
-import { sendLinqText, startLinqTyping, type Fetch } from "./clients";
+import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
 import { replyTo, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 
@@ -48,6 +50,10 @@ export const MAX_PENDING = 20;
  * simulator's own chats are marked, so a routine there lands in its log.
  */
 export const CHAT_KEY = "chat";
+
+/** When this sender was last offered the contact card; Linq asks for once a day at most. */
+export const CARD_KEY = "card";
+export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
 
 const seenKey = (eventId: string) => `seen:${eventId}`;
@@ -98,6 +104,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
         );
       }
       await storage.delete(key);
+      if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, deps);
     } catch {
       const attempts = item.attempts + 1;
       if (attempts >= MAX_SEND_ATTEMPTS) {
@@ -114,11 +121,26 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   await pruneSeen(storage, deps.now());
 }
 
+/**
+ * Share the line's contact card, so Messages names it "Context" with its icon,
+ * once a day at most. Linq needs an outbound message in the chat first, which
+ * is why this runs after a reply was sent. The time is kept whether or not Linq
+ * accepted it, so a line with no card set up costs one request a day, not one
+ * per text.
+ */
+async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
+  const last = await storage.get<number>(CARD_KEY);
+  if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
+  await storage.put(CARD_KEY, deps.now());
+  await shareLinqContactCard(deps.fetch as Fetch, deps.linqApiKey, chatId);
+}
+
 /** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
 export const TYPING_REFRESH_MS = 55_000;
 
 /**
- * Work out the reply with the typing bubble showing, as a person would.
+ * Mark the text read and work out the reply with the typing bubble showing,
+ * as a person would.
  *
  * The first bubble is awaited (it is quick, and bounded) so it cannot land
  * after a fast reply and hang in the chat; a renewal still in flight is
@@ -127,6 +149,9 @@ export const TYPING_REFRESH_MS = 55_000;
  */
 async function answering(message: Message, deps: InboxDeps): Promise<string[]> {
   if (message.channel === "simulator") return replyTo(message, deps);
+  // Read first, then the bubble, as a person would: the text is seen, then
+  // answered. Both are quick and never throw.
+  await markLinqRead(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
   const typing = () => startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
   await typing();
   let renewal: Promise<void> = Promise.resolve();
