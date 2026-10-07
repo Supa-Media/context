@@ -113,6 +113,7 @@ const MAX_ENTRY_PATHS = 5;
 const MAX_SUMMARY_LENGTH = 140;
 
 const { KINDS, SUBSTANCE } = require("./activityVocabulary.cjs");
+const { decodeMoves, mergeMoves, movePairsOf, visibleMoves } = require("./activityMoves.cjs");
 
 /**
  * Paths that never produce a line, whatever the action says.
@@ -237,7 +238,8 @@ function entryFor(input) {
       ? touched.filter((_, index) => index % 2 === 1).slice(0, MAX_ENTRY_PATHS)
       : touched.slice(0, MAX_ENTRY_PATHS);
 
-  const moves = kind === "moved" ? movePairsOf(action, touched) : [];
+  // An archive is a move into the archive folder, and names its pair the same way.
+  const moves = kind === "moved" || kind === "archived" ? movePairsOf(action, touched) : [];
 
   return {
     at: typeof at === "string" ? at : new Date().toISOString(),
@@ -250,44 +252,6 @@ function entryFor(input) {
     note: normalizeSummary(meta.summary),
     ...(moves.length ? { moves } : {}),
   };
-}
-
-/**
- * Where each moved thing went, as `[from, to]` pairs, for a replay.
- *
- * `paths` cannot say it: a bulk move keeps only the destinations, a grouped
- * line mixes several moves, and every reader forwards `paths` to where the
- * note is *now*, which turns `[from, to]` into `[to, to]` the moment it is read.
- * The pairs are history and are never forwarded. A folder move's pair names
- * two folders (no `.md`), exactly as its `paths` do.
- *
- * Absent rather than empty when there is nothing to say — every line written
- * before this field existed reads as "no pairs", and so does a cross-context
- * move, whose other end is in another bucket.
- */
-function movePairsOf(action, touched) {
-  const pairs = [];
-  if (action === "move_notes") {
-    for (let index = 0; index + 1 < touched.length; index += 2) {
-      pairs.push([touched[index], touched[index + 1]]);
-    }
-  } else if (touched.length >= 2) {
-    pairs.push([touched[0], touched[1]]);
-  }
-  return pairs.slice(0, MAX_ENTRY_PATHS);
-}
-
-/** Pairs merged onto an existing line, oldest first, distinct, capped. */
-function mergeMoves(existing, added) {
-  const out = [];
-  const seen = new Set();
-  for (const pair of (existing || []).concat(added || [])) {
-    const key = `${pair[0]}\u0000${pair[1]}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(pair);
-  }
-  return out.slice(0, MAX_ENTRY_PATHS);
 }
 
 /**
@@ -564,19 +528,7 @@ function decodeEntry(raw) {
       ? value.paths.filter((path) => typeof path === "string" && path !== "")
       : [];
     if (!paths.length) return null;
-    // A malformed pair is dropped, never the line: the pairs are a replay's
-    // detail, and the sentence stands without them.
-    const moves = Array.isArray(value.moves)
-      ? value.moves
-          .filter(
-            (pair) =>
-              Array.isArray(pair) &&
-              pair.length === 2 &&
-              pair.every((path) => typeof path === "string" && path !== ""),
-          )
-          .slice(0, MAX_ENTRY_PATHS)
-          .map((pair) => [pair[0], pair[1]])
-      : [];
+    const moves = decodeMoves(value.moves);
     return {
       at: value.at,
       kind: value.kind,
@@ -824,19 +776,9 @@ function visibleEntries(entries, options) {
       if (typeof canSee !== "function") return false;
       return entry.paths.every((path) => canSee(path));
     })
-    .map((entry) => {
-      if (!entry.moves) return entry;
-      /*
-        A pair is history — never forwarded — so `paths` passing says nothing
-        about it: the folder a note left can have been made private since. Both
-        ends are asked again, now, and a pair that fails either is dropped
-        rather than the line, which `paths` already cleared.
-      */
-      const moves = entry.moves.filter((pair) => canSee(pair[0]) && canSee(pair[1]));
-      const kept = { ...entry, moves };
-      if (!moves.length) delete kept.moves;
-      return kept;
-    });
+    // A pair is history, never forwarded, so `paths` passing says nothing
+    // about it: the folder a note left can have been made private since.
+    .map((entry) => visibleMoves(entry, canSee));
 }
 
 /** How many of these are newer than the reader's last visit. */

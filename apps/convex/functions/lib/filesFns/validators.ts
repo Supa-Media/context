@@ -379,7 +379,7 @@ export const activityEntryValidator = v.object({
   by: v.union(v.string(), v.null()),
   via: v.union(v.string(), v.null()),
   note: v.union(v.string(), v.null()),
-  /** `[from, to]` per move on a `moved` line. See `ActivityEntry.moves`. */
+  /** `[from, to]` per move on a `moved` or `archived` line. See `ActivityEntry.moves`. */
   moves: v.optional(v.array(v.array(v.string()))),
 });
 

@@ -1,13 +1,13 @@
 /**
- * A `moved` line carries `[from, to]` pairs for the console map's replay.
+ * A `moved` or `archived` line carries `[from, to]` pairs for the console map's replay.
  *
  * `paths` cannot carry them: a bulk move keeps only its destinations, a
  * grouped line holds several moves, and every reader forwards `paths` to where
  * the note is now. The pairs are history — written once, never forwarded —
  * and filtered on both ends per reader. See `movePairsOf` in
- * `packages/shared/src/activity.cjs`.
+ * `packages/shared/src/activityMoves.cjs`.
  *
- * Sabotage record: dropping the pair filter in `visibleEntries` reddens
+ * Sabotage record: dropping the pair filter in `visibleMoves` reddens
  * "a member does not receive a pair whose old folder is private now";
  * dropping `moves` from `decodeEntry` reddens "the pairs survive the file".
  */
@@ -52,6 +52,17 @@ export async function runActivityMovePairChecks(check) {
   check(
     "a console move records its pair the same way",
     console?.moves?.[0]?.join(">") === "1-projects/x.md>4-archive/x.md",
+  );
+
+  const archived = entryFor(
+    change("archive_note", ["1-projects/done.md", "4-archive/1-projects/done.md"], {
+      team_visible: true,
+    }),
+  );
+  check(
+    "an archive records where the note was, because its paths are forwarded too",
+    archived?.kind === "archived" &&
+      archived.moves?.[0]?.join(">") === "1-projects/done.md>4-archive/1-projects/done.md",
   );
 
   const crossContext = entryFor(
