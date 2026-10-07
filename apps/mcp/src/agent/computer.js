@@ -232,8 +232,13 @@ function resultsText(query, results) {
  *
  * @returns {{tools: Array, call: (name: string, args: object) => Promise<object>, usage: {decision: number}}}
  */
-export function webSession(computer, question, { decide = null, search = null } = {}) {
-  const allowed = new Set(addressesIn(question));
+export function webSession(computer, question, { decide = null, search = null, addresses = question } = {}) {
+  // `addresses` is the text whose addresses count as vouched for, which is the
+  // person's own words and NOT necessarily the prompt. They are the same thing
+  // for a texted question and differ for a routine, whose prompt is framing
+  // this gateway wrote and carries the last run's answer — the model's words,
+  // which must never vouch for anything (`route.js`).
+  const allowed = new Set(addressesIn(addresses));
   const seen = new Set();
   const usage = { decision: 0, searches: 0 };
   let opened = 0;

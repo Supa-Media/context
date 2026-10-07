@@ -197,10 +197,28 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
   const search = texting ? searcherFor(env) : null;
   // Clef only on a built-in turn: that is the turn the meter covers.
+  /*
+    AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
+
+    A texted turn's `question` is the person's own message, so it is both the
+    prompt and the allow-list's source. A routine's is not: `routineQuestion`
+    frames the note with the schedule and **the last run's answer**, which the
+    model wrote. Seeding the guard from it would let a page read on one run
+    plant an address in the answer and the next run fetch it — unattended,
+    every run — which is the exfiltration `computer.js`'s guard exists to
+    prevent, laundered through the bucket. So a routine vouches for the
+    addresses in its own body and nothing else. The routine's *path* is not in
+    the body either, which keeps `watch.md` from reading as a hostname.
+  */
+  const vouched = runner ? routine?.body ?? "" : question;
   const web =
     computer === null && search === null
       ? null
-      : webSession(computer, question, { decide: builtin ? decisionEngine(env.AI) : null, search });
+      : webSession(computer, question, {
+          decide: builtin ? decisionEngine(env.AI) : null,
+          search,
+          addresses: vouched,
+        });
 
   const started = Date.now();
   /*
