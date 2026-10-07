@@ -1,4 +1,5 @@
 import type { ActivityEvent, AgentActivityView } from "../../agents/agentActivity";
+import { fileTitle } from "./engine/paths";
 import type { MapActor } from "./engine/timeline";
 import type { ActorRef, MapEvent, MapNode, WorkspaceGraph } from "./types";
 
@@ -200,4 +201,50 @@ export function mergeEvents(...lists: ReadonlyArray<readonly MapEvent[]>): MapEv
     }
   }
   return out.sort((a, b) => a.at - b.at);
+}
+
+/**
+ * The graphs brought up to date with what happened since they were read.
+ *
+ * The engine takes the graphs as the present and winds events back from them.
+ * A graph is read every two minutes and a live move lands every few seconds,
+ * so between reads the graphs are behind: a note moved a minute ago is still
+ * at its old path. Each event is applied only when the graph does not show it
+ * yet — a create whose note is missing, a move whose note is still at `from`
+ * and not yet at `to` — which makes this safe to run on events the graph
+ * already holds, without trusting two clocks to agree on when it was read.
+ */
+export function applyEvents(graphs: readonly WorkspaceGraph[], events: readonly MapEvent[]): WorkspaceGraph[] {
+  const byId = new Map(graphs.map((g) => [g.workspaceId, { ...g, nodes: [...g.nodes], edges: [...g.edges] }]));
+  const indexOf = (g: WorkspaceGraph, path: string) => g.nodes.findIndex((n) => n.path === path);
+  const remove = (g: WorkspaceGraph, index: number) => {
+    g.nodes.splice(index, 1);
+    g.edges = g.edges
+      .filter(([a, b]) => a !== index && b !== index)
+      .map(([a, b]) => [a > index ? a - 1 : a, b > index ? b - 1 : b] as [number, number]);
+  };
+  let changed = false;
+  for (const e of [...events].sort((a, b) => a.at - b.at)) {
+    if (e.kind === "create") {
+      const g = byId.get(e.workspaceId);
+      if (g === undefined || indexOf(g, e.path) >= 0) continue;
+      g.nodes.push({ path: e.path, title: fileTitle(e.path) });
+      changed = true;
+    } else if (e.kind === "move") {
+      const source = byId.get(e.workspaceId);
+      const target = byId.get(e.toWorkspaceId ?? e.workspaceId);
+      if (source === undefined || target === undefined) continue;
+      const from = indexOf(source, e.from);
+      if (from < 0 || indexOf(target, e.to) >= 0) continue;
+      const node = source.nodes[from]!;
+      if (source === target) {
+        source.nodes[from] = { ...node, path: e.to };
+      } else {
+        remove(source, from);
+        target.nodes.push({ ...node, path: e.to });
+      }
+      changed = true;
+    }
+  }
+  return changed ? graphs.map((g) => byId.get(g.workspaceId)!) : (graphs as WorkspaceGraph[]);
 }

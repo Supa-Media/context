@@ -1,4 +1,4 @@
-import { browseHref } from "../../nav";
+import { browseHref, noteHref } from "../../nav";
 import type { ConsoleRouter } from "../../layout/types";
 
 /**
@@ -25,14 +25,26 @@ export interface MapRoute {
   closeMap(): void;
   /** The sidebar button: open when closed, closed when open. */
   toggle(): void;
+  /**
+   * A note in another workspace, from the all-workspaces map or the feed: its
+   * own address, so the console switches workspace the way a link would. A
+   * note in the workspace on screen is opened with `files.select` instead.
+   */
+  openNoteIn(slug: string, path: string): void;
 }
 
 /**
  * The map is one page in the document slot at a time with What changed and
  * Settings, so opening it closes both; closing it clears only its own key.
  */
-export function routeMap(router: Pick<ConsoleRouter, "setParams">, open: boolean): MapRoute {
+export function routeMap(router: Pick<ConsoleRouter, "setParams" | "push">, open: boolean): MapRoute {
   const openMap = () => router.setParams({ map: "1", changes: undefined, settings: undefined });
   const closeMap = () => router.setParams({ map: undefined });
-  return { open, openMap, closeMap, toggle: () => (open ? closeMap() : openMap()) };
+  return {
+    open,
+    openMap,
+    closeMap,
+    toggle: () => (open ? closeMap() : openMap()),
+    openNoteIn: (slug, path) => router.push(noteHref(slug, path)),
+  };
 }

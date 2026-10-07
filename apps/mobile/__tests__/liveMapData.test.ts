@@ -8,6 +8,7 @@ import { decodeAgentActivity } from "../features/console/agents/agentActivity";
 import { announceDid, announceOpenNote, resetAnnouncements, takeAnnouncement } from "../features/console/map/live/announce";
 import {
   actorsFromActivity,
+  applyEvents,
   eventsFromActivity,
   eventsFromCrossMoves,
   eventsFromHistory,
@@ -108,6 +109,43 @@ describe("history for a replay", () => {
   test("the same event from two sources is kept once", () => {
     const a = eventsFromHistory([{ at: "2026-10-07T10:00:00.000Z", kind: "added", paths: ["a.md"], by: "@m", via: null }], "w");
     expect(mergeEvents(a, a)).toHaveLength(1);
+  });
+});
+
+describe("the graphs catch up with live events between reads", () => {
+  const who = { id: "a:s", kind: "agent" as const, name: "Inbox sorter" };
+  const a = () =>
+    graphFromAnswer(
+      { nodes: [{ path: "0-inbox/r.md", title: "Receipt" }, { path: "2-areas/f.md", title: "Finance" }, { path: "1-projects/p.md", title: "P" }], edges: [[0, 1], [1, 2]] },
+      { id: "ws-a", slug: "a", name: "Personal", kind: "personal" },
+    );
+  const b = () => graphFromAnswer({ nodes: [], edges: [] }, { id: "ws-b", slug: "b", name: "Supa", kind: "shared" });
+
+  test("a move the graph does not show yet is applied, keeping the note's name and links", () => {
+    const [g] = applyEvents([a()], [{ kind: "move", at: 1, workspaceId: "ws-a", from: "0-inbox/r.md", to: "2-areas/r.md", actor: who }]);
+    expect(g!.nodes[0]).toEqual({ path: "2-areas/r.md", title: "Receipt" });
+    expect(g!.edges).toEqual([[0, 1], [1, 2]]);
+  });
+
+  test("an event the graph already shows changes nothing, so it is safe to run twice", () => {
+    const once = applyEvents([a()], [{ kind: "move", at: 1, workspaceId: "ws-a", from: "0-inbox/r.md", to: "2-areas/r.md", actor: who }]);
+    const twice = applyEvents(once, [{ kind: "move", at: 1, workspaceId: "ws-a", from: "0-inbox/r.md", to: "2-areas/r.md", actor: who }]);
+    expect(twice).toEqual(once);
+    const created = applyEvents([a()], [{ kind: "create", at: 1, workspaceId: "ws-a", path: "0-inbox/r.md", actor: who }]);
+    expect(created[0]!.nodes).toHaveLength(3);
+  });
+
+  test("a new note appears; a note moved to another workspace leaves one graph for the other with its links dropped", () => {
+    const [g1, g2] = applyEvents(
+      [a(), b()],
+      [
+        { kind: "create", at: 1, workspaceId: "ws-a", path: "0-inbox/new.md", actor: who },
+        { kind: "move", at: 2, workspaceId: "ws-a", from: "2-areas/f.md", to: "1-projects/f.md", toWorkspaceId: "ws-b", actor: who },
+      ],
+    );
+    expect(g1!.nodes.map((n) => n.path)).toEqual(["0-inbox/r.md", "1-projects/p.md", "0-inbox/new.md"]);
+    expect(g1!.edges).toEqual([]);
+    expect(g2!.nodes).toEqual([{ path: "1-projects/f.md", title: "Finance" }]);
   });
 });
 
