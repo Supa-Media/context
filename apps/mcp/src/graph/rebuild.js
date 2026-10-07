@@ -36,21 +36,15 @@
 // A newer manifest format never parses (records.js), so it is never rebuilt,
 // cut over or collected. No older format exists at formatVersion 1.
 import { generationPrefix } from "./keys.js";
+import { BUDGET_EXHAUSTED } from "../search/budget.js";
 import { codeVersions, publishHealth, readGraphManifest } from "./manifest.js";
+
+// Version comparisons live beside codeVersions (graphHealth needs isNewer).
+export { isNewer, matchesCode, needsRebuild } from "./manifest.js";
 
 const isGen = (v) => typeof v === "string" && /^[0-9]+$/.test(v);
 const GC_LIST_LIMIT = 100;
 export const GC_FAILURE_LIMIT = 3;
-
-/** Per-field `stored - running`; a missing or malformed field counts as older. */
-const versionDiffs = (record) =>
-  Object.entries(codeVersions()).map(([k, v]) => (Number.isInteger(record[k]) ? record[k] : 0) - v);
-
-/** Some version older than the running code's and none newer. */
-export const needsRebuild = (record) => versionDiffs(record).some((d) => d < 0) && !isNewer(record);
-/** Some version newer than the running code's: written by newer code. */
-export const isNewer = (record) => versionDiffs(record).some((d) => d > 0);
-export const matchesCode = (record) => versionDiffs(record).every((d) => d === 0);
 
 /**
  * Record `building` one past the active generation (or past an older code's
@@ -86,40 +80,84 @@ export function cutover(store, budget, { manifest, etag }, health) {
 }
 
 /**
+ * `gcCursor` is "" or JSON `[collectGeneration, listToken | null, found]`:
+ * where the listing of the collected prefix resumes, and whether this
+ * traversal (begun at the top) has listed any object. A cursor naming another
+ * generation, or garbage, starts over.
+ */
+function parseGcCursor(text, gen) {
+  try {
+    const [g, token, found] = JSON.parse(text);
+    if (g === gen && (token === null || (typeof token === "string" && token)) && typeof found === "boolean") return { token, found };
+  } catch {
+    // "" or garbage.
+  }
+  return { token: null, found: false };
+}
+
+/**
  * One bounded GC page of `manifest.collect` on whatever `budget` has left
- * (reconcile.js decides how much that is). Clears `collect` once its prefix
- * lists empty.
+ * (reconcile.js decides how much that is), resuming from `cursor.gcCursor`.
+ *
+ * The listing follows its cursor because a logical-delete store (every
+ * gateway store) turns each delete into a hidden marker that keeps its place
+ * in the provider's listing: re-listing from the top would re-read the same
+ * page of markers forever. The token advances only once every key on the
+ * page is deleted. `collect` is cleared only after a whole traversal from the
+ * top lists nothing, so a provider whose cursor shifts under deletes still
+ * empties the prefix. Bound: two traversals of ceil(objects / page) pages.
+ * Deletes keep one op of headroom for the wrapper's marker write.
+ *
  * Returns "failed" (a list or delete failed; the page ended there), "done"
  * (progress or cleared) or undefined (nothing to do, or no budget). Never
  * throws for a store failure.
  */
-export async function collectGarbage(store, budget, manifest) {
+export async function collectGarbage(store, budget, manifest, cursor = {}) {
   const gen = manifest.collect;
   if (gen === undefined || gen === null || store.capabilities?.conditionalDelete !== true) return;
   if (!isGen(gen) || gen === manifest.generation || gen === manifest.building?.generation || gen === manifest.previous) return;
   const prefix = generationPrefix(gen);
-  const limit = Math.min(GC_LIST_LIMIT, budget.remaining - 1);
+  const at = parseGcCursor(cursor.gcCursor ?? "", gen);
+  const save = (token, found) => {
+    cursor.gcCursor = JSON.stringify([gen, token, found]);
+  };
+  // The list, then one delete per key, each leaving one op of headroom.
+  const limit = Math.min(GC_LIST_LIMIT, budget.remaining - 2);
   if (limit < 1 || !budget.take()) return;
   let listed;
   try {
-    listed = await store.list({ prefix, limit });
-  } catch {
+    listed = await store.list({ prefix, limit, ...(at.token && { cursor: at.token }) });
+  } catch (error) {
+    if (error?.[BUDGET_EXHAUSTED]) return;
+    save(null, at.found); // an expired or refused token: start the listing over
     return "failed";
   }
   const keys = (listed.objects || []).map((o) => o?.key).filter((k) => typeof k === "string" && k.startsWith(prefix));
-  if (keys.length === 0 && !listed.truncated) {
-    const fresh = await readGraphManifest(store, budget);
-    if (fresh.manifest?.collect === gen) await publishHealth(store, budget, fresh.manifest, fresh.etag, { collect: null });
-    return "done";
-  }
-  for (const key of keys.slice(0, limit)) {
-    if (!budget.take()) return "done";
+  const found = at.found || keys.length > 0;
+  for (const key of keys) {
+    if (!budget.take(1)) {
+      save(at.token, true);
+      return "done";
+    }
     try {
       await store.delete(key);
-    } catch {
-      return "failed";
+    } catch (error) {
+      save(at.token, true);
+      return error?.[BUDGET_EXHAUSTED] ? "done" : "failed";
     }
   }
+  const next = listed.truncated && typeof listed.cursor === "string" && listed.cursor ? listed.cursor : null;
+  // A truncated page with no usable cursor restarts the listing; it never clears.
+  if (listed.truncated) {
+    save(next, found);
+    return "done";
+  }
+  // End of the listing. Objects were found this traversal: confirm from the top.
+  save(null, false);
+  if (found) return "done";
+  const fresh = await readGraphManifest(store, budget);
+  if (fresh.manifest?.collect === gen) await publishHealth(store, budget, fresh.manifest, fresh.etag, { collect: null });
+  cursor.gcCursor = "";
   return "done";
 }
 

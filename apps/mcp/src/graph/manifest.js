@@ -7,7 +7,7 @@ import { graphManifestKey } from "./keys.js";
 import { graphMode } from "./mode.js";
 import { PARSER_VERSION, RESOLVER_VERSION } from "./facts.js";
 import { URL_KEY_VERSION } from "./urlKey.js";
-import { GRAPH_FORMAT_VERSION, parseManifest, serializeManifest } from "./records.js";
+import { GRAPH_FORMAT_VERSION, parseManifest, recordText, serializeManifest } from "./records.js";
 
 /**
  * `{ manifest, etag, absent }`: manifest is null when absent, unparseable or
@@ -18,11 +18,21 @@ export async function readGraphManifest(store, budget) {
   if (!budget.take()) return { manifest: null, etag: null, absent: false };
   const got = await store.get(graphManifestKey());
   if (!got) return { manifest: null, etag: null, absent: true };
-  return { manifest: parseManifest(await got.text()), etag: got.etag ?? null, absent: false };
+  return { manifest: parseManifest(await recordText(got)), etag: got.etag ?? null, absent: false };
 }
 
 /** The versions the running code projects with; a manifest naming others is rebuilt (arch 9.6). */
 export const codeVersions = () => ({ parserVersion: PARSER_VERSION, resolverVersion: RESOLVER_VERSION, urlKeyVersion: URL_KEY_VERSION });
+
+/** Per-field `stored - running`; a missing or malformed field counts as older. */
+const versionDiffs = (record) =>
+  Object.entries(codeVersions()).map(([k, v]) => (Number.isInteger(record[k]) ? record[k] : 0) - v);
+
+/** Some version older than the running code's and none newer. */
+export const needsRebuild = (record) => versionDiffs(record).some((d) => d < 0) && !isNewer(record);
+/** Some version newer than the running code's: written by newer code. */
+export const isNewer = (record) => versionDiffs(record).some((d) => d > 0);
+export const matchesCode = (record) => versionDiffs(record).every((d) => d === 0);
 
 export async function loadGraphManifest(store, budget) {
   return (await readGraphManifest(store, budget)).manifest;
@@ -86,11 +96,14 @@ export async function publishHealth(store, budget, manifest, etag, patch) {
 /**
  * Health for callers. No counts (arch 7.3). `complete` is the flag Phase 3
  * moves read to choose index over scan: only a conditional-mode, ready, fully
- * swept graph with no rebuild hint. A best-effort answer is never complete.
+ * swept graph with no rebuild hint. A best-effort answer is never complete,
+ * and a manifest labelled with any version newer than the running code's
+ * reads as unavailable (arch 9.6).
  */
 export async function graphHealth(store, budget) {
   const manifest = await loadGraphManifest(store, budget);
-  if (!manifest) {
+  // A manifest from newer code: this code cannot vouch for anything it says.
+  if (!manifest || isNewer(manifest)) {
     return { state: "unavailable", generation: null, building: null, mode: graphMode(store), possiblyIncomplete: true, complete: false };
   }
   // Either side best-effort means writes may have been unconditional.

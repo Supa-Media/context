@@ -11,7 +11,7 @@ import { buildNodeRecord, membershipsFor } from "./facts.js";
 import { readGraphManifest, publishHealth } from "./manifest.js";
 import { nodeKey, pathHash } from "./keys.js";
 import { MAX_ATTEMPTS, setMembership } from "./postings.js";
-import { GRAPH_FORMAT_VERSION, GRAPH_RECORD_BYTE_CAP, parseNode, serializeNode } from "./records.js";
+import { GRAPH_FORMAT_VERSION, GRAPH_RECORD_BYTE_CAP, parseNode, recordText, serializeNode } from "./records.js";
 import { exceedsUtf8Bytes } from "../search/maintain.js";
 
 const FAMILIES = ["incoming", "bare", "names", "urls"];
@@ -33,7 +33,7 @@ export async function readNode(store, budget, gen, path) {
   if (!budget.take()) return null;
   const got = await store.get(key);
   if (!got) return { key, old: null, etag: null, exists: false };
-  return { key, old: parseNode(await got.text(), path), etag: got.etag ?? null, exists: true };
+  return { key, old: parseNode(await recordText(got), path), etag: got.etag ?? null, exists: true };
 }
 
 /**
@@ -196,7 +196,7 @@ async function handBack(store, budget, key, path, ordered) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     if (!budget.take()) return { state: "pending" };
     const got = await store.get(key);
-    const node = got ? parseNode(await got.text(), path) : null;
+    const node = got ? parseNode(await recordText(got), path) : null;
     if (!node) return { state: "stale" };
     const keys = new Set(Array.isArray(node.reverseRepair) ? node.reverseRepair.map(fromRef).filter(Boolean) : []);
     for (const m of ordered) keys.add(m);
@@ -270,7 +270,7 @@ export function validateEntry(store, budget, gen) {
     if (!budget.take()) throw new Error("graph budget exhausted");
     const got = await store.get(key);
     if (!got) return false;
-    const node = parseNode(await got.text(), entry.source);
+    const node = parseNode(await recordText(got), entry.source);
     return node !== null && node.coverage !== "excluded" && node.referenceSetVersion === entry.referenceSetVersion;
   };
 }

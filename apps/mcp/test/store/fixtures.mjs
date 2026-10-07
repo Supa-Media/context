@@ -155,6 +155,26 @@ export function memoryBucket({
   };
 }
 
+/**
+ * A view of `bucket` whose `list` pages like R2 and S3: it honours `limit`
+ * (default 1000) and resumes after the last key of the previous page from an
+ * opaque `cursor`, so physical deletes between pages skip nothing. Carries
+ * `capabilities` over, so it can be wrapped (withLogicalDelete snapshots them).
+ */
+export function cursorPagedBucket(bucket) {
+  return {
+    ...bucket,
+    capabilities: bucket.capabilities,
+    async list({ prefix, cursor, limit = 1000 } = {}) {
+      const all = (await bucket.list({ prefix })).objects;
+      const rest = cursor ? all.filter((o) => o.key > cursor) : all;
+      const page = rest.slice(0, limit);
+      const truncated = rest.length > page.length;
+      return { objects: page, truncated, ...(truncated && { cursor: page[page.length - 1].key }) };
+    },
+  };
+}
+
 /** Dropbox response/store fixtures shared by the Dropbox and folders sections. */
 export function dbxJson(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {

@@ -2,7 +2,7 @@
 // is a chain of pages `0.json`, `1.json`, ... under one directory; page 0 is the
 // head and a missing head is an empty list. All store ops go through a budget.
 import { postingPageKey } from "./keys.js";
-import { POSTING_PAGE_SIZE, parsePage, serializePage } from "./records.js";
+import { POSTING_PAGE_SIZE, parsePage, recordText, serializePage } from "./records.js";
 
 // OPEN-9: attempts per membership change, the same count
 // `projectWrittenNoteAfterResponse` uses. Contention past this is left to
@@ -38,7 +38,7 @@ async function walk(store, budget, { gen, family, hash }) {
       slots.push({ n, key, etag: null, entries: [] });
       return { slots, status: "end" };
     }
-    const page = parsePage(await got.text(), key);
+    const page = parsePage(await recordText(got), key);
     if (!page) {
       slots.push({ n, key, etag: got.etag, entries: [] });
       return { slots, status: "corrupt" };

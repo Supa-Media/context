@@ -48,7 +48,7 @@ import { initGraphManifest, publishHealth, readGraphManifest } from "./manifest.
 import { graphMode } from "./mode.js";
 import { setMembership } from "./postings.js";
 import { projectNote, readNode, removeNote, validateEntry } from "./project.js";
-import { parseNode, parsePage } from "./records.js";
+import { parseNode, parsePage, recordText } from "./records.js";
 import {
   GC_FAILURE_LIMIT, abandonCollect, collectGarbage, cutover, isNewer, matchesCode, needsRebuild, startRebuild,
 } from "./rebuild.js";
@@ -73,10 +73,11 @@ const capped = (budget, keep) => ({
 
 // `recheck`: the building generation's last wrap was clean; the next clean one
 // cuts over once `auditWrapped` says an audit listing begun since then ended.
-// `gcFailures`: consecutive passes whose GC page failed.
+// `gcFailures`: consecutive passes whose GC page failed. `gcCursor`: where
+// the GC listing of `collect` resumes (rebuild.js).
 const freshCursor = () => ({
   sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, turn: 0,
-  recheck: false, auditWrapped: false, gcFailures: 0,
+  recheck: false, auditWrapped: false, gcFailures: 0, gcCursor: "",
 });
 
 async function readCursor(store, budget, gen) {
@@ -85,7 +86,8 @@ async function readCursor(store, budget, gen) {
   if (!got) return { cursor: freshCursor(), etag: null };
   let value = null;
   try {
-    value = JSON.parse(await got.text());
+    // Over the record cap reads as unparseable, never parsed.
+    value = JSON.parse(await recordText(got));
   } catch {
     // Unparseable: start over, overwriting it.
   }
@@ -103,6 +105,7 @@ async function readCursor(store, budget, gen) {
         recheck: value.recheck === true,
         auditWrapped: value.auditWrapped === true,
         gcFailures: Number.isInteger(value.gcFailures) && value.gcFailures > 0 ? value.gcFailures : 0,
+        gcCursor: typeof value.gcCursor === "string" ? value.gcCursor : "",
       }
     : freshCursor();
   return { cursor, etag: got.etag ?? null };
@@ -224,7 +227,8 @@ async function auditNode(store, budget, ctx, key, out, from) {
   if (!budget.take()) return from;
   const got = await store.get(key);
   if (!got) return -1;
-  const text = await got.text();
+  const text = await recordText(got);
+  if (text === null) return -1; // over the record cap: never parsed
   let path;
   try {
     path = JSON.parse(text)?.path;
@@ -252,7 +256,7 @@ async function auditNode(store, budget, ctx, key, out, from) {
 async function auditPage(store, budget, ctx, key, family, hash, from) {
   if (!budget.take()) return from;
   const got = await store.get(key);
-  const page = got ? parsePage(await got.text(), key) : null;
+  const page = got ? parsePage(await recordText(got), key) : null;
   if (!page) return -1;
   // Indexes into the page as it will be re-read: each removal this pass
   // shifts the later entries down by one.
@@ -319,7 +323,7 @@ async function audit(store, budget, ctx, cursor, out) {
 async function garbage(store, budget, manifest, cursor) {
   let gc;
   try {
-    gc = await collectGarbage(store, budget, manifest);
+    gc = await collectGarbage(store, budget, manifest, cursor);
   } catch {
     gc = "failed"; // a manifest op inside GC
   }

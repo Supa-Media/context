@@ -21,6 +21,17 @@ function parseObject(text) {
   }
 }
 
+/**
+ * A stored record's text, or null when it is over the byte cap: a reported
+ * `size` is checked before the body is read, and the text itself before any
+ * parse, so an oversized object is never parsed.
+ */
+export async function recordText(got) {
+  if (typeof got.size === "number" && got.size > GRAPH_RECORD_BYTE_CAP) return null;
+  const text = await got.text();
+  return typeof text === "string" && !exceedsUtf8Bytes(text, GRAPH_RECORD_BYTE_CAP) ? text : null;
+}
+
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isGen = (v) => typeof v === "string" && /^[0-9]+$/.test(v);
 const MODES = ["conditional", "best-effort"];

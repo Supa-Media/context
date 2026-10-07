@@ -40,7 +40,11 @@ a reviewer.
   `.context/` object. The rebuild (`rebuild.js`) is bound by the same rule:
   garbage collection deletes only the collected generation's own
   `g/<gen>/` prefix, never the serving, building or retained one, and only on
-  a store with `conditionalDelete` (controller ruling OPEN-22).
+  a store with `conditionalDelete` (controller ruling OPEN-22). Its listing
+  follows a cursor persisted with the maintenance cursor, because a
+  logical-delete store turns each delete into a hidden marker that keeps its
+  place in the listing, and it clears `collect` only after a traversal from the
+  top lists nothing (Phase 2 final review).
 - **Reads are filtered by `canSee`, per source, before validation**
   (architecture, same rule as the search index). A source the caller cannot
   see never appears and never reaches `validate`, because a posting page holds
@@ -55,9 +59,12 @@ a reviewer.
   never `complete`, even after a clean sweep.
 - **Graph work never affects a write** (PLAN decision P5; controller ruling
   OPEN-12 and OPEN-19). It runs behind the response where the store can defer,
-  spends a per-write storage budget (`WRITE_ENRICH_SUBREQUEST_BUDGET`, 0 turns
-  it off), and any failure is swallowed. It never changes a write's result or
-  body.
+  spends a per-write storage budget (`WRITE_ENRICH_SUBREQUEST_BUDGET`), and any
+  failure is swallowed. It never changes a write's result or body. On a
+  logical-delete store the wrapper's extra physical calls count against that
+  budget too. Setting the budget to 0 is the graph's kill switch (Phase 2 final
+  review ruling): the write hook spends nothing and search maintenance skips
+  reconciliation and garbage collection, so no graph store op runs.
 - **Moves and archive are left to reconciliation** (controller ruling
   OPEN-20). They go through `recordChange`, which has no body, so the write
   hook does not run for them. The same holds for referrers that a move
@@ -70,17 +77,36 @@ a reviewer.
   complete census that omits the path, or by a removal hint from the search
   sync, which works on an incomplete census too. An incomplete census on its
   own removes nothing.
+- **Reconciliation takes turns, whatever the health** (controller ruling, Task
+  11 fix round 3). Each pass's turn cycles sweep, audit, sweep, GC, stored in
+  the maintenance cursor and advanced every pass. The piece whose turn it is
+  runs first with the whole remainder of the pass; the others get what it
+  leaves. With an incomplete census the audit does not run and its turns go
+  to the sweep. Why: any piece that lives only on leftover budget starves for
+  some census size, because a wrap can always leave less than its smallest
+  unit of work, and keying turns on health starved GC and the audit whenever
+  health stayed behind. Cost: catch-up projection on a large layout takes
+  roughly twice the passes. The test is `graphRebuild.test.mjs`, "GC and the
+  audit progress for every census size whether health is ready, stuck behind,
+  or behind after a rollback".
 - **Rollback ceiling: health stays behind while a newer build is unfinished**
   (controller ruling, Task 11 fix round 3; an owner decision point). Code older
-  than a started build's resolver label keeps reconciling the active
+  than any version label on a started build (`parserVersion`,
+  `resolverVersion` or `urlKeyVersion`) keeps reconciling the active
   generation, so repair continues underneath, but it never builds into, cuts
   over or abandons that build, and it publishes the active generation's health
-  as `behind`. After a rollback below that label, `graphHealth` therefore stays
-  `behind` with `complete: false` until newer code is redeployed and finishes
-  the build. There is deliberately no auto-abandon: older code cannot tell a
-  rolled-back build from one a newer worker is still running. The test is
-  `graphRebuild.test.mjs`, "older code during a newer build reconciles the
-  active generation but never publishes it complete".
+  as `behind`. After a rollback below any of those labels, `graphHealth`
+  therefore stays `behind` with `complete: false` until newer code is
+  redeployed and finishes the build. There is deliberately no auto-abandon:
+  older code cannot tell a rolled-back build from one a newer worker is still
+  running. If the newer build had already cut over, the manifest itself names
+  the newer versions: older code then writes nothing to the graph (no write
+  hook, no reconciliation) and `graphHealth` returns `unavailable` with
+  `complete: false` until newer code returns (Phase 2 final review). The tests
+  are `graphRebuild.test.mjs`, "older code during a newer build reconciles the
+  active generation but never publishes it complete", and
+  `graphGuards.test.mjs`, "graphHealth is unavailable (never complete) on a
+  manifest labelled with any newer version".
 
 **What reversing it costs.** Phase 3 backlinks, related notes, and
 index-assisted move repair all read this index; they cannot be built on a
@@ -117,7 +143,11 @@ and an unfiltered posting read leaks the existence of private notes.
 - Graph work never affects a write, and is budgeted: `graphWrite.test.mjs`,
   "budget 0: write result and body identical, no graph store op at all", "a
   graph store that throws on put or get never changes the write", and "total
-  graph ops never exceed the budget, at any budget"; `graphReconcile.test.mjs`,
+  graph ops never exceed the budget, at any budget"; `graphGuards.test.mjs`,
+  "kill switch: WRITE_ENRICH budget 0 makes zero graph store ops across writes
+  and deferred passes" and "write path: raw graph subrequests on a
+  logical-delete store never exceed the WRITE_ENRICH budget";
+  `graphReconcile.test.mjs`,
   "maintainNow: a graph failure does not reach the caller" and "maintainNow:
   the search sync's results and budget use are unchanged when graph work runs".
 - Moves and archive are left to reconciliation: `graphWrite.test.mjs`, "moves
