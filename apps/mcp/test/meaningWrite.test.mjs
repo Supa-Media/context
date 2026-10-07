@@ -10,12 +10,14 @@
  *   the upsert's failure rethrown out of `writeMeaningNote` → "a refused upsert does not fail the write" fails
  *   `indexWrittenNotesAfterResponse` not removing passages  → "a removed note's passages leave the index" fails
  *   `attachMeaningIndex` making the descriptor enumerable   → "the token never rides an enumerable key" fails
+ *   `meaningPassages` dropping `indexableText`              → "an encrypted note is embedded as its title…" fails
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MEANING_DIMENSIONS } from "../src/search/meaning/embed.js";
 import { meaningIdsFor } from "../src/search/meaning/project.js";
+import { MARKER_KEY } from "../src/encryption/primitives.js";
 import {
   attachMeaningIndex,
   meaningWritable,
@@ -183,4 +185,13 @@ test("the live editor's saves are left to the catch-up pass", async () => {
     "off",
   );
   assert.equal(ai.calls.length, 0);
+});
+
+test("an encrypted note is embedded as its title and nothing of its envelope", async () => {
+  const { store, ai } = storeWith();
+  const fetch = fakeFetch();
+  const envelope = `---\n${MARKER_KEY}: v1\n---\n\nQmFzZTY0Q2lwaGVydGV4dEdvZXNIZXJl\n`;
+  await writeMeaningNote(store, { path: "2-areas/salary.md", content: envelope, visibility: "private" }, { fetchImpl: fetch.impl });
+  assert.equal(ai.calls.length, 1);
+  assert.deepEqual(ai.calls[0].input.text, ["salary"]);
 });
