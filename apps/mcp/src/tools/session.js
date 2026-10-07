@@ -6,6 +6,7 @@
  */
 
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
+import { activityHintOf } from "../live/activityHint.js";
 import { callTool } from "./dispatch.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
@@ -325,10 +326,27 @@ export async function callToolForSession(params, store, session) {
  * row the note is on now rather than the address the agent was holding. A
  * refusal records nothing, so "not found" costs the same with or without
  * this.
+ *
+ * Whether a write created its note, and which notes a move moved, come from
+ * the handler's hint (`live/activityHint.js`); without one a write is an
+ * edit, as it always was, and a move records nothing. A move is notes only:
+ * a folder's images travel with it but are not dots on the map.
  */
 function noteAgentActivity(store, name, args, result) {
   const kind = AGENT_ACTIVITY_TOOLS.get(name);
   if (!kind || !result || result.isError) return;
+  const hint = activityHintOf(result);
+  if (kind === "move") {
+    const notePath = (value) => {
+      const path = normalizePath(value);
+      return path && path.endsWith(".md") && !isPlumbing(path) ? path : null;
+    };
+    const moves = (Array.isArray(hint?.moves) ? hint.moves : [])
+      .map((move) => ({ kind: "move", from: notePath(move?.from), path: notePath(move?.to) }))
+      .filter((move) => move.from && move.path && move.from !== move.path);
+    recordAgentActivity(store, moves);
+    return;
+  }
   const text = typeof result.content?.[0]?.text === "string" ? result.content[0].text : "";
   // The header only: a note whose own text has a `path:` line must not move
   // its mark to a path it merely mentions.
@@ -337,5 +355,6 @@ function noteAgentActivity(store, name, args, result) {
   const raw = reported ?? (name === "fetch" ? args?.id : args?.path);
   const path = splitMessageAnchor(normalizePath(raw) ?? "").path;
   if (!path || isPlumbing(path)) return;
-  recordAgentActivity(store, kind, path);
+  const done = kind === "read" ? "read" : hint?.created === true ? "create" : "edit";
+  recordAgentActivity(store, [{ kind: done, path }]);
 }

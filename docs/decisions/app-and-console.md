@@ -86,6 +86,10 @@ Moved to [The file tree is drawn from the mirror's metadata, so a folder opens w
 
 Moved to [Somebody else's change reaches an open tree as a hint per audience, never as the change](./app-and-console/offline-mirror-and-tree.md#somebody-elses-change-reaches-an-open-tree-as-a-hint-per-audience-never-as-the-change).
 
+### A front matter change is a hint too, and an open project page fetches what moved
+
+Moved to [A front matter change is a hint too, and an open project page fetches what moved](./app-and-console/offline-mirror-and-tree.md#a-front-matter-change-is-a-hint-too-and-an-open-project-page-fetches-what-moved).
+
 ### Offline is more than saving: create, rename, move, delete
 
 Moved to [Offline is more than saving: create, rename, move, delete](./app-and-console/offline-mutations-and-team-links.md#offline-is-more-than-saving-create-rename-move-delete).

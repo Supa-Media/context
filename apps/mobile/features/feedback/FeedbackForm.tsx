@@ -122,24 +122,26 @@ export function FeedbackForm({
             checked={includeShot}
             onToggle={onIncludeShot}
             title="Screenshot"
-            sub={shot.showingText ? "Words shown" : "Words hidden"}
+            sub={!includeShot ? "Not sent" : shot.showingText ? "Words shown" : "Words hidden"}
             lead={
               <Image
                 source={{ uri: (shot.showingText && shot.shown ? shot.shown : shot.masked).previewUri }}
-                style={styles.thumb}
+                style={[styles.thumb, includeShot ? null : styles.thumbOff]}
                 resizeMode="cover"
                 accessibilityLabel="Screenshot of the screen behind this report"
               />
             }
             action={
-              <View style={styles.shotActions}>
-                <TextLink
-                  label={shot.showingText ? "Hide text" : "Show text"}
-                  onPress={() => onShowText(!shot.showingText)}
-                  testID="feedback-show-text"
-                />
-                <TextLink label="Remove" onPress={() => onIncludeShot(false)} testID="feedback-remove-shot" />
-              </View>
+              includeShot ? (
+                <View style={styles.shotActions}>
+                  <TextLink
+                    label={shot.showingText ? "Hide text" : "Show text"}
+                    onPress={() => onShowText(!shot.showingText)}
+                    testID="feedback-show-text"
+                  />
+                  <TextLink label="Remove" onPress={() => onIncludeShot(false)} testID="feedback-remove-shot" />
+                </View>
+              ) : undefined
             }
             testID="feedback-screenshot"
           />
@@ -278,6 +280,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface3,
     },
     shotActions: { flexDirection: "row", gap: 12 },
+    thumbOff: { opacity: 0.4 },
     log: { fontSize: t.label, lineHeight: 17, color: colors.text2 },
     foot: { gap: 10, marginTop: 2 },
     consent: { color: colors.muted },

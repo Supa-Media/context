@@ -4,13 +4,20 @@
  * recorded afterwards.
  */
 
+import { withActivityHint } from "../../live/activityHint.js";
 import {
   announceCommittedToPresence,
   announceWriteToPresence,
   isConsoleActor,
   presenceActor,
 } from "../../live/presence.js";
-import { byteSize, frontmatterVisibility, normalizeVisibility } from "../../notes/format.js";
+import {
+  byteSize,
+  frontMatterBlock,
+  frontmatterVisibility,
+  normalizeVisibility,
+  restoreOpeningDelimiter,
+} from "../../notes/format.js";
 import { clearExactVisibilityIfAbsent } from "../../moves/objects.js";
 import {
   eligible as collaborationEligible,
@@ -39,6 +46,7 @@ import { shareWrittenNote } from "../links.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 import { statusAdvice } from "./statusList.js";
+import { frontMatterChanged } from "../../activity/changes.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -254,6 +262,29 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
    * body and pays nothing for this.
    */
   const storedBody = existing ? await existing.text() : null;
+  /*
+   * A REWRITE THAT DROPPED THE NOTE'S FIRST `---` IS GIVEN IT BACK.
+   *
+   * Only where the stored note opened with front matter and is not sealed, and
+   * only for the shape `restoreOpeningDelimiter` names. Without this the note
+   * silently loses every property — a project falls out of its List — and the
+   * writer is never told. Said in the result, so the client learns it too.
+   */
+  let restoredOpening = false;
+  if (storedBody !== null && !isEncryptedNote(storedBody) && frontMatterBlock(storedBody) !== "") {
+    const restored = restoreOpeningDelimiter(content);
+    if (restored !== null) {
+      const restoredDeclared = frontmatterVisibility(restored);
+      if (restoredDeclared && restoredDeclared !== desiredVisibility) {
+        return toolError(
+          `visibility mismatch: frontmatter says ${restoredDeclared}, but enforced visibility would be ${desiredVisibility}. ` +
+            "Frontmatter is not access control; pass the matching visibility argument."
+        );
+      }
+      content = restored;
+      restoredOpening = true;
+    }
+  }
   // A link anyone can open is never minted over an encrypted note
   // (`docs/decisions/encryption.md`, "Sharing"). Refused here, before the
   // implied publish above widens the note for a link that would then be
@@ -406,6 +437,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     */
     content_bytes: byteSize(body),
     ...(storedBody === null ? {} : { previous_bytes: byteSize(storedBody) }),
+    ...(frontMatterChanged(storedBody, body) ? { front_matter_changed: true } : {}),
     ...(typeof args.summary === "string" && args.summary.trim()
       ? { summary: args.summary }
       : {}),
@@ -447,8 +479,12 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   const shareLines = await shareWrittenNote(store, path, args);
   // Said after the write, never instead of it: a status outside its folder's list is advice.
   const statusLine = isDrawingPath(path) ? null : await statusAdvice(store, scope, rules, overrides, path, body).catch(() => null);
-  return toolText(
+  // Whether this created the note, for the live map's "pops in" (`live/activityHint.js`).
+  return withActivityHint(toolText(
     `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
+      (restoredOpening
+        ? "\nfront matter: the opening --- line was missing, so it was put back; the properties above it would otherwise have been lost"
+        : "") +
       (publishedForLink
         ? " (published to this workspace so the link can open it; the answers note keeps its own visibility)"
         : "") +
@@ -464,7 +500,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       (formLines.length ? `\n${formLines.join("\n")}` : "") +
       (shareLines.length ? `\n${shareLines.join("\n")}` : "") +
       (statusLine === null ? "" : `\n${statusLine}`)
-  );
+  ), { created: !existing });
 }
 
 async function prepareAttachedImages(path, content, images, storedBody) {

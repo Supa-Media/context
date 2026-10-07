@@ -252,6 +252,22 @@ export async function runCollaborationChecks(check) {
     check("an unchanged collaboration retry succeeds without inventing an audit change",
       noop.status === 200 && [...primary.objects.keys()].filter((key) => key.startsWith(".context/audit/")).length === auditCountBeforeNoop);
 
+    // A status typed in the editor reaches open project Lists the way an
+    // agent's does: the change is marked so the tree hint goes out, and a body
+    // edit is not. Sabotage-checked by dropping the flag in collaborationRoute.js.
+    check("a collaboration body edit is not marked as a front matter change",
+      auditRows.every((row) => row.details?.front_matter_changed === undefined));
+    const withStatus = await request(env, ownerToken, {
+      path: "team/open.md",
+      replacement: { expectedEtag: agentBody.etag, text: `---\nstatus: in progress\n---\n${agentBody.text}` },
+    });
+    const statusRows = [...primary.objects]
+      .filter(([key]) => key.startsWith(".context/audit/"))
+      .map(([, value]) => JSON.parse(value.text))
+      .filter((row) => row.details?.front_matter_changed === true);
+    check("a collaboration edit that changes front matter is marked, with no content in the row",
+      withStatus.status === 200 && statusRows.length === 1 && !JSON.stringify(statusRows[0]).includes("in progress"));
+
     await moveDocument(primary, "team/open.md", "team/renamed.md");
     const movedOwner = await request(env, ownerToken, { path: "team/open.md" });
     const movedOwnerBody = await movedOwner.json();

@@ -8,7 +8,7 @@ import {
   normalizeDisplayName,
   roster,
 } from "../presence.js";
-import { pruneActivity, recordActivity } from "../agentActivity.js";
+import { pruneActivity, recordActivity, recordPersonActivity } from "../agentActivity.js";
 import { peopleForCaller, recordPerson } from "../peopleActive.js";
 import { PRESENCE_SOCKET_MAX_MS, json, publicMember } from "./wire.js";
 
@@ -68,6 +68,10 @@ export async function fetchRoom(request) {
         person = null;
       }
       if (person) recordPerson(this.people, person, now);
+      // A create or move the console just finished, already checked by the
+      // route against this person's `canSee` and the bucket. In memory only,
+      // like everything else on this path: a poll writes no storage.
+      if (person?.did) recordPersonActivity(this.activity, person, person.did, now);
       // Every event, unaggregated: the one filter is on the side that knows
       // the manifest, and it has to run before anything is counted.
       return json({

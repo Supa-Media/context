@@ -100,10 +100,10 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
         next: "I've created it",
         node: (
           <>
-            <Heading>Add Context as an app</Heading>
+            <Heading>Add Context as a plugin</Heading>
             <P>
-              On a computer, open chatgpt.com and go to <MenuPath parts={["Settings", "Apps"]} />. Press{" "}
-              <B>Create app</B> and fill it in.
+              On a computer, open <B>chatgpt.com/plugins</B>. Press <B>Add</B>, then <B>Add custom MCP server</B>, and
+              fill it in.
             </P>
             <CopyRow label="Name" value="Context" />
             <CopyRow label="MCP server URL" value={MCP_ENDPOINT} testID="agent-setup-copy-url" />
@@ -159,7 +159,7 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
             <P small>
               {agent === "claude"
                 ? "No window? Allow pop-ups for claude.ai and press Connect again. Signed in to the wrong Context account? Sign out in the window first."
-                : "No window? In Settings › Apps, open Context and press Connect."}
+                : "No window? On chatgpt.com/plugins, open the Personal tab, choose Context and press Connect."}
             </P>
           </>
         ),

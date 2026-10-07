@@ -21,9 +21,15 @@ import {
   unlinkPhone,
   type Fetch,
 } from "./clients";
+import { textsFromAnswer } from "./format";
 import type { Inbound } from "./inbound";
 
-export type Message = Extract<Inbound, { kind: "message" }>;
+/**
+ * One text to answer. `channel` is set only by the staging simulator, whose
+ * replies are written to its log instead of sent (simulator.ts); a Linq
+ * delivery never carries it.
+ */
+export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator" };
 
 export type ReplyDeps = {
   fetch: Fetch;
@@ -65,7 +71,10 @@ export function linkCode(text: string): string | null {
   return match ? match[1].toUpperCase() : null;
 }
 
-/** The texts to send back, in order: usually one, two when one of them is a link. */
+/**
+ * The texts to send back, in order: one for a short answer, a few when it has
+ * paragraphs, and a link always on its own.
+ */
 export async function replyTo(message: Message, deps: ReplyDeps): Promise<string[]> {
   const reply = await answer(message, deps);
   return typeof reply === "string" ? [reply] : reply;
@@ -107,7 +116,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text);
-    if (answer.kind === "answer") return answer.text;
+    if (answer.kind === "answer") return textsFromAnswer(answer.text);
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
     return COPY.unavailable;

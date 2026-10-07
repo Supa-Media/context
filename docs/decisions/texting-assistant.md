@@ -105,6 +105,60 @@ production's, may point at it at a time, or every text is answered twice. Test:
 `deploy-plan.test.mjs`, "the texting assistant deploys only itself, to staging
 and to production".
 
+### Staging has a texts simulator, and nothing else does
+
+Requested by the owner, 2026-10-07: test the assistant without spending a real
+number on Linq's 20-contact line. `staging.context.lc/texts-simulator` is a
+made-up iPhone running Messages. A text from it enters the same per-sender
+queue and the same `replyTo` as a Linq delivery; only the last hop differs,
+where the reply goes to a short log in that sender's Durable Object (newest
+100 entries, one day) instead of to Linq. Linking goes through the real
+sign-in link, so a simulated number answers only from the staging account its
+user signed in to.
+
+It cannot stand in for a real phone:
+- The Worker serves it only when its `SIMULATOR` var is "on", which only the
+  staging environment sets. The staging router reaches it through a service
+  binding production does not have, and the production deploy fails unless
+  `/texts-simulator` answers 404.
+- Senders must be 555-0100 to 555-0199 in some North American area code, the
+  range reserved for fiction, so no real phone or Linq delivery has one.
+- The first browser to text from a number claims it with a random key sent in
+  a header; only its hash is stored, and every later read or send must match.
+- The router strips the visitor's cookies and Authorization header before
+  forwarding, so the simulator is never handed a Context session.
+
+Tests: `simulator.test.ts` ("does not exist unless the Worker's SIMULATOR var
+is on", "accepts only numbers reserved for fiction", "lets only the browser
+that claimed a number read or text from it", "never treats a Linq delivery as
+simulated"); `infra/router/src/textsSimulator.test.ts`.
+
+### An answer reads like a text, and the typing bubble shows while it works
+
+The owner, 2026-10-07, after the first real answer arrived as `**Segun**` and a
+bracketed note path: "this is text, so please use a natural style", and "it was
+EXTREMELY slow". A grant from the texting client (`context_texts`) gets its own
+system prompt (`TEXTING_STYLE` in `apps/mcp/src/agent/turn.js`): plain words,
+the answer first, no Markdown, no note paths unless asked, a blank line between
+texts, and one search rather than `orient` for a simple question, because every
+tool call is another model round. The Worker then strips any Markdown that
+slipped through and sends paragraphs as separate texts, at most three, with a
+web link last as a text of its own (`apps/agent/src/format.ts`). It is decided
+by the grant's client, never by the request, so the app's own agent keeps
+citing paths.
+
+While an answer is worked out, Linq shows the typing bubble; the first call is
+awaited so it cannot land after a quick reply, and it is renewed every 55
+seconds. Each turn logs where its time went (`agent_turn`: rounds, model and
+tool milliseconds, no text), which is what a slow answer is diagnosed from.
+
+**What a simplification would cost:** answering texts with the app's prompt
+puts asterisks and paths on a phone again; dropping the await puts a typing
+bubble under a finished answer. Tests: `format.test.ts`; `inbox.test.ts`
+("shows the typing bubble while it works, and before the answer, never
+after"); `agentBuiltin.test.mjs` ("a texting grant's turn is told it is writing
+a text").
+
 ### The autofill vault lives sealed in the person's bucket
 
 Decided by the owner, 2026-10-06: the agent's saved passwords and cards live in

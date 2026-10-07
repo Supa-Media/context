@@ -112,7 +112,7 @@ export function FeedbackDialog({ report, onClose }: { report: OpenReport; onClos
                 activity={activity}
                 includeActivity={includeActivity}
                 onIncludeActivity={setIncludeActivity}
-                shot={includeShot ? shot : { kind: "none" }}
+                shot={shot}
                 includeShot={includeShot}
                 onIncludeShot={setIncludeShot}
                 onShowText={showText}

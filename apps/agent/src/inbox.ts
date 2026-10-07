@@ -17,8 +17,9 @@
  * person's own bucket.
  */
 
-import { sendLinqText, type Fetch } from "./clients";
+import { sendLinqText, startLinqTyping, type Fetch } from "./clients";
 import { replyTo, type Message, type ReplyDeps } from "./reply";
+import { record } from "./simulator";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -64,11 +65,15 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   for (const [key, item] of pending) {
     const stored = item.reply;
-    const reply = stored === undefined ? await replyTo(item.message, deps) : [stored].flat();
+    const reply = stored === undefined ? await answering(item.message, deps) : [stored].flat();
     try {
       // Each text keeps its own idempotency key, so a retry after a partial
       // send repeats nothing Linq already accepted.
       for (const [index, text] of reply.entries()) {
+        if (item.message.channel === "simulator") {
+          await record(storage, "in", text, deps.now());
+          continue;
+        }
         await sendLinqText(
           deps.fetch as Fetch,
           deps.linqApiKey,
@@ -92,6 +97,33 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     }
   }
   await pruneSeen(storage, deps.now());
+}
+
+/** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
+export const TYPING_REFRESH_MS = 55_000;
+
+/**
+ * Work out the reply with the typing bubble showing, as a person would.
+ *
+ * The first bubble is awaited (it is quick, and bounded) so it cannot land
+ * after a fast reply and hang in the chat; a renewal still in flight is
+ * awaited before the reply goes out, for the same reason. The simulator draws
+ * its own bubble from the queue, so it gets none.
+ */
+async function answering(message: Message, deps: InboxDeps): Promise<string[]> {
+  if (message.channel === "simulator") return replyTo(message, deps);
+  const typing = () => startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+  await typing();
+  let renewal: Promise<void> = Promise.resolve();
+  const timer = setInterval(() => {
+    renewal = typing();
+  }, TYPING_REFRESH_MS);
+  try {
+    return await replyTo(message, deps);
+  } finally {
+    clearInterval(timer);
+    await renewal;
+  }
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {

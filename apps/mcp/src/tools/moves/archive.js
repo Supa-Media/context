@@ -1,5 +1,6 @@
 /** `archive_note` — a note moved into the context's archive root. */
 
+import { withActivityHint } from "../../live/activityHint.js";
 import {
   archiveRoot,
   archiveRoots,
@@ -141,9 +142,9 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
       team_visible: destinationVisibility === "team",
       references: references.capped ? "not-rewritten" : references.links,
     });
-    return toolText(
+    return withActivityHint(toolText(
       `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)
-    );
+    ), { moves: [{ from: path, to: dest }] });
   }
   const body = new TextEncoder().encode(sourceText);
   if (destinationVisibility === "private") {
@@ -195,7 +196,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     team_visible: destinationVisibility === "team",
     references: references.capped ? "not-rewritten" : references.links,
   });
-  return toolText(
+  return withActivityHint(toolText(
     `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)
-  );
+  ), { moves: [{ from: path, to: dest }] });
 }
