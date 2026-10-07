@@ -470,6 +470,7 @@ export async function searchContextsHandler(
         path: row.path,
         title: row.title,
         snippet: row.snippet,
+        meaningOnly: row.meaningOnly,
       };
     }),
     matchCount,

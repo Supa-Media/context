@@ -84,3 +84,59 @@ index up once a day, and retries a failure that waiting can fix. A `ready`
 index stays `ready` while it catches up, because the notes it holds are still
 worth searching. An encrypted note is embedded as its title only, as fast
 search projects it.
+
+### An AI search asks both ways at once, and meaning can only add
+
+Decided 2026-10-07 while building it, on the owner's "one list". `search_notes`
+and ChatGPT's `search` ask the word search and the meaning index together
+(`apps/mcp/src/search/meaning/serve.js`) and merge the two by reciprocal rank,
+so a note both find rises and a note only meaning finds places among the word
+hits. **Every word hit stays**; meaning adds at most three notes the words
+missed, each marked "Same topic, different words" and shown with a snippet read
+from the bucket at answer time. A note that cannot be read now (moved, deleted,
+or outside what this connection's store will open) is dropped rather than
+listed blind. Matches below a closeness of 0.55 are noise and dropped.
+
+A failing model or index costs nothing but the merge: the word answer comes
+back unchanged, the miss text says it searched words only, and one log line
+carries a closed code. The extra cost per search is one embedding, one query,
+and up to three reads, inside the free tier's 50-subrequest ceiling that the
+word search's 40-op budget was set under. The tests that fail if any of this
+is loosened: `apps/mcp/test/meaningServe.test.mjs`.
+
+The app's own search asks the same way (`lib/fileOps/search.ts`, merging into
+whichever word index answered), keyed by `path`, with the hit carrying
+`meaningOnly` for the "Same topic, different words" label. The barrier looks
+the index up beside fast search's database and, like it, **a search never
+writes the row**: a deployment with no credential searches words only rather
+than marking the index failed because somebody typed. A member who answers to
+a group asks the index for every tier, since a group note is indexed as
+`private`, and `canSee` with their granted names decides as it does for words.
+Tests: `apps/convex/__tests__/consoleMeaningSearch.test.ts` and the "a console
+search" block of `meaningPass.test.ts`.
+
+### On for everyone means a walk over storage, a proof first, and an off that sticks
+
+Decided 2026-10-07 while building the owner's "on for everyone". The
+15-minute sweep walks `storageBindings` a page at a time and turns search by
+meaning on for each bound workspace that has no `meaningIndexes` row
+(`lib/meaningFns/rollout.ts`); at the end it starts over, so a workspace that
+connects storage later is reached on a later lap. Bindings rather than
+workspaces, because an index is built from a bucket: a workspace with no
+storage has nothing to embed.
+
+**A row of any kind is a decision, and the rollout never overrides one.** The
+owner's switch (`meaningSearch.set`, owner-only like fast search) turning it
+off keeps the row through the index's deletion and ends it at `off`; only the
+owner turning it back on clears that. Losing storage releases the index too
+(`fastSearch.releaseForStorage` releases both) and removes the row, unless the
+owner had switched it off, so a reconnected workspace is picked up again.
+Deleting the workspace keeps nothing.
+
+**The credential is proven on one workspace before it is spent on all.** It
+needs Vectorize and Workers AI permissions fast search never did. Until one
+index is serving, the rollout turns on one workspace at a time and waits while
+that one is being set up or has failed, so a missing permission costs one
+failed row, retried every six hours, rather than one per workspace.
+`MEANING_SEARCH_ROLLOUT=disabled` on the deployment stops the walk without a
+deploy. Tests: `apps/convex/__tests__/meaningRollout.test.ts`.

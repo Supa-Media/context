@@ -47,6 +47,12 @@ import { noteHeading } from "./frontmatter";
 import { baseName, displayName, displayPath, isPrivacyManifest, parentPath } from "./paths";
 import type { FileEntry, FolderListing } from "./types";
 
+/**
+ * What a result found by meaning alone says beside it: the note is about what
+ * was typed, without using those words (the owner's pick, 2026-10-07).
+ */
+export const MEANING_ONLY_LABEL = "Same topic, different words";
+
 export interface PaletteItem {
   id: string;
   /** What matched — the note's title, the command name, the folder path. */
@@ -61,6 +67,8 @@ export interface PaletteItem {
    * the second.
    */
   snippet?: string;
+  /** Found by what the note is about rather than its words; drawn as `MEANING_ONLY_LABEL`. */
+  meaningOnly?: boolean;
   /**
    * The note's name in the tree, when its title says something else: the
    * homepage's `pricing.md` is headed "free, you cheapo", and "pricing" is

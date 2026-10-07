@@ -377,6 +377,7 @@ export function useLiveConsoleData(): ConsoleData {
     activity,
     agents,
     fastSearch,
+    meaningSearch,
     plugins,
     contextPlugins,
     pluginGrants,
@@ -467,6 +468,7 @@ export function useLiveConsoleData(): ConsoleData {
     whatsNew: true,
     routines: true,
     fastSearch,
+    meaningSearch,
     mirrors,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the

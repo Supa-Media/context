@@ -10,7 +10,13 @@ import { v } from "convex/values";
 export const searchResultsValidator = v.object({
   kind: v.literal("searchResults"),
   hits: v.array(
-    v.object({ path: v.string(), title: v.string(), snippets: v.array(v.string()) }),
+    v.object({
+      path: v.string(),
+      title: v.string(),
+      snippets: v.array(v.string()),
+      /** Found by meaning alone: the app marks it "Same topic, different words". */
+      meaningOnly: v.optional(v.boolean()),
+    }),
   ),
   matchCount: v.number(),
   matchCountIsFloor: v.boolean(),
@@ -95,6 +101,8 @@ export const blendedResultsValidator = v.object({
       title: v.string(),
       /** The explanatory line, or `""` where the index had none to give. */
       snippet: v.string(),
+      /** Found by meaning alone: shown as "Same topic, different words". */
+      meaningOnly: v.optional(v.boolean()),
     }),
   ),
   /** Visible matches across every context asked. A floor when any source's is. */

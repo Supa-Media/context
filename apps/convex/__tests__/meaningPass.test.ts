@@ -12,6 +12,8 @@
  *   `recordProgress` demoting a `ready` row to `backfilling` → "a ready index catching up stays ready" fails
  *   the sweep ignoring `enabled`                           → "the sweep restarts what stopped, and only that" fails
  *   the provisioner not scheduling the pass                → "provisioning schedules the first pass" fails
+ *   the barrier not attaching the index to a search's store → "a console search through the barrier…" fails
+ *   `meaningSearchDescriptor` recording NOT_CONFIGURED     → "a search with no credential searches words…" fails
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -56,6 +58,8 @@ interface Cloudflare {
   deleted: string[];
   embedded: number;
   fail: number | null;
+  /** What `/query` answers, best first. */
+  matches: string[];
   fetchImpl: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>;
 }
 
@@ -65,6 +69,7 @@ function cloudflare(next: (input: URL | RequestInfo, init?: RequestInit) => Prom
     deleted: [],
     embedded: 0,
     fail: null,
+    matches: [],
     fetchImpl: async (input, init = {}) => {
       const url = typeof input === "string" ? input : String(input);
       if (!url.startsWith("https://api.cloudflare.com/")) return await next(input, init);
@@ -82,6 +87,11 @@ function cloudflare(next: (input: URL | RequestInfo, init?: RequestInit) => Prom
       if (url.endsWith("/upsert")) {
         for (const line of String(init.body).split("\n").filter(Boolean)) state.upserted.push(JSON.parse(line));
         return respond({ mutationId: "m" });
+      }
+      if (url.endsWith("/query")) {
+        return respond({
+          matches: state.matches.map((path, i) => ({ id: `v${i}`, score: 0.9 - i * 0.05, metadata: { path, chunk: 0, tier: "team" } })),
+        });
       }
       if (url.endsWith("/delete_by_ids")) {
         state.deleted.push(...(JSON.parse(String(init.body)) as { ids: string[] }).ids);
@@ -278,7 +288,10 @@ describe("the sweep", () => {
       { slug: "due-refresh", status: "ready", updatedAt: long },
       { slug: "switched-off", status: "backfilling", updatedAt: long, enabled: false },
       { slug: "waits", status: "failed", errorCode: "UNAVAILABLE", updatedAt: long },
-      { slug: "refused", status: "failed", errorCode: "UNAUTHORIZED", updatedAt: long },
+      // Waiting cannot fix a refusal; somebody changing the credential can,
+      // so it is tried again after hours rather than every sweep.
+      { slug: "refused", status: "failed", errorCode: "UNAUTHORIZED", updatedAt: Date.now() - 60 * 60 * 1000 },
+      { slug: "refused-long-ago", status: "failed", errorCode: "UNAUTHORIZED", updatedAt: long },
     ];
     for (const spec of rows) {
       const owner = await createUser(t, `${spec.slug}@example.invalid`);
@@ -297,10 +310,44 @@ describe("the sweep", () => {
       });
     }
     const { started } = await t.mutation(internal.functions.meaningSearch.sweep, {});
-    expect(started).toBe(3);
+    expect(started).toBe(4);
     expect(await queued(t, "runFileOperation")).toHaveLength(2);
-    expect(await queued(t, "provisionMeaningIndex")).toHaveLength(1);
+    expect(await queued(t, "provisionMeaningIndex")).toHaveLength(2);
     // Touched, so the next sweep does not start a second chain.
     expect((await t.mutation(internal.functions.meaningSearch.sweep, {})).started).toBe(0);
+  });
+});
+
+describe("a console search", () => {
+  const search = (t: TestConvex, workspaceId: Id<"workspaces">, query: string) =>
+    t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "search", query },
+    });
+
+  test("a console search through the barrier merges what the index found", async () => {
+    const { t, workspaceId, bucket, cf } = await workspace({ status: "ready", notes: 2 });
+    bucket.seed("2-areas/garden.md", "# Garden\n\nTomatoes by the fence.\n");
+    await pass(t, workspaceId, 5);
+    cf.matches = ["2-areas/garden.md"];
+    const result = (await search(t, workspaceId, "hiring")) as {
+      hits: { path: string; meaningOnly?: boolean }[];
+    };
+    expect(result.hits.filter((hit) => !hit.meaningOnly).length).toBeGreaterThan(0);
+    expect(result.hits.find((hit) => hit.path === "2-areas/garden.md")?.meaningOnly).toBe(true);
+  });
+
+  test("a search with no credential searches words and leaves the row alone", async () => {
+    const { t, workspaceId, cf } = await workspace({ status: "ready", notes: 2, secrets: false });
+    await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "maintainIndex" },
+    }).catch(() => null);
+    cf.matches = ["1-projects/note-0.md"];
+    const result = (await search(t, workspaceId, "hiring")) as { hits: { meaningOnly?: boolean }[] };
+    expect(result.hits.every((hit) => !hit.meaningOnly)).toBe(true);
+    expect((await row(t, workspaceId))?.status).toBe("ready");
   });
 });

@@ -14,6 +14,7 @@ import { SourcesPanel } from "../settings/panels/SourcesPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { ModelPanel } from "../settings/panels/ModelPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
+import { MeaningSearchCardView } from "../search/MeaningSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
 import { OverviewPanel } from "../settings/panels/OverviewPanel";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
@@ -370,6 +371,15 @@ export function SettingsPane({
         Search
       </Text>
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
+      {data.meaningSearch === undefined || data.demo ? null : (
+        <View style={styles.meaning}>
+          <MeaningSearchCardView
+            status={data.meaningSearch.status}
+            demo={false}
+            onSet={data.meaningSearch.set}
+          />
+        </View>
+      )}
       <EncryptionKeysBlock action={data.advanced.keyExport} demo={data.demo} />
 
       </>
@@ -558,6 +568,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   notice: { marginTop: 15 },
   /** The same 24pt gap the vault importer above it takes from the card. */
   migration: { marginTop: 24 },
+  meaning: { marginTop: 12 },
   noticeBody: { flex: 1, minWidth: 0 },
   okText: { color: colors.okText },
   warnText: { color: colors.warnText },

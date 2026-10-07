@@ -33,6 +33,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { statusHandler } from "./lib/fastSearchFns/status";
+import { disableMeaningHandler } from "./lib/meaningFns/rows";
 import { disableHandler, enableHandler, releaseForStorageHandler } from "./lib/fastSearchFns/toggle";
 import { syncPremiumSelectionHandler } from "./lib/fastSearchFns/premium";
 import { searchableContextsForHandler, searchableContextsHandler } from "./lib/fastSearchFns/scope";
@@ -151,7 +152,14 @@ export const enable = mutation({
 export const releaseForStorage = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ releasing: v.boolean() }),
-  handler: (ctx, args) => releaseForStorageHandler(ctx, args),
+  handler: async (ctx, args) => {
+    // Search by meaning's index is built from the same bucket and goes for the
+    // same reason, through every door that reaches this one. Unlike fast
+    // search it comes back by itself once storage is connected again ("on for
+    // everyone"), unless the owner had switched it off (`MeaningOffReason`).
+    await disableMeaningHandler(ctx, { workspaceId: args.workspaceId, reason: "storage" });
+    return await releaseForStorageHandler(ctx, args);
+  },
 });
 
 /**

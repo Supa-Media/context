@@ -55,6 +55,8 @@ export interface BlendedResult {
   path: string;
   title: string;
   snippet: string;
+  /** Found by what the note is about, not by the words typed. */
+  meaningOnly?: boolean;
 }
 
 /** One context that was searched, and how it went. */

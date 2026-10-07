@@ -565,6 +565,8 @@ export interface ConsoleData {
    * owner their index is gone on every reload.
    */
   fastSearch: FastSearchView;
+  /** Search by meaning's status and owner switch; absent in the demo, which draws no card. */
+  meaningSearch?: import("./search/useMeaningSearch").MeaningSearchView;
   /**
    * Who can reach the selected context, and the owner-only controls to change
    * it. Its `actions` are absent for anyone who is not the owner, and in the

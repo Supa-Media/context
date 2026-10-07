@@ -75,4 +75,27 @@ describe("the dim line", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toContain("0-inbox · today, the standup");
   });
+
+  test("a note found by meaning alone says so, between its folder and its words", () => {
+    const palette = mount(PHONE, {
+      search: {
+        onQuery: () => {},
+        state: "ready",
+        items: [
+          {
+            id: "2-areas/home/rent.md",
+            label: "Rent",
+            detail: "2-areas/home",
+            snippet: "Paid on the 1st by standing order.",
+            meaningOnly: true,
+            kind: "note",
+          },
+        ],
+      },
+    });
+    palette.type("landlord");
+    expect(palette.find("palette-detail")?.textContent).toBe(
+      "2-areas/home · Same topic, different words · Paid on the 1st by standing order.",
+    );
+  });
 });

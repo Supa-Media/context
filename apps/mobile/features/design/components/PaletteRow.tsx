@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import type { Match, PaletteItem } from "../../console/files/palette";
+import { MEANING_ONLY_LABEL, type Match, type PaletteItem } from "../../console/files/palette";
 import { space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Icon, type IconName } from "./Icon";
@@ -74,10 +74,14 @@ export function highlightRuns(
 
 /**
  * The dim line: where the note is, then the words in it that matched —
- * `website · …onboarding, private sharing…`. Either half may be absent.
+ * `website · …onboarding, private sharing…`. Either half may be absent. A note
+ * found by meaning alone says so between them, because its snippet will not
+ * hold the words that were typed.
  */
 export function secondLine(item: PaletteItem): string {
-  return [item.detail, item.snippet].filter((part) => part !== undefined && part !== "").join(" · ");
+  return [item.detail, item.meaningOnly ? MEANING_ONLY_LABEL : undefined, item.snippet]
+    .filter((part) => part !== undefined && part !== "")
+    .join(" · ");
 }
 
 /**

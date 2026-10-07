@@ -12,6 +12,11 @@ export const meaningStatusValidator = v.union(
   v.literal("failed"),
   /** Turned off, index not deleted yet. Serves nothing. */
   v.literal("releasing"),
+  /**
+   * Turned off by the owner, and the index is gone. The row stays so that
+   * "on for everyone" does not turn it back on; only the owner can.
+   */
+  v.literal("off"),
 );
 
 /**
@@ -33,6 +38,11 @@ export const meaningTables = {
     enabled: v.boolean(),
     /** Who turned it on; absent when Context turned it on for everyone. */
     enabledBy: v.optional(v.id("users")),
+    /**
+     * The owner switched it off. Kept through the release, so the row ends at
+     * `off` rather than being deleted, and a storage disconnect keeps it too.
+     */
+    optedOut: v.optional(v.boolean()),
     enabledAt: v.number(),
     status: meaningStatusValidator,
     /** The Vectorize index's name, once it exists. Configuration, not a secret. */
@@ -51,4 +61,16 @@ export const meaningTables = {
     .index("by_status", ["status"])
     // The sweep's: the rows of one status that have waited longest.
     .index("by_status_updated", ["status", "updatedAt"]),
+
+  /**
+   * Where "on for everyone" has walked to in `storageBindings`: one row, the
+   * page cursor of the 15-minute sweep. It starts over at the end, so a
+   * workspace that connects storage later, or reconnects, is reached on the
+   * next lap. Holds no workspace id and no path.
+   */
+  meaningRollout: defineTable({
+    cursor: v.union(v.string(), v.null()),
+    laps: v.number(),
+    updatedAt: v.number(),
+  }),
 };

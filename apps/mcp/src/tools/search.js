@@ -10,6 +10,7 @@ import { NOTE_INDEX_CHAR_CAP } from "../search/maintain.js";
 import { noteTitle, splitReducedRecallNotes } from "../search/visible.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { searchVisibleNotes } from "../search/visibleNotes.js";
+import { MEANING_ONLY_LABEL, searchBothWays } from "../search/meaning/serve.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
 
@@ -17,9 +18,19 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const found = await searchVisibleNotes(store, scope, rules, overrides, query, prefix);
-  const hits = found.hits.map(({ key, snippets, title }) =>
-    snippets.length
+  const found = await searchBothWays(
+    store,
+    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
+    { query, scope, prefix, isVisible: (path) => canSee(path, scope, rules, overrides) },
+  );
+  const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
+    meaningOnly
+      ? // Found by what it is about, not by the words typed: said so, so an
+        // agent does not quote the snippet as if it carried the term.
+        `${key}\n    (${MEANING_ONLY_LABEL})\n${(snippets.length ? snippets : [title])
+          .map((line) => `    ${line}`)
+          .join("\n")}`
+      : snippets.length
       ? `${key}\n${snippets.map((line) => `    ${line}`).join("\n")}`
       : // Indexed, then edited: it matched when it was indexed and its current
         // text does not carry the term. The title was actually read; a snippet
@@ -37,7 +48,10 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
         "\n\n"
       )}`
     : "(no matches)\n\nA miss usually means the wrong word rather than the wrong assumption — " +
-      "this searches the words in the notes, not their meaning. Before concluding it is not " +
+      (found.meaning === "off"
+        ? "this searches the words in the notes, not their meaning. "
+        : "this searched the words in the notes and what they are about, and nothing was close. ") +
+      "Before concluding it is not " +
       "written down: try the term the user would have typed, drop the prefix if you passed " +
       "one, or call orient / list_notes to see which folders exist. And if the note is long, " +
       `a note is indexed by its opening ${NOTE_INDEX_CHAR_CAP.toLocaleString("en-US")} characters, ` +
@@ -83,7 +97,11 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
 /** The first heading if the note has one, else its filename. */
 export async function toolOpenAiSearch(store, scope, rules, overrides, query) {
   if (!query || typeof query !== "string") return toolError("query required");
-  const { hits } = await searchVisibleNotes(store, scope, rules, overrides, query, "");
+  const { hits } = await searchBothWays(
+    store,
+    () => searchVisibleNotes(store, scope, rules, overrides, query, ""),
+    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) },
+  );
   // Titles come from the text already fetched for the snippets, so a result
   // costs no read of its own. This used to spend a second GET per hit, which
   // doubled the most expensive part of the old scan.
