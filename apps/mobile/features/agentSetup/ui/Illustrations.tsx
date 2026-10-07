@@ -222,7 +222,7 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
     case "create":
       return (
         <Frame caption={SEEN_IN.chatgpt}>
-          <Win title="New app">
+          <Win title="Add custom MCP server">
             <Input label="Name" value="Context" pin={1} />
             <Input label="MCP server URL" value={MCP_ENDPOINT} pin={2} />
             <Input label="Authentication" value="OAuth ⌄" pin={3} plain />

@@ -104,9 +104,11 @@ describe("the connect steps", () => {
     guide.done();
   });
 
-  test("ChatGPT's guide starts at Create app, with no developer mode anywhere", () => {
+  test("ChatGPT's guide starts at Plugins › Add custom MCP server, with no developer mode anywhere", () => {
     const first = draw("guide-chatgpt-create");
-    expect(first.text()).toContain("Create app");
+    expect(first.text()).toContain("chatgpt.com/plugins");
+    expect(first.text()).toContain("Add custom MCP server");
+    expect(first.text()).not.toContain("Create app");
     expect(first.byId("agent-setup-open-link")).not.toBeNull();
     first.done();
     for (const key of ["guide-chatgpt-create", "guide-chatgpt-stick", "guide-chatgpt-bring", "guide-chatgpt-denied"] as const) {

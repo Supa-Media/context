@@ -3,7 +3,8 @@
  * what an agent is doing in it, behind the caller's session and `canSee`.
  */
 
-import { activityForCaller, agentActivityKey } from "../agentActivity.js";
+import { ACTIVITY_KINDS, activityForCaller, agentActivityKey } from "../agentActivity.js";
+import { heartbeatPerson } from "./activityHeartbeat.js";
 import {
   bearerToken,
   hasScope,
@@ -23,7 +24,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { normalizePath } from "../notes/paths.js";
 import { objectExists } from "../storageLayout.js";
 import { presenceClientKey } from "./relayAuthorization.js";
-import { isConsoleActor, presenceDisplayName } from "./presence.js";
+import { presenceDisplayName } from "./presence.js";
 import { roomKey } from "../presence.js";
 
 /**
@@ -241,7 +242,13 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
 
 /**
  * `GET /agent-activity` — which notes agents read or wrote in the last few
- * minutes, for the console's file tree and its "N agents active" line.
+ * minutes, for the console's file tree, its "N agents active" line and the
+ * live map.
+ *
+ * Query parameters, all optional: `since=<ms>` returns only `events` newer
+ * than that `at` (the map polls every few seconds and passes the newest `at`
+ * it holds); and, from the console only, `note`/`doing` and
+ * `did`/`path`/`from`/`to` — see `activityHeartbeat.js`.
  *
  * Authorized like `/presence`: same token, same grant, same clamp, same
  * `privacy.md`. The log comes back from the workspace's activity object whole
@@ -285,67 +292,86 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
   }
   const privacy = await loadPrivacyState(store);
   const now = Date.now();
-  if (privacy.error) return json(activityForCaller([], now, () => false));
+  if (privacy.error) return json({ ...activityForCaller([], now, () => false), peopleCount: 0, people: [] });
+
+  const params = new URL(request.url).searchParams;
+  const sinceParam = params.has("since") ? Number(params.get("since")) : NaN;
+  const since = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : null;
+  // Who is asking, as a person — or nothing, when it is not the console. See
+  // `activityHeartbeat.js` for what a console may say and how it is checked.
+  const person = await heartbeatPerson(session, store, privacy, params);
 
   let events = [];
   let people = { peopleCount: 0, people: [] };
+  const visible = (path) =>
+    typeof path === "string" && !isPlumbing(path) &&
+    canSee(path, session.scope, privacy.rules, privacy.overrides);
   try {
     const room = env.PRESENCE_ROOM.get(
       env.PRESENCE_ROOM.idFromName(agentActivityKey(session.workspaceId)),
     );
     const response = await room.fetch("https://presence.invalid/activity", {
       method: "GET",
-      headers: await personHeaders(session),
+      headers: person ? { "x-activity-person": JSON.stringify(person) } : {},
     });
     const body = await response.json();
     if (Array.isArray(body?.events)) events = body.events;
-    people = peopleFromRoom(body);
+    people = peopleFromRoom(body, visible);
   } catch {
     // No log is an empty answer. The tree simply draws no marks.
   }
-  const wellFormed = events.filter(
-    (event) =>
-      event && typeof event.path === "string" && typeof event.id === "string" &&
-      typeof event.name === "string" && (event.kind === "read" || event.kind === "write") &&
-      Number.isFinite(event.at),
-  );
+  const wellFormed = events
+    // An object still running the previous version logged `write`.
+    .map((event) => (event?.kind === "write" ? { ...event, kind: "edit" } : event))
+    .filter(
+      (event) =>
+        event && typeof event.path === "string" && typeof event.id === "string" &&
+        typeof event.name === "string" && ACTIVITY_KINDS.has(event.kind) &&
+        (event.kind !== "move" || typeof event.from === "string") &&
+        Number.isFinite(event.at),
+    );
   return json({
     ...activityForCaller(
       wellFormed,
       now,
-      (path) => !isPlumbing(path) && canSee(path, session.scope, privacy.rules, privacy.overrides),
+      visible,
       await presenceClientKey(`person:${session.actorUserId}`),
+      { since },
     ),
     ...people,
   });
 }
 
 /**
- * Who is asking, for the people count — or nothing, when it is not a person.
+ * The room's people, re-checked for shape and filtered for this caller.
  *
- * Only the console's own client is a person with the workspace open. Any
- * other grant is a tool, already counted as an agent by what it reads and
- * writes. The key is a digest of the account id, in a namespace of its own so
- * it can never equal a client's digest; two tabs of one person are one entry.
+ * Rebuilt field by field rather than passed through, so nothing the room
+ * holds reaches a sidebar unless it is named here. A person's note is shown
+ * only when *this* caller can see it — the person was allowed to say it
+ * because they could, which says nothing about who is asking — and is
+ * `null` otherwise: they are still listed, as they were before the map, just
+ * not placed anywhere.
  */
-async function personHeaders(session) {
-  if (!isConsoleActor({ clientId: session.actorClientId })) return {};
-  const key = await presenceClientKey(`person:${session.actorUserId}`);
-  if (key === null) return {};
-  return {
-    "x-activity-person": JSON.stringify({ key, name: presenceDisplayName(session) }),
-  };
-}
-
-/** The room's people, re-checked for shape: they are drawn in every sidebar. */
-function peopleFromRoom(body) {
+function peopleFromRoom(body, visible) {
   const count = Number.isInteger(body?.peopleCount) && body.peopleCount >= 0 ? body.peopleCount : 0;
   const listed = Array.isArray(body?.people)
-    ? body.people.filter(
-        (person) =>
-          person && typeof person.id === "string" && typeof person.name === "string" &&
-          typeof person.color === "string" && typeof person.self === "boolean",
-      )
+    ? body.people
+        .filter(
+          (person) =>
+            person && typeof person.id === "string" && typeof person.name === "string" &&
+            typeof person.color === "string" && typeof person.self === "boolean",
+        )
+        .map((person) => {
+          const path = visible(person.path) ? person.path : null;
+          return {
+            id: person.id,
+            name: person.name,
+            color: person.color,
+            self: person.self,
+            path,
+            doing: path === null ? null : person.doing === "edit" ? "edit" : "read",
+          };
+        })
     : [];
   return { peopleCount: Math.max(count, listed.length), people: listed };
 }

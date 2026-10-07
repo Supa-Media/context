@@ -78,6 +78,10 @@
       "name": "context-router-staging",
       "workers_dev": true,
       "vars": {},
+      // Staging only: /texts-simulator goes to the texting assistant's
+      // simulator (apps/agent/src/simulator.ts). Production has no binding,
+      // so the path is an ordinary app 404 there.
+      "services": [{ "binding": "TEXTS_SIMULATOR", "service": "context-agent-staging" }],
       // Environments do not inherit Static Assets configuration, so keep the
       // staging binding explicit and identical to production.
       // `run_worker_first` preserves auth, previews, customer domains and the

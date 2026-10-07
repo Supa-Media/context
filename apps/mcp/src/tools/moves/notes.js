@@ -1,5 +1,6 @@
 /** `move_notes` — a batch of moves, and the audit entry for one that stops part-way. */
 
+import { withActivityHint } from "../../live/activityHint.js";
 import {
   archiveRoots,
   canSee,
@@ -286,7 +287,10 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       references: references.capped ? "not-rewritten" : references.links,
     }
   );
-  return toolText(`moved notes: ${preflight.length}\n${planText}` + referencesLine(references));
+  return withActivityHint(
+    toolText(`moved notes: ${preflight.length}\n${planText}` + referencesLine(references)),
+    { moves: preflight.map((move) => ({ from: move.source, to: move.destination })) },
+  );
 }
 
 export async function recordPartialMove(store, action, scope, planned, applied) {
