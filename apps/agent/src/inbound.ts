@@ -34,26 +34,6 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-/**
- * Where a message's transport may be named. Linq documents a `service` of
- * `iMessage`, `RCS` or `SMS` on handles but does not show where it sits on an
- * inbound event, so every plausible place is read.
- *
- * **Only iMessage is accepted, and a message that names no service is refused.**
- * The sender's number is the whole of this Worker's authentication. Apple
- * authenticates an iMessage sender; an SMS sender number can be spoofed by
- * anyone with a cheap gateway, and a spoofed number here would be answered with
- * somebody else's notes. Fail closed: confirm the field's real location against
- * a live delivery before deploying, and narrow this list to it.
- */
-function transportOf(data: Record<string, unknown>): unknown {
-  const message = isRecord(data.message) ? data.message : {};
-  for (const holder of [data, message, data.sender_handle, data.from_handle, message.sender_handle]) {
-    if (isRecord(holder) && typeof holder.service === "string") return holder.service;
-  }
-  return undefined;
-}
-
 export function parseInbound(payload: unknown): Inbound {
   if (!isRecord(payload) || !nonEmptyString(payload.event_id) || !nonEmptyString(payload.event_type)) {
     return { kind: "invalid" };
@@ -61,24 +41,27 @@ export function parseInbound(payload: unknown): Inbound {
   if (payload.event_type !== "message.received") return { kind: "ignored", reason: "event_type" };
 
   const data = payload.data;
-  if (!isRecord(data) || !nonEmptyString(data.chat_id) || !isRecord(data.message)) {
+  if (!isRecord(data) || !isRecord(data.chat) || !nonEmptyString(data.id) ||
+      !Array.isArray(data.parts) || !isRecord(data.sender_handle)) {
     return { kind: "invalid" };
   }
-  const message = data.message;
-  if (!nonEmptyString(message.id) || !Array.isArray(message.parts)) return { kind: "invalid" };
+  const chat = data.chat;
+  const sender = data.sender_handle;
+  if (!nonEmptyString(chat.id)) return { kind: "invalid" };
 
-  // A direct chat proves itself: only an explicit `is_group: false` is
-  // answered, for the same reason `transportOf` refuses a message that names no
-  // service. A field spelled or typed differently in a live delivery must not
-  // turn a room into a direct chat, because the answer goes to the chat the
-  // message came from — see "Group chats never reach a personal context" in
-  // `docs/decisions/texting-assistant.md`. Confirm this field against a real
-  // delivery before deploying, the same as `service`.
-  if (data.is_group !== false) return { kind: "ignored", reason: "group" };
-  if (typeof data.from !== "string" || !E164.test(data.from)) return { kind: "ignored", reason: "sender" };
-  if (transportOf(data) !== "iMessage") return { kind: "ignored", reason: "service" };
+  // A live Linq delivery puts the group flag on data.chat. Never infer a
+  // direct chat from any other field: the reply goes to this chat's ID.
+  if (chat.is_group !== false) return { kind: "ignored", reason: "group" };
+  if (typeof sender.handle !== "string" || !E164.test(sender.handle)) {
+    return { kind: "ignored", reason: "sender" };
+  }
+  // Both transport fields are present on the observed event. Require them to
+  // agree so an SMS sender cannot reach a phone-linked person's Context.
+  if (data.service !== "iMessage" || sender.service !== "iMessage") {
+    return { kind: "ignored", reason: "service" };
+  }
 
-  const text = message.parts
+  const text = data.parts
     .filter((part): part is { type: string; value: string } =>
       isRecord(part) && part.type === "text" && typeof part.value === "string",
     )
@@ -90,9 +73,9 @@ export function parseInbound(payload: unknown): Inbound {
   return {
     kind: "message",
     eventId: payload.event_id,
-    chatId: data.chat_id,
-    from: data.from,
-    messageId: message.id,
+    chatId: chat.id,
+    from: sender.handle,
+    messageId: data.id,
     text: text.slice(0, MAX_INBOUND_TEXT),
   };
 }

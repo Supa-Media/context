@@ -35,27 +35,26 @@ in. Groups are dropped until shared workspaces have a group design of their
 own.
 
 **The gate fails closed, and that is the load-bearing half.** A direct chat has
-to prove itself with an explicit `is_group: false`; anything else — a missing
-field, a string, a number — is a group. The reply goes to the chat the message
-came from, so a field a live delivery spells or types differently would read
-one person's notes out to everybody in the room, and the cost of being wrong is
-entirely one-sided: fail closed and the assistant stays quiet until the field is
-confirmed, which is the same bargain `service` already takes. Confirm this field
-against a real delivery before deploying.
-Tests: `inbound.test.ts`, "ignores group chats", "treats anything but an
-explicit is_group: false as a group", "...including an event with no is_group
-field at all".
+to prove itself with `data.chat.is_group === false`; anything else — a missing
+field, a string, a number — is treated as a group. A redacted live delivery
+from the shared line on 2026-10-06 confirmed this location. The reply goes to
+`data.chat.id`, so accepting a group would disclose a person's notes to its
+members. Test: `inbound.test.ts`, "ignores group chats and requires an explicit
+false on data.chat".
 
 ### Only iMessage is answered, because the sender number is the login
 
 The sending phone number is all that identifies a person here. Apple
 authenticates an iMessage sender. An SMS sender number can be spoofed, and a
 spoofed number would be answered with somebody else's notes. So a message must
-name its service as `iMessage`, and one naming no service is refused. Linq's docs
-don't show where `service` sits on an inbound event, so the parser reads every
-plausible place. **Before deploying, confirm the real location from a live
-delivery and narrow the parser to it.** Test: `inbound.test.ts`, "refuses SMS
-and RCS".
+name its service as `iMessage`, and one naming no service is refused. A
+redacted live delivery showed `data.service` and
+`data.sender_handle.service` both set to `iMessage`, with the sender's number
+at `data.sender_handle.handle`. The parser requires both service fields to
+agree. The same delivery puts the message ID and parts at `data.id` and
+`data.parts`, rather than under `data.message`. Tests: `inbound.test.ts`,
+"reads the live direct iMessage shape" and "refuses SMS, RCS, missing service,
+or conflicting handle transport".
 
 ### The Worker holds message text only while it is answering it
 
