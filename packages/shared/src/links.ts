@@ -57,6 +57,32 @@ export interface Link {
   end: number;
 }
 
+/**
+ * One reference as a reader sees it. `definition` is `[id]: target`, reported
+ * by `extractReferences` only; `parseLinks` and `rewriteLinks` never see it.
+ * `fragment` is the anchor with its `#` (empty for an external target); `style`
+ * is the written shape of the file part, `null` when there is no file to shape.
+ */
+export interface LinkOccurrence extends Omit<Link, "kind"> {
+  kind: "wiki" | "inline" | "definition";
+  fragment: string;
+  style: LinkStyle | null;
+}
+
+/** What a reference points at, and why it did not resolve when it did not. */
+export type LinkResolution =
+  | { state: "resolved"; path: string }
+  | { state: "missing" | "ambiguous" | "unknown" | "invalid" | "unsupported" | "external" };
+
+/**
+ * `byName` is `indexByName`'s map. `paths`, when the caller has the full list
+ * of notes, is what separates `missing` from `unknown`.
+ */
+export interface LinkCatalog {
+  byName?: ReadonlyMap<string, string[]>;
+  paths?: ReadonlySet<string>;
+}
+
 /** The three shapes a target can be written in. */
 export type LinkStyle = "relative" | "rooted" | "bare";
 
@@ -439,6 +465,89 @@ function safeDecode(value: string): string {
   } catch {
     return value;
   }
+}
+
+/* ------------------------------- reading --------------------------------- */
+
+/*
+  `[label]: target` on a line of its own. A footnote (`[^1]: text`) is not one,
+  and the target is `<…>` or a run with no whitespace; a title after it is left
+  unread because nothing here needs it.
+*/
+const DEFINITION = /^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)/gm;
+
+/**
+ * Every reference in `text` for a *reader* ("what does this note point at"),
+ * in document order, with no length cap. See the gateway's copy for the
+ * reasoning; definitions are reported here and nowhere else.
+ */
+export function extractReferences(text: string): LinkOccurrence[] {
+  const skip = codeRanges(text);
+  const inCode = (index: number) => skip.some(([from, to]) => index >= from && index < to);
+  const found: (Link | Omit<LinkOccurrence, "fragment" | "style">)[] = parseLinks(text);
+
+  for (const match of text.matchAll(DEFINITION)) {
+    if (inCode(match.index)) continue;
+    const raw = match[1];
+    const bracketed = raw.startsWith("<") && raw.endsWith(">");
+    const target = bracketed ? raw.slice(1, -1) : raw;
+    const start = match.index + match[0].length - raw.length + (bracketed ? 1 : 0);
+    found.push({ kind: "definition", embed: false, target, start, end: start + target.length });
+  }
+
+  return found
+    .sort((a, b) => a.start - b.start)
+    .map((link) => {
+      const target = link.target.trim();
+      const { file, anchor } = splitAnchor(target);
+      const external = isExternal(target);
+      return {
+        ...link,
+        fragment: external ? "" : anchor,
+        style: external || file === "" ? null : styleOf(decodeFor(link, file)),
+      };
+    });
+}
+
+/** Wikilinks are written as-is; inline links and definitions are URL-encoded. */
+function decodeFor(link: Pick<LinkOccurrence, "kind">, file: string): string {
+  return link.kind === "wiki" ? file : safeDecode(file);
+}
+
+/**
+ * What an occurrence points at, as a verdict rather than a path-or-null.
+ *
+ * Without `catalog.paths` a computed path or an unmatched bare name is
+ * `unknown`, not `missing`: absence of a list is not absence of a note. Never
+ * throws on anything `extractReferences` produces.
+ *
+ * `catalog` must contain only targets the caller may see; built from anything
+ * wider, `ambiguous`/`missing` versus `resolved` reveals notes the caller cannot
+ * see (architecture README section 7.3).
+ */
+export function resolveReference(
+  occurrence: Pick<LinkOccurrence, "kind" | "target">,
+  fromPath: string,
+  catalog: LinkCatalog,
+): LinkResolution {
+  const target = occurrence.target.trim();
+  if (isExternal(target)) return { state: "external" };
+  if (occurrence.kind === "definition") return { state: "unsupported" };
+  const { file } = splitAnchor(target);
+  if (file === "" || file === "." || file === "..") return { state: "invalid" };
+
+  const absent = catalog.paths ? "missing" : "unknown";
+  const decoded = decodeFor(occurrence, file);
+  if (styleOf(decoded) === "bare") {
+    const candidates = catalog.byName?.get(decoded.replace(/\.md$/, ""));
+    if (candidates?.length === 1) return { state: "resolved", path: candidates[0] };
+    return { state: candidates && candidates.length > 1 ? "ambiguous" : absent };
+  }
+
+  const path = resolveLink(occurrence as Pick<Link, "kind" | "target">, fromPath, catalog.byName);
+  if (path === null) return { state: "invalid" };
+  if (!catalog.paths) return { state: "unknown" };
+  return catalog.paths.has(path) ? { state: "resolved", path } : { state: "missing" };
 }
 
 /* ---------------------------- re-expression ------------------------------ */

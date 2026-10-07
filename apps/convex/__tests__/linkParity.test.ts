@@ -3,6 +3,8 @@ import * as shared from "@context/shared/src/links";
 // The gateway is plain JS. `allowJs` lets this resolve; nothing here needs
 // its types, and the point of the file is that the two agree at runtime.
 import * as gateway from "../../mcp/src/links.js";
+// Plain data, shared with the gateway's own test of the reader.
+import { referenceCases } from "../../mcp/test/fixtures/linkReferences.mjs";
 
 /**
  * THE TWO LINK ENGINES AGREE, OR THIS FAILS.
@@ -30,6 +32,26 @@ import * as gateway from "../../mcp/src/links.js";
  * a fenced block, an unterminated fence, an alias, an embed, an anchor, an
  * attachment, a percent-encoded space, a traversal attempt, a bare name two
  * notes answer to.
+ *
+ * The reader (`extractReferences`, `resolveReference`) is held to the same
+ * standard twice: over this corpus, copy against copy, and over the fixture
+ * table in `apps/mcp/test/fixtures/linkReferences.mjs`, where each copy must
+ * also equal the table's written-out answers.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits to ONE copy and reverted. Counts are failing
+ * tests in this file.
+ *
+ *   footnote lookahead dropped from `DEFINITION` (shared only)                 1
+ *   code-range check dropped for definitions (shared only)                     1
+ *   ambiguous bare name collapsed to missing/unknown (shared only)             2
+ *   `fragment` always empty (shared only)                                      3
+ *   `style` always null (shared only)                                         22
+ *   definition check ahead of the external check (shared only)                 2
+ *
+ * (The first corpus had no footnote entry, so the footnote edit passed until
+ * one was added: the sabotage is what exposed the gap.)
  *
  * ## What this does not prove
  *
@@ -67,6 +89,10 @@ const CORPUS = [
   "empty target [x]()",
   "two on one line [[./sibling]] [[../../2-products/context-lc/overview]]",
   "a sibling [[./sibling]] and a cousin [[../other/thing]]",
+  "[ref]: ./sibling.md\n[[./sibling]]",
+  "[ref]: <../a note.md> \"title\"\n[^1]: a footnote, see ./sibling.md",
+  "```\n[ref]: ./sibling.md\n```\n`[x]: ./other.md`",
+  "[ref]: https://example.com/x#frag",
 ];
 
 const NAMES = [
@@ -99,11 +125,13 @@ describe("the shared link engine and the gateway's agree", () => {
       "codeRanges",
       "dirOf",
       "expressLink",
+      "extractReferences",
       "indexByName",
       "normalizeSegments",
       "parseLinks",
       "relativePath",
       "resolveLink",
+      "resolveReference",
       "rewriteLinks",
       "styleOf",
     ];
@@ -199,6 +227,49 @@ describe("the shared link engine and the gateway's agree", () => {
       expect(shared.normalizeSegments(segments), segments.join("/")).toEqual(
         gateway.normalizeSegments(segments),
       );
+    }
+  });
+
+  test("extractReferences reports the same occurrences", () => {
+    for (const text of [...CORPUS, ...referenceCases.map((c) => c.text)]) {
+      expect(shared.extractReferences(text), text).toEqual(gateway.extractReferences(text));
+    }
+  });
+
+  test("resolveReference gives the same verdict, with and without a path list", () => {
+    const sharedCatalog = { byName: shared.indexByName(NAMES) };
+    const gatewayCatalog = { byName: gateway.indexByName(NAMES) };
+    const states = new Set<string>();
+    for (const text of CORPUS) {
+      for (const occurrence of shared.extractReferences(text)) {
+        for (const withPaths of [false, true]) {
+          const a = withPaths ? { ...sharedCatalog, paths: new Set(NAMES) } : sharedCatalog;
+          const b = withPaths ? { ...gatewayCatalog, paths: new Set(NAMES) } : gatewayCatalog;
+          const verdict = shared.resolveReference(occurrence, NOTE, a);
+          expect(verdict, `${text} → ${occurrence.target}`).toEqual(
+            gateway.resolveReference(occurrence, NOTE, b),
+          );
+          states.add(verdict.state);
+        }
+      }
+    }
+    // Equality of two `unknown`s proves little; the corpus must reach several verdicts.
+    expect(states.size).toBeGreaterThanOrEqual(5);
+  });
+
+  describe("the shared reader answers the gateway's fixture table", () => {
+    for (const { name, text, fromPath, catalog, expected } of referenceCases) {
+      test(name, () => {
+        const fixture: { byName: Record<string, string[]>; paths?: string[] } = catalog;
+        const cat = {
+          byName: new Map(Object.entries(fixture.byName)),
+          ...(fixture.paths ? { paths: new Set<string>(fixture.paths) } : {}),
+        };
+        const actual = shared
+          .extractReferences(text)
+          .map((occurrence) => ({ ...occurrence, resolution: shared.resolveReference(occurrence, fromPath, cat) }));
+        expect(actual).toEqual(expected);
+      });
     }
   });
 });
