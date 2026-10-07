@@ -216,11 +216,14 @@ test("writes in another workspace through context, as write_note does, and nowhe
   assert.equal(objects("remember-other").size, 0);
 });
 
-test("a read-only connection is not offered remember and cannot call it", async () => {
+test("a read-only connection is offered remember and cannot call it", async () => {
+  // Listed and refused, never hidden: a hidden tool stays hidden in a client
+  // that cached its list, even after the person reconnects with write.
   const tools = ((await rpc(READ_ONLY, "tools/list", {}))?.tools || []).map((tool) => tool.name);
-  assert.equal(tools.includes("remember"), false);
+  assert.equal(tools.includes("remember"), true);
   const answer = await remember({ fact: "x.", kind: "stated", note: PREFS }, READ_ONLY);
   assert.equal(answer.isError, true);
+  assert.match(answer.text, /read-only grant/);
   assert.equal(await read(PREFS), PREFS_TEXT);
 });
 

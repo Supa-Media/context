@@ -228,9 +228,10 @@ export async function callToolForSession(params, store, session) {
     return result;
   }
 
-  // Enforced here as well as filtered in `toolsForSession`: the listing is a
-  // courtesy, this is the control. A client that remembers a tool name from a
-  // wider grant, or simply guesses one, gets refused.
+  // Enforced in this function, never in the listing: `toolsForSession` lists
+  // every write tool to every grant, so the gates here are the whole control. A read-only grant that calls one
+  // is told why and how to fix it, which is the point of listing it at all; a
+  // client that guesses a name it was never shown is refused the same way.
   //
   // Read off `target`, never `session`: the grant's write scope survives only
   // where the caller's role in *that* context can back it up, so a `member` in

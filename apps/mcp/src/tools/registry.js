@@ -91,12 +91,8 @@ export const EXISTENCE_MASKED_TOOLS = new Set([
  * submit either. Two gates, and this set is only the first of them.
  *
  * It exempts the *call*, never the listing. `toolsForSession` needs no branch
- * for it: a connection that can take part in a form is, by construction, one
- * whose person owns their own workspace — that is where the username a response is
- * recorded under comes from — so `writesAnywhere` is already true of it and the
- * full list is already offered. A listing branch would only ever have fired for
- * a connection whose submissions `mutateFormResponses` then refuses for want of
- * a name, which is a tool offered to somebody who cannot use it.
+ * for it, because the listing no longer filters on write at all: every grant is
+ * shown the form tools, and these two gates decide at the call.
  */
 export const FORM_TOOLS = new Set(["submit_form", "update_submission", "retract_submission", "vote_form"]);
 

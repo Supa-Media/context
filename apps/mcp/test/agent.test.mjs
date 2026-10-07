@@ -350,9 +350,10 @@ export async function runAgentChecks(check) {
     );
 
     /*
-      A read-only grant gets an assistant that can answer and cannot suggest,
-      because `toolsForSession` never offered it a write in the first place and
-      `agentTools` only ever narrows.
+      A read-only grant gets an assistant that can answer and cannot suggest.
+      `toolsForSession` lists every write tool to every grant now, so the route
+      narrows a read-only grant to reads before `agentTools`, which only ever
+      narrows further.
     */
     model.install([{ text: "Nothing to suggest." }]);
     await ask(env, TOKEN_READONLY, { question: "anything?" });

@@ -12,7 +12,7 @@ import {
   toolDefinitions as registryToolDefinitions,
   toolExistenceMasked,
 } from "./registry.js";
-import { readsPrivateAnywhere, writesAnywhere } from "../session.js";
+import { readsPrivateAnywhere } from "../session.js";
 import { validateArguments } from "../toolArguments.js";
 
 export const toolDefinitions = registryToolDefinitions;
@@ -96,9 +96,21 @@ export function toolArgumentRefusal(name, args, scope) {
 /**
  * The tools this connection may see.
  *
- * A read-only grant is not shown tools it cannot use. Advertising them and then
- * refusing every call makes a connected client look broken; it also invites an
- * agent to spend a turn discovering it.
+ * **Every connection is shown every write tool, a read-only grant included.**
+ * This used to hide them from a grant that could write nowhere, on the grounds
+ * that advertising a tool and then refusing every call makes a client look
+ * broken. What actually broke was the opposite. A client caches `tools/list`
+ * for the life of a chat and this server sends no `listChanged` (see
+ * `protocol.js`), so a chat that listed tools while its grant was read-only
+ * kept that list after its person reconnected with write access: it could read,
+ * and `write_note`, `save_context` and `remember` were simply not there, in
+ * that chat only. A listed tool that refuses with a reason can be recovered
+ * from: the refusal says to reconnect, and the next call works. A missing one
+ * cannot, because an agent cannot ask for a tool it was never told about.
+ *
+ * Nothing about authority moved. `callToolForSession` refuses every write a
+ * read-only grant attempts, and it always had to, because a client can name a
+ * tool it was never shown.
  *
  * Shared by both protocol eras on purpose. The filtering here and the
  * enforcement in `callToolForSession` are the only two places authority is
@@ -106,24 +118,22 @@ export function toolArgumentRefusal(name, args, scope) {
  * copy of either.
  */
 export async function toolsForSession(session, store) {
-  const offered = writesAnywhere(session)
-    ? toolDefinitions()
-    : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
-  // `readOnlyHint` is not the whole of the question — see
-  // `PRIVATE_TIER_ONLY_TOOLS`. Offered to a connection that owns one of the
-  // contexts it covers, and refused per call in the ones it does not.
+  const offered = toolDefinitions();
+  // Tier is still filtered; see `PRIVATE_TIER_ONLY_TOOLS`. Offered to a
+  // connection that owns one of the contexts it covers, and refused per call
+  // in the ones it does not.
   const scoped = readsPrivateAnywhere(session)
     ? offered
     : offered.filter((tool) => !PRIVATE_TIER_ONLY_TOOLS.has(tool.name));
   /*
-    A third filter, and the only one that asks the *bucket* a question.
+    A second filter, and the only one that asks the *bucket* a question.
 
     A Context plugin somebody turned off takes its tools out of the listing, so
     a client is not shown four form tools for a context whose owner does not
     want forms. This listing is `CACHEABLE` for a minute, so a toggle can take
     that long to reach a connected client — which is exactly why the refusal in
     `callToolForSession` is the control and this is the courtesy, the same
-    division scope already keeps two filters below.
+    division tier already keeps one filter above.
 
     Unreadable settings mean the defaults, never an empty list: see
     `enablement.js`. A storage failure here would otherwise present as a client

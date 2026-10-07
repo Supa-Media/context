@@ -60,11 +60,14 @@ export async function runProtocolVersioningChecks() {
     "a per-grant list is never marked publicly cacheable",
     modernList.body.result?.cacheScope === "private"
   );
+  const toolNames = (tools) => (tools || []).map((tool) => tool.name).sort().join(",");
+  const modernReadOnly = toolNames(
+    (await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools
+  );
   check(
-    "modern tools/list is filtered by grant scope exactly as the legacy path is",
-    (await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools.every(
-      (tool) => tool.annotations?.readOnlyHint === true
-    )
+    "modern tools/list is filtered by grant exactly as the legacy path is",
+    modernReadOnly.includes("read_note") &&
+      modernReadOnly === toolNames((await rpc("readonly-token", "tools/list"))?.result?.tools)
   );
 
   const modernCall = await modernFetch({

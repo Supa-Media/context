@@ -2,7 +2,8 @@
  * Markdown forms: permissions, through the worker — an editor creates forms
  * and their response files are created for them, and a note carrying a form
  * that does not parse is refused at the write (§1); a member is offered the
- * submission tools and a read-only connection is offered none (§2); a
+ * submission tools, and so is a read-only connection, which is refused at
+ * the call (§2, §3); a
  * member submits (the refusal cost for a hidden note equals the cost for an
  * absent one, and a submission lands attributed under the submitter's own
  * username) and a form that names somebody tells the control plane exactly
@@ -93,9 +94,13 @@ export async function runFormSubmissionsEditsAndVotesChecks(check, harness) {
   check("...alongside write_note, which they may use in their own workspace", names.has("write_note"));
 
   const readonlyTools = (await rpc(env, READONLY_TOKEN, "tools/list", {})).result?.tools || [];
+  // Listed, and refused at the call further down: a client caches its tool list
+  // for the chat, so a tool hidden while read-only stays hidden after the person
+  // reconnects with write. `toolsForSession` says why.
   check(
-    "a connection granted read-only is offered no form tools at all",
-    !readonlyTools.some((tool) => tool.name.startsWith("submit_") || tool.name === "vote_form")
+    "a connection granted read-only is listed the form tools too",
+    readonlyTools.some((tool) => tool.name === "submit_form") &&
+      readonlyTools.some((tool) => tool.name === "vote_form")
   );
 
   /* -- (3) a member submits ----------------------------------------------- */

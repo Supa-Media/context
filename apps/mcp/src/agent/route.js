@@ -13,7 +13,7 @@ import {
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
 import { json } from "../http/responses.js";
-import { hasScope, SCOPE_WRITE } from "../session.js";
+import { hasScope, SCOPE_WRITE, writesAnywhere } from "../session.js";
 import { BUILTIN_PROVIDER } from "./builtin.js";
 import { computerFor, webSession } from "./computer.js";
 import { decisionEngine } from "./decide.js";
@@ -109,7 +109,17 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
 
-  const offered = await toolsForSession(session, store);
+  /*
+    `toolsForSession` lists every write tool to every grant, so a stale client
+    cache cannot hide one. The assistant is not a cached client: it is built
+    fresh per turn, and a read-only grant's assistant is offered reads only,
+    not `propose_note`, exactly as before the listing changed. Narrowing here
+    is a courtesy; `runTurn` and `callToolForSession` still refuse.
+  */
+  const listed = await toolsForSession(session, store);
+  const offered = writesAnywhere(session)
+    ? listed
+    : listed.filter((tool) => tool.annotations?.readOnlyHint === true);
 
   /*
     A named conversation carries its recent turns into this one. Only a name

@@ -90,7 +90,8 @@ paths and a count, never fact text.
 Behaviour:
 
 1. Resolve the workspace and check write permission exactly as `write_note`.
-   Read-only connections are not offered the tool (`readOnlyHint: false`).
+   Read-only connections are listed the tool and refused at the call (see
+   `docs/decisions/gateway-protocol/write-tools-always-listed.md`).
 2. With `note`: read it (with its etag). If `replaces` matches one line
    exactly, after trimming and ignoring a leading `- ` or `* `, that line
    becomes `- <fact>`. If `replaces` is given and matches no line or more than

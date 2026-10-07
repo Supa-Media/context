@@ -238,7 +238,7 @@ Workers runtime. Four things about it are load-bearing:
   to interpret and is already refused on its own terms — a `context` of `123`
   is "no access to that context", not a type complaint. After the scope gate,
   so a read-only connection is told it holds a read-only grant rather than
-  handed the argument shape of a tool its own `tools/list` does not show it.
+  handed the argument shape of a tool it cannot use.
   Before `callTool`, so no handler, no privacy-manifest read and no storage
   round trip happens for a call whose arguments we never said we would take —
   which is also what makes a call naming another workspace's identifiers
