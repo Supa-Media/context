@@ -56,7 +56,7 @@ export function routinePathFrom(value) {
 
 /** The note's text below its front matter, or all of it when it has none. */
 export function routineBody(text) {
-  const lines = text.replace(/^﻿/, "").split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   if (lines[0]?.trim() !== "---") return text.trim();
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
