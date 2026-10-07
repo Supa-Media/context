@@ -14,8 +14,12 @@
  * One entry per person, in the memory of the workspace's activity object, and
  * nothing else: an opaque id (a digest of the account id, never the id), the
  * display name the note rooms already show beside a caret, and when they last
- * asked. No path, because an open console is not a claim about any one note.
- * It is never written to storage and is pruned on every read and write, so
+ * asked — and, since the live map, which note they have open and whether they
+ * are editing it, when their console says so. That note is the person's own
+ * claim, so the route lets them make it only about a note they can see and
+ * that exists (`live/activityHeartbeat.js`), and shows it to each caller only
+ * through that caller's own `canSee`. A console with no note open says
+ * nothing about where in the workspace somebody is. It is never written to storage and is pruned on every read and write, so
  * eviction costs one poll's worth of undercount.
  *
  * ## Who is counted
@@ -60,6 +64,16 @@ export function prunePeople(roster, now) {
   return roster;
 }
 
+/** The longest note path a heartbeat may carry, as for agents' events. */
+const MAX_PATH_LENGTH = 1_024;
+
+/** `{path, doing}` checked for shape, or `null`. */
+function noteFrom(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.path !== "string" || !raw.path || raw.path.length > MAX_PATH_LENGTH) return null;
+  return { path: raw.path, doing: raw.doing === "edit" ? "edit" : "read" };
+}
+
 /**
  * Note that one person's console asked just now.
  *
@@ -70,10 +84,14 @@ export function recordPerson(roster, person, now) {
   if (!person || typeof person !== "object") return false;
   if (typeof person.key !== "string" || !/^[0-9a-f]{16}$/.test(person.key)) return false;
   const id = personMemberId(person.key);
+  const note = noteFrom(person.note);
   roster.set(id, {
     id,
     name: normalizeDisplayName(typeof person.name === "string" ? person.name.slice(0, MAX_DISPLAY_NAME * 4) : ""),
     at: now,
+    // Every ask says where they are now, so an ask with no note clears it.
+    path: note?.path ?? null,
+    doing: note?.doing ?? null,
   });
   prunePeople(roster, now);
   return true;
@@ -99,6 +117,10 @@ export function peopleForCaller(roster, now, selfKey) {
       name: person.name,
       color: colorFor(person.id),
       self: person.id === self,
+      // Unfiltered here: this object has no `privacy.md`. The route nulls
+      // every path the caller cannot see before anything leaves the worker.
+      path: person.path ?? null,
+      doing: person.path ? person.doing : null,
     }));
   return { peopleCount: roster.size, people: listed };
 }

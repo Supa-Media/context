@@ -166,6 +166,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
+- [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
 
 ## [Markdown forms](./forms.md)
 
