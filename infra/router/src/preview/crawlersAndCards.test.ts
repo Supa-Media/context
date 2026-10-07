@@ -105,7 +105,7 @@ describe("isCrawler: the unfurlers people actually paste links into", () => {
 
 describe("previewFor: only the marketing routes get their own card", () => {
   it("/ is the product", () => {
-    expect(previewFor("/").title).toContain("Free your context");
+    expect(previewFor("/").title).toContain("Less chaos.");
   });
 
   it("/ and the empty path are one route", () => {
@@ -218,7 +218,9 @@ describe("renderPreviewHtml: the tags crawlers actually read", () => {
   it("carries the OpenGraph set", () => {
     expect(meta(html, "property", "og:type")).toEqual(["website"]);
     expect(meta(html, "property", "og:site_name")).toEqual(["Context.LC"]);
-    expect(meta(html, "property", "og:title")[0]).toContain("Free your context");
+    expect(meta(html, "property", "og:title")[0]).toContain(
+      "Less chaos. Finally, everyone’s on the same page.",
+    );
     expect(meta(html, "property", "og:description")[0]).toContain(
       "Shared memory",
     );
