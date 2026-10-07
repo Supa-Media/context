@@ -330,6 +330,11 @@ describe("no public function can reach a storage secret", () => {
         // invisible here and are not any more. See `unattributed` in `analyze`.
         "functions.fastSearchProvision.provisionIndex",
         "functions.fastSearchProvision.releaseIndex",
+        // The meaning index's two, on the same credential and the same shape:
+        // internalActions reached only by a schedule edge from
+        // `meaningSearch.enable` / `.disable` (and the workspace cascade).
+        "functions.meaningProvision.provisionMeaningIndex",
+        "functions.meaningProvision.releaseMeaningIndex",
         // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
         //
         // Both open `STRIPE_SECRET_KEY` to mint a hosted Checkout or customer
