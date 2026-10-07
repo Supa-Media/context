@@ -55,6 +55,7 @@ const TEXTS_CLIENT_ID = "context_texts";
  * fragment of the key.
  */
 export async function handleAgent(request, env, store, session, controlPlane) {
+  const received = Date.now();
   let body;
   try {
     body = await request.json();
@@ -129,7 +130,10 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     the app's agent panel is one condition here.
   */
   const builtin = credential.provider === BUILTIN_PROVIDER;
-  const computer = session.actorClientId === TEXTS_CLIENT_ID ? computerFor(env) : null;
+  // Decided by the grant, never by the request body: only the texting client's
+  // answers go out as iMessages, and only they are written for one.
+  const texting = session.actorClientId === TEXTS_CLIENT_ID;
+  const computer = texting ? computerFor(env) : null;
   // Clef only on a built-in turn: that is the turn the meter covers.
   const web =
     computer === null ? null : webSession(computer, question, { decide: builtin ? decisionEngine(env.AI) : null });
@@ -175,8 +179,31 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       providerOptions: builtin ? { ai: env.AI } : undefined,
       web,
       history,
+      texting,
     });
-    await meter(turn.usage, false);
+    console.log(
+      JSON.stringify({
+        event: "agent_turn",
+        workspace: session.workspaceId,
+        grant: session.grantId,
+        provider: turn.provider,
+        texting,
+        ms: Date.now() - received,
+        rounds: turn.timing?.rounds ?? 0,
+        modelMs: turn.timing?.modelMs ?? 0,
+        toolMs: turn.timing?.toolMs ?? 0,
+        tools: turn.steps.length,
+      }),
+    );
+    // The meter is ours, not the person's: it is reported after the answer
+    // has gone, where the host lets it, rather than before.
+    const metering = meter(turn.usage, false);
+    try {
+      if (typeof store.defer !== "function") throw new Error("no defer");
+      store.defer(metering);
+    } catch {
+      await metering;
+    }
 
     if (conversation !== null && !turn.exhausted) {
       try {

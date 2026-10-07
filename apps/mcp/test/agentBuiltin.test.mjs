@@ -187,6 +187,14 @@ export async function runAgentBuiltinChecks(check) {
       "the caller cannot choose the model we pay for",
       ai.calls.length === 2 && ai.calls.every((call) => call.model === DEFAULT_BUILTIN_MODEL),
     );
+    const system = String(ai.calls[0]?.input?.messages?.[0]?.content ?? "");
+    check(
+      "a texting grant's turn is told it is writing a text, with no Markdown and no note paths",
+      ai.calls[0]?.input?.messages?.[0]?.role === "system" &&
+        system.includes("No Markdown") &&
+        system.includes("Don't name note paths") &&
+        !system.includes("Cite the note path"),
+    );
     const report = controlPlane.builtinReports.at(-1);
     check(
       "the turn's own token counts go back to the meter, and nothing else",
