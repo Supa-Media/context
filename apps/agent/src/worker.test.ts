@@ -49,11 +49,11 @@ const received = (from: string, isGroup = false) =>
     event_type: "message.received",
     event_id: "evt_1",
     data: {
-      chat_id: "chat_1",
-      from,
-      is_group: isGroup,
+      chat: { id: "chat_1", is_group: isGroup },
+      id: "m1",
+      sender_handle: { handle: from, service: "iMessage" },
       service: "iMessage",
-      message: { id: "m1", parts: [{ type: "text", value: "hello" }] },
+      parts: [{ type: "text", value: "hello" }],
     },
   });
 

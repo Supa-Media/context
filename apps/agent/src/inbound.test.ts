@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { parseInbound, MAX_INBOUND_TEXT } from "./inbound";
 
+// Redacted shape of a live message.received delivery from Linq's shared line.
 function event(overrides: Record<string, unknown> = {}, data: Record<string, unknown> = {}) {
   return {
     api_version: "v3",
     event_type: "message.received",
     event_id: "evt_1",
     data: {
-      chat_id: "chat_1",
-      from: "+15555550100",
-      to: ["+15555550199"],
-      is_group: false,
+      chat: { id: "chat_1", is_group: false },
+      id: "msg_1",
+      sender_handle: { handle: "+15555550100", service: "iMessage" },
       service: "iMessage",
-      message: { id: "msg_1", parts: [{ type: "text", value: "hello" }] },
+      parts: [{ type: "text", value: "hello" }],
       ...data,
     },
     ...overrides,
@@ -20,7 +20,7 @@ function event(overrides: Record<string, unknown> = {}, data: Record<string, unk
 }
 
 describe("parseInbound", () => {
-  it("reads a direct text message", () => {
+  it("reads the live direct iMessage shape", () => {
     expect(parseInbound(event())).toEqual({
       kind: "message",
       eventId: "evt_1",
@@ -32,18 +32,13 @@ describe("parseInbound", () => {
   });
 
   it("joins several text parts and ignores media and links", () => {
-    const parsed = parseInbound(
-      event({}, {
-        message: {
-          id: "msg_1",
-          parts: [
-            { type: "text", value: "one" },
-            { type: "media", value: "https://cdn.example/x.png" },
-            { type: "text", value: "two" },
-          ],
-        },
-      }),
-    );
+    const parsed = parseInbound(event({}, {
+      parts: [
+        { type: "text", value: "one" },
+        { type: "media", value: "https://cdn.example/x.png" },
+        { type: "text", value: "two" },
+      ],
+    }));
     expect(parsed).toMatchObject({ kind: "message", text: "one\ntwo" });
   });
 
@@ -53,80 +48,56 @@ describe("parseInbound", () => {
     }
   });
 
-  it("ignores group chats in this phase, so a group never reaches anyone's personal context", () => {
-    expect(parseInbound(event({}, { is_group: true }))).toEqual({ kind: "ignored", reason: "group" });
-  });
-
-  /*
-    THE GROUP GATE FAILS CLOSED, LIKE THE TWO GATES BESIDE IT.
-
-    A direct chat has to prove itself: only an explicit `is_group: false` is
-    answered. `service` already works this way and says why — the sender's
-    number is the whole of this Worker's authentication, and `apps/agent`'s own
-    note on Linq's inbound shape is that the docs do not show where every field
-    sits, so a field that is spelled or typed differently in a live delivery
-    must not turn a room into a direct chat.
-
-    The cost of being wrong is asymmetric and that is the whole argument. Fail
-    closed and the assistant stays quiet until the field is confirmed against a
-    real delivery. Fail open and `drain` sends the answer to `item.message
-    .chatId` — the group's own chat — so one person's private notes are read
-    out to everybody in the room, which is exactly what
-    `docs/decisions/texting-assistant.md` says must never happen.
-  */
-  it("treats anything but an explicit is_group: false as a group", () => {
+  it("ignores group chats and requires an explicit false on data.chat", () => {
     for (const is_group of [true, "true", "false", "", 1, 0, null, undefined, {}, []]) {
-      expect(parseInbound(event({}, { is_group }))).toEqual({ kind: "ignored", reason: "group" });
+      expect(parseInbound(event({}, { chat: { id: "chat_1", is_group } }))).toEqual({
+        kind: "ignored", reason: "group",
+      });
+    }
+    expect(parseInbound(event({}, { chat: { id: "chat_1" }, is_group: false }))).toEqual({
+      kind: "ignored", reason: "group",
+    });
+  });
+
+  it("ignores a sender that is not an E.164 phone number", () => {
+    for (const handle of ["someone@example.com", "5555550100", "+1 555 555 0100", "", 42]) {
+      expect(parseInbound(event({}, { sender_handle: { handle, service: "iMessage" } }))).toEqual({
+        kind: "ignored", reason: "sender",
+      });
     }
   });
 
-  it("...including an event with no is_group field at all", () => {
-    const payload = event();
-    delete (payload.data as Record<string, unknown>).is_group;
-    expect(parseInbound(payload)).toEqual({ kind: "ignored", reason: "group" });
-  });
-
-  it("ignores a sender that is not an E.164 phone number (an email handle, a malformed value)", () => {
-    for (const from of ["someone@example.com", "5555550100", "+1 555 555 0100", "", 42]) {
-      expect(parseInbound(event({}, { from }))).toEqual({ kind: "ignored", reason: "sender" });
-    }
-  });
-
-  it("refuses SMS and RCS, whose sender numbers can be spoofed, and a message naming no service", () => {
+  it("refuses SMS, RCS, missing service, or conflicting handle transport", () => {
     for (const service of ["SMS", "RCS", "imessage", undefined]) {
       expect(parseInbound(event({}, { service }))).toEqual({ kind: "ignored", reason: "service" });
     }
-  });
-
-  it("finds the service on the message or the sender handle too", () => {
-    const onMessage = event({}, {
-      service: undefined,
-      message: { id: "m", service: "iMessage", parts: [{ type: "text", value: "hi" }] },
-    });
-    expect(parseInbound(onMessage).kind).toBe("message");
-    const onHandle = event({}, { service: undefined, sender_handle: { handle: "+15555550100", service: "iMessage" } });
-    expect(parseInbound(onHandle).kind).toBe("message");
-    const smsHandle = event({}, { service: undefined, sender_handle: { service: "SMS" } });
-    expect(parseInbound(smsHandle)).toEqual({ kind: "ignored", reason: "service" });
+    expect(parseInbound(event({}, {
+      sender_handle: { handle: "+15555550100", service: "SMS" },
+    }))).toEqual({ kind: "ignored", reason: "service" });
+    expect(parseInbound(event({}, {
+      sender_handle: { handle: "+15555550100" },
+    }))).toEqual({ kind: "ignored", reason: "service" });
   });
 
   it("ignores a message with no text", () => {
-    const parsed = parseInbound(
-      event({}, { message: { id: "msg_1", parts: [{ type: "media", value: "x" }] } }),
-    );
-    expect(parsed).toEqual({ kind: "ignored", reason: "empty" });
+    expect(parseInbound(event({}, { parts: [{ type: "media", value: "x" }] }))).toEqual({
+      kind: "ignored", reason: "empty",
+    });
   });
 
   it("truncates very long text rather than forwarding it whole", () => {
     const long = "a".repeat(MAX_INBOUND_TEXT + 50);
-    const parsed = parseInbound(
-      event({}, { message: { id: "msg_1", parts: [{ type: "text", value: long }] } }),
-    );
+    const parsed = parseInbound(event({}, { parts: [{ type: "text", value: long }] }));
     expect(parsed.kind === "message" && parsed.text.length).toBe(MAX_INBOUND_TEXT);
   });
 
   it("refuses malformed payloads without throwing", () => {
-    for (const bad of [null, [], "x", {}, event({ event_id: "" }), event({}, { chat_id: 7 }), event({}, { message: null })]) {
+    for (const bad of [
+      null, [], "x", {}, event({ event_id: "" }), event({}, { chat: null }),
+      event({}, { chat: { id: 7, is_group: false } }), event({}, { id: null }),
+      event({}, { sender_handle: null }), event({}, { parts: null }),
+      event({}, { chat: null, chat_id: "chat_1", from: "+15555550100", is_group: false }),
+    ]) {
       expect(parseInbound(bad)).toEqual({ kind: "invalid" });
     }
   });
