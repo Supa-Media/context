@@ -45,6 +45,8 @@ export const IDLE_PROJECTION = {
 
 export type FileOperation =
   | { kind: "readActivity" }
+  /** A routine's recent runs, for a caller who can see the routine note. See `fileOps/routineRuns.ts`. */
+  | { kind: "routineRuns"; path: string }
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
   | { kind: "forward"; paths: string[] }
@@ -195,6 +197,7 @@ export type FileOperation =
  */
 export type OperationResult =
   | { kind: "activity"; entries: ActivityEntry[] }
+  | { kind: "routineRuns"; runs: Array<{ at: number; outcome: string; text: string }> }
   | { kind: "websiteReleaseWritten"; pages: number }
   | {
       kind: "websiteReleasePages";

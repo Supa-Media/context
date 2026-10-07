@@ -20,6 +20,7 @@ import { PublishOpenNote } from "./PublishOpenNote";
 import { noteFlow } from "./flow";
 import { noteScroller } from "./scroller";
 import { noteVoiceButton } from "./voice";
+import { RecentRunsAside } from "../../routines/RecentRuns";
 import type { NoteEditorProps } from "./props";
 import type { NoteView } from "./view";
 
@@ -442,7 +443,16 @@ export function NoteEditor({
       {compact ? (
         noteScroller(view, flow)
       ) : (
-        flow
+        /*
+          Always this row, so the editor's place in the tree is the same for
+          every note: on a wide window a routine note's recent runs stand
+          beside it (`routines/RecentRuns.tsx`), and for every other note the
+          aside draws nothing.
+        */
+        <View style={styles.besideRow}>
+          <View style={styles.besideMain}>{flow}</View>
+          <RecentRunsAside />
+        </View>
       )}
 
       {/*

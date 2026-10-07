@@ -6,9 +6,11 @@
  */
 
 import { v } from "convex/values";
-import { internalAction, internalMutation, mutation, query } from "../_generated/server";
+import { action, internalAction, internalMutation, mutation, query } from "../_generated/server";
 import {
+  myTimeZoneHandler,
   routineForNoteHandler,
+  routineRunsHandler,
   runRoutineNowHandler,
   setMyTimeZoneHandler,
 } from "./lib/routines/app";
@@ -151,4 +153,18 @@ export const setMyTimeZone = mutation({
   args: { timeZone: v.string() },
   returns: v.null(),
   handler: setMyTimeZoneHandler,
+});
+
+/** The caller's own fallback zone, or null when they have never set one. */
+export const myTimeZone = query({
+  args: {},
+  returns: v.union(v.string(), v.null()),
+  handler: myTimeZoneHandler,
+});
+
+/** A routine's recent runs, newest first, read from the bucket for someone who can see the note. */
+export const routineRuns = action({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
+  handler: async (ctx, args) => await routineRunsHandler(ctx, args),
 });

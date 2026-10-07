@@ -157,3 +157,18 @@ another one. A routine whose `until:` came true is archived, recoverably, and
 paused in place where the layout has no archive. Tests (`agentRoutine.test.mjs`):
 "a write anywhere else is refused, whatever the model named", "a routine's
 own run is never offered a write", "and stops itself, recoverably".
+
+### A routine note shows its schedule and its recent runs, and Pause is a line in the file
+
+The app draws a bar on any note under `routines/<schedule>/`: the schedule in
+words (read from the note as it is typed), when it last ran, Run now, and
+Pause, which writes `paused: yes` into the file through the editor's normal
+save, so the file stays the whole truth. There is no Settings list (the
+owner, 2026-10-07). Recent runs are read from the run history in the
+customer's bucket by one file operation, `routineRuns`, which takes only a
+scheduled routine's path, checks the caller can see that note against the
+live `privacy.md` and that it still exists, and only then reads its history;
+every other `.context/` read stays refused. Tests (`routinesHistory.test.ts`):
+"a member cannot read the runs of a routine they cannot see", "only a
+routine's history, never another plumbing key or a note's". The app also
+saves the device's time zone (`setMyTimeZone`) so routines run at local time.

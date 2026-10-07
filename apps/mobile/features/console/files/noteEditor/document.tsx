@@ -8,6 +8,8 @@ import { LockedNoteView } from "../../encryption/LockedNoteView";
 import { LiveEditor } from "../LiveEditor";
 import { Properties } from "./Properties";
 import { changeProperty } from "./propertyEdit";
+import { NoteRoutineBar, type NoteEdit } from "../../routines/RoutineBar";
+import { RecentRunsSection } from "../../routines/RecentRuns";
 import { editChangesTitle } from "../linkedTitle";
 import type { NoteView } from "./view";
 
@@ -93,6 +95,29 @@ export function noteDocument(view: NoteView) {
     theirs to rename (`editChangesTitle`). The web editor reports the caret
     itself.
   */
+  /*
+    The whole note, changed through the same `onChange` a keystroke takes, so a
+    property change or a pause saves, merges into a collaborator's typing and
+    shows in the editor exactly as if it had been typed into the YAML.
+    `undefined` where the note can't be changed here.
+  */
+  const wholeEdit: NoteEdit | undefined =
+    editable && !drawing && !activityList
+      ? (change) => {
+          const shared = presence?.collaboration;
+          const current = shared?.text ?? state.draft;
+          const changed = change(current);
+          if ("error" in changed) return changed.error;
+          if (changed.text === current) return null;
+          // Against the snapshot this text was read from, so an edit
+          // that arrived since this render is merged, never undone.
+          if (shared !== undefined) shared.onVersionedChange(changed.text, shared.revision);
+          else collaborativeChange(changed.text);
+          return null;
+        }
+      : undefined;
+  // Where the note's own first character is — see the Properties call below.
+  const gutter = compact ? layout.readingMargin : noteGutterFor(docWidth);
   const localTitleEdit = (text: string) => {
     if (Platform.OS === "web") return;
     if (editChangesTitle(presence?.collaboration?.text ?? state.draft, text)) onTitleCaret?.(true);
@@ -146,7 +171,7 @@ export function noteDocument(view: NoteView) {
               and moves with the width. `noteGutterFor` is the sum, and the
               editor below spends the same one in CSS.
             */
-            gutter={compact ? layout.readingMargin : noteGutterFor(docWidth)}
+            gutter={gutter}
             compact={compact}
             /*
               Through the same `onChange` a keystroke takes, so a property
@@ -154,24 +179,26 @@ export function noteDocument(view: NoteView) {
               editor exactly as if it had been typed into the YAML.
             */
             onSet={
-              editable && !drawing && !activityList
-                ? (key, value, adding) => {
-                    const shared = presence?.collaboration;
-                    const current = shared?.text ?? state.draft;
-                    const changed = changeProperty(current, key, value, adding);
-                    if ("error" in changed) return changed.error;
-                    if (changed.text === current) return null;
-                    // Against the snapshot this text was read from, so an edit
-                    // that arrived since this render is merged, never undone.
-                    if (shared !== undefined) shared.onVersionedChange(changed.text, shared.revision);
-                    else collaborativeChange(changed.text);
-                    return null;
-                  }
-                : undefined
+              wholeEdit === undefined
+                ? undefined
+                : (key, value, adding) => wholeEdit((current) => changeProperty(current, key, value, adding))
             }
           />
         ) : null}
         </Reveal>
+        {/*
+          A routine note's schedule, last run, Run now and Pause, and on a
+          medium window its recent runs folded under it (`routines/`). Nothing
+          for any other note, and nothing where there is no control plane.
+          Pause writes `paused: yes` through `wholeEdit`, the Properties
+          panel's own path, so the file stays the whole truth.
+        */}
+        {passphraseLocked || drawing || activityList ? null : (
+          <>
+            <NoteRoutineBar text={presence?.collaboration?.text ?? state.draft} onEdit={wholeEdit} gutter={gutter} />
+            <RecentRunsSection where="top" gutter={gutter} />
+          </>
+        )}
         {activityList ? (
           /*
             The activity file opens as a list, and the pencil opens its

@@ -15,6 +15,7 @@ import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { useReferralMenu } from "../referrals/useReferralMenu";
 import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
+import { TimeZoneSync } from "./routines/TimeZoneSync";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
 import { ConsoleNavProvider } from "./ConsoleNavContext";
@@ -428,6 +429,8 @@ export function ConsoleFrame({
           onEntry={setWhatsNewEntry}
         />
       ) : null}
+      {/* The time zone routines fall back to, kept in step with this device (`routines/TimeZoneSync.tsx`). */}
+      {data.routines === true && visitor === undefined && !data.demo ? <TimeZoneSync /> : null}
       <PluginSuggestDialog runtime={data.pluginRuntime} />
       <PluginTextDialog runtime={data.pluginRuntime} />
       <PluginSettingsPane runtime={data.pluginRuntime} />

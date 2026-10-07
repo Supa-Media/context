@@ -62,6 +62,10 @@ import {
 } from "./searchValidators";
 
 export const operationResultValidator = v.union(
+  v.object({
+    kind: v.literal("routineRuns"),
+    runs: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
+  }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
   v.object({
     kind: v.literal("websiteReleasePages"),
@@ -510,6 +514,8 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("readStorageLayout") }),
   /** `activity.md`, filtered to what this caller may see. See `activity.ts`. */
   v.object({ kind: v.literal("readActivity") }),
+  /** A routine's recent runs, read by the routine note's path. See `fileOps/routineRuns.ts`. */
+  v.object({ kind: v.literal("routineRuns"), path: v.string() }),
   /**
    * Auto-organize's trips through the barrier. See `lib/organizer/sweepOps.ts`.
    * JSON in and out: the suggestions are the engine's shape, and the engine

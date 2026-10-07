@@ -5,6 +5,7 @@ import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
+import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
@@ -409,6 +410,7 @@ export function BrowseDocument({
         onResolveWith={files.resolveWith}
       />
     ) : (
+      routineNote(
       <NoteEditor
         state={files.editor}
         canEdit={files.canEdit}
@@ -522,8 +524,24 @@ export function BrowseDocument({
                 onWritten: () => files.select(selected.path),
               }
         }
-      />
+      />,
+      )
     );
 
   return openDocument;
+
+  /*
+    A routine note's run bar and recent runs ask the control plane through this
+    provider (`routines/RoutineHost.tsx`). Only the live console has one to
+    ask, so the demo's editor is handed over bare and draws neither.
+  */
+  function routineNote(editor: ReactNode) {
+    return data.routines === true ? (
+      <RoutineProvider workspaceId={current?.id} path={files.editor.path} canEdit={files.canEdit}>
+        {editor}
+      </RoutineProvider>
+    ) : (
+      editor
+    );
+  }
 }
