@@ -10,7 +10,7 @@ import { loadGraphManifest } from "../src/graph/manifest.js";
 import { validateEntry } from "../src/graph/project.js";
 import { readPostings } from "../src/graph/postings.js";
 import { RESOLVER_VERSION } from "../src/graph/facts.js";
-import { generationPrefix, graphManifestKey, nodeKey, pathHash } from "../src/graph/keys.js";
+import { generationPrefix, graphManifestKey, nodeKey, pathHash, postingPageKey } from "../src/graph/keys.js";
 import { parseNode } from "../src/graph/records.js";
 import { GRAPH_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 import { createSearchBudget, defaultIsIndexable } from "../src/search/maintain.js";
@@ -180,4 +180,44 @@ export function olderCode(b) {
     },
     put: (k, v, o) => b.put(k, k === graphManifestKey() ? shift(v, -1) : v, o),
   };
+}
+
+/**
+ * One scheduling cell (fix round 3): `t.md` linked from N notes, generation 1
+ * ready, then `collect` names a junk generation 9 and t.md's incoming head is
+ * dropped. `health`: "ready"; "stuck" (an unreadable note keeps every wrap
+ * behind); "rollback" (a building generation labelled newer, no newer code
+ * running). Passes at budget `B` until GC has emptied g/9/ and the audit has
+ * restored the dropped memberships; `{ gcAt, auditAt }`, null past `max`.
+ */
+export async function scheduleCell(conditional, B, N, health, max) {
+  const b = bucket({ conditional });
+  let unreadable = false;
+  const store = { ...paged(b), get: (k) => (unreadable && k === "bad.md" ? Promise.reject(new Error("io")) : b.get(k)) };
+  await b.put("t.md", "x");
+  for (let i = 0; i < N; i += 1) await b.put(`n${pad(i)}.md`, links("t.md"));
+  if (health === "stuck") await b.put("bad.md", "plain");
+  for (let i = 0; i < 10; i += 1) await pass(store);
+  assert.equal(rawManifest(b).health.state, "ready");
+  const junk = generationPrefix("9");
+  for (let i = 0; i < 30; i += 1) b.objects.set(`${junk}j${i}.json`, { body: "{}", etag: `j${i}` });
+  const m = { ...rawManifest(b), collect: "9" };
+  if (health === "rollback") m.building = { generation: "5", startedAt: "t", parserVersion: m.parserVersion, resolverVersion: m.resolverVersion + 1, urlKeyVersion: m.urlKeyVersion };
+  await b.put(graphManifestKey(), JSON.stringify(m));
+  if (health === "stuck") {
+    unreadable = true;
+    await b.put("bad.md", "plain edited");
+  }
+  const hash = await pathHash("t.md");
+  b.objects.delete(postingPageKey("1", "incoming", hash, 0));
+  const restored = async () =>
+    (await readPostings(b, createSearchBudget(100000), { gen: "1", family: "incoming", hash, canSee: () => true, validate: () => true })).entries.length >= N;
+  let gcAt = null;
+  let auditAt = null;
+  for (let p = 1; p <= max && (gcAt === null || auditAt === null); p += 1) {
+    await pass(store, createSearchBudget(B));
+    if (gcAt === null && keysUnder(b, junk).length === 0) gcAt = p;
+    if (auditAt === null && (await restored())) auditAt = p;
+  }
+  return { gcAt, auditAt };
 }

@@ -74,6 +74,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { reconcileGraph } from "../src/graph/reconcile.js";
+import { abandonCollect } from "../src/graph/rebuild.js";
 import { graphHealth } from "../src/graph/manifest.js";
 import { projectNote, removeNote } from "../src/graph/project.js";
 import { projectNoteAfterWrite } from "../src/graph/afterWrite.js";
@@ -85,7 +86,7 @@ import { GRAPH_PASS_FLOOR } from "../src/search/pacing.js";
 import {
   now, big, links, pad, bucket, paged, censusOf, pass, manifestOf, rawManifest, nodeIn, settledIn, backlinks,
   keysUnder, snapshot, bump, converge, rebuildTo, seed, audited, twoCutovers, refusingDeletes, capturingLogs,
-  collecting, passesUntil, olderCode,
+  collecting, passesUntil, olderCode, scheduleCell,
 } from "./graphRebuildFixtures.mjs";
 
 test("a fresh manifest records the running versions and starts no rebuild", async () => {
@@ -178,8 +179,11 @@ async function rebuildGridPasses(conditional, B, K, L, J, max) {
 // node read per note for the re-check wrap, over about B - 10 ops a pass.
 // Fix round 1 added a full audit listing before cutover; measured worst
 // case 44 of a bound of 50 (best-effort, B=18, K=0 L=40 J=10).
+// Fix round 3 runs the turn cycle during the build too, so the build sweeps
+// on half the passes: worst factor measured 2.31 (best-effort, B=15, K=0 L=40
+// J=6: 70 passes), so GRID_FACTOR goes from 2 to 3.
 const rebuildBound = (B, K, L, J) => 10 + GRID_FACTOR * Math.ceil((7 * (K + J + 1) + 2 * L) / Math.max(1, B - 10));
-const GRID_FACTOR = 2;
+const GRID_FACTOR = 3;
 const GRID_LAYOUTS = [[0, 1, 6], [6, 1, 0], [6, 1, 6], [20, 1, 30], [70, 1, 3], [0, 40, 6], [0, 40, 10]];
 
 test("a rebuild converges at fixed small budgets in both modes and cuts over only on a settled generation", async () => {
@@ -568,11 +572,11 @@ test("graphHealth names the building generation, or null", async () => {
 
 // Fix round 2
 
-// Measured at B=11: the new note projects in 6 (cond) and 8 (best-effort)
-// passes with or without the junk, so the delay allowed is 0; the 2,000 junk
-// keys are gone after 1,605 (cond) and 1,151 (best-effort) more passes, so the
-// bound is about twice the worst. 20,000 junk keys: projected and ready in 4
-// and 5 passes, cap 20.
+// Measured at B=11 (fix round 3 figures; round 2's in brackets): the new note
+// projects in 5 [6] (cond) and 7 [8] (best-effort) passes with or without the
+// junk, so the delay allowed is 0; the 2,000 junk keys are gone after 1,605
+// (cond) and 1,151 (best-effort) more passes, so the bound is about twice the
+// worst. 20,000 junk keys: projected and ready in 7 [4] and 9 [5] passes, cap 20.
 const MAX_GC_DELAY = 0;
 const GC_EMPTY_BOUND = 3300;
 
@@ -635,3 +639,37 @@ test("older code during a newer build reconciles the active generation but never
   assert.equal(await nodeIn(b, "2", "z05.md"), null);
   assert.equal((await graphHealth(b, big())).complete, true);
 });
+
+// Fix round 3: the turn cycle runs whatever the health says, so no piece
+// lives on leftovers. Measured: every cell finishes within 6N + 20 passes
+// (worst: stuck, best-effort, B=11, N=1: 26), so the bound is 6N + 40.
+// Health-keyed turns fail stuck and rollback cells (they never finish).
+const scheduleBound = (B, N) => 40 + 6 * N;
+
+test("GC and the audit progress for every census size whether health is ready, stuck behind, or behind after a rollback", async () => {
+  const failures = [];
+  for (const health of ["ready", "stuck", "rollback"]) {
+    for (const conditional of [true, false]) {
+      for (const B of [11, 13, 15]) {
+        for (const N of [1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 23, 24, 31, 40]) {
+          const { gcAt, auditAt } = await scheduleCell(conditional, B, N, health, scheduleBound(B, N));
+          if (gcAt === null || auditAt === null) failures.push(`${health} ${conditional ? "cond" : "best"} B=${B} N=${N}: gc ${gcAt} audit ${auditAt}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
+test("abandonCollect logs graph-gc-abandoned only after its publish lands", async () => {
+  const b = bucket();
+  await twoCutovers(b);
+  const refusing = { ...b, put: (k, v, o) => (k === graphManifestKey() ? Promise.resolve(null) : b.put(k, v, o)) };
+  const refused = await capturingLogs(() => abandonCollect(refusing, big(), "1"));
+  assert.equal(rawManifest(b).collect, "1");
+  assert.ok(!refused.some((l) => l.includes("graph-gc-abandoned")), "no log for a refused publish");
+  const landed = await capturingLogs(() => abandonCollect(b, big(), "1"));
+  assert.equal(rawManifest(b).collect, null);
+  assert.ok(landed.some((l) => l.includes("graph-gc-abandoned")));
+});
+

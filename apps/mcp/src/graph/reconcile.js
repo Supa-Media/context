@@ -21,8 +21,8 @@
 //
 // Liveness: projectNote checkpoints its progress, so a note larger than one
 // pass's budget converges over passes instead of blocking the sweep. Once the
-// graph is ready, passes take turns (`turn`: sweep, audit, sweep, GC), each
-// taking the whole remainder on its turn, so none is starved below its
+// passes take turns whatever the health (`turn`: sweep, audit, sweep, GC),
+// each taking the whole remainder on its turn, so none is starved below its
 // smallest unit of work.
 //
 // Accepted races. The exact clear is time-of-check/time-of-use: an entry
@@ -32,8 +32,7 @@
 // when the sweep last wrapped, not that every node is settled right now.
 //
 // Generations (rebuild.js): while the manifest names a `building` generation,
-// every piece above runs on it instead of the active one, in the sweep-first
-// order until its first clean wrap and in turns after it,
+// every piece above runs on it instead of the active one, in the same turns,
 // and its wraps publish no health; two consecutive clean wraps on a complete
 // census, with a full audit listing begun after the first, cut over. The
 // active generation gets only pinned writes until then (removal hints
@@ -41,8 +40,8 @@
 // newer code is left alone, and while a newer build exists the active
 // generation's wraps publish "behind", never ready, so it is never complete
 // until that build cuts over. A `collect` generation is garbage-collected on
-// GC turns and otherwise only on what the sweep leaves, so junk under it never
-// delays a projection; a GC failure never stops the pass.
+// GC turns and otherwise only on what the sweep leaves, so junk under it
+// never takes a sweep turn; a GC failure never stops the pass.
 import { membershipsFor } from "./facts.js";
 import { generationPrefix, maintenanceCursorKey, nodeKey, pathHash } from "./keys.js";
 import { initGraphManifest, publishHealth, readGraphManifest } from "./manifest.js";
@@ -368,17 +367,16 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
     if (state === "stop" || state === "budget") break;
     tally(out, state);
   }
-  // Once the graph is ready, turns cycle sweep, audit, sweep, GC, and each
-  // takes the whole remainder on its turn; a split share could fall below the
-  // audit's smallest unit and livelock it. The GC turn's leftover goes to the
-  // audit. Off its turn GC gets only what the sweep leaves, so it never delays
-  // a projection. Before ready the sweep comes first, then GC, then the audit.
-  // The active generation's health says nothing about a building one, which
-  // takes turns once its first clean wrap set `recheck`.
-  const ready = building ? cursor.recheck : manifest.health.state === "ready";
-  const turn = censusComplete && ready ? cursor.turn : 0;
-  if (censusComplete && ready) cursor.turn = (turn + 1) % 4;
-  const auditFirst = turn % 2 === 1;
+  // Turns cycle sweep, audit, sweep, GC every pass, whatever the health says,
+  // and each goes first on its turn with the whole remainder; the others get
+  // what it leaves. A piece living only on leftovers starves for some census
+  // size (a wrap can always leave fewer ops than its smallest unit), and a
+  // split share could fall below the audit's smallest unit and livelock it.
+  // The GC turn's leftover goes to the audit. With an incomplete census the
+  // audit does not run and its turns go to the sweep.
+  const turn = cursor.turn;
+  cursor.turn = (turn + 1) % 4;
+  const auditFirst = censusComplete && turn % 2 === 1;
   if (turn === 3) await garbage(store, work, manifest, cursor);
   if (auditFirst) await audit(store, work, ctx, cursor, out);
   const wrapped = await sweep(store, work, ctx, cursor, out);

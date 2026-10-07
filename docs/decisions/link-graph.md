@@ -70,6 +70,17 @@ a reviewer.
   complete census that omits the path, or by a removal hint from the search
   sync, which works on an incomplete census too. An incomplete census on its
   own removes nothing.
+- **Rollback ceiling: health stays behind while a newer build is unfinished**
+  (controller ruling, Task 11 fix round 3; an owner decision point). Code older
+  than a started build's resolver label keeps reconciling the active
+  generation, so repair continues underneath, but it never builds into, cuts
+  over or abandons that build, and it publishes the active generation's health
+  as `behind`. After a rollback below that label, `graphHealth` therefore stays
+  `behind` with `complete: false` until newer code is redeployed and finishes
+  the build. There is deliberately no auto-abandon: older code cannot tell a
+  rolled-back build from one a newer worker is still running. The test is
+  `graphRebuild.test.mjs`, "older code during a newer build reconciles the
+  active generation but never publishes it complete".
 
 **What reversing it costs.** Phase 3 backlinks, related notes, and
 index-assisted move repair all read this index; they cannot be built on a

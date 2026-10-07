@@ -127,7 +127,8 @@ export async function collectGarbage(store, budget, manifest) {
 export async function abandonCollect(store, budget, gen) {
   const fresh = await readGraphManifest(store, budget);
   if (fresh.manifest?.collect !== gen) return;
-  await publishHealth(store, budget, fresh.manifest, fresh.etag, { collect: null });
+  // Logged only once the publish lands; a refused one is retried later.
+  if (!(await publishHealth(store, budget, fresh.manifest, fresh.etag, { collect: null }))) return;
   try {
     console.error(JSON.stringify({ event: "graph-gc-abandoned", workspace: store.actor?.workspaceId, generation: gen }));
   } catch {
