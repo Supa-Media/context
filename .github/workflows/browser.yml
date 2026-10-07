@@ -84,6 +84,22 @@ jobs:
       # unreachable host — the fixture console never opens a Convex
       # subscription (`useDemoConsoleData` is literals), so nothing here ever
       # dials out to it.
+      # Metro's transform cache from an earlier run of this job (2026-10-07).
+      # Metro keys every entry on the file's content and the transform config,
+      # and re-reads EXPO_PUBLIC_ values per export (checked: a warm export
+      # with a different EXPO_PUBLIC_CONVEX_URL carried the new value), so a
+      # warm export produces byte-identical output to a cold one (diffed) —
+      # measured 110s cold against 19s warm. The lockfile is in the key so a
+      # dependency change starts cold; each run saves under its own commit.
+      - name: Restore Metro's cache
+        if: steps.changes.outputs.mobile == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/metro-cache
+          key: metro-e2e-web-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            metro-e2e-web-${{ hashFiles('pnpm-lock.yaml') }}-
+
       - name: Build the web export with the E2E fixture route enabled
         if: steps.changes.outputs.mobile == 'true'
         working-directory: apps/mobile
@@ -94,7 +110,9 @@ jobs:
         # Expo copies public assets into the export. Calling `expo export`
         # directly leaves `/drawing-assets/editor/index.html` absent, and the
         # static server serves the SPA fallback page at that URL instead.
-        run: pnpm build:e2e-web
+        # `:warm` is the same export without `--clear`, so the cache above is
+        # used; a laptop's `pnpm build:e2e-web` still starts clean.
+        run: pnpm build:e2e-web:warm
 
       # `pluginBundles.spec.ts` runs a real community-plugin release through the
       # real shim, which is the only check that has ever caught a plugin failing

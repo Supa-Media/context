@@ -11,6 +11,7 @@
     "test": "jest",
     "drawing-assets": "node ../../scripts/build-drawing-editor.mjs",
     "build:e2e-web": "pnpm run drawing-assets && EXPO_PUBLIC_E2E_FIXTURE=1 EXPO_PUBLIC_CONVEX_URL=\"${EXPO_PUBLIC_CONVEX_URL:-https://e2e-fixture.invalid}\" expo export --platform web --output-dir web-build --clear",
+    "build:e2e-web:warm": "pnpm run drawing-assets && EXPO_PUBLIC_E2E_FIXTURE=1 EXPO_PUBLIC_CONVEX_URL=\"${EXPO_PUBLIC_CONVEX_URL:-https://e2e-fixture.invalid}\" expo export --platform web --output-dir web-build",
     "test:e2e:webkit": "playwright test --config e2e/webkit/playwright.config.ts --project=webkit",
     "test:e2e:webkit:chromium": "playwright test --config e2e/webkit/playwright.config.ts --project=chromium",
     "test:e2e:offline": "playwright test --config e2e/webkit/playwright.config.ts --project=chromium e2e/webkit/offlineShell.spec.ts",
