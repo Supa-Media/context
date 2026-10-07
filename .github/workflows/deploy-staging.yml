@@ -225,7 +225,10 @@ jobs:
             | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(!JSON.parse(s).success)process.exit(1);console.log("Cloudflare Workers access verified.");});'
       # Only this Worker and what it imports (plus the screenshot Worker the
       # gateway binds), as production's deploy jobs do.
-      - run: pnpm install --filter "./${{ matrix.worker.dir }}..." ${{ matrix.worker.name == 'mcp' && '--filter "./infra/site-shots..."' || '' }} --frozen-lockfile
+      # By package name: a bare path selector (`./apps/mcp...`) takes the
+      # directory without its workspace dependencies, which left the gateway
+      # without @context/collaboration's yjs (staging run 37667608603).
+      - run: pnpm install --filter "${{ matrix.worker.package }}..." ${{ matrix.worker.name == 'mcp' && '--filter "@context/site-shots..."' || '' }} --frozen-lockfile
       # The gateway binds the screenshot browser (infra/site-shots) as a
       # service, and Cloudflare refuses a binding to a script that does not
       # exist, so that Worker deploys first, in this same job.
