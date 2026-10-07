@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space } from "../../../../design/tokens";
+import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { FollowState } from "../engine";
 import { useFollowText, writingPreview } from "../hooks/useFollowText";
@@ -122,8 +122,8 @@ const makeStyles = (colors: Colors) =>
     follow: { gap: space.x3 },
     head: { flexDirection: "row", alignItems: "center", gap: 10 },
     headText: { flex: 1, minWidth: 0 },
-    name: { fontFamily: fonts.body, fontSize: 15, fontWeight: "700", color: colors.text },
-    sub: { fontFamily: fonts.body, fontSize: 12, color: colors.chromeMuted },
+    name: { fontFamily: fonts.body, fontSize: pointerType.lede, fontWeight: "700", color: colors.text },
+    sub: { fontFamily: fonts.body, fontSize: pointerType.meta, color: colors.chromeMuted },
     reads: { gap: 6 },
     read: {
       flexDirection: "row",
@@ -137,9 +137,9 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.lineStrong,
     },
     readHover: { backgroundColor: colors.surface3 },
-    readIndex: { width: 20, fontFamily: fonts.body, fontSize: 13, color: colors.chromeMuted },
-    readTitle: { flex: 1, fontFamily: fonts.body, fontSize: 13, color: colors.text },
+    readIndex: { width: 20, fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.chromeMuted },
+    readTitle: { flex: 1, fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text },
     writing: { borderWidth: 1, borderRadius: 10, padding: 12, minHeight: 92, backgroundColor: colors.pageSurface, gap: 4 },
-    writingTitle: { fontFamily: fonts.body, fontSize: 13, fontWeight: "700", color: colors.text },
-    writingText: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.text },
+    writingTitle: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "700", color: colors.text },
+    writingText: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 19, color: colors.text },
   });

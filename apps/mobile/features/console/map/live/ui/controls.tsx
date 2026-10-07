@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space } from "../../../../design/tokens";
+import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 
 /**
@@ -179,7 +179,7 @@ export const makeStyles = (colors: Colors) =>
     },
     chipHover: { backgroundColor: colors.surface3 },
     chipOn: { backgroundColor: colors.text, borderColor: colors.text },
-    chipText: { fontFamily: fonts.body, fontSize: 13.5, fontWeight: "600", color: colors.text2 },
+    chipText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text2 },
     chipTextOn: { color: colors.pageSurface },
     choice: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     round: {

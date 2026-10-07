@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space } from "../../../../design/tokens";
+import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MapPageState } from "../hooks/useMapPage";
 import { replayBadge } from "../replayClock";
@@ -103,7 +103,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 999,
       backgroundColor: colors.text,
     },
-    badgeText: { fontFamily: fonts.body, fontSize: 12, fontWeight: "600", color: colors.pageSurface },
+    badgeText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.pageSurface },
     crumbs: { position: "absolute", left: 0, right: 0, height: 60 },
     sheet: {
       position: "absolute",

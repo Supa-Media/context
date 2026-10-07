@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space } from "../../../../design/tokens";
+import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useColors, useScheme, useThemedStyles, type Colors } from "../../../../design/theme";
 import { darkMapColors, lightMapColors } from "../../../../design/tokens/colors";
 import type { MapPageState } from "../hooks/useMapPage";
@@ -184,19 +184,19 @@ const makeStyles = (colors: Colors) =>
     speeds: { flexDirection: "row", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong, borderRadius: 8, overflow: "hidden" },
     speed: { paddingHorizontal: 7, paddingVertical: 3 },
     speedOn: { backgroundColor: colors.text },
-    speedText: { fontFamily: fonts.body, fontSize: 11.5, fontWeight: "600", color: colors.text2 },
+    speedText: { fontFamily: fonts.body, fontSize: pointerType.label, fontWeight: "600", color: colors.text2 },
     speedTextOn: { color: colors.pageSurface },
     time: { width: 112 },
     timeCompact: { width: 84 },
-    clock: { fontFamily: fonts.body, fontSize: 22, fontWeight: "600", color: colors.text, fontVariant: ["tabular-nums"] },
-    clockCompact: { fontSize: 17 },
-    day: { fontFamily: fonts.body, fontSize: 11.5, color: colors.chromeMuted },
+    clock: { fontFamily: fonts.body, fontSize: pointerType.h2, fontWeight: "600", color: colors.text, fontVariant: ["tabular-nums"] },
+    clockCompact: { fontSize: pointerType.h3 },
+    day: { fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted },
     track: { flex: 1, height: 92, position: "relative", cursor: "pointer" } as object,
     trackCompact: { height: 60 },
     moments: { position: "absolute", left: 0, right: 0, top: 0, height: 30 },
     moment: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 4, transform: [{ translateX: -4 }] },
     momentDot: { width: 6, height: 6, borderRadius: 3 },
-    momentText: { fontFamily: fonts.body, fontSize: 11, fontWeight: "600", color: colors.text2 },
+    momentText: { fontFamily: fonts.body, fontSize: pointerType.label, fontWeight: "600", color: colors.text2 },
     bars: { position: "absolute", left: 0, right: 0, top: 34, height: 38, flexDirection: "row", alignItems: "flex-end", gap: 2 },
     barsCompact: { top: 8, height: 32 },
     histBar: { flex: 1, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
@@ -214,5 +214,5 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.pageSurface,
     },
     ticks: { position: "absolute", left: 0, right: 0, bottom: 0, height: 14 },
-    tick: { position: "absolute", fontFamily: fonts.body, fontSize: 11, color: colors.chromeMuted, transform: [{ translateX: -10 }] },
+    tick: { position: "absolute", fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted, transform: [{ translateX: -10 }] },
   });

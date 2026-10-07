@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space } from "../../../../design/tokens";
+import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
 import type { ConsoleData } from "../../../types";
 import { useMapPage, type MapPageState } from "../hooks/useMapPage";
@@ -166,7 +166,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 999,
       backgroundColor: colors.text,
     },
-    badgeText: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: "600", color: colors.pageSurface },
+    badgeText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.pageSurface },
     notice: {
       position: "absolute",
       bottom: 96,
@@ -179,7 +179,7 @@ const makeStyles = (colors: Colors) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.lineStrong,
     },
-    noticeText: { fontFamily: fonts.body, fontSize: 13, color: colors.text2, textAlign: "center" },
+    noticeText: { fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text2, textAlign: "center" },
     status: {
       height: 28,
       flexDirection: "row",
@@ -190,7 +190,7 @@ const makeStyles = (colors: Colors) =>
       borderTopColor: colors.lineStrong,
       backgroundColor: colors.pageSurface,
     },
-    statusText: { fontFamily: fonts.body, fontSize: 11.5, color: colors.chromeMuted },
+    statusText: { fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted },
     statusStrong: { color: colors.text2, fontWeight: "600" },
     spacer: { flex: 1 },
     native: { flex: 1, backgroundColor: colors.pageSurface },

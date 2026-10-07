@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space } from "../../../../design/tokens";
+import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
 import { replayWhen, whenText, type CrossMoveRow, type FeedItem } from "../feed";
 import type { MapPageState } from "../hooks/useMapPage";
@@ -139,7 +139,7 @@ export const makeStyles = (colors: Colors) =>
     },
     section: { gap: space.x2, marginBottom: space.x1 },
     pileRow: { gap: space.x2 },
-    who: { fontFamily: fonts.body, fontSize: 13, color: colors.text2 },
+    who: { fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text2 },
     feedRow: {
       flexDirection: "row",
       gap: 10,
@@ -151,10 +151,10 @@ export const makeStyles = (colors: Colors) =>
     feedHover: { backgroundColor: colors.surface2 },
     feedFace: { paddingTop: 1 },
     feedText: { flex: 1, minWidth: 0 },
-    line: { fontFamily: fonts.body, fontSize: 13.5, lineHeight: 19, color: colors.text2 },
+    line: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 19, color: colors.text2 },
     lineNow: { color: colors.text },
     strong: { fontWeight: "700", color: colors.text },
-    when: { fontFamily: fonts.body, fontSize: 11.5, color: colors.chromeMuted, marginTop: 2 },
+    when: { fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted, marginTop: 2 },
     between: {
       flexDirection: "row",
       alignItems: "center",
@@ -165,6 +165,6 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.lineStrong,
       borderRadius: 9,
     },
-    betweenText: { flex: 1, fontFamily: fonts.body, fontSize: 13.5, color: colors.text2 },
-    betweenCount: { fontFamily: fonts.body, fontSize: 13.5, fontWeight: "700", color: colors.text, fontVariant: ["tabular-nums"] },
+    betweenText: { flex: 1, fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text2 },
+    betweenCount: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "700", color: colors.text, fontVariant: ["tabular-nums"] },
   });

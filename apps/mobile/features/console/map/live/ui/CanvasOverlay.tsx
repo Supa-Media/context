@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space } from "../../../../design/tokens";
+import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
 import type { CameraDetail, MapEngine } from "../engine";
 import type { ZoomLevel } from "../types";
@@ -129,7 +129,7 @@ export const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     crumbs: { position: "absolute", left: 16, top: 16, flexDirection: "row", alignItems: "center", flexWrap: "wrap", maxWidth: "70%" },
     crumbItem: { flexDirection: "row", alignItems: "center" },
-    crumbSep: { color: colors.chromeMuted, marginHorizontal: 6, fontSize: 13 },
+    crumbSep: { color: colors.chromeMuted, marginHorizontal: 6, fontSize: pointerType.ui },
     crumb: {
       height: 30,
       borderRadius: 15,
@@ -140,7 +140,7 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.lineStrong,
     },
     crumbHere: { backgroundColor: colors.text, borderColor: colors.text },
-    crumbText: { fontFamily: fonts.body, fontSize: 13, fontWeight: "600", color: colors.text2 },
+    crumbText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text2 },
     crumbTextHere: { color: colors.pageSurface },
     zoom: {
       position: "absolute",
@@ -166,7 +166,7 @@ export const makeStyles = (colors: Colors) =>
     zoomLine: { position: "absolute", left: 0, right: 0, top: 12, height: 3, borderRadius: 2, backgroundColor: colors.lineStrong },
     stop: { position: "absolute", top: 6, width: 90, marginLeft: -45, alignItems: "center", gap: 7 },
     stopDot: { width: 6, height: 6, borderRadius: 3, marginTop: 4, backgroundColor: colors.chromeMuted },
-    stopText: { fontFamily: fonts.body, fontSize: 11.5, color: colors.chromeMuted },
+    stopText: { fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted },
     stopTextHere: { color: colors.text, fontWeight: "700" },
     knob: {
       position: "absolute",
