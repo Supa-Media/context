@@ -60,6 +60,10 @@ jobs:
       # on a pull request. Three runners each take a third of the files
       # (vitest --shard); `ci / Test Summary` still fails if any shard does.
       convex-test-shards: 3
+      # `convex typecheck` runs in convex-deploy-typecheck below, in parallel;
+      # upstream's copy sat in front of shard 1's tests and made it the
+      # slowest check (173s against 94-106s for the other shards).
+      convex-typecheck: false
       # The mobile suite (737 files) took 2m45 on one runner once the Convex
       # one was split, so it gets the same treatment. Each shard appends
       # --shard=i/n, which `pnpm run test` forwards to jest and the bare
@@ -564,8 +568,12 @@ jobs:
         id: scope
         with:
           packages: "@context/convex"
+          # packages/** too: Convex reaches packages/communications and
+          # packages/meetings by relative path, not as declared dependencies,
+          # and this is now the only place the deploy typecheck runs.
           paths: |
             apps/mcp/**
+            packages/**
             .github/workflows/ci.yml
 
       - uses: pnpm/action-setup@v4
