@@ -4,7 +4,8 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import type { ToastSpec } from "../design/components/Toast";
 import { offerAction, undoFailed } from "./copy";
 import { changesCopy } from "./changeCopy";
-import { organizerApi } from "./organizerApi";
+import { organizerApi, routesApi } from "./organizerApi";
+import { teamsCopy } from "./teamCopy";
 import {
   isOrganizerEntry,
   organizerState,
@@ -18,6 +19,8 @@ import type {
   OrganizerKind,
   OrganizerStatus,
   OrganizerSuggestion,
+  RouteCard,
+  RouteTeam,
   UndoToken,
 } from "./types";
 
@@ -26,6 +29,12 @@ export interface OrganizerSuggestions {
   list: OrganizerSuggestion[] | null;
   /** What changed cards, read with the list; `null` until then. */
   changes: ChangeCard[] | null;
+  /** Notes for the owner's teams (a personal workspace only); `null` until asked. */
+  routes: RouteCard[] | null;
+  /** The owner's teams, and whether notes are written for each. */
+  teams: readonly RouteTeam[];
+  /** What the owner keeps to themselves, in their own words. */
+  keep: string;
   loading: boolean;
   failed: boolean;
   /** Rows with a press in flight, so ✓ and ✕ cannot be pressed twice. */
@@ -52,6 +61,16 @@ export interface OrganizerView {
   closePage: () => void;
   /** Apply a What changed card's ticked steps, or say it is wrong. */
   resolveChange: (card: ChangeCard, decision: OrganizerDecision, steps: readonly string[]) => void;
+  /** Add a team note, as edited on its preview. Resolves true once it is in the team. */
+  sendRoute: (card: RouteCard, title: string, body: string) => Promise<boolean>;
+  /** Add every given note as written; resolves to how many went. */
+  sendRoutes: (cards: readonly RouteCard[]) => Promise<number>;
+  /** "Don't add": the note is not written, and the card goes away. */
+  dismissRoute: (card: RouteCard) => void;
+  /** "Skip the rest": every given card goes, with one word said for them all. */
+  dismissRoutes: (cards: readonly RouteCard[]) => void;
+  setTeamOn: (team: string, on: boolean) => void;
+  setKeep: (keep: string) => void;
   setEnabled: (on: boolean) => void;
   setAutopilot: (kind: OrganizerKind, on: boolean) => void;
   acknowledgeNotice: (turnOff: boolean) => void;
@@ -66,7 +85,17 @@ export interface OrganizerView {
 
 type ActivityRow = { at: string; kind: string; paths: string[]; by: string | null; via: string | null };
 
-const EMPTY: OrganizerSuggestions = { list: null, changes: null, loading: false, failed: false, busy: new Set() };
+const EMPTY: OrganizerSuggestions = {
+  list: null,
+  changes: null,
+  routes: null,
+  teams: [],
+  keep: "",
+  loading: false,
+  failed: false,
+  busy: new Set(),
+};
+const NO_ROUTES = { routes: [] as RouteCard[], teams: [] as RouteTeam[], keep: "" };
 
 /** Toast ids carry this, so the console's one host can hand a dismiss back to its owner. */
 export const ORGANIZER_TOAST_PREFIX = "organizer-";
@@ -157,6 +186,7 @@ export function useOrganizer({
         convex.action(functions.suggestions, { workspaceId: workspace }),
         // A deployment without What changed answers nothing here; the list still shows.
         convex.action(functions.changes, { workspaceId: workspace }).catch(() => ({ changes: [] as ChangeCard[] })),
+        loadRoutes(convex, workspace),
       ]),
     )
       .then((answer) => {
@@ -165,6 +195,9 @@ export function useOrganizer({
           ...current,
           list: answer?.[0].suggestions ?? [],
           changes: answer?.[1].changes ?? [],
+          routes: answer?.[2].routes ?? [],
+          teams: answer?.[2].teams ?? [],
+          keep: answer?.[2].keep ?? "",
           loading: false,
           failed: answer === undefined,
         }));
@@ -283,6 +316,124 @@ export function useOrganizer({
     [call, convex, say, spendUndo, warn],
   );
 
+  const settleRoute = useCallback(
+    (card: RouteCard, removed: boolean) =>
+      setSuggestions((current) => {
+        const busy = new Set(current.busy);
+        busy.delete(card.id);
+        const routes = removed && current.routes !== null ? current.routes.filter((r) => r.id !== card.id) : current.routes;
+        return { ...current, busy, routes };
+      }),
+    [],
+  );
+
+  /** One note to its team; says nothing, so a batch can say it once. */
+  const sendOne = useCallback(
+    async (card: RouteCard, title: string, body: string): Promise<{ sent: boolean; undo: UndoToken | null; error?: string }> => {
+      const functions = routesApi();
+      if (id === null || functions === undefined) return { sent: false, undo: null };
+      setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, card.id]) }));
+      try {
+        const result = await convex.action(functions.sendRoute, { workspaceId: id, id: card.id, title, body });
+        settleRoute(card, result.applied);
+        return { sent: result.applied, undo: result.undo, error: result.error };
+      } catch {
+        settleRoute(card, false);
+        return { sent: false, undo: null };
+      }
+    },
+    [convex, id, settleRoute],
+  );
+
+  const sendRoute = useCallback(
+    async (card: RouteCard, title: string, body: string) => {
+      const result = await sendOne(card, title, body);
+      if (!result.sent) {
+        warn(result.error ?? teamsCopy.failed(card.team));
+        return false;
+      }
+      const token = result.undo;
+      say({ message: teamsCopy.sent(card.team), undo: token ? () => spendUndo({ token }) : undefined });
+      return true;
+    },
+    [say, sendOne, spendUndo, warn],
+  );
+
+  /**
+   * Every ticked note, as written, one after another: each is checked and
+   * sent on its own, so one that fails stays on the page and the rest go.
+   * Each one sent has its own Undo in Activity.
+   */
+  const sendRoutes = useCallback(
+    async (cards: readonly RouteCard[]) => {
+      const sent: RouteCard[] = [];
+      for (const card of cards) {
+        const result = await sendOne(card, card.title, card.body);
+        if (result.sent) sent.push(card);
+      }
+      const missed = cards.length - sent.length;
+      if (sent.length > 0) say({ message: teamsCopy.sentMany(sent, missed) });
+      else if (missed > 0) warn(teamsCopy.failedMany(missed));
+      return sent.length;
+    },
+    [say, sendOne, warn],
+  );
+
+  /** One card dismissed; resolves whether it went. Says nothing, so a batch can say it once. */
+  const dismissOne = useCallback(
+    async (card: RouteCard) => {
+      setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, card.id]) }));
+      try {
+        await call((functions, workspace) => convex.action(functions.resolve, { workspaceId: workspace, id: card.id, decision: "dismiss" }));
+        settleRoute(card, true);
+        return true;
+      } catch {
+        settleRoute(card, false);
+        return false;
+      }
+    },
+    [call, convex, settleRoute],
+  );
+
+  const dismissRoute = useCallback(
+    (card: RouteCard) => {
+      void dismissOne(card).then((gone) => (gone ? say({ message: teamsCopy.kept }) : warn(changesCopy.failed)));
+    },
+    [dismissOne, say, warn],
+  );
+
+  const dismissRoutes = useCallback(
+    (cards: readonly RouteCard[]) => {
+      void (async () => {
+        let gone = 0;
+        for (const card of cards) if (await dismissOne(card)) gone += 1;
+        if (gone > 0) say({ message: teamsCopy.skipped(gone) });
+        if (gone < cards.length) warn(changesCopy.failed);
+      })();
+    },
+    [dismissOne, say, warn],
+  );
+
+  const setRouting = useCallback(
+    (args: { team?: string; on?: boolean; keep?: string }) => {
+      const functions = routesApi();
+      if (id === null || functions === undefined) return;
+      setSuggestions((current) => ({
+        ...current,
+        ...(args.team !== undefined && args.on !== undefined
+          ? { teams: current.teams.map((team) => (team.name === args.team ? { ...team, on: args.on! } : team)) }
+          : {}),
+        ...(args.keep !== undefined ? { keep: args.keep } : {}),
+      }));
+      void convex.action(functions.setRouting, { workspaceId: id, ...args }).catch(() =>
+        warn("That setting did not save. Check your connection and try again."),
+      );
+    },
+    [convex, id, warn],
+  );
+  const setTeamOn = useCallback((team: string, on: boolean) => setRouting({ team, on }), [setRouting]);
+  const setKeep = useCallback((keep: string) => setRouting({ keep }), [setRouting]);
+
   const setEnabled = useCallback(
     (on: boolean) => {
       void call((functions, workspace) => convex.mutation(functions.setEnabled, { workspaceId: workspace, on })).catch(
@@ -328,6 +479,12 @@ export function useOrganizer({
     closeReview,
     resolve,
     resolveChange,
+    sendRoute,
+    sendRoutes,
+    dismissRoute,
+    dismissRoutes,
+    setTeamOn,
+    setKeep,
     setEnabled,
     setAutopilot,
     acknowledgeNotice,
@@ -340,4 +497,11 @@ export function useOrganizer({
     dismissToast,
     undoFor,
   };
+}
+
+/** "For your teams", read beside the rest; a deployment without it answers none. */
+function loadRoutes(convex: ReturnType<typeof useConvex>, workspace: Id<"workspaces">) {
+  const functions = routesApi();
+  if (functions === undefined) return Promise.resolve(NO_ROUTES);
+  return convex.action(functions.routes, { workspaceId: workspace }).catch(() => NO_ROUTES);
 }

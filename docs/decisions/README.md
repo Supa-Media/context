@@ -123,6 +123,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A root domain carries Cloudflare's TXT as a third record
 - A root domain brings its `www.`, which only redirects
 - An incident note is metadata, never a summary of vendor text
+- A team gets a new note from someone's inbox, never the meeting or email itself
 
 ## [Per-note encryption](./encryption.md)
 
@@ -559,3 +560,16 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - This repository is public and MIT licensed
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 - No handwritten file over 1,000 lines, and the allowance only shrinks
+
+## [The texting assistant](./texting-assistant.md)
+
+- The Worker decides nothing about access
+- A webhook is acted on only with Linq's signature
+- Group chats never reach a personal context
+- A phone is linked by texting back a code, and the link only shows it
+- Only iMessage is answered, because the sender number is the login
+- The Worker holds message text only while it is answering it
+- Messages pass through Linq
+- The autofill vault lives sealed in the person's bucket
+- The built-in model is for Premium, capped, and metered like Jev
+- The agent opens only addresses it was given

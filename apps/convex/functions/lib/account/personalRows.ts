@@ -3,6 +3,7 @@ import type { Id } from "../../../_generated/dataModel";
 import { revokeSharesAddressedTo, voidCapabilitiesAddressedTo } from "./addressedTo";
 import { deleteAccountPhoto } from "../faces/people";
 import { deleteUserPlaces } from "../places";
+import { deleteTextLinksOf } from "../../textLinks";
 
 /**
  * Everything `deleteAccount` removes that is the person's rather than a
@@ -59,6 +60,9 @@ export async function deletePersonalRows(
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const row of messageReads) await ctx.db.delete(row._id);
+
+  // The phone they text the assistant from, and any code waiting to link one.
+  await deleteTextLinksOf(ctx, userId);
 
   // What they pinned to Home and which folders they open: paths and counts.
   await deleteUserPlaces(ctx, userId);

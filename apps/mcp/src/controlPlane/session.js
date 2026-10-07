@@ -139,5 +139,30 @@ export function createSessionMethods({ post, required }) {
       });
       return required(parsed, "credential");
     },
+
+    /**
+     * May this turn spend the built-in model? The control plane decides and
+     * counts the turn (`apps/convex/functions/builtinModel.ts`); `null` is an
+     * unknown token or a workspace the token cannot reach.
+     *
+     * @returns {Promise<{allowed: true, remaining: number}|{allowed: false, reason: string}|null>}
+     */
+    async startBuiltinTurn(accessToken, expectedWorkspaceId) {
+      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId });
+      return required(parsed, "verdict");
+    },
+
+    /** What a finished built-in turn spent: token counts and a duration, never text. */
+    async recordBuiltinUsage(accessToken, expectedWorkspaceId, { input, output, decision = 0, failed, ms }) {
+      await post("/gateway/builtin-model/usage", {
+        accessToken,
+        expectedWorkspaceId,
+        inputTokens: input,
+        outputTokens: output,
+        decisionTokens: decision,
+        failed,
+        ms,
+      });
+    },
   };
 }

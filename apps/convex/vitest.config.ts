@@ -32,6 +32,8 @@ export default defineConfig({
       // "the gateway secret does not open an ingest route" cannot pass by
       // coincidence.
       EMAIL_WORKER_SECRET: "test-email-worker-secret-not-a-real-one",
+      // The texting assistant's secret, a third value for a third door.
+      AGENT_WORKER_SECRET: "test-agent-worker-secret-not-a-real-one",
       // Where the consent screen lives, and where an invitation link points.
       // `.invalid` is reserved by RFC 2606 and resolves nowhere, so a test that
       // accidentally made a request to it would fail rather than reach

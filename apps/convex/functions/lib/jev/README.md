@@ -76,3 +76,12 @@ folder and the Worker. `__tests__/jev.test.ts` fails if you do.
 A switch takes effect on the next `withJev`. A feature whose switch is off
 should behave as if it does not exist, as `organizer`'s
 `organizerAvailable` does.
+
+## The one feature that is not asked from an action
+
+`assistant` (the texting assistant's built-in model) is a chat model with
+tools, and its tools run in the gateway, so the gateway makes the Workers AI
+call. It still goes through this gate and meter: the gateway asks
+`/gateway/builtin-model` before the first round, which counts the turn, and
+reports token counts afterwards (`functions/builtinModel.ts`). See
+`docs/decisions/texting-assistant.md`.

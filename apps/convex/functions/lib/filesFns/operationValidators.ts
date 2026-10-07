@@ -517,6 +517,12 @@ export const operationValidator = v.union(
       v.literal("clear"),
       v.literal("autopilot"),
       v.literal("undo"),
+      // "For your teams" (`lib/organizer/routeOps.ts`): the owner's switches,
+      // and the three trips into a team's own workspace.
+      v.literal("routing"),
+      v.literal("outline"),
+      v.literal("deliver"),
+      v.literal("withdraw"),
     ),
     input: v.string(),
     autopilot: v.optional(v.boolean()),

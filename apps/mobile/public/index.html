@@ -118,6 +118,52 @@
         ::selection { background: rgba(107,200,193,.32); color: #EDE8E0; }
       }
     </style>
+
+    <!--
+      X ads' pixel, so sign-ups from an ad are counted (Dev2, 2026-10-05).
+      X's own snippet, inside one condition: it runs on context.lc's landing
+      page and nowhere else. This document is every route, and the script
+      reports the address it loads on, so anywhere else it would hand X a
+      console, note or invitation URL. Nor does it run for a self-hoster or on
+      staging. The sign-up itself is reported from the server
+      (`apps/convex/functions/xConversions.ts`); the guard is in
+      `__tests__/htmlShell.test.ts`.
+    -->
+    <!-- X conversion tracking base code -->
+    <script>
+    if (location.hostname === "context.lc" && location.pathname === "/") {
+    !function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);
+    },s.version='1.1',s.queue=[],u=t.createElement(n),u.async=!0,u.src='https://static.ads-twitter.com/uwt.js',
+    a=t.getElementsByTagName(n)[0],a.parentNode.insertBefore(u,a))}(window,document,'script');
+    twq('config','rgib5');
+    }
+    </script>
+    <!-- End X conversion tracking base code -->
+
+    <!--
+      Meta's pixel, under the same one condition as X's and for the same
+      reason (Dev2, 2026-10-05). Empty id loads nothing; the id must equal
+      META_PIXEL.id in apps/convex/functions/lib/metaConversion.ts, which the
+      same test checks. Meta's noscript image is left out: it would load on
+      every route.
+    -->
+    <!-- Meta Pixel Code -->
+    <script>
+    var metaPixelId = "";
+    if (metaPixelId && location.hostname === "context.lc" && location.pathname === "/") {
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', metaPixelId);
+    fbq('track', 'PageView');
+    }
+    </script>
+    <!-- End Meta Pixel Code -->
   </head>
 
   <body>

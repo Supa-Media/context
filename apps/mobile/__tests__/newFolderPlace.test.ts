@@ -48,6 +48,22 @@ describe("the place picker's rows", () => {
     expect(labelsOf(opened)).toEqual(["Northwind", "  clients", "  projects", "    launch-week", "    website", "  team"]);
   });
 
+  test("a folder not read yet opens, and says so while it is being read", () => {
+    // Another workspace's folders arrive a level at a time, so a folder whose
+    // own folders are unknown has to offer to open: opening it is the read.
+    const rows = pickerRows({
+      folders: ["clients", "team"],
+      open: new Set(["", "clients"]),
+      query: "",
+      rootLabel: "@work",
+      unexplored: new Set(["clients", "team"]),
+      loading: new Set(["clients"]),
+    });
+    expect(rows.find((row) => row.path === "clients")).toMatchObject({ opens: true, open: true, sub: "Opening…" });
+    expect(rows.find((row) => row.path === "team")).toMatchObject({ opens: true, open: false });
+    expect(rows.find((row) => row.path === "team")?.sub).toBeUndefined();
+  });
+
   test("opens onto the place it starts at", () => {
     expect([...openTo("clients/acme")].sort()).toEqual(["", "clients"]);
     const rows = pickerRows({ folders: FOLDERS, open: openTo("clients/acme"), query: "", rootLabel: "Northwind" });

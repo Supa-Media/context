@@ -105,6 +105,7 @@ import {
   json,
   randomOpaqueToken,
   readJsonBody,
+  requestIsFromAgentWorker,
   requestIsFromEmailWorker,
   requestIsFromGateway,
   stringField,
@@ -124,6 +125,8 @@ import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
+import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
+import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
@@ -205,6 +208,23 @@ function emailWorkerRoute(
 }
 
 /**
+ * The same wrapper again, for the texting assistant's own secret. A fourth
+ * door for a third bearer secret: it can mint a short-lived grant for whoever
+ * linked a phone, so it shares a key with neither caller above. See
+ * `AGENT_WORKER_SECRET_ENV_VAR` in `functions/lib/gatewayAuth.ts`.
+ */
+function agentWorkerRoute(
+  handler: (ctx: ActionCtx, body: Record<string, unknown>) => Promise<Response>,
+) {
+  return httpAction(async (ctx, request) => {
+    if (!(await requestIsFromAgentWorker(request))) return unauthorized();
+    const body = await readJsonBody(request);
+    if (body === null) return badRequest();
+    return await handler(ctx, body);
+  });
+}
+
+/**
  * The third door, and the only one whose key is a signature rather than a
  * bearer secret.
  *
@@ -279,6 +299,9 @@ export const gatewayBinding = gatewayRoute(credentials.gatewayBindingHandler);
 /* -------------------------------------------------------------------------- */
 
 export const gatewayProvider = gatewayRoute(credentials.gatewayProviderHandler);
+/** The built-in model's gate and meter, for a texting grant with no account connected. */
+export const gatewayBuiltinModel = gatewayRoute(builtinModel.gatewayBuiltinModelHandler);
+export const gatewayBuiltinUsage = gatewayRoute(builtinModel.gatewayBuiltinUsageHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
@@ -669,11 +692,7 @@ export const shareShortLinkPreview = httpAction(
   shortLinkCards.shareShortLinkPreviewHandler,
 );
 
-http.route({
-  path: "/share/short",
-  method: "POST",
-  handler: shareShortLinkPreview,
-});
+http.route({ path: "/share/short", method: "POST", handler: shareShortLinkPreview });
 
 /* -------------------------------------------------------------------------- */
 /* POST /share/short/card — the card image for a short link                    */
@@ -703,11 +722,7 @@ export const shareShortLinkCard = httpAction(
   shortLinkCards.shareShortLinkCardHandler,
 );
 
-http.route({
-  path: "/share/short/card",
-  method: "POST",
-  handler: shareShortLinkCard,
-});
+http.route({ path: "/share/short/card", method: "POST", handler: shareShortLinkCard });
 
 /* -------------------------------------------------------------------------- */
 /* POST /site/preview, /site/card — a website page's unfurl and its picture    */
@@ -833,123 +848,37 @@ export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
 
 // POST only, every one of them. The contract has no GET shape, and a GET would
 // put a token in a URL — in a log, in a referrer, in browser history.
-http.route({
-  path: "/gateway/session",
-  method: "POST",
-  handler: gatewaySession,
-});
-http.route({
-  path: "/gateway/sessions/by-grant",
-  method: "POST",
-  handler: gatewaySessionsByGrant,
-});
-http.route({
-  path: "/gateway/binding",
-  method: "POST",
-  handler: gatewayBinding,
-});
-http.route({
-  path: "/gateway/provider",
-  method: "POST",
-  handler: gatewayProvider,
-});
-http.route({
-  path: "/gateway/search-index/progress",
-  method: "POST",
-  handler: gatewaySearchIndexProgress,
-});
-http.route({
-  path: "/gateway/activity",
-  method: "POST",
-  handler: gatewayActivity,
-});
+http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
+http.route({ path: "/gateway/sessions/by-grant", method: "POST", handler: gatewaySessionsByGrant });
+http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
+http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
+http.route({ path: "/gateway/builtin-model", method: "POST", handler: gatewayBuiltinModel });
+http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gatewayBuiltinUsage });
+http.route({ path: "/gateway/search-index/progress", method: "POST", handler: gatewaySearchIndexProgress });
+http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
-http.route({
-  path: "/gateway/website",
-  method: "POST",
-  handler: gatewayWebsite,
-});
-http.route({
-  path: "/gateway/forms/notify",
-  method: "POST",
-  handler: gatewayFormsNotify,
-});
-http.route({
-  path: "/gateway/jobs/create",
-  method: "POST",
-  handler: gatewayJobsCreate,
-});
-http.route({
-  path: "/gateway/jobs/open",
-  method: "POST",
-  handler: gatewayJobsOpen,
-});
-http.route({
-  path: "/gateway/jobs/report",
-  method: "POST",
-  handler: gatewayJobsReport,
-});
-http.route({
-  path: "/gateway/clients/register",
-  method: "POST",
-  handler: gatewayClientsRegister,
-});
-http.route({
-  path: "/gateway/clients/get",
-  method: "POST",
-  handler: gatewayClientsGet,
-});
-http.route({
-  path: "/gateway/authorize/start",
-  method: "POST",
-  handler: gatewayAuthorizeStart,
-});
-http.route({
-  path: "/gateway/codes/consume",
-  method: "POST",
-  handler: gatewayCodesConsume,
-});
-http.route({
-  path: "/gateway/grants/create",
-  method: "POST",
-  handler: gatewayGrantsCreate,
-});
-http.route({
-  path: "/gateway/grants/rotate",
-  method: "POST",
-  handler: gatewayGrantsRotate,
-});
-http.route({
-  path: "/gateway/grants/revoke",
-  method: "POST",
-  handler: gatewayGrantsRevoke,
-});
-http.route({
-  path: "/gateway/ingest/resolve",
-  method: "POST",
-  handler: gatewayIngestResolve,
-});
-http.route({
-  path: "/gateway/ingest/binding",
-  method: "POST",
-  handler: gatewayIngestBinding,
-});
-http.route({
-  path: "/gateway/ingest/record",
-  method: "POST",
-  handler: gatewayIngestRecord,
-});
+http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
+http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
+http.route({ path: "/gateway/jobs/create", method: "POST", handler: gatewayJobsCreate });
+http.route({ path: "/gateway/jobs/open", method: "POST", handler: gatewayJobsOpen });
+http.route({ path: "/gateway/jobs/report", method: "POST", handler: gatewayJobsReport });
+http.route({ path: "/gateway/clients/register", method: "POST", handler: gatewayClientsRegister });
+http.route({ path: "/gateway/clients/get", method: "POST", handler: gatewayClientsGet });
+http.route({ path: "/gateway/authorize/start", method: "POST", handler: gatewayAuthorizeStart });
+http.route({ path: "/gateway/codes/consume", method: "POST", handler: gatewayCodesConsume });
+http.route({ path: "/gateway/grants/create", method: "POST", handler: gatewayGrantsCreate });
+http.route({ path: "/gateway/grants/rotate", method: "POST", handler: gatewayGrantsRotate });
+http.route({ path: "/gateway/grants/revoke", method: "POST", handler: gatewayGrantsRevoke });
+http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
+http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
+http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });
 /* -------------------------------------------------------------------------- */
 /* Links, for an agent that asked for one                                     */
 /* -------------------------------------------------------------------------- */
 
 export const gatewayLinksCreate = gatewayRoute(links.gatewayLinksCreateHandler);
 
-http.route({
-  path: "/gateway/links/create",
-  method: "POST",
-  handler: gatewayLinksCreate,
-});
+http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
 
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 
@@ -957,19 +886,11 @@ http.route({ path: "/gateway/feedback", method: "POST", handler: gatewayFeedback
 
 export const gatewayLinksList = gatewayRoute(links.gatewayLinksListHandler);
 
-http.route({
-  path: "/gateway/links/list",
-  method: "POST",
-  handler: gatewayLinksList,
-});
+http.route({ path: "/gateway/links/list", method: "POST", handler: gatewayLinksList });
 
 export const gatewayLinksRevoke = gatewayRoute(links.gatewayLinksRevokeHandler);
 
-http.route({
-  path: "/gateway/links/revoke",
-  method: "POST",
-  handler: gatewayLinksRevoke,
-});
+http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
 
 /* A website's status or a publish, for an owner's or editor's agent. */
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
@@ -977,5 +898,15 @@ export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
 http.route({ path: "/gateway/site", method: "POST", handler: gatewaySite });
 
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
+
+/* The texting assistant: link a phone, and open a session for one text. */
+export const agentTextsLink = agentWorkerRoute(agentTexts.agentTextsLinkHandler);
+export const agentTextsSession = agentWorkerRoute(agentTexts.agentTextsSessionHandler);
+http.route({ path: "/agent-texts/link", method: "POST", handler: agentTextsLink });
+http.route({ path: "/agent-texts/session", method: "POST", handler: agentTextsSession });
+export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHandler);
+export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
+http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
+http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
 
 export default http;
