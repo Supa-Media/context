@@ -200,6 +200,39 @@ export function assertBundleSourcesWatched(root = ROOT) {
 }
 
 /**
+ * AND THE BUNDLE ITSELF MUST BE WATCHED, NOT ONLY WHAT IT IS BUILT FROM.
+ *
+ * `assertBundleSourcesWatched` above reads the bundle's own record of its
+ * inputs and checks each one is in the job's `paths:`. The *output* is not one
+ * of those inputs, so nothing above says a word about it — and a pull request
+ * that edits only `bundle.generated.ts`, injecting code into the blob that
+ * runs over somebody's private markdown, is precisely the case the
+ * rebuild-and-compare job says it exists for.
+ *
+ * Today that request is caught, by one pattern: `console/files/**` is in the
+ * list because most of the bundle's sources live under it, and the artifact
+ * happens to sit there too. Nothing records that this coincidence is
+ * load-bearing, and the guard above actively pushes a maintainer toward the
+ * edit that ends it — its complaint is that "a list of directories always
+ * will" forget a sibling, and the obvious answer to that is to enumerate the
+ * recorded sources instead. Measured, not supposed: replacing that one
+ * pattern with the source paths it covers, named one by one, leaves `check()`
+ * green with the artifact unwatched. No count is written down here on
+ * purpose — it would be the stale-number defect this file exists to catch.
+ *
+ * So the output is asserted here, beside the inputs, with the same matcher.
+ */
+export function assertBundleArtifactWatched(root = ROOT) {
+  const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
+  if (unwatchedSources([BUNDLE], watched).length > 0) {
+    throw new Error(
+      `editor-bundle does not run when ${BUNDLE} itself changes, so a commit that edits only the ` +
+        "generated bundle skips the rebuild that would catch it",
+    );
+  }
+}
+
+/**
  * A GUARD THAT NAMES ITS OWN SOURCE ROOTS MUST BE RUN WHERE THEY CHANGE.
  *
  * `check-worker-fetch-options.mjs` scans four Worker source trees — the
@@ -428,6 +461,7 @@ export function check(root = ROOT) {
     assertScopedJob(readFileSync(join(root, workflow), "utf8"), job, workflow, packages);
   }
   assertBundleSourcesWatched(root);
+  assertBundleArtifactWatched(root);
   for (const script of rootDeclaringGuards(root)) assertGuardRootsWatched(script, root);
 }
 
@@ -511,6 +545,28 @@ export function selfTest() {
   // quietly weaker. A legitimate change to the list fails here and gets read.
   if (guardRoots("scripts/check-worker-fetch-options.mjs").length !== 4) {
     throw new Error("check-worker-fetch-options.mjs no longer declares the four roots read here");
+  }
+
+  /*
+    The bundle's OUTPUT, in both directions. The failing case is the real edit
+    this guards against: a `paths:` list that names every recorded source and
+    not the artifact they build, which `assertBundleSourcesWatched` passes.
+  */
+  const artifactYaml = (paths) =>
+    `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          paths: |\n${paths
+      .map((path) => `            ${path}\n`)
+      .join("")}`;
+  const sourcesOnly = artifactYaml([
+    "apps/mobile/features/console/files/editorSetup.ts",
+    "apps/mobile/features/console/files/webview/entry.ts",
+  ]);
+  if (unwatchedSources([BUNDLE], scopePaths(sourcesOnly, "editor-bundle")).length !== 1) {
+    throw new Error("a paths list naming only the bundle's sources was read as watching the bundle");
+  }
+  for (const covering of [BUNDLE, "apps/mobile/features/console/files/**", "apps/mobile/**"]) {
+    if (unwatchedSources([BUNDLE], scopePaths(artifactYaml([covering]), "editor-bundle")).length !== 0) {
+      throw new Error(`\`${covering}\` was read as not covering the generated bundle`);
+    }
   }
 
   const noPaths = `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          packages: "@context/mobile"\n`;
