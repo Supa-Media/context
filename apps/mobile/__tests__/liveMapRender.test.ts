@@ -150,17 +150,17 @@ describe("colour", () => {
 describe("names from somebody else's bucket", () => {
   test("a title with a direction override is drawn contained, and the map's own words are not", () => {
     const g = para("ws-a", "Personal", 3);
-    const evil = { path: "0-inbox/evil.md", title: "Invoice ‮txt.exe" };
+    const evil = { path: "0-inbox/evil.md", title: "Invoice \u202etxt.exe" };
     const graphs = [{ ...g, nodes: [...g.nodes, evil] }];
     const { canvas, engine } = engineWith(base([claude], { view: "folders", graphs }), 1200, 700);
     canvas.ctx.calls.length = 0;
     engine.renderAt(NOW);
     const text = canvas.ctx.calls.filter((c) => c.op === "fillText").map((c) => String(c.args[0]));
-    const drawn = text.filter((t) => t.includes("‮"));
+    const drawn = text.filter((t) => t.includes("\u202e"));
     expect(drawn.length).toBeGreaterThan(0);
     for (const t of drawn) {
-      expect(t.startsWith("⁨")).toBe(true);
-      expect(t.endsWith("⁩")).toBe(true);
+      expect(t.startsWith("\u2068")).toBe(true);
+      expect(t.endsWith("\u2069")).toBe(true);
     }
     expect(text).toContain("INBOX");
     engine.destroy();
