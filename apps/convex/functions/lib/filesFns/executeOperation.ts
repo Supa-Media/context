@@ -53,6 +53,7 @@ import {
 } from "../fileOps";
 import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
+import { readRoutineRuns } from "../fileOps/routineRuns";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -736,6 +737,8 @@ export async function executeOperation(
       }
       case "organizer":
         return { kind: "organizerResult", output: await runOrganizerOperation(store, clearance, operation, now, actor) };
+      case "routineRuns":
+        return { kind: "routineRuns", runs: await readRoutineRuns(store, { path: operation.path, clearance }) };
       case "readActivity": {
         // The filter is `readActivity`'s, and it takes the caller's clearance
         // rather than deciding anything here: one viewing layer, used by the

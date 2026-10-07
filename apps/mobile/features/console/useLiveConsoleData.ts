@@ -465,6 +465,7 @@ export function useLiveConsoleData(): ConsoleData {
     pluginBrowse,
     pluginRuntime,
     whatsNew: true,
+    routines: true,
     fastSearch,
     mirrors,
     // A query that threw is not "still loading". Leaving the console spinning

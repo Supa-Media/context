@@ -5,7 +5,8 @@
 
 import { ConvexError } from "convex/values";
 import type { Id } from "../../../_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "../../../_generated/server";
+import { internal } from "../../../_generated/api";
+import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/server";
 import { callerId, personalNameFor } from "../filesFns/access";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { isTimeZone, scheduleFromNote } from "./model";
@@ -121,4 +122,43 @@ export async function deleteWorkspaceRoutines(ctx: MutationCtx, workspaceId: Id<
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of pending) await ctx.db.delete(row._id);
+}
+
+export type RoutineRunView = { at: number; outcome: string; text: string };
+
+/**
+ * A routine's recent runs, newest first, read from the customer's bucket.
+ *
+ * Authorized like any note read: a member of the workspace, at their own
+ * clearance, and the barrier then asks `canSee` about the routine note itself
+ * (`fileOps/routineRuns.ts`). The runs are handed straight back and never
+ * stored here: what a routine answered is note content.
+ */
+export async function routineRunsHandler(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; path: string },
+): Promise<RoutineRunView[]> {
+  const actorUserId = await callerId(ctx);
+  const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    actorUserId,
+    workspaceId: args.workspaceId,
+    minimum: "member",
+  });
+  const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+    workspaceId: args.workspaceId,
+    scope,
+    grantedNames,
+    operation: { kind: "routineRuns", path: args.path },
+  });
+  return result.kind === "routineRuns" ? result.runs : [];
+}
+
+/** The zone this person's routines fall back to, so the app can tell whether to set it. */
+export async function myTimeZoneHandler(ctx: QueryCtx): Promise<string | null> {
+  const userId = await callerId(ctx);
+  const row = await ctx.db
+    .query("accountTimeZones")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  return row?.timeZone ?? null;
 }

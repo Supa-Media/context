@@ -5,6 +5,8 @@ import { Text } from "../../../design/components/Text";
 import { noteHeading } from "../frontmatter";
 import { EncryptedNotice, ManifestNotice } from "./notices";
 import { noteDocument } from "./document";
+import { layout } from "../../../design/tokens";
+import { RecentRunsSection } from "../../routines/RecentRuns";
 import type { NoteView } from "./view";
 
 /**
@@ -111,6 +113,9 @@ export function noteFlow(view: NoteView) {
       every future change to the first, which is exactly how this drifted.
     */}
     {noteDocument(view)}
+
+    {/* A routine's recent runs, after the note's last line on a phone (`routines/RecentRuns.tsx`). */}
+    {compact ? <RecentRunsSection where="below" gutter={layout.readingMargin} /> : null}
 
     <Reveal open={state.status === "conflict"}>
     {state.status === "conflict" ? (

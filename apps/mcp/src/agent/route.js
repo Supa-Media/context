@@ -31,7 +31,9 @@ import {
   routineQuestion,
   routineTimeZone,
   runOutcome,
+  stopRoutine,
 } from "./routine.js";
+import { routineAwareCallTool, routineTools } from "./routineWrites.js";
 
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
@@ -187,6 +189,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   // answers go out as iMessages, and only they are written for one. A
   // routine's answer is a text too, when it says anything.
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
+  // Texting "every morning..." writes the routine file (`routineWrites.js`);
+  // a routine's own run never may.
+  const routineWriting = routineTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
   const computer = texting ? computerFor(env) : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
@@ -276,7 +281,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       question,
       place: body.place ?? null,
       credential,
-      tools: agentTools(offered),
+      tools: [...agentTools(offered), ...routineWriting],
       /*
         THE ONE DISPATCHER, AND IT IS THE CLIENT'S. Not a copy, not a subset
         assembled here — `callToolForSession` is what an MCP client's tool call
@@ -284,8 +289,10 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         scope refusal. An agent that reached past it would be a second authority
         decision with no tests behind it.
       */
-      callTool: (name, args) =>
-        callToolForSession({ name, arguments: args }, store, session),
+      callTool: routineAwareCallTool(
+        (name, args) => callToolForSession({ name, arguments: args }, store, session),
+        routineWriting.map((tool) => tool.name),
+      ),
       env,
       model: typeof body.model === "string" ? body.model : undefined,
       providerOptions: builtin ? { ai: env.AI } : undefined,
@@ -299,6 +306,10 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
       await keepRun(store, routine, runs, ran.outcome, ran.text);
+      // A routine whose `until:` came true stops itself, recoverably.
+      if (ran.outcome === "finished") {
+        await stopRoutine((name, args) => callToolForSession({ name, arguments: args }, store, session), routine.path);
+      }
       return json({
         outcome: ran.outcome,
         answer: ran.text,

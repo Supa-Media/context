@@ -660,6 +660,8 @@ export interface ConsoleData {
    * devlog or a read marker (`whatsNew/WhatsNewHost.tsx`).
    */
   whatsNew?: true;
+  /** Live, signed-in console only, like `whatsNew`: routine notes' run bar and runs (`routines/RoutineHost.tsx`). */
+  routines?: true;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**
