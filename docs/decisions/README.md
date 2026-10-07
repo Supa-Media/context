@@ -167,6 +167,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
+- [What an AI client reads is kept, in the customer's bucket](./gateway-protocol/stored-reads.md)
 
 ## [Markdown forms](./forms.md)
 

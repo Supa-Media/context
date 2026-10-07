@@ -812,7 +812,7 @@ seated in the room made the write. Each client then takes the span from the
 Yjs event its own authorized HTTP read produced. No position crosses the wire,
 so no peer can report a caret on an agent's behalf.
 
-What would break it: storing the log, filtering after aggregation, keying the
+What would break it: storing the log (reads are kept apart, [in the bucket](./gateway-protocol/stored-reads.md)), filtering after aggregation, keying the
 log by anything but the session's workspace, or recording the console. Each
 is sabotage-tested in `apps/mcp/test/agentActivity.test.mjs`.
 

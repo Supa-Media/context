@@ -27,7 +27,7 @@ import {
   setFolderVisibility,
   setVisibility,
 } from "../functions/lib/fileOps";
-import { workspaceGraph } from "../functions/lib/fileOps/graph";
+import { shareOfNotes, workspaceGraph } from "../functions/lib/fileOps/graph";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { shardKey } from "../../mcp/src/search/shards.js";
@@ -73,7 +73,7 @@ function edgePaths(graph: Awaited<ReturnType<typeof workspaceGraph>>): string[] 
 describe("workspaceGraph", () => {
   test("a bucket with no index answers indexMissing, never an empty workspace", async () => {
     const graph = await workspaceGraph(bucket(), clearanceOf("private"));
-    expect(graph).toEqual({ nodes: [], edges: [], truncated: false, behind: true, indexMissing: true });
+    expect(graph).toEqual({ nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true });
   });
 
   test("the owner sees every note, titled by file name, and every resolved link once", async () => {
@@ -167,6 +167,12 @@ describe("workspaceGraph", () => {
     expect(graph.truncated).toBe(true);
     expect(graph.nodes).toHaveLength(3);
     expect(graph.edges.every(([a, b]) => a < 3 && b < 3)).toBe(true);
+    // The answer says how many there are, so the map can say what it left out.
+    expect(graph.noteCount).toBe(7);
+    expect(graph.linksCut).toBe(false);
+    // Every top-level place keeps a share instead of A to Z cutting the rest.
+    const tops = new Set(graph.nodes.map((node) => node.path.split("/")[0]));
+    expect(tops.has("1-projects") && tops.has("2-areas")).toBe(true);
   });
 
   test("the edge cap truncates", async () => {
@@ -174,6 +180,8 @@ describe("workspaceGraph", () => {
     await indexed(store);
     const graph = await workspaceGraph(store, clearanceOf("private"), { edgeCap: 2 });
     expect(graph.truncated).toBe(true);
+    expect(graph.linksCut).toBe(true);
+    expect(graph.noteCount).toBe(graph.nodes.length);
     expect(graph.edges).toHaveLength(2);
   });
 
@@ -188,6 +196,54 @@ describe("workspaceGraph", () => {
     expect(owner.edges).toEqual([]);
 
     const team = await workspaceGraph(store, clearanceOf("team"));
-    expect(team).toEqual({ nodes: [], edges: [], truncated: false, behind: false, indexMissing: false });
+    expect(team).toEqual({ nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: false, indexMissing: false });
+  });
+});
+
+describe("shareOfNotes", () => {
+  const inbox = Array.from({ length: 900 }, (_, i) => `0-inbox/mail/2026-${String(i).padStart(4, "0")}.md`);
+  const rest = [
+    ...Array.from({ length: 30 }, (_, i) => `1-projects/launch/task-${String(i).padStart(2, "0")}.md`),
+    "1-projects/launch.md",
+    ...Array.from({ length: 5 }, (_, i) => `2-areas/area-${i}.md`),
+    "3-resources/books/one.md",
+    "4-archive/old.md",
+    "index.md",
+  ];
+  const all = [...inbox, ...rest].sort();
+
+  test("under the cap, every note is kept", () => {
+    expect(shareOfNotes(all, all.length)).toEqual(all);
+  });
+
+  test("a huge inbox no longer pushes every later folder off the map", () => {
+    const kept = shareOfNotes(all, 100);
+    expect(kept).toHaveLength(100);
+    expect(kept).toEqual([...kept].sort());
+    for (const path of ["2-areas/area-4.md", "3-resources/books/one.md", "4-archive/old.md", "index.md"]) {
+      expect(kept).toContain(path);
+    }
+    // The small places are kept whole; the inbox gets what is left, newest names first.
+    expect(kept.filter((path) => path.startsWith("2-areas/"))).toHaveLength(5);
+    expect(kept).toContain("0-inbox/mail/2026-0899.md");
+    expect(kept).not.toContain("0-inbox/mail/2026-0000.md");
+  });
+
+  test("a folder's subfolders share its part too", () => {
+    const kept = shareOfNotes(all, 60);
+    expect(kept.some((path) => path.startsWith("1-projects/launch/"))).toBe(true);
+    expect(kept).toContain("1-projects/launch.md");
+  });
+
+  test("fewer notes than folders still draws one per folder, as far as it goes", () => {
+    const kept = shareOfNotes(all, 3);
+    expect(kept).toHaveLength(3);
+    expect(new Set(kept.map((path) => path.split("/")[0])).size).toBe(3);
+  });
+
+  test("it is deterministic and never invents a note", () => {
+    expect(shareOfNotes(all, 77)).toEqual(shareOfNotes([...all].reverse().sort(), 77));
+    expect(shareOfNotes(all, 77).every((path) => all.includes(path))).toBe(true);
+    expect(shareOfNotes(all, 0)).toEqual([]);
   });
 });

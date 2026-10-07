@@ -53,6 +53,10 @@ export const workspaceGraphValidator = v.object({
   /** Index pairs into `nodes`, source first. */
   edges: v.array(v.array(v.number())),
   truncated: v.boolean(),
+  /** Every note the caller may see, drawn or not. */
+  noteCount: v.number(),
+  /** The link cap cut links between drawn notes. */
+  linksCut: v.boolean(),
   behind: v.boolean(),
   indexMissing: v.boolean(),
 });

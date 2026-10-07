@@ -35,7 +35,15 @@ shard in memory at maintenance time, which is the blowup v2 exists to remove.
 At request time the walk holds one parsed shard plus the integer edge list.
 
 **It is capped and honest.** 5,000 nodes and 20,000 edges (`GRAPH_NODE_CAP`,
-`GRAPH_EDGE_CAP`), with `truncated` set when either cut. `behind` is the
+`GRAPH_EDGE_CAP`), with `truncated` set when either cut, `noteCount` (every
+visible note, drawn or not) and `linksCut`, so the map says "Showing 5,000 of
+8,214 notes" rather than "the first part". The node cap is **shared, not cut
+A to Z** (`shareOfNotes`, 2026-10-07): the first version kept the first 5,000
+paths, so a personal workspace with a big `0-inbox/` drew nothing after it.
+Now each folder at a level gets an equal share, a folder that needs less gives
+the rest back, and each splits its share among its subfolders the same way;
+loose notes in a full folder keep the last by name, the newest for dated
+names. `noteCount` counts only notes the caller can see. `behind` is the
 index's own freshness (the flag search reports) or a visible shard that could
 not be read, and `indexMissing` is a bucket nothing has indexed — an empty map
 there would tell somebody their notes are gone when nothing looked. The action

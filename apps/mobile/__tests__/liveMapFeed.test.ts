@@ -191,7 +191,7 @@ describe("the line under the map", () => {
 });
 
 describe("what the map says when it cannot draw yet", () => {
-  const partial = { behind: false, indexMissing: false, truncated: false };
+  const partial = { behind: false, indexMissing: false, truncated: false, drawn: 0, total: 0, linksCut: false };
   const page = (graphs: number, extra: Partial<typeof partial> = {}) => ({
     graphs: { graphs: [], loading: false, partial: { ...partial, ...extra } },
     historyLoading: false,
@@ -205,5 +205,17 @@ describe("what the map says when it cannot draw yet", () => {
   test("an empty workspace says so, and a drawn one says nothing", () => {
     expect(mapNotice(page(0))).toBe("No notes to draw here yet.");
     expect(mapNotice(page(3))).toBeNull();
+  });
+
+  test("a map cut at the note limit says how much it shows, and that every folder is there", () => {
+    expect(mapNotice(page(3, { truncated: true, drawn: 5000, total: 8214 }))).toBe(
+      "Showing 5,000 of 8,214 notes so the map stays readable. Every folder is here; the biggest show part of what's in them.",
+    );
+  });
+
+  test("a map cut only at the link limit says every note is there", () => {
+    expect(mapNotice(page(3, { truncated: true, linksCut: true }))).toBe(
+      "Every note is here, but some links between them aren't drawn: there are too many to show at once.",
+    );
   });
 });

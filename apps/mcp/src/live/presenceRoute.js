@@ -5,6 +5,7 @@
 
 import { ACTIVITY_KINDS, activityForCaller, agentActivityKey } from "../agentActivity.js";
 import { heartbeatPerson } from "./activityHeartbeat.js";
+import { asksForStoredReads, storedReadsAnswer } from "./storedReads.js";
 import {
   bearerToken,
   hasScope,
@@ -295,6 +296,8 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
   if (privacy.error) return json({ ...activityForCaller([], now, () => false), peopleCount: 0, people: [] });
 
   const params = new URL(request.url).searchParams;
+  // A replay's reads are their own ask: no heartbeat, no room (`storedReads.js`).
+  if (asksForStoredReads(params)) return json(await storedReadsAnswer(session, store, privacy, params, env, now));
   const sinceParam = params.has("since") ? Number(params.get("since")) : NaN;
   const since = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : null;
   // Who is asking, as a person — or nothing, when it is not the console. See

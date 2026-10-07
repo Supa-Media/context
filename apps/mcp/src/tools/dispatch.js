@@ -162,7 +162,7 @@ export async function callTool(name, args, store, scope) {
     case "save_context":
       return toolSaveContext(store, scope, rules, overrides, args);
     case "list_changes":
-      return toolListChanges(store, scope, rules, overrides, args.limit);
+      return toolListChanges(store, scope, rules, overrides, args.limit, { reads: args.reads === true });
     case "read_activity":
       return toolReadActivity(store, scope, rules, overrides, args);
     case "migrate_storage_layout":
