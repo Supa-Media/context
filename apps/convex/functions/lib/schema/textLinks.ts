@@ -36,4 +36,19 @@ export const textLinkTables = {
   })
     .index("by_phone", ["phone"])
     .index("by_user", ["userId"]),
+
+  /**
+   * A link texted to an unlinked phone. Opening it signed in shows a code for
+   * that phone, so nobody types their number; the code still has to be texted
+   * back from the phone, so a forwarded link links nothing. Only the token's
+   * hash is kept, for thirty minutes, one live link per phone.
+   */
+  phoneLinkInvites: defineTable({
+    phone: v.string(),
+    hashedToken: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_phone", ["phone"])
+    .index("by_hashed_token", ["hashedToken"])
+    .index("by_expires", ["expiresAt"]),
 };

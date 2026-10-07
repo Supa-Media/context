@@ -904,5 +904,9 @@ export const agentTextsLink = agentWorkerRoute(agentTexts.agentTextsLinkHandler)
 export const agentTextsSession = agentWorkerRoute(agentTexts.agentTextsSessionHandler);
 http.route({ path: "/agent-texts/link", method: "POST", handler: agentTextsLink });
 http.route({ path: "/agent-texts/session", method: "POST", handler: agentTextsSession });
+export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHandler);
+export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
+http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
+http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
 
 export default http;

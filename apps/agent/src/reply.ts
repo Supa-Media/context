@@ -2,10 +2,11 @@
  * What the assistant says back to one inbound text: the decision, with every
  * service injected so it can be tested without a network.
  *
- * Three outcomes for any text:
+ * Four outcomes for any text:
  * - `link ABC123` links this phone to the account that the code was shown to.
- * - From a phone nobody linked, the reply says how to link one, and nothing
- *   about whether any account exists.
+ * - `unlink` disconnects this phone from whichever account it answers from.
+ * - From a phone nobody linked, the reply is a sign-in link that shows the
+ *   code to text back, and nothing about whether any account exists.
  * - From a linked phone, the gateway answers with that person's own grant.
  */
 
@@ -13,7 +14,9 @@ import {
   askAgent,
   linkPhone,
   openSession,
+  requestLinkInvite,
   ServiceError,
+  unlinkPhone,
   type Fetch,
 } from "./clients";
 import type { Inbound } from "./inbound";
@@ -33,14 +36,19 @@ export type ReplyDeps = {
  * control-plane change only. Brute force is the control plane's to refuse.
  */
 const LINK_COMMAND = /^\s*link\s+([a-z0-9]{6,10})\s*[.!]?\s*$/i;
+const UNLINK_COMMAND = /^\s*unlink\s*[.!]?\s*$/i;
 
 export const COPY = {
   linked: (handle: string) =>
-    `You're connected to @${handle}'s Context. Text me anything and I'll answer from it. If that isn't your account, open Context, go to Settings › Texts, and unlink this phone.`,
+    `You're connected to @${handle}'s Context. Text me anything and I'll answer from your notes. If that isn't your account, text UNLINK.`,
   linkRefused:
-    "That code didn't work. Codes expire after 10 minutes, so make a new one in Context under Settings › Texts and text it here.",
-  unlinked:
-    "Hi! I'm the Context assistant. To use me, open Context, go to Settings › Texts, and text me the code it shows you.",
+    "That code didn't work. Codes expire after 10 minutes, so open the link again for a fresh one, or text me anything for a new link.",
+  unlinked: (url: string) =>
+    `Hi, I'm your Context. Tap this link to connect your account, then text me the code it shows you:\n${url}`,
+  unlinkedNoLink:
+    "Hi, I'm your Context. Text me again in a little while and I'll send you a link to connect your account.",
+  unlinkDone: "Done. This phone is no longer connected to your Context. Text me anytime to connect again.",
+  unlinkNothing: "This phone isn't connected to any account.",
   noModel:
     "I can't answer yet because no AI model is connected to your Context. Connect one in Settings, then text me again.",
   dailyLimit:
@@ -67,13 +75,26 @@ export async function replyTo(message: Message, deps: ReplyDeps): Promise<string
       return linked.status === "linked" ? COPY.linked(linked.handle) : COPY.linkRefused;
     }
 
+    if (UNLINK_COMMAND.test(message.text)) {
+      const result = await unlinkPhone(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from);
+      return result === "unlinked" ? COPY.unlinkDone : COPY.unlinkNothing;
+    }
+
     const session = await openSession(
       deps.fetch,
       deps.controlPlaneOrigin,
       deps.workerSecret,
       message.from,
     );
-    if (session.status === "unlinked") return COPY.unlinked;
+    if (session.status === "unlinked") {
+      const invite = await requestLinkInvite(
+        deps.fetch,
+        deps.controlPlaneOrigin,
+        deps.workerSecret,
+        message.from,
+      );
+      return invite.status === "issued" ? COPY.unlinked(invite.url) : COPY.unlinkedNoLink;
+    }
 
     const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text);
     if (answer.kind === "answer") return answer.text;

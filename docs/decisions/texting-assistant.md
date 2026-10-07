@@ -42,6 +42,23 @@ from the shared line on 2026-10-06 confirmed this location. The reply goes to
 members. Test: `inbound.test.ts`, "ignores group chats and requires an explicit
 false on data.chat".
 
+### A phone is linked by texting back a code, and the link only shows it
+
+A phone nobody has linked is texted a sign-in link (`/texts/<token>`), not
+instructions. Opening it signed in shows `link CODE` for that phone, named by
+its last four digits, and the person texts it back. The link carries the
+number so nobody types it; it does not link anything. The code still has to
+arrive *from* that phone, so a forwarded link, or one opened over a shoulder,
+shows the opener a code they cannot use. Linking on sign-in alone would let
+whoever opened the link receive the texter's questions in their own notes.
+The token is stored hashed, lives 30 minutes, one per phone, ten an hour, and
+an hourly sweep removes expired ones with the number they name. Texting
+`UNLINK` disconnects the phone it came from: holding the phone linked it, so
+it is enough to unlink it. The assistant introduces itself as "your Context"
+(decided by the owner, 2026-10-07). Tests: `textLinkInvites.test.ts`,
+"someone else opening a forwarded link gets a code only that phone can use";
+`reply.test.ts`.
+
 ### Only iMessage is answered, because the sender number is the login
 
 The sending phone number is all that identifies a person here. Apple

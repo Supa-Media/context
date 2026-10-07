@@ -566,6 +566,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Worker decides nothing about access
 - A webhook is acted on only with Linq's signature
 - Group chats never reach a personal context
+- A phone is linked by texting back a code, and the link only shows it
 - Only iMessage is answered, because the sender number is the login
 - The Worker holds message text only while it is answering it
 - OPEN: messages pass through Linq

@@ -1,5 +1,5 @@
 /**
- * `POST /agent-texts/*`: the texting assistant's two calls, behind its own
+ * `POST /agent-texts/*`: the texting assistant's calls, behind its own
  * secret (`AGENT_WORKER_SECRET`, see `lib/gatewayAuth.ts`).
  *
  * Split out of `http.ts`, which declares and registers both routes with the
@@ -12,8 +12,8 @@
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
-import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
-import { TEXTS_GRANT_TTL_MS } from "../../textLinks";
+import { APP_ORIGIN_ENV_VAR, badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
+import { TEXTS_GRANT_TTL_MS, TEXTS_LINK_ROUTE } from "../../textLinks";
 
 /**
  * `POST /agent-texts/link` — `{ phone, code }` → `{ status: "linked", handle }`
@@ -59,4 +59,51 @@ export async function agentTextsSessionHandler(
     },
   );
   return json(status === "linked" ? { status, accessToken } : { status });
+}
+
+/**
+ * `POST /agent-texts/invite` — `{ phone }` → `{ status: "issued", url }`, the
+ * sign-in link to text back to a phone nobody has linked, or
+ * `{ status: "refused" }`. The token is in the URL once and only its hash is
+ * stored; the URL is built here so the Worker needs no idea of the app's origin.
+ */
+export async function agentTextsInviteHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const phone = stringField(body, "phone");
+  if (phone === null) return badRequest();
+  const origin = appOrigin();
+  if (origin === null) return json({ status: "refused" });
+  const token = randomOpaqueToken(24);
+  const status: "issued" | "refused" = await ctx.runMutation(
+    internal.functions.textLinks.issueLinkInvite,
+    { phone, hashedToken: await hashToken(token) },
+  );
+  return json(status === "issued" ? { status, url: `${origin}${TEXTS_LINK_ROUTE}/${token}` } : { status });
+}
+
+/** `POST /agent-texts/unlink` — `{ phone }` → `{ status: "unlinked" | "not_linked" }`. */
+export async function agentTextsUnlinkHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const phone = stringField(body, "phone");
+  if (phone === null) return badRequest();
+  const status: "unlinked" | "not_linked" = await ctx.runMutation(
+    internal.functions.textLinks.unlinkByPhone,
+    { phone },
+  );
+  return json({ status });
+}
+
+function appOrigin(): string | null {
+  const raw = process.env[APP_ORIGIN_ENV_VAR];
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
 }

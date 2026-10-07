@@ -74,14 +74,71 @@ describe("replyTo", () => {
     expect(reply).toBe(COPY.linkRefused);
   });
 
-  it("explains how to link from an unlinked phone, without calling the gateway", async () => {
+  it("texts an unlinked phone a sign-in link, without calling the gateway", async () => {
     const seen: string[] = [];
+    const url = "https://app.example/texts/abc123";
     const reply = await replyTo(
       message("what's on my list?"),
-      deps({ "/agent-texts/session": () => [200, { status: "unlinked" }] }, seen),
+      deps(
+        {
+          "/agent-texts/session": () => [200, { status: "unlinked" }],
+          "/agent-texts/invite": (body, auth) => {
+            expect(body).toEqual({ phone: "+15555550100" });
+            expect(auth).toBe("Bearer worker-secret");
+            return [200, { status: "issued", url }];
+          },
+        },
+        seen,
+      ),
     );
-    expect(reply).toBe(COPY.unlinked);
-    expect(seen).toEqual(["/agent-texts/session"]);
+    expect(reply).toBe(COPY.unlinked(url));
+    expect(reply).toContain(url);
+    expect(reply).not.toContain("Settings");
+    expect(seen).toEqual(["/agent-texts/session", "/agent-texts/invite"]);
+  });
+
+  it("sends no link when none was issued, or when the one offered is not https", async () => {
+    for (const answer of [{ status: "refused" }, { status: "issued", url: "http://app.example/texts/x" }, { status: "issued", url: "javascript:alert(1)" }]) {
+      const reply = await replyTo(
+        message("hi"),
+        deps({
+          "/agent-texts/session": () => [200, { status: "unlinked" }],
+          "/agent-texts/invite": () => [200, answer],
+        }),
+      );
+      expect(reply).toBe(COPY.unlinkedNoLink);
+    }
+  });
+
+  it("UNLINK disconnects the phone it came from, and never reaches the gateway", async () => {
+    for (const [status, copy] of [["unlinked", COPY.unlinkDone], ["not_linked", COPY.unlinkNothing]] as const) {
+      const seen: string[] = [];
+      const reply = await replyTo(
+        message(" Unlink. "),
+        deps(
+          {
+            "/agent-texts/unlink": (body) => {
+              expect(body).toEqual({ phone: "+15555550100" });
+              return [200, { status }];
+            },
+          },
+          seen,
+        ),
+      );
+      expect(reply).toBe(copy);
+      expect(seen).toEqual(["/agent-texts/unlink"]);
+    }
+  });
+
+  it("a sentence that mentions unlinking is a question, not the command", async () => {
+    const reply = await replyTo(
+      message("how do I unlink my phone?"),
+      deps({
+        "/agent-texts/session": () => [200, { status: "linked", accessToken: "t" }],
+        "/agent": () => [200, { answer: "Text UNLINK." }],
+      }),
+    );
+    expect(reply).toBe("Text UNLINK.");
   });
 
   it("answers a linked phone through the gateway with that person's grant", async () => {
