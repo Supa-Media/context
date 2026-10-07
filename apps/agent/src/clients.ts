@@ -123,8 +123,10 @@ export async function startLinqTyping(fetcher: Fetch, apiKey: string, chatId: st
  * Offer the line's contact card in this chat, so the person's Messages shows
  * "Context" and its icon in place of a bare number and a grey silhouette.
  *
- * The card itself (name and photo) is set once per line in Linq, not here; this
- * only shares it. Linq takes it only in an iMessage chat that already has an
+ * The card itself is set once per line in Linq, not here: the name "Context"
+ * and the photo at https://context.lc/texts-card.png, the simulator's white #
+ * on blue (`apps/mobile/public/texts-card.png`), so a real chat looks like the
+ * simulator's. This only shares it. Linq takes it only in an iMessage chat that already has an
  * outbound message, says it may not take effect in every chat, and gives no
  * confirmation the person saved it, so the inbox offers it at most once a day
  * per sender, after a reply has gone out. Best effort and quick, like the
