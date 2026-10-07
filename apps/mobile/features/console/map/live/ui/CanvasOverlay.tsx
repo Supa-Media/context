@@ -21,6 +21,13 @@ export type CameraStore = {
   subscribe(listener: () => void): () => void;
 };
 
+/**
+ * The canvas the breadcrumb (top) and the zoom control (bottom) cover, with a
+ * gap, so the camera frames the map in the part they leave: the breadcrumb is
+ * 30 high and the zoom control 64, each 16 in from the edge.
+ */
+export const OVERLAY_INSET = { top: 16 + 30 + 12, right: 16, bottom: 16 + 64 + 12, left: 16 } as const;
+
 export function createCameraStore(): CameraStore {
   let current: CameraDetail | null = null;
   const listeners = new Set<() => void>();

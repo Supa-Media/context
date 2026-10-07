@@ -132,7 +132,10 @@ export const makeStyles = (colors: Colors) =>
       borderLeftWidth: StyleSheet.hairlineWidth,
       borderLeftColor: colors.lineStrong,
       backgroundColor: colors.pageSurface,
-      paddingVertical: space.x4,
+      paddingTop: space.x4,
+      // The console's floating new-note button sits over this corner; the
+      // last row of the feed stops above it.
+      paddingBottom: 88,
       paddingHorizontal: 18,
       gap: space.x3,
       flexShrink: 0,

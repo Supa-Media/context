@@ -10,8 +10,8 @@ import { Chip, Choice, LiveDot } from "./controls";
  * The bar over the map: Live / Today / This week on the left; on the right,
  * who is being followed, the way back to live while replaying, Map / Folders,
  * and — for somebody in more than one workspace — this workspace or all of
- * them. A phone keeps only the first group and the way back; it scrolls
- * sideways rather than wrapping.
+ * them. A phone has two rows, when and the way back over Map / Folders and
+ * which workspaces, and each scrolls sideways rather than wrapping.
  */
 export function MapBar({ page, compact }: { page: MapPageState; compact: boolean }) {
   const styles = useThemedStyles(makeStyles);
@@ -34,12 +34,42 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
   const back = live ? null : (
     <Chip label="Back to live" onPress={() => page.setMode("live")} testID="map-back-to-live" />
   );
+  const layout = (
+    <Choice
+      label="Layout"
+      value={page.view}
+      onChange={page.setView}
+      testID="map-view"
+      options={[
+        { value: "map", label: "Map" },
+        { value: "folders", label: "Folders" },
+      ]}
+    />
+  );
+  const which = page.many ? (
+    <Choice
+      label="Which workspaces"
+      value={page.scope}
+      onChange={page.setScope}
+      testID="map-scope"
+      options={[
+        { value: "one", label: "This workspace" },
+        { value: "all", label: compact ? "All" : "All my workspaces" },
+      ]}
+    />
+  ) : null;
   if (compact) {
     return (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.phoneBar} testID="map-bar">
-        {when}
-        {back}
-      </ScrollView>
+      <View testID="map-bar">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.phoneBar}>
+          {when}
+          {back}
+        </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.phoneRow2}>
+          {layout}
+          {which}
+        </ScrollView>
+      </View>
     );
   }
   return (
@@ -57,28 +87,8 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
         />
       ) : null}
       {back}
-      <Choice
-        label="Layout"
-        value={page.view}
-        onChange={page.setView}
-        testID="map-view"
-        options={[
-          { value: "map", label: "Map" },
-          { value: "folders", label: "Folders" },
-        ]}
-      />
-      {page.many ? (
-        <Choice
-          label="Which workspaces"
-          value={page.scope}
-          onChange={page.setScope}
-          testID="map-scope"
-          options={[
-            { value: "one", label: "This workspace" },
-            { value: "all", label: "All my workspaces" },
-          ]}
-        />
-      ) : null}
+      {layout}
+      {which}
     </View>
   );
 }
@@ -96,5 +106,6 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.pageSurface,
     },
     spacer: { flex: 1 },
-    phoneBar: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x4, paddingVertical: space.x2 },
+    phoneBar: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x1 },
+    phoneRow2: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x4, paddingBottom: space.x2 },
   });

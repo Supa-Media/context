@@ -18,7 +18,8 @@ import {
 } from "../features/console/map/live/engine/camera";
 import { buildLayout } from "../features/console/map/live/engine/layout";
 import { crumbsOf } from "../features/console/map/live/ui/breadcrumb";
-import { para } from "./liveMapFixture";
+import { createMapEngine } from "../features/console/map/live/engine";
+import { fakeCanvas, palette, para } from "./liveMapFixture";
 
 /**
  * THE LIVE MAP'S CAMERA — `engine/camera.ts`.
@@ -151,5 +152,46 @@ describe("the breadcrumb over the map", () => {
     expect(crumbsOf({ trail: ["Personal", "Projects"], stops: stopsOne }, false).map((c) => c.name)).toEqual(["Personal", "Projects"]);
     expect(crumbsOf({ trail: ["All workspaces", "Personal"], stops: stopsAll }, false).map((c) => c.name)).toEqual(["Personal"]);
     expect(crumbsOf({ trail: [], stops: stopsOne }, true)).toEqual([]);
+  });
+});
+
+describe("the first framing, with part of the canvas covered", () => {
+  // A phone: the sheet's height is measured after the map's first frame.
+  const W = 390;
+  const H = 800;
+  const graphs = [para("ws-a", "Personal", 30)];
+  const phone = () => {
+    const engine = createMapEngine(fakeCanvas(W, H), { now: () => 0, requestFrame: () => 1, cancelFrame: () => {}, reducedMotion: true });
+    engine.resize(W, H, 1);
+    engine.setData({ graphs, actors: [], events: [], scope: { kind: "one", workspaceId: "ws-a" }, view: "map", clock: { kind: "live" }, palette, selfId: null });
+    return engine;
+  };
+  const sheet = { top: 60, right: 0, bottom: 420, left: 0 };
+
+  test("the whole workspace fits above the sheet, not one folder", () => {
+    const engine = phone();
+    engine.setInset(sheet);
+    const cam = engine.getCamera()!.cam;
+    const vp: Viewport = { w: W, h: H, inset: sheet };
+    const island = buildLayout(graphs).islands[0]!;
+    expect(cam).toEqual(fitIsland(vp, island));
+    // Every folder is inside the part of the canvas the sheet leaves.
+    const r = visibleRect(vp);
+    for (const f of island.folders) {
+      const c = toScreen(cam, vp, { x: f.x, y: f.y });
+      const rad = f.r * cam.s;
+      expect(c.x - rad).toBeGreaterThanOrEqual(r.x - 1);
+      expect(c.x + rad).toBeLessThanOrEqual(r.x + r.w + 1);
+      expect(c.y - rad).toBeGreaterThanOrEqual(r.y - 1);
+      expect(c.y + rad).toBeLessThanOrEqual(r.y + r.h + 1);
+    }
+  });
+
+  test("a camera somebody has moved stays where they put it", () => {
+    const engine = phone();
+    engine.zoomIn();
+    const moved = engine.getCamera()!.cam;
+    engine.setInset(sheet);
+    expect(engine.getCamera()!.cam).toEqual(moved);
   });
 });

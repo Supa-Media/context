@@ -7,7 +7,7 @@ import type { ConsoleData } from "../../../types";
 import { useMapPage, type MapPageState } from "../hooks/useMapPage";
 import { replayBadge } from "../replayClock";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
-import { Breadcrumb, createCameraStore, ZoomControl, type CameraStore } from "./CanvasOverlay";
+import { Breadcrumb, createCameraStore, OVERLAY_INSET, ZoomControl, type CameraStore } from "./CanvasOverlay";
 import { MapBar } from "./MapBar";
 import { Feed, MapPanel, WorkingNow } from "./MapPanel";
 import { PhoneMap } from "./PhoneMap";
@@ -41,7 +41,7 @@ function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: 
       <View style={styles.body}>
         <View style={styles.column}>
           <View style={styles.canvasBox}>
-            <MapCanvas page={page} camera={camera} onOpenNote={onOpenNote} />
+            <MapCanvas page={page} camera={camera} onOpenNote={onOpenNote} inset={page.view === "map" ? OVERLAY_INSET : NO_OVERLAY} />
             {page.view === "map" ? (
               <>
                 <Breadcrumb
@@ -69,6 +69,8 @@ function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: 
   );
 }
 
+
+const NO_OVERLAY = { top: 0, right: 0, bottom: 0, left: 0 };
 
 function MapNotice({ page }: { page: MapPageState }) {
   const styles = useThemedStyles(makeStyles);

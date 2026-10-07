@@ -512,7 +512,7 @@ export function ConsoleFrame({
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
-          browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog,
+          browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog, mapOpen: mapRoute?.open === true,
           note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel, ask: startNewChat } : null,
         })}
       >

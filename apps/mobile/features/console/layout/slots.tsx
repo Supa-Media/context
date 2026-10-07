@@ -241,8 +241,11 @@ export function consoleBottomBar({
   canCreate,
   setBarDialog,
   note,
+  mapOpen = false,
 }: {
   browsing: boolean;
+  /** The live map is open: it has its own sheet at the bottom, and no bar goes under it. */
+  mapOpen?: boolean;
   data: ConsoleData;
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   setSearchScope: (scope: string | null) => void;
@@ -274,7 +277,7 @@ export function consoleBottomBar({
           },
         };
   return (
-    browsing ? (
+    browsing && !mapOpen ? (
       <ConsoleBottomBar
         data={data}
         note={quick}
