@@ -13,7 +13,6 @@ import type { ChangeCard, ChangeStep } from "./types";
 
 export const changesCopy = {
   heading: "What changed",
-  lede: "Read from the meetings, email, chat and AI chats that land in your inbox. Nothing changes until you apply, and every change has an Undo in Activity.",
   checkNow: "Check now",
   checking: "Checking…",
   lastChecked: (when: string) => `Last checked ${when}.`,
@@ -23,8 +22,6 @@ export const changesCopy = {
   empty: "Nothing waiting. When a meeting, email or chat says something changed, like someone leaving or a new focus, it shows up here.",
   close: "Close What changed",
   entry: "What changed",
-  phoneLine: (n: number) => (n === 1 ? "1 thing changed in what came in" : `${n} things changed in what came in`),
-  phoneOpen: "Look",
   wrong: "This is wrong",
   apply: (n: number) => (n === 0 ? "Apply" : n === 1 ? "Apply 1 change" : `Apply ${n} changes`),
   applied: (card: ChangeCard) => `Done: ${card.headline.replace(/[.!?]$/, "")}.`,

@@ -60,14 +60,7 @@ export function phoneLine(n: number): string {
 }
 
 export const reviewCopy = {
-  projects: "Projects",
-  inbox: "Inbox",
-  foot: "Auto-organize settings",
-  sheetTitle: "Suggestions",
   phoneOpen: "Look over",
-  loading: "Reading your suggestions…",
-  empty: "Nothing waiting. New suggestions show up here as your notes change.",
-  failed: "Suggestions could not be read just now.",
 };
 
 /** The row's second line: the question, with its reason. */

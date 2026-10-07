@@ -11,9 +11,12 @@ import { ChangeCards } from "./Changes";
 import { changesCopy } from "./changeCopy";
 import { TeamChecklist } from "./TeamChecklist";
 import { TeamNotePreview, TeamSettings } from "./TeamNotes";
+import { TidyUp } from "./TidyUp";
+import { tidyCopy } from "./tidyCopy";
+import { changesCount, footCount } from "./rules";
 import { teamsCopy } from "./teamCopy";
 import type { RouteCard } from "./types";
-import type { OrganizerView } from "./useOrganizer";
+import type { OrganizerView, WhatChangedTab } from "./useOrganizer";
 
 /**
  * What changed, as a page: board 1 of the "Organizing from what's coming in"
@@ -27,6 +30,10 @@ import type { OrganizerView } from "./useOrganizer";
  * In a personal workspace, notes for the owner's teams follow as one list to
  * tick and add (board 9); Edit the note opens a note as the team would read
  * it, in place of the page.
+ *
+ * Two tabs since boards 10 and 11 (2026-10-07): "From your inbox" is all of
+ * the above, and "Tidy up" is the suggestions about notes the owner already
+ * has, which used to be a second line in the sidebar of their own.
  */
 export function WhatChangedPage({
   organizer,
@@ -47,7 +54,7 @@ export function WhatChangedPage({
     loadSuggestions();
   }, [loadSuggestions]);
 
-  const { changes, routes, teams, keep, loading, failed, busy } = organizer.suggestions;
+  const { changes, routes, teams, keep, loading, failed, busy, list } = organizer.suggestions;
   const cards = changes ?? [];
   const forTeams = routes ?? [];
   const [sending, setSending] = useState<RouteCard | null>(null);
@@ -74,6 +81,11 @@ export function WhatChangedPage({
     );
   }
 
+  // Counted from what was read once it has been, from the status before then.
+  const inboxCount = changes === null ? (changesCount(organizer.status) ?? 0) : cards.length + forTeams.length;
+  const tidyCount = list === null ? (footCount(organizer.status) ?? 0) : list.length;
+  const tab = organizer.tab;
+
   return (
     <View style={styles.page} testID="what-changed-page">
       <View style={styles.head}>
@@ -82,7 +94,7 @@ export function WhatChangedPage({
             {changesCopy.heading}
           </Text>
           <Text variant="hint" style={styles.lede}>
-            {changesCopy.lede}
+            {tidyCopy.lede}
             {checked !== null ? ` ${changesCopy.lastChecked(relativeTime(checked, now))}` : ""}
           </Text>
         </View>
@@ -106,7 +118,14 @@ export function WhatChangedPage({
         </View>
       </View>
 
-      {cards.length > 0 || forTeams.length > 0 ? (
+      <View style={[styles.tabs, compact && styles.tabsTouch]} role="tablist">
+        <Tab label={tidyCopy.tabInbox} count={inboxCount} on={tab === "inbox"} compact={compact} onPress={() => organizer.setTab("inbox")} id="inbox" />
+        <Tab label={tidyCopy.tabTidy} count={tidyCount} on={tab === "tidy"} compact={compact} onPress={() => organizer.setTab("tidy")} id="tidy" />
+      </View>
+
+      {tab === "tidy" ? (
+        <TidyUp key={organizer.slug} organizer={organizer} touch={compact} onOpenNote={onOpenSource} />
+      ) : cards.length > 0 || forTeams.length > 0 ? (
         <>
           {cards.length > 0 ? (
             <>
@@ -148,13 +167,60 @@ export function WhatChangedPage({
           </Text>
         </View>
       )}
-      <TeamSettings teams={teams} keep={keep} onToggle={organizer.setTeamOn} onKeep={organizer.setKeep} />
+      {tab !== "tidy" ? <TeamSettings teams={teams} keep={keep} onToggle={organizer.setTeamOn} onKeep={organizer.setKeep} /> : null}
     </View>
+  );
+}
+
+/** One of the page's two tabs: a segment that says how many wait behind it. */
+function Tab({
+  label,
+  count,
+  on,
+  compact,
+  onPress,
+  id,
+}: {
+  label: string;
+  count: number;
+  on: boolean;
+  compact: boolean;
+  onPress: () => void;
+  id: WhatChangedTab;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <Pressable
+      role="tab"
+      aria-selected={on}
+      accessibilityState={{ selected: on }}
+      accessibilityLabel={count > 0 ? `${label}, ${count} waiting` : label}
+      onPress={onPress}
+      style={[styles.tab, compact && styles.tabTouch, on && styles.tabOn]}
+      testID={`what-changed-tab-${id}`}
+    >
+      <Text variant="rowTitle" style={on ? styles.tabTextOn : styles.tabText}>
+        {label}
+      </Text>
+      {count > 0 ? (
+        <Text variant="rowTitle" style={on ? styles.tabCountOn : styles.tabText}>
+          {String(count)}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    tabs: { flexDirection: "row", alignSelf: "flex-start", gap: 4, padding: 4, borderRadius: 12, backgroundColor: colors.surface3 },
+    tabsTouch: { alignSelf: "stretch" },
+    tab: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 9 },
+    tabTouch: { flex: 1 },
+    tabOn: { backgroundColor: colors.surface },
+    tabText: { color: colors.text2, fontWeight: "500" },
+    tabTextOn: { color: colors.text },
+    tabCountOn: { color: colors.accentText },
     page: { paddingTop: space.x8, paddingBottom: space.x8, gap: space.x4 },
     head: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: space.x4, flexWrap: "wrap" },
     headText: { flex: 1, minWidth: 240, gap: space.x2 },

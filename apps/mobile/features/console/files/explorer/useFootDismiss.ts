@@ -1,6 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useDismissOnOutside } from "../../../design/useDismissOnOutside";
-import { useOrganizerView } from "../../../organizer/OrganizerContext";
 import type { ActivityView } from "../../activity/activity";
 
 /**
@@ -33,14 +32,11 @@ export function useFootDismiss({
   agentsOpen: number | null;
   setAgentsOpen: Dispatch<SetStateAction<number | null>>;
 }): void {
-  const organizer = useOrganizerView();
-  const reviewOpen = organizer?.reviewOpen === true;
-  useDismissOnOutside(activityOpen !== null || agentsOpen !== null || reviewOpen, INSIDE, () => {
+  useDismissOnOutside(activityOpen !== null || agentsOpen !== null, INSIDE, () => {
     if (activityOpen !== null) {
       setActivityOpen(null);
       activity?.markSeen();
     }
     setAgentsOpen(null);
-    if (reviewOpen) organizer?.closeReview();
   });
 }

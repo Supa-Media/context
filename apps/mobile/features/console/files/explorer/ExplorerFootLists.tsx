@@ -14,8 +14,7 @@ import { ACTIVITY_PATH, emptyLine, type ActivityView } from "../../activity/acti
 import type { ExplorerProps } from "./props";
 import { AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
 import { useOrganizerUndoFor, useOrganizerView } from "../../../organizer/OrganizerContext";
-import { ReviewPopover } from "../../../organizer/Review";
-import { footCount } from "../../../organizer/rules";
+import { changesCount } from "../../../organizer/rules";
 import type { ExplorerState } from "./useExplorer";
 
 /**
@@ -50,10 +49,11 @@ export function ExplorerFootLists({
   const organizer = useOrganizerView();
   const undoFor = useOrganizerUndoFor();
   /*
-    The popovers sit above the foot's lines, and auto-organize's is one more
-    of them — so every popover rises by it, or the list covers the line.
+    The popovers sit above the foot's lines, and auto-organize's "What
+    changed" is one more of them — so every popover rises by it, or the list
+    covers the line.
   */
-  const organizerLine = footCount(organizer?.status ?? null) !== null;
+  const organizerLine = changesCount(organizer?.status ?? null) !== null;
   const lift = organizerLine ? { bottom: (sheetLift?.bottom ?? 76) + AGENTS_LINE_HEIGHT } : sheetLift;
   return (
     <>
@@ -116,9 +116,6 @@ export function ExplorerFootLists({
             />
           </ScrollView>
         </View>
-      ) : null}
-      {organizer !== undefined && organizer.reviewOpen && organizerLine ? (
-        <ReviewPopover organizer={organizer} lift={lift} />
       ) : null}
     </>
   );

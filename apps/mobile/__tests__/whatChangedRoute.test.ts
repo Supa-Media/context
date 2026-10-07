@@ -39,8 +39,7 @@ const STATUS: OrganizerStatus = {
 function view(status: OrganizerStatus | null = STATUS, closed: string[] = []): OrganizerView {
   return {
     status,
-    closeReview: () => closed.push("review"),
-    openReview: () => {},
+    openReview: () => closed.push("tidy"),
     pageOpen: false,
     openPage: () => {},
     closePage: () => {},
@@ -57,14 +56,23 @@ describe("the address", () => {
 });
 
 describe("routing", () => {
-  test("opening the page closes the popover and Settings; closing it clears the parameter", () => {
+  test("opening the page closes Settings; closing it clears the parameter", () => {
     const params: Record<string, unknown>[] = [];
     const closed: string[] = [];
     const routed = routeOrganizer(view(STATUS, closed), { setParams: (p: Record<string, unknown>) => params.push(p) } as never);
     routed.openPage();
     routed.closePage();
-    expect(closed).toEqual(["review"]);
+    expect(closed).toEqual([]);
     expect(params).toEqual([{ changes: "1", settings: undefined }, { changes: undefined }]);
+  });
+
+  test("looking over the suggestions, from anywhere, is the page on its Tidy up tab", () => {
+    const params: Record<string, unknown>[] = [];
+    const tabs: string[] = [];
+    const routed = routeOrganizer(view(STATUS, tabs), { setParams: (p: Record<string, unknown>) => params.push(p) } as never);
+    routed.openReview({ closeSettings: true });
+    expect(tabs).toEqual(["tidy"]);
+    expect(params).toEqual([{ changes: "1", settings: undefined }]);
   });
 
   test("the page is open only for somebody who sees suggestions", () => {
@@ -78,7 +86,7 @@ describe("routing", () => {
 });
 
 describe("the counts", () => {
-  test("cards have their own count; the suggestions line counts the rest", () => {
+  test("cards have their own count; Tidy up counts the rest", () => {
     expect(changesCount(STATUS)).toBe(2);
     expect(footCount(STATUS)).toBe(3);
     expect(footCount({ ...STATUS, pending: 2 })).toBeNull();

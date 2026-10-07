@@ -91,6 +91,7 @@ function view(calls: Calls, over: Partial<OrganizerView["suggestions"]> = {}): O
     status: STATUS,
     suggestions: { list: [], changes: [], routes: [BETA], teams: TEAMS, keep: "", loading: false, failed: false, busy: new Set(), ...over },
     loadSuggestions: () => {},
+    tab: "inbox",
     sweepNow: () => {},
     closePage: () => {},
     resolveChange: () => {},
