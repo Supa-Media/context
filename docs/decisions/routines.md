@@ -76,3 +76,69 @@ paused check comes before a model is opened so it costs no turn. The answer
 outcomes in the run history, not texts. Tests (`agentRoutine.test.mjs`): "a
 routine is refused from any other connection", "a routine its writer can no
 longer see does not run", "a paused routine costs no turn".
+
+### The texting Worker pulls due runs, and only texts phones that texted first
+
+The texting Worker (`apps/agent`) runs routines from a Cron Trigger every
+minute: it asks the control plane which runs are due, runs each on the
+gateway's `/agent` with that run's own grant, texts the answer, and reports
+back an outcome code and how many phones it texted. It pulls with the secret
+it already holds for `/agent-texts/*`, so nothing calls it and it needs no new
+secret. The answer goes from the gateway to the phone through the Worker and
+nowhere else; the control plane hears a code and a count, never text. Linq's
+line only reaches people who texted it first, so each sender's inbox remembers
+the chat it last texted from (an id, never text), a phone with none is not
+texted, and a run that needed a text and reached nobody is `no_chat`. The
+gateway's `send:` wins over the control plane's, because the gateway read the
+note just now. **What a simplification would cost:** a control plane that
+pushed runs to the Worker would need a second secret pointed the other way,
+and one that carried the answer would hold note content. Tests:
+`apps/agent/src/routines.test.ts`.
+
+### The control plane keeps when and as whom, never what
+
+The control plane's half (`apps/convex/functions/routines.ts`,
+`functions/lib/routines/`) keeps one row per routine file: the path, the
+schedule read off the folder and front matter (`cadence`, `at`, `on`, `send`,
+`to` handles, `paused`, `timezone`), the writer, `nextRunAt`, and the last run's
+time and outcome code. It never keeps the body, the `until:` sentence, or the
+problem sentences, because each of those is the note's own words, and the
+outcome is a code from a closed list (`answered`, `skipped`, `finished`,
+`failed`, `paused`, `routine_gone`, `not_a_routine`, `daily_limit`,
+`no_provider`, `no_chat`, plus its own `writer_gone`): the result route refuses
+anything else and ignores every other field. The rows are a derivative: a scan
+of `routines/` (on a gateway signal, `POST /gateway/routines`, on a console
+write through the barrier, debounced per workspace, and every six hours as a
+safety net) rebuilds them, and a row whose file is gone is deleted only when
+the listing was complete. Tests: `routinesSync.test.ts` "keeps the schedule,
+the writer and nothing the note says", `routinesRuns.test.ts` "only a known
+code is kept, and never any text".
+
+**The writer** is whoever last wrote the file, kept only while they are an
+owner or editor of that workspace (a signal naming a member or a stranger names
+nobody). A file found with no known writer runs as the workspace's owner
+(`writerSource: "fallback"`), and then its `to:` is ignored and only the owner
+is texted, because anyone who put the file there without a signal could have
+named themselves and had the owner's private reach texted to them; the first
+signal from someone who can write makes it theirs again (test: "a routine
+nobody was seen writing texts only the owner, whatever its `to:` says"). A
+writer who loses write access is **not** replaced by the owner: the row stops
+(`writer_gone`) until someone who can write saves the file, because handing an
+editor's words to the owner would run them with the owner's private reach.
+Write access is asked again when a run is handed out, not only when the row
+was written. Tests: "a writer who lost access is not replaced by the owner",
+"a writer who lost write access is not run".
+
+**Time zone:** the file's `timezone:`, else the writer's own (`setMyTimeZone`,
+an `accountTimeZones` row), else `America/New_York`.
+
+**The lease.** `POST /agent-texts/routines/due` claims due rows, moves each
+`nextRunAt` to the next run after now (a missed window runs once, not once per
+missed slot), and holds the row for fifteen minutes, the same as its grant's
+life, so a lapsed lease never holds a live token. Each writer has one
+`context_routines` grant per workspace, patched per run and never the texting
+grant; runs for one writer in one call share its token, and a writer with a
+run still out waits for it rather than have its token replaced mid-turn. The
+result releases the lease and ends the token. Tests: "a claim moves the next
+run on, and a live lease is not claimed twice", "a routine's grant leaves the
+texting grant alone".

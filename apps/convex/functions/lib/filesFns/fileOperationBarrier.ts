@@ -47,6 +47,7 @@ import {
   operationMayRestrictWebsite,
   operationTouchesWebsite,
 } from "../websites/changes";
+import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
 import { recordProjectionOutcome } from "./projectionOutcome";
 import {
@@ -480,6 +481,21 @@ export async function runFileOperationHandler(
           args.operation as FileOperation,
           result,
         ),
+      })
+      .catch(() => {});
+  }
+
+  // Routine rows are a derivative of `routines/` too. The person who acted is
+  // named by `actorName`, the handle `authorizeFileAccess` resolved from live
+  // membership; `recordRoutineSignal` keeps them as the writer only if they
+  // can write here now. Best effort, like the website mark above.
+  const routinePaths = routinePathsTouched(args.operation as FileOperation, result);
+  if (routinePaths.length > 0) {
+    await ctx
+      .runMutation(internal.functions.routines.recordRoutineSignal, {
+        workspaceId: args.workspaceId,
+        ...(typeof args.actorName === "string" ? { actorName: args.actorName } : {}),
+        paths: routinePaths,
       })
       .catch(() => {});
   }

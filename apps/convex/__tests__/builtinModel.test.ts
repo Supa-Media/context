@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
@@ -6,6 +6,7 @@ import { asUser } from "./fixtures.helpers";
 import { JEV_FEATURES } from "../functions/lib/jev/features";
 import { utcDay } from "../functions/lib/jev/meter";
 import { BUILTIN_FEATURE } from "../functions/builtinModel";
+import { DAILY, DAILY_TEXT, due, makeDue, routineFixture, signal } from "./routines.helpers";
 
 /**
  * THE BUILT-IN MODEL'S GATE AND METER.
@@ -190,4 +191,28 @@ describe("the meter", () => {
     expect(await report(t, "cat_not-a-real-token", { inputTokens: 5, outputTokens: 5 })).toBe(false);
     expect(await usage(t, workspaceId)).toBeNull();
   });
+});
+
+describe("a routine", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Sabotage: `BUILTIN_CLIENTS` without the routines client → this fails with
+  // `{ allowed: false, reason: "not_texts" }`.
+  test("may use it on a paying workspace, counted against that workspace's cap", async () => {
+    const f = await routineFixture();
+    const now = Date.now();
+    await f.t.run((ctx) =>
+      ctx.db.insert("workspacePlans", { workspaceId: f.workspaceId, managedStorage: false, fastSearch: true, status: "active", createdAt: now, updatedAt: now }),
+    );
+    f.backend.seed(DAILY, DAILY_TEXT);
+    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [DAILY] });
+    await makeDue(f.t, f.workspaceId, DAILY);
+    const [run] = await due(f.t);
+    const cap = JEV_FEATURES.assistant.dailyCallsPerWorkspace;
+    expect(await ask(f.t, run!.accessToken)).toEqual({ allowed: true, remaining: cap - 1 });
+    expect(await report(f.t, run!.accessToken, { inputTokens: 10, outputTokens: 10, ms: 5 })).toBe(true);
+    expect(await usage(f.t, f.workspaceId)).toMatchObject({ calls: 1, tokens: 20 });
+  }, 20_000);
 });
