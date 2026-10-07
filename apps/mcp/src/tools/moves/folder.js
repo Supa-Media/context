@@ -239,15 +239,6 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     if (destinationObjects.some(({ key }) => !isPlumbing(key))) {
       return toolError(`conflict: destination already contains objects: ${destination}/`);
     }
-    if (collaborationSupported(store)) {
-      for (const { key } of allObjects) {
-        if (key.endsWith(".md") && await collaborationHead(store, key)) {
-          return toolError(
-            "large logical folder move is unavailable while the folder contains an active collaborative note; move it in smaller batches",
-          );
-        }
-      }
-    }
     if (dryRun) {
       return toolText(
         `preflight ok: large folder ${source}/ → ${destination}/ (${allObjects.length} objects)\n` +
@@ -308,18 +299,18 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
       const sourceText = await object.text();
       if (collaborationSupported(store) && !isEncryptedNote(sourceText) &&
           collaborationEligible(move.source, sourceText)) {
-        if (store.capabilities?.conditionalDelete !== true) {
-          const head = await collaborationHead(store, move.source);
-          if (head?.status !== undefined && head.status !== "deleted") {
-            return toolError(`this storage cannot safely move a collaboratively edited note: ${move.source}`);
-          }
-          move.body = new TextEncoder().encode(sourceText);
-        } else {
+        const head = await collaborationHead(store, move.source);
+        if (head?.status && head.status !== "active") {
+          return toolError(`this note cannot be moved safely right now: ${move.source}`);
+        }
+        if (head || store.capabilities?.conditionalDelete === true) {
           try {
             move.collaborationBase = await readCollaborationDocument(store, move.source);
           } catch {
             return toolError(`this note cannot be moved safely right now: ${move.source}`);
           }
+        } else {
+          move.body = new TextEncoder().encode(sourceText);
         }
       } else {
         move.body = new TextEncoder().encode(sourceText);

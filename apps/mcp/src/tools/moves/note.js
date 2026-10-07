@@ -62,12 +62,11 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   let collaborationBase = null;
   if (collaborationSupported(store) && !isEncryptedNote(sourceText) &&
       collaborationEligible(source, sourceText)) {
-    if (store.capabilities?.conditionalDelete !== true) {
-      const head = await collaborationHead(store, source);
-      if (head?.status !== undefined && head.status !== "deleted") {
-        return toolError("this storage cannot safely move a collaboratively edited note");
-      }
-    } else {
+    const head = await collaborationHead(store, source);
+    if (head?.status && head.status !== "active") {
+      return toolError("this note cannot be moved safely right now; re-read and retry");
+    }
+    if (head || store.capabilities?.conditionalDelete === true) {
       try {
         collaborationBase = await readCollaborationDocument(store, source);
       } catch {
@@ -98,9 +97,6 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   );
 
   if (collaborationBase) {
-    if (store.capabilities?.conditionalDelete !== true) {
-      return toolError("this storage cannot safely move a collaboratively edited note");
-    }
     if (destinationVisibility !== "team") {
       try {
         await persistExactVisibility(store, destination, destinationVisibility, rules);

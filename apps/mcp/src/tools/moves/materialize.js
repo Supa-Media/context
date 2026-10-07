@@ -4,9 +4,14 @@
  */
 
 import { collaborationHead } from "../../live/collaborationHttp.js";
-import { supported as collaborationSupported } from "@context/collaboration";
+import {
+  moveDocument as moveCollaborationDocument,
+  readDocument as readCollaborationDocument,
+  supported as collaborationSupported,
+} from "@context/collaboration";
 import {
   copyObjectForMove,
+  deleteCreatedDestination,
   deleteObjectForMove,
   destinationMatchesMoveSource,
   objectMatchesMoveItem,
@@ -103,17 +108,9 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed during materialization: ${pair.source}`);
       }
-      // Large moves are materialized in bounded passes. Checking every source
-      // head before every pass turns a 1,200-note move into an O(n²) sequence
-      // of signed storage reads. The initial logical cutover already rejects
-      // existing heads; recheck the exact source immediately before this pass
-      // copies it so a head created after cutover still fails closed.
-      if (collaborationSupported(store) && pair.source.endsWith(".md") &&
-          await collaborationHead(store, pair.source)) {
-        throw new Error(
-          `${pair.source} has active collaboration history; move it through the note lifecycle first`,
-        );
-      }
+      // Copy the raw body first. At retirement, a headed note is handed to the
+      // collaboration lifecycle, which moves its identity and retained edits.
+      // A head created between these steps is handled there too.
       if (await destinationMatchesMoveSource(store, pair)) {
         copied.add(pair.source);
         continue;
@@ -152,19 +149,24 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed before cleanup: ${pair.source}`);
       }
-      // Recheck at retirement too: a collaborator may have promoted the raw
-      // source after it was copied, and that active identity must never be
-      // replaced by the move's tombstone.
-      if (collaborationSupported(store) && pair.source.endsWith(".md") &&
-          await collaborationHead(store, pair.source)) {
-        throw new Error(
-          `${pair.source} has active collaboration history; move it through the note lifecycle first`,
-        );
-      }
       if (!(await destinationMatchesMoveSource(store, pair))) {
         throw new Error(`destination changed before source cleanup: ${pair.destination}`);
       }
-      await deleteObjectForMove(store, pair);
+      const head = collaborationSupported(store) && pair.source.endsWith(".md")
+        ? await collaborationHead(store, pair.source) : null;
+      if (head && !["active", "moving"].includes(head.status)) {
+        throw new Error(`source collaboration generation changed before cleanup: ${pair.source}`);
+      }
+      if (head) {
+        const destination = await getWithLegacyFallback(store, pair.destination);
+        if (!destination || !await deleteCreatedDestination(store, pair.destination, destination.etag)) {
+          throw new Error(`could not prepare collaboration destination: ${pair.destination}`);
+        }
+        const base = await readCollaborationDocument(store, pair.source);
+        await moveCollaborationDocument(store, pair.source, pair.destination, { expectedEtag: base.etag });
+      } else {
+        await deleteObjectForMove(store, pair);
+      }
       deletedThisPass += 1;
       if (deletedThisPass >= batchSize) break;
     }
