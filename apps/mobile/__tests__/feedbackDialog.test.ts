@@ -141,10 +141,22 @@ describe("the report screen", () => {
     ui.type("Hi");
     await ui.press("feedback-activity-box");
     await ui.press("feedback-remove-shot");
-    expect(ui.find("feedback-screenshot")).toBeNull();
+    expect(ui.find("feedback-screenshot")?.textContent).toContain("Not sent");
     await ui.press("feedback-send");
     expect(mockSubmits[0]!.draft.activity).toBeUndefined();
     expect(mockSubmits[0]!.draft.screenshot).toBeUndefined();
+  });
+
+  test("an unticked screenshot keeps its row, so it can be ticked again and sent", async () => {
+    const ui = await mount();
+    ui.type("Hi");
+    await ui.press("feedback-screenshot-box");
+    expect(ui.find("feedback-screenshot")?.textContent).toContain("Not sent");
+    expect(ui.find("feedback-show-text")).toBeNull();
+    await ui.press("feedback-screenshot-box");
+    expect(ui.find("feedback-screenshot")?.textContent).toContain("Words hidden");
+    await ui.press("feedback-send");
+    expect(mockSubmits[0]!.draft.screenshot).toEqual({ base64: "AQ==", contentType: "image/jpeg" });
   });
 
   test("the words go only after Show text", async () => {
