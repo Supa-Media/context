@@ -8,6 +8,12 @@
  *                     gateway /agent: answer with that grant
  *                     Linq: send the reply
  *
+ * And once a minute, a Cron Trigger runs whatever routines are due
+ * (routines.ts): the control plane names the runs, the gateway runs each with
+ * its own grant, and the answer is texted through each phone's SenderInbox to
+ * the chat that phone last texted from. The control plane hears only an
+ * outcome and a count.
+ *
  * This Worker decides nothing about who may read what. It proves a webhook
  * came from Linq, and it asks the control plane for the grant of whoever
  * linked the sending phone; the gateway does every access decision with that
@@ -17,6 +23,7 @@
 import { parseInbound } from "./inbound";
 import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
+import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -100,7 +107,35 @@ export default {
     });
     return new Response(null, { status: result.ok ? 200 : 503 });
   },
+
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      runDueRoutines({
+        fetch: (input, init) => fetch(input, init),
+        controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
+        workerSecret: env.AGENT_WORKER_SECRET,
+        gatewayOrigin: env.GATEWAY_ORIGIN,
+        textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        log: (entry) => console.log(JSON.stringify(entry)),
+      }),
+    );
+  },
 };
+
+/** Ask one phone's inbox to text it a routine's answer. */
+async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string): Promise<PhoneTexted> {
+  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+  const response = await stub.fetch(ROUTINE_TEXT_URL, {
+    method: "POST",
+    body: JSON.stringify({ text, idempotencyKey }),
+  });
+  if (!response.ok) return "failed";
+  const { status } = (await response.json()) as { status?: unknown };
+  return status === "texted" || status === "no_chat" ? status : "failed";
+}
+
+/** The inbox's internal route for a routine's text. Only this Worker reaches it. */
+const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
 export class SenderInbox implements DurableObject {
   constructor(
@@ -118,6 +153,23 @@ export class SenderInbox implements DurableObject {
       return simulatorInbox(this.state.storage, path.slice("/sim/".length), body, Date.now(), (message) =>
         accept(this.state.storage, message, Date.now()),
       );
+    }
+    if (path === "/routine-text") {
+      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown };
+      if (typeof body.text !== "string" || typeof body.idempotencyKey !== "string") {
+        return new Response(null, { status: 400 });
+      }
+      const status = await textRoutine(
+        this.state.storage,
+        { text: body.text, idempotencyKey: body.idempotencyKey },
+        {
+          fetch: (input, init) => fetch(input, init),
+          linqApiKey: this.env.LINQ_API_KEY,
+          now: () => Date.now(),
+          simulator: simulatorEnabled(this.env.SIMULATOR),
+        },
+      );
+      return Response.json({ status });
     }
     const message = (await request.json()) as Message;
     const outcome = await accept(this.state.storage, message, Date.now());

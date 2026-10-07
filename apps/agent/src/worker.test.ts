@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
 
 const RAW_KEY = new Uint8Array(32).map((_, i) => 200 - i);
@@ -117,5 +117,61 @@ describe("worker", () => {
     const { env: e } = env();
     const big = await signedRequest("x".repeat(300 * 1024));
     expect((await worker.fetch(big, e)).status).toBe(413);
+  });
+
+  describe("the routine cron", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    async function tick(e: Env) {
+      const waiting: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (p: Promise<unknown>) => waiting.push(p) } as unknown as ExecutionContext;
+      await worker.scheduled({} as ScheduledController, e, ctx);
+      await Promise.all(waiting);
+    }
+
+    it("asks nobody anything without a control plane", async () => {
+      const { env: e } = env();
+      e.CONTROL_PLANE_ORIGIN = "";
+      const fetched = vi.fn();
+      vi.stubGlobal("fetch", fetched);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      await tick(e);
+      expect(fetched).not.toHaveBeenCalled();
+    });
+
+    it("texts each phone through that phone's own inbox", async () => {
+      const inboxCalls: { name: string; url: string; body: unknown }[] = [];
+      const reported: unknown[] = [];
+      const { env: e } = env();
+      e.SENDER_INBOX = {
+        idFromName: (name: string) => ({ name }),
+        get: (id: { name: string }) => ({
+          fetch: async (url: string, init: RequestInit) => {
+            inboxCalls.push({ name: id.name, url, body: JSON.parse(String(init.body)) });
+            return Response.json({ status: "texted" });
+          },
+        }),
+      } as unknown as DurableObjectNamespace;
+      vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path === "/agent-texts/routines/due") {
+          return Response.json({
+            runs: [{ runId: "r1", accessToken: "g", path: "routines/daily/a.md", timeZone: "UTC", send: "text", phones: ["+15555550100"] }],
+          });
+        }
+        if (path === "/agent") return Response.json({ outcome: "answered", answer: "hi", send: "text" });
+        reported.push(JSON.parse(String(init.body)));
+        return Response.json({ ok: true });
+      });
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      await tick(e);
+      expect(inboxCalls).toEqual([
+        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "hi", idempotencyKey: "routine:r1:+15555550100" } },
+      ]);
+      expect(reported).toEqual([{ runId: "r1", outcome: "answered", texted: 1 }]);
+    });
   });
 });

@@ -25,6 +25,13 @@
   // to `message.received` only. `GET /health` reports which of the above are set
   // (booleans only), and the deploy reads it.
   //
+  // The Cron Trigger runs every minute and runs whatever routines are due
+  // (src/routines.ts): it asks the control plane which runs are due, runs each
+  // on the gateway's /agent with that run's own grant, texts the answer to the
+  // phones that texted this line first, and reports an outcome and a count.
+  // It pulls with AGENT_WORKER_SECRET, so it needs no secret of its own, and
+  // without CONTROL_PLANE_ORIGIN or that secret it does nothing.
+  //
   // GATEWAY_ORIGIN is the gateway's own host (apps/mcp/wrangler.toml
   // PUBLIC_ORIGIN), not the app's: context.lc is the router, and `/agent` there
   // is a web page, not the gateway.
@@ -39,6 +46,7 @@
   "vars": {
     "GATEWAY_ORIGIN": "https://mcp.context.lc"
   },
+  "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true },
   "env": {
     "staging": {
@@ -48,6 +56,7 @@
         "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
       },
       "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+      "triggers": { "crons": ["* * * * *"] },
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
         "SIMULATOR": "on"

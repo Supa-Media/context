@@ -12,9 +12,11 @@
  * feature uses (`lib/jev/`). So the kill switch for this is
  * `admin.setJevSwitch({ feature: "assistant", off: true })`, like the rest.
  *
- * Only a grant for the texting client may start one. The app's own agent panel
- * still needs a connected account; widening that is a product decision, not a
- * line here.
+ * Only a grant for the texting client or the routine runner may start one: a
+ * routine is the same assistant answering on a schedule instead of a text, and
+ * is counted against the same cap on the workspace it runs in. The app's own
+ * agent panel still needs a connected account; widening that is a product
+ * decision, not a line here.
  *
  * Nothing about the conversation reaches this file. The gateway reports token
  * counts after a turn, never text.
@@ -26,6 +28,10 @@ import { internalMutation, type MutationCtx } from "../_generated/server";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { addUsage, gate, writingCostMicroUsd } from "./lib/jev/meter";
 import { TEXTS_CLIENT_ID } from "./textLinks";
+import { ROUTINES_CLIENT_ID } from "./lib/routines/model";
+
+/** The clients that may spend the built-in model. Nothing else, whatever its plan. */
+const BUILTIN_CLIENTS: ReadonlySet<string> = new Set([TEXTS_CLIENT_ID, ROUTINES_CLIENT_ID]);
 
 /** The meter's name for this feature. Permanent: usage and switches are keyed by it. */
 export const BUILTIN_FEATURE = "assistant" as const;
@@ -42,7 +48,7 @@ const refusalValidator = v.union(
 );
 
 /**
- * The workspace a texting grant's turn is charged to: the grant's own default,
+ * The workspace a texting or routine grant's turn is charged to: the grant's own default,
  * which the gateway's `/agent` route also answers in. Null for an unknown or
  * dead token, a grant for any other client, or an expected workspace the grant
  * cannot reach.
@@ -54,7 +60,7 @@ async function chargedWorkspace(
 ): Promise<{ workspaceId: Id<"workspaces"> } | { refused: "not_texts" } | null> {
   const session = await resolveGrantByAccessTokenHandler(ctx, { hashedAccessToken });
   if (session === null) return null;
-  if (session.clientId !== TEXTS_CLIENT_ID) return { refused: "not_texts" };
+  if (!BUILTIN_CLIENTS.has(session.clientId)) return { refused: "not_texts" };
   const wanted = expectedWorkspaceId ?? session.workspaceId;
   if (wanted !== session.workspaceId) return null;
   return { workspaceId: session.workspaceId };

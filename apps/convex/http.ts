@@ -128,6 +128,7 @@ import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
+import * as routines from "./functions/lib/gatewayRoutes/routines";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
@@ -333,6 +334,9 @@ export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
 /* -------------------------------------------------------------------------- */
 
 export const gatewayWebsite = gatewayRoute(signals.gatewayWebsiteHandler);
+
+/* POST /gateway/routines — a write touched `routines/`; re-read the folder. */
+export const gatewayRoutines = gatewayRoute(routines.gatewayRoutinesHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/forms/notify — a form took an answer                */
@@ -865,6 +869,7 @@ http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
+http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
 http.route({ path: "/gateway/jobs/create", method: "POST", handler: gatewayJobsCreate });
 http.route({ path: "/gateway/jobs/open", method: "POST", handler: gatewayJobsOpen });
@@ -915,5 +920,11 @@ export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHand
 export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
 http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
 http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
+
+/* Routines: the runs due now, and how each one went (a code, never text). */
+export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);
+export const agentRoutinesResult = agentWorkerRoute(routines.agentRoutinesResultHandler);
+http.route({ path: "/agent-texts/routines/due", method: "POST", handler: agentRoutinesDue });
+http.route({ path: "/agent-texts/routines/result", method: "POST", handler: agentRoutinesResult });
 
 export default http;

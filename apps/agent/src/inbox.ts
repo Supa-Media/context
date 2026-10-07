@@ -13,6 +13,9 @@
  *   the reply is sent or given up on. Then it is deleted.
  * - `seen:<eventId>` holds a timestamp, never text, for a day, so a webhook
  *   that Linq redelivers is answered once.
+ * - `chat` holds the Linq chat id of this sender's last accepted text, never
+ *   text, so a routine can text them unprompted (routines.ts). Linq's line
+ *   only reaches people who texted it first, and this is the record of that.
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
  */
@@ -40,6 +43,13 @@ export const MAX_SEND_ATTEMPTS = 3;
 /** Most pending messages one sender may have queued; beyond it, new ones are dropped. */
 export const MAX_PENDING = 20;
 
+/**
+ * Where a routine's text goes: the chat this sender last texted from. The
+ * simulator's own chats are marked, so a routine there lands in its log.
+ */
+export const CHAT_KEY = "chat";
+export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
+
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
@@ -56,6 +66,11 @@ export async function accept(
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  await storage.put<RememberedChat>(CHAT_KEY, {
+    chatId: message.chatId,
+    ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}),
+    at: now,
+  });
   await storage.setAlarm(now);
   return "queued";
 }

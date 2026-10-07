@@ -64,6 +64,20 @@ crons.interval(
   {},
 );
 
+/**
+ * Re-read every workspace's `routines/` folder, as a safety net under the
+ * signals that normally do it (`functions/routines.ts`). A repair of a
+ * disposable derivative, like the search restarts: it reads the customer's
+ * bucket and writes nothing there, and decides nothing — whether a routine
+ * runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval(
+  "re-read routine folders",
+  { hours: 6 },
+  internal.functions.routines.sweepRoutineWorkspaces,
+  {},
+);
+
 crons.interval(
   "sweep agent turns past their retention",
   { hours: 1 },

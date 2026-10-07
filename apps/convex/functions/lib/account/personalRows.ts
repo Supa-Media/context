@@ -4,6 +4,7 @@ import { revokeSharesAddressedTo, voidCapabilitiesAddressedTo } from "./addresse
 import { deleteAccountPhoto } from "../faces/people";
 import { deleteUserPlaces } from "../places";
 import { deleteTextLinksOf } from "../../textLinks";
+import { deleteAccountTimeZoneOf } from "../routines/app";
 
 /**
  * Everything `deleteAccount` removes that is the person's rather than a
@@ -63,6 +64,9 @@ export async function deletePersonalRows(
 
   // The phone they text the assistant from, and any code waiting to link one.
   await deleteTextLinksOf(ctx, userId);
+
+  // The time zone their routines fall back to: one IANA name.
+  await deleteAccountTimeZoneOf(ctx, userId);
 
   // What they pinned to Home and which folders they open: paths and counts.
   await deleteUserPlaces(ctx, userId);
