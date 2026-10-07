@@ -329,3 +329,36 @@ who can send note words to a third party without a decision. The tests that
 fail are in `apps/mcp/test/agentSearch.test.mjs` ("an address written inside a
 result's snippet is refused and never fetched", "only the texting client is
 given web search").
+
+### What the assistant is told lives in `@context-lc`, where staff can edit it
+
+Decided by the owner, 2026-10-07, after the assistant introduced itself as
+another notes app: the built-in prompt never said what Context is, so the
+model guessed from the folder names it saw. The assistant's instructions now
+live in the pinned `@context-lc` workspace, so they change by editing a note
+rather than by shipping the gateway (`apps/mcp/src/agent/instructions.js`).
+
+- `assistant/instructions.md` replaces the built-in opening (who it is, what
+  Context is) on every agent turn. `assistant/texting.md` replaces the built-in
+  texting style, on texting turns only. Front matter is stripped; each is
+  capped at 8,000 characters because it is sent with every turn. Longer guides
+  go elsewhere in `@context-lc` and these notes point at them; the assistant
+  reads them with `read_note` and `context: "@context-lc"`.
+- Read exactly as `orient`'s global note is: through the caller's own reach and
+  that workspace's `privacy.md`, so a person's model is never sent a word that
+  person could not `read_note` there. Who may change it is who may write
+  `@context-lc`.
+- What the code decides is still said by the code after the note: that the
+  agent proposes rather than edits, and where the person is. A note can add to
+  the agent's understanding but cannot misdescribe its reach.
+- Either note missing, held back or unreadable, and every self-hosted
+  deployment (no pinned workspace), means the built-in words, which now say
+  what Context is and that it is not any other notes app.
+
+**What a simplification would cost:** reading the note with the gateway's own
+authority would hand a member text `privacy.md` holds back from them; dropping
+the built-in fallback would leave self-hosted deployments and a deleted note
+with no identity at all. The tests that fail are in
+`apps/mcp/test/agentInstructions.test.mjs` ("a note privacy.md holds back from
+members is not sent to their model", "with no pinned workspace the built-in
+words say what Context is").

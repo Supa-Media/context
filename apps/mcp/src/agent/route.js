@@ -12,6 +12,7 @@ import {
   runTurn,
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
+import { readAssistantInstructions } from "./instructions.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER } from "./builtin.js";
@@ -317,6 +318,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       web,
       history,
       texting,
+      notes: await readAssistantInstructions(store, session, { texting }),
     });
     await afterAnswer(meter(turn.usage, false));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
