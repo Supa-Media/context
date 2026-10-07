@@ -18,6 +18,8 @@ import { parseInbound } from "./inbound";
 import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import { verifyLinqSignature } from "./signature";
+import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
+import { SIMULATOR_PAGE } from "./simulatorPage";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
@@ -29,8 +31,10 @@ export interface Env {
   AGENT_WORKER_SECRET: string;
   /** The Convex HTTP origin (…convex.site). */
   CONTROL_PLANE_ORIGIN: string;
-  /** The gateway origin, e.g. https://context.lc */
+  /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
+  /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
+  SIMULATOR?: string;
 }
 
 /** Linq's payloads are small; anything this big is not one of them. */
@@ -51,6 +55,7 @@ function health(env: Env): Record<string, unknown> {
     workerSecret: set(env.AGENT_WORKER_SECRET),
     controlPlane: set(env.CONTROL_PLANE_ORIGIN),
     gatewayOrigin: set(env.GATEWAY_ORIGIN) ? env.GATEWAY_ORIGIN : null,
+    simulator: simulatorEnabled(env.SIMULATOR),
   };
 }
 
@@ -58,6 +63,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") return Response.json(health(env));
+    if (url.pathname === SIMULATOR_PATH || url.pathname.startsWith(`${SIMULATOR_PATH}/`)) {
+      if (!simulatorEnabled(env.SIMULATOR)) return new Response(null, { status: 404 });
+      return handleSimulator(request, env, SIMULATOR_PAGE);
+    }
     if (url.pathname !== "/linq") return new Response(null, { status: 404 });
     if (request.method !== "POST") return new Response(null, { status: 405 });
 
@@ -100,6 +109,16 @@ export class SenderInbox implements DurableObject {
   ) {}
 
   async fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    if (path.startsWith("/sim/")) {
+      // The Worker routes here only while the simulator is on; checked again
+      // so the object never serves it on its own say-so.
+      if (!simulatorEnabled(this.env.SIMULATOR)) return new Response(null, { status: 404 });
+      const body = (await request.json()) as { keyHash: string; phone: string; text: string };
+      return simulatorInbox(this.state.storage, path.slice("/sim/".length), body, Date.now(), (message) =>
+        accept(this.state.storage, message, Date.now()),
+      );
+    }
     const message = (await request.json()) as Message;
     const outcome = await accept(this.state.storage, message, Date.now());
     return Response.json({ outcome });

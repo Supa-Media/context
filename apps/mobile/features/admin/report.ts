@@ -393,6 +393,7 @@ export function compositionOf(
 // -- the funnel -----------------------------------------------------------
 
 export const FUNNEL_LABELS: Record<string, string> = {
+  "let-in": "Let in from the waitlist",
   "signed-up": "Signed up",
   "made-a-context": "Made a context",
   "connected-storage": "Connected storage",
@@ -404,7 +405,7 @@ export interface FunnelRow {
   step: string;
   label: string;
   count: number;
-  /** Share of everybody who signed up, 0–1. */
+  /** Share of the first step (everybody who signed up, or everybody let in), 0–1. */
   share: number;
   /**
    * Change from the step above. **Positive is possible** — see

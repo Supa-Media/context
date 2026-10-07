@@ -10,6 +10,7 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   activeParts,
+  agentActivityQuery,
   agentMarkRows,
   agentsLine,
   agoShort,
@@ -99,6 +100,54 @@ describe("the gateway's answer is parsed, never trusted", () => {
       agents: [{ id: "a:1", name: hostile, color: null, at: 1, kind: "read", path: "a.md" }],
     });
     expect(view.agents[0].name).toBe("Evilname");
+  });
+
+  test("the live map's fields come through, and an older gateway's answer still decodes", () => {
+    const view = decodeAgentActivity({
+      marks: [],
+      agents: [
+        {
+          id: "a:1", name: "Claude", color: null, at: 9, kind: "write", path: "b/c.md", reads: 2, writes: 1,
+          doing: "move", from: "a/c.md", readPaths: ["x.md", 7, "y.md"],
+        },
+        { id: "a:2", name: "Codex", color: null, at: 5, kind: "read", path: "x.md", doing: "create" },
+        { id: "a:3", name: "Old", color: null, at: 1, kind: "write", path: "z.md" },
+      ],
+      people: [
+        { id: "p:1", name: "Jo", color: null, self: false, path: "x.md", doing: "edit" },
+        { id: "p:2", name: "Sam", color: null, self: false, path: null, doing: "edit" },
+      ],
+      events: [
+        { at: 3, kind: "move", path: "b/c.md", from: "a/c.md", to: "b/c.md", actor: { id: "a:1", kind: "agent", name: "Claude" } },
+        { at: 2, kind: "create", path: "n.md", actor: { id: "p:1", kind: "person", name: "Jo" } },
+        { at: 4, kind: "move", path: "b/d.md", actor: { id: "a:1", kind: "agent", name: "Claude" } },
+        { at: 5, kind: "peek", path: "x.md", actor: { id: "a:1", kind: "agent", name: "Claude" } },
+        { at: 6, kind: "read", path: "x.md", actor: { id: "a:1", kind: "robot", name: "Claude" } },
+      ],
+    });
+    expect(view.agents[0]).toMatchObject({ doing: "move", from: "a/c.md", readPaths: ["x.md", "y.md"], kind: "write" });
+    // A `doing` that disagrees with `kind` is not believed; none at all is the old answer.
+    expect(view.agents[1]).toMatchObject({ doing: "read", readPaths: [] });
+    expect(view.agents[2]).toMatchObject({ doing: "edit" });
+    expect(view.agents[2].from).toBeUndefined();
+    expect(view.people).toEqual([
+      { id: "p:1", name: "Jo", color: null, self: false, path: "x.md", doing: "edit" },
+      { id: "p:2", name: "Sam", color: null, self: false, path: null, doing: null },
+    ]);
+    expect(view.events?.map((event) => [event.at, event.kind, event.actor.kind])).toEqual([
+      [2, "create", "person"],
+      [3, "move", "agent"],
+    ]);
+    expect(view.events?.[1]).toMatchObject({ from: "a/c.md", to: "b/c.md" });
+  });
+
+  test("the poll's query says only what it was given", () => {
+    expect(agentActivityQuery({})).toBe("");
+    expect(agentActivityQuery({ since: 12, note: "a b.md", doing: "edit" })).toBe("?since=12&note=a+b.md&doing=edit");
+    expect(agentActivityQuery({ did: { kind: "move", from: "a.md", to: "b/a.md" } })).toBe(
+      "?did=move&from=a.md&to=b%2Fa.md",
+    );
+    expect(agentActivityQuery({ did: { kind: "create", path: "n.md" } })).toBe("?did=create&path=n.md");
   });
 
   test("not an object at all is an empty answer", () => {

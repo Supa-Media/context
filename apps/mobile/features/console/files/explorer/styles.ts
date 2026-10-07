@@ -50,6 +50,8 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     backgroundColor: colors.well,
     color: colors.text,
     fontSize: t.meta,
+    // Its own border is the field; no browser focus ring on top of it.
+    outlineWidth: 0,
   },
   tools: { flexDirection: "row", alignItems: "center", gap: 6 },
   iconButton: {

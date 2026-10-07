@@ -161,4 +161,10 @@ jobs:
             echo "$gateway/agent answered $status without a grant; the gateway answers 401. GATEWAY_ORIGIN in apps/agent/wrangler.jsonc is not the gateway." >&2
             exit 1
           fi
-          echo "The texting assistant is up, and its gateway origin is the gateway."
+          # The texts simulator is staging's alone: production must not serve it.
+          sim="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://$WORKER_NAME.$sub.workers.dev/texts-simulator" || true)"
+          if [ "$sim" != "404" ]; then
+            echo "/texts-simulator answered $sim in production; only staging may set SIMULATOR." >&2
+            exit 1
+          fi
+          echo "The texting assistant is up, its gateway origin is the gateway, and no simulator is served."

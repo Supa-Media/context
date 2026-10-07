@@ -3,6 +3,7 @@
  * the privacy rules re-pointed first, the objects materialized after.
  */
 
+import { withActivityHint } from "../../live/activityHint.js";
 import {
   canSee,
   effectiveVisibility,
@@ -181,10 +182,14 @@ async function createLogicalFolderMove(store, scope, source, destination, object
     status: "logical_active",
     references: "pending",
   });
-  return toolText(
+  return withActivityHint(toolText(
     `logical move active: ${source}/ → ${destination}/ (${objects.length} objects)\n` +
       `move_id: ${id}\nphysical storage sync: pending\nreferences: pending`
-  );
+  ), {
+    moves: objects
+      .filter(({ key }) => key.startsWith(`${source}/`))
+      .map(({ key }) => ({ from: key, to: `${destination}/${key.slice(source.length + 1)}` })),
+  });
 }
 
 export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destinationArg, dryRun) {
@@ -424,8 +429,8 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     team_visible: moves.every((move) => move.visibility === "team"),
     references: references.capped ? "not-rewritten" : references.links,
   });
-  return toolText(
+  return withActivityHint(toolText(
     `moved folder: ${source}/ → ${destination}/ (${moves.length} objects)` +
       referencesLine(references)
-  );
+  ), { moves: moves.map((move) => ({ from: move.source, to: move.destination })) });
 }
