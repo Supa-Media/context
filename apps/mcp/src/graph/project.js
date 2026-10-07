@@ -28,7 +28,7 @@ const fromRef = (r) =>
 const noRepair = (record) => Array.isArray(record.reverseRepair) && record.reverseRepair.length === 0;
 
 /** `{ key, old, etag, exists }`, or null when the budget refuses the read. */
-async function readNode(store, budget, gen, path) {
+export async function readNode(store, budget, gen, path) {
   const key = nodeKey(gen, await pathHash(path));
   if (!budget.take()) return null;
   const got = await store.get(key);
@@ -81,47 +81,95 @@ function withObligations(record, ordered) {
   return { published: { ...bare, reverseRepair: bare.reverseRepair.slice(0, lo) }, overflow: true };
 }
 
-/** Steps 2 to 5 of arch 9.4 for a built record and its new membership set. */
+/** A view of `budget` that always leaves `keep` ops for the caller. */
+const keepBack = (budget, keep) => ({
+  get remaining() {
+    return Math.max(0, budget.remaining - keep);
+  },
+  get spent() {
+    return budget.spent;
+  },
+  take: (reserve = 0) => budget.take(reserve + keep),
+});
+
+/**
+ * The stored record already names this observedSourceVersion and
+ * referenceSetVersion and still owes repairs: a resumed call. Its obligations
+ * were published by an earlier call, so this one skips the re-put and works
+ * only through what is still owed.
+ */
+const isResume = (old, record) =>
+  old !== null && old.observedSourceVersion === record.observedSourceVersion &&
+  old.referenceSetVersion === record.referenceSetVersion && !noRepair(old) && Array.isArray(old.reverseRepair);
+
+/**
+ * Steps 2 to 5 of arch 9.4 for a built record and its new membership set.
+ * Progress is durable: the membership loop keeps one op back, and when it
+ * stops (budget) or leaves conflicts, that op checkpoints the record with only
+ * the unfinished obligations, conditional on the etag held. So every call with
+ * more than its overhead retires at least one obligation for good.
+ */
 async function settle(store, budget, { gen, mode, path, read, record, memberships, remove }) {
   const conditional = mode === "conditional";
-  const union = await priorObligations(read.old, path);
-  for (const m of memberships) union.add(m);
-  // Additions first, so a trimmed record keeps the obligations whose loss
-  // would hide a real backlink (a missed removal is rejected by validateEntry).
-  const ordered = [...union].sort((a, b) => Number(memberships.has(b)) - Number(memberships.has(a)));
-  const { published, overflow } = withObligations(record, ordered);
-  // Mark the dropped portion for a rebuild before the record that drops it.
-  if (overflow) await flagRebuild(store, budget);
-
-  if (!budget.take()) return { state: "pending" };
   const onlyIf = (etag) => (conditional ? { onlyIf: etag ? { etagMatches: etag } : { absent: true } } : undefined);
-  const put = await store.put(read.key, serializeNode(published), onlyIf(read.etag));
-  if (!put) return { state: "stale" };
-
-  let unfinished = false;
+  let ordered;
+  let etag;
   let full = false;
-  for (const m of ordered) {
-    const { family, hash } = toRef(m);
-    const result = await setMembership(store, budget, {
-      gen, family, hash, source: path, referenceSetVersion: record.referenceSetVersion, present: memberships.has(m), mode,
+  if (isResume(read.old, record)) {
+    ordered = [...new Set(read.old.reverseRepair.map(fromRef).filter(Boolean))];
+    etag = read.etag;
+    // A partial stored record may be an earlier call's "full"; keep it partial.
+    full = read.old.coverage === "partial";
+  } else {
+    const union = await priorObligations(read.old, path);
+    for (const m of memberships) union.add(m);
+    // Additions first, so a trimmed record keeps the obligations whose loss
+    // would hide a real backlink (a missed removal is rejected by validateEntry).
+    ordered = [...union].sort((a, b) => Number(memberships.has(b)) - Number(memberships.has(a)));
+    const { published, overflow } = withObligations(record, ordered);
+    // Mark the dropped portion for a rebuild before the record that drops it.
+    if (overflow) await flagRebuild(store, budget);
+    if (!budget.take()) return { state: "pending" };
+    const put = await store.put(read.key, serializeNode(published), onlyIf(read.etag));
+    if (!put) return { state: "stale" };
+    etag = put.etag;
+  }
+
+  const work = keepBack(budget, 1);
+  const left = [];
+  for (let i = 0; i < ordered.length; i += 1) {
+    const { family, hash } = toRef(ordered[i]);
+    const result = await setMembership(store, work, {
+      gen, family, hash, source: path, referenceSetVersion: record.referenceSetVersion, present: memberships.has(ordered[i]), mode,
     });
-    if (result === "budget") return { state: "pending" };
+    if (result === "budget") {
+      left.push(...ordered.slice(i));
+      break;
+    }
     // "full": the chain cannot take the entry; drop the obligation and report
     // the node partial so moves touching it fall back to the scan (arch 9.4).
     if (result === "full") full = true;
-    else if (result !== "done") unfinished = true;
+    else if (result !== "done") left.push(ordered[i]);
   }
-  if (unfinished || !budget.take()) return { state: "pending" };
-  // Conditional on the record we published, so it still names the same
+  // Conditional on the record we hold, so it still names the same
   // observedSourceVersion and referenceSetVersion; a newer record and its
   // obligations are never erased.
-  if (conditional && !put.etag) return { state: "pending" };
+  if (conditional && !etag) return { state: "pending" };
+  if (left.length > 0) {
+    // Nothing retired: the stored record already says all of it.
+    if (left.length === ordered.length) return { state: "pending" };
+    if (!budget.take()) return { state: "pending" };
+    const { published } = withObligations({ ...record, ...(full && { coverage: "partial" }) }, left);
+    if (await store.put(read.key, serializeNode(published), onlyIf(etag))) return { state: "pending" };
+    return conditional ? handBack(store, budget, read.key, path, ordered) : { state: "stale" };
+  }
+  if (!budget.take()) return { state: "pending" };
   let done;
   if (remove && store.capabilities?.conditionalDelete === true) {
-    done = (await store.delete(read.key, conditional ? { onlyIf: { etagMatches: put.etag } } : undefined)) !== null;
+    done = (await store.delete(read.key, conditional ? { onlyIf: { etagMatches: etag } } : undefined)) !== null;
   } else {
     const cleared = { ...record, reverseRepair: [], ...(full && { coverage: "partial" }) };
-    done = Boolean(await store.put(read.key, serializeNode(cleared), onlyIf(put.etag)));
+    done = Boolean(await store.put(read.key, serializeNode(cleared), onlyIf(etag)));
   }
   if (done) return { state: "projected" };
   return conditional ? handBack(store, budget, read.key, path, ordered) : { state: "stale" };
@@ -166,9 +214,10 @@ async function flagRebuild(store, budget) {
  * than retrying this body, arch 9.4). A refused clear is "pending": this
  * call's keys are handed to the newer record (see handBack).
  */
-export async function projectNote(store, path, body, version, { budget, gen, mode, now }) {
-  // Read the record before using body/version (arch 9.4 last paragraph).
-  const read = await readNode(store, budget, gen, path);
+export async function projectNote(store, path, body, version, { budget, gen, mode, now, read: given }) {
+  // Read the record before using body/version (arch 9.4 last paragraph). A
+  // caller that already read it this call (the sweep) hands it in.
+  const read = given ?? (await readNode(store, budget, gen, path));
   if (!read) return { state: "pending" };
   if (read.old && read.old.observedSourceVersion === version && noRepair(read.old)) return { state: "skipped" };
   const { record, memberships } = await buildNodeRecord(path, body, version, { now });

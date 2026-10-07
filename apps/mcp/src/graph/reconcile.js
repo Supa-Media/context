@@ -18,17 +18,29 @@
 // The bucket is a trust boundary: the cursor, listed keys, node records and
 // pages are checked before use, and nothing outside the generation's prefix is
 // written or deleted. Notes are only ever read.
+//
+// Liveness: projectNote checkpoints its progress, so a note larger than one
+// pass's budget converges over passes instead of blocking the sweep. Once the
+// graph is ready, the sweep and the audit alternate passes (`auditTurn`), each
+// taking the whole remainder on its turn, so neither is starved below its
+// smallest unit of work.
+//
+// Accepted races. The exact clear is time-of-check/time-of-use: an entry
+// validated as stale whose source flips back to that referenceSetVersion
+// before the removal lands is lost; the node audit re-asserts it on the next
+// audit cycle. And `ready` means "as of the last wrap": nothing was pending
+// when the sweep last wrapped, not that every node is settled right now.
 import { membershipsFor } from "./facts.js";
 import { generationPrefix, maintenanceCursorKey, nodeKey, pathHash } from "./keys.js";
 import { initGraphManifest, publishHealth, readGraphManifest } from "./manifest.js";
 import { graphMode } from "./mode.js";
 import { setMembership } from "./postings.js";
-import { projectNote, removeNote, validateEntry } from "./project.js";
+import { projectNote, readNode, removeNote, validateEntry } from "./project.js";
 import { parseNode, parsePage } from "./records.js";
 
-// Kept back for the end of the pass: manifest read, best-effort re-read,
-// health put, cursor put.
-const WRAP_RESERVE = 4;
+// Kept back for the end of the pass: manifest read, health put, cursor put,
+// plus publishHealth's re-read in best-effort mode.
+const wrapReserve = (mode) => (mode === "conditional" ? 3 : 4);
 const AUDIT_LIST_LIMIT = 100;
 const NODE_KEY = /^nodes\/[0-9a-f]{64}\.json$/;
 const PAGE_KEY = /^(incoming|bare|names|urls)\/([0-9a-f]{64})\/[0-9]+\.json$/;
@@ -44,7 +56,7 @@ const capped = (budget, keep) => ({
   take: (reserve = 0) => budget.take(reserve + keep),
 });
 
-const freshCursor = () => ({ sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false });
+const freshCursor = () => ({ sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, auditTurn: false });
 
 async function readCursor(store, budget, gen) {
   if (!budget.take()) return null;
@@ -61,7 +73,13 @@ async function readCursor(store, budget, gen) {
     ["sweepCursor", "sweepStartedAt", "auditCursor"].every((f) => typeof value[f] === "string") &&
     typeof value.sweepPending === "boolean";
   const cursor = ok
-    ? { sweepCursor: value.sweepCursor, sweepStartedAt: value.sweepStartedAt, auditCursor: value.auditCursor, sweepPending: value.sweepPending }
+    ? {
+        sweepCursor: value.sweepCursor,
+        sweepStartedAt: value.sweepStartedAt,
+        auditCursor: value.auditCursor,
+        sweepPending: value.sweepPending,
+        auditTurn: value.auditTurn === true,
+      }
     : freshCursor();
   return { cursor, etag: got.etag ?? null };
 }
@@ -95,7 +113,7 @@ async function removeIfGone(store, budget, path, ctx) {
 }
 
 /** Re-project one census path from its own fresh body read. */
-async function refresh(store, budget, path, version, ctx) {
+async function refresh(store, budget, path, version, ctx, read) {
   if (!budget.take()) return "stop";
   let object;
   try {
@@ -104,8 +122,13 @@ async function refresh(store, budget, path, version, ctx) {
     return "stale"; // unreadable this pass: left for the next sweep, never a stall
   }
   if (!object) return (await removeNote(store, path, { budget, gen: ctx.gen, mode: ctx.mode })).state;
-  const body = await object.text();
-  return (await projectNote(store, path, body, version, { budget, gen: ctx.gen, mode: ctx.mode, now: ctx.now })).state;
+  let body;
+  try {
+    body = await object.text();
+  } catch {
+    return "stale";
+  }
+  return (await projectNote(store, path, body, version, { budget, gen: ctx.gen, mode: ctx.mode, now: ctx.now, read })).state;
 }
 
 /** Count a projection outcome; true when the item needs no revisit this sweep. */
@@ -124,11 +147,19 @@ async function sweep(store, budget, ctx, cursor, out) {
   for (const path of paths) {
     if (path <= cursor.sweepCursor) continue;
     const version = ctx.census.get(path);
-    if (!budget.take()) return false;
-    const got = await store.get(nodeKey(ctx.gen, await pathHash(path)));
-    const node = got ? parseNode(await got.text(), path) : null;
-    if (!isCurrent(node, version)) {
-      const state = await refresh(store, budget, path, version, ctx);
+    let read;
+    try {
+      // The one node read; projectNote is handed it rather than re-reading.
+      read = await readNode(store, budget, ctx.gen, path);
+    } catch {
+      read = undefined; // unreadable record: skipped this sweep, counted pending
+    }
+    if (read === null) return false;
+    if (read === undefined) {
+      tally(out, "pending");
+      cursor.sweepPending = true;
+    } else if (!isCurrent(read.old, version)) {
+      const state = await refresh(store, budget, path, version, ctx, read);
       // Out of budget mid-note: revisit it next pass rather than skipping it.
       if (state === "stop" || (state === "pending" && budget.remaining === 0)) return false;
       tally(out, state);
@@ -191,6 +222,9 @@ async function auditPage(store, budget, ctx, key, family, hash, from) {
   const got = await store.get(key);
   const page = got ? parsePage(await got.text(), key) : null;
   if (!page) return -1;
+  // Indexes into the page as it will be re-read: each removal this pass
+  // shifts the later entries down by one.
+  let removed = 0;
   for (let e = from; e < page.entries.length; e += 1) {
     const entry = page.entries[e];
     const id = `${entry.source}\n${entry.referenceSetVersion}`;
@@ -198,7 +232,7 @@ async function auditPage(store, budget, ctx, key, family, hash, from) {
       try {
         ctx.verdicts.set(id, await ctx.validate(entry));
       } catch {
-        return e; // budget refused the validating read
+        return e - removed; // budget refused the validating read
       }
     }
     if (ctx.verdicts.get(id)) continue;
@@ -206,7 +240,8 @@ async function auditPage(store, budget, ctx, key, family, hash, from) {
       gen: ctx.gen, family, hash, source: entry.source, referenceSetVersion: entry.referenceSetVersion,
       present: false, exact: true, mode: ctx.mode,
     });
-    if (result === "budget") return e;
+    if (result === "budget") return e - removed;
+    if (result === "done") removed += 1;
   }
   return -1;
 }
@@ -264,7 +299,8 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   const { cursor } = read;
   const before = JSON.stringify(cursor);
   const ctx = { census, isIndexable, gen, mode, now, verdicts: new Map() };
-  const work = capped(budget, WRAP_RESERVE);
+  const reserve = wrapReserve(mode);
+  const work = capped(budget, reserve);
   ctx.validate = validateEntry(store, work, gen);
 
   for (const path of removedHints) {
@@ -273,12 +309,15 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
     if (state === "stop") break;
     tally(out, state);
   }
-  // Once the graph is ready the audit is guaranteed half of what is left, so a
-  // converged sweep re-reading every node cannot starve it. Before that the
-  // sweep comes first and the audit gets what it leaves.
-  const auditShare = censusComplete && manifest.health.state === "ready" ? Math.floor(work.remaining / 2) : 0;
-  const wrapped = await sweep(store, capped(budget, WRAP_RESERVE + auditShare), ctx, cursor, out);
-  if (censusComplete) await audit(store, work, ctx, cursor, out);
+  // Once the graph is ready, sweep and audit alternate passes and each takes
+  // the whole remainder on its turn; a split share could fall below the
+  // audit's smallest unit and livelock it. Before ready the sweep comes first
+  // and the audit gets what it leaves.
+  const auditFirst = censusComplete && manifest.health.state === "ready" && cursor.auditTurn;
+  if (censusComplete && manifest.health.state === "ready") cursor.auditTurn = !cursor.auditTurn;
+  if (auditFirst) await audit(store, work, ctx, cursor, out);
+  const wrapped = await sweep(store, work, ctx, cursor, out);
+  if (censusComplete && !auditFirst) await audit(store, work, ctx, cursor, out);
 
   if (wrapped) {
     if (censusComplete) {

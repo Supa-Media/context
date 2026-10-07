@@ -16,13 +16,27 @@
  *   sweep skips the reverseRepair check                                   3 (interrupted cleanup, fresh, ready)
  *   node audit does not re-assert memberships                             2 (lost membership, starvation)
  *   sweep advances past a note the budget stopped                         1 (fresh workspace)
- *   no audit share once ready                                             1 (starvation)
- *   wrap reserve 0                                                        2 (fresh workspace, starvation)
+ *   no audit share once ready (superseded in fix round 1 by turns)        1 (starvation)
+ *   wrap reserve 0 (now wrapReserve(mode))                                2 (fresh workspace, starvation)
  *   graph try/catch in maintainNow removed                                2 (failure, sync unchanged)
  *   a throwing confirming read treated as not-found                       1 (throwing read)
  *   a throwing body read escapes the sweep                                1 (throwing read)
  *   tombstones not skipped by the audit                                   1 (tombstone; measured 0
  *                                                                           before that test existed)
+ *
+ * Fix round 1 (liveness; red first: the five tests below and the graphProject
+ * durability test). Counts over this file plus graphProject.test.mjs:
+ *   projectNote: no checkpoint on a budget stop                           3 (hub, floor, durable)
+ *   projectNote: resume disabled, full union re-put every call            3 (hub, floor, durable)
+ *   projectNote: membership loop keeps no op back                         2 (hub, durable)
+ *   sweep re-reads the node instead of handing it to projectNote          1 (floor)
+ *   GRAPH_PASS_FLOOR back to 9                                            1 (floor)
+ *   audit half-share instead of alternating turns                         2 (paging at 15, starvation)
+ *   audit never takes the first turn                                      2 (paging at 15, starvation)
+ *   audit mid-page resume ignores earlier removals                        1 (mid-page; measured 0
+ *                                                                           before that test existed)
+ *   graph pass on the inline maintenance path                             1 (inline)
+ *   sweep node read unguarded                                             1 (throwing node read)
  *
  * Measured zero, then fixed: the exact-entry clear was masked by the node
  * audit re-adding the entry on a later pass, so the audit test now checks the
@@ -52,10 +66,14 @@ import { memoryBucket } from "./store/fixtures.mjs";
 const gen = "1";
 const now = 1_700_000_000_000;
 const big = () => createSearchBudget(100000);
-// Passes of 24 ops to restore 60 lost memberships. Measured: 46 with the
-// audit's half-share once ready, 172 without it (the sweep's one read per node
-// takes nearly every op).
+// Passes of 24 ops to restore 60 lost memberships. Measured: 38 with sweep
+// and audit alternating once ready (46 with the old half-share), 172 with the
+// audit only getting what the sweep leaves.
 const AUDIT_STARVATION_BOUND = 60;
+// Measured: 200 passes at budget 15 (before fix round 1: 0/80 in 2,000).
+const AUDIT_PAGING_BOUND = 400;
+// Measured: 28 passes; 52 when the resume ignores earlier removals.
+const MIDPAGE_BOUND = 40;
 const links = (...targets) => targets.map((t) => `[${t}](./${t})`).join(" ");
 
 function bucket({ conditional = true } = {}) {
@@ -353,6 +371,132 @@ test("the posting audit removes entries validateEntry rejects and never an accep
   );
 });
 
+// Liveness (fix round 1). Bounds are about twice the measured passes; see the
+// report for the measured table.
+const hubBody = (n) => Array.from({ length: n }, (_, i) => `[t${i}](./t${i}.md)`).join(" ");
+const settled = async (b, path) => {
+  const n = await node(b, path);
+  return n !== null && n.observedSourceVersion === b.objects.get(path).etag && n.reverseRepair.length === 0;
+};
+// Measured passes (fix round 1): 23, 15, 6, 2.
+const HUB_BOUNDS = { 12: 50, 15: 30, 24: 12, 80: 4 };
+
+test("a note with more memberships than a pass's budget converges at fixed budgets, and a later note too", async () => {
+  for (const [B, bound] of Object.entries(HUB_BOUNDS).map(([k, v]) => [Number(k), v])) {
+    const b = bucket();
+    await b.put("a-hub.md", hubBody(40)); // 41 memberships, sorted first
+    await b.put("b.md", "[a](./a-hub.md)"); // after the hub: no head-of-line block
+    let passes = 0;
+    while (!((await state(b))?.state === "ready" && (await settled(b, "a-hub.md")) && (await settled(b, "b.md")))) {
+      passes += 1;
+      assert.ok(passes <= bound, `budget ${B}: converged within ${bound} passes`);
+      const budget = createSearchBudget(B);
+      await pass(b, budget);
+      assert.ok(budget.spent <= B);
+    }
+    assert.equal((await incoming(b, "t39.md")).length, 1, `budget ${B}`);
+    assert.deepEqual(await incoming(b, "a-hub.md"), ["b.md"], `budget ${B}`);
+  }
+});
+
+async function oneLinkPasses(conditional, B, max) {
+  const b = bucket({ conditional });
+  await b.put("a.md", links("t.md"));
+  for (let passes = 1; passes <= max; passes += 1) {
+    await pass(b, createSearchBudget(B));
+    if ((await state(b))?.state === "ready" && (await settled(b, "a.md"))) {
+      assert.deepEqual(await incoming(b, "t.md"), ["a.md"]);
+      return passes;
+    }
+  }
+  return null;
+}
+
+test("a pass at exactly GRAPH_PASS_FLOOR converges a one-link note, and the floor is the measured minimum", async () => {
+  assert.equal(GRAPH_PASS_FLOOR, 11);
+  for (const conditional of [true, false]) {
+    const passes = await oneLinkPasses(conditional, GRAPH_PASS_FLOOR, 10);
+    assert.ok(passes !== null, `conditional=${conditional}: converged at the floor within 10 passes`);
+  }
+  // One below: a best-effort store lands nothing.
+  assert.equal(await oneLinkPasses(false, GRAPH_PASS_FLOOR - 1, 20), null);
+});
+
+test("the posting audit progresses at budget 15: 80 sabotaged pages are repaired", async () => {
+  const b = bucket();
+  // A paging listing (the memory fixture ignores cursor and limit).
+  const inner = b.list.bind(b);
+  b.list = async ({ prefix, cursor, limit } = {}) => {
+    const all = (await inner({ prefix })).objects;
+    const off = cursor ? Number(cursor) : 0;
+    const n = limit ?? 1000;
+    const more = off + n < all.length;
+    return { objects: all.slice(off, off + n), truncated: more, ...(more && { cursor: String(off + n) }) };
+  };
+  const name = (i) => `n${String(i).padStart(3, "0")}.md`;
+  for (let i = 0; i < 80; i += 1) await b.put(name(i), `[x](./${name((i + 1) % 80)})`);
+  for (let i = 0; i < 3; i += 1) await pass(b);
+  assert.equal((await state(b)).state, "ready");
+  // Every incoming page loses its real entry and gains a stale one.
+  const victims = [];
+  for (let i = 0; i < 80; i += 1) {
+    const key = postingPageKey(gen, "incoming", await pathHash(name(i)), 0);
+    victims.push(key);
+    await b.put(key, serializePage({ key, entries: [{ source: "ghost.md", referenceSetVersion: "z".repeat(64) }] }));
+  }
+  const repaired = () =>
+    victims.filter((k) => {
+      const e = JSON.parse(b.objects.get(k).body).entries;
+      return e.length === 1 && e[0].source !== "ghost.md";
+    }).length;
+  let passes = 0;
+  while (repaired() < 80) {
+    passes += 1;
+    assert.ok(passes <= AUDIT_PAGING_BOUND, `repaired ${repaired()}/80 within ${AUDIT_PAGING_BOUND} passes`);
+    const budget = createSearchBudget(15);
+    await pass(b, budget);
+    assert.ok(budget.spent <= 15);
+  }
+});
+
+test("the audit resumes mid-page at the right entry after removals shift the page", async () => {
+  const b = bucket();
+  await seed(b);
+  await pass(b);
+  const key = postingPageKey(gen, "incoming", await pathHash("t.md"), 0);
+  const valid = await rawEntries(b, "t.md");
+  const ghosts = Array.from({ length: 40 }, (_, i) => ({ source: `ghost${i}.md`, referenceSetVersion: "z".repeat(64) }));
+  await b.put(key, serializePage({ key, entries: [...ghosts, ...valid] }));
+  let passes = 0;
+  while ((await rawEntries(b, "t.md")).length > valid.length) {
+    passes += 1;
+    assert.ok(passes <= MIDPAGE_BOUND, `40 stale entries removed within ${MIDPAGE_BOUND} passes`);
+    await pass(b, createSearchBudget(15));
+  }
+  assert.deepEqual(await rawEntries(b, "t.md"), valid);
+});
+
+test("a node record read that keeps throwing skips that note, counted pending, without stalling", async () => {
+  const b = bucket();
+  await seed(b);
+  const bad = nodeKey(gen, await pathHash("a.md"));
+  const store = {
+    ...b,
+    capabilities: b.capabilities,
+    get: async (k) => {
+      if (k === bad) throw new Error("storage 500");
+      return b.get(k);
+    },
+  };
+  let out;
+  for (let i = 0; i < 4; i += 1) {
+    out = await reconcileGraph(store, big(), { census: censusOf(b), censusComplete: false, removedHints: [], isIndexable: defaultIsIndexable, now });
+  }
+  assert.ok(await settled(b, "b.md"), "later notes still projected");
+  assert.ok(await settled(b, "u.md"));
+  assert.ok(out.pending >= 1, "the unreadable note is counted pending");
+});
+
 test("an encrypted note in the census yields an excluded node with no memberships", async () => {
   const b = bucket();
   await b.put("secret.md", "---\ncontext_encryption: v1\n---\n[[./t]] [t](./t.md)");
@@ -388,9 +532,9 @@ test("nothing outside .context/graph/ is ever written or deleted", async () => {
  * records `budget.spent` at the first graph op, and that can refuse every
  * graph op (graph disabled: the first graph call throws).
  */
-function maintained({ disableGraph = false } = {}) {
+function maintained({ disableGraph = false, defer = true } = {}) {
   const b = memoryBucket();
-  const s = { b, budget: null, spentAtGraph: null, remainingAtGraph: null, afterSearch: null, graphOps: 0 };
+  const s = { b, budget: null, spentAtGraph: null, remainingAtGraph: null, afterSearch: null, graphOps: 0, deferred: [] };
   const touch = (k) => {
     if (typeof k !== "string" || !k.startsWith(GRAPH_PREFIX)) {
       s.afterSearch = s.budget.remaining;
@@ -411,14 +555,17 @@ function maintained({ disableGraph = false } = {}) {
       return { ...page, objects: page.objects.map((o) => ({ ...o, etag: b.objects.get(o.key)?.etag })) };
     },
   };
+  // A host with `waitUntil`: maintenance runs behind the response.
+  if (defer) s.store.defer = (promise) => s.deferred.push(promise);
   return s;
 }
 
-async function maintainedRun({ disableGraph, total }) {
-  const s = maintained({ disableGraph });
+async function maintainedRun({ disableGraph, total, defer = true }) {
+  const s = maintained({ disableGraph, defer });
   await seed(s.b);
   s.budget = createSearchBudget(total);
   await maintainIndexAfter(s.store, s.budget, defaultIsIndexable, null);
+  await Promise.all(s.deferred);
   return s;
 }
 const searchState = (b) =>
@@ -437,7 +584,6 @@ test("maintainNow: the search sync's results and budget use are unchanged when g
 });
 
 test("maintainNow: the graph pass runs only with GRAPH_PASS_FLOOR left after search", async () => {
-  assert.equal(GRAPH_PASS_FLOOR, 9);
   let ran = 0;
   let skipped = 0;
   for (let total = 14; total <= 80; total += 1) {
@@ -453,11 +599,19 @@ test("maintainNow: the graph pass runs only with GRAPH_PASS_FLOOR left after sea
   assert.ok(ran > 0 && skipped > 0, `both sides observed (ran ${ran}, skipped ${skipped})`);
 });
 
+test("maintainNow: the inline path (no waitUntil, someone is waiting) runs no graph pass", async () => {
+  const inline = await maintainedRun({ disableGraph: false, total: 400, defer: false });
+  assert.ok(searchState(inline.b).length > 0, "the inline sync ran");
+  assert.equal(inline.graphOps, 0);
+  const deferred = await maintainedRun({ disableGraph: false, total: 400, defer: true });
+  assert.ok(deferred.graphOps > 0, "the deferred path still runs it");
+});
+
 test("maintainNow: a graph failure does not reach the caller", async () => {
   const s = maintained({ disableGraph: true });
   await seed(s.b);
   s.budget = createSearchBudget(200);
-  await assert.doesNotReject(maintainIndexAfter(s.store, s.budget, defaultIsIndexable, null));
+  await assert.doesNotReject(maintainIndexAfter(s.store, s.budget, defaultIsIndexable, null).then(() => Promise.all(s.deferred)));
   assert.ok(searchState(s.b).length > 0);
   assert.deepEqual(graphKeys(s.b), []);
 });

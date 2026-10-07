@@ -239,8 +239,10 @@ async function maintainNow(store, budget, isIndexable, found, visibilityOf, opti
     }
   }
   // The link graph last, on what search and D1 left, over the census this
-  // sync just produced. A derivative: its failure changes nothing above.
-  if (synced?.manifest && budget.remaining >= GRAPH_PASS_FLOOR) {
+  // sync just produced. A derivative: its failure changes nothing above. Not
+  // on the inline path (`backfillOps` set: no `waitUntil`, someone waiting).
+  const inline = options.backfillOps !== undefined;
+  if (!inline && synced?.manifest && budget.remaining >= GRAPH_PASS_FLOOR) {
     try {
       const freshness = synced.manifest.freshness;
       await reconcileGraph(store, budget, {

@@ -397,3 +397,26 @@ test("an edit from encrypted to plain adds the new memberships", async () => {
   assert.deepEqual(await backlinks(b, "t.md"), ["a.md"]);
   assert.deepEqual((await node(b, "a.md")).reverseRepair, []);
 });
+
+test("progress is durable: a note with more memberships than one call's budget converges at a fixed budget", async () => {
+  const body = Array.from({ length: 30 }, (_, i) => `[t${i}](./t${i}.md)`).join(" ");
+  for (const B of [6, 8, 12, 80]) {
+    const b = memoryBucket();
+    let calls = 0;
+    let last = Infinity;
+    for (;;) {
+      calls += 1;
+      assert.ok(calls <= 80, `budget ${B}: converged within 80 calls`);
+      const r = await project(b, "hub.md", body, "v1", createSearchBudget(B));
+      if (r.state === "projected" || r.state === "skipped") break;
+      const n = await node(b, "hub.md");
+      if (n) {
+        // Every call past the first publish retires at least one obligation.
+        assert.ok(n.reverseRepair.length < last || last === Infinity, `budget ${B}, call ${calls}: ${n.reverseRepair.length} after ${last}`);
+        last = n.reverseRepair.length;
+      }
+    }
+    assert.deepEqual(await incoming(b, "t29.md"), ["hub.md"], `budget ${B}`);
+    assert.deepEqual((await node(b, "hub.md")).reverseRepair, []);
+  }
+});
