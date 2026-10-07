@@ -38,6 +38,7 @@
 import { generationPrefix } from "./keys.js";
 import { BUDGET_EXHAUSTED } from "../search/budget.js";
 import { codeVersions, publishHealth, readGraphManifest } from "./manifest.js";
+import { graphMode, writeHeadroom } from "./mode.js";
 
 // Version comparisons live beside codeVersions (graphHealth needs isNewer).
 export { isNewer, matchesCode, needsRebuild } from "./manifest.js";
@@ -121,8 +122,15 @@ export async function collectGarbage(store, budget, manifest, cursor = {}) {
   const save = (token, found) => {
     cursor.gcCursor = JSON.stringify([gen, token, found]);
   };
+  // What ends a clean traversal: the manifest read and the collect:null
+  // publish (with publishHealth's re-read and wrapper read in best-effort
+  // mode). Only a traversal that has found nothing yet can end that way, so
+  // only its pages keep these ops back, and only when a page still fits; a
+  // publish that does not fit is retried on the re-listed last page.
+  const endCost = graphMode(store) === "conditional" ? 2 : 3 + writeHeadroom(store);
+  const keepEnd = !at.found && budget.remaining - 2 - endCost >= 1 ? endCost : 0;
   // The list, then one delete per key, each leaving one op of headroom.
-  const limit = Math.min(GC_LIST_LIMIT, budget.remaining - 2);
+  const limit = Math.min(GC_LIST_LIMIT, budget.remaining - 2 - keepEnd);
   if (limit < 1 || !budget.take()) return;
   let listed;
   try {
@@ -135,7 +143,7 @@ export async function collectGarbage(store, budget, manifest, cursor = {}) {
   const keys = (listed.objects || []).map((o) => o?.key).filter((k) => typeof k === "string" && k.startsWith(prefix));
   const found = at.found || keys.length > 0;
   for (const key of keys) {
-    if (!budget.take(1)) {
+    if (!budget.take(1 + keepEnd)) {
       save(at.token, true);
       return "done";
     }
@@ -153,11 +161,19 @@ export async function collectGarbage(store, budget, manifest, cursor = {}) {
     return "done";
   }
   // End of the listing. Objects were found this traversal: confirm from the top.
-  save(null, false);
-  if (found) return "done";
+  if (found) {
+    save(null, false);
+    return "done";
+  }
+  // A clean traversal. The cursor clears only once collect:null has landed
+  // (or collect already moved on); otherwise the last page is re-listed and
+  // the publish retried next pass, never a fresh traversal (fix round 3).
   const fresh = await readGraphManifest(store, budget);
-  if (fresh.manifest?.collect === gen) await publishHealth(store, budget, fresh.manifest, fresh.etag, { collect: null });
-  cursor.gcCursor = "";
+  const landed = fresh.manifest
+    ? fresh.manifest.collect !== gen || (await publishHealth(store, budget, fresh.manifest, fresh.etag, { collect: null }))
+    : false;
+  if (landed) cursor.gcCursor = "";
+  else save(at.token, false);
   return "done";
 }
 

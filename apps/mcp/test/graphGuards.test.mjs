@@ -169,7 +169,9 @@ async function wrappedCollecting(keys) {
 
 /** Passes at budget B until g/1/ lists empty and collect is cleared; the pass count or null. */
 async function gcPasses(env, B, max, { charge = false } = {}) {
+  const gcCursor = () => JSON.parse(env.b.objects.get(maintenanceCursorKey("3"))?.body ?? "{}").gcCursor;
   for (let p = 1; p <= max; p += 1) {
+    const gcBefore = gcCursor();
     const budget = createSearchBudget(B);
     const restore = charge ? env.store.setExtraOperationCharge(chargeTo(budget)) : () => {};
     const before = env.counter.raw;
@@ -188,6 +190,10 @@ async function gcPasses(env, B, max, { charge = false } = {}) {
       assert.equal(await env.visible(), 0, "collect cleared only once g/1/ lists empty");
       return p;
     }
+    // A page of a traversal that has found nothing deletes nothing, so it
+    // completes in one pass; a repeated one is a publish that did not fit at
+    // the end of a clean traversal (fix round 3).
+    if (gcBefore && JSON.parse(gcBefore)[2] === false) assert.notEqual(gcCursor(), gcBefore, `pass ${p}: GC page repeated`);
   }
   return null;
 }
@@ -200,14 +206,20 @@ test("GC progresses past logical-delete markers: 250 keys collected and collect 
   assert.ok(p600 !== null && p600 <= 6, `B=600: ${p600} passes (bound 6)`);
   // At B=15 the GC gets 15 - 2 reads - 3 reserved = 10 ops: a page of 8
   // (the list, and one op of headroom kept by the deletes for the wrapper's
-  // marker write). Bound 2 * ceil(250 / 8) + 2 = 66, measured exactly.
+  // marker write), or 6 on a page of a traversal that has found nothing yet,
+  // which keeps the manifest read and publish that end it (fix round 3).
+  // Bound: 1 + ceil(244 / 8) deleting pages, ceil(250 / 6) confirming pages,
+  // plus 2: 77, measured exactly.
   const p15 = await gcPasses(await wrappedCollecting(250), 15, 400);
-  assert.ok(p15 !== null && p15 <= 66, `B=15: ${p15} passes (bound 66)`);
+  assert.ok(p15 !== null && p15 <= 77, `B=15: ${p15} passes (bound 77)`);
   // With the search budget's charge installed (as in maintenance), each
   // marker write and each marker read while listing costs one more op, so a
   // page takes several passes; measured 158, bound 170. Raw calls per pass
   // never exceed B.
   const charged = await gcPasses(await wrappedCollecting(250), 15, 400, { charge: true });
+  // 248 keys end on a full page of charged marker reads: the ending publish
+  // must still fit in that pass (no repeated clean page, checked in gcPasses).
+  assert.ok((await gcPasses(await wrappedCollecting(248), 15, 400, { charge: true })) !== null);
   assert.ok(charged !== null && charged <= 170, `B=15 charged: ${charged} passes (bound 170)`);
 });
 
@@ -401,4 +413,50 @@ test("size pre-check allows encryption and stamp overhead; the exact cap still a
   // Over the cap by one byte of text: never returned, whatever the size says.
   const over = JSON.stringify({ pad: "x".repeat(GRAPH_RECORD_BYTE_CAP - 9) });
   assert.ok((await recordText({ size: GRAPH_RECORD_BYTE_CAP + 1, text: async () => over })) === null);
+});
+
+test("a collect:null publish that does not land is retried on the last page, never by a fresh traversal", async () => {
+  const env = await wrappedCollecting(250);
+  // Delete everything (B=600: pages of 100), then refuse the one publish that
+  // ends the confirming traversal.
+  let refuse = false;
+  let refused = 0;
+  const store = Object.assign(Object.create(env.store), {
+    async put(key, value, options) {
+      if (refuse && key === graphManifestKey() && JSON.parse(value).collect === null) {
+        refused += 1;
+        refuse = false;
+        return null;
+      }
+      return env.store.put(key, value, options);
+    },
+  });
+  for (let p = 0; p < 3; p += 1) await pass(store, env.b, createSearchBudget(600));
+  assert.equal(await env.visible(), 0);
+  refuse = true;
+  for (let p = 0; p < 3 && refused === 0; p += 1) await pass(store, env.b, createSearchBudget(600));
+  assert.equal(refused, 1, "the ending publish was refused once");
+  assert.equal(await env.collect(), "1");
+  await pass(store, env.b, createSearchBudget(600));
+  assert.equal(await env.collect(), null, "cleared on the very next pass");
+});
+
+test("an audit listing that throws for budget keeps auditCursor", async () => {
+  const b = memoryBucket();
+  b.capabilities = CAPS;
+  await b.put("a.md", "[t](./t.md)");
+  await b.put("t.md", "x");
+  for (let i = 0; i < 6; i += 1) await pass(b, b, createSearchBudget(1000));
+  const key = maintenanceCursorKey("1");
+  const held = JSON.stringify([".context/graph/v1/g/1/nodes/x.json", 1, 0]);
+  await b.put(key, JSON.stringify({ ...JSON.parse(b.objects.get(key).body), auditCursor: held }));
+  const throwing = Object.assign(Object.create(b), {
+    async list() {
+      const error = new Error("search budget exhausted");
+      error[BUDGET_EXHAUSTED] = true;
+      throw error;
+    },
+  });
+  await pass(throwing, b, createSearchBudget(1000));
+  assert.equal(JSON.parse(b.objects.get(key).body).auditCursor, held);
 });

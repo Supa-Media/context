@@ -293,6 +293,15 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
       conditionalDelete: physicalDelete || canWriteMarkers,
       serverSideCopy: false,
     },
+    /**
+     * A second logical view of the same physical store, with its own
+     * extra-operation charge and inspection cache. The charge is per
+     * instance, so a caller that bills its own budget (graph work) uses its
+     * own view rather than a time window on the shared one.
+     */
+    forkLogicalView() {
+      return withLogicalDelete(store, { logicalDelete });
+    },
     setExtraOperationCharge(callback) {
       const previous = chargeExtraOperation;
       chargeExtraOperation = typeof callback === "function" ? callback : null;

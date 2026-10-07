@@ -49,6 +49,7 @@ import { graphMode, writeHeadroom } from "./mode.js";
 import { setMembership } from "./postings.js";
 import { projectNote, readNode, removeNote, validateEntry } from "./project.js";
 import { parseNode, parsePage, recordText } from "./records.js";
+import { BUDGET_EXHAUSTED } from "../search/budget.js";
 import {
   GC_FAILURE_LIMIT, abandonCollect, collectGarbage, cutover, isNewer, matchesCode, needsRebuild, startRebuild,
 } from "./rebuild.js";
@@ -295,12 +296,19 @@ async function auditPage(store, budget, ctx, key, family, hash, from) {
 async function audit(store, budget, ctx, cursor, out) {
   const at = parseAuditCursor(cursor.auditCursor);
   const prefix = generationPrefix(ctx.gen);
-  if (!budget.take()) return;
+  // Sized to the budget: on a logical-delete store each listed marker costs a
+  // charged read, so a page larger than what is left would throw every pass
+  // and never advance (fix round 3). A full page then still leaves at least
+  // one op per visible key on it, so every pass makes progress.
+  const limit = Math.min(AUDIT_LIST_LIMIT, budget.remaining - 1);
+  if (limit < 1 || !budget.take()) return;
   let listed;
   try {
-    listed = await store.list({ prefix, cursor: at.token ?? undefined, limit: AUDIT_LIST_LIMIT });
-  } catch {
-    cursor.auditCursor = ""; // an expired or refused token: start over
+    listed = await store.list({ prefix, cursor: at.token ?? undefined, limit });
+  } catch (error) {
+    // Out of budget mid-listing: resume from the same place next pass. Any
+    // other failure (an expired or refused token) starts over.
+    if (!error?.[BUDGET_EXHAUSTED]) cursor.auditCursor = "";
     return;
   }
   const keys = (listed.objects || []).map((o) => o?.key).filter((k) => typeof k === "string" && k.startsWith(prefix));

@@ -4,10 +4,9 @@
 // exception is swallowed (reconciliation repairs what is missed) and, where the
 // host can, the work runs behind the response.
 import { loadGraphManifest } from "./manifest.js";
-import { graphMode } from "./mode.js";
+import { graphMode, graphView } from "./mode.js";
 import { projectNote } from "./project.js";
 import { isNewer } from "./rebuild.js";
-import { BUDGET_EXHAUSTED } from "../search/budget.js";
 import { afterResponse } from "../search/writeProjection.js";
 
 /**
@@ -15,20 +14,12 @@ import { afterResponse } from "../search/writeProjection.js";
  * creates it, Task 10), nothing else runs. A "pending" or "stale" result is
  * left to reconciliation. Never rejects.
  */
-export async function projectNoteAfterWrite(store, { path, body, version, budget }) {
-  // A logical-delete store's extra physical calls (a raw read before a
-  // conditional write, marker probes) count against this budget too, as in
-  // visibleNotes.js; the previous charge is restored when the hook ends.
-  const restore =
-    typeof store.setExtraOperationCharge === "function"
-      ? store.setExtraOperationCharge(() => {
-          if (budget.take(0)) return;
-          const error = new Error("write enrich budget exhausted");
-          error[BUDGET_EXHAUSTED] = true;
-          throw error;
-        })
-      : null;
+export async function projectNoteAfterWrite(shared, { path, body, version, budget }) {
   try {
+    // A logical-delete store's extra physical calls (a raw read before a
+    // conditional write, marker probes) count against this budget, on a view
+    // of its own so nothing else the write deferred is billed (graphView).
+    const store = graphView(shared, budget);
     const manifest = await loadGraphManifest(store, budget);
     // Newer code's generation: an older client never writes into it (arch 9.6).
     if (!manifest || isNewer(manifest)) return;
@@ -40,8 +31,6 @@ export async function projectNoteAfterWrite(store, { path, body, version, budget
     });
   } catch {
     // A derivative's failure is one note late, not a failed write.
-  } finally {
-    restore?.();
   }
 }
 

@@ -1,3 +1,5 @@
+import { BUDGET_EXHAUSTED } from "../search/budget.js";
+
 // P4 mode selection (OPEN-10). Conditional only when the store has *probed*
 // both conditional update and conditional create (controlPlane.js documents the
 // flags; storageLayout.js requires the same pair). A store with one of the two
@@ -23,4 +25,25 @@ export function writeHeadroom(store, options, { remove = false } = {}) {
   if (remove) return 1;
   const onlyIf = options?.onlyIf;
   return onlyIf?.etagMatches !== undefined && onlyIf?.absent !== true ? 0 : 1;
+}
+
+/**
+ * The store graph work runs on, billed to `budget`. On a logical-delete store
+ * (every gateway store) that is a private view of the same physical store
+ * whose wrapper reads are charged to `budget` and nothing else: graph work
+ * never installs a charge on the shared store, where it would bill the
+ * request's other deferred work, and never inherits one left there (fix round
+ * 3). Elsewhere it is `store` itself.
+ */
+export function graphView(store, budget) {
+  if (typeof store?.forkLogicalView !== "function") return store;
+  const view = store.forkLogicalView();
+  view.actor = store.actor;
+  view.setExtraOperationCharge(() => {
+    if (budget.take(0)) return;
+    const error = new Error("graph budget exhausted");
+    error[BUDGET_EXHAUSTED] = true;
+    throw error;
+  });
+  return view;
 }

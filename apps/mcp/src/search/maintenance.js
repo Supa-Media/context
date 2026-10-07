@@ -29,6 +29,7 @@ import { INTERACTIVE_BACKFILL_OPS } from "./visible.js";
 import { listBoundedKeys, listImmediateLayout } from "../notes/storage.js";
 import { syncShardedIndex } from "./shards.js";
 import { reconcileGraph } from "../graph/reconcile.js";
+import { graphView } from "../graph/mode.js";
 
 /**
  * The fallback scan's key listing.
@@ -248,7 +249,8 @@ async function maintainNow(store, budget, isIndexable, found, visibilityOf, opti
   if (!inline && !graphOff && synced?.manifest && budget.remaining >= graphPassFloor(store)) {
     try {
       const freshness = synced.manifest.freshness;
-      await reconcileGraph(store, budget, {
+      // Its own logical view, billed to this budget alone (graphView).
+      await reconcileGraph(graphView(store, budget), budget, {
         census: censusFromManifest(synced.manifest),
         censusComplete: !synced.listingTruncated && Boolean(freshness?.listedAt) && !freshness?.truncated,
         removedHints: synced.removed || [],
