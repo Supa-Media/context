@@ -41,6 +41,8 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.body,
     color: colors.text,
+    // The panel is the field; the browser's own focus ring drew a blue box inside it.
+    outlineWidth: 0,
   },
   inputPointer: { fontSize: t.lede, paddingVertical: 13 },
   /**
@@ -53,8 +55,6 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: touchType.lede,
     paddingVertical: 11,
     paddingHorizontal: space.x2,
-    // The pill around it (`PaletteSheet`) is the focus ring; a second one inside it was the orange box.
-    outlineWidth: 0,
   },
 
   /* -------------------------------- list --------------------------------- */

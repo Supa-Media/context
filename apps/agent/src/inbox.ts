@@ -19,6 +19,7 @@
 
 import { sendLinqText, type Fetch } from "./clients";
 import { replyTo, type Message, type ReplyDeps } from "./reply";
+import { record } from "./simulator";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -69,6 +70,10 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       // Each text keeps its own idempotency key, so a retry after a partial
       // send repeats nothing Linq already accepted.
       for (const [index, text] of reply.entries()) {
+        if (item.message.channel === "simulator") {
+          await record(storage, "in", text, deps.now());
+          continue;
+        }
         await sendLinqText(
           deps.fetch as Fetch,
           deps.linqApiKey,

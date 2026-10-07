@@ -59,6 +59,7 @@ import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } f
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, type CountedTotal, type MetricSeries, countedTotalValidator } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
+import { censusWaitlistValidator } from "./lib/adminFns/censusWaitlist";
 import { jevUsageReportHandler, jevUsageReportValidator, setJevSwitchHandler } from "./lib/jev/admin";
 import {
   applySecretHandler,
@@ -525,8 +526,11 @@ export const censusReport = query({
         aiSpendMicroUsd: v.number(),
         /** The read hit its budget, so `aiSpendMicroUsd` is a floor. */
         aiSpendPartial: v.boolean(),
+        /** When staff let this address in from the waitlist (`lib/adminFns/censusWaitlist.ts`). */
+        letInAt: v.union(v.number(), v.null()),
       }),
     ),
+    waitlist: censusWaitlistValidator,
   }),
   handler: async (ctx, args) => {
     try {
