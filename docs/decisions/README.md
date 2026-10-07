@@ -571,6 +571,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
 - Staging has a texts simulator, and nothing else does
+- An answer reads like a text, and the typing bubble shows while it works
 - The autofill vault lives sealed in the person's bucket
 - The built-in model is for Premium, capped, and metered like Jev
 - The agent opens only addresses it was given

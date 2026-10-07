@@ -95,6 +95,30 @@ export async function sendLinqText(
   if (status < 200 || status >= 300) throw new ServiceError("linq", status);
 }
 
+/**
+ * Show the "…" bubble in the chat while an answer is being worked on. Linq
+ * keeps it up for about 85 seconds, and sending a text clears it.
+ *
+ * Best effort and quick: a typing bubble that failed costs nothing, and one
+ * that is slow must not delay the answer. Never throws.
+ */
+export const TYPING_TIMEOUT_MS = 3_000;
+
+export async function startLinqTyping(fetcher: Fetch, apiKey: string, chatId: string): Promise<void> {
+  try {
+    await post(
+      fetcher,
+      "linq",
+      `${LINQ_API}/chats/${encodeURIComponent(chatId)}/typing`,
+      apiKey,
+      {},
+      TYPING_TIMEOUT_MS,
+    );
+  } catch {
+    // See above.
+  }
+}
+
 // ── Control plane ─────────────────────────────────────────────────────────
 
 export type SessionAnswer = { status: "linked"; accessToken: string } | { status: "unlinked" };

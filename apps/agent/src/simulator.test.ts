@@ -160,7 +160,7 @@ describe("texts simulator", () => {
     );
     const linqCalls: string[] = [];
     await drain(storage, unlinkedDeps(linqCalls));
-    expect(linqCalls).toHaveLength(2);
+    expect(linqCalls.map((url) => new URL(url).pathname.split("/").pop())).toEqual(["typing", "messages", "messages"]);
     expect((await thread(storage, 2_000)).messages).toEqual([]);
   });
 });

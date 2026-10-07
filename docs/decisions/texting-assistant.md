@@ -133,6 +133,32 @@ is on", "accepts only numbers reserved for fiction", "lets only the browser
 that claimed a number read or text from it", "never treats a Linq delivery as
 simulated"); `infra/router/src/textsSimulator.test.ts`.
 
+### An answer reads like a text, and the typing bubble shows while it works
+
+The owner, 2026-10-07, after the first real answer arrived as `**Segun**` and a
+bracketed note path: "this is text, so please use a natural style", and "it was
+EXTREMELY slow". A grant from the texting client (`context_texts`) gets its own
+system prompt (`TEXTING_STYLE` in `apps/mcp/src/agent/turn.js`): plain words,
+the answer first, no Markdown, no note paths unless asked, a blank line between
+texts, and one search rather than `orient` for a simple question, because every
+tool call is another model round. The Worker then strips any Markdown that
+slipped through and sends paragraphs as separate texts, at most three, with a
+web link last as a text of its own (`apps/agent/src/format.ts`). It is decided
+by the grant's client, never by the request, so the app's own agent keeps
+citing paths.
+
+While an answer is worked out, Linq shows the typing bubble; the first call is
+awaited so it cannot land after a quick reply, and it is renewed every 55
+seconds. Each turn logs where its time went (`agent_turn`: rounds, model and
+tool milliseconds, no text), which is what a slow answer is diagnosed from.
+
+**What a simplification would cost:** answering texts with the app's prompt
+puts asterisks and paths on a phone again; dropping the await puts a typing
+bubble under a finished answer. Tests: `format.test.ts`; `inbox.test.ts`
+("shows the typing bubble while it works, and before the answer, never
+after"); `agentBuiltin.test.mjs` ("a texting grant's turn is told it is writing
+a text").
+
 ### The autofill vault lives sealed in the person's bucket
 
 Decided by the owner, 2026-10-06: the agent's saved passwords and cards live in

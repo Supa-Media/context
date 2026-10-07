@@ -551,6 +551,16 @@ export async function runAgentChecks(check) {
       systemPrompt(null).includes("propose_note"),
     );
     check(
+      "the app's agent still cites note paths, and is not told it is texting",
+      systemPrompt(null).includes("Cite the note path") && !systemPrompt(null).includes("No Markdown"),
+    );
+    check(
+      "a texted answer is told to write without Markdown or note paths, and still cannot edit",
+      systemPrompt(null, { texting: true }).includes("No Markdown") &&
+        !systemPrompt(null, { texting: true }).includes("Cite the note path") &&
+        systemPrompt(null, { texting: true }).includes("propose_note"),
+    );
+    check(
       "agentTools only ever narrows",
       agentTools([
         { name: "read_note", annotations: { readOnlyHint: true } },
