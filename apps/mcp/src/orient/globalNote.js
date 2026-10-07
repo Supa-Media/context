@@ -43,7 +43,7 @@ export const GLOBAL_ORIENT_PATH = "guides/agents.md";
 export const GLOBAL_ORIENT_LINE_CAP = 50;
 export const GLOBAL_ORIENT_CHAR_CAP = 6_000;
 
-function withoutFrontmatter(text) {
+export function withoutFrontmatter(text) {
   const match = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
   return match ? text.slice(match[0].length) : text;
 }
@@ -64,11 +64,11 @@ export function capGlobalNote(raw) {
     : shown;
 }
 
-async function readFrom(store, scope, rules, overrides) {
-  if (!canSee(GLOBAL_ORIENT_PATH, scope, rules, overrides)) return null;
-  const object = await getWithLegacyFallback(store, GLOBAL_ORIENT_PATH);
+async function readFrom(path, shape, store, scope, rules, overrides) {
+  if (!canSee(path, scope, rules, overrides)) return null;
+  const object = await getWithLegacyFallback(store, path);
   if (!object) return null;
-  return capGlobalNote(await object.text());
+  return shape(await object.text());
 }
 
 /**
@@ -84,17 +84,27 @@ async function readFrom(store, scope, rules, overrides) {
  * gaining a general opener.
  */
 export async function readGlobalOrientNote({ contexts, openPinned, here }) {
+  return readPinnedNote({ contexts, openPinned, here }, GLOBAL_ORIENT_PATH, capGlobalNote);
+}
+
+/**
+ * Any one note from the pinned workspace, read exactly as the global note is:
+ * through the caller's own reach and that context's `privacy.md`, shaped by
+ * `shape`, and `null` for every way it can be missing. The texting assistant's
+ * instructions (`agent/instructions.js`) are read this way too.
+ */
+export async function readPinnedNote({ contexts, openPinned, here }, path, shape) {
   try {
     const current = (contexts || []).find((entry) => entry.current);
     if (current?.name === PINNED_CONTEXT_NAME && here) {
-      return await readFrom(here.store, here.scope, here.rules, here.overrides);
+      return await readFrom(path, shape, here.store, here.scope, here.rules, here.overrides);
     }
     if (!(contexts || []).some((entry) => entry.name === PINNED_CONTEXT_NAME)) return null;
     if (typeof openPinned !== "function") return null;
     const opened = await openPinned();
     const privacy = await loadPrivacyState(opened.store);
     if (privacy.error) return null;
-    return await readFrom(opened.store, opened.session.scope, privacy.rules, privacy.overrides);
+    return await readFrom(path, shape, opened.store, opened.session.scope, privacy.rules, privacy.overrides);
   } catch {
     return null;
   }

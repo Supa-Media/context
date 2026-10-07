@@ -40,6 +40,9 @@
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
 import { AGENT_PROVIDERS, ProviderError, modelFor, requestCompletion } from "./providers.js";
 import { webPrompt } from "./computer.js";
+import { systemPrompt } from "./prompt.js";
+
+export { describePlace, systemPrompt } from "./prompt.js";
 
 /**
  * How many times the model may call tools before the turn ends.
@@ -80,9 +83,6 @@ const WITHHELD_FROM_AGENT = new Set(["export_encryption_keys", "rotate_encryptio
 /** The longest question this route accepts. */
 export const MAX_QUESTION_LENGTH = 8000;
 
-/** The longest any one field of the ambient place may be. A path, not a page. */
-const MAX_PLACE_FIELD = 512;
-
 /**
  * The biggest tool answer that goes back to the model.
  *
@@ -115,105 +115,6 @@ export function agentTools(offered) {
       !WITHHELD_FROM_AGENT.has(tool.name) &&
       (tool.annotations?.readOnlyHint === true || tool.name === PROPOSAL_TOOL),
   );
-}
-
-/**
- * How a texted answer reads (the owner, 2026-10-07: "this is text, so please
- * use a natural style").
- *
- * iMessage shows Markdown as the characters themselves, so a `**name**` or a
- * `[path](path)` arrives as punctuation. The texting Worker strips what slips
- * through (`apps/agent/src/format.ts`), but an answer written for a phone in
- * the first place reads better than one with the formatting scraped off.
- *
- * The last two lines are about speed as much as style: every tool call is
- * another round on the model, and a text that takes a minute to answer is
- * not a conversation. One search usually answers a question about a person
- * or a plan; `orient` is a map of the whole context, and paying for it on
- * "who's my brother" is most of the wait.
- */
-const TEXTING_STYLE = [
-  "Write the way a thoughtful friend texts: plain words, short sentences, the answer first.",
-  "No Markdown at all. No asterisks or bold, no headings, no tables, no [text](link) links, no code formatting: iMessage shows those characters as they are.",
-  "Don't name note paths or say which note something came from unless they ask where it's written.",
-  "Keep it short: usually one to three short paragraphs. A blank line between paragraphs sends them as separate texts. For a list, write one short line per item starting with \"- \".",
-  "Put a web link on its own line, as the bare URL.",
-  "If their notes don't say, tell them so in one sentence.",
-  "Be quick. For most questions one search_notes call is enough; read a note only when the search result doesn't already answer it, and don't call orient for a simple question.",
-];
-
-/**
- * The system prompt.
- *
- * Deliberately short. A long one competes with the tool descriptions, which are
- * written for exactly this reader and are already the product's best statement
- * of what each call is for.
- */
-export function systemPrompt(place, { texting = false } = {}) {
-  const lines = texting
-    ? [
-        "You are the person's Context, answering a text message they sent you from their phone.",
-        "Answer from their notes rather than from memory: search before you answer.",
-        "Their notes are the record — when a note and your recollection disagree, the note wins.",
-        "You cannot edit their notes. To suggest a change, use propose_note; they review and decide.",
-        "",
-        ...TEXTING_STYLE,
-      ]
-    : [
-        "You are the assistant inside Context, the person's own notes.",
-        "Answer from their notes rather than from memory: search and read before you answer.",
-        "Their notes are the record — when a note and your recollection disagree, the note wins.",
-        "Be brief. Cite the note path you took something from.",
-        "You cannot edit their notes. To suggest a change, use propose_note; they review and decide.",
-      ];
-
-  const where = describePlace(place);
-  if (where) lines.push("", where);
-  return lines.join("\n");
-}
-
-/**
- * Where the person is, as a sentence.
- *
- * References only — a path, a visibility, whether something is unsaved. The
- * note's text is not here and must not be: the agent reads it through the same
- * tools and the same privacy engine as any other caller, or the ambient context
- * becomes a way to hand a model something the clamp never approved.
- */
-export function describePlace(place) {
-  if (!place || typeof place !== "object") return "";
-  const parts = [];
-  const name = bounded(place.context);
-  if (name) parts.push(`They are in the context @${name}.`);
-  const note = place.note;
-  const path = note && typeof note === "object" ? bounded(note.path) : "";
-  if (path) {
-    const state = note.unsaved === true ? " (with unsaved edits)" : "";
-    parts.push(`The note open in front of them is ${path}${state}.`);
-    if (note.readable === false) {
-      // Said out loud rather than left to a failed read. A note that has never
-      // been written, or one this build cannot decrypt, is not a note the agent
-      // can fetch — and a model that knows why stops trying.
-      parts.push("Its contents are not readable through your tools right now.");
-    }
-  }
-  if (place.meetingLive === true) parts.push("A meeting is being recorded right now.");
-  return parts.join(" ");
-}
-
-/**
- * A short string from the place, or nothing.
- *
- * The app builds the place and the app is the person's own client, so this is
- * not a trust boundary — it is a *length* boundary. Every field here ends up in
- * the system prompt on a request the customer pays for by the token, and a
- * client with a bug that puts a whole document in `note.path` should cost them
- * one confused answer rather than a bill.
- */
-function bounded(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= MAX_PLACE_FIELD
-    ? value
-    : "";
 }
 
 /** Flatten an MCP tool result into the text the model reads back. */
@@ -305,6 +206,8 @@ async function openBuiltin(controlPlane, session, env) {
  *   a tool's result (see `conversation.js`)
  * @param {{fetchImpl?: Function}} [options.providerOptions]
  * @param {boolean} [options.texting] the answer goes out as a text message
+ * @param {{instructions: ?string, texting: ?string}} [options.notes] the
+ *   editable prompt from `@context-lc` (`instructions.js`), or built-in words
  * @param {() => number} [options.clock] milliseconds, for `timing`
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
@@ -320,6 +223,7 @@ export async function runTurn(options) {
     history = [],
     web = null,
     texting = false,
+    notes = null,
     clock = Date.now,
   } = options;
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -333,7 +237,7 @@ export async function runTurn(options) {
   const model = builtin ? builtinModel(env) : modelFor(provider, env, requestedModel);
   const usage = { input: 0, output: 0 };
   const system =
-    systemPrompt(place, { texting }) +
+    systemPrompt(place, { texting, notes }) +
     webPrompt(webNames);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
