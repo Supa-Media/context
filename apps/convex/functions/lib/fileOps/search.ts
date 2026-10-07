@@ -15,6 +15,7 @@ import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../../mcp/src/search/visible.js";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
+import { meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
 import type { FileStore } from "./store";
 import { notFound } from "./errors";
 import { requireFolderPath } from "./paths";
@@ -61,6 +62,8 @@ export interface SearchHit {
   path: string;
   title: string;
   snippets: string[];
+  /** Found by what the note is about, not by the words typed ("Same topic, different words"). */
+  meaningOnly?: boolean;
 }
 
 export interface SearchResults {
@@ -282,6 +285,25 @@ export async function searchNotes(
   // between them a caller must never be able to see.
   const limit = pageDepth(options.limit);
 
+  // Search by meaning, asked now so it runs while the words are searched, and
+  // merged into whichever index answers (`search/meaning/serve.js`). It never
+  // rejects: a failure is `null`, which leaves the word answer as it was.
+  const meaningPending = meaningSearchable(store)
+    ? meaningMatches(store, {
+        query,
+        scope: options.clearance.scope,
+        grantedGroups: options.clearance.names.size > 0,
+        isVisible,
+        prefix: underFolder,
+      })
+    : Promise.resolve(null);
+  const merged = async (found: SearchResults): Promise<SearchResults> => {
+    const { meaning: _meaning, ...results } = await withMeaning(store, found, await meaningPending, {
+      keyField: "path",
+    });
+    return results as SearchResults;
+  };
+
   if (projection !== null) {
     try {
       const fast = await answerFromProjection(projection, {
@@ -292,7 +314,7 @@ export async function searchNotes(
         limit,
       });
       if (fast) {
-        return {
+        return await merged({
           hits: fast.hits.map((hit: { key: string; title: string; snippets: string[] }) => ({
             path: hit.key,
             title: hit.title,
@@ -315,7 +337,7 @@ export async function searchNotes(
           reducedRecall: false,
           reducedRecallNotes: [],
           answeredBy: "fast",
-        };
+        });
       }
     } catch {
       // Every D1 failure is one of `d1/client.js`'s closed-set codes, and none
@@ -358,7 +380,7 @@ export async function searchNotes(
     };
   }
 
-  return {
+  return await merged({
     hits: (found.hits ?? []).map((hit) => ({
       path: hit.key,
       title: hit.title,
@@ -371,7 +393,7 @@ export async function searchNotes(
     reducedRecall: Boolean(found.reducedRecall),
     reducedRecallNotes: found.reducedRecallNotes ?? [],
     answeredBy: "index",
-  };
+  });
 }
 
 /**

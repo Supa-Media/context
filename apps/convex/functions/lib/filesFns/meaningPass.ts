@@ -65,6 +65,40 @@ export async function meaningPassContext(
   };
 }
 
+/** What a console search needs to ask the index, as the gateway's store carries it. */
+export interface MeaningSearchDescriptor {
+  indexName: string;
+  accountId: string;
+  apiToken: string;
+  state: "backfilling" | "ready";
+}
+
+/**
+ * The index a console search may ask, or `null` to search words only.
+ *
+ * The opposite of `meaningPassContext` on a missing credential, for fast
+ * search's reason (`fileOperationBarrier.ts`, "A SEARCH READS THE PROJECTION
+ * AND NEVER WRITES THE ROW"): somebody typed a word, and their search must not
+ * mark the row failed as a side effect. Every way of saying no is `null`.
+ */
+export async function meaningSearchDescriptor(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<MeaningSearchDescriptor | null> {
+  try {
+    const target = await ctx.runQuery(internal.functions.meaningSearch.writeTargetForWorkspace, { workspaceId });
+    if (target === null) return null;
+    const [apiToken, accountId] = await Promise.all([
+      ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_TOKEN_SECRET }),
+      ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_ACCOUNT_SECRET }),
+    ]);
+    if (typeof apiToken !== "string" || !apiToken || typeof accountId !== "string" || !accountId) return null;
+    return { indexName: target.indexName, accountId, apiToken, state: target.state };
+  } catch {
+    return null;
+  }
+}
+
 /** Run one link, record it, and schedule the next where there is one. */
 export async function runMeaningPass(
   ctx: ActionCtx,

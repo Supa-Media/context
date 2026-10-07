@@ -103,3 +103,14 @@ carries a closed code. The extra cost per search is one embedding, one query,
 and up to three reads, inside the free tier's 50-subrequest ceiling that the
 word search's 40-op budget was set under. The tests that fail if any of this
 is loosened: `apps/mcp/test/meaningServe.test.mjs`.
+
+The app's own search asks the same way (`lib/fileOps/search.ts`, merging into
+whichever word index answered), keyed by `path`, with the hit carrying
+`meaningOnly` for the "Same topic, different words" label. The barrier looks
+the index up beside fast search's database and, like it, **a search never
+writes the row**: a deployment with no credential searches words only rather
+than marking the index failed because somebody typed. A member who answers to
+a group asks the index for every tier, since a group note is indexed as
+`private`, and `canSee` with their granted names decides as it does for words.
+Tests: `apps/convex/__tests__/consoleMeaningSearch.test.ts` and the "a console
+search" block of `meaningPass.test.ts`.

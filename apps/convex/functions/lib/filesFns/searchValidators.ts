@@ -10,7 +10,13 @@ import { v } from "convex/values";
 export const searchResultsValidator = v.object({
   kind: v.literal("searchResults"),
   hits: v.array(
-    v.object({ path: v.string(), title: v.string(), snippets: v.array(v.string()) }),
+    v.object({
+      path: v.string(),
+      title: v.string(),
+      snippets: v.array(v.string()),
+      /** Found by meaning alone: the app marks it "Same topic, different words". */
+      meaningOnly: v.optional(v.boolean()),
+    }),
   ),
   matchCount: v.number(),
   matchCountIsFloor: v.boolean(),

@@ -8,6 +8,7 @@
  * Sabotage record (temporary local edits, reverted):
  *   `isVisible` not consulted in `meaningMatches`    → "a match the caller cannot see is dropped" fails
  *   the team caller's `tiers` filter removed         → "a team caller asks the index for team notes only" fails
+ *   `grantedGroups` ignored (team tier always)        → "a member who answers to a group asks every tier…" fails
  *   `MEANING_MIN_SCORE` check removed                → "a distant match is noise, not the same topic" fails
  *   the catch rethrowing                             → "a failing index leaves the word answer untouched" fails
  *   the `MEANING_SNIPPET_READS` cap removed          → "at most three notes are read for snippets" fails
@@ -232,4 +233,36 @@ test("nothing near enough says none, distinct from off", async () => {
   const { store } = storeWith();
   const result = await withMeaning(store, { hits: [], matchCount: 0 }, await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }));
   assert.equal(result.meaning, "none");
+});
+
+test("a member who answers to a group asks every tier, and canSee still decides", async () => {
+  const index = fakeIndex([match("group-note.md", 0.9)]);
+  const { store } = storeWith();
+  const found = await meaningMatches(store, {
+    query: "q",
+    scope: "team",
+    grantedGroups: true,
+    isVisible: (path) => path === "group-note.md",
+    fetchImpl: index.impl,
+    embed,
+  });
+  assert.equal(index.bodies[0].filter, undefined);
+  assert.deepEqual(found.map((m) => m.path), ["group-note.md"]);
+});
+
+test("the console's hit shape, keyed by path, merges the same way", async () => {
+  const index = fakeIndex([match("w.md", 0.9), match("new.md", 0.8)]);
+  const { store } = storeWith({ "new.md": "# New\n\nbody text\n" });
+  const found = { hits: [{ path: "w.md", title: "W", snippets: [] }], matchCount: 1 };
+  const result = await withMeaning(
+    store,
+    found,
+    await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }),
+    { keyField: "path" },
+  );
+  assert.deepEqual(
+    result.hits.map((hit) => [hit.path, hit.meaningOnly]),
+    [["w.md", false], ["new.md", true]],
+  );
+  assert.ok(result.hits.every((hit) => !("key" in hit)));
 });

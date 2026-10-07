@@ -55,16 +55,27 @@ export function meaningSearchable(store) {
  * The notes `query` is about, best first, that this caller may see: `[{path,
  * score, chunk}]`, or `null` when meaning search is off or failed (which the
  * caller treats as "words only", never as "nothing found").
+ *
+ * @param {object} store
+ * @param {{query: string, scope: string, isVisible: (path: string) => boolean,
+ *   prefix?: string, grantedGroups?: boolean, fetchImpl?: Function,
+ *   embed?: (texts: string[]) => Promise<number[][]>}} options
+ * @returns {Promise<Array<{path: string, score: number, chunk: number}> | null>}
  */
-export async function meaningMatches(store, { query, scope, isVisible, prefix = "", fetchImpl, embed } = {}) {
+export async function meaningMatches(
+  store,
+  { query, scope, isVisible, prefix = "", grantedGroups = false, fetchImpl, embed },
+) {
   if (!meaningSearchable(store) || typeof query !== "string" || !query.trim()) return null;
   try {
     const [vector] = await (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]);
     const client = createMeaningClient(store.meaningIndex, { fetchImpl });
-    // A team caller's search is answered from team notes only (`canSee` with
-    // no granted groups, as the word search calls it), so asking the index
-    // for anything else would only crowd the top of the list.
-    const raw = await client.query(vector, { tiers: scope === "private" ? null : ["team"] });
+    // A team caller with no group grants sees team notes only, so asking the
+    // index for anything else would only crowd the top of the list. One who
+    // answers to a group can see some notes indexed as `private` (a group
+    // note's tier), so asks for every tier and lets `isVisible` decide.
+    const tiers = scope === "private" || grantedGroups ? null : ["team"];
+    const raw = await client.query(vector, { tiers });
     return rankMeaningMatches(raw).filter(
       (match) =>
         match.score >= MEANING_MIN_SCORE &&
@@ -97,10 +108,10 @@ export async function meaningMatches(store, { query, scope, isVisible, prefix = 
  *
  * @returns {Array<{key: string, word: object|null, meaning: object|null}>}
  */
-export function mergeHits(wordHits, matches) {
+export function mergeHits(wordHits, matches, keyField = "key") {
   const merged = new Map();
   wordHits.forEach((hit, rank) => {
-    merged.set(hit.key, { key: hit.key, word: hit, meaning: null, score: 1 / (RRF_K + rank + 1), order: rank });
+    merged.set(hit[keyField], { key: hit[keyField], word: hit, meaning: null, score: 1 / (RRF_K + rank + 1), order: rank });
   });
   (matches ?? []).forEach((match, rank) => {
     const entry = merged.get(match.path);
@@ -155,11 +166,11 @@ async function meaningSnippet(store, match) {
  * `matches` is `meaningMatches`'s answer, asked for alongside the word search
  * rather than after it, so the two cost one wait, not two.
  */
-export async function withMeaning(store, found, matches) {
+export async function withMeaning(store, found, matches, { keyField = "key" } = {}) {
   if (!matches || matches.length === 0) return { ...found, meaning: matches ? "none" : "off" };
   const out = [];
   let reads = 0;
-  for (const entry of mergeHits(found.hits, matches)) {
+  for (const entry of mergeHits(found.hits, matches, keyField)) {
     if (entry.word) {
       out.push({ ...entry.word, meaningOnly: false });
       continue;
@@ -167,14 +178,14 @@ export async function withMeaning(store, found, matches) {
     if (reads >= MEANING_SNIPPET_READS) continue;
     reads += 1;
     const read = await meaningSnippet(store, entry.meaning);
-    if (read) out.push({ key: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
+    if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
   }
   const added = out.filter((hit) => hit.meaningOnly).length;
   return { ...found, hits: out, matchCount: found.matchCount + added, meaning: "on" };
 }
 
 /** Word search and search by meaning, asked together and merged. */
-export async function searchBothWays(store, wordSearch, options) {
+export async function searchBothWays(store, wordSearch, options, shape = {}) {
   const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
-  return await withMeaning(store, found, matches);
+  return await withMeaning(store, found, matches, shape);
 }

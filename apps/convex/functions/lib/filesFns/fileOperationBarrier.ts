@@ -50,7 +50,15 @@ import {
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
 import { recordProjectionOutcome } from "./projectionOutcome";
-import { IDLE_MEANING, type MeaningPassContext, meaningPassContext, runMeaningPass } from "./meaningPass";
+import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
+import {
+  IDLE_MEANING,
+  type MeaningPassContext,
+  type MeaningSearchDescriptor,
+  meaningPassContext,
+  meaningSearchDescriptor,
+  runMeaningPass,
+} from "./meaningPass";
 import {
   failForwardSync,
   releaseForwardSync,
@@ -219,9 +227,16 @@ export async function runFileOperationHandler(
    * provisioning row to `failed` as a side effect. It falls through to the
    * R2 index, which is what every context without fast search does anyway.
    */
+  // Search by meaning is asked beside it, on the same terms: a `null` is
+  // "words only", never a row written (`meaningSearchDescriptor`).
+  let meaningSearch: MeaningSearchDescriptor | null = null;
   if (args.operation.kind === "search") {
-    const target = await projectionTarget("ready");
+    const [target, meaningTarget] = await Promise.all([
+      projectionTarget("ready"),
+      meaningSearchDescriptor(ctx, args.workspaceId),
+    ]);
     if (target !== null) projection = await clientFor(target);
+    meaningSearch = meaningTarget;
   }
 
   if (args.operation.kind === "projectIndex") {
@@ -414,6 +429,10 @@ export async function runFileOperationHandler(
         "This context's bucket configuration could not be used. Reconnect storage.",
     });
   }
+
+  // Non-enumerable, as the gateway attaches it: `searchNotes` asks it, and
+  // no serializer walking the store can carry the token out.
+  if (meaningSearch !== null) attachMeaningIndex(store, meaningSearch, null);
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {
     return await runMeaningPass(ctx, { ...args, operation: args.operation }, store, meaning);
