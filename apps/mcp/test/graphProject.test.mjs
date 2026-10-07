@@ -124,8 +124,10 @@ test("interrupted cleanup: a stop at every budget is finished by a second identi
     await project(b, "a.md", links("t.md", "u.md", "w.md"), "v1");
     const first = await project(b, "a.md", links("u.md", "x.md"), "v2", createSearchBudget(n));
     const after = await node(b, "a.md");
-    if (first.state === "pending" && after.observedSourceVersion === "v2") {
-      assert.ok(after.reverseRepair.length > 0, `budget ${n}: obligations kept while pending`);
+    // Fix round 2: a budget stop is its own state, never "pending".
+    assert.ok(["budget", "projected"].includes(first.state), `budget ${n}: ${first.state}`);
+    if (first.state === "budget" && after.observedSourceVersion === "v2") {
+      assert.ok(after.reverseRepair.length > 0, `budget ${n}: obligations kept while stopped`);
     }
     const second = await project(b, "a.md", links("u.md", "x.md"), "v2");
     assert.ok(["projected", "skipped"].includes(second.state), `budget ${n}: ${second.state}`);
@@ -153,7 +155,7 @@ test("interrupted cleanup: the clear never erases a newer record's obligations",
     return true;
   };
   const older = await project(s.store, "a.md", links("u.md"), "v2");
-  assert.equal(newer.state, "pending");
+  assert.equal(newer.state, "budget");
   // Fix round 1 ruling: a refused clear hands its keys back and reports "pending".
   assert.equal(older.state, "pending");
   const kept = await node(b, "a.md");
@@ -168,7 +170,7 @@ test("a newer edit merges outstanding cleanup instead of erasing it", async () =
   const b = memoryBucket();
   await project(b, "a.md", links("t.md"), "v1");
   // v2 drops t.md but stops right after publishing its obligations.
-  assert.equal((await project(b, "a.md", "no links", "v2", createSearchBudget(2))).state, "pending");
+  assert.equal((await project(b, "a.md", "no links", "v2", createSearchBudget(2))).state, "budget");
   assert.deepEqual(await incoming(b, "t.md"), ["a.md"]);
   assert.equal((await project(b, "a.md", "still none", "v3")).state, "projected");
   assert.deepEqual(await incoming(b, "t.md"), []);
@@ -274,7 +276,7 @@ test("a reverseRepair over the record cap keeps the record readable, partial, an
   const targets = Array.from({ length: 4000 }, (_, i) => `n${i}.md`);
   // Stop right after the publish: the obligations live only in the record.
   const { state } = await project(b, "a.md", links(...targets), "v1", createSearchBudget(4));
-  assert.equal(state, "pending");
+  assert.equal(state, "budget");
   const rec = await node(b, "a.md");
   assert.ok(rec, "record still parses under the cap");
   assert.equal(rec.coverage, "partial");
@@ -295,7 +297,7 @@ test("removeNote with conditional delete removes the record and every membership
 test("removeNote without conditional delete leaves an excluded tombstone, finished after a stop", async () => {
   const b = memoryBucket();
   await project(b, "a.md", links("t.md", "u.md"), "v1");
-  assert.equal((await removeNote(b, "a.md", { budget: createSearchBudget(3), gen, mode })).state, "pending");
+  assert.equal((await removeNote(b, "a.md", { budget: createSearchBudget(3), gen, mode })).state, "budget");
   assert.equal((await removeNote(b, "a.md", { budget: big(), gen, mode })).state, "projected");
   const rec = await node(b, "a.md");
   assert.equal(rec.coverage, "excluded");
@@ -409,6 +411,7 @@ test("progress is durable: a note with more memberships than one call's budget c
       assert.ok(calls <= 80, `budget ${B}: converged within 80 calls`);
       const r = await project(b, "hub.md", body, "v1", createSearchBudget(B));
       if (r.state === "projected" || r.state === "skipped") break;
+      assert.equal(r.state, "budget", `budget ${B}, call ${calls}: a budget stop says so`);
       const n = await node(b, "hub.md");
       if (n) {
         // Every call past the first publish retires at least one obligation.
@@ -419,4 +422,18 @@ test("progress is durable: a note with more memberships than one call's budget c
     assert.deepEqual(await incoming(b, "t29.md"), ["hub.md"], `budget ${B}`);
     assert.deepEqual((await node(b, "hub.md")).reverseRepair, []);
   }
+});
+
+test("a budget stop is reported as \"budget\" at every stopping point, a conflict as \"pending\"", async () => {
+  const ref = memoryBucket();
+  const full = big();
+  await project(ref, "a.md", links("t.md", "u.md"), "v1", full);
+  for (let n = 0; n < full.spent; n += 1) {
+    const b = memoryBucket();
+    assert.equal((await project(b, "a.md", links("t.md", "u.md"), "v1", createSearchBudget(n))).state, "budget", `budget ${n}`);
+  }
+  const b = memoryBucket();
+  await b.put(postingPageKey(gen, "incoming", await pathHash("t.md"), 0), "{not json");
+  assert.equal((await project(b, "a.md", links("t.md", "u.md"), "v1")).state, "pending");
+  assert.equal((await removeNote(b, "a.md", { budget: createSearchBudget(0), gen, mode })).state, "budget");
 });

@@ -160,8 +160,9 @@ async function sweep(store, budget, ctx, cursor, out) {
       cursor.sweepPending = true;
     } else if (!isCurrent(read.old, version)) {
       const state = await refresh(store, budget, path, version, ctx, read);
-      // Out of budget mid-note: revisit it next pass rather than skipping it.
-      if (state === "stop" || (state === "pending" && budget.remaining === 0)) return false;
+      // Out of budget mid-note ("budget", stated by projectNote, never read
+      // off `remaining`): revisit it next pass rather than skipping it.
+      if (state === "stop" || state === "budget") return false;
       tally(out, state);
       if (state === "pending" || state === "stale") cursor.sweepPending = true;
     }
@@ -211,7 +212,7 @@ async function auditNode(store, budget, ctx, key, out) {
   if (node.coverage === "excluded" && node.observedSourceVersion === null && isCurrent(node, null)) return true;
   // Absent from a complete census: removed only on an authoritative not-found.
   const state = await removeIfGone(store, budget, path, ctx);
-  if (state === "stop" || (state === "pending" && budget.remaining === 0)) return false;
+  if (state === "stop" || state === "budget") return false;
   tally(out, state);
   return true;
 }
@@ -306,7 +307,7 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   for (const path of removedHints) {
     if (typeof path !== "string" || !isIndexable(path) || census.has(path)) continue;
     const state = await removeIfGone(store, work, path, ctx);
-    if (state === "stop") break;
+    if (state === "stop" || state === "budget") break;
     tally(out, state);
   }
   // Once the graph is ready, sweep and audit alternate passes and each takes

@@ -38,6 +38,10 @@
  *   graph pass on the inline maintenance path                             1 (inline)
  *   sweep node read unguarded                                             1 (throwing node read)
  *
+ * Fix round 2 (red first: the grid test and seven graphProject assertions on
+ * the explicit "budget" state):
+ *   sweep stop test inferred from budget.remaining again                  1 (layout grid)
+ *
  * Measured zero, then fixed: the exact-entry clear was masked by the node
  * audit re-adding the entry on a later pass, so the audit test now checks the
  * accepted entries at every page write; the audit share had no test with a
@@ -411,6 +415,51 @@ async function oneLinkPasses(conditional, B, max) {
   }
   return null;
 }
+
+// Fix round 2: the reviewer's grid. K plain notes, one linking note `m.md`
+// with L links, J plain notes after it. Bound: proportional to total work.
+async function gridPasses(conditional, B, K, L, J, max) {
+  const b = bucket({ conditional });
+  const pad = (i) => String(i).padStart(3, "0");
+  const paths = [];
+  for (let i = 0; i < K; i += 1) paths.push(`a${pad(i)}.md`);
+  paths.push("m.md");
+  for (let i = 0; i < J; i += 1) paths.push(`z${pad(i)}.md`);
+  for (const p of paths) await b.put(p, p === "m.md" ? hubBody(L) : "plain");
+  for (let passes = 1; passes <= max; passes += 1) {
+    const budget = createSearchBudget(B);
+    await pass(b, budget);
+    assert.ok(budget.spent <= B);
+    if ((await state(b))?.state !== "ready") continue;
+    let ok = true;
+    for (const p of paths) if (!(await settled(b, p))) { ok = false; break; }
+    if (ok) return passes;
+  }
+  return null;
+}
+// Ops per note: node read, body, publish, names walk and write, clear (6),
+// plus two per link; a pass has about B - 10 ops for that after its overhead.
+const gridBound = (B, K, L, J) => 10 + GRID_FACTOR * Math.ceil((6 * (K + J + 1) + 2 * L) / Math.max(1, B - 10));
+// Measured: every layout converges within the bound at factor 1.
+const GRID_FACTOR = 2;
+const GRID_LAYOUTS = [
+  [0, 1, 6], [6, 1, 0], [6, 1, 6], [20, 1, 30], [70, 1, 3], [12, 1, 10], [4, 1, 30],
+  [0, 40, 6], [0, 40, 8], [0, 40, 10],
+];
+
+test("the layout grid converges in both modes at every budget (no wrap-forever livelock)", async () => {
+  const failures = [];
+  for (const conditional of [true, false]) {
+    for (const B of [11, 12, 13, 15, 18, 24, 30, 40, 80]) {
+      for (const [K, L, J] of GRID_LAYOUTS) {
+        const bound = gridBound(B, K, L, J);
+        const passes = await gridPasses(conditional, B, K, L, J, bound);
+        if (passes === null) failures.push(`${conditional ? "cond" : "best"} B=${B} K=${K} L=${L} J=${J} (bound ${bound})`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
 
 test("a pass at exactly GRAPH_PASS_FLOOR converges a one-link note, and the floor is the measured minimum", async () => {
   assert.equal(GRAPH_PASS_FLOOR, 11);

@@ -81,6 +81,11 @@ function withObligations(record, ordered) {
   return { published: { ...bare, reverseRepair: bare.reverseRepair.slice(0, lo) }, overflow: true };
 }
 
+// Stopped because the budget ran out, as opposed to "pending" (a conflict or
+// a refused write). Callers stop and retry the same note; they never infer
+// this from `budget.remaining` (fix round 2).
+const BUDGET = Object.freeze({ state: "budget" });
+
 /** A view of `budget` that always leaves `keep` ops for the caller. */
 const keepBack = (budget, keep) => ({
   get remaining() {
@@ -129,7 +134,7 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
     const { published, overflow } = withObligations(record, ordered);
     // Mark the dropped portion for a rebuild before the record that drops it.
     if (overflow) await flagRebuild(store, budget);
-    if (!budget.take()) return { state: "pending" };
+    if (!budget.take()) return BUDGET;
     const put = await store.put(read.key, serializeNode(published), onlyIf(read.etag));
     if (!put) return { state: "stale" };
     etag = put.etag;
@@ -137,6 +142,7 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
 
   const work = keepBack(budget, 1);
   const left = [];
+  let stopped = false;
   for (let i = 0; i < ordered.length; i += 1) {
     const { family, hash } = toRef(ordered[i]);
     const result = await setMembership(store, work, {
@@ -144,6 +150,7 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
     });
     if (result === "budget") {
       left.push(...ordered.slice(i));
+      stopped = true;
       break;
     }
     // "full": the chain cannot take the entry; drop the obligation and report
@@ -156,14 +163,16 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
   // obligations are never erased.
   if (conditional && !etag) return { state: "pending" };
   if (left.length > 0) {
+    // A budget stop says so ("budget"); work left only by conflicts is "pending".
+    const outcome = stopped ? BUDGET : { state: "pending" };
     // Nothing retired: the stored record already says all of it.
-    if (left.length === ordered.length) return { state: "pending" };
-    if (!budget.take()) return { state: "pending" };
+    if (left.length === ordered.length) return outcome;
+    if (!budget.take()) return BUDGET;
     const { published } = withObligations({ ...record, ...(full && { coverage: "partial" }) }, left);
-    if (await store.put(read.key, serializeNode(published), onlyIf(etag))) return { state: "pending" };
+    if (await store.put(read.key, serializeNode(published), onlyIf(etag))) return outcome;
     return conditional ? handBack(store, budget, read.key, path, ordered) : { state: "stale" };
   }
-  if (!budget.take()) return { state: "pending" };
+  if (!budget.take()) return BUDGET;
   let done;
   if (remove && store.capabilities?.conditionalDelete === true) {
     done = (await store.delete(read.key, conditional ? { onlyIf: { etagMatches: etag } } : undefined)) !== null;
@@ -207,8 +216,9 @@ async function flagRebuild(store, budget) {
 /**
  * Publish `path`'s forward record for `body` at `version` and repair its
  * reverse postings. Returns `{ state }`: "projected" (record current, no
- * outstanding work), "pending" (stopped by the budget or a posting conflict;
- * the record, if published, carries the outstanding work), "skipped" (the
+ * outstanding work), "budget" (stopped because the budget ran out; the record,
+ * if published, carries the outstanding work and the caller retries this note),
+ * "pending" (a posting conflict or a refused write left work outstanding), "skipped" (the
  * stored record already observed `version` and has nothing outstanding) or
  * "stale" (the publish was refused: the caller re-reads the source rather
  * than retrying this body, arch 9.4). A refused clear is "pending": this
@@ -218,7 +228,7 @@ export async function projectNote(store, path, body, version, { budget, gen, mod
   // Read the record before using body/version (arch 9.4 last paragraph). A
   // caller that already read it this call (the sweep) hands it in.
   const read = given ?? (await readNode(store, budget, gen, path));
-  if (!read) return { state: "pending" };
+  if (!read) return BUDGET;
   if (read.old && read.old.observedSourceVersion === version && noRepair(read.old)) return { state: "skipped" };
   const { record, memberships } = await buildNodeRecord(path, body, version, { now });
   return settle(store, budget, { gen, mode, path, read, record, memberships, remove: false });
@@ -231,7 +241,7 @@ export async function projectNote(store, path, body, version, { budget, gen, mod
  */
 export async function removeNote(store, path, { budget, gen, mode }) {
   const read = await readNode(store, budget, gen, path);
-  if (!read) return { state: "pending" };
+  if (!read) return BUDGET;
   if (!read.exists) return { state: "skipped" };
   const tombstoned = read.old?.coverage === "excluded" && noRepair(read.old);
   if (tombstoned && store.capabilities?.conditionalDelete !== true) return { state: "skipped" };
