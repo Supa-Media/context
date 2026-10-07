@@ -26,6 +26,7 @@ export function useFileActions(deps: FileActionsDeps) {
   const readNote = useAction(api.functions.files.readNote);
   const readNotesAction = useAction(api.functions.files.readNotes);
   const searchContext = useAction(api.functions.files.searchContext);
+  const reportSearchScreen = useMutation(api.functions.searchTimings.reportScreen);
   const notePathsAction = useAction(api.functions.files.notePaths);
   const writeNote = useAction(api.functions.files.writeNote);
   const submitFormAction = useAction(api.functions.forms.submitForm);
@@ -63,7 +64,7 @@ export function useFileActions(deps: FileActionsDeps) {
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
   return {
-    workspaceId, slug, listFiles, readNote, readNotesAction, searchContext, notePathsAction,
+    workspaceId, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,

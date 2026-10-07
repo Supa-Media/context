@@ -28,7 +28,7 @@ import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 
 type ListingsDeps =
-  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "workspaceId">
+  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "workspaceId">
   & Pick<
     BrowserStateValues,
     | "dispatch"
@@ -48,7 +48,7 @@ type ListingsDeps =
 export function useListings(deps: ListingsDeps) {
   const {
     dispatch, listFiles, listedAtRef, listings, notePathsAction, offlineRef, openRun,
-    searchContext, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
+    searchContext, reportSearchScreen, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
     setOpening, setSelectedPath, workspaceId,
   } = deps;
 
@@ -484,11 +484,26 @@ export function useListings(deps: ListingsDeps) {
    */
   const search = useCallback(
     async (query: string, prefix?: string) => {
+      // What the person waited, from asking to the answer on this device: the
+      // figure the admin console's Search tab leads with. Sent behind the
+      // answer and never awaited — a timing must not slow or fail a search.
+      const started = Date.now();
       const found = await searchContext({
         workspaceId: workspaceId as Id<"workspaces">,
         query,
         ...(prefix === undefined ? {} : { prefix }),
       });
+      try {
+        void Promise.resolve(
+          reportSearchScreen({
+            workspaceId: workspaceId as Id<"workspaces">,
+            ms: Date.now() - started,
+            found: found.hits.length > 0,
+          }),
+        ).catch(() => {});
+      } catch {
+        // See above: never the reason a search fails.
+      }
       return {
         hits: found.hits,
         indexMissing: found.indexMissing,
@@ -497,7 +512,7 @@ export function useListings(deps: ListingsDeps) {
         reducedRecallNotes: found.reducedRecallNotes,
       };
     },
-    [searchContext, workspaceId],
+    [searchContext, reportSearchScreen, workspaceId],
   );
 
   return {

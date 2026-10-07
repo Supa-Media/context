@@ -85,6 +85,12 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep search timings past their retention",
+  { hours: 1 },
+  internal.functions.searchTimings.purgeOldSearchTimings,
+);
+
+crons.interval(
   "sweep expired texted sign-in links",
   { hours: 1 },
   internal.functions.textLinks.purgeExpiredPhoneLinkInvites,

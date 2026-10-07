@@ -128,6 +128,7 @@ import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
+import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
@@ -852,6 +853,7 @@ export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
 http.route({ path: "/stripe/webhook", method: "POST", handler: stripeWebhook });
 
 export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
+export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTimingHandler);
 
 /* -------------------------------------------------------------------------- */
 
@@ -910,6 +912,7 @@ export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
 http.route({ path: "/gateway/site", method: "POST", handler: gatewaySite });
 
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
+http.route({ path: "/gateway/search-timing", method: "POST", handler: gatewaySearchTiming });
 
 /* The texting assistant: link a phone, and open a session for one text. */
 export const agentTextsLink = agentWorkerRoute(agentTexts.agentTextsLinkHandler);

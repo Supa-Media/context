@@ -57,6 +57,7 @@ import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { normalizeSecretName } from "./lib/appSecrets";
 import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } from "./lib/admin";
 import { agentReportHandler, agentReportValidator } from "./lib/adminFns/agentReport";
+import { searchReportHandler, searchReportValidator } from "./lib/adminFns/searchReport";
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, usageReportValidator, type CountedTotal, type MetricSeries } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
@@ -124,11 +125,9 @@ export const usageReport = query({
   args: { days: v.optional(v.number()) },
   returns: usageReportValidator,
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await usageReportHandler(ctx, args);
   },
 });
@@ -142,12 +141,26 @@ export const agentReport = query({
   },
   returns: agentReportValidator,
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await agentReportHandler(ctx, args);
+  },
+});
+
+/** The Search tab: how long searches take, and which index answered. See `lib/adminFns/searchReport.ts`. */
+export const searchReport = query({
+  args: {
+    days: v.optional(v.number()),
+    view: v.optional(v.union(v.literal("screen"), v.literal("app"), v.literal("ai"))),
+    workspace: v.optional(v.string()),
+  },
+  returns: searchReportValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await searchReportHandler(ctx, args);
   },
 });
 
@@ -162,11 +175,9 @@ export const jevUsageReport = query({
   args: { days: v.optional(v.number()) },
   returns: jevUsageReportValidator,
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await jevUsageReportHandler(ctx, args);
   },
 });
@@ -207,11 +218,9 @@ export const listWaitlist = query({
     counts: v.object({ waiting: v.number(), admitted: v.number() }),
   }),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listWaitlistHandler(ctx, args.status);
   },
 });
@@ -236,11 +245,9 @@ export const removeFromWaitlist = mutation({
   args: { ids: v.array(v.id("waitlist")) },
   returns: v.object({ changed: v.number() }),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await removeHandler(ctx, args.ids);
   },
 });
@@ -311,11 +318,9 @@ export const listReferrals = query({
     invitesOff: v.boolean(),
   }),
   handler: async (ctx) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listReferralsHandler(ctx);
   },
 });
@@ -339,11 +344,9 @@ export const traceReferral = query({
     }),
   ),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await traceReferralHandler(ctx, args.inviteId);
   },
 });
@@ -398,11 +401,9 @@ export const listCommunityLinks = query({
   args: {},
   returns: v.array(communityLinkValidator),
   handler: async (ctx) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listCommunityLinksHandler(ctx);
   },
 });
@@ -534,11 +535,9 @@ export const censusReport = query({
     waitlist: censusWaitlistValidator,
   }),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await censusReportHandler(ctx, args);
   },
 });
@@ -566,11 +565,9 @@ export const listSecrets = query({
     }),
   ),
   handler: async (ctx): Promise<AdminSecretRow[]> => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listSecretsHandler(ctx);
   },
 });

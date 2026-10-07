@@ -32,6 +32,27 @@ export function createReportingMethods({ post }) {
     },
 
     /**
+     * Say how long one search took and which index answered, for the search
+     * timing log (`apps/convex/functions/searchTimings.ts`).
+     *
+     * `reportUsage`'s rule again: called behind the response, its rejection
+     * swallowed, and what crosses is a workspace id, a word from a closed list,
+     * a boolean and a number. Never the query, a path, or a count of what the
+     * workspace holds.
+     *
+     * @param {{workspaceId: string, answeredBy: string, found: boolean, ms: number}} timing
+     */
+    async reportSearchTiming(timing) {
+      if (!timing || typeof timing.workspaceId !== "string" || !timing.workspaceId) return null;
+      return await post("/gateway/search-timing", {
+        workspaceId: timing.workspaceId,
+        answeredBy: timing.answeredBy,
+        found: Boolean(timing.found),
+        ms: timing.ms,
+      });
+    },
+
+    /**
      * Say how far this workspace's search projection has got.
      *
      * The second call on this client whose failure is nobody's problem, for

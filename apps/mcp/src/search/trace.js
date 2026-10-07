@@ -97,3 +97,26 @@ export function logSearchTrace(trace) {
     // fail somebody's search.
   }
 }
+
+/**
+ * Hand one search's time to the control plane's search timing log
+ * (`apps/convex/functions/searchTimings.ts`), where the admin console reads it.
+ *
+ * The log line above stays the detailed record; this is the one number and
+ * the one word an average is built from. `total` carries the clock caveat in
+ * this file's header: it is the time spent waiting on storage and D1, which
+ * for a search is nearly all of it, and CPU reads as nothing. Never throws:
+ * a store without a reporter (a test, a host that cannot defer) simply does
+ * not report.
+ *
+ * @param {{reportSearchTiming?: Function}} store
+ * @param {"fast" | "index" | "scan"} answeredBy
+ */
+export function reportSearchTiming(store, trace, answeredBy, found) {
+  try {
+    if (typeof store?.reportSearchTiming !== "function") return;
+    store.reportSearchTiming({ answeredBy, found: Boolean(found), ms: trace.toJSON().ms.total });
+  } catch {
+    // Instrumentation must never be how a search fails.
+  }
+}

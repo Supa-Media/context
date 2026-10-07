@@ -41,7 +41,7 @@
  *     personal against shared, paying against free.
  *  3. **A funnel, a nudge list and a roster, because at this size the answer
  *     is a person.**
- *  4. **A tab per errand.** Growth, estate, activity, the agent, credentials,
+ *  4. **A tab per errand.** Growth, estate, activity, the agent, search, credentials,
  *     and the waitlist — letting people in is a daily chore, not a figure.
  *
  * The arithmetic is in `./report` and `./growth`, the shapes in `./Charts`
@@ -63,6 +63,7 @@ import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
 import { GrowthSection } from "./GrowthSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
+import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
 import { WaitlistSection } from "./WaitlistSection";
 
@@ -156,6 +157,7 @@ function Console() {
         {tab === "estate" ? <EstateSection days={days} /> : null}
         {tab === "activity" ? <ActivitySection days={days} /> : null}
         {tab === "agent" ? <AgentSection /> : null}
+        {tab === "search" ? <SearchSection /> : null}
         {tab === "credentials" ? <SecretsSection secrets={secrets} unset={unset} /> : null}
         {tab === "waitlist" ? <WaitlistSection /> : null}
       </View>

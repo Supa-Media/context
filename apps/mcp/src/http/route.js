@@ -560,6 +560,18 @@ function attachChangeReporters(store, workspaceId, controlPlane) {
       // A host whose `waitUntil` refuses the work simply does not report.
     }
   };
+  // How long a search took and which index answered (`search/visibleNotes.js`),
+  // for the admin console's search timing log. Behind the answer, like the rest.
+  store.reportSearchTiming = (timing) => {
+    // Checked before the request is built: `reportUsage`'s rule, a fetch
+    // nothing keeps alive is a subrequest spent on nothing.
+    if (typeof store.defer !== "function") return;
+    try {
+      store.defer(controlPlane.reportSearchTiming({ ...timing, workspaceId }).catch(() => {}));
+    } catch {
+      // A host whose `waitUntil` refuses the work simply does not report.
+    }
+  };
   store.reportActivity = (teamVisible) => {
     const send = controlPlane.reportActivity(workspaceId, teamVisible === true).catch(() => {});
     if (typeof store.defer !== "function") return;

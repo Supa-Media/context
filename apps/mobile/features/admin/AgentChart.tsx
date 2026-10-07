@@ -17,11 +17,28 @@ import { CURVE_BOX, curveGeometry, niceTop } from "./growth";
 
 const CHART_HEIGHT = 148;
 
-export function AgentChart({ buckets }: { buckets: AgentReport["buckets"] }) {
+/**
+ * Also the Search tab's chart (`./SearchSection`), which passes its own
+ * time format and its own name for what the faint bars count.
+ */
+export function AgentChart({
+  buckets,
+  format = formatSeconds,
+  volume = "Questions",
+  testID = "admin-agent-chart",
+}: {
+  buckets: AgentReport["buckets"];
+  format?: (ms: number) => string;
+  volume?: string;
+  testID?: string;
+}) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { graphColors } = useTheme();
-  const top = niceTop(buckets.reduce((best, bucket) => Math.max(best, bucket.p95), 0) / 1000) * 1000;
+  // Scaled in milliseconds when everything is under a second, so a chart of
+  // 200 ms searches is not drawn against a one-second ceiling.
+  const peak = buckets.reduce((best, bucket) => Math.max(best, bucket.p95), 0);
+  const top = peak > 0 && peak < 1000 ? niceTop(peak) : niceTop(peak / 1000) * 1000;
   const mostTurns = buckets.reduce((best, bucket) => Math.max(best, bucket.turns), 0);
   const typical = curveGeometry(buckets.map((bucket) => bucket.p50), top);
   const slowest = curveGeometry(buckets.map((bucket) => bucket.p95), top);
@@ -29,13 +46,13 @@ export function AgentChart({ buckets }: { buckets: AgentReport["buckets"] }) {
   const last = buckets[buckets.length - 1];
 
   return (
-    <View testID="admin-agent-chart">
+    <View testID={testID}>
       <View style={styles.legend}>
         <Key color={colors.accent} label="Typical" />
         <Key color={graphColors.shared} label="Slowest 1 in 20" />
-        <Key color={colors.line} label="Questions" block />
+        <Key color={colors.line} label={volume} block />
       </View>
-      <View style={styles.chart} accessibilityLabel={describe(buckets)}>
+      <View style={styles.chart} accessibilityLabel={describe(buckets, format, volume)}>
         <View style={styles.bars} aria-hidden>
           {buckets.map((bucket) => (
             <View key={bucket.label} style={styles.barSlot}>
@@ -47,7 +64,7 @@ export function AgentChart({ buckets }: { buckets: AgentReport["buckets"] }) {
         </View>
         {[1, 0.5].map((share) => (
           <View key={share} style={[styles.grid, { top: `${(1 - share) * 100}%` }]}>
-            <Text style={styles.gridLabel}>{formatSeconds(top * share)}</Text>
+            <Text style={styles.gridLabel}>{format(top * share)}</Text>
           </View>
         ))}
         <Svg
@@ -94,14 +111,19 @@ function Key({ color, label, block = false }: { color: string; label: string; bl
 }
 
 /** What a screen reader hears in place of the lines. */
-export function describe(buckets: AgentReport["buckets"]): string {
+export function describe(
+  buckets: AgentReport["buckets"],
+  format: (ms: number) => string = formatSeconds,
+  volume = "Questions",
+): string {
   const asked = buckets.reduce((sum, bucket) => sum + bucket.turns, 0);
   const busiest = buckets.reduce<AgentReport["buckets"][number] | null>(
     (best, bucket) => (best === null || bucket.turns > best.turns ? bucket : best),
     null,
   );
-  if (asked === 0 || busiest === null) return "No questions in this window.";
-  return `${asked} questions. Busiest ${bucketLabel(busiest.label)}, typical ${formatSeconds(busiest.p50)}, slowest ${formatSeconds(busiest.p95)}.`;
+  const noun = volume.toLowerCase();
+  if (asked === 0 || busiest === null) return `No ${noun} in this window.`;
+  return `${asked} ${noun}. Busiest ${bucketLabel(busiest.label)}, typical ${format(busiest.p50)}, slowest ${format(busiest.p95)}.`;
 }
 
 const makeStyles = (colors: Colors) =>

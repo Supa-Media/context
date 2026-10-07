@@ -4,7 +4,7 @@ import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
 import { BUDGET_EXHAUSTED } from "./budget.js";
 import { canSee, effectiveVisibility, isPlumbing } from "../privacy/engine.js";
 import { createSearchBudget } from "./maintain.js";
-import { createSearchTrace, logSearchTrace } from "./trace.js";
+import { createSearchTrace, logSearchTrace, reportSearchTiming } from "./trace.js";
 import { DEFERRED_SYNC_FLOOR } from "./pacing.js";
 import { fastSearchAnswer, scanVisibleNotes } from "./scan.js";
 import { indexIsBehind, loadIndexManifest } from "./shards.js";
@@ -133,6 +133,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
       await maintainIndexAfter(store, budget, isIndexable, freshness, projectVisibility)
     );
     logSearchTrace(trace);
+    reportSearchTiming(store, trace, "fast", fast.hits.length > 0);
     return {
       hits: fast.hits,
       matchCount: fast.matchCount,
@@ -176,6 +177,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     trace.set("spent", budget.spent);
     trace.set("maintain", "none");
     logSearchTrace(trace);
+    reportSearchTiming(store, trace, "scan", scan.hits.length > 0);
     return {
       hits: scan.hits,
       matchCount: scan.hits.length,
@@ -226,6 +228,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
       await maintainIndexAfter(store, budget, isIndexable, found, projectVisibility)
     );
     logSearchTrace(trace);
+    reportSearchTiming(store, trace, "index", found.hits.length > 0);
     return {
       hits: found.hits,
       matchCount: found.matchCount,
@@ -272,6 +275,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     await maintainIndexAfter(store, budget, isIndexable, null, projectVisibility)
   );
   logSearchTrace(trace);
+  reportSearchTiming(store, trace, "scan", scan.hits.length > 0);
   return {
     hits: scan.hits,
     matchCount: scan.hits.length,
