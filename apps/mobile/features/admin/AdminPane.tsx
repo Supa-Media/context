@@ -41,8 +41,8 @@
  *     personal against shared, paying against free.
  *  3. **A funnel, a nudge list and a roster, because at this size the answer
  *     is a person.**
- *  4. **A tab per errand.** Growth, estate, activity, credentials, and the
- *     waitlist — letting people in is a daily chore, not a figure.
+ *  4. **A tab per errand.** Growth, estate, activity, the agent, credentials,
+ *     and the waitlist — letting people in is a daily chore, not a figure.
  *
  * The arithmetic is in `./report` and `./growth`, the shapes in `./Charts`
  * and `./GrowthArea`, each tab in its own module, and the furniture they
@@ -57,6 +57,7 @@ import { DeadLinkScreen } from "../app/DeadLinkScreen";
 import { ScreenScroll } from "../app/Screen";
 import { space, useColors, useThemedStyles, type Colors } from "../design";
 import { ActivitySection } from "./ActivitySection";
+import { AgentSection } from "./AgentSection";
 import { useCompact } from "./AdminKit";
 import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
@@ -154,6 +155,7 @@ function Console() {
         ) : null}
         {tab === "estate" ? <EstateSection days={days} /> : null}
         {tab === "activity" ? <ActivitySection days={days} /> : null}
+        {tab === "agent" ? <AgentSection /> : null}
         {tab === "credentials" ? <SecretsSection secrets={secrets} unset={unset} /> : null}
         {tab === "waitlist" ? <WaitlistSection /> : null}
       </View>
