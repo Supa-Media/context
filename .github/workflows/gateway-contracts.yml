@@ -48,8 +48,13 @@
 # lint-command comment each record a version of "a check that is green because
 # it did not execute".
 #
-# This separate job installs the full control-plane and app dependencies;
-# mcp.yml installs only the gateway's approved collaboration dependency tree.
+# The suite itself now runs in ONE place: `ci / Test Convex Backend` (three
+# shards, under the required `ci / Test Summary`), whose change filter in
+# ci.yml was widened to every path this file watched — apps/mcp,
+# packages/collaboration, the Dropbox mirror and the lockfile among them. It
+# used to run here as well, the same 226 files twice on most pull requests
+# (about 85 runner-minutes in three hours, measured 2026-10-07). This file
+# keeps the part only it does: proving the cross-package contract still exists.
 name: Gateway Contracts
 
 # No `paths:` filter on pull_request, deliberately — the same reasoning as
@@ -83,26 +88,16 @@ permissions:
   contents: read
   packages: read
 
-# A full workspace install per run is not something to stack up on a branch
-# somebody is pushing to repeatedly.
+# Only the newest commit on a branch is worth checking.
 concurrency:
   group: gateway-contracts-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   contracts:
-    name: Gateway contracts (${{ matrix.shard }}/3)
+    name: Gateway contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # The control-plane suite is the slowest thing on a pull request: about
-    # three minutes on one runner, nearly all of it vitest collecting and
-    # running 220-odd files. Three runners each take a third (vitest's
-    # --shard splits by file), and every file still runs on every commit.
-    # fail-fast is off so one red shard still reports the others' results.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
 
@@ -138,56 +133,3 @@ jobs:
             exit 1
           fi
           echo "$found contract tests listed."
-
-      - uses: pnpm/action-setup@v4
-        if: steps.scope.outputs.affected == 'true'
-
-      - uses: actions/setup-node@v5
-        if: steps.scope.outputs.affected == 'true'
-        with:
-          node-version: 22
-          cache: pnpm
-
-      # A FULL install, not `--filter @context/convex...`.
-      #
-      # The filtered version was the first thing tried and it went red in CI,
-      # which is worth recording because somebody will try to narrow this
-      # again: **the control plane's suite is not self-contained.**
-      # `__tests__/dropboxConnect.test.ts` imports
-      # `../../mobile/features/console/storage/dropbox` — the one real
-      # reach-out, mirroring the client's redirect origins through the server's
-      # allow-list — so vitest resolves apps/mobile/tsconfig.json, which
-      # extends `expo/tsconfig.base`. Without the mobile app's dependencies
-      # that resolution throws and the file dies before an assertion runs:
-      #
-      #   TSConfckParseError: failed to resolve "extends":"expo/tsconfig.base"
-      #   Test Files  1 failed | 39 passed (40)
-      #
-      # Adding a second `--filter` for the mobile app would work, and buys
-      # nothing: that filter installs Expo, which is the bulk of the workspace,
-      # so it costs about what a full install costs and adds a list to keep
-      # current. (An earlier version of this comment said such a list fails
-      # "silently". It does not — it fails exactly as the above did, loudly, by
-      # name. That was this pull request's own thesis borrowed for an argument
-      # it does not fit.)
-      #
-      # The real repair is to move DROPBOX_CALLBACK_PATH / DROPBOX_REDIRECT_ORIGINS
-      # into packages/shared, where CLAUDE.md says constants shared across apps
-      # belong. Then the control plane's suite is self-contained and this
-      # paragraph is unnecessary. Filed, not done here.
-      - name: Install
-        if: steps.scope.outputs.affected == 'true'
-        run: pnpm install --frozen-lockfile
-
-      # The whole control-plane suite, not only the files the detector names.
-      #
-      # Not a cost decision — a measured one. Disabling the S3 adapter's
-      # ambiguous-addressing guard is caught by `addressing.test.ts` and by the
-      # gateway's own suite, and the six files the first version of the
-      # detector found reported 385 passed, 0 failed. A curated subset here is
-      # a floor printed as a total, which is the thing this repository already
-      # refuses to do with note counts.
-      - name: Control-plane suite, against this commit's gateway
-        if: steps.scope.outputs.affected == 'true'
-        working-directory: apps/convex
-        run: npx vitest run --shard=${{ matrix.shard }}/3

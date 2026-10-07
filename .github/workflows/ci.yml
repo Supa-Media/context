@@ -60,6 +60,52 @@ jobs:
       # on a pull request. Three runners each take a third of the files
       # (vitest --shard); `ci / Test Summary` still fails if any shard does.
       convex-test-shards: 3
+      # The upstream filters, with `convex` widened to everything Gateway
+      # Contracts used to run this same suite for: the gateway and the
+      # packages it shares with the control plane (the control-plane suite
+      # imports them), the one mobile file it reaches into, and the install
+      # inputs. Until 2026-10-07 both workflows ran the identical suite on
+      # most pushes, about a fifth of all runner minutes. Now it runs once,
+      # here, under the required `ci / Test Summary`, and Gateway Contracts
+      # keeps only its detector. `scripts/check-ci-path-gates.mjs` holds the
+      # two lists together.
+      change-filters: |
+        shared:
+          - 'packages/shared/**'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'tsconfig.json'
+          - 'pnpm-workspace.yaml'
+        mobile:
+          - 'apps/mobile/**'
+          - 'packages/shared/**'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'tsconfig.json'
+          - 'pnpm-workspace.yaml'
+        convex:
+          - 'apps/convex/**'
+          - 'packages/shared/**'
+          - 'apps/mcp/**'
+          - 'packages/collaboration/**'
+          - 'packages/obsidian-runtime/**'
+          - 'apps/mobile/features/console/storage/dropbox.ts'
+          - 'apps/mobile/features/console/storage/dropbox.web.ts'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'tsconfig.json'
+          - 'pnpm-workspace.yaml'
+          - '.npmrc'
+          - 'patches/**'
+          - '.github/workflows/ci.yml'
+        e2e:
+          - 'apps/mobile/**'
+          - 'packages/shared/**'
+          - 'tests/e2e/**'
+          - 'playwright.config.ts'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'pnpm-workspace.yaml'
     secrets: inherit
 
   # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────

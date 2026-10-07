@@ -86,6 +86,9 @@ export function acceptsPullRequest(text) {
   return /^\s{2}pull_request:/m.test(block);
 }
 
+/** A call to the framework's reusable CI pipeline. */
+const FRAMEWORK_CI = /^\s*uses:\s*Supa-Media\/supa-framework\/\.github\/workflows\/ci\.yml@/m;
+
 /**
  * Which of `workflows` shows evidence of running `pkg`, and how.
  *
@@ -110,6 +113,13 @@ export function evidenceOfExecution(pkg, workflows) {
       found.push({ workflow: workflow.name, how: "run" });
     } else if (name && new RegExp(`--filter\\s+["']?(\\./)?(${name}|${escaped})`).test(text)) {
       found.push({ workflow: workflow.name, how: "filter" });
+    } else if (path === "apps/convex" && FRAMEWORK_CI.test(text)) {
+      // The framework's reusable pipeline runs `Test Convex Backend` as
+      // `cd apps/convex && pnpm run test` when no `convex-package` is passed
+      // (supa-framework .github/workflows/ci.yml). Since 2026-10-07 that is
+      // the only place the control-plane suite runs on a pull request;
+      // Gateway Contracts used to run it a second time.
+      found.push({ workflow: workflow.name, how: "framework ci" });
     }
   }
   return found;
@@ -196,14 +206,25 @@ function selfTest() {
       false,
     ],
     [
+      "the framework's CI pipeline runs apps/convex",
+      [workflow("ci.yml", PR, "  ci:\n    uses: Supa-Media/supa-framework/.github/workflows/ci.yml@main")],
+      true,
+      { path: "apps/convex", name: "@context/convex" },
+    ],
+    [
+      "and no other package",
+      [workflow("ci.yml", PR, "  ci:\n    uses: Supa-Media/supa-framework/.github/workflows/ci.yml@main")],
+      false,
+    ],
+    [
       "no workflows at all is not coverage",
       [],
       false,
     ],
   ];
 
-  for (const [label, workflows, expected] of cases) {
-    const got = evidenceOfExecution(pkg, workflows).length > 0;
+  for (const [label, workflows, expected, subject = pkg] of cases) {
+    const got = evidenceOfExecution(subject, workflows).length > 0;
     if (got !== expected) {
       throw new Error(`self-test: ${label} — expected ${expected}, got ${got}`);
     }
