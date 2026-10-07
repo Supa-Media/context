@@ -18,6 +18,8 @@ import { FIRST_STRONG_ISOLATE, POP_DIRECTIONAL_ISOLATE } from "@context/shared/s
 import type { FileBrowser } from "../features/console/files/browser";
 import { emptyEditor } from "../features/console/files/editor";
 import { PhoneHome } from "../features/console/home/PhoneHome";
+import { consoleBottomBar } from "../features/console/layout/slots";
+import type { ConsoleData } from "../features/console/types";
 import { HOME_LABEL, phoneBackTarget, slideDirection } from "../features/console/home/phoneBack";
 import { MapRouteProvider, useLeaveMapOnOpen } from "../features/console/map/live/MapRouteContext";
 import { mapFromQuery, mapHref, routeMap, type MapRoute } from "../features/console/map/live/route";
@@ -228,6 +230,22 @@ describe("the map on a phone", () => {
   test("slides forward in from Home and back out to it", () => {
     expect(slideDirection("", MAP_PAGE_KEY)).toBe("forward");
     expect(slideDirection(MAP_PAGE_KEY, "")).toBe("back");
+  });
+
+  test("has no search bar under its sheet: the map's sheet is the bottom edge", () => {
+    const bar = (mapOpen: boolean) =>
+      consoleBottomBar({
+        browsing: true,
+        data: {} as ConsoleData,
+        setPaletteOpen: noop,
+        setSearchScope: noop,
+        canCreate: true,
+        setBarDialog: noop,
+        note: null,
+        mapOpen,
+      });
+    expect(bar(true)).toBeUndefined();
+    expect(bar(false)).not.toBeUndefined();
   });
 });
 
