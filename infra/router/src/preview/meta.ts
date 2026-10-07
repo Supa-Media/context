@@ -119,7 +119,7 @@ export const GENERIC_PREVIEW: PreviewMeta = Object.freeze({
     "One MCP endpoint for every AI client, backed by plain markdown in a " +
     "bucket you own. Sign in to open this link.",
   canonical: `${ORIGIN}/`,
-  imageAlt: "Context — free your context, share your context.",
+  imageAlt: "Context. Less chaos. Finally, everyone’s on the same page.",
   robots: "noindex, nofollow",
 });
 
@@ -141,7 +141,7 @@ const PREVIEW_ROUTES: ReadonlyMap<string, PreviewMeta> = new Map<
   [
     "",
     Object.freeze({
-      title: "Context.LC — Free your context. Share your context.",
+      title: "Context.LC — Less chaos. Finally, everyone’s on the same page.",
       // What a search result shows under the title. Plain words first: a
       // stranger deciding whether to click has not met "MCP" or "bucket".
       description:
@@ -149,7 +149,7 @@ const PREVIEW_ROUTES: ReadonlyMap<string, PreviewMeta> = new Map<
         "Claude, Codex and Notion AI read the same plain Markdown notes, " +
         "kept in storage you own.",
       canonical: `${ORIGIN}/`,
-      imageAlt: "Context — free your context, share your context.",
+      imageAlt: "Context. Less chaos. Finally, everyone’s on the same page.",
       structuredData: true,
     }),
   ],
@@ -161,7 +161,7 @@ const PREVIEW_ROUTES: ReadonlyMap<string, PreviewMeta> = new Map<
         "Sign in to Context.LC to manage your context, your storage " +
         "connection, and the AI clients you have authorised.",
       canonical: `${ORIGIN}/login`,
-      imageAlt: "Context — free your context, share your context.",
+      imageAlt: "Context. Less chaos. Finally, everyone’s on the same page.",
       // The sign-in form itself is not search-result material, and keeping it
       // out avoids it outranking the landing page for the brand name.
       robots: "noindex, follow",
