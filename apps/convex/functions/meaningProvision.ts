@@ -17,6 +17,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";
+import { MEANING_PASS_CHAIN } from "./lib/meaningFns/rows";
 import {
   MeaningIndexError,
   deleteMeaningIndex,
@@ -97,6 +98,14 @@ export const provisionMeaningIndex = internalAction({
         status: "backfilling",
         indexName,
         ...(created ? { notesIndexed: 0 } : {}),
+      });
+      // The catch-up pass, after the status it checks is recorded. Scheduled,
+      // not called: it opens a bucket, which only the barrier may do.
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        // Scope-blind: the tier a note is embedded at is `privacy.md`'s per note.
+        scope: "private",
+        operation: { kind: "projectMeaning", passes: MEANING_PASS_CHAIN },
       });
       return { status: "backfilling" };
     } catch (error) {

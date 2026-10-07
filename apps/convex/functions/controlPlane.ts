@@ -529,7 +529,7 @@ export const openGatewayJob = internalAction({
     try {
       const [target, meaning]: [
         { databaseId: string; state: "backfilling" | "ready" } | null,
-        { indexName: string; state: "backfilling" | "ready" } | null,
+        { indexName: string; generation: string; state: "backfilling" | "ready" } | null,
       ] = await Promise.all([
         ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, {
           workspaceId: claimed.workspaceId,

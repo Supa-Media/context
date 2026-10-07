@@ -55,3 +55,32 @@ an hour ago; a single shared index ends the clean delete. The tests that fail:
 `apps/convex/__tests__/meaningSearch.test.ts` (setup, adoption, release order,
 cascade) and `apps/mcp/test/meaningSearch.test.mjs` (passages, ids, tier, the
 filter, nothing sent before every vector is checked).
+
+### Notes reach the index two ways, and a map in the bucket says which are in
+
+Decided 2026-10-07 while building it. A note saved by an AI client or a form is
+embedded behind the response (`apps/mcp/src/search/meaning/store.js`).
+Everything else reaches the index through a **catch-up pass**
+(`catchup.js`, run by the control plane in `lib/filesFns/meaningPass.ts`):
+notes that existed before the index, what a move adds, edits made outside
+the product, and edits made in the live editor, which skips the write path
+because it commits every typing pause and re-embedding twelve passages per
+pause buys nothing.
+
+The pass diffs the R2 index's own census (`[path, version]`) against a map of
+what it last embedded, kept at `.context/search/meaning/v1/state.json`. That
+is a **new file in the on-bucket layout**, and it is allowed for the reason
+the R2 index is: Context-owned plumbing under `.context/search/`, a
+disposable derivative, rebuildable from the notes, never the only copy of
+anything. Losing it costs one full re-embed. It does not live in the control
+plane because the control plane holds metadata and never a list of somebody's
+note paths; it does not live in Vectorize because an index has nowhere to keep
+one. It carries a `generation` (when the index was turned on), so an index
+recreated after an off and an on is not mistaken for the old one.
+
+The pass is scheduled when the index is set up and chains while it moves. A
+sweep every fifteen minutes restarts a stalled chain, catches each `ready`
+index up once a day, and retries a failure that waiting can fix. A `ready`
+index stays `ready` while it catches up, because the notes it holds are still
+worth searching. An encrypted note is embedded as its title only, as fast
+search projects it.

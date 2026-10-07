@@ -68,7 +68,7 @@ import {
   readStorageLayoutState as readStorageLayoutStateOp,
 } from "../../../../mcp/src/storageLayout.js";
 import { resolveContextPlugins, setPluginEnabled } from "../../../../mcp/src/plugins/enablement.js";
-import { type FileOperation, IDLE_PROJECTION, type OperationResult } from "./operationTypes";
+import { type FileOperation, IDLE_MEANING, IDLE_PROJECTION, type OperationResult } from "./operationTypes";
 import {
   deleteWebsiteRelease,
   deleteWebsiteReleasePages,
@@ -582,6 +582,8 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
+      case "projectMeaning": // run by the barrier, which holds its credential (`meaningPass.ts`)
+        return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building
         // it per caller would mean one index per membership. What is scoped is

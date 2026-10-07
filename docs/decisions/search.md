@@ -109,3 +109,7 @@ Moved to [Every search is timed, and the time is all that is kept](./search/sear
 ### Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 
 Moved to [Search by meaning is on for every workspace, free and Premium, and an owner can turn it off](./search/meaning-search.md#search-by-meaning-is-on-for-every-workspace-free-and-premium-and-an-owner-can-turn-it-off).
+
+### Notes reach the index two ways, and a map in the bucket says which are in
+
+Moved to [Notes reach the index two ways, and a map in the bucket says which are in](./search/meaning-search.md#notes-reach-the-index-two-ways-and-a-map-in-the-bucket-says-which-are-in).

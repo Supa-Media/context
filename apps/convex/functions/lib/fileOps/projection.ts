@@ -106,6 +106,67 @@ export interface ProjectionPass {
 }
 
 /**
+ * What this pass reads off the sync, named rather than inferred.
+ *
+ * `syncShardedIndex` is JSDoc-typed JavaScript with several return shapes,
+ * and TypeScript narrows their union to the one that carries the fewest
+ * fields — which drops `touched` and `removed`, the two the projection is
+ * here for. Declaring what is read keeps the cast to one place and makes a
+ * field that disappears upstream a compile error here rather than an
+ * `undefined` the copy quietly walks past.
+ */
+interface SyncedPass {
+  manifest: Parameters<typeof censusFromManifest>[0] | null;
+  pending: number;
+  listingTruncated: boolean;
+  committed: boolean;
+  touched: string[];
+  removed: string[];
+}
+
+/**
+ * The R2 index pass a scheduled copy rides on, and the census it leaves.
+ *
+ * Shared by fast search's projection and search by meaning's catch-up pass,
+ * which walk the same census for the same reason: it is the index's own
+ * answer to "what notes are there", so neither copy can disagree with it.
+ */
+export async function passCensus(
+  store: FileStore,
+  budget: ReturnType<typeof createSearchBudget>,
+  reserve: number,
+): Promise<{ census: Map<string, string> | null; indexPending: number; synced: SyncedPass | null }> {
+  let synced: SyncedPass | null = null;
+  try {
+    synced = (await runIndexPass(store, budget, reserve)) as unknown as SyncedPass;
+  } catch {
+    // A listing that failed after nothing was promised to anybody changes
+    // nothing here: the copy still gets its turn, because a failed listing is
+    // not a reason to stop copying the notes that are already indexed. The
+    // next link re-diffs from the manifest.
+  }
+
+  if (synced?.manifest) {
+    return {
+      census: censusFromManifest(synced.manifest),
+      indexPending: (synced.pending || 0) + (synced.listingTruncated ? 1 : 0),
+      synced,
+    };
+  }
+  // No manifest from this pass — the sync threw, or had no budget to read
+  // one. Two object reads rather than a second listing, which is what
+  // `loadCensus` is for.
+  const loaded = await loadCensus(store as unknown as Parameters<typeof loadCensus>[0], budget);
+  if (!loaded) return { census: null, indexPending: 0, synced };
+  const freshness = loaded.manifest.freshness;
+  return {
+    census: loaded.census,
+    indexPending: (freshness.pending || 0) + (freshness.truncated ? 1 : 0),
+    synced,
+  };
+}
+
+/**
  * Copy this context's notes into its own search database, a bounded piece at a
  * time. Nobody is waiting on this either.
  *
@@ -153,54 +214,7 @@ export async function projectSearchIndex(
   const budget = createSearchBudget(options.budget ?? PROJECTION_PASS_BUDGET);
   const reserve = Math.floor(budget.remaining / PROJECTION_RESERVE_SHARE);
 
-  /**
-   * What this pass reads off the sync, named rather than inferred.
-   *
-   * `syncShardedIndex` is JSDoc-typed JavaScript with several return shapes,
-   * and TypeScript narrows their union to the one that carries the fewest
-   * fields — which drops `touched` and `removed`, the two the projection is
-   * here for. Declaring what is read keeps the cast to one place and makes a
-   * field that disappears upstream a compile error here rather than an
-   * `undefined` the copy quietly walks past.
-   */
-  interface SyncedPass {
-    manifest: Parameters<typeof censusFromManifest>[0] | null;
-    pending: number;
-    listingTruncated: boolean;
-    committed: boolean;
-    touched: string[];
-    removed: string[];
-  }
-
-  let synced: SyncedPass | null = null;
-  try {
-    synced = (await runIndexPass(store, budget, reserve)) as unknown as SyncedPass;
-  } catch {
-    // A listing that failed after nothing was promised to anybody changes
-    // nothing here: the projection still gets its turn below, because a failed
-    // listing is not a reason to stop copying the notes that are already
-    // indexed. The next link re-diffs from the manifest.
-  }
-
-  let census: Map<string, string> | null = null;
-  let indexPending = 0;
-  if (synced?.manifest) {
-    census = censusFromManifest(synced.manifest);
-    indexPending = (synced.pending || 0) + (synced.listingTruncated ? 1 : 0);
-  } else {
-    // No manifest from this pass — the sync threw, or had no budget to read
-    // one. Two object reads rather than a second listing, which is what
-    // `loadCensus` is for.
-    const loaded = await loadCensus(
-      store as unknown as Parameters<typeof loadCensus>[0],
-      budget,
-    );
-    if (loaded) {
-      census = loaded.census;
-      const freshness = loaded.manifest.freshness;
-      indexPending = (freshness.pending || 0) + (freshness.truncated ? 1 : 0);
-    }
-  }
+  const { census, indexPending, synced } = await passCensus(store, budget, reserve);
 
   const moved = Boolean(synced?.committed);
   if (census === null) {

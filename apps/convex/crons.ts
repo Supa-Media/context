@@ -197,6 +197,19 @@ crons.interval(
 );
 
 /**
+ * Search by meaning's sweep: restart a stalled catch-up chain, catch a `ready`
+ * index up once a day on edits nothing embedded at the time (the live editor,
+ * Obsidian), and retry a failure waiting can fix. Same kind of job as the one
+ * above: a repair over a disposable derivative. See `meaningFns/rows.ts`.
+ */
+crons.interval(
+  "sweep search by meaning",
+  { minutes: 15 },
+  internal.functions.meaningSearch.sweep,
+  {},
+);
+
+/**
  * Restart a managed-encryption walk whose run died without recording anything.
  *
  * A fourth job that acts outside this database, so it owes the two paragraphs

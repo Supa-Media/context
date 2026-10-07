@@ -48,5 +48,7 @@ export const meaningTables = {
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    // The sweep's: the rows of one status that have waited longest.
+    .index("by_status_updated", ["status", "updatedAt"]),
 };

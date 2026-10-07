@@ -174,3 +174,18 @@ export const indexProjectedValidator = v.object({
   report: v.boolean(),
   failure: v.optional(v.string()),
 });
+
+/**
+ * A search-by-meaning catch-up pass, in counts: no path, no title, no text,
+ * for `indexProjected`'s reason. `failure` is one of our closed codes.
+ */
+export const meaningProjectedValidator = v.object({
+  kind: v.literal("meaningProjected"),
+  embedded: v.number(),
+  deleted: v.number(),
+  notesIndexed: v.number(),
+  notesPending: v.number(),
+  ready: v.boolean(),
+  moved: v.boolean(),
+  failure: v.optional(v.string()),
+});
