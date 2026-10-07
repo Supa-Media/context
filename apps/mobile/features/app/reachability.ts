@@ -411,7 +411,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       {
         surface: "the live map, from its place on the phone's Home",
         control: {
-          file: "features/console/home/PhoneHome.tsx",
+          file: "features/console/home/homeRows.tsx",
           contains: ['testID="phone-home-map"', "onPress={onPress}"],
         },
         navigation: [
