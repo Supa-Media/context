@@ -246,6 +246,14 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     "...and the destination holds the bytes",
     primary.get("1-projects/renamed.md")?.body === "PLAIN-MARKER"
   );
+  primary.set("1-projects/read-before-move.md", { body: "PRESERVE-HISTORY", etag: "ph1" });
+  await callTool(env, TOKEN_OWNER, "read_note", { path: "1-projects/read-before-move.md" });
+  const headedMove = await callTool(env, TOKEN_OWNER, "move_note", {
+    source: "1-projects/read-before-move.md",
+    destination: "1-projects/read-after-move.md",
+  });
+  check("a note with a stored collaboration head moves on conditional-write-only storage",
+    !headedMove?.isError && primary.get("1-projects/read-after-move.md")?.body.startsWith("PRESERVE-HISTORY"));
   const oldSourceRead = await callTool(env, TOKEN_OWNER, "read_note", {
     path: "1-projects/plain.md",
   });

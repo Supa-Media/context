@@ -34,6 +34,10 @@ class Bucket {
     return {objects:selected.map(([key,value])=>({key,etag:value.etag})),truncated,...(truncated?{cursor:selected.at(-1)[0]}:{})};
   }
 }
+class WriteGuardedBucket extends Bucket {
+  capabilities = { conditionalWrite:true, conditionalCreate:true, conditionalDelete:false };
+  async delete(key) { this.objects.delete(key); return {deleted:true}; }
+}
 const bytes=value=>new Uint8Array(Buffer.from(value,'base64'));
 const encoded=doc=>Buffer.from(Y.encodeStateAsUpdate(doc)).toString('base64');
 const fork=value=>{const doc=new Y.Doc();Y.applyUpdate(doc,bytes(value));return doc;};
@@ -211,6 +215,43 @@ test('move recovers when the process disappears after each storage mutation',asy
     assert.equal(await store.get('from.md'),null);
     assert.equal(await (await store.get('to.md')).text(),restored.text);
   }
+});
+
+test('move on conditional-write-only storage survives every interrupted mutation',async()=>{
+  for(let crashAt=1;crashAt<=18;crashAt++) {
+    const store=new WriteGuardedBucket();await store.put('from.md','Keep the message.');
+    const initial=await readDocument(store,'from.md');
+    const put=store.put.bind(store),remove=store.delete.bind(store);let writes=0;
+    const crashed=()=>{if(++writes===crashAt)throw new Error('simulated process exit');};
+    store.put=async(...args)=>{const result=await put(...args);crashed();return result;};
+    store.delete=async(...args)=>{const result=await remove(...args);crashed();return result;};
+    await moveDocument(store,'from.md','to.md').catch(()=>{});
+    store.put=put;store.delete=remove;
+    let restored;
+    for(let attempt=0;attempt<3&&!restored;attempt++) {
+      try {restored=await readDocument(store,'to.md');}catch {}
+      if(!restored)await moveDocument(store,'from.md','to.md').catch(()=>{});
+    }
+    assert.ok(restored,`move stranded after mutation ${crashAt}`);
+    assert.equal(restored.documentId,initial.documentId);
+    assert.equal(restored.text,'Keep the message.');
+    assert.equal(await store.get('from.md'),null);
+  }
+});
+
+test('conditional-write-only move abort preserves a source edit',async()=>{
+  const store=new WriteGuardedBucket();await store.put('from.md','Original source.');
+  const put=store.put.bind(store);let injected=false;
+  store.put=async(key,value,options={})=>{
+    const result=await put(key,value,options);
+    if(!injected&&key==='to.md'&&options.onlyIf?.absent===true){
+      injected=true;await put('from.md','Source changed during the move.');
+    }
+    return result;
+  };
+  await assert.rejects(moveDocument(store,'from.md','to.md'),error=>error.code==='DESTINATION_EXISTS');
+  assert.equal(await (await store.get('from.md')).text(),'Source changed during the move.');
+  assert.equal(await store.get('to.md'),null);
 });
 
 test('an aborted move clears its prepared destination after the copied body is journaled',async()=>{

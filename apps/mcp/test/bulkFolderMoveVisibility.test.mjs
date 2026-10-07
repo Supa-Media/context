@@ -218,7 +218,7 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     textOf(ownerReads).includes("SECRET-0")
   );
 
-  /* ------- 1b. large raw materialization cannot strand active history ----- */
+  /* ------- 1b. large materialization preserves collaboration history ----- */
 
   const ACTIVE_BULK = 501;
   for (let n = 0; n < ACTIVE_BULK; n += 1) {
@@ -232,20 +232,32 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     "reading one note in a large folder gives it active collaboration history",
     textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: activeWitness })).includes("ACTIVE-0"),
   );
-  const moveMarkersBefore = [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length;
-  const activeRefused = await callTool(env, TOKEN_OWNER, "move_folder", {
+  const activeMove = await callTool(env, TOKEN_OWNER, "move_folder", {
     source: "2-areas/active",
     destination: "1-projects/active",
   });
   check(
-    "a folder past the threshold refuses before moving an active collaborative identity",
-    activeRefused?.isError === true && /active collaborative note/.test(textOf(activeRefused)),
+    "a folder past the threshold accepts a note with collaboration history",
+    !activeMove?.isError && textOf(activeMove).includes("logical move active"),
   );
+  const activeMoveId = /move_id: (\S+)/.exec(textOf(activeMove))?.[1];
+  if (activeMoveId) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const progress = await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId });
+      if (textOf(progress).includes("physical storage sync: complete")) break;
+    }
+  }
   check(
-    "the refusal leaves source bytes, destinations, and move jobs unchanged",
-    primary.get(activeWitness)?.body === "ACTIVE-0" &&
-      !primary.has("1-projects/active/note-0000.md") &&
-      [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length === moveMarkersBefore,
+    "materialization moves the headed note and its identity",
+    primary.get(activeWitness)?.contentType === "application/x-context-logical-tombstone" &&
+      primary.get("1-projects/active/note-0000.md")?.body.startsWith("ACTIVE-0") &&
+      [...primary.values()].some((value) => {
+        try {
+          const head = JSON.parse(value.body);
+          return head.path === activeWitness && head.status === "moved" &&
+            head.destination === "1-projects/active/note-0000.md";
+        } catch { return false; }
+      }),
   );
 
   /* ---------------- 2. the small path, for the same shape ----------------- */
@@ -253,11 +265,20 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
   for (let n = 0; n < 3; n += 1) {
     primary.set(`2-areas/small/note-${n}.md`, { body: `SMALL-${n}`, etag: `s${n}` });
   }
+  await callTool(env, TOKEN_OWNER, "read_note", { path: "2-areas/small/note-0.md" });
   const small = await callTool(env, TOKEN_OWNER, "move_folder", {
     source: "2-areas/small",
     destination: "1-projects/small",
   });
   check("a folder under the threshold moves directly", !small?.isError);
+  check("a small folder also preserves a headed note on conditional-write-only storage",
+    [...primary.values()].some((value) => {
+      try {
+        const head = JSON.parse(value.body);
+        return head.path === "2-areas/small/note-0.md" && head.status === "moved" &&
+          head.destination === "1-projects/small/note-0.md";
+      } catch { return false; }
+    }));
   const smallTeam = await callTool(env, TOKEN_TEAM, "read_note", {
     path: "1-projects/small/note-0.md",
   });
