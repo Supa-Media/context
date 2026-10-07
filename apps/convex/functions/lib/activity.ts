@@ -142,6 +142,13 @@ export interface ActivityEntry {
   by: string | null;
   via: string | null;
   note: string | null;
+  /**
+   * On a `moved` line: where each thing went, `[from, to]`, as recorded —
+   * never forwarded, and filtered per reader on both ends. Absent on lines
+   * written before it existed and on cross-context moves. See `movePairsOf`
+   * in `packages/shared/src/activity.cjs`.
+   */
+  moves?: [string, string][];
 }
 
 /**

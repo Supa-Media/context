@@ -813,7 +813,11 @@ export const markActivitySeen = mutation({
 
 /** See `listActivityHandler` in `lib/filesFns/noteReads.ts`. */
 export const listActivity = action({
-  args: { workspaceId: v.id("workspaces"), limit: v.optional(v.number()) },
+  args: {
+    workspaceId: v.id("workspaces"),
+    limit: v.optional(v.number()),
+    since: v.optional(v.number()),
+  },
   returns: v.array(activityEntryValidator),
   // Annotated rather than inferred, for the reason `runFileOperation` gives:
   // this action calls another function in the same deployment, and leaving the
