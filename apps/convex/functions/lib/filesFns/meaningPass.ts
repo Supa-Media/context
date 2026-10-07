@@ -31,7 +31,10 @@ export interface MeaningPassContext {
   generation: string;
 }
 
-type MeaningResult = Omit<MeaningPassResult, "failure"> & { kind: "meaningProjected"; failure?: string };
+type MeaningResult = Omit<MeaningPassResult, "failure" | "failureCause"> & {
+  kind: "meaningProjected";
+  failure?: string;
+};
 
 /**
  * The index this pass may fill, or `null` to do nothing. Asked before the
@@ -121,6 +124,7 @@ export async function runMeaningPass(
     console.error("meaning_search.pass_failed", {
       workspaceId: args.workspaceId,
       code: pass.failure,
+      cause: pass.failureCause,
       embeddedThisPass: pass.embedded,
       passesLeft: passes,
       retrying,
@@ -134,10 +138,11 @@ export async function runMeaningPass(
         workspaceId: args.workspaceId,
         status: "failed",
         errorCode: pass.failure,
+        ...(pass.failureCause ? { errorCause: pass.failureCause } : {}),
         error: meaningMessageFor(pass.failure),
       });
     }
-    const { failure, ...counts } = pass;
+    const { failure, failureCause: _cause, ...counts } = pass;
     return { kind: "meaningProjected", ...counts, failure };
   }
 
@@ -150,7 +155,7 @@ export async function runMeaningPass(
     });
   }
   if (pass.moved && !pass.ready && passes > 0) await next(0);
-  const { failure: _none, ...counts } = pass;
+  const { failure: _none, failureCause: _noCause, ...counts } = pass;
   return { kind: "meaningProjected", ...counts };
 }
 

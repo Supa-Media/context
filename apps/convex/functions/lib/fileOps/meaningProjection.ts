@@ -36,6 +36,8 @@ export interface MeaningPassResult {
   moved: boolean;
   /** One of our closed codes, never a provider's words. */
   failure: string | null;
+  /** Which call failed, from our closed set (`http_400`, `timeout`, `internal`…). */
+  failureCause: string | null;
 }
 
 export async function projectMeaningIndex(
@@ -61,6 +63,7 @@ export async function projectMeaningIndex(
       ready: false,
       moved: Boolean(synced?.committed),
       failure: null,
+      failureCause: null,
     };
   }
   const state = await loadPrivacyState(store);

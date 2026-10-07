@@ -18,6 +18,7 @@ export const ADMIN_ACTIONS = [
   "referral.switched",
   "community.link_saved",
   "community.link_deleted",
+  "search.meaning_restarted",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

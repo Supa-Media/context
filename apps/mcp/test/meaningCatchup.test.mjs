@@ -9,6 +9,7 @@
  *   the generation check dropped from the reader  → "a map from an earlier life of the index is ignored" fails
  *   deletes skipped                               → "a note gone from the bucket leaves the index and the map" fails
  *   the cap ignored                               → "a long walk stops at its cap and resumes where it stopped" fails
+ *   `DELETE_BATCH` back at 500                    → "a full pass fits Vectorize's 20-id cap on a delete" fails
  */
 
 import test from "node:test";
@@ -16,6 +17,7 @@ import assert from "node:assert/strict";
 import { MEANING_DIMENSIONS } from "../src/search/meaning/embed.js";
 import { MeaningError } from "../src/search/meaning/errors.js";
 import { meaningIdsFor } from "../src/search/meaning/project.js";
+import { createMeaningClient } from "../src/search/meaning/client.js";
 import {
   MEANING_STATE_KEY,
   meaningDiff,
@@ -196,4 +198,46 @@ test("the diff is in path order, so a resumed walk is deterministic", () => {
   );
   assert.deepEqual(changed, ["a.md", "b.md", "c.md"]);
   assert.deepEqual(removed, ["z.md"]);
+});
+
+/**
+ * Production, 2026-10-07: every workspace with more than one pass of notes
+ * stopped after its first. The pass upserted, then sent the passages a note no
+ * longer has as one delete of hundreds of ids; Vectorize answers more than 20
+ * ids in one request with a 400 (code 40007, "max id count is 20", measured
+ * on `get_by_ids`, the same check), which reads as REFUSED, a code the sweep
+ * waits six hours on. The map was never written, so the index held one pass of
+ * vectors and nothing moved.
+ */
+test("a full pass fits Vectorize's 20-id cap on a delete", async () => {
+  const files = {};
+  const census = new Map();
+  for (let n = 0; n < 40; n += 1) {
+    const path = `notes/${String(n).padStart(2, "0")}.md`;
+    files[path] = `# Note ${n}\n\nshort`;
+    census.set(path, "v1");
+  }
+  const store = memoryStore(files);
+  const deletes = [];
+  const fetchImpl = async (url, init) => {
+    const respond = (status, body) => new Response(JSON.stringify(body), { status });
+    if (url.endsWith("/delete_by_ids")) {
+      const { ids } = JSON.parse(init.body);
+      if (ids.length > 20) {
+        return respond(400, { success: false, errors: [{ code: 40007, message: "too many ids in payload" }] });
+      }
+      deletes.push(...ids);
+    }
+    return respond(200, { success: true, result: { mutationId: "m" } });
+  };
+  const client = createMeaningClient(
+    { indexName: "context-meaning-ws1", accountId: "fake-account", apiToken: "fake-token", state: "backfilling" },
+    { fetchImpl },
+  );
+  const pass = await meaningPass(store, { client, embed, census, visibilityOf: team, generation: "g1" });
+  assert.equal(pass.failure, null);
+  assert.equal(pass.notesIndexed, 40);
+  assert.equal(Object.keys(stateOf(store).notes).length, 40);
+  // Each one-passage note clears the eleven passages a longer version could have had.
+  assert.equal(deletes.length, 40 * 11);
 });

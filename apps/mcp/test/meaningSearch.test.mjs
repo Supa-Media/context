@@ -27,6 +27,7 @@ import {
   createMeaningClient,
   readMeaningIndexBinding,
   UPSERT_BATCH,
+  DELETE_BATCH,
 } from "../src/search/meaning/client.js";
 import {
   MEANING_MAX_PASSAGES,
@@ -192,6 +193,18 @@ test("deletes go by id, and an empty list sends nothing", async () => {
   await client.deleteByIds(["a", "b"]);
   assert.ok(fetch.requests[0].url.endsWith("/delete_by_ids"));
   assert.deepEqual(JSON.parse(fetch.requests[0].init.body), { ids: ["a", "b"] });
+});
+
+test("a long delete is split at Vectorize's 20-id cap, every id sent once", async () => {
+  const fetch = fakeFetch(() => ({ success: true, result: { mutationId: "m" } }));
+  const client = createMeaningClient(DESCRIPTOR, { fetchImpl: fetch.impl });
+  const ids = Array.from({ length: 7 * DELETE_BATCH + 3 }, (_, i) => `id-${i}`);
+  assert.equal(await client.deleteByIds(ids), ids.length);
+  assert.equal(DELETE_BATCH, 20);
+  const sent = fetch.requests.map((request) => JSON.parse(request.init.body).ids);
+  assert.equal(sent.length, 8);
+  assert.ok(sent.every((group) => group.length <= 20));
+  assert.deepEqual(sent.flat().sort(), [...ids].sort());
 });
 
 test("a team caller's query names its tiers, and bad matches are dropped", async () => {
