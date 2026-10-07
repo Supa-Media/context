@@ -42,6 +42,21 @@ export const notePathsValidator = v.object({
   paths: v.union(v.array(v.string()), v.null()),
 });
 
+/**
+ * The console map's graph for one workspace: every note the caller may see
+ * and the links between them, each end already visible. See `workspaceGraph`
+ * in `lib/fileOps/graph.ts` and `docs/decisions/search.md`.
+ */
+export const workspaceGraphValidator = v.object({
+  kind: v.literal("workspaceGraph"),
+  nodes: v.array(v.object({ path: v.string(), title: v.string() })),
+  /** Index pairs into `nodes`, source first. */
+  edges: v.array(v.array(v.number())),
+  truncated: v.boolean(),
+  behind: v.boolean(),
+  indexMissing: v.boolean(),
+});
+
 /** The answer to `forward`: the same paths, each where it is now. */
 export const forwardedValidator = v.object({
   kind: v.literal("forwarded"),

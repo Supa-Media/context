@@ -109,6 +109,7 @@ import {
 import {
   blendedResultsValidator,
   notePathsValidator,
+  workspaceGraphValidator,
   searchResultsValidator,
 } from "./lib/filesFns/searchValidators";
 import { operationResultValidator, operationValidator } from "./lib/filesFns/operationValidators";
@@ -187,6 +188,7 @@ import {
 import {
   folderPathsHandler,
   notePathsHandler,
+  workspaceGraphHandler,
   searchContextHandler,
   searchContextsHandler,
 } from "./lib/filesFns/search";
@@ -221,6 +223,7 @@ export { DELETE_CONFIRMATION };
  * why.** Every caller states the least role its operation needs, and the ones
  * that ask for `member` are exactly the reads: `listFiles`, `readNote`,
  * `syncManifest`, `readNotes`, `searchContext`, `folderPaths`, `notePaths`,
+ * `workspaceGraph`,
  * and the per-context leg of `searchContexts`.
  * Everything that changes a byte asks for `editor` or `owner` and therefore
  * goes to `requireWorkspaceRole`, which knows nothing about the pin and throws
@@ -403,6 +406,14 @@ export const notePaths = action({
   args: { workspaceId: v.id("workspaces") },
   returns: notePathsValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "notePaths" }>> => await notePathsHandler(ctx, args),
+});
+
+/** See `workspaceGraphHandler` in `lib/filesFns/search.ts`. */
+export const workspaceGraph = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: workspaceGraphValidator,
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "workspaceGraph" }>> =>
+    await workspaceGraphHandler(ctx, args),
 });
 
 /** See `searchContextsHandler` in `lib/filesFns/search.ts`. */

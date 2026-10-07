@@ -56,6 +56,7 @@ import {
   indexMaintainedValidator,
   indexProjectedValidator,
   notePathsValidator,
+  workspaceGraphValidator,
   searchResultsValidator,
 } from "./searchValidators";
 
@@ -110,6 +111,7 @@ export const operationResultValidator = v.union(
   vaultClearResultValidator,
   searchResultsValidator,
   notePathsValidator,
+  workspaceGraphValidator,
   forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
@@ -196,6 +198,8 @@ export const operationValidator = v.union(
    * `docs/decisions/app-and-console.md`.
    */
   v.object({ kind: v.literal("notePaths") }),
+  /** The console map's notes and links. See `workspaceGraph` in `lib/fileOps/graph.ts`. */
+  v.object({ kind: v.literal("workspaceGraph") }),
   /**
    * Bring the search index a pass further. Scheduled, never called by a client
    * — there is no public action that reaches this variant.

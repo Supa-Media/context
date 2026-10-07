@@ -30,6 +30,7 @@ import {
   maintainSearchIndex,
   movePath,
   notePathIndex,
+  workspaceGraph,
   projectSearchIndex,
   readFile,
   readFiles,
@@ -555,6 +556,8 @@ export async function executeOperation(
         const found = await notePathIndex(store, clearance);
         return { kind: "notePaths", paths: found?.paths ?? null };
       }
+      case "workspaceGraph":
+        return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance)) };
       case "projectIndex": {
         // Scope-blind, exactly like `maintainIndex` below: the tier a note is
         // copied at comes from `privacy.md` per note, never from whoever

@@ -97,3 +97,7 @@ Moved to [A shed index must say so to the caller it happened to, not only to the
 ### With no connection, search reads the copy on the device, and says so
 
 Moved to [With no connection, search reads the copy on the device, and says so](./search/offline-search.md#with-no-connection-search-reads-the-copy-on-the-device-and-says-so).
+
+### The map's graph is read per shard at request time, and stored nowhere
+
+Moved to [The map's graph is read per shard at request time, and stored nowhere](./search/workspace-map.md#the-maps-graph-is-read-per-shard-at-request-time-and-stored-nowhere).
