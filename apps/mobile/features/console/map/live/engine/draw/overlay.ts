@@ -4,18 +4,18 @@ import { placeFlag, placeLabel, type Rect } from "../labels";
 import { dotRadius, flagsShown, noteLabelAlpha, facesApart } from "../lod";
 import { lerp } from "../math";
 import type { NotePlace } from "../layout";
+import type { Flight } from "../scene";
+import { quietAt } from "./containers";
 import type { DrawEnv } from "./env";
+import { placeFlights, type FlightCaption } from "./flights";
 import {
   FACE_R,
-  drawCard,
   drawFace,
   drawFlag,
   circle,
-  fillText,
   flagSize,
   fontOf,
   haloText,
-  roundRect,
   typingDots,
 } from "./primitives";
 
@@ -25,16 +25,37 @@ import {
  */
 
 const MAX_LABELS = 500;
+/** On a phone, a handful of names reads; a crowd of them does not. */
+const MAX_LABELS_NARROW = 14;
+
+const BETWEEN_NUDGES: Array<[number, number]> = [
+  [0, 0], [0, -26], [-30, -12], [30, -12], [0, -52], [-60, -20], [60, -20], [0, 26],
+];
 
 /** Faces first (they claim their space), then their flags, then note names in what is left. */
-export function placeFacesAndLabels(env: DrawEnv): { groups: Group[]; flags: Map<string, Rect & { sub: string | null }> } {
+export function placeFacesAndLabels(env: DrawEnv): {
+  groups: Group[];
+  flags: Map<string, Rect & { sub: string | null }>;
+  captions: Map<Flight, FlightCaption | null>;
+} {
   const { s, scene } = env;
   const groups = groupActors(scene.actors, s, env.screen);
   const flags = new Map<string, Rect & { sub: string | null }>();
   for (const g of groups) {
     const w = g.single ? FACE_R * 2 + 4 : g.actors.length * 16 + 14;
-    env.occ.claim({ x: g.x - w / 2, y: g.y - FACE_R - 2, w, h: FACE_R * 2 + 4 });
+    const box = (x: number, y: number) => ({ x: x - w / 2, y: y - FACE_R - 2, w, h: FACE_R * 2 + 4 });
+    // An AI between workspaces has no note to sit on, so it may step aside
+    // from a workspace's name rather than sit on it.
+    if (g.single && g.actors[0]!.across.length >= 2) {
+      const spot = BETWEEN_NUDGES.find(([dx, dy]) => !env.occ.hits(box(g.x + dx, g.y + dy)));
+      if (spot) {
+        g.x += spot[0];
+        g.y += spot[1];
+      }
+    }
+    env.occ.claim(box(g.x, g.y));
   }
+  const captions = placeFlights(env);
   if (flagsShown(s) || groups.some((g) => g.single && g.actors[0]!.across.length >= 2)) {
     for (const g of groups) {
       if (!g.single) continue;
@@ -48,7 +69,7 @@ export function placeFacesAndLabels(env: DrawEnv): { groups: Group[]; flags: Map
     }
   }
   drawNoteLabels(env);
-  return { groups, flags };
+  return { groups, flags, captions };
 }
 
 function drawNoteLabels(env: DrawEnv): void {
@@ -62,25 +83,46 @@ function drawNoteLabels(env: DrawEnv): void {
   type Cand = { n: NotePlace; hot: boolean };
   const cands: Cand[] = [];
   for (const key of scene.present) {
-    if (scene.hidden.has(key)) continue;
+    const flying = env.flyingAt.get(key);
+    if (scene.hidden.has(key) && !flying) continue;
     const n = model.layout.notes.get(key);
     if (!n) continue;
-    const hot = env.hot.has(key) || follow.has(key) || popping.has(key);
+    // A note on the move carries its name with it.
+    const hot = env.hot.has(key) || follow.has(key) || popping.has(key) || !!flying;
     if (!hot && base <= 0) continue;
-    if (!env.onScreen(env.screen(n), 0)) continue;
+    if (!env.onScreen(env.screen(flying ?? n), 0)) continue;
     cands.push({ n, hot });
   }
   cands.sort((a, b) => Number(b.hot) - Number(a.hot) || b.n.deg - a.n.deg || (a.n.title < b.n.title ? -1 : 1));
+  // The names of notes somebody is on go first. After them, names go round
+  // the dots, not over them: every dot on screen holds its own space.
+  const claimDots = () => {
+    for (const key of scene.present) {
+      const n = model.layout.notes.get(key);
+      if (!n || scene.hidden.has(key)) continue;
+      const p = env.screen(n);
+      if (!env.onScreen(p, 0)) continue;
+      const R = dotRadius(s, n.deg) + 1;
+      env.occ.claim({ x: p.x - R, y: p.y - R, w: R * 2, h: R * 2 });
+    }
+  };
+  const max = env.narrow ? MAX_LABELS_NARROW : MAX_LABELS;
+  const gap = env.narrow ? 3 : 0;
   let shown = 0;
+  let dots = false;
   for (const { n, hot } of cands) {
-    if (shown >= MAX_LABELS) break;
-    const p = env.screen(n);
+    if (shown >= max) break;
+    if (!hot && !dots) {
+      claimDots();
+      dots = true;
+    }
+    const p = env.screen(env.flyingAt.get(n.key) ?? n);
     const R = dotRadius(s, n.deg);
     const size = 11.5;
     ctx.font = fontOf(style, size, hot ? 700 : 500);
-    const w = ctx.measureText(n.title).width + 6;
+    const w = ctx.measureText(n.title).width + 6 + gap * 2;
     const baseline = p.y + R + 14;
-    if (!placeLabel(env.occ, p.x, baseline, w, size, env.bounds)) continue;
+    if (!placeLabel(env.occ, p.x, baseline + gap / 2, w, size + gap, env.bounds)) continue;
     shown += 1;
     ctx.globalAlpha = hot ? hotAlpha : base;
     haloText(ctx, style, n.title, p.x, baseline, size, hot ? 700 : 500, hot ? C.text : env.dim ? C.dim : C.text2);
@@ -108,70 +150,14 @@ export function drawReading(env: DrawEnv, groups: Group[]): void {
         const f = (scene.phase * 1.1 + i / 7) % 1;
         const x = lerp(p.x, q.x, f);
         const y = lerp(p.y, q.y, f) - Math.sin(f * Math.PI) * lift;
-        circle(ctx, x, y, 2.4 * (1 - f * 0.4));
+        const quiet = quietAt(env.quiet, x, y);
+        if (quiet <= 0) continue;
+        circle(ctx, x, y, 3 * (1 - f * 0.35));
         ctx.fillStyle = C.ink;
-        ctx.globalAlpha = 0.85 * Math.sin(f * Math.PI);
+        ctx.globalAlpha = 0.85 * Math.sin(f * Math.PI) * quiet;
         ctx.fill();
       }
       ctx.globalAlpha = 1;
-    }
-  }
-}
-
-/** Notes in flight: a dot inside a workspace, a card with its mover between workspaces. */
-export function drawFlights(env: DrawEnv): void {
-  const { ctx, style, scene, s } = env;
-  const C = style.palette;
-  for (const fl of scene.flights) {
-    const p = env.screen(fl.pos);
-    if (fl.landedFor < 0) {
-      if (fl.cross) {
-        ctx.font = fontOf(style, 13, 500);
-        const w = Math.min(280, ctx.measureText(fl.to.title).width + 50);
-        ctx.save();
-        ctx.shadowColor = "rgba(0,0,0,0.2)";
-        ctx.shadowBlur = 14;
-        ctx.shadowOffsetY = 6;
-        roundRect(ctx, p.x - w / 2, p.y - 15, w, 30, 8);
-        ctx.fillStyle = C.ground;
-        ctx.fill();
-        ctx.restore();
-        drawCard(ctx, style, p.x - w / 2, p.y - 15, w, fl.to.title, "fly");
-        drawFace(ctx, fl.actor, p.x - w / 2 - 4, p.y - 14, 0.85, style);
-        const dest = fl.to.sub.folder.label || "the top level";
-        const text = `${fl.actor.name} is moving it to ${fl.to.sub.folder.island.name} › ${dest}`;
-        ctx.font = fontOf(style, 11, 500);
-        const w2 = ctx.measureText(text).width + 14;
-        const r = { x: p.x - w2 / 2, y: p.y + 19, w: w2, h: 20 };
-        if (!env.narrow || (r.x >= env.bounds.minX && r.x + r.w <= env.bounds.maxX)) {
-          roundRect(ctx, r.x, r.y, r.w, r.h, 6);
-          ctx.fillStyle = C.ground;
-          ctx.fill();
-          ctx.strokeStyle = C.line;
-          ctx.stroke();
-          ctx.fillStyle = C.text2;
-          ctx.textAlign = "center";
-          fillText(ctx, text, p.x, p.y + 33);
-        }
-        env.hit.rect({ x: p.x - w / 2, y: p.y - 15, w, h: 30 }, { kind: "note", workspaceId: fl.to.workspaceId, path: fl.to.path }, LAYER.card);
-      } else {
-        const R = Math.max(dotRadius(s, fl.to.deg), 2.6) + 0.6;
-        circle(ctx, p.x, p.y, R);
-        ctx.fillStyle = C.ink;
-        ctx.fill();
-      }
-    } else if (fl.cross) {
-      const k = fl.landedFor / 1.6;
-      if (k < 1) {
-        const R = Math.max(dotRadius(s, fl.to.deg), 2);
-        circle(ctx, p.x, p.y, R + 3 + k * 16);
-        ctx.strokeStyle = C.ink;
-        ctx.globalAlpha = 1 - k;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        ctx.lineWidth = 1;
-      }
     }
   }
 }
