@@ -22,7 +22,7 @@
  * person's own bucket.
  */
 
-import { sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
+import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
 import { replyTo, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 
@@ -139,7 +139,8 @@ async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps)
 export const TYPING_REFRESH_MS = 55_000;
 
 /**
- * Work out the reply with the typing bubble showing, as a person would.
+ * Mark the text read and work out the reply with the typing bubble showing,
+ * as a person would.
  *
  * The first bubble is awaited (it is quick, and bounded) so it cannot land
  * after a fast reply and hang in the chat; a renewal still in flight is
@@ -148,6 +149,9 @@ export const TYPING_REFRESH_MS = 55_000;
  */
 async function answering(message: Message, deps: InboxDeps): Promise<string[]> {
   if (message.channel === "simulator") return replyTo(message, deps);
+  // Read first, then the bubble, as a person would: the text is seen, then
+  // answered. Both are quick and never throw.
+  await markLinqRead(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
   const typing = () => startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
   await typing();
   let renewal: Promise<void> = Promise.resolve();

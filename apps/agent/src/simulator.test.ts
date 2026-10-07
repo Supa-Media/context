@@ -161,6 +161,7 @@ describe("texts simulator", () => {
     const linqCalls: string[] = [];
     await drain(storage, unlinkedDeps(linqCalls));
     expect(linqCalls.map((url) => new URL(url).pathname.split("/").pop())).toEqual([
+      "read",
       "typing",
       "messages",
       "messages",

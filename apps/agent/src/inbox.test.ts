@@ -25,6 +25,7 @@ function deps(opts: {
   typingStatus?: number;
   cards?: string[];
   cardStatus?: number;
+  readStatus?: number;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -35,6 +36,10 @@ function deps(opts: {
       await new Promise((resolve) => setTimeout(resolve, 5));
       opts.events?.push("typing");
       return new Response(null, { status: opts.typingStatus ?? 204 });
+    }
+    if (path.endsWith("/read")) {
+      opts.events?.push("read");
+      return new Response("{}", { status: opts.readStatus ?? 200 });
     }
     if (path.endsWith("/share_contact_card")) {
       opts.cards?.push(path);
@@ -163,7 +168,7 @@ describe("inbox", () => {
     await accept(storage, msg("e1", "who's my brother"), 1_000);
     const events: string[] = [];
     await drain(storage, deps({ events }));
-    expect(events).toEqual(["typing", "send"]);
+    expect(events).toEqual(["read", "typing", "send"]);
   });
 
   it("answers anyway when the typing bubble is refused", async () => {
@@ -193,7 +198,7 @@ describe("inbox", () => {
     await drain(storage, deps({ cards, events }));
     expect(cards).toEqual(["/api/partner/v3/chats/chat_1/share_contact_card"]);
     // After the reply: Linq shares a card only into a chat with an outbound message.
-    expect(events).toEqual(["typing", "send"]);
+    expect(events).toEqual(["read", "typing", "send"]);
     expect(typeof storage.data.get("card")).toBe("number");
 
     await accept(storage, msg("e2"), 2_000);
@@ -224,5 +229,26 @@ describe("inbox", () => {
     await drain(storage, deps({ cards, linqStatus: () => 503 }));
     expect(cards).toEqual([]);
     expect(storage.data.has("card")).toBe(false);
+  });
+
+  it("answers anyway when marking the chat read is refused", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    const sent: Sent[] = [];
+    const events: string[] = [];
+    await drain(storage, deps({ sent, events, readStatus: 500 }));
+    expect(events).toEqual(["read", "typing", "send"]);
+    expect(sent.map((s) => s.text)).toEqual(["answer to hi"]);
+  });
+
+  it("marks a text read once, not again when a failed send is retried", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    const events: string[] = [];
+    let status = 503;
+    await drain(storage, deps({ events, linqStatus: () => status }));
+    status = 200;
+    await drain(storage, deps({ events, linqStatus: () => status }));
+    expect(events.filter((e) => e === "read")).toHaveLength(1);
   });
 });

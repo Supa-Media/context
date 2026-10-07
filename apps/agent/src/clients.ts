@@ -120,6 +120,19 @@ export async function startLinqTyping(fetcher: Fetch, apiKey: string, chatId: st
 }
 
 /**
+ * Mark the chat read, so the person sees "Read" under their text, as they would
+ * from someone who picked up their phone. Best effort and quick, like the
+ * typing bubble: it never throws, and a refusal only costs the receipt.
+ */
+export async function markLinqRead(fetcher: Fetch, apiKey: string, chatId: string): Promise<void> {
+  try {
+    await post(fetcher, "linq", `${LINQ_API}/chats/${encodeURIComponent(chatId)}/read`, apiKey, {}, TYPING_TIMEOUT_MS);
+  } catch {
+    // See above.
+  }
+}
+
+/**
  * Offer the line's contact card in this chat, so the person's Messages shows
  * "Context" and its icon in place of a bare number and a grey silhouette.
  *
