@@ -105,3 +105,7 @@ Moved to [The map's graph is read per shard at request time, and stored nowhere]
 ### Every search is timed, and the time is all that is kept
 
 Moved to [Every search is timed, and the time is all that is kept](./search/search-timings.md#every-search-is-timed-and-the-time-is-all-that-is-kept).
+
+### Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
+
+Moved to [Search by meaning is on for every workspace, free and Premium, and an owner can turn it off](./search/meaning-search.md#search-by-meaning-is-on-for-every-workspace-free-and-premium-and-an-owner-can-turn-it-off).

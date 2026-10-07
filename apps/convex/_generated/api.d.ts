@@ -52,6 +52,8 @@ import type * as functions_handoffEmail from "../functions/handoffEmail.js";
 import type * as functions_moveCatchUp from "../functions/moveCatchUp.js";
 import type * as functions_managedEncryption from "../functions/managedEncryption.js";
 import type * as functions_managedProvisioning from "../functions/managedProvisioning.js";
+import type * as functions_meaningProvision from "../functions/meaningProvision.js";
+import type * as functions_meaningSearch from "../functions/meaningSearch.js";
 import type * as functions_lib_admin from "../functions/lib/admin.js";
 import type * as functions_lib_appSecrets from "../functions/lib/appSecrets.js";
 import type * as functions_lib_audit from "../functions/lib/audit.js";
@@ -144,6 +146,8 @@ declare const fullApi: ApiFromModules<{
   "functions/moveCatchUp": typeof functions_moveCatchUp;
   "functions/managedEncryption": typeof functions_managedEncryption;
   "functions/managedProvisioning": typeof functions_managedProvisioning;
+  "functions/meaningProvision": typeof functions_meaningProvision;
+  "functions/meaningSearch": typeof functions_meaningSearch;
   "functions/authorizations": typeof functions_authorizations;
   "functions/cardAssets": typeof functions_cardAssets;
   "functions/cardRender": typeof functions_cardRender;
