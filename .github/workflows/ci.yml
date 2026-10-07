@@ -56,6 +56,10 @@ jobs:
       # by raising its own allowance, renaming a big file, or adding an
       # exclusion. `pnpm architecture` runs the same check locally.
       architecture-check: true
+      # The Convex suite is about three minutes on one runner, the longest job
+      # on a pull request. Three runners each take a third of the files
+      # (vitest --shard); `ci / Test Summary` still fails if any shard does.
+      convex-test-shards: 3
     secrets: inherit
 
   # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────

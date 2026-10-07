@@ -7,10 +7,10 @@ name: Deploy Staging
 # and when it falls back to deploying everything) and the jobs below read its
 # answer. Independent work runs side by side:
 #
-#   plan ─┬─ convex ──────────────┬─ workers ──────────┬─ verify
-#         ├─ worker-tests ────────┘                    │
-#         └─ web-build ─┬─ router-with-assets ─────────┤
-#                       └─ OTA ────────────────────────┘
+#   plan ─┬─ convex ──────────────┬─ workers ─┬─ OTA publish ─┬─ verify
+#         ├─ worker-tests ────────┘           │               │
+#         ├─ OTA bundle ──────────────────────┘               │
+#         └─ web-build ─── router-with-assets ────────────────┘
 #
 # Why each edge exists:
 # - Workers deploy after Convex, because a new gateway may call functions the
@@ -18,7 +18,8 @@ name: Deploy Staging
 # - The web app is built once. Staging's router publishes that exact export as
 #   Static Assets in the same version as its routing code.
 # - The OTA update needs the same backends, not the web alias, so it publishes
-#   alongside the web deploy.
+#   alongside the web deploy. Its bundle is exported from the start, beside the
+#   backends; only the upload waits for them.
 # - `verify` always runs, as the one end-to-end check, even when nothing else
 #   deployed.
 #
@@ -384,10 +385,16 @@ jobs:
       - name: Sync the staging Convex origin
         run: printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
 
-  ota:
-    name: Publish OTA
-    needs: [plan, convex, workers]
-    if: ${{ !cancelled() && !failure() && needs.plan.outputs.app == 'true' }}
+  # The OTA bundle builds as soon as the plan says the app changed, beside the
+  # backend deploys, and only the upload waits for them. Exporting is the slow
+  # half of `eas update` (about two minutes of Metro); doing it inside the
+  # gated job made it the last thing every staging run waited for. The upload
+  # keeps the old edge: new JS must not reach phones before the Convex
+  # functions and Workers it calls exist.
+  ota-bundle:
+    name: Build OTA bundle
+    needs: plan
+    if: ${{ needs.plan.outputs.app == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 20
@@ -407,15 +414,56 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build drawing editor
+        run: node scripts/build-drawing-editor.mjs
+      # The export `eas update --clear-cache` runs itself (eas-cli publish.js:
+      # ios + android, source and asset maps), so the upload
+      # below can pass --skip-bundler and publish exactly these files.
+      - name: Export the staging bundle
+        working-directory: apps/mobile
+        run: pnpm exec expo export --output-dir dist --dump-sourcemap --dump-assetmap --platform ios --platform android --clear
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-ota-dist
+          path: apps/mobile/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  ota:
+    name: Publish OTA
+    needs: [plan, convex, workers, ota-bundle]
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    env:
+      APP_ENV: staging
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SITE_ORIGIN: https://staging.context.lc
+      EXPO_PUBLIC_MCP_URL: https://mcp-staging.context.lc/mcp
+      EXPO_PUBLIC_APP_BUILD: ${{ github.sha }}
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      # Still needed: `eas update` evaluates app.config.js for the manifest.
+      - run: pnpm install --frozen-lockfile
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: Build drawing editor
-        run: node scripts/build-drawing-editor.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: staging-ota-dist
+          path: apps/mobile/dist
       - name: Publish staging OTA
         working-directory: apps/mobile
-        run: eas update --branch staging --clear-cache --message "Staging ${GITHUB_SHA}" --non-interactive
+        run: eas update --branch staging --skip-bundler --input-dir dist --message "Staging ${GITHUB_SHA}" --non-interactive
 
   verify:
     name: Verify live staging

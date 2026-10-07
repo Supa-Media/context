@@ -91,9 +91,18 @@ concurrency:
 
 jobs:
   contracts:
-    name: Gateway contracts
+    name: Gateway contracts (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The control-plane suite is the slowest thing on a pull request: about
+    # three minutes on one runner, nearly all of it vitest collecting and
+    # running 220-odd files. Three runners each take a third (vitest's
+    # --shard splits by file), and every file still runs on every commit.
+    # fail-fast is off so one red shard still reports the others' results.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v5
 
@@ -181,4 +190,4 @@ jobs:
       - name: Control-plane suite, against this commit's gateway
         if: steps.scope.outputs.affected == 'true'
         working-directory: apps/convex
-        run: npx vitest run
+        run: npx vitest run --shard=${{ matrix.shard }}/3
