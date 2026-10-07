@@ -39,7 +39,8 @@ export interface FrameCtx {
 
 export interface OrganizerFixture {
   status: OrganizerStatus;
-  reviewOpen?: boolean;
+  /** Which What changed tab is showing. */
+  tab?: "inbox" | "tidy";
   toasts?: ToastSpec[];
   /** What changed cards waiting on their page. */
   changes?: ChangeCard[];
@@ -69,10 +70,12 @@ export function fixtureView(fixture: OrganizerFixture, list: OrganizerSuggestion
       busy: new Set(),
     },
     loadSuggestions: noop,
-    reviewOpen: fixture.reviewOpen === true,
+    tab: fixture.tab ?? "inbox",
+    setTab: noop,
     openReview: noop,
-    closeReview: noop,
-    resolve: noop,
+    resolve: async () => null,
+    resolveMany: async () => new Map(),
+    undo: async () => false,
     resolveChange: noop,
     sendRoute: async () => false,
     sendRoutes: async () => 0,
@@ -324,9 +327,8 @@ export const FRAMES: ReadonlyArray<ShotFrame> = [
   {
     id: "04-review-list",
     at: listAt,
-    organizer: () => ({ status: STATUS, reviewOpen: true }),
-    hover: "incident",
-    assert: ["Move to Custom domains", "Mark as done", "Skip"],
+    organizer: () => ({ status: STATUS, pageOpen: true, tab: "tidy" as const }),
+    assert: ["Tidy up", "Looks finished · 4", "Mark all 4 done", "Belongs somewhere else · 7", "Projects › Custom domains", "0 of 11 done"],
     schemes: ["light", "dark"],
   },
   {

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { ToastSpec } from "../design/components/Toast";
-import { offerAction, undoFailed } from "./copy";
+import { offerAction, resolveFailed, undoFailed } from "./copy";
 import { changesCopy } from "./changeCopy";
 import { organizerApi, routesApi } from "./organizerApi";
 import { teamsCopy } from "./teamCopy";
+import { tidyCopy } from "./tidyCopy";
 import {
   isOrganizerEntry,
   organizerState,
@@ -19,6 +20,7 @@ import type {
   OrganizerKind,
   OrganizerStatus,
   OrganizerSuggestion,
+  ResolveResult,
   RouteCard,
   RouteTeam,
   UndoToken,
@@ -50,11 +52,20 @@ export interface OrganizerView {
   slug: string;
   suggestions: OrganizerSuggestions;
   loadSuggestions: () => void;
-  reviewOpen: boolean;
-  /** `closeSettings` when opened from Settings, which is drawn over the list. */
+  /** Which of the What changed page's two tabs is showing. */
+  tab: WhatChangedTab;
+  setTab: (tab: WhatChangedTab) => void;
+  /**
+   * What changed, on its Tidy up tab: where every "look over your suggestions"
+   * goes. `closeSettings` when opened from Settings, which is drawn over it.
+   */
   openReview: (options?: { closeSettings?: boolean }) => void;
-  closeReview: () => void;
-  resolve: (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => void;
+  /** One suggestion answered; resolves to what the server said, or `null` when it could not be asked. */
+  resolve: (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => Promise<ResolveResult | null>;
+  /** A whole group answered the same way, one after another, with one word said for them all. */
+  resolveMany: (suggestions: readonly OrganizerSuggestion[], decision: OrganizerDecision) => Promise<Map<string, ResolveResult>>;
+  /** Put one answered suggestion back as it was; resolves whether it went back. */
+  undo: (token: UndoToken) => Promise<boolean>;
   /** The What changed page is on screen (`?changes=1`); the layout routes these. */
   pageOpen: boolean;
   openPage: () => void;
@@ -82,6 +93,8 @@ export interface OrganizerView {
   /** The Undo on an Activity row auto-organize wrote, or `undefined` for any other row. */
   undoFor: (entry: ActivityRow) => (() => void) | undefined;
 }
+
+export type WhatChangedTab = "inbox" | "tidy";
 
 type ActivityRow = { at: string; kind: string; paths: string[]; by: string | null; via: string | null };
 
@@ -147,7 +160,7 @@ export function useOrganizer({
   const status = state.kind === "ready" ? state.status : null;
 
   const [suggestions, setSuggestions] = useState<OrganizerSuggestions>(EMPTY);
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const [tab, setTab] = useState<WhatChangedTab>("inbox");
   const [toasts, setToasts] = useState<readonly ToastSpec[]>([]);
   const toastSeq = useRef(0);
   const asking = useRef(0);
@@ -155,7 +168,7 @@ export function useOrganizer({
   // Another workspace is another set of suggestions, and nothing of this one's carries over.
   useEffect(() => {
     setSuggestions(EMPTY);
-    setReviewOpen(false);
+    setTab("inbox");
     setToasts([]);
   }, [id]);
 
@@ -211,10 +224,9 @@ export function useOrganizer({
   // Routing — closing Settings over the list, opening Settings from it — is
   // the layout's, which wraps these; see `routeOrganizer`.
   const openReview = useCallback(() => {
-    setReviewOpen(true);
+    setTab("tidy");
     loadSuggestions();
   }, [loadSuggestions]);
-  const closeReview = useCallback(() => setReviewOpen(false), []);
 
   const warn = useCallback((message: string) => say({ message, tone: "warn" }), [say]);
 
@@ -238,8 +250,9 @@ export function useOrganizer({
     [call, convex, warn],
   );
 
-  const resolve = useCallback(
-    (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => {
+  /** One suggestion to the server; says nothing, so a group can say it once. */
+  const resolveQuiet = useCallback(
+    async (suggestion: OrganizerSuggestion, decision: OrganizerDecision): Promise<ResolveResult | null> => {
       setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, suggestion.id]) }));
       const settle = (removed: boolean) =>
         setSuggestions((current) => {
@@ -248,31 +261,68 @@ export function useOrganizer({
           const list = removed && current.list !== null ? current.list.filter((s) => s.id !== suggestion.id) : current.list;
           return { ...current, busy, list };
         });
-      void call((functions, workspace) =>
-        convex.action(functions.resolve, { workspaceId: workspace, id: suggestion.id, decision }),
-      )
-        .then((result) => {
-          const answer = result ?? { applied: false, offer: null, undo: null };
-          settle(answer.applied);
-          const toast: OrganizerToast | null = resolveToast(suggestion, decision, answer, {
-            undo: () => spendUndo({ token: answer.undo }),
-          });
-          if (toast === null) return;
-          const offer = toast.offer;
-          say({
-            message: toast.message,
-            tone: toast.tone,
-            undo: toast.undo,
-            action: offer === undefined ? undefined : { label: offerAction, run: () => setAutopilot(offer, true) },
-          });
-        })
-        .catch(() => {
-          settle(false);
-          const toast = resolveToast(suggestion, decision, { applied: false, offer: null, undo: null }, { undo: () => {} });
-          if (toast !== null) warn(toast.message);
-        });
+      try {
+        const result = await call((functions, workspace) =>
+          convex.action(functions.resolve, { workspaceId: workspace, id: suggestion.id, decision }),
+        );
+        const answer = result ?? { applied: false, offer: null, undo: null };
+        settle(answer.applied);
+        return answer;
+      } catch {
+        settle(false);
+        return null;
+      }
     },
-    [call, convex, say, setAutopilot, spendUndo, warn],
+    [call, convex],
+  );
+
+  const resolve = useCallback(
+    async (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => {
+      const answer = await resolveQuiet(suggestion, decision);
+      const toast: OrganizerToast | null = resolveToast(suggestion, decision, answer ?? { applied: false, offer: null, undo: null }, {
+        undo: () => spendUndo({ token: answer?.undo ?? undefined }),
+      });
+      if (toast !== null) {
+        const offer = toast.offer;
+        say({
+          message: toast.message,
+          tone: toast.tone,
+          undo: toast.undo,
+          action: offer === undefined ? undefined : { label: offerAction, run: () => setAutopilot(offer, true) },
+        });
+      }
+      return answer;
+    },
+    [resolveQuiet, say, setAutopilot, spendUndo],
+  );
+
+  const resolveMany = useCallback(
+    async (list: readonly OrganizerSuggestion[], decision: OrganizerDecision) => {
+      const answers = new Map<string, ResolveResult>();
+      for (const suggestion of list) {
+        const answer = await resolveQuiet(suggestion, decision);
+        if (answer !== null && answer.applied) answers.set(suggestion.id, answer);
+      }
+      const missed = list.length - answers.size;
+      if (decision === "accept" && answers.size > 0) say({ message: tidyCopy.didMany(list.filter((s) => answers.has(s.id))) });
+      if (missed > 0) warn(resolveFailed);
+      return answers;
+    },
+    [resolveQuiet, say, warn],
+  );
+
+  const undo = useCallback(
+    async (token: UndoToken) => {
+      try {
+        const answer = await call((functions, workspace) => convex.action(functions.undo, { workspaceId: workspace, token }));
+        if (answer !== undefined && answer.applied) return true;
+      } catch {
+        // Said below, the same as a refusal.
+      }
+      warn(undoFailed);
+      return false;
+    },
+    [call, convex, warn],
   );
 
   const resolveChange = useCallback(
@@ -474,10 +524,12 @@ export function useOrganizer({
     slug,
     suggestions,
     loadSuggestions,
-    reviewOpen,
+    tab,
+    setTab,
     openReview,
-    closeReview,
     resolve,
+    resolveMany,
+    undo,
     resolveChange,
     sendRoute,
     sendRoutes,

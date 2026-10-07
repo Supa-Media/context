@@ -7,7 +7,6 @@ import { makeStyles as browseStyles } from "../console/panes/browsePane/styles";
 import { existingCopy, phoneLine, reviewCopy } from "./copy";
 import { useOrganizerView } from "./OrganizerContext";
 import { existingNoticeVisible, phoneChangesCount, phoneEntryCount } from "./rules";
-import { changesCopy } from "./changeCopy";
 import type { OrganizerView } from "./useOrganizer";
 import { useMessageSlot } from "../messages/useInAppMessage";
 
@@ -46,18 +45,19 @@ function organizerNotices(
   organizer: OrganizerView | undefined,
   place: NoticePlace,
   existing: boolean,
-): ("existing" | "changes" | "entry")[] {
+): ("existing" | "entry")[] {
   const status = organizer?.status ?? null;
-  const lines: ("existing" | "changes" | "entry")[] = [];
+  const lines: ("existing" | "entry")[] = [];
   if (existing) lines.push("existing");
-  if (phoneChangesCount(status, place) !== null) lines.push("changes");
-  if (phoneEntryCount(status, place) !== null) lines.push("entry");
+  // One line for both: what came in and what could be tidied are one page.
+  if (phoneChangesCount(status, place) !== null || phoneEntryCount(status, place) !== null) lines.push("entry");
   return lines;
 }
 
 /**
  * Auto-organize's lines in the browse band: 07's one-time notice for people
- * already on Premium, and 04b's phone entry to the review list. Both use the
+ * already on Premium, and 04b's phone entry to What changed: one line for
+ * what came in and what could be tidied, as the sidebar has one. Both use the
  * band's own notice treatment and its `mini` pair.
  */
 export function OrganizerNotices(place: NoticePlace) {
@@ -88,22 +88,24 @@ export function OrganizerNotices(place: NoticePlace) {
           </View>
         </View>
       ) : null}
-      {lines.includes("changes") && changed !== null ? (
-        <View style={[styles.notice, phoneRow]} testID="organizer-phone-changes">
-          <Icon name="sparkle" size={14} color={colors.accent} />
-          <Text variant="hint" style={phoneText}>
-            {changesCopy.phoneLine(changed)}
-          </Text>
-          <Button label={changesCopy.phoneOpen} onPress={organizer.openPage} testID="organizer-phone-changes-open" />
-        </View>
-      ) : null}
-      {lines.includes("entry") && count !== null ? (
+      {lines.includes("entry") ? (
         <View style={[styles.notice, phoneRow]} testID="organizer-phone-entry">
           <Icon name="sparkle" size={14} color={colors.accent} />
           <Text variant="hint" style={phoneText}>
-            {phoneLine(count)}
+            {phoneLine((changed ?? 0) + (count ?? 0))}
           </Text>
-          <Button label={reviewCopy.phoneOpen} onPress={() => organizer.openReview()} testID="organizer-look-over" />
+          <Button
+            label={reviewCopy.phoneOpen}
+            onPress={() => {
+              // What came in first; the tidy-ups when that is all there is.
+              if (changed === null) organizer.openReview();
+              else {
+                organizer.setTab("inbox");
+                organizer.openPage();
+              }
+            }}
+            testID="organizer-look-over"
+          />
         </View>
       ) : null}
     </>

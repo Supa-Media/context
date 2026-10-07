@@ -1,14 +1,12 @@
 import { useMemo } from "react";
 import type { ToastSpec } from "../design/components/Toast";
 import type { ConsoleRouter } from "../console/layout/types";
-import { ReviewSheet } from "./Review";
 import { changesCount } from "./rules";
 import { ORGANIZER_TOAST_PREFIX, type OrganizerView } from "./useOrganizer";
 
 /**
  * Auto-organize's pieces of the console layout: the routed view it hands
- * down, the phone's review sheet, and the toasts it shares with the file
- * browser.
+ * down, and the toasts it shares with the file browser.
  *
  * The view itself comes from `useLiveConsoleData` (`data.organizer`), the
  * one place the layout reaches the control plane; absent on the demo and in
@@ -27,8 +25,8 @@ export function useConsoleOrganizer(
 
 /**
  * Settings and What changed are query parameters: Show me closes Settings
- * over the list, the list's foot opens it, and What changed rides beside the
- * open note as `?changes=1` so Back and a shared link both find it.
+ * and opens What changed on its Tidy up tab, and What changed rides beside
+ * the open note as `?changes=1` so Back and a shared link both find it.
  */
 export function routeOrganizer(
   organizer: OrganizerView,
@@ -37,31 +35,16 @@ export function routeOrganizer(
 ): OrganizerView {
   return {
     ...organizer,
-    openReview: (options) => {
+    // Every "look over the suggestions" is What changed, on its Tidy up tab.
+    openReview: () => {
       organizer.openReview();
-      if (options?.closeSettings) router.setParams({ settings: undefined });
+      router.setParams({ changes: "1", settings: undefined });
     },
     openSettings: () => router.setParams({ settings: "premium" }),
     pageOpen: changesOpen && changesCount(organizer.status) !== null,
-    openPage: () => {
-      organizer.closeReview();
-      router.setParams({ changes: "1", settings: undefined });
-    },
+    openPage: () => router.setParams({ changes: "1", settings: undefined }),
     closePage: () => router.setParams({ changes: undefined }),
   };
-}
-
-/** The phone has no explorer foot, so the list is a sheet — RecentSheet's frame. */
-export function consoleReviewSheet({
-  organizer,
-  phone,
-  browsing,
-}: {
-  organizer: OrganizerView | undefined;
-  phone: boolean;
-  browsing: boolean;
-}) {
-  return organizer?.reviewOpen && phone && browsing ? <ReviewSheet organizer={organizer} /> : null;
 }
 
 /**

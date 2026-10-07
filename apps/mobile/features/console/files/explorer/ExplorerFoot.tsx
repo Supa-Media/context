@@ -11,7 +11,6 @@ import type { AgentActivityView } from "../../agents/agentActivity";
 import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
 import { useOrganizerView } from "../../../organizer/OrganizerContext";
-import { SuggestionsLine } from "../../../organizer/Review";
 import { changesCount, footCount } from "../../../organizer/rules";
 import { WhatChangedLine } from "../../../organizer/WhatChangedPage";
 
@@ -44,14 +43,14 @@ export function ExplorerFoot({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /*
-    Auto-organize's line: "11 suggestions", the activity line's twin, opening
-    the review list the way that one opens what changed. Only one of the
-    three popovers is open at a time.
+    Auto-organize's one line, "What changed" with everything waiting: what
+    came in and what could be tidied. It was two lines, "What changed" and
+    "11 suggestions", which read as two helpers (Dev2, 2026-10-07); the
+    second is now the page's Tidy up tab.
   */
   const organizer = useOrganizerView();
   const suggestions = footCount(organizer?.status ?? null);
   const changes = changesCount(organizer?.status ?? null);
-  const closeReview = organizer?.closeReview;
   return (
     <>
       {/*
@@ -109,7 +108,6 @@ export function ExplorerFoot({
           accessibilityLabel={`${agentsLabel}. Show who`}
           onPress={() => {
             setActivityOpen(null);
-            closeReview?.();
             setAgentsOpen((open) => (open === null ? Date.now() : null));
           }}
           ariaExpanded={agentsOpen !== null}
@@ -131,31 +129,21 @@ export function ExplorerFoot({
 
       {organizer !== undefined && changes !== null ? (
         <WhatChangedLine
-          count={changes}
+          count={changes + (suggestions ?? 0)}
           open={organizer.pageOpen}
           onPress={() => {
             setActivityOpen(null);
             setAgentsOpen(null);
             if (organizer.pageOpen) organizer.closePage();
-            else organizer.openPage();
+            else {
+              // Opens where something is waiting: what came in first.
+              organizer.setTab(changes === 0 && suggestions !== null ? "tidy" : "inbox");
+              organizer.openPage();
+            }
           }}
         />
       ) : null}
 
-      <Reveal open={organizer !== undefined && suggestions !== null}>
-      {organizer !== undefined && suggestions !== null ? (
-        <SuggestionsLine
-          count={suggestions}
-          open={organizer.reviewOpen}
-          onToggle={() => {
-            setActivityOpen(null);
-            setAgentsOpen(null);
-            if (organizer.reviewOpen) organizer.closeReview();
-            else organizer.openReview();
-          }}
-        />
-      ) : null}
-      </Reveal>
 
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow
@@ -163,7 +151,6 @@ export function ExplorerFoot({
           onPress={() => {
             const opening = activityOpen === null;
             setAgentsOpen(null);
-            closeReview?.();
             setActivityOpen(opening ? Date.now() : null);
             // Re-read on the way in. The entries arrived when this console
             // did, and everything that has happened since — including this

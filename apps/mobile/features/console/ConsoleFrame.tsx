@@ -78,7 +78,6 @@ import { consolePalette } from "./layout/palette";
 import { OrganizerProvider } from "../organizer/OrganizerContext";
 import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
 import {
-  consoleReviewSheet,
   consoleToasts,
   useConsoleOrganizer,
 } from "../organizer/consoleOrganizer";
@@ -603,7 +602,6 @@ export function ConsoleFrame({
         */}
         <ToastHost {...consoleToasts(data.files, organizer)} />
 
-        {consoleReviewSheet({ organizer, phone, browsing })}
 
         {consoleCreateButton({
           data, phone, startMeetingFlow, resumeRow, setBarDialog, startNewChat,

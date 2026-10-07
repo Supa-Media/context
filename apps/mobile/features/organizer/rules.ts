@@ -12,7 +12,6 @@ import {
   acceptedToast,
   offerToast,
   resolveFailed,
-  reviewCopy,
 } from "./copy";
 import type {
   OrganizerDecision,
@@ -143,26 +142,6 @@ export function sortLine(status: OrganizerStatus | null, now: number): SortLine 
   const at = sweep.finishedAt ?? sweep.startedAt;
   if (sweep.state === "failed") return sweep.why ? { kind: "failed", at, why: sweep.why } : { kind: "failed", at };
   return { kind: "done", at, pending: status.pending };
-}
-
-export interface SuggestionGroup {
-  key: "projects" | "inbox";
-  label: string;
-  items: OrganizerSuggestion[];
-}
-
-/** "Projects · 4" then "Inbox · 7"; a group with nothing in it is not drawn. */
-export function groupSuggestions(list: readonly OrganizerSuggestion[]): SuggestionGroup[] {
-  const projects = list.filter((s) => s.kind !== "file");
-  const inbox = list.filter((s) => s.kind === "file");
-  const groups: SuggestionGroup[] = [];
-  if (projects.length > 0) {
-    groups.push({ key: "projects", label: `${reviewCopy.projects} · ${projects.length}`, items: projects });
-  }
-  if (inbox.length > 0) {
-    groups.push({ key: "inbox", label: `${reviewCopy.inbox} · ${inbox.length}`, items: inbox });
-  }
-  return groups;
 }
 
 /** Up to two projects and an inbox note, then whatever else there is. */

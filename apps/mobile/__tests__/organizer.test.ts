@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
+import { handled, moveTo, TIDY_GROUPS, tidyCopy } from "../features/organizer/tidyCopy";
 import {
   ORGANIZER_ACTOR,
   acceptLabel,
@@ -30,7 +31,6 @@ import {
 import {
   existingNoticeVisible,
   footCount,
-  groupSuggestions,
   isOrganizerEntry,
   organizerState,
   phoneEntryCount,
@@ -236,13 +236,16 @@ describe("rules", () => {
     ).toBe(false);
   });
 
-  test("projects and inbox are grouped, and an empty group is not drawn", () => {
-    expect(groupSuggestions([FILE, DONE, ARCHIVE])).toEqual([
-      { key: "projects", label: "Projects · 2", items: [DONE, ARCHIVE] },
-      { key: "inbox", label: "Inbox · 1", items: [FILE] },
-    ]);
-    expect(groupSuggestions([FILE])).toEqual([{ key: "inbox", label: "Inbox · 1", items: [FILE] }]);
-    expect(groupSuggestions([])).toEqual([]);
+  test("Tidy up names a move by its folders, and says what an answered row did", () => {
+    const plain = (text: string) => text.replace(/[\u2066-\u2069]/g, "");
+    expect(TIDY_GROUPS.map((group) => group.kind)).toEqual(["done", "file", "archive"]);
+    expect(plain(moveTo({ ...FILE, target: { path: "1-projects/custom-domains", title: "Custom domains" } }) ?? "")).toBe("Projects › Custom domains");
+    expect(moveTo(DONE)).toBeNull();
+    expect(plain(handled(DONE))).toBe(`${DONE.title} marked done`);
+    expect(plain(handled(ARCHIVE))).toBe(`${ARCHIVE.title} archived`);
+    expect(tidyCopy.didMany([DONE, { ...DONE, id: "d2" }])).toBe("Marked 2 projects done. Each one has an Undo here.");
+    expect(TIDY_GROUPS[0].all(2)).toBe("Mark both done");
+    expect(TIDY_GROUPS[1].all(5)).toBe("Move all 5");
   });
 
   test("the preview is two projects and an inbox note, then whatever there is", () => {
