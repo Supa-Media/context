@@ -62,9 +62,9 @@ describe("one event, in words", () => {
   });
 
   test("a hostile file name is isolated rather than reversing the line", () => {
-    const evil = graph("ws-x", "X", ["a‮evil.md"]);
-    const parts = eventParts(ev.read(1, "ws-x", "a‮evil.md"), false, nameBook([evil]));
-    expect(parts[1]!.text).not.toBe("a‮evil");
+    const evil = graph("ws-x", "X", ["a\u202eevil.md"]);
+    const parts = eventParts(ev.read(1, "ws-x", "a\u202eevil.md"), false, nameBook([evil]));
+    expect(parts[1]!.text).not.toBe("a\u202eevil");
     expect(parts[1]!.text).toContain("evil");
   });
 });
