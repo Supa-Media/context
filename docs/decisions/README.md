@@ -570,6 +570,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Only iMessage is answered, because the sender number is the login
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
+- Staging has a texts simulator, and nothing else does
 - The autofill vault lives sealed in the person's bucket
 - The built-in model is for Premium, capped, and metered like Jev
 - The agent opens only addresses it was given

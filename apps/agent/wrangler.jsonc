@@ -2,9 +2,13 @@
   // context-agent: the Worker behind the Context assistant people text over
   // iMessage. See src/index.ts for the flow.
   //
-  // Staging deploys on every merge that changes it (deploy-staging.yml); it
-  // is not in the production release until the owner signs off on Linq
-  // carrying message text (docs/decisions/texting-assistant.md).
+  // Staging deploys on every merge that changes it (deploy-staging.yml), and
+  // production with each release that changes it (deploy-agent-worker.yml).
+  //
+  // Staging alone sets SIMULATOR to "on", which serves the texts simulator at
+  // /texts-simulator (src/simulator.ts): a made-up iPhone that texts the
+  // assistant without Linq. The staging router forwards that path here, and
+  // the production deploy checks it answers 404.
   //
   // Secrets, set by the deploy from the GitHub environment, never committed:
   //
@@ -45,7 +49,8 @@
       },
       "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
       "vars": {
-        "GATEWAY_ORIGIN": "https://mcp-staging.context.lc"
+        "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
+        "SIMULATOR": "on"
       }
     }
   }
