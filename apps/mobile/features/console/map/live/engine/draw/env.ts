@@ -3,6 +3,8 @@ import type { HitFrame } from "../hit";
 import type { Bounds, Occupancy } from "../labels";
 import type { Point } from "../math";
 import type { Model, SceneAt } from "../scene";
+import type { Rect } from "../labels";
+import type { Pill } from "./containers";
 import type { Ctx, Style } from "./primitives";
 
 /** Everything one map frame's drawing passes share. */
@@ -31,6 +33,12 @@ export type DrawEnv = {
   counts: Map<string, number>;
   /** Note keys that are hot: written, read, followed, new or selected. */
   hot: Set<string>;
+  /** "N moved today" pills, placed with the ground and drawn over the dots. */
+  pills: Pill[];
+  /** Where words are: moving dots fade out as they pass under these. */
+  quiet: Rect[];
+  /** Notes mid-move inside a workspace, by key: where they are now (world). Their links and name follow them. */
+  flyingAt: Map<string, Point>;
 };
 
 /** Notes present under each folder, subfolder and workspace at this instant. */

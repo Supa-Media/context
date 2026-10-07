@@ -4,9 +4,11 @@ import { Occupancy } from "../labels";
 import { minimapAlpha } from "../lod";
 import type { Point } from "../math";
 import type { Model, SceneAt } from "../scene";
-import { drawContainerLabels, drawGround, drawLinks, drawNotes } from "./base";
+import { drawGround, drawLinks, drawNotes } from "./base";
+import { drawContainerLabels, placeContainerLabels } from "./containers";
 import { countPresent, type DrawEnv } from "./env";
-import { drawActors, drawFlights, drawReading, placeFacesAndLabels } from "./overlay";
+import { drawFlights } from "./flights";
+import { drawActors, drawReading, placeFacesAndLabels } from "./overlay";
 import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
 
 /** Below this width the map behaves like a phone: anything that does not fit is dropped. */
@@ -47,16 +49,22 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     selected: opts.selected,
     counts: countPresent(model, scene),
     hot,
+    pills: [],
+    quiet: [],
+    flyingAt: new Map(scene.flights.filter((f) => !f.cross && f.landedFor < 0).map((f) => [f.to.key, f.pos])),
   };
   drawGround(env);
   drawLinks(env);
   drawNotes(env);
-  drawContainerLabels(env);
+  // Names of containers claim their space first and are drawn over the dots.
+  const labels = placeContainerLabels(env);
+  env.quiet.push(...labels.map((l) => l.rect), ...env.pills.map((p) => ({ x: p.x - p.w / 2, y: p.y - 12, w: p.w, h: 24 })));
   const mini = opts.minimap ? minimapRect(env) : null;
   if (mini) env.occ.claim(mini);
-  const { groups, flags } = placeFacesAndLabels(env);
+  const { groups, flags, captions } = placeFacesAndLabels(env);
   drawReading(env, groups);
-  drawFlights(env);
+  drawContainerLabels(env, labels, env.pills);
+  drawFlights(env, captions);
   drawActors(env, groups, flags);
   if (mini) drawMinimap(env, mini);
   ctx.restore();

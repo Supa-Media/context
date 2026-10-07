@@ -1,18 +1,10 @@
 import { LAYER } from "../hit";
 import type { IslandPlace } from "../layout";
-import {
-  dotRadius,
-  edgeAlpha,
-  folderLabelAlpha,
-  highwayAlpha,
-  islandLabelAlpha,
-  subLabelAlpha,
-  subRimAlpha,
-} from "../lod";
+import { dotRadius, edgeAlpha, highwayAlpha, subRimAlpha } from "../lod";
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import type { DrawEnv } from "./env";
-import { circle, fillText, fontOf, haloText, roundRect } from "./primitives";
+import { circle, fontOf } from "./primitives";
 
 /**
  * The map's ground layers, back to front: workspaces, the paths between
@@ -100,23 +92,14 @@ function drawHighways(env: DrawEnv): void {
     ctx.setLineDash([]);
     ctx.lineCap = "butt";
     ctx.lineWidth = 1;
-    ctx.globalAlpha = hw;
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2 - h.bump * 3;
     const text = `${h.count} moved today`;
     ctx.font = fontOf(style, 12, 600);
     const w = ctx.measureText(text).width + 18;
-    roundRect(ctx, mx - w / 2, my - 12, w, 24, 12);
-    ctx.fillStyle = h.bump > 0 ? C.ink : C.ground;
-    ctx.fill();
-    ctx.strokeStyle = C.line;
-    ctx.stroke();
-    ctx.fillStyle = h.bump > 0 ? C.ground : C.text2;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    fillText(ctx, text, mx, my + 0.5);
-    ctx.textBaseline = "alphabetic";
-    env.occ.claim({ x: mx - w / 2, y: my - 12, w, h: 24 });
+    // Drawn later, over the dots; claimed now, so nothing is put on it.
+    env.pills.push({ x: mx, y: my, w, text, bump: h.bump, alpha: hw });
+    env.occ.claim({ x: mx - w / 2 - 4, y: my - 16, w: w + 8, h: 32 });
     ctx.globalAlpha = 1;
   }
 }
@@ -153,9 +136,12 @@ export function drawLinks(env: DrawEnv): void {
     for (const [ka, kb] of model.layout.edges) {
       if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
       if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
-      if (scene.hidden.has(ka) || scene.hidden.has(kb)) continue;
-      const a = env.screen(notes.get(ka)!);
-      const b = env.screen(notes.get(kb)!);
+      // A note moving within its workspace takes its links with it.
+      const fa = env.flyingAt.get(ka);
+      const fb = env.flyingAt.get(kb);
+      if ((scene.hidden.has(ka) && !fa) || (scene.hidden.has(kb) && !fb)) continue;
+      const a = env.screen(fa ?? notes.get(ka)!);
+      const b = env.screen(fb ?? notes.get(kb)!);
       if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -315,63 +301,5 @@ export function drawNotes(env: DrawEnv): void {
     ctx.fillStyle = C.accent;
     ctx.fill();
     env.hit.circle(p.x, p.y, R, { kind: "note", workspaceId: pop.note.workspaceId, path: pop.note.path }, LAYER.note);
-  }
-}
-
-/** Workspace names and totals, "PROJECTS 312" over folders, and subfolder names. */
-export function drawContainerLabels(env: DrawEnv): void {
-  const { ctx, style, model, s } = env;
-  const C = style.palette;
-  const all = model.scope.kind === "all";
-  for (const island of model.layout.islands) {
-    const p = env.screen(island);
-    const pr = island.r * s;
-    if (all) {
-      const a = islandLabelAlpha(pr);
-      if (a > 0 && env.onScreen(p, pr)) {
-        ctx.globalAlpha = a;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "alphabetic";
-        const y = p.y - pr - 22;
-        ctx.font = fontOf(style, 15, 700);
-        ctx.fillStyle = C.text;
-        fillText(ctx, island.name, p.x, y);
-        ctx.font = fontOf(style, 12, 500);
-        ctx.fillStyle = C.dim;
-        const total = env.counts.get(island.workspaceId) ?? 0;
-        fillText(ctx, `${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`, p.x, y + 16);
-        const w = Math.max(ctx.measureText(island.name).width, 80);
-        env.occ.claim({ x: p.x - w / 2, y: y - 15, w, h: 34 });
-        ctx.globalAlpha = 1;
-      }
-    }
-    const halo = all ? C.island : C.ground;
-    for (const f of island.folders) {
-      const q = env.screen(f);
-      const fr = f.r * s;
-      if (!env.onScreen(q, fr)) continue;
-      const a = f.label ? folderLabelAlpha(fr) : 0;
-      if (a > 0) {
-        const size = clamp(fr / 9, 10, 13);
-        const text = `${f.label.toUpperCase()}  ${env.counts.get(f.key) ?? 0}`;
-        ctx.globalAlpha = a;
-        haloText(ctx, style, text, q.x, q.y - fr - 7, size, 700, C.muted, halo);
-        ctx.globalAlpha = 1;
-        const w = ctx.measureText(text).width;
-        env.occ.claim({ x: q.x - w / 2, y: q.y - fr - 7 - size, w, h: size * 1.25 });
-      }
-      for (const sub of f.subs) {
-        if (sub.name === "") continue;
-        const sq = env.screen(sub);
-        const sr = sub.r * s;
-        const sa = subLabelAlpha(sr);
-        if (sa <= 0 || !env.onScreen(sq, sr)) continue;
-        ctx.globalAlpha = sa;
-        haloText(ctx, style, sub.label, sq.x, sq.y - sr - 6, 12.5, 700, C.text2);
-        ctx.globalAlpha = 1;
-        const w = ctx.measureText(sub.label).width;
-        env.occ.claim({ x: sq.x - w / 2, y: sq.y - sr - 18, w, h: 15 });
-      }
-    }
   }
 }

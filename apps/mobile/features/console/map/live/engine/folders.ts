@@ -1,11 +1,12 @@
 import { visibleRect, type Viewport } from "./camera";
 import { HitFrame, LAYER } from "./hit";
+import { overlaps, type Rect } from "./labels";
 import type { FolderPlace, IslandPlace, NotePlace } from "./layout";
 import { clamp, ease, lerp } from "./math";
 import { noteKey, splitPath } from "./paths";
 import type { Model, SceneAt } from "./scene";
 import { moveTarget, presentAt } from "./timeline";
-import { drawCard, drawFace, drawFlag, fillText, flagSize, fontOf, roundRect, type Ctx, type Style } from "./draw/primitives";
+import { drawCard, drawFace, drawFlag, fillText, fitText, flagSize, fontOf, roundRect, type Ctx, type Style } from "./draw/primitives";
 
 /**
  * The Folders view: the same notes as columns, one per root folder, PARA
@@ -134,6 +135,8 @@ export function renderFolders(
   }
 
   const slotY = (lane: Lane, index: number) => lane.y + TOP + index * CARD_STEP;
+  // Where the names on the cards are, so a mover's flag can stay off them.
+  const titles: Rect[] = [];
   const indexOf = new Map<string, number>();
   for (const lane of lanes) {
     const list = cards.get(lane.folder.name)!;
@@ -173,6 +176,9 @@ export function renderFolders(
       if (card.presence > 0) {
         ctx.globalAlpha = card.presence;
         drawCard(ctx, style, lane.x + 10, slotY(lane, y), lane.w - 20, card.note.title, card.isNew ? "new" : null);
+        ctx.font = fontOf(style, 13, 500);
+        const tw = ctx.measureText(fitText(ctx, card.note.title, lane.w - 20 - (card.isNew ? 76 : 44))).width;
+        titles.push({ x: lane.x + 10 + 30, y: slotY(lane, y) + 6, w: tw, h: CARD_H - 12 });
         ctx.globalAlpha = 1;
         hit.rect({ x: lane.x + 10, y: slotY(lane, y), w: lane.w - 20, h: CARD_H }, { kind: "note", workspaceId: ws, path: card.note.path }, LAYER.card);
         if (!card.leaving) drawn += 1;
@@ -206,11 +212,21 @@ export function renderFolders(
     drawCard(ctx, style, x, y, w, f.note.title, "fly");
     ctx.restore();
     drawCard(ctx, style, x, y, w, f.note.title, "fly");
-    drawFace(ctx, f.actor, x + w - 4, y - 2, 0.9, style);
+    // The mover holds the card by its leading corner, and their flag goes
+    // beside the card wherever it covers no card's name: to its left, its
+    // right, above, below. It fades out as the card settles.
+    const fr = 13;
+    const face = [
+      { x, y: y + 3 },
+      { x: x + w, y: y + 3 },
+    ].find((p) => !titles.some((a) => overlaps(a, { x: p.x - fr, y: p.y - fr, w: fr * 2, h: fr * 2 }))) ?? { x: x + w - 18, y: y + CARD_H / 2 };
+    drawFace(ctx, f.actor, face.x, face.y, 0.9, style);
     const label = f.dest ? `${f.actor.name} is moving it to ${f.dest}` : `${f.actor.name} is moving it`;
     const size = flagSize(ctx, style, label, null);
-    const fx = x + w + 12 + size.w > v.x + v.w ? x + w - 20 - size.w : x + w + 12;
-    drawFlag(ctx, style, fx, y - 14, label, null);
+    const spot = flagSpot({ x, y, w, h: CARD_H }, size, titles, { minX: v.x + 4, maxX: v.x + v.w - 4, minY: v.y + 4, maxY: v.y + v.h - 4 });
+    ctx.globalAlpha = clamp((1 - f.k) / 0.15, 0, 1);
+    if (ctx.globalAlpha > 0) drawFlag(ctx, style, spot.x, spot.y, label, null);
+    ctx.globalAlpha = 1;
     hit.rect({ x, y, w, h: CARD_H }, { kind: "note", workspaceId: f.note.workspaceId, path: f.note.path }, LAYER.card);
   }
 
@@ -233,6 +249,30 @@ export function renderFolders(
   }
   ctx.restore();
   return { hit, contentW };
+}
+
+/**
+ * Where a flying card's flag goes: the first spot beside the card — left,
+ * right, above, below — that is on screen and covers none of `avoid` (the
+ * names on the cards in the columns). Above the card when none is free.
+ */
+export function flagSpot(
+  card: Rect,
+  size: { w: number; h: number },
+  avoid: readonly Rect[],
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+): { x: number; y: number } {
+  const midY = card.y + 3 - size.h / 2;
+  const spots: Rect[] = [
+    { x: card.x - 16 - size.w, y: midY, ...size },
+    { x: card.x + card.w + 12, y: midY, ...size },
+    { x: card.x + 16, y: card.y - size.h - 6, ...size },
+    { x: card.x + 16, y: card.y + card.h + 6, ...size },
+  ];
+  const fits = (r: Rect) => r.x >= bounds.minX && r.x + r.w <= bounds.maxX && r.y >= bounds.minY && r.y + r.h <= bounds.maxY;
+  const free = spots.find((r) => fits(r) && !avoid.some((a) => overlaps(a, r)));
+  const r = free ?? spots[2]!;
+  return { x: clamp(r.x, bounds.minX, bounds.maxX - size.w), y: r.y };
 }
 
 const maxCards = (lane: Lane): number => Math.max(0, Math.floor((lane.h - TOP - 34) / CARD_STEP) - 1);
