@@ -150,23 +150,35 @@ export function liveMapFixture(now: number): MapFixtureSource {
     from = Math.max(from, morning.getTime());
     const end = Math.min(to, now);
     const out: MapEvent[] = [];
-    const kinds = ["read", "read", "read", "edit", "edit", "create", "move"] as const;
+    const kinds = ["read", "read", "read", "read", "read", "edit", "edit", "edit", "create", "move"] as const;
     const span = end - from;
-    // Busier mid-morning and mid-afternoon, quiet at lunch.
-    const busy = (f: number) => 0.35 + Math.sin(f * Math.PI * 2.2) ** 2;
-    for (let i = 0; i < 260; i++) {
-      const f = rand();
-      if (rand() > busy(f)) continue;
-      const at = from + f * span;
-      const ws = rand() < 0.75 ? graphs[0]! : graphs[1 + Math.floor(rand() * 2)]!;
-      const node = ws.nodes[Math.floor(rand() * ws.nodes.length)]!;
-      const actor = ACTORS[Math.floor(rand() * ACTORS.length)]!;
-      const kind = kinds[Math.floor(rand() * kinds.length)]!;
-      if (kind === "move") {
-        const folder = FOLDERS[1 + Math.floor(rand() * 4)]!;
-        out.push({ kind: "move", at, workspaceId: ws.workspaceId, from: node.path, to: `${folder}/${baseName(node.path)}`, actor });
-      } else {
-        out.push({ kind, at, workspaceId: ws.workspaceId, path: node.path, actor });
+    // People work in sittings: a run of steps a few minutes apart, then away.
+    // Each actor sits down two to four times a working day, eight till seven.
+    const DAY = 24 * 3_600_000;
+    const firstDay = new Date(from);
+    firstDay.setHours(0, 0, 0, 0);
+    for (let day = firstDay.getTime(); day < end; day += DAY) {
+      const open = Math.max(from, day + 8 * 3_600_000);
+      const close = Math.min(end, day + 19 * 3_600_000);
+      if (close <= open) continue;
+      for (const actor of ACTORS) {
+        const sittings = 2 + Math.floor(rand() * 3);
+        for (let n = 0; n < sittings; n++) {
+          // Spread over the day, so the replay has somebody in it at any hour.
+          let at = open + ((n + rand() * 0.8) / sittings) * (close - open);
+          const until = Math.min(close, at + (40 + rand() * 80) * 60_000);
+          const ws = rand() < 0.75 ? graphs[0]! : graphs[1 + Math.floor(rand() * 2)]!;
+          for (; at < until; at += (2 + rand() * 5) * 60_000) {
+            const node = ws.nodes[Math.floor(rand() * ws.nodes.length)]!;
+            const kind = kinds[Math.floor(rand() * kinds.length)]!;
+            if (kind === "move") {
+              const folder = FOLDERS[1 + Math.floor(rand() * 4)]!;
+              out.push({ kind: "move", at, workspaceId: ws.workspaceId, from: node.path, to: `${folder}/${baseName(node.path)}`, actor });
+            } else {
+              out.push({ kind, at, workspaceId: ws.workspaceId, path: node.path, actor });
+            }
+          }
+        }
       }
     }
     // The moments the stills mark.

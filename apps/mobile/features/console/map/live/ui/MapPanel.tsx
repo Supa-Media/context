@@ -1,5 +1,5 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
@@ -17,19 +17,22 @@ import { FollowPanel } from "./FollowPanel";
  */
 export function MapPanel({ page, onOpenNote }: { page: MapPageState; onOpenNote: (workspaceId: string, path: string) => void }) {
   const styles = useThemedStyles(makeStyles);
-  if (page.follow !== null) {
-    return (
-      <View style={styles.panel} testID="map-panel">
-        <FollowPanel page={page} onOpenNote={onOpenNote} />
-      </View>
-    );
-  }
+  // The column scrolls, and stops above the console's floating new-note
+  // button in its corner, so the button never sits on the last row.
   return (
     <View style={styles.panel} testID="map-panel">
-      <WorkingNow page={page} />
-      {page.scope === "all" && page.many ? <CrossMoves rows={page.crossRows} replaying={page.replaying} /> : null}
-      <PanelHeading>{page.replaying ? "At this moment" : "What's happening"}</PanelHeading>
-      <Feed items={page.feed} replaying={page.replaying} now={page.now} onOpenNote={onOpenNote} />
+      <ScrollView style={styles.panelScroll} contentContainerStyle={styles.panelBody}>
+        {page.follow !== null ? (
+          <FollowPanel page={page} onOpenNote={onOpenNote} />
+        ) : (
+          <>
+            <WorkingNow page={page} />
+            {page.scope === "all" && page.many ? <CrossMoves rows={page.crossRows} replaying={page.replaying} /> : null}
+            <PanelHeading>{page.replaying ? "At this moment" : "What's happening"}</PanelHeading>
+            <Feed items={page.feed} replaying={page.replaying} now={page.now} onOpenNote={onOpenNote} />
+          </>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -132,15 +135,12 @@ export const makeStyles = (colors: Colors) =>
       borderLeftWidth: StyleSheet.hairlineWidth,
       borderLeftColor: colors.lineStrong,
       backgroundColor: colors.pageSurface,
-      paddingTop: space.x4,
-      // The console's floating new-note button sits over this corner; the
-      // last row of the feed stops above it.
-      paddingBottom: 88,
-      paddingHorizontal: 18,
-      gap: space.x3,
       flexShrink: 0,
       overflow: "hidden",
     },
+    // 16 + the 56 of the floating button + a gap.
+    panelScroll: { flexGrow: 1, flexShrink: 1, flexBasis: 0, marginBottom: 80 },
+    panelBody: { paddingTop: space.x4, paddingBottom: space.x3, paddingHorizontal: 18, gap: space.x3 },
     section: { gap: space.x2, marginBottom: space.x1 },
     pileRow: { gap: space.x2 },
     who: { fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.text2 },

@@ -40,8 +40,9 @@ const VIEWPORTS = [
 const BOARDS = [
   { name: "1-live", steps: [] },
   { name: "2-following-an-ai", steps: [{ label: "Follow Seyi's Claude" }, { wait: 2500 }], ready: "map-follow-panel" },
-  { name: "3-folders", only: ["desktop"], steps: [{ id: "map-view-folders" }, { wait: 1500 }] },
-  { name: "4-all-workspaces", only: ["desktop"], steps: [{ id: "map-scope-all" }, { wait: 1500 }], ready: "map-cross-moves" },
+  { name: "3-folders", steps: [{ id: "map-view-folders" }, { wait: 1500 }] },
+  // The phone has no side panel, so nothing lists the moves between workspaces there.
+  { name: "4-all-workspaces", steps: [{ id: "map-scope-all" }, { wait: 1500 }], ready: { desktop: "map-cross-moves" } },
   {
     name: "5-replaying-today",
     steps: [{ id: "map-when-today" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.45 }, { wait: 1500 }],
@@ -49,7 +50,6 @@ const BOARDS = [
   },
   {
     name: "6-replaying-this-week",
-    only: ["desktop"],
     steps: [{ id: "map-when-week" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.7 }, { wait: 1500 }],
     ready: "map-replay-clock",
   },
@@ -108,7 +108,8 @@ try {
             }
             if (step.wait) await page.waitForTimeout(step.wait);
           }
-          if (board.ready) await page.getByTestId(board.ready).first().waitFor({ state: "visible", timeout: 10_000 });
+          const ready = typeof board.ready === "object" ? board.ready[viewport.name] : board.ready;
+          if (ready) await page.getByTestId(ready).first().waitFor({ state: "visible", timeout: 10_000 });
           await page.screenshot({ path: join(OUT, `${base}.png`) });
           console.log(`wrote ${base}.png`);
         } catch (error) {
