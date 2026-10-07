@@ -30,6 +30,7 @@ import {
   maintainSearchIndex,
   movePath,
   notePathIndex,
+  workspaceGraph,
   projectSearchIndex,
   readFile,
   readFiles,
@@ -51,6 +52,7 @@ import {
   writeImage,
 } from "../fileOps";
 import { ensureFolderVisibility } from "../fileOps/visibility";
+import { visiblePathsOf } from "../fileOps/visiblePaths";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -555,6 +557,10 @@ export async function executeOperation(
         const found = await notePathIndex(store, clearance);
         return { kind: "notePaths", paths: found?.paths ?? null };
       }
+      case "workspaceGraph":
+        return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance)) };
+      case "visiblePaths":
+        return { kind: "visiblePaths", paths: await visiblePathsOf(store, clearance, operation.paths) };
       case "projectIndex": {
         // Scope-blind, exactly like `maintainIndex` below: the tier a note is
         // copied at comes from `privacy.md` per note, never from whoever

@@ -20,7 +20,7 @@ import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing } from "../privacy
 import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing.js";
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
-import { TREE_ACTIONS, treeHintOf } from "./changes.js";
+import { sendsTreeHint, treeHintOf } from "./changes.js";
 import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
@@ -126,7 +126,7 @@ function treeAudiencesOf(paths, known, rules, overrides) {
  * is. Only a session-bound store has a reporter; see `reportTreeChange`.
  */
 function announceTreeChange(store, action, paths, details) {
-  if (!TREE_ACTIONS.has(action) || typeof store.reportTreeChange !== "function") return;
+  if (!sendsTreeHint(action, details) || typeof store.reportTreeChange !== "function") return;
   const work = (async () => {
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
     const state = await loadPrivacyState(store);

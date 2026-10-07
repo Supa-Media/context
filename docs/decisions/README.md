@@ -284,6 +284,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
 - A shed index must say so to the caller it happened to, not only to the operator
 - With no connection, search reads the copy on the device, and says so
+- The map's graph is read per shard at request time, and stored nowhere
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -307,6 +308,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every note on the device: the mirror
 - The file tree is drawn from the mirror's metadata, so a folder opens without a request
 - Somebody else's change reaches an open tree as a hint per audience, never as the change
+- A front matter change is a hint too, and an open project page fetches what moved
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
@@ -375,6 +377,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every unasked message goes through one path, one at a time, answered per account
 - [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
 - [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
+- [A replay reads the activity feed, and a move line carries its pairs](./app-and-console/live-map-history.md)
+- [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07)
 
 ## [Meetings](./meetings.md)
 

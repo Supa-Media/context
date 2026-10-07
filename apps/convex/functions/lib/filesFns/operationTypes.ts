@@ -19,6 +19,7 @@ import type {
 import type { FormAction, FormAnswer, FormResult, FormSeedResult } from "../formOps";
 import type { Id } from "../../../_generated/dataModel";
 import type { StorageLayoutState } from "../storageLayout";
+import type { WorkspaceGraphResult } from "../fileOps/graph";
 import type { Visibility } from "../privacy";
 import type { WorkspaceRole } from "../workspaceAuth";
 import type { ContextPluginRow, ManagedInstalls, PluginInventory } from "./pluginValidators";
@@ -72,6 +73,8 @@ export type FileOperation =
       refreshOnMiss?: boolean;
     }
   | { kind: "notePaths" }
+  | { kind: "workspaceGraph" }
+  | { kind: "visiblePaths"; paths: string[] }
   | { kind: "maintainIndex"; passes?: number }
   /**
    * Re-index the notes one file operation changed, without listing the bucket.
@@ -244,6 +247,8 @@ export type OperationResult =
       stylesCss: string | null;
     }
   | { kind: "notePaths"; paths: string[] | null }
+  | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
+  | { kind: "visiblePaths"; paths: string[] }
   | { kind: "forwarded"; paths: string[] }
   | {
       kind: "indexMaintained";

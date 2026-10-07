@@ -188,6 +188,13 @@ export interface ListSource {
    * than showing a short list as if it were the whole folder.
    */
   readonly complete: boolean;
+  /**
+   * When the device's listing is whole, the notes it lists that have no body
+   * here yet — so a page can ask whether *its own* notes are all here, rather
+   * than being told "incomplete" for a sibling folder it does not draw.
+   * Absent when the listing itself is partial.
+   */
+  readonly missing?: readonly string[];
 }
 
 /**
