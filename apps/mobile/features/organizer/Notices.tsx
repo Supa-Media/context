@@ -7,7 +7,6 @@ import { makeStyles as browseStyles } from "../console/panes/browsePane/styles";
 import { existingCopy, phoneLine, reviewCopy } from "./copy";
 import { useOrganizerView } from "./OrganizerContext";
 import { existingNoticeVisible, phoneChangesCount, phoneEntryCount } from "./rules";
-import { changesCopy } from "./changeCopy";
 import type { OrganizerView } from "./useOrganizer";
 import { useMessageSlot } from "../messages/useInAppMessage";
 

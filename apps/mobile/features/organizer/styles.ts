@@ -1,6 +1,5 @@
 import { StyleSheet } from "react-native";
-import { radii, space } from "../design/tokens";
-import type { Colors, Shadows } from "../design/theme";
+import type { Colors } from "../design/theme";
 
 /**
  * Auto-organize's own styles. Every value is an existing token, and every
