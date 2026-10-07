@@ -17,14 +17,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const INFRA_PATHS = [".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**"];
 
-/** What the collaboration browser run mounts and drives; see collaboration.yml. */
-const COLLABORATION_ENTRIES = [
-  "apps/mobile/app/_layout.tsx",
-  "apps/mobile/features/e2e/collaboration/Fixture.tsx",
-  "apps/mcp/test/browser/verifyEditor.mjs",
-  "apps/mcp/test/browser/editor-worker.ts",
-];
-
 /** Where the editor bundle records the sources it was built from. */
 const BUNDLE = "apps/mobile/features/console/files/webview/bundle.generated.ts";
 
@@ -92,6 +84,22 @@ function jobBlock(yaml, job) {
   const rest = yaml.slice(start);
   const next = rest.slice(rest.indexOf("\n") + 1).search(/^  [A-Za-z0-9_-]+:$/m);
   return next === -1 ? rest : rest.slice(0, rest.indexOf("\n") + 1 + next);
+}
+
+/** One named list from ci.yml's `change-filters: |` block. */
+export function changeFilter(yaml, name) {
+  const block = /\n {6}change-filters: \|\n((?: {8}.*\n)+)/.exec(yaml);
+  if (!block) throw new Error("ci.yml passes no change-filters");
+  const paths = new Set();
+  let current = null;
+  for (const line of block[1].split("\n")) {
+    const key = /^ {8}([a-z0-9-]+):$/.exec(line);
+    if (key) { current = key[1]; continue; }
+    const item = /^ {10}- '([^']+)'$/.exec(line);
+    if (item && current === name) paths.add(item[1]);
+  }
+  if (paths.size === 0) throw new Error(`ci.yml's change-filters has no ${name} list`);
+  return paths;
 }
 
 export function filterPaths(yaml, job, filter) {
@@ -413,22 +421,39 @@ export function check(root = ROOT) {
     throw new Error("WebKit summary does not retain one merged report");
   }
 
-  // Scoped by what the run executes: the screen and Worker it mounts, and the
-  // harness that drives them. Losing one of these entries would shrink the
-  // scope to whatever the rest import, and skip runs that matter.
-  assertScopedJob(collaboration, "browser", ".github/workflows/collaboration.yml", ["@context/collaboration"]);
-  const collaborationEntries = scopePaths(collaboration, "browser", "entries");
-  for (const entry of COLLABORATION_ENTRIES) {
-    if (!collaborationEntries.has(entry)) throw new Error(`collaboration browser scope is missing entry ${entry}`);
+  // The control-plane suite runs once, in `ci / Test Convex Backend`; Gateway
+  // Contracts keeps only its detector. So ci.yml's convex filter must watch
+  // everything that suite reads from outside apps/convex, or a gateway-only
+  // pull request skips the very checks Gateway Contracts was written for.
+  const convexFilter = changeFilter(ci, "convex");
+  for (const path of [
+    ...workspacePaths(["@context/mcp", "@context/convex"], root),
+    "apps/mobile/features/console/storage/dropbox.ts",
+    "apps/mobile/features/console/storage/dropbox.web.ts",
+    ".github/workflows/deploy-convex.yml",
+    ...INFRA_PATHS,
+  ]) {
+    // A file under the watched path, so `packages/**` covers
+    // `packages/collaboration/**`.
+    const sample = path.endsWith("/**") ? `${path.slice(0, -3)}/sample.ts` : path;
+    if (![...convexFilter].some((pattern) => matches(sample, pattern))) {
+      throw new Error(`ci.yml's convex filter does not watch ${path}`);
+    }
   }
-  for (const entry of collaborationEntries) {
-    if (!existsSync(join(root, entry))) throw new Error(`collaboration browser scope entry ${entry} does not exist`);
+
+  // The browser run is daily and on demand (Dev2, 2026-10-07), and the
+  // per-push half of it, the collaboration package's own suite, runs in
+  // `Test Gateway`. Losing either would leave the editor's room unchecked.
+  const trigger = collaboration.slice(collaboration.indexOf("\non:"), collaboration.indexOf("\npermissions:"));
+  if (!/\n  schedule:\n    - cron: "[^"]+"/.test(trigger) || !trigger.includes("\n  workflow_dispatch:")) {
+    throw new Error("collaboration browser run is not scheduled daily and runnable by hand");
   }
-  // The route and the switch that lead the harness to that fixture are not
-  // imported by it, so they are watched by name.
-  const collaborationPaths = scopePaths(collaboration, "browser");
-  for (const path of ["apps/mobile/app/e2e-fixture.tsx", "apps/mobile/features/e2e/FixtureScreen.tsx", "apps/mcp/test/browser/**"]) {
-    if (!collaborationPaths.has(path)) throw new Error(`collaboration browser scope does not watch ${path}`);
+  if (/\n  (pull_request|push):/.test(trigger)) {
+    throw new Error("collaboration browser run is back on every push; it runs daily");
+  }
+  const gateway = jobBlock(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"), "test");
+  if (!gateway.includes("pnpm --filter @context/collaboration test")) {
+    throw new Error("Test Gateway no longer runs the collaboration suite on every push");
   }
   const collaborationJob = jobBlock(collaboration, "browser");
   if (!collaborationJob.includes("image: mcr.microsoft.com/playwright:v1.56.1-noble")) {

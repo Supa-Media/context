@@ -60,6 +60,58 @@ jobs:
       # on a pull request. Three runners each take a third of the files
       # (vitest --shard); `ci / Test Summary` still fails if any shard does.
       convex-test-shards: 3
+      # The upstream filters, with `convex` widened to everything the
+      # control-plane suite reads outside apps/convex: the gateway, the
+      # packages and Workers it imports or scans, the few mobile files it
+      # mirrors, deploy-convex.yml (deployEnv.test.ts parses it; a change
+      # there turned main red unseen on 2026-10-07 because nothing re-ran
+      # the suite), and the install inputs. Until 2026-10-07 both workflows ran the identical suite on
+      # most pushes, about a fifth of all runner minutes. Now it runs once,
+      # here, under the required `ci / Test Summary`, and Gateway Contracts
+      # keeps only its detector. `scripts/check-ci-path-gates.mjs` holds the
+      # two lists together.
+      change-filters: |
+        shared:
+          - 'packages/shared/**'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'tsconfig.json'
+          - 'pnpm-workspace.yaml'
+        mobile:
+          - 'apps/mobile/**'
+          - 'packages/shared/**'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'tsconfig.json'
+          - 'pnpm-workspace.yaml'
+        convex:
+          - 'apps/convex/**'
+          - 'apps/mcp/**'
+          - 'packages/**'
+          - 'infra/**'
+          - 'plugins/context/**'
+          - 'docs/deferred/**'
+          - 'apps/mobile/features/console/storage/dropbox.ts'
+          - 'apps/mobile/features/console/storage/dropbox.web.ts'
+          - 'apps/mobile/features/auth/**'
+          - 'apps/mobile/features/workspace/presets.ts'
+          - 'apps/mobile/features/design/tokens/colors.ts'
+          - '.github/workflows/deploy-convex.yml'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'tsconfig.json'
+          - 'pnpm-workspace.yaml'
+          - '.npmrc'
+          - 'patches/**'
+          - '.github/workflows/ci.yml'
+        e2e:
+          - 'apps/mobile/**'
+          - 'packages/shared/**'
+          - 'tests/e2e/**'
+          - 'playwright.config.ts'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'pnpm-workspace.yaml'
     secrets: inherit
 
   # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────

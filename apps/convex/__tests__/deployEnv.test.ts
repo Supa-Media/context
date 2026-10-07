@@ -110,27 +110,29 @@ function envNamesIn(source: string): string[] {
 }
 
 /**
- * The `for var in … ; do` list in the workflow's sync step.
+ * The names the workflow's sync step passes to `scripts/convex-env-sync.mjs`.
  *
- * There are two such loops in that file — this one, and the shorter one in
- * "Verify the control plane has what it needs" below it. The first match is
- * the sync loop today, and `assertIsSyncLoop` is what keeps that true: a
- * reordering that silently started checking the *verify* list would turn this
- * whole file into a test that a handful of variables are required, which is
- * not what it claims to assert.
+ * Since 2026-10-07 the step is one batched call rather than a
+ * `for var in … ; do` loop of `convex env set`. The file still has such a
+ * loop — the shorter one in "Verify the control plane has what it needs" —
+ * which is exactly what an older version of this reader silently started
+ * matching once the sync loop was gone. The sentinels below are what caught
+ * it: they keep this function reading the sync list and not the verify list.
  */
 function workflowSyncList(): Set<string> {
   const workflow = readFileSync(repoFile(".github/workflows/deploy-convex.yml"), "utf8");
-  const loop = workflow.match(/for var in ([\s\S]*?); do/);
-  if (loop === null) throw new Error("no `for var in … ; do` loop in deploy-convex.yml");
+  // The command and every `\`-continued line after it, up to the first line
+  // that does not continue.
+  const call = workflow.match(/node scripts\/convex-env-sync\.mjs((?:[^\n]*\\\n)*[^\n]*)/);
+  if (call === null) throw new Error("no `node scripts/convex-env-sync.mjs` call in deploy-convex.yml");
   const names = new Set(
-    loop[1].replace(/\\\s*\n/g, " ").split(/\s+/).filter((n) => n.length > 0),
+    call[1].replace(/\\\s*\n/g, " ").split(/\s+/).filter((n) => n.length > 0),
   );
   // Present in the sync loop and absent from the verify loop, so this says
   // which of the two was read rather than merely that something was.
   for (const sentinel of ["RESEND_API_KEY", "TURNSTILE_SECRET_KEY"]) {
     if (!names.has(sentinel)) {
-      throw new Error(`matched a loop without ${sentinel} — this is not the sync loop`);
+      throw new Error(`read a list without ${sentinel} — this is not the sync list`);
     }
   }
   return names;
