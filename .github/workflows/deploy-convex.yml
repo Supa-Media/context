@@ -20,7 +20,7 @@
 #
 # ## What is deliberately NOT here
 #
-# `convex env set` is additive and this workflow never *unsets* anything. A
+# The sync is additive and this workflow never *unsets* anything. A
 # variable removed from the list below stays live on the deployment until
 # somebody removes it there too. That is the safe direction — a deploy must not
 # be able to take the encryption key away from a running control plane — but it
@@ -62,11 +62,10 @@ jobs:
       # After the deploy, so a function that reads a new variable is already
       # deployed when the variable arrives rather than the other way round.
       #
-      # Values reach `convex env set` by shell expansion of a variable this
-      # step's `env:` block holds, with `set -x` off — never interpolated into
-      # the script text, which is where a `${{ secrets.* }}` in a `run:` block
-      # would put them. The step prints the NAME of each variable it set and
-      # never its value.
+      # Values reach the sync through this step's `env:` block — never
+      # interpolated into the script text, which is where a `${{ secrets.* }}`
+      # in a `run:` block would put them — and leave in an HTTPS request body.
+      # The step prints the NAME of each variable it set and never its value.
       - name: Sync the control plane's secrets
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
@@ -179,47 +178,32 @@ jobs:
           # Meta's Conversions API token (`functions/metaConversions.ts`), from
           # Meta Events Manager. Absent is a working state: nothing goes to Meta.
           META_CAPI_TOKEN: ${{ secrets.META_CAPI_TOKEN }}
+          # The deployment the batched call goes to; checked against the key.
+          EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+        # One request for every variable (scripts/convex-env-sync.mjs) rather
+        # than one `convex env set` process each, which took ~30s per deploy.
+        # Same rules: an absent value is never pushed as empty, nothing is
+        # unset, and only names are printed. The URL is checked against the
+        # deploy key so the key cannot be sent to any other host.
         run: |
-          set -euo pipefail
-          # Plain strings rather than arrays: an empty array under `set -u` is
-          # a fatal expansion on some bash builds, and "the list was empty" is
-          # the ordinary case on a deployment that sets nothing here.
-          synced=""
-          skipped=""
-          for var in GATEWAY_SECRET ADMIN_EMAILS AUTH_EMAIL_FROM \
-                     FORM_NOTIFY_EMAIL_FROM \
-                     STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
-                     STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS \
-                     STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
-                     RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET \
-                     DROPBOX_APP_KEY DROPBOX_APP_SECRET \
-                     GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
-                     MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
-                     TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
-                     PLUGIN_EGRESS_URL PLUGIN_EGRESS_SECRET \
-                     MANAGED_R2_ACCOUNT_ID \
-                     STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
-                     TURNSTILE_SECRET_KEY \
-                     CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
-                     REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
-                     META_CAPI_TOKEN; do
-            value="${!var:-}"
-            if [ -z "$value" ]; then
-              # Never pushed as an empty string — see the header.
-              skipped="$skipped $var"
-              continue
-            fi
-            # The value never appears on a command line a process listing could
-            # show: it is expanded by this shell into the argument vector, and
-            # `set -x` is off. The name is a literal from the loop above.
-            npx convex env set "$var" "$value" > /dev/null
-            synced="$synced $var"
-          done
-          echo "Set on the deployment:${synced:- (none)}"
-          if [ -n "$skipped" ]; then
-            echo "Not present in the GitHub 'production' environment, so left"
-            echo "as whatever the deployment already holds:$skipped"
-          fi
+          CONVEX_URL="$EXPO_PUBLIC_CONVEX_URL" node scripts/convex-env-sync.mjs \
+            GATEWAY_SECRET ADMIN_EMAILS AUTH_EMAIL_FROM \
+            FORM_NOTIFY_EMAIL_FROM \
+            STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
+            STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS \
+            STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
+            RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET \
+            DROPBOX_APP_KEY DROPBOX_APP_SECRET \
+            GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
+            MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
+            TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
+            PLUGIN_EGRESS_URL PLUGIN_EGRESS_SECRET \
+            MANAGED_R2_ACCOUNT_ID \
+            STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
+            TURNSTILE_SECRET_KEY \
+            CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
+            REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
+            META_CAPI_TOKEN
 
       # A deployed control plane that cannot decrypt a storage credential, or
       # cannot recognize its own gateway, is broken in a way no test catches and

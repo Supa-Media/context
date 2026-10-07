@@ -7,14 +7,16 @@ name: Deploy Staging
 # and when it falls back to deploying everything) and the jobs below read its
 # answer. Independent work runs side by side:
 #
-#   plan ─┬─ convex ──────────────┬─ workers ─┬─ OTA publish ─┬─ verify
-#         ├─ worker-tests ────────┘           │               │
-#         ├─ OTA bundle ──────────────────────┘               │
-#         └─ web-build ─── router-with-assets ────────────────┘
+#   plan ─┬─ convex ─── workers ─┬─ OTA publish ─┬─ verify
+#         ├─ OTA bundle ─────────┘               │
+#         ├─ worker-tests ───────────────────────┤
+#         └─ web-build ─── router-with-assets ───┘
 #
 # Why each edge exists:
 # - Workers deploy after Convex, because a new gateway may call functions the
-#   old backend does not have. Their tests do not need Convex and run alongside.
+#   old backend does not have. Their tests (already green on the pull request)
+#   run alongside rather than in front, and `verify` waits for them, so a red
+#   suite still fails the run and blocks production.
 # - The web app is built once. Staging's router publishes that exact export as
 #   Static Assets in the same version as its routing code.
 # - The OTA update needs the same backends, not the web alias, so it publishes
@@ -150,7 +152,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # Only this Worker and what it imports, as production's deploy jobs do: a
+      # full install is ~20s of Expo this job never loads.
+      - run: pnpm install --filter "${{ matrix.worker.package }}..." --frozen-lockfile
       - name: Test ${{ matrix.worker.package }}
         run: pnpm --filter "${{ matrix.worker.package }}" test
 
@@ -171,9 +175,15 @@ jobs:
       - run: pnpm --dir infra/router typecheck
       - run: pnpm --dir infra/router test
 
+  # The Worker suites run beside the deploy instead of in front of it. Every
+  # one of them already passed on the pull request; here they re-prove the
+  # merged commit, and `verify` needs them, so a red suite still fails this
+  # run, and production refuses any commit whose staging run failed. Staging
+  # may briefly serve that commit before the failure lands, which is the trade:
+  # about a minute and a half off every gateway deploy.
   workers:
     name: Deploy ${{ matrix.worker.name }}
-    needs: [plan, convex, worker-tests]
+    needs: [plan, convex]
     if: ${{ !cancelled() && !failure() && needs.plan.outputs.any_worker == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
@@ -213,7 +223,9 @@ jobs:
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
             | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(!JSON.parse(s).success)process.exit(1);console.log("Cloudflare Workers access verified.");});'
-      - run: pnpm install --frozen-lockfile
+      # Only this Worker and what it imports (plus the screenshot Worker the
+      # gateway binds), as production's deploy jobs do.
+      - run: pnpm install --filter "./${{ matrix.worker.dir }}..." ${{ matrix.worker.name == 'mcp' && '--filter "./infra/site-shots..."' || '' }} --frozen-lockfile
       # The gateway binds the screenshot browser (infra/site-shots) as a
       # service, and Cloudflare refuses a binding to a script that does not
       # exist, so that Worker deploys first, in this same job.
@@ -467,7 +479,7 @@ jobs:
 
   verify:
     name: Verify live staging
-    needs: [plan, convex, workers, router, ota]
+    needs: [plan, convex, worker-tests, workers, router, ota]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     environment: staging

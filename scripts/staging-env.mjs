@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { syncConvexEnv } from './convex-env-sync.mjs';
 
 export function validateStaging(env) {
   if (env.APP_ENV !== "staging") throw new Error("APP_ENV must be staging.");
@@ -31,12 +31,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   validateStaging(process.env);
   console.log('Staging deployment, frontend, gateway and app origin agree.');
   if (process.argv.includes('--sync')) {
-    const values = { ...process.env, SITE_URL: process.env.APP_ORIGIN };
-    for (const key of [...backendKeys, 'SITE_URL']) {
-      if (!values[key]) continue;
-      const result = spawnSync(process.execPath, ['node_modules/convex/bin/main.js', 'env', 'set', key], { input: values[key], encoding: 'utf8', env: process.env });
-      if (result.status !== 0) throw new Error(`Failed to set staging environment variable ${key}; inspect the deployment configuration.`);
-      console.log(`Set staging variable: ${key}`);
-    }
+    // One request for every variable (scripts/convex-env-sync.mjs), not one
+    // CLI process each; same rule as before: an empty value is never pushed.
+    await syncConvexEnv({
+      names: [...backendKeys, 'SITE_URL'],
+      values: { ...process.env, SITE_URL: process.env.APP_ORIGIN },
+      url: process.env.EXPO_PUBLIC_CONVEX_URL,
+      key: process.env.CONVEX_DEPLOY_KEY,
+    });
   }
 }
