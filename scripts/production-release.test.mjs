@@ -64,6 +64,10 @@ test('only staging can deploy automatically; production services share one manua
   assert.match(staging, /ota:\n    name: Publish OTA\n    needs: \[plan, convex, workers, ota-bundle\]/);
   assert.match(staging, /ota-bundle:\n    name: Build OTA bundle\n    needs: plan\n/);
   assert.match(staging, /eas update --branch staging --skip-bundler --input-dir dist/);
+  // Worker installs select by package name: `./apps/mcp...` (a bare path
+  // selector) installs the directory without its workspace dependencies.
+  assert.match(staging, /pnpm install --filter "\$\{\{ matrix\.worker\.package \}\}\.\.\."/);
+  assert.doesNotMatch(staging, /--filter "\.\/\$\{\{ matrix\.worker\.dir/);
   // Every deploy job waits on the staging check, directly or through Convex.
   const jobs = production.split(/^  (?=[a-z-]+:$)/m).slice(2);
   assert.ok(jobs.length >= 9, 'expected every component job after validate');
