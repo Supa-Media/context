@@ -71,6 +71,10 @@ export interface WorkspaceGraphResult {
   edges: [number, number][];
   /** A cap cut the answer, so it is a floor rather than the whole workspace. */
   truncated: boolean;
+  /** Every note the caller may see, drawn or not: "showing 5,000 of `noteCount`". */
+  noteCount: number;
+  /** The link cap cut links between notes that are drawn. */
+  linksCut: boolean;
   /** The index has not caught up with the bucket: "the map is catching up". */
   behind: boolean;
   /**
@@ -121,7 +125,7 @@ export async function workspaceGraph(
     0,
   );
   if (found === null) {
-    return { nodes: [], edges: [], truncated: false, behind: true, indexMissing: true };
+    return { nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true };
   }
 
   const visible = new Set<string>();
@@ -130,7 +134,8 @@ export async function workspaceGraph(
   }
   const sorted = [...visible].sort();
   let truncated = sorted.length > nodeCap;
-  const nodes = sorted.slice(0, nodeCap).map((path) => ({ path, title: titleOf(path) }));
+  let linksCut = false;
+  const nodes = shareOfNotes(sorted, nodeCap).map((path) => ({ path, title: titleOf(path) }));
   const indexOf = new Map(nodes.map((node, position) => [node.path, position]));
 
   // File name → node, for the bare-wikilink fallback. Built from the nodes and
@@ -179,6 +184,7 @@ export async function workspaceGraph(
         if (edges.has(pair)) continue;
         if (edges.size >= edgeCap) {
           truncated = true;
+          linksCut = true;
           continue;
         }
         edges.set(pair, [source, target]);
@@ -190,7 +196,75 @@ export async function workspaceGraph(
     nodes,
     edges: [...edges.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]),
     truncated,
+    noteCount: sorted.length,
+    linksCut,
     behind,
     indexMissing: false,
   };
+}
+
+/**
+ * Which notes a capped map draws, sorted by path: every folder keeps a share.
+ *
+ * The cap used to take the first `cap` paths A to Z, so a personal workspace
+ * whose inbox held thousands of mail notes drew nothing after `0-inbox/`, and
+ * the map said only that it showed "the first part". Now the cap is shared
+ * the way water fills jars, level by level: each folder at this level gets an
+ * equal share, a folder that needs less gives the rest back, and each folder
+ * splits what it got among its own subfolders the same way. Notes directly
+ * in a folder are one more jar, and a jar too small for them keeps the last by
+ * path, which for dated names (`2026-10-07-…`) is the newest. Every folder
+ * that has a visible note appears whenever the cap allows one per folder.
+ */
+export function shareOfNotes(sorted: readonly string[], cap: number): string[] {
+  if (sorted.length <= cap) return [...sorted];
+  const picked = pick(sorted, Math.max(0, cap), 0);
+  return picked.sort();
+}
+
+function pick(paths: readonly string[], cap: number, depth: number): string[] {
+  if (cap <= 0) return [];
+  if (paths.length <= cap) return [...paths];
+  const here: string[] = [];
+  const folders = new Map<string, string[]>();
+  for (const path of paths) {
+    const parts = path.split("/");
+    if (parts.length <= depth + 1) {
+      here.push(path);
+      continue;
+    }
+    const folder = parts[depth];
+    const list = folders.get(folder);
+    if (list) list.push(path);
+    else folders.set(folder, [path]);
+  }
+  const jars: Array<{ size: number; take: (n: number) => string[] }> = [
+    ...[...folders.values()].map((list) => ({ size: list.length, take: (n: number) => pick(list, n, depth + 1) })),
+    ...(here.length > 0 ? [{ size: here.length, take: (n: number) => here.slice(here.length - n) }] : []),
+  ];
+  const shares = fillJars(jars.map((jar) => jar.size), cap);
+  return jars.flatMap((jar, index) => jar.take(shares[index]));
+}
+
+/** Split `cap` across jars of these sizes: equal levels, smaller jars full. */
+function fillJars(sizes: readonly number[], cap: number): number[] {
+  const shares = sizes.map(() => 0);
+  let left = cap;
+  let open = sizes.map((_, index) => index).filter((index) => sizes[index] > 0);
+  while (left > 0 && open.length > 0) {
+    const level = Math.floor(left / open.length);
+    if (level === 0) {
+      // Fewer notes left than jars: one each, biggest jars first.
+      const order = [...open].sort((a, b) => sizes[b] - shares[b] - (sizes[a] - shares[a]) || a - b);
+      for (const index of order.slice(0, left)) shares[index] += 1;
+      break;
+    }
+    for (const index of open) {
+      const add = Math.min(level, sizes[index] - shares[index]);
+      shares[index] += add;
+      left -= add;
+    }
+    open = open.filter((index) => shares[index] < sizes[index]);
+  }
+  return shares;
 }

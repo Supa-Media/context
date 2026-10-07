@@ -84,7 +84,7 @@ export function useMapPage(data: ConsoleData) {
   const fetched = useMapGraphs(shown, remote);
   const polled = useLiveActivity(ids, remote ? MCP_ENDPOINT : null, mode === "live");
   const span = useMemo(() => (mode === "live" ? null : replayWindow(mode, switchedAt)), [mode, switchedAt]);
-  const asked = useReplayHistory(remote ? span : null, ids);
+  const asked = useReplayHistory(remote ? span : null, ids, remote ? MCP_ENDPOINT : null);
   const todayFrom = startOfDay(now);
   const crossToday = useCrossMovesSince(todayFrom, scope === "all" && many && mode === "live" && remote);
   const graphs = useMemo(

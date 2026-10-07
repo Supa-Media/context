@@ -74,6 +74,9 @@ export type GraphAnswer = {
   nodes: ReadonlyArray<{ path: string; title: string }>;
   edges: ReadonlyArray<ReadonlyArray<number>>;
   truncated?: boolean;
+  /** Every note the caller may see, drawn or not (absent from an older server). */
+  noteCount?: number;
+  linksCut?: boolean;
   behind?: boolean;
   indexMissing?: boolean;
 };
@@ -135,10 +138,10 @@ export function historyActor(entry: Pick<HistoryEntry, "by" | "via">): ActorRef 
 }
 
 /**
- * A workspace's history as replay events. Reads are never recorded, so a
- * replay shows what was written, made and moved. A `moved` line with no pairs
- * (written before they existed) has nothing to fly and is left out rather than
- * guessed at.
+ * A workspace's history as replay events: what was written, made and moved.
+ * What AI clients read comes from the gateway beside it (`storedReads.ts`).
+ * A `moved` line with no pairs (written before they existed) has nothing to
+ * fly and is left out rather than guessed at.
  */
 export function eventsFromHistory(entries: readonly HistoryEntry[], workspaceId: string): MapEvent[] {
   const out: MapEvent[] = [];

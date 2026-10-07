@@ -12,9 +12,26 @@ export function mapNotice(page: Pick<MapPageState, "graphs" | "historyLoading" |
   if (page.graphs.partial.indexMissing) return "This workspace's map is still being built.";
   const notes = page.data.graphs.reduce((n, g) => n + g.nodes.length, 0);
   if (notes === 0) return "No notes to draw here yet.";
-  if (page.graphs.partial.truncated) return "This workspace is too big to draw every note; the map shows the first part of it.";
+  const cut = cutNotice(page.graphs.partial);
+  if (cut !== null) return cut;
   if (page.graphs.partial.behind) return "The map is catching up with the latest changes.";
   return null;
+}
+
+/**
+ * What a size limit left off the map, in numbers. Notes first: every folder is
+ * still drawn, and the biggest show part of what is in them. Links second,
+ * since every note is there and only some lines between them are not.
+ */
+export function cutNotice(partial: MapPageState["graphs"]["partial"]): string | null {
+  if (!partial.truncated) return null;
+  if (partial.total > partial.drawn) {
+    const drawn = partial.drawn.toLocaleString("en-US");
+    const total = partial.total.toLocaleString("en-US");
+    return `Showing ${drawn} of ${total} notes so the map stays readable. Every folder is here; the biggest show part of what's in them.`;
+  }
+  if (partial.linksCut) return "Every note is here, but some links between them aren't drawn: there are too many to show at once.";
+  return "This map is showing part of this workspace.";
 }
 
 /** "Map · Supa · 412 notes", and the hints for what the pointer can do. */

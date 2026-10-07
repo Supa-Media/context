@@ -67,6 +67,8 @@ describe("files.workspaceGraph", () => {
       nodes: [],
       edges: [],
       truncated: false,
+      noteCount: 0,
+      linksCut: false,
       behind: true,
       indexMissing: true,
     });

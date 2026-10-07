@@ -11,6 +11,8 @@ import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { toolError, toolText } from "../tools/results.js";
 import { frontMatterBlock } from "../notes/format.js";
 import { isEncryptedNote } from "../encryption.js";
+import { readsBetween, storageBudget } from "../live/readLog.js";
+import { readFilterFor } from "../live/storedReads.js";
 
 /**
  * The changes that alter a context's file tree — something created, moved,
@@ -103,9 +105,13 @@ export function treeHintOf(action, paths, details) {
   }
 }
 
-export async function toolListChanges(store, scope, rules, overrides, limitArg) {
+/** How far back `list_changes` with `reads: true` looks for stored reads. */
+const LIST_READS_SPAN_MS = 7 * 24 * 60 * 60_000;
+
+export async function toolListChanges(store, scope, rules, overrides, limitArg, { reads = false } = {}) {
   const parsedLimit = Number.isInteger(limitArg) ? limitArg : 20;
   if (parsedLimit < 1 || parsedLimit > 100) return toolError("limit must be between 1 and 100");
+  const readLines = reads ? await storedReadLines(store, scope, rules, overrides, parsedLimit) : { lines: [], truncated: false };
   const keys = (await listAllKeysWithLegacy(store, AUDIT_PREFIX)).sort((a, b) => b.key.localeCompare(a.key));
   const visible = [];
   // Recent privacy migrations can create long runs of team-hidden records.
@@ -134,14 +140,33 @@ export async function toolListChanges(store, scope, rules, overrides, limitArg) 
       if (visible.length >= parsedLimit) break;
     }
   }
-  if (!visible.length) return toolText("(no visible changes)");
-  return toolText(
-    visible
-      .map((entry) => {
-        const pathText = entry.paths.join(" → ");
-        const count = entry.details?.count ? ` (${entry.details.count} objects)` : "";
-        return `${entry.at} — ${entry.action}${count} — ${pathText}`;
-      })
-      .join("\n")
-  );
+  const lines = visible.map((entry) => {
+    const pathText = entry.paths.join(" → ");
+    const count = entry.details?.count ? ` (${entry.details.count} objects)` : "";
+    return { at: entry.at, text: `${entry.at} — ${entry.action}${count} — ${pathText}` };
+  });
+  // Without reads, exactly the audit's own newest-first order, as before.
+  const merged = (reads ? [...lines, ...readLines.lines].sort((a, b) => String(b.at).localeCompare(String(a.at))) : lines)
+    .slice(0, parsedLimit)
+    .map((line) => line.text);
+  if (readLines.truncated) merged.push("(older reads were not all gathered; ask again to read further)");
+  if (!merged.length) return toolText(reads ? "(no visible changes or reads)" : "(no visible changes)");
+  return toolText(merged.join("\n"));
+}
+
+/**
+ * The last week of stored reads (`live/readLog.js`) as `list_changes` lines,
+ * filtered for this connection exactly as a replay is.
+ */
+async function storedReadLines(store, scope, rules, overrides, limit) {
+  const now = Date.now();
+  const visible = await readFilterFor(store, scope, rules, overrides);
+  const budget = storageBudget(Number.isFinite(store.searchSubrequestBudget) ? store.searchSubrequestBudget : 40);
+  const { reads, truncated } = await readsBetween(store, { from: now - LIST_READS_SPAN_MS, to: now, budget, visible });
+  const lines = reads.slice(-limit).map((read) => {
+    const at = new Date(read.at).toISOString();
+    const who = read.by && read.via ? `${read.by}'s ${read.via}` : read.via || read.by || "an AI client";
+    return { at, text: `${at} — read (${read.tool}) by ${who} — ${read.path}` };
+  });
+  return { lines, truncated };
 }

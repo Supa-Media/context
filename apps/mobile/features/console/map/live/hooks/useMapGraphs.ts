@@ -16,7 +16,18 @@ export type MapGraphs = {
   /** Still waiting on the first answer for at least one workspace. */
   loading: boolean;
   /** A workspace whose search index is behind, missing, or cut at the size limit: the map says so. */
-  partial: { behind: boolean; indexMissing: boolean; truncated: boolean };
+  partial: GraphGaps;
+};
+
+export type GraphGaps = {
+  behind: boolean;
+  indexMissing: boolean;
+  truncated: boolean;
+  /** Across workspaces cut at the note limit: notes drawn, and notes there are. */
+  drawn: number;
+  total: number;
+  /** Some links between drawn notes were left out at the link limit. */
+  linksCut: boolean;
 };
 
 /**
@@ -60,7 +71,7 @@ export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boole
 
   return useMemo(() => {
     const graphs: WorkspaceGraph[] = [];
-    const partial = { behind: false, indexMissing: false, truncated: false };
+    const partial: GraphGaps = { behind: false, indexMissing: false, truncated: false, drawn: 0, total: 0, linksCut: false };
     let loading = false;
     for (const ws of workspaces) {
       const answer = answers.get(ws.id);
@@ -72,6 +83,11 @@ export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boole
       partial.behind ||= answer.behind === true;
       partial.indexMissing ||= answer.indexMissing === true;
       partial.truncated ||= answer.truncated === true;
+      partial.linksCut ||= answer.linksCut === true;
+      if (typeof answer.noteCount === "number" && answer.noteCount > answer.nodes.length) {
+        partial.drawn += answer.nodes.length;
+        partial.total += answer.noteCount;
+      }
       graphs.push(graphFromAnswer(answer, { id: ws.id, slug: ws.slug, name: ws.displayName, kind: ws.kind }));
     }
     return { graphs, loading, partial };

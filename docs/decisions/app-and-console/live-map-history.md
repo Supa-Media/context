@@ -33,9 +33,9 @@ folder is private now" (`apps/mcp/test/activity/movePairs.test.mjs`) and
 "a member gets a pair only while both of its ends are visible to them"
 (`apps/convex/__tests__/files/activityReplay.test.ts`).
 
-Reads are still never recorded: the agent activity log is in memory and never
-stored ([gateway protocol](../gateway-protocol.md), "Agent activity is announced
-from finished tool calls, never streamed"). A replay shows changes only.
+What AI clients read is kept apart, in the customer's bucket, since 2026-10-07
+([stored reads](../gateway-protocol/stored-reads.md)); a replay asks each
+workspace's gateway for its reads beside these lines.
 
 ### Moves between workspaces are read from the control plane, and an agent's move now leaves a row there (2026-10-07)
 

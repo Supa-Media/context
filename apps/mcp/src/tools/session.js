@@ -7,6 +7,7 @@
 
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { activityHintOf } from "../live/activityHint.js";
+import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
@@ -357,4 +358,6 @@ function noteAgentActivity(store, name, args, result) {
   if (!path || isPlumbing(path)) return;
   const done = kind === "read" ? "read" : hint?.created === true ? "create" : "edit";
   recordAgentActivity(store, [{ kind: done, path }]);
+  // A read is also kept, for the trail and the replay (`live/readLog.js`).
+  if (done === "read") recordAgentRead(store, { tool: name, path });
 }
