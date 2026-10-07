@@ -586,17 +586,15 @@ export function hasScope(session, scope) {
 /**
  * Whether this connection can write in *any* context it reaches.
  *
- * `tools/list` is a courtesy and `callToolForSession`'s gate is the control, so
- * this may only ever be too generous — and being too *mean* is the failure that
- * actually turns up. Somebody whose client is connected to a workspace they are
- * only a `member` of would otherwise be shown no write tools at all, in a
- * session where they own another context and can write there; an agent cannot
- * ask for a tool it was never told about, so a listing filtered by the current
- * context quietly removes a capability the connection has.
+ * `callToolForSession` asks it to choose between its two refusals (a grant that
+ * can write somewhere is told which context refused, one that can write nowhere
+ * is told to reconnect) and to admit `suggest_destination`, whose handler then
+ * checks the destination itself. The agent route asks it to keep a read-only
+ * grant's assistant to reads. `tools/list` no longer asks it anything: every
+ * grant is listed every write tool (see `toolsForSession`).
  *
- * The per-call gate still decides *where*, from the addressed context's own
- * role, and says which context refused. Offer what the connection can do;
- * refuse where it cannot.
+ * The per-call gate still decides *where* a write lands, from the addressed
+ * context's own role.
  *
  * It lives here rather than in `index.js` because it is a scope question, and
  * the clamp that answers it is this module's. A second copy of `effectiveScopes`

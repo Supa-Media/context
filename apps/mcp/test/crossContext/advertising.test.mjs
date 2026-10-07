@@ -20,7 +20,7 @@ import {
 
 /** @param {(label: string, ok: boolean) => void} check */
 export async function runCrossContextAdvertisingChecks(check, harness) {
-  const { env } = harness;
+  const { env, mine } = harness;
   /* -------------------------- the tools advertise it ----------------------- */
 
   const { ctx, settle } = createWorkerCtx();
@@ -88,17 +88,33 @@ export async function runCrossContextAdvertisingChecks(check, harness) {
     This person is a `member` where they connected and an `editor` elsewhere. A
     listing filtered by the current context would show them no write tools at
     all — and an agent cannot ask for a tool it was never told about, so the
-    capability would be gone rather than merely refused in one place. Compare
-    with a grant that genuinely holds no write scope, where hiding them is
-    right.
+    capability would be gone rather than merely refused in one place.
+
+    A grant that genuinely holds no write scope is listed them too. It used to
+    be hidden them, and that is what broke: a client caches `tools/list` for
+    the life of a chat and this server sends no `listChanged`, so a chat that
+    listed tools while read-only kept that list after its person reconnected
+    with write access. Listed and refused with a reason is recoverable; absent
+    is not. The refusal below is the control, and it is checked here.
   */
   const guestTools = await toolNamesFor(env, TOKEN_GUEST);
   check("a connection that can write somewhere is offered the write tools", guestTools.includes("write_note"));
   const readOnlyTools = await toolNamesFor(env, TOKEN_READ_ONLY);
   check(
-    "a connection whose grant holds no write scope is not",
-    !readOnlyTools.includes("write_note") && readOnlyTools.includes("read_note")
+    "a connection whose grant holds no write scope is offered them too",
+    readOnlyTools.includes("write_note") && readOnlyTools.includes("read_note")
   );
+  const readOnlyWrite = await callTool(env, TOKEN_READ_ONLY, "write_note", {
+    path: "1-projects/read-only-listed.md",
+    content: "should not land",
+  });
+  check(
+    "...and calling one is refused with how to fix it",
+    readOnlyWrite?.isError === true &&
+      textOf(readOnlyWrite).includes("holds a read-only grant") &&
+      textOf(readOnlyWrite).includes("Reconnect")
+  );
+  check("...and writes nothing", !mine.has("1-projects/read-only-listed.md"));
 
   /*
     `.obsidian/` IS THE OWNER'S, AND `list_plugins` WAS THE ONE DOOR WITHOUT A

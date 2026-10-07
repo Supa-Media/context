@@ -256,13 +256,23 @@ export async function runTenancyResolutionChecks(check, harness) {
   check("a read-only grant cannot move either", readOnlyMove.isError === true);
 
   const readOnlyTools = (await rpc(env, TOKEN_A_READONLY, "tools/list")).body.result.tools;
+  // Listed and refused, never hidden: a client caches its tool list for the
+  // chat, so a write tool hidden while read-only stays hidden after the person
+  // reconnects with write. The refusals above are the control.
   check(
-    "a read-only grant is not shown write tools",
-    readOnlyTools.every((tool) => tool.annotations?.readOnlyHint === true) &&
+    "a read-only grant is shown the write tools it is refused",
+    readOnlyTools.some((tool) => tool.name === "write_note") &&
+      readOnlyTools.some((tool) => tool.name === "move_note") &&
       readOnlyTools.some((tool) => tool.name === "read_note")
   );
   const fullTools = (await rpc(env, TOKEN_A, "tools/list")).body.result.tools;
-  check("a full grant is shown every tool", fullTools.length > readOnlyTools.length);
+  const readOnlyNames = new Set(readOnlyTools.map((tool) => tool.name));
+  check(
+    "and every write tool a full grant is shown",
+    fullTools
+      .filter((tool) => tool.annotations?.readOnlyHint !== true)
+      .every((tool) => readOnlyNames.has(tool.name))
+  );
 
   const captureToken = token("tenant_a_capture");
   await controlPlane.addGrant({
