@@ -300,7 +300,12 @@ jobs:
             echo "$gateway/agent answered $status without a grant; the gateway answers 401. GATEWAY_ORIGIN in apps/agent/wrangler.jsonc is not the gateway." >&2
             exit 1
           fi
-          echo "The texting assistant is up, and its gateway origin is the gateway."
+          sim="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://context-agent-staging.$sub.workers.dev/texts-simulator" || true)"
+          if [ "$sim" != "200" ]; then
+            echo "/texts-simulator answered $sim; staging sets SIMULATOR to on, so it should serve the simulator." >&2
+            exit 1
+          fi
+          echo "The texting assistant is up, its gateway origin is the gateway, and the texts simulator is served."
 
   web-build:
     name: Export web

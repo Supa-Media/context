@@ -14,7 +14,11 @@ open, on the same bar as "N agents active", drawn by the same component
   counting it twice would put a robot in the people number.
 - **Held like the agents log**: in the workspace activity object's memory
   only, never storage, keyed by a digest of the account id (not the id), with
-  a name and a time and no note path.
+  a name and a time. Since the live map (2026-10-07), also the note the
+  console says it has open, accepted only when the person can see it and it
+  exists, and shown to each viewer only through that viewer's `canSee`
+  ([live-map-feed](../gateway-protocol/live-map-feed.md)). The bar itself
+  still says nothing about notes.
 - **The viewer alone is not news.** Nothing is said about people until
   somebody else is active, so a personal workspace never shows it; once they
   are, the count includes the viewer.

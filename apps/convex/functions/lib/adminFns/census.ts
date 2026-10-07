@@ -30,6 +30,8 @@ import { managedBucketName } from "../managedStorage";
 import { activeEntitlements, type PlanStatus } from "../premium";
 import { clampReportDays, dayKey, dayRange } from "../usage";
 import { countedTotalValidator } from "./usage";
+import { admittedWaitlist, letInAtFor, waitlistSummary } from "./censusWaitlist";
+import { normalizeEmail } from "@context/shared";
 
 /**
  * How many accounts the roster names.
@@ -128,6 +130,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
   const pluginsPage = pageOf(
     await ctx.db.query("obsidianPluginGrants").take(take),
   );
+  const admitted = await admittedWaitlist(ctx);
 
   const truncated = [
     accountsPage,
@@ -140,6 +143,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     googlePage,
     mailPage,
     pluginsPage,
+    admitted.page,
   ].some((page) => page.isFloor);
 
   // -- the two populations, over time ------------------------------------
@@ -327,6 +331,8 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
   );
 
   const facts: AccountFacts[] = [];
+  const waitlistFacts: AccountFacts[] = [];
+  const accountEmails = new Set<string>();
   const roster: {
     joinedAt: number;
     email?: string;
@@ -338,6 +344,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     lastSeenAt: number | null;
     aiSpendMicroUsd: number;
     aiSpendPartial: boolean;
+    letInAt: number | null;
   }[] = [];
 
   for (const account of accountsPage.rows) {
@@ -352,12 +359,16 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
       tally.accounts.has(key),
     ).length;
 
-    facts.push({
+    const accountFacts: AccountFacts = {
       hasContext: (membershipsByAccount.get(key) ?? 0) > 0,
       hasConnectedStorage: connectedStorage > 0,
       hasActiveClient: accountsWithClient.has(key),
       isPaying,
-    });
+    };
+    facts.push(accountFacts);
+    if (typeof account.email === "string") accountEmails.add(normalizeEmail(account.email));
+    const letInAt = letInAtFor(admitted.byEmail, account.email);
+    if (letInAt !== null) waitlistFacts.push(accountFacts);
 
     if (roster.length < ROSTER_LIMIT) {
       roster.push({
@@ -376,6 +387,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
           0,
         ),
         aiSpendPartial: ownedKeys.some((id) => aiSpend.partial.has(id)),
+        letInAt,
       });
     }
   }
@@ -455,5 +467,6 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     },
     funnel: funnelOf(facts),
     roster,
+    waitlist: waitlistSummary(admitted, accountEmails, waitlistFacts),
   };
 }

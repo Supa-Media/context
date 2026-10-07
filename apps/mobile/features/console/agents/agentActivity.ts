@@ -46,6 +46,37 @@ export interface ActiveAgent {
   /** How many visible notes it read, and wrote, in the window. */
   reads: number;
   writes: number;
+  /**
+   * The finer kind of its newest event, for the live map. `kind` stays
+   * `read | write` for the tree; an older gateway sends no `doing`, and a
+   * write is then read as an edit.
+   */
+  doing?: AgentDoing;
+  /** Where the note came from, when `doing` is `move`. */
+  from?: string;
+  /** The visible notes it read in the window, oldest first ("What it's reading"). */
+  readPaths?: readonly string[];
+}
+
+/** What one event in the window was. `edit`, `create` and `move` are all a "write" to the tree. */
+export type AgentDoing = "read" | "edit" | "create" | "move";
+
+/**
+ * One thing that happened in the window, for the live map's animations.
+ *
+ * Already filtered by the gateway: a move is only ever sent with both ends
+ * visible to this viewer. `actor.kind` is `person` for a create or move the
+ * console announced itself, `agent` for a tool call.
+ */
+export interface ActivityEvent {
+  /** Epoch milliseconds; strictly increasing, so the newest is a `since` cursor. */
+  at: number;
+  kind: AgentDoing;
+  /** The note the event is about — for a move, where it is now. */
+  path: string;
+  from?: string;
+  to?: string;
+  actor: { id: string; kind: "agent" | "person"; name: string };
 }
 
 /**
@@ -53,8 +84,9 @@ export interface ActiveAgent {
  *
  * The gateway counts a person while their console keeps asking for this
  * answer, so "active" means "has it open in a visible tab", not "opened it
- * this week". No note, deliberately: an open console is not a claim about
- * where in the workspace somebody is.
+ * this week". A note only when their console said which one they have open
+ * *and* this viewer can see it; otherwise `null`, and absent from an older
+ * gateway.
  */
 export interface ActivePerson {
   id: string;
@@ -62,6 +94,9 @@ export interface ActivePerson {
   color: string | null;
   /** The viewer's own entry. */
   self: boolean;
+  /** The note they have open, when this viewer may know it. */
+  path?: string | null;
+  doing?: "read" | "edit" | null;
 }
 
 /** The hook's answer, as a plain value the explorer can be handed in a test. */
@@ -74,6 +109,8 @@ export interface AgentActivityView {
    */
   people?: readonly ActivePerson[];
   peopleCount?: number;
+  /** Recent events, oldest first, for the live map. Absent from an older gateway. */
+  events?: readonly ActivityEvent[];
 }
 
 const EMPTY: AgentActivityView = { agents: [], marks: [] };
@@ -123,6 +160,10 @@ export function decodeAgentActivity(value: unknown): AgentActivityView {
     const k = kind(one.kind);
     if (typeof one.id !== "string" || !one.id || k === null || typeof one.path !== "string") continue;
     if (typeof one.at !== "number" || !Number.isFinite(one.at)) continue;
+    // A `doing` that disagrees with `kind` is a malformed answer; `kind` wins,
+    // because it is what the tree has always drawn.
+    const told = doing(one.doing);
+    const finer: AgentDoing = told !== null && (told === "read") === (k === "read") ? told : k === "read" ? "read" : "edit";
     agents.push({
       id: one.id,
       name: label(one.name),
@@ -133,6 +174,11 @@ export function decodeAgentActivity(value: unknown): AgentActivityView {
       path: one.path,
       reads: typeof one.reads === "number" && one.reads >= 0 ? Math.floor(one.reads) : 0,
       writes: typeof one.writes === "number" && one.writes >= 0 ? Math.floor(one.writes) : 0,
+      doing: finer,
+      ...(finer === "move" && typeof one.from === "string" && one.from ? { from: one.from } : {}),
+      readPaths: (Array.isArray(one.readPaths) ? one.readPaths : [])
+        .filter((path): path is string => typeof path === "string" && path.length > 0)
+        .slice(-MAX_READ_PATHS),
     });
   }
   agents.sort((a, b) => b.at - a.at);
@@ -141,13 +187,92 @@ export function decodeAgentActivity(value: unknown): AgentActivityView {
     if (!entry || typeof entry !== "object") continue;
     const one = entry as Record<string, unknown>;
     if (typeof one.id !== "string" || !one.id) continue;
-    people.push({ id: one.id, name: label(one.name, "Someone"), color: colour(one.color), self: one.self === true });
+    const person: ActivePerson = { id: one.id, name: label(one.name, "Someone"), color: colour(one.color), self: one.self === true };
+    // Only when the gateway said: an older one says nothing about notes.
+    if ("path" in one) {
+      const path = typeof one.path === "string" && one.path ? one.path : null;
+      person.path = path;
+      person.doing = path === null ? null : one.doing === "edit" ? "edit" : "read";
+    }
+    people.push(person);
   }
   const counted =
     typeof raw.peopleCount === "number" && Number.isFinite(raw.peopleCount) && raw.peopleCount >= 0
       ? Math.floor(raw.peopleCount)
       : 0;
-  return { agents, marks, people, peopleCount: Math.max(counted, people.length) };
+  const events: ActivityEvent[] = [];
+  for (const entry of Array.isArray(raw.events) ? raw.events : []) {
+    const event = decodeEvent(entry);
+    if (event !== null) events.push(event);
+  }
+  events.sort((a, b) => a.at - b.at);
+  return { agents, marks, people, peopleCount: Math.max(counted, people.length), events: events.slice(-MAX_EVENTS) };
+}
+
+/** As many as the gateway sends at most; more is not an answer it gave. */
+const MAX_EVENTS = 200;
+const MAX_READ_PATHS = 30;
+
+function doing(value: unknown): AgentDoing | null {
+  return value === "read" || value === "edit" || value === "create" || value === "move" ? value : null;
+}
+
+function decodeEvent(entry: unknown): ActivityEvent | null {
+  if (!entry || typeof entry !== "object") return null;
+  const one = entry as Record<string, unknown>;
+  const k = doing(one.kind);
+  if (k === null || typeof one.path !== "string" || !one.path) return null;
+  if (typeof one.at !== "number" || !Number.isFinite(one.at)) return null;
+  const actor = one.actor && typeof one.actor === "object" ? (one.actor as Record<string, unknown>) : null;
+  if (!actor || typeof actor.id !== "string" || !actor.id) return null;
+  const actorKind = actor.kind === "person" ? "person" : actor.kind === "agent" ? "agent" : null;
+  if (actorKind === null) return null;
+  const event: ActivityEvent = {
+    at: one.at,
+    kind: k,
+    path: one.path,
+    actor: { id: actor.id, kind: actorKind, name: label(actor.name, actorKind === "person" ? "Someone" : "An agent") },
+  };
+  if (k === "move") {
+    // A move with an end missing is not a move the map can draw.
+    if (typeof one.from !== "string" || !one.from) return null;
+    event.from = one.from;
+    event.to = one.path;
+  }
+  return event;
+}
+
+/**
+ * The query a console's `/agent-activity` poll carries, for the live map.
+ *
+ * `since` asks only for events newer than the newest one held; `note` and
+ * `doing` say which note this person has open; `did` announces a create or a
+ * move the console itself just finished. The gateway checks every path
+ * against this person's own access and that the change really happened, and
+ * ignores whatever fails, so nothing here is a way to claim anything.
+ */
+export function agentActivityQuery(options: {
+  since?: number | null;
+  note?: string | null;
+  doing?: "read" | "edit";
+  did?: { kind: "create"; path: string } | { kind: "move"; from: string; to: string } | null;
+}): string {
+  const params = new URLSearchParams();
+  if (typeof options.since === "number" && Number.isFinite(options.since)) params.set("since", String(options.since));
+  if (options.note) {
+    params.set("note", options.note);
+    params.set("doing", options.doing === "edit" ? "edit" : "read");
+  }
+  if (options.did?.kind === "create") {
+    params.set("did", "create");
+    params.set("path", options.did.path);
+  } else if (options.did?.kind === "move") {
+    params.set("did", "move");
+    params.set("from", options.did.from);
+    params.set("to", options.did.to);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 /**

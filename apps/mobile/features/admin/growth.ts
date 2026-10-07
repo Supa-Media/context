@@ -130,6 +130,52 @@ export interface RosterRow {
   aiSpendMicroUsd: number;
   /** The server's read hit its budget, so the figure is a floor. */
   aiSpendPartial: boolean;
+  /** When staff let this address in from the waitlist; `null` when they never did. */
+  letInAt?: number | null;
+}
+
+// -- the waitlist ---------------------------------------------------------
+
+/** Whose figures the funnel, the nudges and the roster are showing. */
+export type Audience = "everyone" | "waitlist";
+
+/** Somebody staff let in who has not signed in yet, so has no account. */
+export interface NotSignedUpRow {
+  email: string;
+  letInAt: number;
+}
+
+/**
+ * One line of the roster: an account, or an address that was let in and has
+ * no account yet. The second exists because letting somebody in writes a
+ * waitlist row, not an account (Dev2, 2026-10-07: the roster looked as if
+ * nobody had been let in).
+ */
+export type RosterEntry =
+  | { kind: "account"; at: number; row: RosterRow }
+  | { kind: "not-signed-up"; at: number; row: NotSignedUpRow };
+
+/**
+ * The roster for one audience, newest first: accounts by when they joined,
+ * not-yet-signed-up addresses by when they were let in. "waitlist" keeps only
+ * accounts that came from it.
+ */
+export function rosterEntries(
+  roster: readonly RosterRow[],
+  notSignedUp: readonly NotSignedUpRow[],
+  audience: Audience,
+): RosterEntry[] {
+  const accounts = roster
+    .filter((row) => audience === "everyone" || isFromWaitlist(row))
+    .map((row): RosterEntry => ({ kind: "account", at: row.joinedAt, row }));
+  const pending = notSignedUp.map(
+    (row): RosterEntry => ({ kind: "not-signed-up", at: row.letInAt, row }),
+  );
+  return [...accounts, ...pending].sort((a, b) => b.at - a.at);
+}
+
+export function isFromWaitlist(row: RosterRow): boolean {
+  return typeof row.letInAt === "number";
 }
 
 /** The roster's AI column header: the window is part of the figure's meaning. */
