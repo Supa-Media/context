@@ -182,7 +182,7 @@ export function noteWriteToolDefinitions() {
         "Call it when you learn something worth keeping beyond this conversation: a preference, a " +
         "correction, a fact about them or their work. Do not ask first. Search for the note the fact " +
         "belongs in (search_notes) and pass it as note; leave note out and it becomes a new note in the " +
-        "inbox. Mark kind inferred when they did not say it outright. When the fact changes something " +
+        "inbox's memories folder. Mark kind inferred when they did not say it outright. When the fact changes something " +
         "already written, pass that exact line as replaces: it is swapped, never duplicated. You may also " +
         "keep the fact in your own memory. The note keeps only the plain line; who saved it, when, and " +
         "whether it was stated or inferred are recorded in the workspace's audit trail. Refused: an " +

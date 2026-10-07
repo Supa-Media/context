@@ -183,7 +183,7 @@ test("without a note, the fact becomes a new inbox note, never overwriting one",
     const second = await remember({ fact: "Lives in Boston.", kind: "stated" }, token);
     assert.equal(first.isError, false, first.text);
     assert.equal(second.isError, false, second.text);
-    const inbox = [...objects(bucket).keys()].filter((key) => key.startsWith("0-inbox/remembered-"));
+    const inbox = [...objects(bucket).keys()].filter((key) => key.startsWith("0-inbox/memories/"));
     assert.equal(inbox.length, 2, `${bucket}: ${JSON.stringify(inbox)}`);
     for (const key of inbox) assert.equal(await read(key, token), "- Lives in Boston.\n");
   }
@@ -202,9 +202,9 @@ test("replaces matches a whole line, never a line that merely contains it", asyn
 test("writes in another workspace through context, as write_note does, and nowhere else", async () => {
   const answer = await call(OWNER, "remember", { fact: "Team uses Linear.", kind: "stated", context: "@team" });
   assert.equal(answer.isError, false, answer.text);
-  const teamInbox = [...objects("remember-team").keys()].filter((key) => key.startsWith("0-inbox/remembered-"));
+  const teamInbox = [...objects("remember-team").keys()].filter((key) => key.startsWith("0-inbox/memories/"));
   assert.equal(teamInbox.length, 1);
-  assert.equal([...objects("remember-me").keys()].some((key) => key.startsWith("0-inbox/remembered-")), false);
+  assert.equal([...objects("remember-me").keys()].some((key) => key.startsWith("0-inbox/memories/")), false);
   // As an editor, the answer is write_note's for the same destination.
   const asEditor = await call(OWNER, "remember", { fact: "x.", kind: "stated", context: "@edit" });
   const writeAsEditor = await call(OWNER, "write_note", { path: "0-inbox/x.md", content: "- x.\n", context: "@edit" });

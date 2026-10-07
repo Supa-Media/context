@@ -96,7 +96,7 @@ Behaviour:
    becomes `- <fact>`. If `replaces` is given and matches no line or more than
    one, refuse (`replaces_not_found` / `replaces_ambiguous`) and change
    nothing. Without `replaces`, append `- <fact>` at the end of the note.
-3. Without `note`: create `0-inbox/remembered-<YYYY-MM-DD>-<slug>.md` holding
+3. Without `note`: create `0-inbox/memories/<YYYY-MM-DD>-<slug>.md` holding
    `- <fact>`, created only if absent.
 4. Write through `toolWriteNote` with the etag read in step 2, so encryption,
    collaboration rooms, forms, drawings, visibility and indexing behave exactly

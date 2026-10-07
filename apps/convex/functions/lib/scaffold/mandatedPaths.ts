@@ -226,6 +226,9 @@ export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   // folders wholesale before this list learned to name them.
   ...PARA_FOLDERS,
   ...SESSION_FOLDERS,
+  // Where the gateway's `remember` files a fact given no note
+  // (`MEMORY_FOLDER` in apps/mcp/src/tools/notes/remember.js).
+  "0-inbox/memories",
   ...CAPTURE_SOURCE_FOLDERS,
   ...CALENDAR_PATHS,
   ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
