@@ -565,10 +565,7 @@ export interface ConsoleData {
    * owner their index is gone on every reload.
    */
   fastSearch: FastSearchView;
-  /**
-   * Search by meaning's status and the owner's switch. Optional: the demo
-   * console and test fixtures carry none, and the card is then not drawn.
-   */
+  /** Search by meaning's status and owner switch; absent in the demo, which draws no card. */
   meaningSearch?: import("./search/useMeaningSearch").MeaningSearchView;
   /**
    * Who can reach the selected context, and the owner-only controls to change
