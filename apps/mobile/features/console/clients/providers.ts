@@ -341,14 +341,14 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     matches: /chatgpt|openai/i,
     name: "ChatGPT",
     form: "connector",
-    note: "Opens Settings → Connectors with the create form already open. Custom apps need a paid ChatGPT plan.",
+    note: "Opens ChatGPT's Plugins page. Press Add, then Add custom MCP server. Custom MCP servers need a paid ChatGPT plan.",
     customization: {
       hint: "Paste it into Settings → Personalization → Custom instructions.",
     },
     link: () => ({
       kind: "connector",
       label: "Open ChatGPT",
-      href: "https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins",
+      href: "https://chatgpt.com/plugins",
     }),
     fields: (endpoint) => connectorFields(endpoint, true),
   },
