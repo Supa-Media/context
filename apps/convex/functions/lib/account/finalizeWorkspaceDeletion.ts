@@ -64,6 +64,13 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const row of encryption) await ctx.db.delete(row._id);
 
+  // The agent's turn log: names, durations and counts, at most 30 days of them.
+  const turns = await ctx.db
+    .query("agentTurns")
+    .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const turn of turns) await ctx.db.delete(turn._id);
+
   const events = await ctx.db
     .query("auditEvents")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

@@ -354,6 +354,12 @@ export async function runTurn(options) {
     nothing a log line could leak a note or a question through.
   */
   const timing = { rounds: 0, modelMs: 0, toolMs: 0 };
+  /*
+    The same, in order: each model round and each tool call between them, by
+    name, outcome and duration. What the turn log keeps, and what shows where
+    one slow turn spent its time.
+  */
+  const trace = [];
 
   /*
     THE NARROWED LIST IS ENFORCED HERE, NOT ONLY IN THE PROMPT.
@@ -376,22 +382,41 @@ export async function runTurn(options) {
 
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
     const asked = clock();
-    const answer = builtin
-      ? await requestBuiltin({ model, system, messages, tools }, providerOptions.ai)
-      : await requestCompletion(
-          provider,
-          { model, system, messages, tools, apiKey: credential.apiKey },
-          providerOptions,
-        );
+    let answer;
+    try {
+      answer = builtin
+        ? await requestBuiltin({ model, system, messages, tools }, providerOptions.ai)
+        : await requestCompletion(
+            provider,
+            { model, system, messages, tools, apiKey: credential.apiKey },
+            providerOptions,
+          );
+    } catch (error) {
+      // A failed turn is the one most worth seeing in the log, so the trace
+      // so far travels with the error to `route.js`.
+      if (error instanceof ProviderError) {
+        const ms = clock() - asked;
+        error.model = model;
+        error.timing = {
+          rounds: timing.rounds + 1,
+          modelMs: timing.modelMs + ms,
+          toolMs: timing.toolMs,
+          trace: [...trace, { kind: "model", ok: false, ms }],
+        };
+      }
+      throw error;
+    }
+    const roundMs = clock() - asked;
     timing.rounds += 1;
-    timing.modelMs += clock() - asked;
+    timing.modelMs += roundMs;
+    trace.push({ kind: "model", ok: true, ms: roundMs });
     if (answer.usage) {
       usage.input += answer.usage.input;
       usage.output += answer.usage.output;
     }
 
     if (answer.toolCalls.length === 0) {
-      return { answer: answer.text, provider, model, steps, usage, timing };
+      return { answer: answer.text, provider, model, steps, usage, timing: { ...timing, trace } };
     }
 
     messages.push({ role: "assistant", text: answer.text, toolCalls: answer.toolCalls });
@@ -432,7 +457,9 @@ export async function runTurn(options) {
         if (error instanceof ProviderError) throw error;
         result = { content: [{ type: "text", text: "That call failed." }], isError: true };
       }
-      timing.toolMs += clock() - called;
+      const toolMs = clock() - called;
+      timing.toolMs += toolMs;
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs });
       steps.push({ tool: call.name, ok: result?.isError !== true });
       messages.push({
         role: "tool",
@@ -458,7 +485,7 @@ export async function runTurn(options) {
     model,
     steps,
     usage,
-    timing,
+    timing: { ...timing, trace },
     exhausted: true,
   };
 }
