@@ -87,6 +87,7 @@ describe("worker", () => {
       workerSecret: true,
       controlPlane: true,
       gatewayOrigin: "https://gw.example",
+      simulator: false,
     });
     expect(body).not.toContain("cp.example");
     expect((await worker.fetch(new Request("https://agent.example/health", { method: "POST" }), e)).status).toBe(404);

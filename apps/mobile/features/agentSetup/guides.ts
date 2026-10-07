@@ -32,9 +32,9 @@ export const GUIDE_STEPS: Record<SetupAgent, readonly StepKey[]> = {
  *
  * Claude's settings link is the one `console/clients/providers.ts` hands
  * out, so the guide and Settings send somebody to the same form. ChatGPT's
- * opens its settings, where Create app sits. It used to need developer mode
- * switched on first; ChatGPT dropped that (owner, 2026-09-26), and so did the
- * guide's step for it.
+ * opens its Plugins page, where Add › Add custom MCP server sits. It used to
+ * need developer mode switched on first and lived under Settings › Apps;
+ * ChatGPT moved it to Plugins and dropped developer mode (owner, 2026-10-07).
  * `chat` is where "Copy and open" goes: a new chat, for the bring-over prompt.
  */
 export const AGENT_LINKS: Record<SetupAgent, { settings: string; label: string; chat: string }> = {
@@ -44,8 +44,8 @@ export const AGENT_LINKS: Record<SetupAgent, { settings: string; label: string; 
     chat: "https://claude.ai/new",
   },
   chatgpt: {
-    settings: "https://chatgpt.com/#settings/Connectors",
-    label: "Open ChatGPT settings",
+    settings: "https://chatgpt.com/plugins",
+    label: "Open ChatGPT Plugins",
     chat: "https://chatgpt.com/",
   },
 };

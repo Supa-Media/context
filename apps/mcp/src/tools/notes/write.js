@@ -4,6 +4,7 @@
  * recorded afterwards.
  */
 
+import { withActivityHint } from "../../live/activityHint.js";
 import {
   announceCommittedToPresence,
   announceWriteToPresence,
@@ -457,7 +458,8 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   const shareLines = await shareWrittenNote(store, path, args);
   // Said after the write, never instead of it: a status outside its folder's list is advice.
   const statusLine = isDrawingPath(path) ? null : await statusAdvice(store, scope, rules, overrides, path, body).catch(() => null);
-  return toolText(
+  // Whether this created the note, for the live map's "pops in" (`live/activityHint.js`).
+  return withActivityHint(toolText(
     `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
       (publishedForLink
         ? " (published to this workspace so the link can open it; the answers note keeps its own visibility)"
@@ -474,7 +476,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       (formLines.length ? `\n${formLines.join("\n")}` : "") +
       (shareLines.length ? `\n${shareLines.join("\n")}` : "") +
       (statusLine === null ? "" : `\n${statusLine}`)
-  );
+  ), { created: !existing });
 }
 
 async function prepareAttachedImages(path, content, images, storedBody) {

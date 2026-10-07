@@ -86,7 +86,7 @@ export const AGENT_SETUP_PREVIEWS = {
     title: "Guide · Claude · Little to bring",
     ...bring("claude", { kind: "little", written: NOTES.slice(-1) }),
   },
-  "guide-chatgpt-create": { title: "Guide · ChatGPT 1 · Create the app", ...connect("chatgpt", 0) },
+  "guide-chatgpt-create": { title: "Guide · ChatGPT 1 · Add the plugin", ...connect("chatgpt", 0) },
   "guide-chatgpt-signin": { title: "Guide · ChatGPT 2 · Sign in", ...connect("chatgpt", 1) },
   "guide-chatgpt-stick": { title: "Guide · ChatGPT 3 · Make it stick", ...connect("chatgpt", 2) },
   "guide-chatgpt-bring": { title: "Guide · ChatGPT 4 · Bring over", ...bring("chatgpt", { kind: "pick" }) },

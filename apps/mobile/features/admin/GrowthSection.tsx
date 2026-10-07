@@ -10,10 +10,12 @@
  * itself. Paying and Active are a slim two-figure strip under them.
  *
  * Below: the funnel beside "Needs a nudge", which is the same roster read
- * person by person, then the roster itself.
+ * person by person, then the roster itself. An Everyone / From the waitlist
+ * switch above them narrows all three to the people staff let in from the
+ * waitlist (Dev2, 2026-10-07); the headline cards stay about everybody.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -39,10 +41,24 @@ import {
 } from "./AdminKit";
 import { ListRow, RowValue } from "./AdminTable";
 import { FunnelChart } from "./Charts";
-import { arrivalDays, daysSinceLastArrival, formatDaysAgo, nudgeCounts } from "./growth";
+import {
+  arrivalDays,
+  daysSinceLastArrival,
+  formatDaysAgo,
+  isFromWaitlist,
+  nudgeCounts,
+  rosterEntries,
+  type Audience,
+} from "./growth";
 import { Curve, HeadlineCard, PairStrip } from "./HeadlineCard";
 import { formatCount, formatMoney, formatRatio, formatTotal, funnelRows } from "./report";
 import { RosterCard } from "./RosterCard";
+import { Segments } from "./Segments";
+
+const AUDIENCES: readonly { key: Audience; label: string }[] = [
+  { key: "everyone", label: "Everyone" },
+  { key: "waitlist", label: "From the waitlist" },
+];
 
 export function GrowthSection({
   days,
@@ -56,7 +72,11 @@ export function GrowthSection({
   const styles = useThemedStyles(makeStyles);
   const census = useQuery(api.functions.admin.censusReport, { days });
   const usage = useQuery(api.functions.admin.usageReport, { days });
-  const funnel = useMemo(() => (census ? funnelRows(census.funnel) : []), [census]);
+  const [audience, setAudience] = useState<Audience>("everyone");
+  const funnel = useMemo(() => {
+    if (census === undefined) return [];
+    return funnelRows(audience === "waitlist" ? census.waitlist.funnel : census.funnel);
+  }, [census, audience]);
 
   if (census === undefined) return <GrowthSkeleton />;
 
@@ -137,6 +157,12 @@ export function GrowthSection({
     />
   );
 
+  // Somebody let in without an account yet is listed in both views: the roster
+  // looked as if nobody had been let in when it showed accounts only.
+  const entries = rosterEntries(census.roster, census.waitlist.notSignedUp, audience);
+  const nudgeRoster =
+    audience === "waitlist" ? census.roster.filter(isFromWaitlist) : census.roster;
+
   const activeToday =
     usage?.activeContexts.points[usage.activeContexts.points.length - 1]?.count ?? null;
 
@@ -184,10 +210,20 @@ export function GrowthSection({
         </Panel>
       ) : (
         <>
+          <Segments
+            options={AUDIENCES}
+            value={audience}
+            onChange={setAudience}
+            counts={(key) =>
+              key === "waitlist" ? census.waitlist.letIn.count : accounts.total.count
+            }
+            label="Whose figures"
+            testID="admin-audience"
+          />
           <TwoUp>
             <Panel
               title="How far accounts get"
-              meta="of everyone who signed up"
+              meta={audience === "waitlist" ? "of everyone let in from the waitlist" : "of everyone who signed up"}
               metaWide
               help="Thresholds, not a nested funnel. A step can be larger than the one above it — a client connected to a context whose bucket never verified — and that is the customer to go and talk to."
               style={styles.fill}
@@ -195,12 +231,14 @@ export function GrowthSection({
             >
               <FunnelChart rows={funnel} />
             </Panel>
-            <NudgeCard roster={census.roster} />
+            <NudgeCard roster={nudgeRoster} />
           </TwoUp>
           <RosterCard
-            roster={census.roster}
+            entries={entries}
             total={formatTotal(accounts.total)}
             days={census.days}
+            audience={audience}
+            notSignedUpTotal={census.waitlist.notSignedUpTotal}
           />
         </>
       )}

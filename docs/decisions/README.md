@@ -166,6 +166,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
+- [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
 
 ## [Markdown forms](./forms.md)
 
@@ -574,6 +575,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Only iMessage is answered, because the sender number is the login
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
+- Staging has a texts simulator, and nothing else does
 - The autofill vault lives sealed in the person's bucket
 - The built-in model is for Premium, capped, and metered like Jev
 - The agent opens only addresses it was given

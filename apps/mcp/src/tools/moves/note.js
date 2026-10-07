@@ -1,5 +1,6 @@
 /** `move_note` within one context. */
 
+import { withActivityHint } from "../../live/activityHint.js";
 import {
   canSee,
   effectiveVisibility,
@@ -136,10 +137,10 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
       source_visibility: sourceVisibility,
       references: references.capped ? "not-rewritten" : references.links,
     });
-    return toolText(
+    return withActivityHint(toolText(
       `moved: ${source} → ${destination} (etag ${moved.etag})\nvisibility: ${destinationVisibility}` +
         referencesLine(references)
-    );
+    ), { moves: [{ from: source, to: destination }] });
   }
 
   // `!== "team"` rather than `=== "private"`, and the computed value rather
@@ -188,8 +189,8 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     source_visibility: sourceVisibility,
     references: references.capped ? "not-rewritten" : references.links,
   });
-  return toolText(
+  return withActivityHint(toolText(
     `moved: ${source} → ${destination} (etag ${put.etag})\nvisibility: ${destinationVisibility}` +
       referencesLine(references)
-  );
+  ), { moves: [{ from: source, to: destination }] });
 }

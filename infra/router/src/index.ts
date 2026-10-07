@@ -15,6 +15,7 @@ import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
 import { isHomeDocument, withHomeSite } from "./homeSite";
+import { textsSimulatorResponse } from "./textsSimulator";
 import { iconResponse, robotsResponse, staticAsset } from "./icons";
 import { originFor, readOrigin, VAR_NAME } from "./upstream";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
@@ -31,6 +32,7 @@ export interface Env {
   /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
   CONVEX_ORIGIN?: string;
   HOME_SITE_HANDLE?: string; // whose website/ is the homepage (`homeSite.ts`)
+  TEXTS_SIMULATOR?: Fetcher; // staging only (`textsSimulator.ts`)
 }
 
 export default {
@@ -42,6 +44,8 @@ export default {
     if (!isPlatformHost(url.hostname)) {
       return await siteResponse(request, url, env, ctx, respond);
     }
+    const simulator = textsSimulatorResponse(request, url, env);
+    if (simulator !== null) return await simulator;
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
     const decision = route(url, request.headers.get("User-Agent"));
     if (decision.kind === "proxy" && decision.upstream === "expo" && isHomeDocument(request, url)) {

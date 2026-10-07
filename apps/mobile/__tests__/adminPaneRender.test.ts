@@ -40,6 +40,7 @@
  *   `AdminPane` rendering the console for a non-admin             1
  *   `AdminChrome` drawn while `amIAdmin` is unresolved            1
  *   the Credentials count hard-wired to zero                      2
+ *   the waitlist filter keeping every account                     1
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -227,8 +228,36 @@ function census(over: Record<string, unknown> = {}) {
         lastSeenAt: Date.now(),
         aiSpendMicroUsd: 420_000,
         aiSpendPartial: false,
+        letInAt: null,
+      },
+      {
+        joinedAt: Date.now() - 2 * 86_400_000,
+        email: "lettin@example.test",
+        contexts: 0,
+        owned: 0,
+        connectedStorage: 0,
+        clients: 0,
+        plan: "none",
+        lastSeenAt: null,
+        aiSpendMicroUsd: 0,
+        aiSpendPartial: false,
+        letInAt: Date.now() - 3 * 86_400_000,
       },
     ],
+    waitlist: {
+      letIn: { count: 2, isFloor: false },
+      signedUp: 1,
+      funnel: [
+        { step: "let-in", count: 2 },
+        { step: "signed-up", count: 1 },
+        { step: "made-a-context", count: 0 },
+        { step: "connected-storage", count: 0 },
+        { step: "connected-a-client", count: 0 },
+        { step: "paying", count: 0 },
+      ],
+      notSignedUp: [{ email: "pending@example.test", letInAt: Date.now() - 3_600_000 }],
+      notSignedUpTotal: 1,
+    },
     ...over,
   };
 }
@@ -358,6 +387,32 @@ describe("growth is what the page opens on", () => {
     // The table's header, or the phone row's fact: either way, the window.
     expect(roster).toMatch(/AI \(2d\)|AI \$0\.42 \(2d\)/);
     expect(container.textContent).not.toContain("NaN");
+  });
+
+  test("somebody let in from the waitlist is listed before they sign up", () => {
+    // Dev2, 2026-10-07: letting somebody in writes no account, so a roster of
+    // accounts alone looked as if nobody had been let in.
+    const container = mount();
+    expect(has(container, "admin-roster-not-signed-up")).toBe(true);
+    const roster = find("admin-roster")?.textContent ?? "";
+    expect(roster).toContain("pending@example.test");
+    expect(roster).toContain("1 let in, not signed up");
+  });
+
+  test("the waitlist filter narrows the funnel, the nudges and the roster", () => {
+    const container = mount();
+    expect(find("admin-audience-waitlist")?.textContent).toContain("From the waitlist 2");
+    click(container, "admin-audience-waitlist");
+    const funnel = find("admin-funnel")?.textContent ?? "";
+    expect(funnel).toContain("Let in from the waitlist");
+    const roster = find("admin-roster")?.textContent ?? "";
+    expect(roster).toContain("lettin@example.test");
+    expect(roster).toContain("pending@example.test");
+    expect(roster).not.toContain("someone@example.test");
+    expect(container.textContent).toContain("of the 1 newest");
+
+    click(container, "admin-audience-everyone");
+    expect(find("admin-roster")?.textContent ?? "").toContain("someone@example.test");
   });
 
   test("the credential form is NOT here", () => {
