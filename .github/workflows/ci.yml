@@ -520,6 +520,22 @@ jobs:
       # A syntactically valid, deliberately unreachable host, as `editor-webkit`
       # uses: nothing in an export dials out, and a missing one would fail the
       # build for a reason that is not the one this job is asking about.
+      # Metro's transform cache from an earlier run of this job (2026-10-07).
+      # Metro keys every entry on the file's content and the transform config,
+      # and re-reads EXPO_PUBLIC_ values per export (checked: a warm export
+      # with a different EXPO_PUBLIC_CONVEX_URL carried the new value), so a
+      # warm export produces byte-identical output to a cold one (diffed) —
+      # measured 110s cold against 19s warm. The lockfile is in the key so a
+      # dependency change starts cold; each run saves under its own commit.
+      - name: Restore Metro's cache
+        if: steps.changes.outputs.mobile == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/metro-cache
+          key: metro-native-${{ matrix.platform }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            metro-native-${{ matrix.platform }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
       - name: Export the ${{ matrix.platform }} bundle
         if: steps.changes.outputs.mobile == 'true'
         working-directory: apps/mobile
