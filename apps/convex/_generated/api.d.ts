@@ -106,6 +106,7 @@ import type * as functions_places from "../functions/places.js";
 import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
+import type * as functions_agentTurns from "../functions/agentTurns.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
@@ -115,6 +116,7 @@ import type * as functions_referrals from "../functions/referrals.js";
 import type * as functions_usage from "../functions/usage.js";
 import type * as functions_websites from "../functions/websites.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
+import type * as functions_workspaceMoves from "../functions/workspaceMoves.js";
 import type * as http from "../http.js";
 
 import type {
@@ -222,6 +224,7 @@ declare const fullApi: ApiFromModules<{
   "functions/telemetry": typeof functions_telemetry;
   "functions/textLinks": typeof functions_textLinks;
   "functions/builtinModel": typeof functions_builtinModel;
+  "functions/agentTurns": typeof functions_agentTurns;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
   "functions/waitlist": typeof functions_waitlist;
@@ -231,6 +234,7 @@ declare const fullApi: ApiFromModules<{
   "functions/referrals": typeof functions_referrals;
   "functions/websites": typeof functions_websites;
   "functions/workspaces": typeof functions_workspaces;
+  "functions/workspaceMoves": typeof functions_workspaceMoves;
   http: typeof http;
 }>;
 

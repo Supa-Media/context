@@ -159,6 +159,29 @@ bubble under a finished answer. Tests: `format.test.ts`; `inbox.test.ts`
 after"); `agentBuiltin.test.mjs` ("a texting grant's turn is told it is writing
 a text").
 
+### Every agent turn is logged by name and duration, never by text
+
+The owner, 2026-10-07: "make sure that we are logging these things so that
+we're able to improve by it ... see how much time and what tool calls are being
+made ... audit the agent in general". After each `/agent` turn, texting or
+app, the gateway reports to `/gateway/agent-turn` (after the answer has gone,
+where the host allows): provider, model, outcome (answered, ran out of steps,
+failed), total, model and tool milliseconds, token counts, and a trace of each
+model round and each tool call by name, outcome and duration. The control
+plane keeps one `agentTurns` row per turn for 30 days, against the grant's own
+workspace, and deletes them with the workspace.
+
+It never holds the question, the answer, or a tool's arguments: an argument is
+a path or a query, a fact about what somebody looks for in their own notes. A
+tool name must look like one (`^[a-z][a-z0-9_]{0,63}$`), so a sentence cannot
+be stored where a name goes.
+
+**What a simplification would cost:** logging arguments or text turns an audit
+log into a second copy of people's questions, outside their bucket. Tests:
+`apps/convex/__tests__/agentTurns.test.ts` ("the row has nowhere to put text",
+"a sentence where a tool name goes is refused"); `agentBuiltin.test.mjs` ("the
+turn log never carries the question, the answer or a tool's arguments").
+
 ### The autofill vault lives sealed in the person's bucket
 
 Decided by the owner, 2026-10-06: the agent's saved passwords and cards live in

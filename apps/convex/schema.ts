@@ -27,6 +27,7 @@ import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
+import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 
 /**
  * Control-plane schema for Context.
@@ -85,6 +86,7 @@ const schema = defineSchema({
   ...placeTables,
   ...feedbackTables,
   ...textLinkTables,
+  ...agentTurnTables,
 });
 
 export default schema;

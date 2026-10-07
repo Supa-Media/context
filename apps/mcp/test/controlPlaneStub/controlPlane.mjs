@@ -61,6 +61,8 @@ export function createControlPlaneStub(options = {}) {
   const providerCredentials = new Map();
   const builtinVerdicts = new Map();
   const builtinReports = [];
+  /** Every `/gateway/agent-turn` report, as the turn log would receive it. */
+  const turnReports = [];
   /**
    * workspaceId → the rotation in progress, or `null` — mutated by
    * `startEncryptionRotation`/`completeEncryptionRotation` on `/gateway/binding`,
@@ -498,6 +500,13 @@ export function createControlPlaneStub(options = {}) {
         return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
       }
 
+      case "/gateway/agent-turn": {
+        const grant = await grantForAccessToken(body.accessToken);
+        const known = grant && (body.expectedWorkspaceId ?? grant.workspaceId) === grant.workspaceId;
+        if (known) turnReports.push({ workspaceId: grant.workspaceId, ...body, accessToken: undefined });
+        return ok({ recorded: Boolean(known) });
+      }
+
       case "/gateway/clients/register": {
         // `calls` above already recorded what was forwarded; a test reads the
         // registrant key off that. This flag models the one answer the real
@@ -825,6 +834,12 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/moves": {
+        // Answered `{ok: true}` on every path, like the real route; `calls`
+        // carries the body a test asserts on.
+        return ok({ ok: true });
+      }
+
       case "/gateway/tree": {
         // Answered `{ok: true}` on every path, like `/gateway/activity`.
         // `calls` carries the body, which is what a test asserts on.
@@ -901,6 +916,7 @@ export function createControlPlaneStub(options = {}) {
     connectProvider,
     setBuiltinVerdict,
     builtinReports,
+    turnReports,
     providerCredentials,
     grants,
     clients,

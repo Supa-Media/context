@@ -65,6 +65,12 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep agent turns past their retention",
+  { hours: 1 },
+  internal.functions.agentTurns.purgeOldAgentTurns,
+);
+
+crons.interval(
   "sweep expired texted sign-in links",
   { hours: 1 },
   internal.functions.textLinks.purgeExpiredPhoneLinkInvites,

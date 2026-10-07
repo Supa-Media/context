@@ -195,6 +195,22 @@ export async function runAgentBuiltinChecks(check) {
         system.includes("Don't name note paths") &&
         !system.includes("Cite the note path"),
     );
+    const logged = controlPlane.turnReports.at(-1);
+    check(
+      "the turn log gets the turn: model rounds and tool names in order, with durations",
+      logged?.outcome === "answered" &&
+        logged?.provider === "builtin" &&
+        logged?.rounds === 2 &&
+        JSON.stringify(logged?.trace.map((entry) => entry.tool ?? entry.kind)) ===
+          JSON.stringify(["model", "read_note", "model"]) &&
+        logged.trace.every((entry) => typeof entry.ms === "number" && entry.ok === true),
+    );
+    check(
+      "the turn log never carries the question, the answer or a tool's arguments",
+      !JSON.stringify(logged).includes("launch") &&
+        !JSON.stringify(logged).includes("Friday") &&
+        !JSON.stringify(logged).includes("1-projects"),
+    );
     const report = controlPlane.builtinReports.at(-1);
     check(
       "the turn's own token counts go back to the meter, and nothing else",
@@ -207,6 +223,11 @@ export async function runAgentBuiltinChecks(check) {
 
     ai.install([{ throws: true }]);
     const broken = await ask(env, TOKEN, { question: "When is the launch?" });
+    check(
+      "a failed turn is in the turn log as failed, with the round that failed",
+      controlPlane.turnReports.at(-1)?.outcome === "failed" &&
+        controlPlane.turnReports.at(-1)?.trace.at(-1)?.ok === false,
+    );
     check(
       "a failed built-in turn is opaque to the caller and reported as failed",
       broken.status === 502 &&
