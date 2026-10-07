@@ -355,7 +355,7 @@ diff --git a/apps/mcp/src/tools/notes/write.js b/apps/mcp/src/tools/notes/write.
 index d0719bbe..f798c2bd 100644
 --- a/apps/mcp/src/tools/notes/write.js
 +++ b/apps/mcp/src/tools/notes/write.js
-@@ -32,7 +32,13 @@ import { isEncryptedNote } from "../../encryption.js";
+@@ -32,10 +32,16 @@ import { isEncryptedNote } from "../../encryption.js";
  import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
  import { parseFormBlocks } from "../../forms.js";
  import { pathUnderActiveMovedSource } from "../../moves/jobs.js";
@@ -367,6 +367,9 @@ index d0719bbe..f798c2bd 100644
 +  UNWRITABLE_PATH_REFUSAL,
 +  writesOneRule,
 +} from "../../privacy/state.js";
+ import { projectNoteAfterWriteDeferred } from "../../graph/afterWrite.js";
+ import { createSearchBudget } from "../../search/maintain.js";
+ import { WRITE_ENRICH_SUBREQUEST_BUDGET } from "../../search/budget.js";
  import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
  import { recordChange } from "../../activity/record.js";
  import { shareWrittenNote } from "../links.js";
