@@ -51,22 +51,47 @@ export const D1_PASS_RESERVE_CAP = 4 + D1_PASS_NOTE_CAP * D1_OPS_PER_NOTE;
  * store and 11 on a best-effort one (manifest, cursor, wrap reserve, node and
  * body reads, publish, one membership walk and write, the checkpoint op), so
  * the floor is 11. Below it a pass spends ops and lands nothing. No reserve is
- * taken before the sync: the graph gets only what search and D1 leave.
+ * taken before the sync: the graph gets only what search and D1 leave. Stores
+ * behind the logical-delete wrapper use the higher floors below.
  */
 export const GRAPH_PASS_FLOOR = 11;
 /**
- * The same floor for a best-effort store behind the logical-delete wrapper
- * (every gateway B2 or Wasabi store), where search maintenance charges the
- * wrapper's read before each unconditional put to the pass: every graph put
- * then costs two ops and the wrap reserve keeps two more (Phase 2 fix round
- * 2). Measured the same way: a one-link note first converges at 15.
+ * A best-effort store behind the logical-delete wrapper (every gateway B2 or
+ * Wasabi store) needs 15 for a one-link note to converge (Phase 2 fix round
+ * 2: the wrapper's read before each unconditional put is charged to the pass).
+ * The floor is set higher, by the deleted-note markers scenario below.
+ *
+ * Markers scenario (owner decision after Phase 2 final review): 300 one-link
+ * notes built at B=400, then 150 deleted, over a cursor-paged bucket behind the
+ * real withLogicalDelete with the search charge installed (and again through
+ * graphView: identical). Done means every deleted note's node is gone or a
+ * terminal excluded tombstone. Below the floor a removal can exceed the pass's
+ * work view and repeat every pass, so the graph spins instead of waiting.
+ * lean: floor measured on one scenario shape (N 100, 300, 500 checked), a
+ * larger fan-in per removal could need more; upgrade path is bounding marker
+ * reads in removeNote, an audit design change.
  */
-export const GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT = 15;
-/** The floor for this store. */
+// lean: measured: B 16 and 17 remove nothing in 3,000 passes; 18 converges in
+// 1,238 passes, and every B from 18 to 50 converges (19: 998, 20: 974, 30: 398).
+export const GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT = 18;
+/**
+ * The same floor for a conditional store behind the logical-delete wrapper.
+ * A one-link note converges at GRAPH_PASS_FLOOR there, but the markers
+ * scenario plateaus below 26 (observed, not explained: it sits above the
+ * best-effort floor even though best-effort pays a wrapper read per put).
+ */
+// lean: measured, non-monotone below the floor: B 21, 23, 24, 25 plateau at
+// 9, 5, 8, 2 deleted nodes left after 3,000 passes, B 22 converges in 1,622;
+// every B from 26 to 60 converges (26: 840, 30: 962 worst, 60: 278). The floor
+// is the smallest B above which every measured cell converges.
+export const GRAPH_PASS_FLOOR_LOGICAL_CONDITIONAL = 26;
+/** The floor for this store: logical-delete stores take the markers floors. */
 export const graphPassFloor = (store) =>
-  graphMode(store) === "best-effort" && typeof store.setExtraOperationCharge === "function"
-    ? GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT
-    : GRAPH_PASS_FLOOR;
+  typeof store?.setExtraOperationCharge !== "function"
+    ? GRAPH_PASS_FLOOR
+    : graphMode(store) === "best-effort"
+      ? GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT
+      : GRAPH_PASS_FLOOR_LOGICAL_CONDITIONAL;
 /**
  * Notes the projection may copy while somebody is waiting.
  *

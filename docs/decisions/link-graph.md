@@ -69,9 +69,17 @@ a reviewer.
   OPEN-20). They go through `recordChange`, which has no body, so the write
   hook does not run for them. The same holds for referrers that a move
   rewrote and for form responses. Reconciliation shares the maintenance
-  invocation with search, runs only when `GRAPH_PASS_FLOOR` budget is left
-  after the search sync (controller ruling OPEN-21), and never changes the
-  search sync's results or budget use.
+  invocation with search, runs only when the store's pass floor
+  (`graphPassFloor`, `search/pacing.js`) is left after the search sync
+  (controller ruling OPEN-21), and never changes the search sync's results or
+  budget use. The floor is 11 (`GRAPH_PASS_FLOOR`) on a plain store, and on a
+  store behind the logical-delete wrapper (every gateway store) it is 26
+  conditional and 18 best-effort (owner decision after the Phase 2 final
+  review): the smallest budgets above which a deleted-note markers scenario
+  (300 notes, 150 deleted, paged bucket, search charge installed) converges
+  in every measured cell; below them a removal repeats every pass. Below the
+  floor the pass is skipped and the manifest is not written, so health stays
+  as last published (it does not turn `behind`).
 - **A path leaves the graph only after a direct read of the note returns
   not-found** (controller ruling OPEN-15). That read is triggered either by a
   complete census that omits the path, or by a removal hint from the search

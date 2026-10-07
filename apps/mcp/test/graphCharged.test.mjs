@@ -18,12 +18,15 @@
  *   projectNote keep-back without the final write's headroom              1 (floors)
  *   posting pre-check counts pages, not pages plus wrapper reads          1 (floors)
  *   graphPassFloor ignores the logical best-effort floor                  1 (floors)
+ *   graphPassFloor ignores the logical floors (back to 11 and 15)          3 (floors, markers, skip)
  *
  * Results (measured): on a charged best-effort logical-delete store a
  * one-link note first converges at B=15 (it was 11 before, but the cursor
  * then froze once ready); the audit restores a dropped membership from B=13
  * and GC empties the collected generation at every B from 11; conditional
- * stays at GRAPH_PASS_FLOOR (11).
+ * converges a one-link note at GRAPH_PASS_FLOOR (11). The pass floors on these
+ * stores are higher (18 best-effort, 26 conditional): the deleted-note markers
+ * scenario plateaus below them (search/pacing.js has the measured cells).
  */
 
 import assert from "node:assert/strict";
@@ -31,12 +34,13 @@ import { test } from "node:test";
 
 import { reconcileGraph } from "../src/graph/reconcile.js";
 import { readPostings } from "../src/graph/postings.js";
-import { generationPrefix, graphManifestKey, maintenanceCursorKey, pathHash, postingPageKey } from "../src/graph/keys.js";
+import { generationPrefix, graphManifestKey, maintenanceCursorKey, nodeKey, pathHash, postingPageKey } from "../src/graph/keys.js";
 import { withLogicalDelete } from "../src/store/logicalDelete.js";
 import { BUDGET_EXHAUSTED } from "../src/search/budget.js";
 import { createSearchBudget, defaultIsIndexable } from "../src/search/maintain.js";
-import { GRAPH_PASS_FLOOR, GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT, graphPassFloor } from "../src/search/pacing.js";
-import { memoryBucket } from "./store/fixtures.mjs";
+import { GRAPH_PASS_FLOOR, GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT, GRAPH_PASS_FLOOR_LOGICAL_CONDITIONAL, graphPassFloor } from "../src/search/pacing.js";
+import { maintainIndexAfter } from "../src/search/maintenance.js";
+import { cursorPagedBucket, memoryBucket } from "./store/fixtures.mjs";
 
 const now = 1_700_000_000_000;
 const N = 6;
@@ -152,16 +156,136 @@ async function oneLinkReady(caps, B, max) {
   return null;
 }
 
-test("floors on charged logical-delete stores: best-effort converges at GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT and not one below; conditional keeps GRAPH_PASS_FLOOR", async () => {
-  assert.equal(GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT, 15);
+test("one-link floors on charged logical-delete stores: best-effort converges at 15 and not one below; conditional at GRAPH_PASS_FLOOR", async () => {
   const bestEffort = { conditionalDelete: true };
-  assert.ok((await oneLinkReady(bestEffort, GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT, 10)) !== null);
-  assert.equal(await oneLinkReady(bestEffort, GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT - 1, 40), null);
+  assert.ok((await oneLinkReady(bestEffort, 15, 10)) !== null);
+  assert.equal(await oneLinkReady(bestEffort, 14, 40), null);
   const conditional = { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false };
   assert.ok((await oneLinkReady(conditional, GRAPH_PASS_FLOOR, 10)) !== null);
-  // maintainNow asks graphPassFloor: only a best-effort logical-delete store gets the higher floor.
+  // maintainNow asks graphPassFloor: logical-delete stores take the markers floors, others 11.
+  assert.equal(GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT, 18);
+  assert.equal(GRAPH_PASS_FLOOR_LOGICAL_CONDITIONAL, 26);
   const wrapped = (caps) => withLogicalDelete(Object.assign(memoryBucket(), { capabilities: caps }));
   assert.equal(graphPassFloor(wrapped(bestEffort)), GRAPH_PASS_FLOOR_LOGICAL_BEST_EFFORT);
-  assert.equal(graphPassFloor(wrapped(conditional)), GRAPH_PASS_FLOOR);
+  assert.equal(graphPassFloor(wrapped(conditional)), GRAPH_PASS_FLOOR_LOGICAL_CONDITIONAL);
   assert.equal(graphPassFloor(Object.assign(memoryBucket(), { capabilities: bestEffort })), GRAPH_PASS_FLOOR);
+});
+
+const CONDITIONAL = { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false };
+const BEST_EFFORT = { conditionalWrite: false, conditionalCreate: false, conditionalDelete: false };
+
+/** A cursor-paged bucket behind the real withLogicalDelete, as the gateway builds it. */
+function pagedGateway(caps) {
+  const raw = memoryBucket();
+  raw.capabilities = caps;
+  const paged = cursorPagedBucket(raw);
+  paged.objects = raw.objects;
+  return { raw, paged, store: withLogicalDelete(paged) };
+}
+
+/** Logical census, as the sync would hand it over (deleted notes absent). */
+async function logicalCensus(store, raw) {
+  const c = new Map();
+  for (const [k] of raw.objects) {
+    if (!defaultIsIndexable(k)) continue;
+    const got = await store.get(k);
+    if (got) c.set(k, got.etag);
+  }
+  return c;
+}
+
+/**
+ * Deleted notes whose node is neither gone nor a terminal tombstone. Both arms
+ * count: the wrapper exposes conditionalDelete, so a conditional store deletes
+ * the node; a best-effort one leaves an excluded tombstone with no repair.
+ */
+async function unremoved(store, keys) {
+  let left = 0;
+  for (const k of keys) {
+    const got = await store.get(k);
+    if (!got) continue;
+    const n = JSON.parse(await got.text());
+    if (!(n.coverage === "excluded" && Array.isArray(n.reverseRepair) && n.reverseRepair.length === 0)) left += 1;
+  }
+  return left;
+}
+
+// Measured worst at the floor: 840 (conditional at 26), 1,238 (best-effort at 18).
+const MARKERS_BOUND = { conditional: 1200, "best-effort": 1600 };
+
+test("markers scenario: at the logical-delete floor, 150 deleted of 300 notes are all removed within the stated bound", async () => {
+  for (const [mode, caps] of [["conditional", CONDITIONAL], ["best-effort", BEST_EFFORT]]) {
+    const { raw, store } = pagedGateway(caps);
+    const B = graphPassFloor(store);
+    const pass = async (budget) => {
+      const restoreCensus = await logicalCensus(store, raw);
+      const b = createSearchBudget(budget);
+      const restore = store.setExtraOperationCharge(() => {
+        if (b.take(0)) return;
+        const error = new Error("search budget exhausted");
+        error[BUDGET_EXHAUSTED] = true;
+        throw error;
+      });
+      try {
+        await reconcileGraph(store, b, { census: restoreCensus, censusComplete: true, removedHints: [], isIndexable: defaultIsIndexable, now });
+      } finally {
+        restore();
+      }
+    };
+    for (let i = 0; i < 300; i += 1) await store.put(`n${i}.md`, "[t](./t.md)");
+    for (let i = 0; i < 40; i += 1) await pass(100000);
+    const keys = [];
+    for (let i = 0; i < 300; i += 2) {
+      keys.push(nodeKey("1", await pathHash(`n${i}.md`)));
+      await store.delete(`n${i}.md`);
+    }
+    assert.equal(await unremoved(store, keys), 150, `${mode}: built before the deletes`);
+    let done = null;
+    for (let p = 1; p <= MARKERS_BOUND[mode]; p += 1) {
+      await pass(B);
+      if (p % 50 === 0 && (await unremoved(store, keys)) === 0) {
+        done = p;
+        break;
+      }
+    }
+    assert.ok(done !== null, `${mode} at B=${B}: ${await unremoved(store, keys)} deleted notes still in the graph after ${MARKERS_BOUND[mode]} passes`);
+  }
+});
+
+test("maintainNow on a logical-delete store: below its floor the graph pass is skipped and the manifest is not written", async () => {
+  for (const caps of [CONDITIONAL, BEST_EFFORT]) {
+    const skippedBetween = [];
+    for (let total = 14; total <= 70; total += 1) {
+      const { raw, paged, store } = pagedGateway(caps);
+      const deferred = [];
+      store.defer = (p) => deferred.push(p);
+      for (let i = 0; i < 5; i += 1) await store.put(`n${i}.md`, `[t](./t.md) n${i}`);
+      for (let i = 0; i < 4; i += 1) {
+        await maintainIndexAfter(store, createSearchBudget(600), defaultIsIndexable, null);
+        await Promise.all(deferred.splice(0));
+      }
+      await store.delete("n0.md");
+      const manifestBefore = raw.objects.get(graphManifestKey())?.body;
+      assert.ok(manifestBefore, "graph built");
+      let graphOps = 0;
+      for (const m of ["get", "put", "delete", "list"]) {
+        const inner = paged[m].bind(paged);
+        paged[m] = (k, ...rest) => {
+          const key = typeof k === "string" ? k : (k?.prefix ?? "");
+          if (key.startsWith(".context/graph/")) graphOps += 1;
+          return inner(k, ...rest);
+        };
+      }
+      const budget = createSearchBudget(total);
+      await maintainIndexAfter(store, budget, defaultIsIndexable, null);
+      await Promise.all(deferred.splice(0));
+      if (graphOps > 0) continue;
+      // The brief expected health "behind" here; the pass does not run, so the
+      // manifest (and the health it carries) stays as last published.
+      assert.ok(budget.remaining < graphPassFloor(store), `total ${total}: skipped with ${budget.remaining} left`);
+      assert.equal(raw.objects.get(graphManifestKey())?.body, manifestBefore);
+      if (budget.remaining >= GRAPH_PASS_FLOOR) skippedBetween.push(budget.remaining);
+    }
+    assert.ok(skippedBetween.length > 0, `${caps.conditionalWrite ? "conditional" : "best-effort"}: no skip observed between the old and new floor`);
+  }
 });
