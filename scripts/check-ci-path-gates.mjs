@@ -430,9 +430,15 @@ export function check(root = ROOT) {
     ...workspacePaths(["@context/mcp", "@context/convex"], root),
     "apps/mobile/features/console/storage/dropbox.ts",
     "apps/mobile/features/console/storage/dropbox.web.ts",
+    ".github/workflows/deploy-convex.yml",
     ...INFRA_PATHS,
   ]) {
-    if (!convexFilter.has(path)) throw new Error(`ci.yml's convex filter does not watch ${path}`);
+    // A file under the watched path, so `packages/**` covers
+    // `packages/collaboration/**`.
+    const sample = path.endsWith("/**") ? `${path.slice(0, -3)}/sample.ts` : path;
+    if (![...convexFilter].some((pattern) => matches(sample, pattern))) {
+      throw new Error(`ci.yml's convex filter does not watch ${path}`);
+    }
   }
 
   // The browser run is daily and on demand (Dev2, 2026-10-07), and the
