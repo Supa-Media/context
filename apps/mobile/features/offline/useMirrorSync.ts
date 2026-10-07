@@ -255,43 +255,6 @@ export function useMirrorSync(options: {
   }, [engine]);
 
   /*
-    A context somebody opened, re-listed now: one metadata walk, outside the
-    pass's single flight, so it never waits behind another context's
-    downloads. Concurrent with a pass is safe — the index is written under a
-    lock, and an older walk never undoes a newer one (`commitListing`) — and
-    one refresh per context at a time is all it runs; a request that lands
-    during one runs once more after it.
-  */
-  const refreshing = useRef(new Map<string, boolean>());
-  useEffect(
-    () =>
-      onMirrorRefreshRequest((workspaceId) => {
-        focused.current = workspaceId;
-        if (reachabilityRef.current !== "online") return;
-        if (epochRef.current !== currentEpoch()) return;
-        const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
-        if (target === undefined) return;
-        const inFlight = refreshing.current;
-        if (inFlight.has(workspaceId)) {
-          inFlight.set(workspaceId, true);
-          return;
-        }
-        inFlight.set(workspaceId, false);
-        void (async () => {
-          const store = await openMirrorStore();
-          if (store === null) return;
-          do {
-            inFlight.set(workspaceId, false);
-            await refreshMetadata(engine(store), target);
-          } while (inFlight.get(workspaceId) === true && epochRef.current === currentEpoch());
-        })()
-          .catch(() => {})
-          .finally(() => inFlight.delete(workspaceId));
-      }),
-    [engine],
-  );
-
-  /*
     A project List or Board opened on a folder: that folder's notes now, not
     whenever the pass reaches them (`mirrorFolder.ts`). Outside the pass's
     single flight for the same reason a refresh is. Remembered until it can
@@ -313,6 +276,54 @@ export function useMirrorSync(options: {
       }),
     [engine],
   );
+  /*
+    A context somebody opened, re-listed now: one metadata walk, outside the
+    pass's single flight, so it never waits behind another context's
+    downloads. Concurrent with a pass is safe — the index is written under a
+    lock, and an older walk never undoes a newer one (`commitListing`) — and
+    one refresh per context at a time is all it runs; a request that lands
+    during one runs once more after it.
+  */
+  const refreshing = useRef(new Map<string, boolean>());
+  useEffect(
+    () =>
+      onMirrorRefreshRequest((workspaceId) => {
+        focused.current = workspaceId;
+        if (reachabilityRef.current !== "online") return;
+        if (epochRef.current !== currentEpoch()) return;
+        const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
+        if (target === undefined) return;
+        /*
+          A project List or Board was opened in this context: its walk is the
+          freshen's, which commits the same listing and then fetches the notes
+          whose version moved. A metadata walk alone left the List on the old
+          bodies — an agent's new status reached the tree and not the page
+          until the five-minute pass ("not updating in real time").
+        */
+        if (freshener.wants(workspaceId)) {
+          freshener.retry(workspaceId);
+          return;
+        }
+        const inFlight = refreshing.current;
+        if (inFlight.has(workspaceId)) {
+          inFlight.set(workspaceId, true);
+          return;
+        }
+        inFlight.set(workspaceId, false);
+        void (async () => {
+          const store = await openMirrorStore();
+          if (store === null) return;
+          do {
+            inFlight.set(workspaceId, false);
+            await refreshMetadata(engine(store), target);
+          } while (inFlight.get(workspaceId) === true && epochRef.current === currentEpoch());
+        })()
+          .catch(() => {})
+          .finally(() => inFlight.delete(workspaceId));
+      }),
+    [engine, freshener],
+  );
+
   useEffect(() => onMirrorFolderRequest((workspaceId, folder) => freshener.request(workspaceId, folder)), [freshener]);
 
   // Mount, reconnection, and a change in which contexts there are.

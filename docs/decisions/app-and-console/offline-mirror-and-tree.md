@@ -422,7 +422,8 @@ What a simplification costs, and what fails:
   from a shared folder moves without telling the team" / "a shared note moved
   somewhere private still tells the team it went" (`treeHints.test.mjs`).
 - Stamping every save: "an edit to an existing note moves nobody's hint" and
-  "an edit to an existing note sends nothing".
+  "an edit to an existing note sends nothing" (a front matter change is the
+  exception; see the next section).
 - Throwing to a refused caller: "a non-member is told nothing, the same
   nothing as a context that never changed".
 - A store `openContext` builds without its own reporters: "a cross-context
@@ -444,3 +445,44 @@ reader who could see only the source converges at the next periodic walk. The
 writer's own console also receives its hint and walks once more; that walk
 confirms what the optimistic listing already drew.
 
+### A front matter change is a hint too, and an open project page fetches what moved
+
+Decided 2026-10-07, after the owner reported the Projects List "not updating in
+real time": an agent set statuses and made a folder a project, and the List
+went on drawing the old values until the five-minute pass. Two gaps made it.
+The gateway sent no hint for a save to an existing note, and a hint only ever
+re-walked metadata, while a List is drawn from bodies' front matter.
+
+- **An `update_note` whose front matter changed sends the tree hint**
+  (`sendsTreeHint`, `frontMatterChanged` in `activity/changes.js`), from
+  `write_note` and from a collaboration flush alike. The audit row carries
+  `front_matter_changed: true`, never the values. A body edit still sends
+  nothing: front matter changes a few times in a note's life, keystrokes do
+  not. A sealed note never counts; its stored form changes on every save.
+- **A refresh in a context where a project folder was opened runs that
+  folder's freshen instead** (`folderFreshener.wants`, `useMirrorSync`): the
+  same listing commit, then the notes under the folder whose version moved.
+  Still one walk per hint, and still at most `FOLDER_FRESHEN_LIMIT` notes.
+- **"Still fetching some notes" is judged by the page's own notes**
+  (`holdsFolder`), not by the read of the folder's parent, which for a root
+  folder is the whole workspace: saved sessions in `0-inbox/` kept the line
+  under the Projects List for good.
+- **A rewrite that dropped the opening `---` gets it back** (`write_note`,
+  `restoreOpeningDelimiter`): only where the stored note opened with front
+  matter, only for `key: value` lines closed by a lone `---`, and the result
+  says so. The case that prompted it: a client stored
+  `updated: …\nstatus: in progress\n…\n---`, and the project fell into the
+  List's Notes section.
+
+Not covered yet: a property set from another person's console List
+(`files.writeNote`, a save carrying an etag) still announces nothing, so other
+viewers see it at their next walk.
+
+What fails if reversed: "an agent changing a note's status tells the consoles,
+at the note's own audiences", "a missing opening --- is put back, and the
+stored note opens with its front matter again" (`treeHints.test.mjs`), "a
+collaboration edit that changes front matter is marked, with no content in the
+row" (`collaboration.test.mjs`), "a sibling folder's missing notes are not
+this page's" (`folderPageHoldsFolder.test.ts`), "a retry for one context
+leaves the others alone, and says which it wants"
+(`offlineFolderFreshener.test.ts`).

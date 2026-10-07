@@ -9,6 +9,8 @@ import { AUDIT_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs"
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { toolError, toolText } from "../tools/results.js";
+import { frontMatterBlock } from "../notes/format.js";
+import { isEncryptedNote } from "../encryption.js";
 
 /**
  * The changes that alter a context's file tree — something created, moved,
@@ -32,6 +34,34 @@ export const TREE_ACTIONS = new Set([
   "set_visibility",
   "set_folder_visibility",
 ]);
+
+/**
+ * Whether a recorded change should send the tree hint: a change to the tree's
+ * shape (`TREE_ACTIONS`), or a save that changed a note's front matter.
+ *
+ * The second is not a change of shape, but it is what a project List and a
+ * Board are drawn from: an agent setting a project's status or making a
+ * folder a project changed nothing a console would otherwise hear about until
+ * its five-minute pass, so the List sat on the old value ("the projects UI
+ * is not updating in real time", 2026-10-07). Body edits still send nothing;
+ * front matter changes a handful of times in a note's life, keystrokes do not.
+ */
+export function sendsTreeHint(action, details) {
+  if (TREE_ACTIONS.has(action)) return true;
+  return action === "update_note" && details?.front_matter_changed === true;
+}
+
+/**
+ * Whether a save changed the front matter a note opens with — gained it, lost
+ * it or edited it. False for a create (that is a tree change already) and for
+ * a sealed note, whose stored form is an envelope that differs on every save
+ * and whose properties no list reads.
+ */
+export function frontMatterChanged(before, after) {
+  if (typeof before !== "string" || typeof after !== "string") return false;
+  if (isEncryptedNote(before) || isEncryptedNote(after)) return false;
+  return frontMatterBlock(before) !== frontMatterBlock(after);
+}
 
 /**
  * The paths a tree change should be judged by, and any visibility it had
