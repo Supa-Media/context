@@ -48,7 +48,7 @@ function deps(opts: { linqStatus?: () => number; sent?: Sent[]; asks?: string[];
     }
     if (path.endsWith("/messages")) {
       const status = opts.linqStatus?.() ?? 200;
-      if (status < 300) opts.sent?.push({ text: body.parts[0].value, idempotency: body.idempotency_key });
+      if (status < 300) opts.sent?.push({ text: body.message.parts[0].value, idempotency: body.message.idempotency_key });
       return new Response("{}", { status });
     }
     throw new Error(`unexpected ${path}`);

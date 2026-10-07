@@ -30,15 +30,17 @@ describe("sendLinqText", () => {
     expect(calls[0].url).toBe(`${LINQ_API}/chats/chat%2F1/messages`);
     expect(new Headers(calls[0].init.headers).get("authorization")).toBe("Bearer linq-key");
     expect(JSON.parse(String(calls[0].init.body))).toEqual({
-      parts: [{ type: "text", value: "hi" }],
-      idempotency_key: "reply:evt_1",
+      message: {
+        parts: [{ type: "text", value: "hi" }],
+        idempotency_key: "reply:evt_1",
+      },
     });
   });
 
   it("caps the reply length", async () => {
     const calls: Call[] = [];
     await sendLinqText(fake(200, {}, calls), "k", "c", "x".repeat(MAX_REPLY_TEXT + 10), "i");
-    expect(JSON.parse(String(calls[0].init.body)).parts[0].value).toHaveLength(MAX_REPLY_TEXT);
+    expect(JSON.parse(String(calls[0].init.body)).message.parts[0].value).toHaveLength(MAX_REPLY_TEXT);
   });
 
   it("throws a ServiceError on a refusal or a network failure", async () => {

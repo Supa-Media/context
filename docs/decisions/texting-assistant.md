@@ -66,6 +66,11 @@ day. Conversation history is not kept in the Worker. The gateway keeps it in
 the person's own bucket, which follows non-negotiable #1. Test:
 `inbox.test.ts`, "keeps no text afterwards".
 
+Linq's v3 send endpoint requires `parts` and `idempotency_key` inside a
+`message` object. A top-level `parts` field returns a validation error and
+prevents a reply. Test: `clients.test.ts`, "posts the text to the chat with the
+key and an idempotency key".
+
 ### OPEN: messages pass through Linq
 
 Linq is a third party that carries every message in both directions. Nothing of
