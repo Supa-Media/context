@@ -55,7 +55,9 @@ The token is stored hashed, lives 30 minutes, one per phone, ten an hour, and
 an hourly sweep removes expired ones with the number they name. Texting
 `UNLINK` disconnects the phone it came from: holding the phone linked it, so
 it is enough to unlink it. The assistant introduces itself as "your Context"
-(decided by the owner, 2026-10-07). Tests: `textLinkInvites.test.ts`,
+(decided by the owner, 2026-10-07). The link goes out as a text of its own
+after the greeting, because iMessage draws a tappable card only for a message
+that is nothing but a link. Tests: `textLinkInvites.test.ts`,
 "someone else opening a forwarded link gets a code only that phone can use";
 `reply.test.ts`.
 
@@ -88,18 +90,20 @@ Linq's v3 send endpoint requires `parts` and `idempotency_key` inside a
 prevents a reply. Test: `clients.test.ts`, "posts the text to the chat with the
 key and an idempotency key".
 
-### OPEN: messages pass through Linq
+### Messages pass through Linq
 
+Decided by the owner, 2026-10-07, by asking for the assistant in production.
 Linq is a third party that carries every message in both directions. Nothing of
 the bucket is stored there, but the text of a question and its answer is. This
 is the same class of decision as a model provider reading note text in flight
-([inference](./storage-and-credentials/inference.md)), and it needs the
-owner's sign-off before the Worker reaches production. Staging deploys on every
-merge that changes it, for a pilot on Linq's free test line, where only test
-contacts who text the line first are answered; `scripts/deploy-plan.mjs`
-leaves `apps/agent` out of production until the sign-off. Test:
-`deploy-plan.test.mjs`, "the texting assistant deploys only itself, and only
-to staging".
+([inference](./storage-and-credentials/inference.md)), and it is accepted on
+the same terms: Linq carries text, never a credential or a bucket key, and a
+person's history stays in their own bucket. Staging and production each deploy
+the Worker on every release that changes it (`deploy-agent-worker.yml` for
+production). Linq's free line is one number, so only one webhook, staging's or
+production's, may point at it at a time, or every text is answered twice. Test:
+`deploy-plan.test.mjs`, "the texting assistant deploys only itself, to staging
+and to production".
 
 ### The autofill vault lives sealed in the person's bucket
 

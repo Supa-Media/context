@@ -35,12 +35,21 @@ const msg = (eventId: string, text = "hi"): Message => ({
 
 type Sent = { text: string; idempotency: string };
 
-function deps(opts: { linqStatus?: () => number; sent?: Sent[]; asks?: string[]; now?: number }): InboxDeps {
+function deps(opts: {
+  linqStatus?: () => number;
+  sent?: Sent[];
+  asks?: string[];
+  now?: number;
+  unlinked?: boolean;
+}): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
     const body = JSON.parse(String(init.body));
     if (path === "/agent-texts/session") {
-      return Response.json({ status: "linked", accessToken: "t" });
+      return Response.json(opts.unlinked ? { status: "unlinked" } : { status: "linked", accessToken: "t" });
+    }
+    if (path === "/agent-texts/invite") {
+      return Response.json({ status: "issued", url: "https://app.example/texts/abc123" });
     }
     if (path === "/agent") {
       opts.asks?.push(body.question);
@@ -115,6 +124,28 @@ describe("inbox", () => {
     await drain(storage, deps({ asks, sent, linqStatus: () => status }));
     expect(asks).toEqual(["q"]);
     expect(sent).toEqual([{ text: "answer to q", idempotency: "reply:e1" }]);
+  });
+
+  it("sends a sign-in link as its own text, and a retry repeats neither text's key", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    const sent: Sent[] = [];
+    let sends = 0;
+    // The greeting goes through, the link fails, then everything succeeds.
+    await drain(storage, deps({ unlinked: true, sent, linqStatus: () => (++sends === 2 ? 503 : 200) }));
+    await drain(storage, deps({ unlinked: true, sent }));
+    expect(sent.map((s) => s.idempotency)).toEqual(["reply:e1", "reply:e1", "reply:e1:1"]);
+    expect(sent.at(-1)?.text).toBe("https://app.example/texts/abc123");
+    expect(storage.data.has("pending:000000000001")).toBe(false);
+  });
+
+  it("still sends a reply stored as one string by an earlier version", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    await storage.put("pending:000000000001", { message: msg("e1"), reply: "kept answer", attempts: 1 });
+    const sent: Sent[] = [];
+    await drain(storage, deps({ sent }));
+    expect(sent).toEqual([{ text: "kept answer", idempotency: "reply:e1" }]);
   });
 
   it("gives up after the last attempt and deletes the message", async () => {

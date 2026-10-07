@@ -1,0 +1,164 @@
+# Deploy `context-agent` — the Cloudflare Worker behind the assistant people
+# text (Linq webhook → per-sender queue → gateway /agent) — when called by the
+# manual production workflow.
+#
+# Modelled on deploy-transcribe-worker.yml: the suite gates the deploy, the
+# Worker's secrets are pushed from GitHub on every deploy, and the job does not
+# report success until the deployed Worker has said it holds what it needs and
+# its gateway origin has answered `/agent` the way only the gateway does.
+#
+# The Linq values arrive in two steps: the webhook's signing secret exists only
+# once a webhook points at this Worker, so the first deploy has none. An absent
+# Linq value is a warning rather than a failure, and is skipped rather than set
+# empty; the Worker refuses any webhook it cannot verify. After saving the
+# secret, run Deploy to Production with `full` to push it.
+on:
+  workflow_call:
+
+concurrency:
+  group: deploy-agent-worker-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  # Must match `name` in apps/agent/wrangler.jsonc; cross-checked below.
+  WORKER_NAME: context-agent
+
+jobs:
+  test:
+    name: Test texting assistant
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter "./apps/agent..." --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: apps/agent
+        run: pnpm typecheck
+
+      - name: Test
+        working-directory: apps/agent
+        run: pnpm test
+
+  deploy:
+    name: Deploy + verify context-agent
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify this workflow and wrangler.jsonc agree
+        run: |
+          set -euo pipefail
+          config=apps/agent/wrangler.jsonc
+          if ! grep -qE "^\s*\"name\"\s*:\s*\"$WORKER_NAME\"" "$config"; then
+            echo "ERROR: $config does not declare name \"$WORKER_NAME\"; every check below keys off it." >&2
+            exit 1
+          fi
+
+      - name: Verify required secrets
+        env:
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CONTROL_PLANE_URL; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required secret '$var' in the 'production' environment." >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter "./apps/agent..." --frozen-lockfile
+
+      # Deploy first, secrets after: `wrangler secret put` acts on the live
+      # version, so this order can never collide with a var the deploy retires.
+      - name: Deploy context-agent
+        working-directory: apps/agent
+        run: pnpm exec wrangler deploy
+
+      # Values go through STDIN, never a command line or a log.
+      - name: Sync the Worker's secrets
+        working-directory: apps/agent
+        env:
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+          LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
+          LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_ORIGIN
+          for name in AGENT_WORKER_SECRET LINQ_API_KEY LINQ_WEBHOOK_SECRET; do
+            if [ -n "${!name:-}" ]; then
+              printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
+            else
+              echo "::warning::$name is not set in the production environment; the texting assistant stays inert until it is."
+            fi
+          done
+
+      # The same check staging runs: /health reports which settings the Worker
+      # holds (booleans only), and its gateway origin must answer `/agent` with
+      # the gateway's 401 for no grant, not the app's web page.
+      - name: Verify the texting assistant
+        run: |
+          set -euo pipefail
+          sub="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+          if [ -z "$sub" ]; then echo "No workers.dev subdomain on this account." >&2; exit 1; fi
+          echo "::add-mask::$sub"
+          url="https://$WORKER_NAME.$sub.workers.dev/health"
+          code=""
+          for attempt in $(seq 1 10); do
+            code="$(curl -s -o /tmp/agent-health.json -w '%{http_code}' --max-time 20 "$url" || true)"
+            [ "$code" = "200" ] && break
+            echo "Attempt $attempt: /health answered $code, waiting for the deploy to propagate."
+            sleep 6
+          done
+          if [ "$code" != "200" ]; then echo "/health answered $code." >&2; exit 1; fi
+          node -e '
+            const d = JSON.parse(require("fs").readFileSync("/tmp/agent-health.json", "utf8"));
+            if (d.ok !== true || d.controlPlane !== true || typeof d.gatewayOrigin !== "string") {
+              console.error("The texting assistant is misconfigured: " + JSON.stringify({ ok: d.ok, controlPlane: d.controlPlane, gatewayOrigin: d.gatewayOrigin }));
+              process.exit(1);
+            }
+            for (const [key, name] of [["webhook", "LINQ_WEBHOOK_SECRET"], ["replies", "LINQ_API_KEY"], ["workerSecret", "AGENT_WORKER_SECRET"]]) {
+              if (d[key] !== true) console.log("::warning::The texting assistant has no " + name + " yet, so it answers no texts.");
+            }
+            require("fs").writeFileSync("/tmp/agent-gateway", d.gatewayOrigin);
+          '
+          gateway="$(cat /tmp/agent-gateway)"
+          status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST -H 'content-type: application/json' -d '{}' "$gateway/agent" || true)"
+          if [ "$status" != "401" ]; then
+            echo "$gateway/agent answered $status without a grant; the gateway answers 401. GATEWAY_ORIGIN in apps/agent/wrangler.jsonc is not the gateway." >&2
+            exit 1
+          fi
+          echo "The texting assistant is up, and its gateway origin is the gateway."

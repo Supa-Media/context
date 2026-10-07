@@ -31,7 +31,8 @@ export type InboxStorage = {
 
 export type InboxDeps = ReplyDeps & { linqApiKey: string; now: () => number };
 
-type Pending = { message: Message; reply?: string; attempts: number };
+/** `reply` was one string before a reply could be several texts; both are read. */
+type Pending = { message: Message; reply?: string[] | string; attempts: number };
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 export const MAX_SEND_ATTEMPTS = 3;
@@ -62,15 +63,20 @@ export async function accept(
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   for (const [key, item] of pending) {
-    const reply = item.reply ?? (await replyTo(item.message, deps));
+    const stored = item.reply;
+    const reply = stored === undefined ? await replyTo(item.message, deps) : [stored].flat();
     try {
-      await sendLinqText(
-        deps.fetch as Fetch,
-        deps.linqApiKey,
-        item.message.chatId,
-        reply,
-        `reply:${item.message.eventId}`,
-      );
+      // Each text keeps its own idempotency key, so a retry after a partial
+      // send repeats nothing Linq already accepted.
+      for (const [index, text] of reply.entries()) {
+        await sendLinqText(
+          deps.fetch as Fetch,
+          deps.linqApiKey,
+          item.message.chatId,
+          text,
+          index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`,
+        );
+      }
       await storage.delete(key);
     } catch {
       const attempts = item.attempts + 1;

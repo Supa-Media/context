@@ -38,11 +38,12 @@ test("a gateway file nobody else imports deploys only the gateway", () => {
   assert.deepEqual(on(plan(onlyGateway)), ["mcp"]);
 });
 
-test("the texting assistant deploys only itself, and only to staging", () => {
+test("the texting assistant deploys only itself, to staging and to production", () => {
   assert.deepEqual(on(plan("apps/agent/src/index.ts")), ["agent"]);
   assert.deepEqual(on(plan("apps/agent/wrangler.jsonc")), ["agent"]);
   assert.deepEqual(on(plan("apps/agent/src/worker.test.ts")), []);
-  assert.deepEqual(promote("apps/agent/src/index.ts"), []);
+  assert.deepEqual(promote("apps/agent/src/index.ts"), ["agent"]);
+  assert.deepEqual(promote(".github/workflows/deploy-agent-worker.yml"), ["agent"]);
 });
 
 test("tests and READMEs inside a package do not deploy it", () => {
