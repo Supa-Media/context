@@ -10,6 +10,12 @@ export const GRAPH_FORMAT_VERSION = 1;
 export const POSTING_PAGE_SIZE = 256;
 // Starting value (OPEN-7), to be measured on a managed bucket (arch 9.1).
 export const GRAPH_RECORD_BYTE_CAP = 256 * 1024;
+// What a reported `size` may count beyond the decoded text: a managed-
+// encryption envelope (7-byte magic, 1-byte generation length, a generation
+// of at most 32 characters, two 12-byte IVs, a 48-byte wrapped key and a
+// 16-byte tag: at most 128 bytes) plus a 64-byte generation stamp footer.
+// The gateway stack reports the plain size; a view of stored bytes does not.
+export const RECORD_STORAGE_OVERHEAD = 128 + 64;
 
 function parseObject(text) {
   if (typeof text !== "string" || exceedsUtf8Bytes(text, GRAPH_RECORD_BYTE_CAP)) return null;
@@ -23,11 +29,12 @@ function parseObject(text) {
 
 /**
  * A stored record's text, or null when it is over the byte cap: a reported
- * `size` is checked before the body is read, and the text itself before any
- * parse, so an oversized object is never parsed.
+ * `size` is checked before the body is read (allowing what storage adds,
+ * RECORD_STORAGE_OVERHEAD), and the decoded text against the exact cap before
+ * any parse, so an oversized object is never parsed.
  */
 export async function recordText(got) {
-  if (typeof got.size === "number" && got.size > GRAPH_RECORD_BYTE_CAP) return null;
+  if (typeof got.size === "number" && got.size > GRAPH_RECORD_BYTE_CAP + RECORD_STORAGE_OVERHEAD) return null;
   const text = await got.text();
   return typeof text === "string" && !exceedsUtf8Bytes(text, GRAPH_RECORD_BYTE_CAP) ? text : null;
 }

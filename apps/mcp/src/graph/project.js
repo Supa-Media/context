@@ -10,6 +10,7 @@
 import { buildNodeRecord, membershipsFor } from "./facts.js";
 import { readGraphManifest, publishHealth } from "./manifest.js";
 import { nodeKey, pathHash } from "./keys.js";
+import { writeHeadroom } from "./mode.js";
 import { MAX_ATTEMPTS, setMembership } from "./postings.js";
 import { GRAPH_FORMAT_VERSION, GRAPH_RECORD_BYTE_CAP, parseNode, recordText, serializeNode } from "./records.js";
 import { exceedsUtf8Bytes } from "../search/maintain.js";
@@ -134,13 +135,17 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
     const { published, overflow } = withObligations(record, ordered);
     // Mark the dropped portion for a rebuild before the record that drops it.
     if (overflow) await flagRebuild(store, budget);
-    if (!budget.take()) return BUDGET;
+    if (!budget.take(writeHeadroom(store, onlyIf(read.etag)))) return BUDGET;
     const put = await store.put(read.key, serializeNode(published), onlyIf(read.etag));
     if (!put) return { state: "stale" };
     etag = put.etag;
   }
 
-  const work = keepBack(budget, 1);
+  // The checkpoint or final write below, with its wrapper headroom.
+  const finish = remove && store.capabilities?.conditionalDelete === true
+    ? writeHeadroom(store, null, { remove: true })
+    : writeHeadroom(store, onlyIf(etag));
+  const work = keepBack(budget, 1 + finish);
   const left = [];
   let stopped = false;
   for (let i = 0; i < ordered.length; i += 1) {
@@ -167,12 +172,12 @@ async function settle(store, budget, { gen, mode, path, read, record, membership
     const outcome = stopped ? BUDGET : { state: "pending" };
     // Nothing retired: the stored record already says all of it.
     if (left.length === ordered.length) return outcome;
-    if (!budget.take()) return BUDGET;
+    if (!budget.take(writeHeadroom(store, onlyIf(etag)))) return BUDGET;
     const { published } = withObligations({ ...record, ...(full && { coverage: "partial" }) }, left);
     if (await store.put(read.key, serializeNode(published), onlyIf(etag))) return outcome;
     return conditional ? handBack(store, budget, read.key, path, ordered) : { state: "stale" };
   }
-  if (!budget.take()) return BUDGET;
+  if (!budget.take(finish)) return BUDGET;
   let done;
   if (remove && store.capabilities?.conditionalDelete === true) {
     done = (await store.delete(read.key, conditional ? { onlyIf: { etagMatches: etag } } : undefined)) !== null;

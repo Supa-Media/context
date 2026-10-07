@@ -2,6 +2,7 @@
 // is a chain of pages `0.json`, `1.json`, ... under one directory; page 0 is the
 // head and a missing head is an empty list. All store ops go through a budget.
 import { postingPageKey } from "./keys.js";
+import { writeHeadroom } from "./mode.js";
 import { POSTING_PAGE_SIZE, parsePage, recordText, serializePage } from "./records.js";
 
 // OPEN-9: attempts per membership change, the same count
@@ -105,13 +106,14 @@ export async function setMembership(store, budget, { gen, family, hash, source, 
       ordered = [...changed];
     }
 
-    // Never start a multi-page change the budget cannot finish.
-    if (budget.remaining < ordered.length) return "budget";
+    const optionsFor = (s) => (!conditional ? undefined : { onlyIf: s.etag ? { etagMatches: s.etag } : { absent: true } });
+    // Never start a multi-page change the budget cannot finish, wrapper reads included.
+    if (budget.remaining < ordered.reduce((n, s) => n + 1 + writeHeadroom(store, optionsFor(s)), 0)) return "budget";
     let refused = false;
     for (const s of ordered) {
+      const options = optionsFor(s);
       if (!budget.take()) return "budget";
       const page = { key: s.key, entries: s.entries, ...(s.next !== undefined && { next: s.next }) };
-      const options = !conditional ? undefined : { onlyIf: s.etag ? { etagMatches: s.etag } : { absent: true } };
       if (!(await store.put(s.key, serializePage(page), options))) {
         refused = true;
         break;

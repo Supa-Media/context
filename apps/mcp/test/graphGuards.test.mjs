@@ -22,6 +22,7 @@
  *   recordText size check removed                                         2 (recordText, caps)
  *   recordText text cap removed                                           2 (recordText, caps)
  *   readCursor, auditNode or the manifest read back to text()             1 each (caps)
+ *   size pre-check without RECORD_STORAGE_OVERHEAD (fix round 2)          1 (overhead; RED first)
  *
  * Process note: tests written first; RED was all six (recordText stubbed to
  * text() so the file loaded).
@@ -34,7 +35,9 @@ import { toolWriteNote } from "../src/tools/notes/write.js";
 import { reconcileGraph } from "../src/graph/reconcile.js";
 import { graphHealth, initGraphManifest, publishHealth, readGraphManifest } from "../src/graph/manifest.js";
 import { generationPrefix, graphManifestKey, maintenanceCursorKey } from "../src/graph/keys.js";
-import { GRAPH_RECORD_BYTE_CAP, recordText } from "../src/graph/records.js";
+import { GRAPH_RECORD_BYTE_CAP, RECORD_STORAGE_OVERHEAD, recordText } from "../src/graph/records.js";
+import { withManagedEncryption } from "../src/store/managedEncryption.js";
+import { stampGeneration } from "../src/store/generationStamp.js";
 import { PARSER_VERSION, RESOLVER_VERSION } from "../src/graph/facts.js";
 import { URL_KEY_VERSION } from "../src/graph/urlKey.js";
 import { withLogicalDelete } from "../src/store/logicalDelete.js";
@@ -294,7 +297,7 @@ async function bigParses(fn) {
 
 test("recordText: a reported size over the cap is never read; an unsized over-cap body is never returned", async () => {
   let reads = 0;
-  const sized = { size: GRAPH_RECORD_BYTE_CAP + 1, text: async () => ((reads += 1), huge()) };
+  const sized = { size: GRAPH_RECORD_BYTE_CAP + RECORD_STORAGE_OVERHEAD + 1, text: async () => ((reads += 1), huge()) };
   assert.ok((await recordText(sized)) === null);
   assert.equal(reads, 0);
   assert.ok((await recordText({ text: async () => huge() })) === null);
@@ -317,7 +320,7 @@ async function withOversized(oversized, sized) {
       if (!oversized(k)) return b.get(k);
       const etag = b.objects.get(k)?.etag ?? "big";
       const text = async () => ((reads.text += 1), huge());
-      return sized ? { etag, size: GRAPH_RECORD_BYTE_CAP + 1, text } : { etag, text };
+      return sized ? { etag, size: GRAPH_RECORD_BYTE_CAP + RECORD_STORAGE_OVERHEAD + 1, text } : { etag, text };
     },
   };
   return { b, store, reads };
@@ -343,4 +346,59 @@ test("readCursor and auditNode never read a sized over-cap object and never pars
       else assert.ok(env.reads.text > 0, `${name}: the object was reached`);
     }
   }
+});
+
+/** A byte-exact store whose objects report their stored size, like R2 and S3. */
+function byteStore() {
+  const objects = new Map();
+  let n = 0;
+  return {
+    objects,
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false },
+    async get(key) {
+      const hit = objects.get(key);
+      if (!hit) return null;
+      return {
+        etag: hit.etag,
+        size: hit.bytes.byteLength,
+        text: async () => new TextDecoder().decode(hit.bytes),
+        arrayBuffer: async () => hit.bytes.slice().buffer,
+      };
+    },
+    async put(key, value) {
+      const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
+      objects.set(key, { bytes, etag: `e${++n}` });
+      return { etag: `e${n}` };
+    },
+    async delete(key) {
+      objects.delete(key);
+    },
+    async list() {
+      return { objects: [...objects.keys()].map((key) => ({ key, size: objects.get(key).bytes.byteLength })), truncated: false };
+    },
+  };
+}
+
+test("size pre-check allows encryption and stamp overhead; the exact cap still applies to the text", async () => {
+  // A record whose text is 10 bytes under the cap.
+  const record = JSON.stringify({ pad: "x".repeat(GRAPH_RECORD_BYTE_CAP - 20) });
+  assert.equal(GRAPH_RECORD_BYTE_CAP - new TextEncoder().encode(record).byteLength, 10);
+  // The longest generation a managed key may have (KEY_ID_PATTERN: 32 characters).
+  const generation = "k".repeat(32);
+  const config = { workspaceId: "ws_guards", mode: "encrypted", current: generation, keys: { [generation]: Buffer.alloc(32, 7).toString("base64") } };
+  const raw = byteStore();
+  const sealedStore = withManagedEncryption(raw, config);
+  const key = `${generationPrefix("1")}nodes/${"a".repeat(64)}.json`;
+  await sealedStore.put(key, record);
+  // The gateway stack (logical delete over encryption) reports the plain size: read.
+  assert.equal(await recordText(await withLogicalDelete(sealedStore).get(key)), record);
+  // A view reporting the stored (sealed) size, with the decoded text: still read.
+  const stored = await raw.get(key);
+  const overhead = stored.size - new TextEncoder().encode(record).byteLength;
+  const footer = stampGeneration("").length;
+  assert.ok(overhead + footer <= RECORD_STORAGE_OVERHEAD, `envelope ${overhead} + stamp ${footer} > ${RECORD_STORAGE_OVERHEAD}`);
+  assert.equal(await recordText({ size: stored.size + footer, text: async () => record }), record);
+  // Over the cap by one byte of text: never returned, whatever the size says.
+  const over = JSON.stringify({ pad: "x".repeat(GRAPH_RECORD_BYTE_CAP - 9) });
+  assert.ok((await recordText({ size: GRAPH_RECORD_BYTE_CAP + 1, text: async () => over })) === null);
 });

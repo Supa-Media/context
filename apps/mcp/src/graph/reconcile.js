@@ -45,7 +45,7 @@
 import { membershipsFor } from "./facts.js";
 import { generationPrefix, maintenanceCursorKey, nodeKey, pathHash } from "./keys.js";
 import { initGraphManifest, publishHealth, readGraphManifest } from "./manifest.js";
-import { graphMode } from "./mode.js";
+import { graphMode, writeHeadroom } from "./mode.js";
 import { setMembership } from "./postings.js";
 import { projectNote, readNode, removeNote, validateEntry } from "./project.js";
 import { parseNode, parsePage, recordText } from "./records.js";
@@ -54,8 +54,13 @@ import {
 } from "./rebuild.js";
 
 // Kept back for the end of the pass: manifest read, health put, cursor put,
-// plus publishHealth's re-read in best-effort mode.
-const wrapReserve = (mode) => (mode === "conditional" ? 3 : 4);
+// plus publishHealth's re-read in best-effort mode, plus the wrapper's charged
+// read before each of those puts that is unconditional or absent (fix round 2:
+// without it the cursor never lands on a best-effort gateway store).
+const wrapReserve = (store, mode, cursorOnlyIf) => {
+  const health = writeHeadroom(store, mode === "conditional" ? { onlyIf: { etagMatches: "held" } } : undefined);
+  return (mode === "conditional" ? 3 : 4) + health + writeHeadroom(store, cursorOnlyIf);
+};
 const AUDIT_LIST_LIMIT = 100;
 const NODE_KEY = /^nodes\/[0-9a-f]{64}\.json$/;
 const PAGE_KEY = /^(incoming|bare|names|urls)\/([0-9a-f]{64})\/[0-9]+\.json$/;
@@ -362,7 +367,8 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   const { cursor } = read;
   const before = JSON.stringify(cursor);
   const ctx = { census, isIndexable, gen, mode, now, verdicts: new Map() };
-  const reserve = wrapReserve(mode);
+  const cursorOnlyIf = mode === "conditional" ? { onlyIf: read.etag ? { etagMatches: read.etag } : { absent: true } } : undefined;
+  const reserve = wrapReserve(store, mode, cursorOnlyIf);
   const work = capped(budget, reserve);
   ctx.validate = validateEntry(store, work, gen);
   for (const path of removedHints) {
@@ -417,9 +423,8 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
     Object.assign(cursor, { sweepCursor: "", sweepStartedAt: "", sweepPending: false });
   }
   if (JSON.stringify(cursor) !== before && budget.take()) {
-    const onlyIf = mode === "conditional" ? { onlyIf: read.etag ? { etagMatches: read.etag } : { absent: true } } : undefined;
     // A refused write means another pass moved the cursor; this one is dropped.
-    await store.put(maintenanceCursorKey(gen), JSON.stringify(cursor), onlyIf);
+    await store.put(maintenanceCursorKey(gen), JSON.stringify(cursor), cursorOnlyIf);
   }
   return out;
 }

@@ -4,7 +4,7 @@
 // and a manifest that does not parse (a newer format included) is never
 // overwritten, so an older client cannot clear state it does not understand.
 import { graphManifestKey } from "./keys.js";
-import { graphMode } from "./mode.js";
+import { graphMode, writeHeadroom } from "./mode.js";
 import { PARSER_VERSION, RESOLVER_VERSION } from "./facts.js";
 import { URL_KEY_VERSION } from "./urlKey.js";
 import { GRAPH_FORMAT_VERSION, parseManifest, recordText, serializeManifest } from "./records.js";
@@ -55,14 +55,15 @@ export async function initGraphManifest(store, budget, { mode, now }) {
   };
   const body = serializeManifest(manifest);
   if (graphMode(store) === "conditional") {
-    if (!budget.take()) return null;
-    if (await store.put(graphManifestKey(), body, { onlyIf: { absent: true } })) return manifest;
+    const options = { onlyIf: { absent: true } };
+    if (!budget.take(writeHeadroom(store, options))) return null;
+    if (await store.put(graphManifestKey(), body, options)) return manifest;
   } else {
     // Best effort: a read-then-put race can lose a manifest; reconciliation
     // recomputes health, so that is accepted (P4).
     const { manifest: existing, absent } = await readGraphManifest(store, budget);
     if (!absent) return existing;
-    if (!budget.take()) return null;
+    if (!budget.take(writeHeadroom(store))) return null;
     if (await store.put(graphManifestKey(), body)) return manifest;
   }
   return loadGraphManifest(store, budget);
@@ -89,7 +90,7 @@ export async function publishHealth(store, budget, manifest, etag, patch) {
   } else if ((await readGraphManifest(store, budget)).manifest === null) {
     return false;
   }
-  if (!budget.take()) return false;
+  if (!budget.take(writeHeadroom(store, options))) return false;
   return Boolean(await store.put(graphManifestKey(), serializeManifest(next), options));
 }
 

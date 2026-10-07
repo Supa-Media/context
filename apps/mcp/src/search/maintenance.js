@@ -21,7 +21,7 @@ import {
   D1_STANDALONE_FLOOR,
   DEFERRED_SYNC_FLOOR,
   FALLBACK_LIST_PAGE_CAP,
-  GRAPH_PASS_FLOOR,
+  graphPassFloor,
   INDEX_RECONCILE_INTERVAL_MS,
   INTERACTIVE_PROJECT_NOTES,
 } from "./pacing.js";
@@ -245,7 +245,7 @@ async function maintainNow(store, budget, isIndexable, found, visibilityOf, opti
   // hook already spends nothing, and this skips reconciliation and GC too.
   const inline = options.backfillOps !== undefined;
   const graphOff = store.writeEnrichBudget === 0;
-  if (!inline && !graphOff && synced?.manifest && budget.remaining >= GRAPH_PASS_FLOOR) {
+  if (!inline && !graphOff && synced?.manifest && budget.remaining >= graphPassFloor(store)) {
     try {
       const freshness = synced.manifest.freshness;
       await reconcileGraph(store, budget, {
