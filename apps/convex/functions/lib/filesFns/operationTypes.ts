@@ -74,6 +74,7 @@ export type FileOperation =
     }
   | { kind: "notePaths" }
   | { kind: "workspaceGraph" }
+  | { kind: "visiblePaths"; paths: string[] }
   | { kind: "maintainIndex"; passes?: number }
   /**
    * Re-index the notes one file operation changed, without listing the bucket.
@@ -247,6 +248,7 @@ export type OperationResult =
     }
   | { kind: "notePaths"; paths: string[] | null }
   | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
+  | { kind: "visiblePaths"; paths: string[] }
   | { kind: "forwarded"; paths: string[] }
   | {
       kind: "indexMaintained";

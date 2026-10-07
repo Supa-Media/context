@@ -57,6 +57,12 @@ export const workspaceGraphValidator = v.object({
   indexMissing: v.boolean(),
 });
 
+/** The answer to `visiblePaths`: the asked-for paths this scope may see now. */
+export const visiblePathsValidator = v.object({
+  kind: v.literal("visiblePaths"),
+  paths: v.array(v.string()),
+});
+
 /** The answer to `forward`: the same paths, each where it is now. */
 export const forwardedValidator = v.object({
   kind: v.literal("forwarded"),

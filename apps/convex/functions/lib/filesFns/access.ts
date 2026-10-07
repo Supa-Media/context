@@ -165,7 +165,7 @@ export async function resolveFileAccess(
  * person reads as one name whichever hand made the change. Two different names
  * for the same person in one list is the bug this shape exists to prevent.
  */
-async function personalNameFor(
+export async function personalNameFor(
   ctx: QueryCtx,
   userId: Id<"users">,
 ): Promise<string | null> {
