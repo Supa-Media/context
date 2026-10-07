@@ -127,6 +127,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "oauth.authorized": "Authorised an AI app",
   "privacy.reset": "Reset the privacy manifest",
   "search.fast_enabled": "Turned fast search on",
+  "search.meaning_enabled": "Turned search by meaning on",
+  "search.meaning_disabled": "Turned search by meaning off",
   "search.fast_disabled": "Turned fast search off",
   "storage.provisioned": "Connected storage",
   "storage.disconnected": "Disconnected storage",

@@ -288,7 +288,10 @@ describe("the sweep", () => {
       { slug: "due-refresh", status: "ready", updatedAt: long },
       { slug: "switched-off", status: "backfilling", updatedAt: long, enabled: false },
       { slug: "waits", status: "failed", errorCode: "UNAVAILABLE", updatedAt: long },
-      { slug: "refused", status: "failed", errorCode: "UNAUTHORIZED", updatedAt: long },
+      // Waiting cannot fix a refusal; somebody changing the credential can,
+      // so it is tried again after hours rather than every sweep.
+      { slug: "refused", status: "failed", errorCode: "UNAUTHORIZED", updatedAt: Date.now() - 60 * 60 * 1000 },
+      { slug: "refused-long-ago", status: "failed", errorCode: "UNAUTHORIZED", updatedAt: long },
     ];
     for (const spec of rows) {
       const owner = await createUser(t, `${spec.slug}@example.invalid`);
@@ -307,9 +310,9 @@ describe("the sweep", () => {
       });
     }
     const { started } = await t.mutation(internal.functions.meaningSearch.sweep, {});
-    expect(started).toBe(3);
+    expect(started).toBe(4);
     expect(await queued(t, "runFileOperation")).toHaveLength(2);
-    expect(await queued(t, "provisionMeaningIndex")).toHaveLength(1);
+    expect(await queued(t, "provisionMeaningIndex")).toHaveLength(2);
     // Touched, so the next sweep does not start a second chain.
     expect((await t.mutation(internal.functions.meaningSearch.sweep, {})).started).toBe(0);
   });

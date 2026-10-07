@@ -28,15 +28,20 @@ export async function meaningRowFor(ctx: QueryCtx, workspaceId: Id<"workspaces">
  * second call schedules nothing. A `failed` row, or one part-way through
  * releasing, is switched back on and set up again — the provisioner adopts an
  * index that is still there rather than making a second one.
+ *
+ * `auto` is "on for everyone" asking, and it only ever creates a row: any row
+ * at all, an owner's `off` above all, means somebody already decided, and
+ * Context does not decide over them.
  */
 export async function enableMeaningHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces">; by?: Id<"users"> },
+  args: { workspaceId: Id<"workspaces">; by?: Id<"users">; auto?: boolean },
 ): Promise<{ scheduled: boolean }> {
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return { scheduled: false };
   const now = Date.now();
   const row = await meaningRowFor(ctx, args.workspaceId);
+  if (args.auto === true && row !== null) return { scheduled: false };
   if (row !== null && row.enabled && row.status !== "failed") return { scheduled: false };
   if (row === null) {
     await ctx.db.insert("meaningIndexes", {
@@ -52,6 +57,7 @@ export async function enableMeaningHandler(
     await ctx.db.patch(row._id, {
       enabled: true,
       enabledBy: args.by,
+      optedOut: undefined,
       enabledAt: now,
       status: "provisioning",
       errorCode: undefined,
@@ -66,21 +72,60 @@ export async function enableMeaningHandler(
 }
 
 /**
+ * Why an index is being turned off, which decides what is left afterwards:
+ *
+ *  - `owner`: they switched it off. The row stays, ending at `off`, so "on
+ *    for everyone" never turns it back on.
+ *  - `storage`: the bucket it was built from went away or changed. The index
+ *    goes; the row goes too unless the owner had switched it off, so a
+ *    reconnected workspace is picked up again by the rollout.
+ *  - `workspace`: the workspace is being deleted. Nothing is kept.
+ */
+export type MeaningOffReason = "owner" | "storage" | "workspace";
+
+/**
  * Turn it off. With no index yet there is nothing remote to delete and the row
- * goes now; otherwise it serves nothing from this moment and the delete is
+ * ends now; otherwise it serves nothing from this moment and the delete is
  * scheduled.
  */
 export async function disableMeaningHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces"> },
+  args: { workspaceId: Id<"workspaces">; reason?: MeaningOffReason },
 ): Promise<{ releasing: boolean }> {
+  const reason = args.reason ?? "workspace";
+  const now = Date.now();
   const row = await meaningRowFor(ctx, args.workspaceId);
-  if (row === null) return { releasing: false };
-  if (row.indexName === undefined) {
-    await ctx.db.delete(row._id);
+  if (row === null) {
+    if (reason !== "owner") return { releasing: false };
+    // Off before "on for everyone" reached this workspace: recorded, so it never does.
+    await ctx.db.insert("meaningIndexes", {
+      workspaceId: args.workspaceId,
+      enabled: false,
+      optedOut: true,
+      enabledAt: now,
+      status: "off",
+      createdAt: now,
+      updatedAt: now,
+    });
     return { releasing: false };
   }
-  await ctx.db.patch(row._id, { enabled: false, status: "releasing", updatedAt: Date.now() });
+  const optedOut = reason === "owner" || (reason === "storage" && row.optedOut === true);
+  if (row.indexName === undefined) {
+    if (optedOut) {
+      await ctx.db.patch(row._id, {
+        enabled: false,
+        optedOut: true,
+        status: "off",
+        errorCode: undefined,
+        error: undefined,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.delete(row._id);
+    }
+    return { releasing: false };
+  }
+  await ctx.db.patch(row._id, { enabled: false, optedOut, status: "releasing", updatedAt: now });
   await ctx.scheduler.runAfter(0, internal.functions.meaningProvision.releaseMeaningIndex, {
     workspaceId: args.workspaceId,
   });
@@ -96,7 +141,7 @@ export async function recordMeaningProvisionHandler(
   ctx: MutationCtx,
   args: {
     workspaceId: Id<"workspaces">;
-    status: Exclude<MeaningRowStatus, "releasing">;
+    status: Exclude<MeaningRowStatus, "releasing" | "off">;
     indexName?: string;
     errorCode?: string;
     error?: string;
@@ -121,13 +166,29 @@ export async function recordMeaningProvisionHandler(
   });
 }
 
-/** Remove a row whose index is confirmed gone, unless it was turned back on. */
+/**
+ * An index confirmed gone: the row is removed, or, where the owner switched it
+ * off, kept as `off` with nothing left that names an index. A row turned back
+ * on meanwhile is left alone.
+ */
 export async function forgetMeaningIndexHandler(
   ctx: MutationCtx,
   args: { workspaceId: Id<"workspaces"> },
 ): Promise<void> {
   const row = await meaningRowFor(ctx, args.workspaceId);
   if (row === null || row.enabled) return;
+  if (row.optedOut === true) {
+    await ctx.db.patch(row._id, {
+      status: "off",
+      indexName: undefined,
+      notesIndexed: undefined,
+      notesPending: undefined,
+      errorCode: undefined,
+      error: undefined,
+      updatedAt: Date.now(),
+    });
+    return;
+  }
   await ctx.db.delete(row._id);
 }
 
@@ -160,13 +221,21 @@ export const MEANING_STALL_MS = 15 * 60 * 1000;
 export const MEANING_REFRESH_MS = 24 * 60 * 60 * 1000;
 /** A failure worth waiting out is retried after this long. */
 export const MEANING_RETRY_MS = 15 * 60 * 1000;
+/**
+ * A failure waiting cannot fix (a missing credential or permission) is tried
+ * again after this long anyway: it is fixed by somebody changing the
+ * credential, and nothing tells this row when that happens.
+ */
+export const MEANING_CONFIG_RETRY_MS = 6 * 60 * 60 * 1000;
 const MEANING_SWEEP_BATCH = 50;
 
 /**
  * Restart what stopped: a stalled `backfilling` chain, a `ready` index due its
  * daily catch-up, and a failure whose code says waiting will fix it (which
- * goes back through the provisioner, so a lost filter is made again too).
- * Bounded per run; a backlog drains over several.
+ * goes back through the provisioner, so a lost filter is made again too), or
+ * any failure after `MEANING_CONFIG_RETRY_MS`. Bounded per run; a backlog
+ * drains over several. The cron runs one step of "on for everyone"
+ * (`rollout.ts`) after it.
  */
 export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: number }> {
   const now = Date.now();
@@ -189,7 +258,8 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
     started += 1;
   }
   for (const row of await due("failed", MEANING_RETRY_MS)) {
-    if (!row.enabled || !isRetryableMeaningError(row.errorCode)) continue;
+    if (!row.enabled) continue;
+    if (!isRetryableMeaningError(row.errorCode) && row.updatedAt >= now - MEANING_CONFIG_RETRY_MS) continue;
     await ctx.db.patch(row._id, { status: "provisioning", errorCode: undefined, error: undefined, updatedAt: now });
     await ctx.scheduler.runAfter(0, internal.functions.meaningProvision.provisionMeaningIndex, {
       workspaceId: row.workspaceId,

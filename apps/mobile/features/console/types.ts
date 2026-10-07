@@ -566,6 +566,11 @@ export interface ConsoleData {
    */
   fastSearch: FastSearchView;
   /**
+   * Search by meaning's status and the owner's switch. Optional: the demo
+   * console and test fixtures carry none, and the card is then not drawn.
+   */
+  meaningSearch?: import("./search/useMeaningSearch").MeaningSearchView;
+  /**
    * Who can reach the selected context, and the owner-only controls to change
    * it. Its `actions` are absent for anyone who is not the owner, and in the
    * demo — the same rule as `storageActions`, expressed the same way.

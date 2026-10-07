@@ -114,3 +114,29 @@ a group asks the index for every tier, since a group note is indexed as
 `private`, and `canSee` with their granted names decides as it does for words.
 Tests: `apps/convex/__tests__/consoleMeaningSearch.test.ts` and the "a console
 search" block of `meaningPass.test.ts`.
+
+### On for everyone means a walk over storage, a proof first, and an off that sticks
+
+Decided 2026-10-07 while building the owner's "on for everyone". The
+15-minute sweep walks `storageBindings` a page at a time and turns search by
+meaning on for each bound workspace that has no `meaningIndexes` row
+(`lib/meaningFns/rollout.ts`); at the end it starts over, so a workspace that
+connects storage later is reached on a later lap. Bindings rather than
+workspaces, because an index is built from a bucket: a workspace with no
+storage has nothing to embed.
+
+**A row of any kind is a decision, and the rollout never overrides one.** The
+owner's switch (`meaningSearch.set`, owner-only like fast search) turning it
+off keeps the row through the index's deletion and ends it at `off`; only the
+owner turning it back on clears that. Losing storage releases the index too
+(`fastSearch.releaseForStorage` releases both) and removes the row, unless the
+owner had switched it off, so a reconnected workspace is picked up again.
+Deleting the workspace keeps nothing.
+
+**The credential is proven on one workspace before it is spent on all.** It
+needs Vectorize and Workers AI permissions fast search never did. Until one
+index is serving, the rollout turns on one workspace at a time and waits while
+that one is being set up or has failed, so a missing permission costs one
+failed row, retried every six hours, rather than one per workspace.
+`MEANING_SEARCH_ROLLOUT=disabled` on the deployment stops the walk without a
+deploy. Tests: `apps/convex/__tests__/meaningRollout.test.ts`.
