@@ -3,7 +3,7 @@ import type { MapEvent } from "./types";
 
 /**
  * What AI clients read in a stretch of time, for a replay: one workspace's
- * `GET /agent-activity?reads_from=&reads_to=`, which the gateway answers from
+ * `GET /agent-activity?reads_since=&reads_until=`, which the gateway answers from
  * the reads it keeps in the workspace's own bucket, already filtered for the
  * viewer. Named the way `activity.md` names a hand (`by`, `via`), so a tool
  * that read and then wrote is one face on the replay.
@@ -58,7 +58,7 @@ export async function fetchStoredReads(
 ): Promise<MapEvent[]> {
   try {
     const grant = await deps.mint(workspaceId);
-    const query = new URLSearchParams({ reads_from: String(Math.floor(from)), reads_to: String(Math.floor(to)) });
+    const query = new URLSearchParams({ reads_since: String(Math.floor(from)), reads_until: String(Math.floor(to)) });
     const body = await deps.fetchJson(`${deps.origin}/agent-activity?${query}`, grant.accessToken);
     return eventsFromStoredReads(decodeStoredReads(body), workspaceId);
   } catch {

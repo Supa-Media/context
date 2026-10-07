@@ -1,7 +1,7 @@
 /**
  * STORED READS — what AI clients read, kept in the customer's bucket for the
  * trail (`list_changes` with `reads: true`) and the map's replay
- * (`GET /agent-activity?reads_from=`). See `src/live/readLog.js`.
+ * (`GET /agent-activity?reads_since=`). See `src/live/readLog.js`.
  *
  * A stored read is a path, and a path is the customer's data, so most of
  * these are about who is *not* told:
@@ -191,7 +191,7 @@ export async function runStoredReadsChecks(check) {
     const started = Date.now() - 1000;
     const ask = async (token, params = {}) =>
       (await activityRequest(env, token, {
-        query: `?${new URLSearchParams({ reads_from: String(started), ...params })}`,
+        query: `?${new URLSearchParams({ reads_since: String(started), ...params })}`,
       })).body ?? {};
 
     await callTool(env, TEAM, "read_note", { path: "index.md" });
@@ -258,7 +258,7 @@ export async function runStoredReadsChecks(check) {
     );
     check(
       "a window that ends before the reads holds none of them",
-      (await ask(CONSOLE_OWNER, { reads_to: String(started - 10) })).reads.length === 0,
+      (await ask(CONSOLE_OWNER, { reads_until: String(started - 10) })).reads.length === 0,
     );
 
     // A note moved after it was read is shown where it is now.

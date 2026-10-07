@@ -1,5 +1,5 @@
 /**
- * `GET /agent-activity?reads_from=<ms>&reads_to=<ms>` — the reads a replay
+ * `GET /agent-activity?reads_since=<ms>&reads_until=<ms>` — the reads a replay
  * draws: what AI clients read in that stretch, as `live/readLog.js` stored it,
  * filtered for this caller.
  *
@@ -27,7 +27,7 @@ import { searchBudgetFor } from "../search/budget.js";
 
 /** Whether this ask is for stored reads at all. */
 export function asksForStoredReads(params) {
-  return params.has("reads_from");
+  return params.has("reads_since");
 }
 
 /**
@@ -56,8 +56,8 @@ export async function storedReadsAnswer(session, store, privacy, params, env, no
   const empty = { reads: [], readsTruncated: false };
   if (!isConsoleActor({ clientId: session.actorClientId })) return empty;
   if (privacy.error) return empty;
-  const from = Number(params.get("reads_from"));
-  const toParam = params.has("reads_to") ? Number(params.get("reads_to")) : now;
+  const from = Number(params.get("reads_since"));
+  const toParam = params.has("reads_until") ? Number(params.get("reads_until")) : now;
   const to = Number.isFinite(toParam) ? Math.min(toParam, now) : now;
   if (!Number.isFinite(from) || from < 0 || from > to) return empty;
 

@@ -74,7 +74,7 @@ describe("stored reads", () => {
       1.5,
       9.7,
     );
-    expect(asked).toEqual([{ url: "https://gateway.test/agent-activity?reads_from=1&reads_to=9", token: "token-w1" }]);
+    expect(asked).toEqual([{ url: "https://gateway.test/agent-activity?reads_since=1&reads_until=9", token: "token-w1" }]);
     expect(events).toHaveLength(1);
     const failed = await fetchStoredReads(
       {

@@ -56,7 +56,7 @@ the trail:
 
 A read that fails either check is absent, never counted.
 
-- **The replay** asks `GET /agent-activity?reads_from=<ms>&reads_to=<ms>`. Only
+- **The replay** asks `GET /agent-activity?reads_since=<ms>&reads_until=<ms>`. Only
   the console's client gets reads there, and any other caller gets none. One
   ask covers at most eight days, a week plus the day it started on. The answer
   is `{reads: [{at, path, tool, by, via}], readsTruncated}`. `by`/`via` name a
