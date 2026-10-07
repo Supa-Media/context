@@ -60,3 +60,19 @@ What a run did, and what it texted, is note-derived text, so it is kept in the
 person's own bucket under `.context/agent/routines/<folder>/<name>.json`, like
 the texting conversation history, and never in the control plane. Test:
 "run history lives in Context's own space, named after the routine".
+
+### A routine runs on a connection of its own, as its writer, and is re-read when it runs
+
+The control plane mints a grant for the client `context_routines` on the
+routine's workspace, for the person who wrote it. That connection runs
+routines through `/agent` and nothing else, and no other connection may run
+one; both are decided by the grant's client, never by the request. It is not
+the texting grant, which is one per person and would be revoked by the next
+mint. The gateway re-reads the note through `read_note` on that connection at
+the moment it runs, so a routine its writer can no longer see, one that was
+deleted or moved, and one with `paused: yes` never reach a model, and the
+paused check comes before a model is opened so it costs no turn. The answer
+`SKIP` means nothing to say and `DONE:` means the `until:` came true; both are
+outcomes in the run history, not texts. Tests (`agentRoutine.test.mjs`): "a
+routine is refused from any other connection", "a routine its writer can no
+longer see does not run", "a paused routine costs no turn".
