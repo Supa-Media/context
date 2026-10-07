@@ -33,7 +33,11 @@ import {
   AI_SPEND_HINT,
   aiSpendLabel,
   formatAiSpend,
+  isFromWaitlist,
   storageState,
+  type Audience,
+  type NotSignedUpRow,
+  type RosterEntry,
   type RosterRow,
 } from "./growth";
 import { formatCount, formatLastUsed, planLabel, planTone, relativeTime } from "./report";
@@ -57,74 +61,178 @@ function columnsFor(days: number): readonly Column[] {
 }
 
 export function RosterCard({
-  roster,
+  entries,
   total,
   days,
+  audience = "everyone",
+  notSignedUpTotal = 0,
 }: {
-  roster: readonly RosterRow[];
+  /** Accounts and let-in addresses with no account yet, newest first (`rosterEntries`). */
+  entries: readonly RosterEntry[];
   /** Every account, as `formatTotal` spells it, for "8 of 14". */
   total: string;
   /** The census window the AI column covers. */
   days: number;
+  audience?: Audience;
+  /** Everybody let in without an account, which may be more than are listed. */
+  notSignedUpTotal?: number;
 }) {
   const compact = useCompact();
   const columns = columnsFor(days);
+  const accounts = entries.filter((entry) => entry.kind === "account").length;
 
-  if (roster.length === 0) {
+  if (entries.length === 0) {
     return (
       <Panel title="Accounts" testID="admin-roster">
-        <EmptyNote title="Nobody has signed up yet" body="New accounts appear here, newest first." />
+        {audience === "waitlist" ? (
+          <EmptyNote
+            title="Nobody let in from the waitlist yet"
+            body="People you let in appear here, first as not signed up, then as accounts."
+          />
+        ) : (
+          <EmptyNote title="Nobody has signed up yet" body="New accounts appear here, newest first." />
+        )}
       </Panel>
     );
   }
 
+  const counted =
+    audience === "waitlist"
+      ? `${formatCount(accounts)} signed up`
+      : `${formatCount(accounts)} of ${total}`;
+  const meta =
+    notSignedUpTotal > 0
+      ? `newest first · ${counted} · ${formatCount(notSignedUpTotal)} let in, not signed up`
+      : `newest first · ${counted}`;
+
   return (
-    <Panel
-      flush
-      title="Accounts"
-      meta={`newest first · ${formatCount(roster.length)} of ${total}`}
-      testID="admin-roster"
-    >
+    <Panel flush title="Accounts" meta={meta} testID="admin-roster">
       {compact ? (
-        roster.map((row, index) => (
-          <ListRow
-            key={`${row.email ?? "anon"}-${row.joinedAt}`}
-            first={index === 0}
-            title={row.email ?? "no address"}
-            sub={`joined ${relativeTime(row.joinedAt)} · seen ${formatLastUsed(row.lastSeenAt)}`}
-            extra={<PhoneFacts row={row} days={days} />}
-            trailing={<Plan plan={row.plan} />}
-          />
-        ))
+        entries.map((entry, index) =>
+          entry.kind === "account" ? (
+            <ListRow
+              key={`${entry.row.email ?? "anon"}-${entry.row.joinedAt}`}
+              first={index === 0}
+              title={<Who email={entry.row.email} waitlist={isFromWaitlist(entry.row)} />}
+              sub={`joined ${relativeTime(entry.row.joinedAt)} · seen ${formatLastUsed(entry.row.lastSeenAt)}`}
+              extra={<PhoneFacts row={entry.row} days={days} />}
+              trailing={<Plan plan={entry.row.plan} />}
+            />
+          ) : (
+            <ListRow
+              key={`pending-${entry.row.email}`}
+              first={index === 0}
+              title={<Who email={entry.row.email} waitlist />}
+              sub={`let in ${relativeTime(entry.row.letInAt)} · not signed up yet`}
+              trailing={<NotSignedUp />}
+              testID="admin-roster-not-signed-up"
+            />
+          ),
+        )
       ) : (
         <View>
           <TableHead columns={columns} />
-          {roster.map((row, index) => (
-            <TableRow
-              key={`${row.email ?? "anon"}-${row.joinedAt}`}
-              columns={columns}
-              last={index === roster.length - 1}
-              cells={[
-                <Text key="who" variant="rowTitle" numberOfLines={1}>
-                  {row.email ?? "no address"}
-                </Text>,
-                <Text key="joined" variant="meta">
-                  {relativeTime(row.joinedAt)}
-                </Text>,
-                <Text key="seen" variant="meta">
-                  {formatLastUsed(row.lastSeenAt)}
-                </Text>,
-                <Count key="contexts" value={row.contexts} />,
-                <Storage key="storage" row={row} />,
-                <Count key="clients" value={row.clients} />,
-                <AiSpend key="ai" row={row} />,
-                <Plan key="plan" plan={row.plan} />,
-              ]}
-            />
-          ))}
+          {entries.map((entry, index) => {
+            const last = index === entries.length - 1;
+            if (entry.kind === "not-signed-up") {
+              return (
+                <PendingRow
+                  key={`pending-${entry.row.email}`}
+                  row={entry.row}
+                  columns={columns}
+                  last={last}
+                />
+              );
+            }
+            const row = entry.row;
+            return (
+              <TableRow
+                key={`${row.email ?? "anon"}-${row.joinedAt}`}
+                columns={columns}
+                last={last}
+                cells={[
+                  <Who key="who" email={row.email} waitlist={isFromWaitlist(row)} />,
+                  <Text key="joined" variant="meta">
+                    {relativeTime(row.joinedAt)}
+                  </Text>,
+                  <Text key="seen" variant="meta">
+                    {formatLastUsed(row.lastSeenAt)}
+                  </Text>,
+                  <Count key="contexts" value={row.contexts} />,
+                  <Storage key="storage" row={row} />,
+                  <Count key="clients" value={row.clients} />,
+                  <AiSpend key="ai" row={row} />,
+                  <Plan key="plan" plan={row.plan} />,
+                ]}
+              />
+            );
+          })}
         </View>
       )}
     </Panel>
+  );
+}
+
+/** The address, and a quiet "waitlist" after it for somebody let in from it. */
+function Who({ email, waitlist }: { email?: string; waitlist: boolean }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.who}>
+      <Text variant="rowTitle" numberOfLines={1} style={styles.whoEmail}>
+        {email ?? "no address"}
+      </Text>
+      {waitlist ? <Text style={styles.tag}>waitlist</Text> : null}
+    </View>
+  );
+}
+
+/**
+ * Let in, no account yet. Every account column is a dash rather than a warn
+ * zero: there is nothing to be missing until they sign in.
+ */
+function PendingRow({
+  row,
+  columns,
+  last,
+}: {
+  row: NotSignedUpRow;
+  columns: readonly Column[];
+  last: boolean;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const dash = (key: string) => (
+    <Text key={key} style={styles.plain}>
+      —
+    </Text>
+  );
+  return (
+    <TableRow
+      columns={columns}
+      last={last}
+      testID="admin-roster-not-signed-up"
+      cells={[
+        <Who key="who" email={row.email} waitlist />,
+        <Text key="joined" style={styles.plain}>
+          not yet
+        </Text>,
+        <Text key="seen" variant="meta">
+          let in {relativeTime(row.letInAt)}
+        </Text>,
+        dash("contexts"),
+        dash("storage"),
+        dash("clients"),
+        dash("ai"),
+        <NotSignedUp key="plan" />,
+      ]}
+    />
+  );
+}
+
+function NotSignedUp() {
+  return (
+    <Pill dashed tone="neutral">
+      Not signed up
+    </Pill>
   );
 }
 
@@ -227,6 +335,9 @@ function PhoneFacts({ row, days }: { row: RosterRow; days: number }) {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     cell: { flexDirection: "row", alignItems: "center", gap: 7 },
+    who: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    whoEmail: { flexShrink: 1 },
+    tag: { fontSize: pointerType.meta, color: colors.muted },
     num: {
       fontSize: pointerType.ui,
       color: colors.text,
