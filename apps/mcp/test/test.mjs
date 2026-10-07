@@ -64,6 +64,7 @@ import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
 import { runAgentBuiltinChecks } from "./agentBuiltin.test.mjs";
 import { runAgentComputerChecks } from "./agentComputer.test.mjs";
+import { runAgentSearchChecks } from "./agentSearch.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
@@ -141,6 +142,7 @@ await suite("runProviderCredentialChecks", () => runProviderCredentialChecks(che
 await suite("runAgentChecks", () => runAgentChecks(check));
 await suite("runAgentBuiltinChecks", () => runAgentBuiltinChecks(check));
 await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
+await suite("runAgentSearchChecks", () => runAgentSearchChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.
 // Its own control plane and bucket, like orientation, because the fixture is a

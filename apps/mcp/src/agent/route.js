@@ -16,6 +16,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER } from "./builtin.js";
 import { computerFor, webSession } from "./computer.js";
+import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
@@ -134,9 +135,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   // answers go out as iMessages, and only they are written for one.
   const texting = session.actorClientId === TEXTS_CLIENT_ID;
   const computer = texting ? computerFor(env) : null;
+  // Web search is the texting assistant's too, and runs on its own (the
+  // owner's decision, 2026-10-07); `search.js` says why that is accepted.
+  const search = texting ? searcherFor(env) : null;
   // Clef only on a built-in turn: that is the turn the meter covers.
   const web =
-    computer === null ? null : webSession(computer, question, { decide: builtin ? decisionEngine(env.AI) : null });
+    computer === null && search === null
+      ? null
+      : webSession(computer, question, { decide: builtin ? decisionEngine(env.AI) : null, search });
 
   const started = Date.now();
   /*
