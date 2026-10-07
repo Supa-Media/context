@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { fonts, space, pointerType } from "../../../../design/tokens";
@@ -74,13 +74,16 @@ export function PhoneMap({ page, camera, onOpenNote }: { page: MapPageState; cam
         ) : (
           <>
             <WorkingNow page={page} size={28} />
-            <Feed
-              items={page.feed.slice(0, open ? OPEN_ROWS : FOLDED_ROWS)}
-              replaying={page.replaying}
-              now={page.now}
-              onOpenNote={onOpenNote}
-              compact
-            />
+            {/* Opened, the sheet stops at most of the screen and its rows scroll inside it. */}
+            <ScrollView style={styles.rows} scrollEnabled={open} testID="map-sheet-rows">
+              <Feed
+                items={page.feed.slice(0, open ? OPEN_ROWS : FOLDED_ROWS)}
+                replaying={page.replaying}
+                now={page.now}
+                onOpenNote={onOpenNote}
+                compact
+              />
+            </ScrollView>
           </>
         )}
         {page.mode !== "live" ? <ReplayBar page={page} compact /> : null}
@@ -123,6 +126,7 @@ const makeStyles = (colors: Colors) =>
     },
     grabRow: { alignItems: "center", paddingTop: 8, paddingBottom: 2, gap: 2 },
     grab: { width: 38, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong },
+    rows: { flexGrow: 0, flexShrink: 1 },
     followRow: { flexDirection: "row", gap: space.x2 },
     followBody: { flex: 1, minWidth: 0 },
     stop: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface2 },
