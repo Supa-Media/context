@@ -86,8 +86,10 @@ export async function sendLinqText(
     `${LINQ_API}/chats/${encodeURIComponent(chatId)}/messages`,
     apiKey,
     {
-      parts: [{ type: "text", value: text.slice(0, MAX_REPLY_TEXT) }],
-      idempotency_key: idempotencyKey.slice(0, 255),
+      message: {
+        parts: [{ type: "text", value: text.slice(0, MAX_REPLY_TEXT) }],
+        idempotency_key: idempotencyKey.slice(0, 255),
+      },
     },
   );
   if (status < 200 || status >= 300) throw new ServiceError("linq", status);
