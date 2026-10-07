@@ -126,6 +126,8 @@ export {
 } from "./fileOps/emoji";
 export type { CustomEmoji } from "./fileOps/emoji";
 export { notePathIndex, searchNotes, maintainSearchIndex, indexChangedNotes } from "./fileOps/search";
+export { workspaceGraph } from "./fileOps/graph";
+export type { WorkspaceGraphResult } from "./fileOps/graph";
 export type { SearchHit, SearchResults, ProjectionClient } from "./fileOps/search";
 export { projectSearchIndex } from "./fileOps/projection";
 export type { ProjectionPass } from "./fileOps/projection";

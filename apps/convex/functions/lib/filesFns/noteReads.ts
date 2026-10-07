@@ -157,6 +157,13 @@ export async function listActivityHandler(
   args: {
     workspaceId: Id<"workspaces">;
     limit?: number;
+    /**
+     * Epoch ms: only lines whose time is at or after this. The map's "Today"
+     * and "This week" replay. With it and no `limit`, every such line the file
+     * keeps (at most `MAX_ENTRIES`, about three months of a busy context) —
+     * the default of 50 would cut a busy week short.
+     */
+    since?: number;
   },
 ): Promise<ActivityEntry[]> {
   const actorUserId: Id<"users"> = await callerId(ctx);
@@ -171,6 +178,26 @@ export async function listActivityHandler(
     operation: { kind: "readActivity" },
   });
   if (result.kind !== "activity") return [];
-  const limit = Math.max(1, Math.min(args.limit ?? 50, 400));
-  return result.entries.slice(0, limit);
+  return activitySince(result.entries as ActivityEntry[], args);
 }
+
+/** The newest-first entries, cut by `since` and then by `limit`. */
+export function activitySince(
+  entries: ActivityEntry[],
+  args: { limit?: number; since?: number },
+): ActivityEntry[] {
+  const since = args.since;
+  const windowed =
+    since === undefined || !Number.isFinite(since)
+      ? entries
+      : entries.filter((entry) => {
+          const at = Date.parse(entry.at);
+          return Number.isFinite(at) && at >= since;
+        });
+  const fallback = since === undefined ? 50 : MAX_ACTIVITY_ENTRIES;
+  const limit = Math.max(1, Math.min(args.limit ?? fallback, MAX_ACTIVITY_ENTRIES));
+  return windowed.slice(0, limit);
+}
+
+/** `MAX_ENTRIES` in `packages/shared/src/activity.cjs`: what the file keeps. */
+const MAX_ACTIVITY_ENTRIES = 400;

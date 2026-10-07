@@ -166,6 +166,36 @@ export async function notePathsHandler(
 }
 
 /**
+ * The console map's graph of one workspace: every note this member's scope may
+ * see, and the links between them, both ends visible. See `workspaceGraph` in
+ * `lib/fileOps/graph.ts` and `docs/decisions/search.md`.
+ *
+ * Read-only and schedules nothing, for `notePathsHandler`'s reason: an index
+ * that is behind answers `behind`, the map says it is catching up, and the
+ * next ordinary search — or `maintainIndex`'s hourly reach — catches it up.
+ */
+export async function workspaceGraphHandler(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+  },
+): Promise<Extract<OperationResult, { kind: "workspaceGraph" }>> {
+  const actorUserId = await callerId(ctx);
+  const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    actorUserId,
+    workspaceId: args.workspaceId,
+    minimum: "member",
+  });
+  const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+    workspaceId: args.workspaceId,
+    scope,
+    grantedNames,
+    operation: { kind: "workspaceGraph" },
+  });
+  return result as Extract<OperationResult, { kind: "workspaceGraph" }>;
+}
+
+/**
  * One search across several contexts, blended into one list.
  *
  * ## Why the fan-out is here

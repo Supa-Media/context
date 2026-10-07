@@ -115,6 +115,7 @@ import type * as functions_referrals from "../functions/referrals.js";
 import type * as functions_usage from "../functions/usage.js";
 import type * as functions_websites from "../functions/websites.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
+import type * as functions_workspaceMoves from "../functions/workspaceMoves.js";
 import type * as http from "../http.js";
 
 import type {
@@ -231,6 +232,7 @@ declare const fullApi: ApiFromModules<{
   "functions/referrals": typeof functions_referrals;
   "functions/websites": typeof functions_websites;
   "functions/workspaces": typeof functions_workspaces;
+  "functions/workspaceMoves": typeof functions_workspaceMoves;
   http: typeof http;
 }>;
 
