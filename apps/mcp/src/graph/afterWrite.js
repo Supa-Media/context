@@ -6,6 +6,7 @@
 import { loadGraphManifest } from "./manifest.js";
 import { graphMode } from "./mode.js";
 import { projectNote } from "./project.js";
+import { isNewer } from "./rebuild.js";
 import { afterResponse } from "../search/writeProjection.js";
 
 /**
@@ -16,7 +17,8 @@ import { afterResponse } from "../search/writeProjection.js";
 export async function projectNoteAfterWrite(store, { path, body, version, budget }) {
   try {
     const manifest = await loadGraphManifest(store, budget);
-    if (!manifest) return;
+    // Newer code's generation: an older client never writes into it (arch 9.6).
+    if (!manifest || isNewer(manifest)) return;
     await projectNote(store, path, body, version, {
       budget,
       gen: manifest.generation,

@@ -33,10 +33,13 @@
 //
 // Generations (rebuild.js): while the manifest names a `building` generation,
 // every piece above runs on it instead of the active one, in the sweep-first
-// order, and its wraps publish no health; two consecutive clean wraps on a
-// complete census cut over. The active generation gets only pinned writes
-// until then (removal hints included go to the building one). A `collect`
-// generation is garbage-collected first, on at most half the pass.
+// order until its first clean wrap and in alternating audit turns after it,
+// and its wraps publish no health; two consecutive clean wraps on a complete
+// census, with a full audit listing begun after the first, cut over. The
+// active generation gets only pinned writes until then (removal hints
+// included go to the building one). A manifest or building generation from
+// newer code is left alone. A `collect` generation is garbage-collected
+// first, on at most half the pass; a GC failure never stops the pass.
 import { membershipsFor } from "./facts.js";
 import { generationPrefix, maintenanceCursorKey, nodeKey, pathHash } from "./keys.js";
 import { initGraphManifest, publishHealth, readGraphManifest } from "./manifest.js";
@@ -44,7 +47,9 @@ import { graphMode } from "./mode.js";
 import { setMembership } from "./postings.js";
 import { projectNote, readNode, removeNote, validateEntry } from "./project.js";
 import { parseNode, parsePage } from "./records.js";
-import { collectGarbage, cutover, needsRebuild, startRebuild } from "./rebuild.js";
+import {
+  GC_FAILURE_LIMIT, abandonCollect, collectGarbage, cutover, isNewer, matchesCode, needsRebuild, startRebuild,
+} from "./rebuild.js";
 
 // Kept back for the end of the pass: manifest read, health put, cursor put,
 // plus publishHealth's re-read in best-effort mode.
@@ -64,8 +69,13 @@ const capped = (budget, keep) => ({
   take: (reserve = 0) => budget.take(reserve + keep),
 });
 
-// `recheck`: the building generation's last wrap was clean; the next clean one cuts over.
-const freshCursor = () => ({ sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, auditTurn: false, recheck: false });
+// `recheck`: the building generation's last wrap was clean; the next clean one
+// cuts over once `auditWrapped` says an audit listing begun since then ended.
+// `gcFailures`: consecutive passes whose GC page failed.
+const freshCursor = () => ({
+  sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, auditTurn: false,
+  recheck: false, auditWrapped: false, gcFailures: 0,
+});
 
 async function readCursor(store, budget, gen) {
   if (!budget.take()) return null;
@@ -89,6 +99,8 @@ async function readCursor(store, budget, gen) {
         sweepPending: value.sweepPending,
         auditTurn: value.auditTurn === true,
         recheck: value.recheck === true,
+        auditWrapped: value.auditWrapped === true,
+        gcFailures: Number.isInteger(value.gcFailures) && value.gcFailures > 0 ? value.gcFailures : 0,
       }
     : freshCursor();
   return { cursor, etag: got.etag ?? null };
@@ -181,50 +193,57 @@ async function sweep(store, budget, ctx, cursor, out) {
   return true;
 }
 
-/** Re-assert a current node's memberships (lost membership). False on budget. */
-async function auditCurrentNode(store, budget, ctx, path, node) {
+/**
+ * Re-assert a current node's memberships (lost membership), in sorted order
+ * from index `from`. Returns -1 when done, or the index to resume from on a
+ * budget stop, so a node with more memberships than one turn still finishes
+ * (the cutover waits for a full audit listing).
+ */
+async function auditCurrentNode(store, budget, ctx, path, node, from) {
   let memberships;
   try {
     ({ memberships } = await membershipsFor(path, node.occurrences));
   } catch {
-    return true; // hostile occurrences: nothing to assert
+    return -1; // hostile occurrences: nothing to assert
   }
-  for (const m of [...memberships].sort()) {
-    const [family, hash] = m.split(":");
+  const sorted = [...memberships].sort();
+  for (let i = from; i < sorted.length; i += 1) {
+    const [family, hash] = sorted[i].split(":");
     const result = await setMembership(store, budget, {
       gen: ctx.gen, family, hash, source: path, referenceSetVersion: node.referenceSetVersion, present: true, mode: ctx.mode,
     });
-    if (result === "budget") return false;
+    if (result === "budget") return i;
   }
-  return true;
+  return -1;
 }
 
-async function auditNode(store, budget, ctx, key, out) {
-  if (!budget.take()) return false;
+/** -1 when the node is finished, else the membership index to resume from. */
+async function auditNode(store, budget, ctx, key, out, from) {
+  if (!budget.take()) return from;
   const got = await store.get(key);
-  if (!got) return true;
+  if (!got) return -1;
   const text = await got.text();
   let path;
   try {
     path = JSON.parse(text)?.path;
   } catch {
-    return true;
+    return -1;
   }
-  if (typeof path !== "string") return true;
+  if (typeof path !== "string") return -1;
   const node = parseNode(text, path);
   // The record must live at its own path's key (arch 9.1).
-  if (!node || nodeKey(ctx.gen, await pathHash(path)) !== key) return true;
+  if (!node || nodeKey(ctx.gen, await pathHash(path)) !== key) return -1;
   if (ctx.census.has(path)) {
-    if (node.coverage === "excluded" || !isCurrent(node, ctx.census.get(path))) return true; // the sweep's job
-    return auditCurrentNode(store, budget, ctx, path, node);
+    if (node.coverage === "excluded" || !isCurrent(node, ctx.census.get(path))) return -1; // the sweep's job
+    return auditCurrentNode(store, budget, ctx, path, node, from);
   }
   // A tombstone (removeNote without conditional delete) has nothing to remove.
-  if (node.coverage === "excluded" && node.observedSourceVersion === null && isCurrent(node, null)) return true;
+  if (node.coverage === "excluded" && node.observedSourceVersion === null && isCurrent(node, null)) return -1;
   // Absent from a complete census: removed only on an authoritative not-found.
   const state = await removeIfGone(store, budget, path, ctx);
-  if (state === "stop" || state === "budget") return false;
+  if (state === "stop" || state === "budget") return from;
   tally(out, state);
-  return true;
+  return -1;
 }
 
 /** Returns the entry index to resume from, or -1 when the page is finished. */
@@ -279,7 +298,7 @@ async function audit(store, budget, ctx, cursor, out) {
     const from = k === at.k ? at.e : 0;
     let resume = -1;
     if (NODE_KEY.test(rel)) {
-      if (!(await auditNode(store, budget, ctx, keys[k], out))) resume = 0;
+      resume = await auditNode(store, budget, ctx, keys[k], out, from);
     } else {
       const m = PAGE_KEY.exec(rel);
       if (m) resume = await auditPage(store, budget, ctx, keys[k], m[1], m[2], from);
@@ -291,6 +310,7 @@ async function audit(store, budget, ctx, cursor, out) {
   }
   const next = listed.truncated && typeof listed.cursor === "string" && listed.cursor ? listed.cursor : null;
   cursor.auditCursor = next ? JSON.stringify([next, 0, 0]) : "";
+  if (!next) cursor.auditWrapped = true;
 }
 
 /**
@@ -304,12 +324,13 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   const mode = graphMode(store);
   let { manifest, etag, absent } = await readGraphManifest(store, budget);
   if (!manifest && absent) manifest = await initGraphManifest(store, budget, { mode, now });
-  if (!manifest) return out;
-  if (!manifest.building && needsRebuild(manifest)) {
+  if (!manifest || isNewer(manifest)) return out;
+  // A build by older code is restarted; one by newer code is left to it.
+  if (manifest.building ? needsRebuild(manifest.building) : needsRebuild(manifest)) {
     await startRebuild(store, budget, manifest, etag, now); // the next pass builds
     return out;
   }
-  const building = manifest.building !== null;
+  const building = manifest.building !== null && matchesCode(manifest.building);
   const gen = building ? manifest.building.generation : manifest.generation;
   const read = await readCursor(store, budget, gen);
   if (!read) return out;
@@ -319,7 +340,21 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   const reserve = wrapReserve(mode);
   const work = capped(budget, reserve);
   ctx.validate = validateEntry(store, work, gen);
-  await collectGarbage(store, work, manifest);
+  let gc;
+  try {
+    gc = await collectGarbage(store, work, manifest);
+  } catch {
+    gc = "failed"; // a manifest op inside GC: never stops the pass
+  }
+  if (gc === "done") cursor.gcFailures = 0;
+  if (gc === "failed" && (cursor.gcFailures += 1) >= GC_FAILURE_LIMIT) {
+    cursor.gcFailures = 0;
+    try {
+      await abandonCollect(store, work, manifest.collect);
+    } catch {
+      // Retried after the next GC_FAILURE_LIMIT failures.
+    }
+  }
 
   for (const path of removedHints) {
     if (typeof path !== "string" || !isIndexable(path) || census.has(path)) continue;
@@ -331,8 +366,9 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   // the whole remainder on its turn; a split share could fall below the
   // audit's smallest unit and livelock it. Before ready the sweep comes first
   // and the audit gets what it leaves.
-  // The active generation's health says nothing about a building one.
-  const ready = !building && manifest.health.state === "ready";
+  // The active generation's health says nothing about a building one, which
+  // takes audit turns once its first clean wrap set `recheck`.
+  const ready = building ? cursor.recheck : manifest.health.state === "ready";
   const auditFirst = censusComplete && ready && cursor.auditTurn;
   if (censusComplete && ready) cursor.auditTurn = !cursor.auditTurn;
   if (auditFirst) await audit(store, work, ctx, cursor, out);
@@ -347,12 +383,15 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
       if (!building) {
         const fresh = await readGraphManifest(store, budget);
         if (fresh.manifest?.generation === gen) await publishHealth(store, budget, fresh.manifest, fresh.etag, { health });
-      } else if (state === "ready" && cursor.recheck) {
-        // This clean wrap was the re-check (OPEN-16): cut over.
+      } else if (state === "ready" && cursor.recheck && cursor.auditWrapped) {
+        // This clean wrap was the re-check (OPEN-16) and the audit has
+        // listed the whole generation since the first: cut over.
         const fresh = await readGraphManifest(store, budget);
         if (fresh.manifest?.building?.generation === gen) out.cutover = await cutover(store, budget, fresh, health);
         cursor.recheck = false;
       } else {
+        // The first clean wrap starts a fresh audit listing for the re-check.
+        if (state === "ready" && !cursor.recheck) Object.assign(cursor, { auditCursor: "", auditWrapped: false });
         cursor.recheck = state === "ready";
       }
       out.sweepComplete = true;

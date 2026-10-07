@@ -45,7 +45,7 @@ const ready = (s, extra = {}) => s.put(graphManifestKey(), JSON.stringify({ ...s
 
 test("no manifest is unavailable", async () => {
   const h = await graphHealth(cond(), big());
-  assert.deepEqual(h, { state: "unavailable", generation: null, mode: "conditional", possiblyIncomplete: true, complete: false });
+  assert.deepEqual(h, { state: "unavailable", generation: null, building: null, mode: "conditional", possiblyIncomplete: true, complete: false });
 });
 
 test("an unparseable manifest is unavailable", async () => {
@@ -99,7 +99,7 @@ test("conditional ready sweep with no hint is complete", async () => {
   const s = cond();
   await init(s);
   await ready(s);
-  assert.deepEqual(await graphHealth(s, big()), { state: "ready", generation: "1", mode: "conditional", possiblyIncomplete: false, complete: true });
+  assert.deepEqual(await graphHealth(s, big()), { state: "ready", generation: "1", building: null, mode: "conditional", possiblyIncomplete: false, complete: true });
 });
 
 test("ready but not swept, or with a rebuild hint, is not complete", async () => {

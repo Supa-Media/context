@@ -91,7 +91,7 @@ export async function publishHealth(store, budget, manifest, etag, patch) {
 export async function graphHealth(store, budget) {
   const manifest = await loadGraphManifest(store, budget);
   if (!manifest) {
-    return { state: "unavailable", generation: null, mode: graphMode(store), possiblyIncomplete: true, complete: false };
+    return { state: "unavailable", generation: null, building: null, mode: graphMode(store), possiblyIncomplete: true, complete: false };
   }
   // Either side best-effort means writes may have been unconditional.
   const mode = manifest.mode === "conditional" && graphMode(store) === "conditional" ? "conditional" : "best-effort";
@@ -99,6 +99,8 @@ export async function graphHealth(store, budget) {
   return {
     state,
     generation: manifest.generation,
+    // So Phase 3 can tell rebuilding from stale.
+    building: manifest.building?.generation ?? null,
     mode,
     possiblyIncomplete: mode === "best-effort" || state !== "ready",
     complete: mode === "conditional" && state === "ready" && sweepComplete === true && !rebuildHint,

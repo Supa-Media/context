@@ -31,6 +31,27 @@
  * cutover branch's own state check masks it, and the row above it is that
  * guard's sabotage.
  *
+ * Fix round 1 (red first: the five fix-round tests at the bottom and the
+ * changed wraps-clean test, 6 failing). Counts over graphRebuild,
+ * graphReconcile, graphManifest and graphWrite:
+ *   GC delete failure escapes and aborts the pass                         1 (GC failure)
+ *   failed collect never abandoned (limit Infinity)                       1 (GC failure)
+ *   abandonment not logged                                                1 (GC failure)
+ *   cutover without waiting for the audit listing                         1 (delete during build)
+ *   audit listing not restarted at the first clean wrap                   1 (wraps clean)
+ *   node audit restarts a node from 0 after a budget stop                 1 (grid: livelock at L=40)
+ *   building generation never takes audit turns                           2 (delete during build, grid)
+ *   cutover keeps rebuildHint                                             1 (rebuildHint)
+ *   rebuild on any version difference                                     1 (two code versions)
+ *   build into a building generation regardless of its versions           1 (two code versions)
+ *   reconcile does not leave a newer manifest alone                       1 (two code versions)
+ *   afterWrite writes into a newer generation                             1 (two code versions)
+ *   an older code's build is not restarted                                1 (two code versions)
+ *   graphHealth drops building                                            2 (health building, graphManifest
+ *                                                                           complete shape)
+ * The "measured zero" audit-turn gate above is superseded: a building
+ * generation now takes audit turns once `recheck` is set, and that row bites.
+ *
  * Process note: tests written first; RED was every cutover-dependent test
  * ("no cutover to 2"). The crash test first threw from the store, which
  * reconciliation swallows as unreadable reads, so it never crashed; it now
@@ -42,7 +63,7 @@ import { test } from "node:test";
 
 import { reconcileGraph } from "../src/graph/reconcile.js";
 import { graphHealth, loadGraphManifest } from "../src/graph/manifest.js";
-import { projectNote, validateEntry } from "../src/graph/project.js";
+import { projectNote, removeNote, validateEntry } from "../src/graph/project.js";
 import { projectNoteAfterWrite } from "../src/graph/afterWrite.js";
 import { readPostings } from "../src/graph/postings.js";
 import { RESOLVER_VERSION } from "../src/graph/facts.js";
@@ -229,6 +250,8 @@ async function rebuildGridPasses(conditional, B, K, L, J, max) {
 }
 // Ops per note as in Task 10 (6 plus two per link) for the build, plus one
 // node read per note for the re-check wrap, over about B - 10 ops a pass.
+// Fix round 1 added a full audit listing before cutover; measured worst
+// case 44 of a bound of 50 (best-effort, B=18, K=0 L=40 J=10).
 const rebuildBound = (B, K, L, J) => 10 + GRID_FACTOR * Math.ceil((7 * (K + J + 1) + 2 * L) / Math.max(1, B - 10));
 const GRID_FACTOR = 2;
 const GRID_LAYOUTS = [[0, 1, 6], [6, 1, 0], [6, 1, 6], [20, 1, 30], [70, 1, 3], [0, 40, 6], [0, 40, 10]];
@@ -355,7 +378,7 @@ test("a building generation whose wraps leave work pending never cuts over", asy
   assert.ok(await settledIn(b, "3", "c.md"));
 });
 
-test("a pass that wraps clean once does not cut over; the re-check wrap does", async () => {
+test("a pass that wraps clean once does not cut over; the re-check wrap after a full audit listing does", async () => {
   const b = bucket();
   await seed(b);
   await converge(b);
@@ -364,7 +387,11 @@ test("a pass that wraps clean once does not cut over; the re-check wrap does", a
   await pass(b); // sweeps generation 2 and wraps clean
   for (const p of ["a.md", "b.md", "c.md", "t.md", "u.md"]) assert.ok(await settledIn(b, "2", p), p);
   assert.equal(rawManifest(b).generation, "1", "no cutover on the first clean wrap");
-  await pass(b); // the re-check wrap
+  // The first clean wrap restarted the audit listing for the re-check.
+  const cursor = JSON.parse(b.objects.get(maintenanceCursorKey("2")).body);
+  assert.equal(cursor.auditWrapped, false);
+  assert.equal(cursor.auditCursor, "");
+  await pass(b); // the re-check wrap, then the audit lists the whole generation, then cutover
   assert.equal(rawManifest(b).generation, "2");
 });
 
@@ -504,4 +531,150 @@ test("nothing outside .context/graph/ is written or deleted through a rebuild, t
   await rebuildTo(b, "3", store);
   for (let i = 0; i < 10; i += 1) await pass(store, createSearchBudget(15));
   assert.deepEqual(log.outside, []);
+});
+
+// Fix round 1
+
+/** A store whose deletes under `prefix` always fail, like a 403 on a locked prefix. */
+const refusingDeletes = (b, prefix) => ({
+  ...paged(b),
+  delete: (k, o) => (k.startsWith(prefix) ? Promise.reject(new Error("403")) : b.delete(k, o)),
+});
+/** Captures console.error and console.warn lines during `fn`. */
+async function capturingLogs(fn) {
+  const lines = [];
+  const saved = [console.error, console.warn];
+  console.error = (...a) => lines.push(a.join(" "));
+  console.warn = (...a) => lines.push(a.join(" "));
+  try {
+    await fn();
+  } finally {
+    [console.error, console.warn] = saved;
+  }
+  return lines;
+}
+
+test("GC whose deletes always fail never blocks reconciliation, and collect is abandoned after bounded failures", async () => {
+  for (const B of [13, 100000]) {
+    const b = bucket();
+    await twoCutovers(b);
+    assert.equal(rawManifest(b).collect, "1");
+    const left = keysUnder(b, generationPrefix("1")).length;
+    const store = refusingDeletes(b, generationPrefix("1"));
+    await b.put("new-note.md", links("t.md"));
+    const logs = await capturingLogs(async () => {
+      for (let i = 0; i < 40 && !(rawManifest(b).health.state === "ready" && (await settledIn(b, "3", "new-note.md"))); i += 1) {
+        await pass(store, createSearchBudget(B)); // must not throw
+      }
+      for (let i = 0; i < 10; i += 1) await pass(store, createSearchBudget(B));
+    });
+    assert.ok(await settledIn(b, "3", "new-note.md"), `B=${B}: a new note still projects`);
+    assert.equal(rawManifest(b).health.state, "ready", `B=${B}`);
+    assert.deepEqual(await backlinks(b, "3", "t.md"), ["a.md", "b.md", "new-note.md"]);
+    assert.equal(rawManifest(b).collect, null, `B=${B}: collect abandoned`);
+    assert.equal(keysUnder(b, generationPrefix("1")).length, left, "the generation is left in place");
+    assert.ok(logs.some((l) => l.includes("graph-gc-abandoned")), "abandonment is logged");
+    for (const l of logs) assert.ok(!l.includes(".md"), `no note path in logs: ${l}`);
+  }
+});
+
+test("a note deleted during the build with no removal hint has no node or backlink after cutover", async () => {
+  const b = bucket();
+  await b.put("a.md", links("t.md"));
+  await b.put("t.md", "x");
+  for (let i = 0; i < 20; i += 1) await b.put(`z${pad(i)}.md`, "plain");
+  await converge(b);
+  await bump(b);
+  for (let i = 0; !(await nodeIn(b, "2", "a.md")); i += 1) {
+    assert.ok(i < 100);
+    await pass(b, createSearchBudget(13));
+  }
+  // Deleted through the gateway: the write path removes it from the pinned generation only.
+  b.objects.delete("a.md");
+  await removeNote(b, "a.md", { budget: big(), gen: "1", mode: "conditional" });
+  for (let i = 0; rawManifest(b).generation !== "2"; i += 1) {
+    assert.ok(i < 400, "cut over");
+    await pass(paged(b), createSearchBudget(13));
+  }
+  assert.equal(await nodeIn(b, "2", "a.md"), null, "no node for the deleted note at cutover");
+  assert.deepEqual(await backlinks(b, "2", "t.md"), []);
+});
+
+test("cutover clears rebuildHint, so the fresh generation can be complete; the hint alone starts no rebuild", async () => {
+  const b = bucket();
+  await seed(b);
+  await converge(b);
+  const m = rawManifest(b);
+  await b.put(graphManifestKey(), JSON.stringify({ ...m, health: { ...m.health, rebuildHint: "reverse-repair-overflow" } }));
+  for (let i = 0; i < 5; i += 1) await pass(b);
+  assert.equal(rawManifest(b).building, null, "a hint does not start a rebuild");
+  assert.equal(rawManifest(b).generation, "1");
+  assert.equal((await graphHealth(b, big())).complete, false);
+  await rebuildTo(b, "2");
+  assert.equal(rawManifest(b).health.rebuildHint ?? null, null);
+  assert.equal((await graphHealth(b, big())).complete, true);
+});
+
+test("two code versions on one bucket: newer versions are left alone and a building generation is used only by matching code", async () => {
+  const newer = RESOLVER_VERSION + 1;
+  // A newer client cut over: this (older) code neither rebuilds nor writes into it.
+  {
+    const b = bucket();
+    await seed(b);
+    await converge(b);
+    await b.put(graphManifestKey(), JSON.stringify({ ...rawManifest(b), resolverVersion: newer }));
+    const before = snapshot(b, GRAPH_PREFIX);
+    await b.put("new-note.md", links("t.md"));
+    const { store, log } = audited(b);
+    for (let i = 0; i < 5; i += 1) await pass(store);
+    await projectNoteAfterWrite(b, { path: "new-note.md", body: links("t.md"), version: b.objects.get("new-note.md").etag, budget: big() });
+    assert.deepEqual(snapshot(b, GRAPH_PREFIX), before, "nothing under the graph prefix changed");
+    assert.deepEqual(log.deleted, []);
+  }
+  // A newer client is building: this code keeps reconciling the active generation
+  // and never builds into, cuts over or restarts that build.
+  {
+    const b = bucket();
+    await seed(b);
+    await converge(b);
+    const building = { generation: "2", startedAt: "t", parserVersion: 1, resolverVersion: newer, urlKeyVersion: 1 };
+    await b.put(graphManifestKey(), JSON.stringify({ ...rawManifest(b), building }));
+    await b.put("new-note.md", links("t.md"));
+    for (let i = 0; i < 8; i += 1) await pass(b);
+    assert.deepEqual(rawManifest(b).building, building);
+    assert.equal(rawManifest(b).generation, "1");
+    assert.deepEqual(keysUnder(b, generationPrefix("2")), []);
+    assert.ok(await settledIn(b, "1", "new-note.md"), "the active generation is still reconciled");
+  }
+  // An older client started a build: this code restarts it at its own versions
+  // and the abandoned generation is collected.
+  {
+    const b = bucket();
+    await seed(b);
+    await converge(b);
+    const stale = { generation: "2", startedAt: "t", parserVersion: 1, resolverVersion: RESOLVER_VERSION - 1, urlKeyVersion: 1 };
+    await b.put(`${generationPrefix("2")}nodes/leftover.json`, "{}");
+    await b.put(graphManifestKey(), JSON.stringify({ ...rawManifest(b), resolverVersion: RESOLVER_VERSION - 2, building: stale }));
+    await pass(b);
+    assert.equal(rawManifest(b).building.generation, "3");
+    assert.equal(rawManifest(b).building.resolverVersion, RESOLVER_VERSION);
+    for (let i = 0; i < 12 && (rawManifest(b).generation !== "3" || rawManifest(b).collect); i += 1) await pass(paged(b));
+    assert.equal(rawManifest(b).generation, "3");
+    assert.equal(rawManifest(b).resolverVersion, RESOLVER_VERSION);
+    assert.deepEqual(keysUnder(b, generationPrefix("2")), [], "abandoned build collected");
+  }
+});
+
+test("graphHealth names the building generation, or null", async () => {
+  const b = bucket();
+  await seed(b);
+  await converge(b);
+  assert.equal((await graphHealth(b, big())).building, null);
+  await bump(b);
+  await pass(b);
+  const h = await graphHealth(b, big());
+  assert.equal(h.building, "2");
+  assert.equal(h.generation, "1");
+  await rebuildTo(b, "2");
+  assert.equal((await graphHealth(b, big())).building, null);
 });
