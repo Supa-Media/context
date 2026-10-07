@@ -249,6 +249,22 @@
  * switch rather than a deletion job.
  *
  * ----------------------------------------------------------------------------
+ * 2a'. THE OPTIONAL `meaningIndex` SIBLING — search by meaning
+ * ----------------------------------------------------------------------------
+ *
+ *   "meaningIndex": {
+ *       "indexName": "context-meaning-<workspace id>",
+ *       "accountId": "<cloudflare account id>",
+ *       "apiToken":  "<the same token as searchIndex>",   // radioactive
+ *       "state":     "backfilling" | "ready"
+ *   }
+ *
+ * `searchIndex`'s terms exactly: absent is ordinary, a partial descriptor is
+ * none, the token lives in one header (`search/meaning/client.js`), and the
+ * control plane stops sending it the moment the workspace turns it off. Sent
+ * while `backfilling` too, so a save during the catch-up pass reaches it.
+ *
+ * ----------------------------------------------------------------------------
  * THE REFRESH TOKEN NEVER CROSSES THIS BOUNDARY
  * ----------------------------------------------------------------------------
  *

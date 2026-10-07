@@ -91,6 +91,8 @@ export function createSessionMethods({ post, required }) {
       return {
         binding: required(parsed, "binding"),
         searchIndex: parsed.searchIndex ?? null,
+        // Search by meaning's index, `searchIndex`'s terms: absent until it takes writes.
+        meaningIndex: parsed.meaningIndex ?? null,
         encryptionKey: parsed.encryptionKey ?? null,
         rotation: parsed.rotation ?? null,
         // The free managed tier's note cap, a fifth sibling and absent for

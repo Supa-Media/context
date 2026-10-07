@@ -39,7 +39,7 @@
 
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
-import { readSearchIndexBinding } from "./search/d1/client.js";
+import { attachSearchIndexes } from "./search/storeIndexes.js";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -759,7 +759,7 @@ export async function storeForSession(session, env, controlPlane) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable("control plane");
     throw error;
   }
-  const { binding, searchIndex, encryptionKey, rotation, noteCap } = opened;
+  const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
@@ -819,12 +819,8 @@ export async function storeForSession(session, env, controlPlane) {
    * for every context in the product, which is what fast search was until
    * this line changed.
    */
-  Object.defineProperty(store, "searchIndex", {
-    value: readSearchIndexBinding({ searchIndex }),
-    enumerable: false,
-    writable: false,
-    configurable: true,
-  });
+  // And search by meaning's index beside it, on the same terms.
+  attachSearchIndexes(store, { searchIndex, meaningIndex }, env?.AI);
 
   /**
    * The key that opens this context's encrypted notes, for this request only.
@@ -916,12 +912,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
 
   const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding) });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
-  Object.defineProperty(store, "searchIndex", {
-    value: readSearchIndexBinding({ searchIndex: opened?.searchIndex }),
-    enumerable: false,
-    writable: false,
-    configurable: true,
-  });
+  attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex }, env?.AI);
   Object.defineProperty(store, "encryptionKey", {
     value: readEncryptionKey(opened?.encryptionKey),
     enumerable: false,

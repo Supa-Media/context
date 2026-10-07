@@ -34,6 +34,7 @@
 
 import { extractFields } from "../indexer.js";
 import { chunkText } from "../d1/project.js";
+import { indexableText } from "../../encryption.js";
 
 export const MEANING_PASSAGE_CHARS = 1_500;
 export const MEANING_PASSAGE_OVERLAP = 150;
@@ -69,7 +70,10 @@ export async function meaningIdsFor(path) {
  * has a title (its file name, `extractFields`'s fallback), so it yields one.
  */
 export function meaningPassages(path, content) {
-  const fields = extractFields(path, content);
+  // An encrypted note is its title and nothing else, exactly as fast search
+  // projects it (`d1/backfill.js`): no plaintext reaches an index we hold, and
+  // no ciphertext either, which would embed as noise.
+  const fields = extractFields(path, indexableText(typeof content === "string" ? content : ""));
   const title = typeof fields.title === "string" ? fields.title.trim() : "";
   const body = typeof fields.body === "string" ? fields.body.trim() : "";
   if (!title && !body) return [];

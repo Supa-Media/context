@@ -87,6 +87,9 @@ export async function gatewayBindingHandler(
   return json({
     binding: opened.binding,
     searchIndex: opened.searchIndex,
+    // Search by meaning's index, same terms as `searchIndex`: absent unless
+    // the workspace's index exists and takes writes.
+    meaningIndex: opened.meaningIndex,
     encryptionKey: opened.encryptionKey,
     // Fourth sibling, same terms: absent unless a rotation is in progress,
     // which is every context that has never rotated (all of them, before
