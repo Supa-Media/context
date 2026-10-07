@@ -25,6 +25,7 @@ import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
 import { useShownEntry } from "./browsePane/useShownEntry";
 import { useOrganizerView } from "../../organizer/OrganizerContext";
+import { useMapRoute } from "../map/live/MapRouteContext";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -291,6 +292,8 @@ export function BrowsePane({
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
   // What changed draws where the document would (`BrowseDocument`).
   const organizerPage = useOrganizerView()?.pageOpen === true;
+  // And so does the live map, filling the slot (`?map=1`).
+  const mapPage = useMapRoute()?.open === true && current != null;
 
   const handleOpenComms =
     onOpenComms ??
@@ -363,7 +366,8 @@ export function BrowsePane({
         (`home/phoneBack.ts`, owner's review 2026-10-01) — the path row that did
         it before is gone, and `pathBar` below is only who else is in the note.
       */}
-      {selected !== null && settled && !compact ? (
+      {/* Not over the map: it names the note under it, which is not on screen. */}
+      {selected !== null && settled && !compact && !mapPage ? (
         <BrowseNoteHead
           files={files}
           selected={selected}
@@ -445,6 +449,7 @@ export function BrowsePane({
         notices={notices}
         pathBar={pathBar}
         page={organizerPage}
+        fill={mapPage}
       />
 
       {/*

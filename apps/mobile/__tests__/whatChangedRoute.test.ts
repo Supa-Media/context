@@ -63,7 +63,7 @@ describe("routing", () => {
     routed.openPage();
     routed.closePage();
     expect(closed).toEqual([]);
-    expect(params).toEqual([{ changes: "1", settings: undefined }, { changes: undefined }]);
+    expect(params).toEqual([{ changes: "1", settings: undefined, map: undefined }, { changes: undefined }]);
   });
 
   test("looking over the suggestions, from anywhere, is the page on its Tidy up tab", () => {
@@ -72,7 +72,7 @@ describe("routing", () => {
     const routed = routeOrganizer(view(STATUS, tabs), { setParams: (p: Record<string, unknown>) => params.push(p) } as never);
     routed.openReview({ closeSettings: true });
     expect(tabs).toEqual(["tidy"]);
-    expect(params).toEqual([{ changes: "1", settings: undefined }]);
+    expect(params).toEqual([{ changes: "1", settings: undefined, map: undefined }]);
   });
 
   test("the page is open only for somebody who sees suggestions", () => {

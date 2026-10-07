@@ -38,11 +38,11 @@ export function routeOrganizer(
     // Every "look over the suggestions" is What changed, on its Tidy up tab.
     openReview: () => {
       organizer.openReview();
-      router.setParams({ changes: "1", settings: undefined });
+      router.setParams({ changes: "1", settings: undefined, map: undefined });
     },
     openSettings: () => router.setParams({ settings: "premium" }),
     pageOpen: changesOpen && changesCount(organizer.status) !== null,
-    openPage: () => router.setParams({ changes: "1", settings: undefined }),
+    openPage: () => router.setParams({ changes: "1", settings: undefined, map: undefined }),
     closePage: () => router.setParams({ changes: undefined }),
   };
 }

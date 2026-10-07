@@ -23,9 +23,7 @@ import { attachInput } from "./input";
 import type { IslandPlace } from "./layout";
 import { buildModel, createMemory, type MapData } from "./model";
 import { noteKey } from "./paths";
-import { NARROW, renderMap } from "./draw/render";
-import { FACES_APART_PX } from "./lod";
-import { SPACING } from "./pack";
+import { renderMap } from "./draw/render";
 import { DEFAULT_FONT, type FaceFor, type Style } from "./draw/primitives";
 import { sceneAt, type Model, type SceneAt } from "./scene";
 import { focusTarget, followSnapshot, type FollowState } from "./follow";
@@ -133,14 +131,24 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     if (model!.scope.kind === "all") return fitAll(vp, layout);
     const island = layout.islands[0];
     if (!island) return { x: 0, y: 0, s: 1 };
-    const fit = fitIsland(vp, island);
-    // A phone frames the middle of the workspace close enough to see faces, not all of it.
-    if (visibleRect(vp).w < NARROW) return { ...fit, s: Math.max(fit.s, (FACES_APART_PX + 2) / SPACING) };
-    return fit;
+    // The whole workspace, on a phone too: where everybody is matters more
+    // than seeing one folder's faces apart, and a pinch is one gesture away.
+    return fitIsland(vp, island);
+  };
+
+  // Whether the camera is still the map's own framing: the covered parts (a
+  // phone's sheet, the overlays) are measured late, so an unmoved camera is
+  // framed again when they change, and a moved one stays where it was put.
+  let autoFit = false;
+  const refit = () => {
+    if (!autoFit || !model || !cam) return;
+    cam = fitCam();
+    flight = null;
   };
 
   const flyTo = (to: Cam) => {
     if (!model) return;
+    autoFit = false;
     const target = clampScale(model.layout, vp, to, model.scope);
     const from = currentCam();
     if (reduced || !from) {
@@ -243,6 +251,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   // Gestures.
   const detach = attachInput(canvas, {
     grab: () => {
+      autoFit = false;
       if (flight) {
         cam = currentCam();
         flight = null;
@@ -250,6 +259,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     pan: (dx, dy) => {
       if (!model || !cam) return;
+      autoFit = false;
       if (model.view === "folders") {
         foldersScroll = Math.max(0, Math.min(foldersScroll - dx, Math.max(0, foldersWidth - visibleRect(vp).w)));
       } else {
@@ -259,6 +269,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     zoom: (factor, x, y) => {
       if (!model || !cam) return;
+      autoFit = false;
       if (model.view === "folders") return;
       const anchor = toWorld(cam, vp, { x, y });
       const next = clampScale(model.layout, vp, { ...cam, s: cam.s * factor }, model.scope);
@@ -331,6 +342,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       rebuild();
       if (!cam || scopeSig !== lastScope) {
         cam = fitCam();
+        autoFit = true;
         flight = null;
         foldersScroll = 0;
       }
@@ -343,7 +355,12 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       data = { ...data, clock };
       if (clock.kind === "replay") replayAt = clock.at;
       if (wasLive !== (clock.kind === "live")) rebuild();
-      else if (model) model = { ...model, speed: clock.kind === "replay" ? clock.speed : 1 };
+      else if (model)
+        model = {
+          ...model,
+          speed: clock.kind === "replay" ? clock.speed : 1,
+          idleMs: clock.kind === "replay" && clock.idleMs !== undefined ? clock.idleMs : (options.idleMs ?? 600_000),
+        };
       wake();
     },
     setPlaying(next) {
@@ -378,7 +395,9 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       flyTo(camForLevel(model.layout, vp, currentCam() ?? cam, model.scope, level));
     },
     fit() {
-      if (model) flyTo(fitCam());
+      if (!model) return;
+      flyTo(fitCam());
+      autoFit = true;
     },
     focusPath(workspaceId, path) {
       if (!model) return;
@@ -413,10 +432,13 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         const k = Math.min(visibleRect(vp).w, visibleRect(vp).h) / Math.min(visibleRect(prev).w, visibleRect(prev).h);
         cam = { ...cam, s: cam.s * (Number.isFinite(k) && k > 0 ? k : 1) };
       }
+      refit();
       tick();
     },
     setInset(inset) {
+      const same = vp.inset.top === inset.top && vp.inset.right === inset.right && vp.inset.bottom === inset.bottom && vp.inset.left === inset.left;
       vp = { ...vp, inset };
+      if (!same) refit();
       wake();
     },
     setReducedMotion(next) {

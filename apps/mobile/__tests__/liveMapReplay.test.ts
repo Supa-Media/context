@@ -197,4 +197,20 @@ describe("the replayed scene", () => {
     const s = sceneAt(model(), T0 + 10 * MIN);
     expect(s.followReads.map((n) => n.path)).toEqual(["1-projects/launch/plan.md", "2-areas/health.md"]);
   });
+
+  test("the clock's idle window keeps people on the map between steps", () => {
+    // Half an hour after the last step: gone at the engine's ten minutes, still
+    // there when the replay says somebody stays half an hour.
+    const t = T0 + 35 * MIN;
+    expect(sceneAt(model(), t).actors).toEqual([]);
+    const long = { ...data(60), clock: { kind: "replay", from: T0, to: T0 + 60 * MIN, at: T0, speed: 60, idleMs: 30 * MIN } as MapClock };
+    const m = buildModel(long, createMemory(), T0, { idleMs: 10 * MIN, reducedMotion: false, following: null });
+    expect(m.idleMs).toBe(30 * MIN);
+    expect(sceneAt(m, t).actors.map((a) => a.id).sort()).toEqual(
+      actorsAt(events, t, 30 * MIN)
+        .map((a) => a.id)
+        .sort(),
+    );
+    expect(sceneAt(m, t).actors.length).toBeGreaterThan(0);
+  });
 });

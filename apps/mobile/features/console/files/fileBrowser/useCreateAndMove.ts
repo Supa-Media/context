@@ -24,6 +24,7 @@ import {
   parentPath,
 } from "../paths";
 import { findEntry, namesIn } from "../tree";
+import { announceDid } from "../../map/live/announce";
 import {
   applyFolderCreate,
   applyMove,
@@ -326,6 +327,8 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
       const undoDraw = follows ? drawListingMove(path, to) : drawMove(path, to);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
+        // Drawn on the live map: a move made here reaches no tool call's record.
+        announceDid(workspaceId ?? null, { kind: "move", from: path, to });
         return {
           ...result,
           message: `Moved to ${folderLabel(destinationFolder)}.`,

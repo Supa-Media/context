@@ -70,6 +70,7 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * a cap: the page is at least the region tall and longer when its content is.
    */
   page: { flex: 1, minHeight: 0 },
+  fill: { flex: 1, minHeight: 0 },
   pageContent: { flexGrow: 1, padding: space.x4 },
   /**
    * The phone's page scroller: full-bleed, with the chrome paid for in content

@@ -8,6 +8,9 @@ import type { classifyCommsPath } from "../../communications/paths";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
 
+/** The phone slide's key for the map: no path can be it (`phoneBack.ts` reads it). */
+export const MAP_PAGE_KEY = "\u0000map";
+
 /**
  * Where the document goes: into its own scroller, into the phone's page
  * scroller with the path and the notices above it, or into the pointer
@@ -22,6 +25,7 @@ export function DocumentSurface({
   notices,
   pathBar,
   page = false,
+  fill = false,
 }: {
   selected: ReturnType<typeof entryAt>;
   compact: boolean;
@@ -35,6 +39,13 @@ export function DocumentSurface({
    * page scroller whatever is selected under it, since it brings none of its own.
    */
   page?: boolean;
+  /**
+   * A page that fills the slot edge to edge and scrolls nothing (the live
+   * map): no page scroller, no reading margin. On a phone it is still one
+   * slide, and it stops at the top bar and the toolbar rather than passing
+   * under them, since a canvas cannot pay for chrome in content padding.
+   */
+  fill?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   /**
@@ -81,6 +92,23 @@ export function DocumentSurface({
     !page &&
     selected !== null &&
     (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
+
+  if (fill) {
+    return compact ? (
+      <PageSlide pageKey={MAP_PAGE_KEY} directionOf={slideDirection} testID="page-slide">
+        <ScreenViewport padding={padding}>
+          <View style={[styles.fill, { paddingTop: padding.content.top, paddingBottom: padding.content.bottom }]}>
+            {openDocument}
+          </View>
+        </ScreenViewport>
+      </PageSlide>
+    ) : (
+      <>
+        {notices}
+        <View style={styles.fill}>{openDocument}</View>
+      </>
+    );
+  }
 
   return (
     <>
