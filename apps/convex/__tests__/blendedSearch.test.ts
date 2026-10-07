@@ -170,6 +170,18 @@ describe("blending several ranked lists", () => {
     expect(fuse([a, b]).length).toBe(2);
     expect(fuse([a, a]).length).toBe(1);
   });
+
+  test("a note found by meaning alone keeps its mark through the blend", () => {
+    const a = {
+      ...source("a", 2),
+      hits: [
+        { path: "1-projects/plan.md", title: "Plan", snippets: ["words"] },
+        { path: "1-projects/garden.md", title: "Garden", snippets: ["tomatoes"], meaningOnly: true },
+      ],
+    };
+    const marks = Object.fromEntries(fuse([a]).map((row) => [row.path, row.meaningOnly]));
+    expect(marks).toEqual({ "1-projects/plan.md": false, "1-projects/garden.md": true });
+  });
 });
 
 describe("paging across sources", () => {

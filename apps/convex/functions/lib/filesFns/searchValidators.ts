@@ -101,6 +101,8 @@ export const blendedResultsValidator = v.object({
       title: v.string(),
       /** The explanatory line, or `""` where the index had none to give. */
       snippet: v.string(),
+      /** Found by meaning alone: shown as "Same topic, different words". */
+      meaningOnly: v.optional(v.boolean()),
     }),
   ),
   /** Visible matches across every context asked. A floor when any source's is. */

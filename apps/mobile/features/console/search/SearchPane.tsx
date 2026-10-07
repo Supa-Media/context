@@ -20,6 +20,7 @@ import {
   type UpsellRow,
   type UpsellTarget,
 } from "./results";
+import { MEANING_ONLY_LABEL } from "../files/palette";
 import { useBlendedSearch, type BlendedDeviceSearch } from "./useBlendedSearch";
 import { useFieldFont } from "../../design/fieldFont";
 
@@ -327,6 +328,11 @@ export function SearchPane({
                 <Text variant="tree" numberOfLines={1} style={styles.rowTitle}>
                   {row.title}
                 </Text>
+                {row.meaningOnly ? (
+                  <Text variant="treeMeta" numberOfLines={1} style={styles.meaningOnly} testID="search-meaning-only">
+                    {MEANING_ONLY_LABEL}
+                  </Text>
+                ) : null}
               </View>
               <Text variant="treeMeta" numberOfLines={1}>
                 {folderOf(row.path) || row.path}
@@ -436,6 +442,7 @@ const makeStyles = (colors: Colors) =>
     row: { gap: space.x1, paddingVertical: space.x2, paddingHorizontal: space.x2 },
     rowHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     rowTitle: { flexShrink: 1 },
+    meaningOnly: { marginLeft: "auto", color: colors.text2 },
     snippet: { color: colors.text2 },
     upsell: {
       gap: space.x1,
