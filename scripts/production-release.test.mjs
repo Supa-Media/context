@@ -53,7 +53,17 @@ test('only staging can deploy automatically; production services share one manua
   assert.match(production, /web:\s+needs: validate/);
   assert.match(production, /uses: \.\/\.github\/workflows\/build-web\.yml/);
   assert.match(production, /router:\s+needs: \[validate, convex, gateway, email, transcribe, egress, web\]/);
-  assert.match(production, /mobile-update:\s+needs: \[validate, convex, gateway, email, transcribe, egress\]/);
+  assert.match(production, /mobile-update:\s+needs: \[validate, convex, gateway, email, transcribe, egress, mobile-bundle\]/);
+  // The OTA bundle exports beside the backends; only the upload waits for them,
+  // and it publishes that exact export rather than re-bundling.
+  assert.match(production, /mobile-bundle:\s+needs: validate\n/);
+  const ota = readFileSync(new URL('deploy-mobile-update.yml', dir), 'utf8');
+  assert.match(ota, /eas update --branch production --skip-bundler --input-dir dist/);
+  assert.match(ota, /expo export --output-dir dist --dump-sourcemap --dump-assetmap --platform ios --platform android/);
+  const staging = readFileSync(new URL('deploy-staging.yml', dir), 'utf8');
+  assert.match(staging, /ota:\n    name: Publish OTA\n    needs: \[plan, convex, workers, ota-bundle\]/);
+  assert.match(staging, /ota-bundle:\n    name: Build OTA bundle\n    needs: plan\n/);
+  assert.match(staging, /eas update --branch staging --skip-bundler --input-dir dist/);
   // Every deploy job waits on the staging check, directly or through Convex.
   const jobs = production.split(/^  (?=[a-z-]+:$)/m).slice(2);
   assert.ok(jobs.length >= 9, 'expected every component job after validate');
