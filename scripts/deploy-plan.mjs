@@ -116,6 +116,7 @@ export const TARGETS = {
       gateway: { packages: ["@context/mcp", "@context/site-shots"], files: [workflow("deploy-mcp")] },
       email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
+      agent: { packages: ["@context/agent"], files: [workflow("deploy-agent-worker")] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
       sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },
       // The router publishes the web export as one Worker version. Either
@@ -131,9 +132,7 @@ export const TARGETS = {
       ota: { packages: ["@context/mobile"], files: [workflow("deploy-mobile-update")] },
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-production")],
-    // The texting assistant runs on staging only until the owner signs off on
-    // Linq carrying message text (docs/decisions/texting-assistant.md).
-    ignored: [...SHARED_IGNORED, "apps/agent/**"],
+    ignored: SHARED_IGNORED,
   },
 };
 

@@ -6,7 +6,9 @@
  * - `link ABC123` links this phone to the account that the code was shown to.
  * - `unlink` disconnects this phone from whichever account it answers from.
  * - From a phone nobody linked, the reply is a sign-in link that shows the
- *   code to text back, and nothing about whether any account exists.
+ *   code to text back, and nothing about whether any account exists. The link
+ *   goes out as a text of its own, because iMessage draws a link card only for
+ *   a message that is nothing but the link.
  * - From a linked phone, the gateway answers with that person's own grant.
  */
 
@@ -43,8 +45,10 @@ export const COPY = {
     `You're connected to @${handle}'s Context. Text me anything and I'll answer from your notes. If that isn't your account, text UNLINK.`,
   linkRefused:
     "That code didn't work. Codes expire after 10 minutes, so open the link again for a fresh one, or text me anything for a new link.",
-  unlinked: (url: string) =>
-    `Hi, I'm your Context. Tap this link to connect your account, then text me the code it shows you:\n${url}`,
+  unlinked: (url: string) => [
+    "Hi, I'm your Context. Tap the link below to connect your account, then text me the code it shows you.",
+    url,
+  ],
   unlinkedNoLink:
     "Hi, I'm your Context. Text me again in a little while and I'll send you a link to connect your account.",
   unlinkDone: "Done. This phone is no longer connected to your Context. Text me anytime to connect again.",
@@ -61,7 +65,13 @@ export function linkCode(text: string): string | null {
   return match ? match[1].toUpperCase() : null;
 }
 
-export async function replyTo(message: Message, deps: ReplyDeps): Promise<string> {
+/** The texts to send back, in order: usually one, two when one of them is a link. */
+export async function replyTo(message: Message, deps: ReplyDeps): Promise<string[]> {
+  const reply = await answer(message, deps);
+  return typeof reply === "string" ? [reply] : reply;
+}
+
+async function answer(message: Message, deps: ReplyDeps): Promise<string | string[]> {
   try {
     const code = linkCode(message.text);
     if (code) {

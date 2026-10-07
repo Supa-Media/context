@@ -569,7 +569,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A phone is linked by texting back a code, and the link only shows it
 - Only iMessage is answered, because the sender number is the login
 - The Worker holds message text only while it is answering it
-- OPEN: messages pass through Linq
+- Messages pass through Linq
 - The autofill vault lives sealed in the person's bucket
 - The built-in model is for Premium, capped, and metered like Jev
 - The agent opens only addresses it was given

@@ -61,8 +61,8 @@ describe("replyTo", () => {
         seen,
       ),
     );
-    expect(reply).toBe(COPY.linked("ada"));
-    expect(reply).toContain("@ada");
+    expect(reply).toEqual([COPY.linked("ada")]);
+    expect(reply[0]).toContain("@ada");
     expect(seen).toEqual(["/agent-texts/link"]);
   });
 
@@ -71,7 +71,7 @@ describe("replyTo", () => {
       message("link ABCD2345"),
       deps({ "/agent-texts/link": () => [200, { status: "refused" }] }),
     );
-    expect(reply).toBe(COPY.linkRefused);
+    expect(reply).toEqual([COPY.linkRefused]);
   });
 
   it("texts an unlinked phone a sign-in link, without calling the gateway", async () => {
@@ -91,9 +91,11 @@ describe("replyTo", () => {
         seen,
       ),
     );
-    expect(reply).toBe(COPY.unlinked(url));
-    expect(reply).toContain(url);
-    expect(reply).not.toContain("Settings");
+    // The link is a text on its own, so iMessage draws it as a link card.
+    expect(reply).toEqual(COPY.unlinked(url));
+    expect(reply).toHaveLength(2);
+    expect(reply[1]).toBe(url);
+    expect(reply.join(" ")).not.toContain("Settings");
     expect(seen).toEqual(["/agent-texts/session", "/agent-texts/invite"]);
   });
 
@@ -106,7 +108,7 @@ describe("replyTo", () => {
           "/agent-texts/invite": () => [200, answer],
         }),
       );
-      expect(reply).toBe(COPY.unlinkedNoLink);
+      expect(reply).toEqual([COPY.unlinkedNoLink]);
     }
   });
 
@@ -125,7 +127,7 @@ describe("replyTo", () => {
           seen,
         ),
       );
-      expect(reply).toBe(copy);
+      expect(reply).toEqual([copy]);
       expect(seen).toEqual(["/agent-texts/unlink"]);
     }
   });
@@ -138,7 +140,7 @@ describe("replyTo", () => {
         "/agent": () => [200, { answer: "Text UNLINK." }],
       }),
     );
-    expect(reply).toBe("Text UNLINK.");
+    expect(reply).toEqual(["Text UNLINK."]);
   });
 
   it("answers a linked phone through the gateway with that person's grant", async () => {
@@ -153,7 +155,7 @@ describe("replyTo", () => {
         },
       }),
     );
-    expect(reply).toBe("Three things.");
+    expect(reply).toEqual(["Three things."]);
   });
 
   it("says no model is connected when the gateway refuses for that reason", async () => {
@@ -164,7 +166,7 @@ describe("replyTo", () => {
         "/agent": () => [409, { error: "no_provider" }],
       }),
     );
-    expect(reply).toBe(COPY.noModel);
+    expect(reply).toEqual([COPY.noModel]);
   });
 
   it("says today's questions are used up when the built-in model's cap is reached", async () => {
@@ -175,16 +177,16 @@ describe("replyTo", () => {
         "/agent": () => [429, { error: "daily_limit" }],
       }),
     );
-    expect(reply).toBe(COPY.dailyLimit);
+    expect(reply).toEqual([COPY.dailyLimit]);
   });
 
   it("says something went wrong when the control plane or gateway fails", async () => {
-    expect(await replyTo(message("hi"), deps({ "/agent-texts/session": () => [500, {}] }))).toBe(
+    expect(await replyTo(message("hi"), deps({ "/agent-texts/session": () => [500, {}] }))).toEqual([
       COPY.unavailable,
-    );
-    expect(await replyTo(message("link ABCD2345"), deps({ "/agent-texts/link": () => [502, {}] }))).toBe(
+    ]);
+    expect(await replyTo(message("link ABCD2345"), deps({ "/agent-texts/link": () => [502, {}] }))).toEqual([
       COPY.unavailable,
-    );
+    ]);
     expect(
       await replyTo(
         message("hi"),
@@ -193,6 +195,6 @@ describe("replyTo", () => {
           "/agent": () => [500, {}],
         }),
       ),
-    ).toBe(COPY.unavailable);
+    ).toEqual([COPY.unavailable]);
   });
 });
