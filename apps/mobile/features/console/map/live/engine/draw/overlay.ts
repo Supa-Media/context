@@ -11,6 +11,7 @@ import {
   drawFace,
   drawFlag,
   circle,
+  fillText,
   flagSize,
   fontOf,
   haloText,
@@ -150,7 +151,7 @@ export function drawFlights(env: DrawEnv): void {
           ctx.stroke();
           ctx.fillStyle = C.text2;
           ctx.textAlign = "center";
-          ctx.fillText(text, p.x, p.y + 33);
+          fillText(ctx, text, p.x, p.y + 33);
         }
         env.hit.rect({ x: p.x - w / 2, y: p.y - 15, w, h: 30 }, { kind: "note", workspaceId: fl.to.workspaceId, path: fl.to.path }, LAYER.card);
       } else {

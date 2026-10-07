@@ -1,3 +1,5 @@
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+
 import type { MapPalette } from "../palette";
 
 /**
@@ -21,6 +23,22 @@ export type Style = {
 export const DEFAULT_FONT = '"Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 export const fontOf = (style: Style, size: number, weight = 500): string => `${weight} ${size}px ${style.font}`;
+
+/**
+ * The map's only way to put words on the canvas. Note titles, folder and
+ * workspace names and people's names come out of buckets and accounts we do
+ * not control, and canvas text runs the bidi algorithm like any other: one
+ * U+202E in a filename would reverse the map's own words after it ("Jon is
+ * moving it"). Contained here, at the exit, after any truncation (`fitText`),
+ * so a cut never takes the closing isolate off.
+ */
+export function fillText(ctx: Ctx, text: string, x: number, y: number): void {
+  ctx.fillText(isolateForDisplay(text), x, y);
+}
+
+export function strokeText(ctx: Ctx, text: string, x: number, y: number): void {
+  ctx.strokeText(isolateForDisplay(text), x, y);
+}
 
 /** The radius a face is drawn at, before scaling. */
 export const FACE_R = 13;
@@ -163,11 +181,11 @@ export function drawFlag(ctx: Ctx, style: Style, x: number, y: number, text: str
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = C.text;
   ctx.font = fontOf(style, 12, 600);
-  ctx.fillText(text, x + 8, y + 15);
+  fillText(ctx, text, x + 8, y + 15);
   if (sub) {
     ctx.fillStyle = C.dim;
     ctx.font = fontOf(style, 10.5, 500);
-    ctx.fillText(sub, x + 8, y + 28);
+    fillText(ctx, sub, x + 8, y + 28);
   }
 }
 
@@ -189,9 +207,9 @@ export function haloText(
   ctx.lineJoin = "round";
   ctx.lineWidth = 4;
   ctx.strokeStyle = halo;
-  ctx.strokeText(text, x, y);
+  strokeText(ctx, text, x, y);
   ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
+  fillText(ctx, text, x, y);
 }
 
 /** The small page icon cards and chips carry. */
@@ -239,11 +257,11 @@ export function drawCard(
   ctx.font = fontOf(style, 13, 500);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.fillText(fitText(ctx, title, w - (state === "new" ? 76 : 44)), x + 30, y + 20.5);
+  fillText(ctx, fitText(ctx, title, w - (state === "new" ? 76 : 44)), x + 30, y + 20.5);
   if (state === "new") {
     ctx.fillStyle = C.accent;
     ctx.font = fontOf(style, 10, 700);
     ctx.textAlign = "right";
-    ctx.fillText("NEW", x + w - 10, y + 20);
+    fillText(ctx, "NEW", x + w - 10, y + 20);
   }
 }

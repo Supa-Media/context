@@ -12,7 +12,7 @@ import {
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import type { DrawEnv } from "./env";
-import { circle, fontOf, haloText, roundRect } from "./primitives";
+import { circle, fillText, fontOf, haloText, roundRect } from "./primitives";
 
 /**
  * The map's ground layers, back to front: workspaces, the paths between
@@ -114,7 +114,7 @@ function drawHighways(env: DrawEnv): void {
     ctx.fillStyle = h.bump > 0 ? C.ground : C.text2;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, mx, my + 0.5);
+    fillText(ctx, text, mx, my + 0.5);
     ctx.textBaseline = "alphabetic";
     env.occ.claim({ x: mx - w / 2, y: my - 12, w, h: 24 });
     ctx.globalAlpha = 1;
@@ -335,11 +335,11 @@ export function drawContainerLabels(env: DrawEnv): void {
         const y = p.y - pr - 22;
         ctx.font = fontOf(style, 15, 700);
         ctx.fillStyle = C.text;
-        ctx.fillText(island.name, p.x, y);
+        fillText(ctx, island.name, p.x, y);
         ctx.font = fontOf(style, 12, 500);
         ctx.fillStyle = C.dim;
         const total = env.counts.get(island.workspaceId) ?? 0;
-        ctx.fillText(`${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`, p.x, y + 16);
+        fillText(ctx, `${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`, p.x, y + 16);
         const w = Math.max(ctx.measureText(island.name).width, 80);
         env.occ.claim({ x: p.x - w / 2, y: y - 15, w, h: 34 });
         ctx.globalAlpha = 1;

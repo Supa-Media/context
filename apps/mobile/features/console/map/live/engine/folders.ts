@@ -5,7 +5,7 @@ import { clamp, ease, lerp } from "./math";
 import { noteKey, splitPath } from "./paths";
 import type { Model, SceneAt } from "./scene";
 import { moveTarget, presentAt } from "./timeline";
-import { drawCard, drawFace, drawFlag, flagSize, fontOf, roundRect, type Ctx, type Style } from "./draw/primitives";
+import { drawCard, drawFace, drawFlag, fillText, flagSize, fontOf, roundRect, type Ctx, type Style } from "./draw/primitives";
 
 /**
  * The Folders view: the same notes as columns, one per root folder, PARA
@@ -153,7 +153,7 @@ export function renderFolders(
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = C.muted;
-    ctx.fillText(lane.folder.label.toUpperCase(), lane.x + 14, lane.y + 28);
+    fillText(ctx, lane.folder.label.toUpperCase(), lane.x + 14, lane.y + 28);
     const b = bumps.get(lane.folder.name) ?? 0;
     const text = String(shownCount);
     ctx.font = fontOf(style, 13, 700);
@@ -163,7 +163,7 @@ export function renderFolders(
     ctx.fill();
     ctx.fillStyle = b > 0 ? C.ground : C.text2;
     ctx.textAlign = "center";
-    ctx.fillText(text, lane.x + lane.w - 14 - cw / 2, lane.y + 27 - b * 3);
+    fillText(ctx, text, lane.x + lane.w - 14 - cw / 2, lane.y + 27 - b * 3);
     // Cards.
     let y = 0;
     let drawn = 0;
@@ -184,7 +184,7 @@ export function renderFolders(
       ctx.font = fontOf(style, 11.5, 500);
       ctx.fillStyle = C.dim;
       ctx.textAlign = "left";
-      ctx.fillText(`+ ${more} more`, lane.x + 14, slotY(lane, y) + 20);
+      fillText(ctx, `+ ${more} more`, lane.x + 14, slotY(lane, y) + 20);
     }
   }
 

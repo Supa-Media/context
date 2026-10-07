@@ -7,7 +7,7 @@ import type { Model, SceneAt } from "../scene";
 import { drawContainerLabels, drawGround, drawLinks, drawNotes } from "./base";
 import { countPresent, type DrawEnv } from "./env";
 import { drawActors, drawFlights, drawReading, placeFacesAndLabels } from "./overlay";
-import { circle, fontOf, roundRect, type Ctx, type Style } from "./primitives";
+import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
 
 /** Below this width the map behaves like a phone: anything that does not fit is dropped. */
 export const NARROW = 560;
@@ -114,7 +114,7 @@ function drawMinimap(env: DrawEnv, r: { x: number; y: number; w: number; h: numb
       ctx.fillStyle = C.dim;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(island.name, X(island.x), Y(island.y));
+      fillText(ctx, island.name, X(island.x), Y(island.y));
       ctx.textBaseline = "alphabetic";
     } else {
       for (const f of island.folders) {
