@@ -33,8 +33,6 @@ import { runLinkToolChecks } from "./linkTools.test.mjs";
 import { runSiteActionChecks } from "./siteActions.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
-import { runMoveWithoutConditionalDeleteChecks } from "./moveWithoutConditionalDelete.test.mjs";
-import { runBulkFolderMoveVisibilityChecks } from "./bulkFolderMoveVisibility.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runActivityChecks } from "./activity.test.mjs";
@@ -308,10 +306,9 @@ await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, co
 await suite("runTenancyChecks", () => runTenancyChecks(check));
 await suite("runDropboxFolderChecks", () => runDropboxFolderChecks(check));
 await suite("runCrossContextChecks", () => runCrossContextChecks(check));
-await suite("runMoveWithoutConditionalDeleteChecks", () => runMoveWithoutConditionalDeleteChecks(check));
-// Its own control plane and S3 backend, so it swaps globalThis.fetch and
-// restores it — same rule as the tenancy suite above.
-await suite("runBulkFolderMoveVisibilityChecks", () => runBulkFolderMoveVisibilityChecks(check));
+// The two bulk-move suites (thousands of objects through the real S3 signing
+// path) run from test/bulkMoves.mjs, in their own process beside this one;
+// see test/run.mjs.
 // The arguments of a tool call, against the schema `tools/list` advertised for
 // it. Its own control plane and S3 backend, so — like the tenancy suite — it
 // swaps globalThis.fetch and restores it, and must not run while anything

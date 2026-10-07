@@ -62,8 +62,12 @@ export function createMemoryStore({ conditionalWrite = true } = {}) {
 
 export function base64Url(text) {
   const bytes = new TextEncoder().encode(text);
+  // In chunks: one `+=` per byte made the 25 MB attachment fixtures take
+  // ~9 s each to build.
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 

@@ -130,8 +130,9 @@ jobs:
         if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
-      # The package's own script, not `node test/test.mjs`: that entry is the
-      # first half of it, and the `node --test` half behind the `&&` — the tool
+      # The package's own script (test/run.mjs, which runs every entry point
+      # side by side), not `node test/test.mjs`: that entry is one of four, and
+      # the `node --test` half (`test:unit`) — the tool
       # annotations, the scope-info workspace set, the app-origin metadata, the
       # logical delete, the note cap, the store HEAD, the encrypted generation
       # footer, the gateway source guards and the OpenAI challenge — ran in no

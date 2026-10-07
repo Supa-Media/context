@@ -483,9 +483,15 @@ jobs:
   # `--dump-assetmap` and `--source-maps` are deliberately left off: this job
   # asks whether the bundle *builds*, and the deploy asks for the rest.
   native-bundle:
-    name: The native bundle still builds
+    name: The native bundle still builds (${{ matrix.platform }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # One platform per runner: the two exports share nothing but the install,
+    # and one runner doing both took ~104s of a ~137s job (2026-10-07).
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, android]
     steps:
       - uses: actions/checkout@v5
 
@@ -514,12 +520,12 @@ jobs:
       # A syntactically valid, deliberately unreachable host, as `editor-webkit`
       # uses: nothing in an export dials out, and a missing one would fail the
       # build for a reason that is not the one this job is asking about.
-      - name: Export the iOS and Android bundles
+      - name: Export the ${{ matrix.platform }} bundle
         if: steps.changes.outputs.mobile == 'true'
         working-directory: apps/mobile
         env:
           EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
-        run: pnpm exec expo export --platform ios --platform android --output-dir "$RUNNER_TEMP/native-bundle"
+        run: pnpm exec expo export --platform "${{ matrix.platform }}" --output-dir "$RUNNER_TEMP/native-bundle"
 
   # The Convex deploy's own `tsc` reads gateway JSDoc through fileOps.ts; the package
   # `tsc` does not, so a stranded `@param` block once passed PR CI and broke staging.
