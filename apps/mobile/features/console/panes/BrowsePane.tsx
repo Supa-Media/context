@@ -366,7 +366,8 @@ export function BrowsePane({
         (`home/phoneBack.ts`, owner's review 2026-10-01) — the path row that did
         it before is gone, and `pathBar` below is only who else is in the note.
       */}
-      {selected !== null && settled && !compact ? (
+      {/* Not over the map: it names the note under it, which is not on screen. */}
+      {selected !== null && settled && !compact && !mapPage ? (
         <BrowseNoteHead
           files={files}
           selected={selected}

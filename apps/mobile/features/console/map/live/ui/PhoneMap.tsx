@@ -6,7 +6,7 @@ import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MapPageState } from "../hooks/useMapPage";
 import { replayBadge } from "../replayClock";
-import { Breadcrumb, type CameraStore } from "./CanvasOverlay";
+import type { CameraStore } from "./CanvasOverlay";
 import { FollowPanel } from "./FollowPanel";
 import { MapBar } from "./MapBar";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
@@ -14,13 +14,13 @@ import { Feed, WorkingNow } from "./MapPanel";
 import { ReplayBar } from "./ReplayBar";
 
 /** Rows the folded sheet shows: what is happening now, and no more. */
-const FOLDED_ROWS = 2;
+const FOLDED_ROWS = 3;
 const OPEN_ROWS = 8;
 
 /**
  * The map on a phone: the canvas fills the screen, Live / Today / This week
  * float over its top, and a sheet at the bottom says who is working and on
- * what. The sheet folds to the faces and the latest two lines, and opens for
+ * what. The sheet folds to the faces and the latest three lines, and opens for
  * the rest; its height is handed to the engine as an inset, so the camera
  * fits the map into the part of the glass the sheet leaves. Pinch, pan and a
  * tap on a face are the engine's.
@@ -43,9 +43,6 @@ export function PhoneMap({ page, camera, onOpenNote }: { page: MapPageState; cam
             <Text style={styles.badgeText}>{replayBadge(page.replay.range, page.replay.speed)}</Text>
           </View>
         ) : null}
-      </View>
-      <View style={[styles.crumbs, { top: bar }]} pointerEvents="box-none">
-        <Breadcrumb store={camera} engine={() => page.engineRef.current} />
       </View>
       <View style={styles.sheet} onLayout={(e) => setSheet(Math.round(e.nativeEvent.layout.height))} testID="map-sheet">
         <Pressable
@@ -104,7 +101,6 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.text,
     },
     badgeText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.pageSurface },
-    crumbs: { position: "absolute", left: 0, right: 0, height: 60 },
     sheet: {
       position: "absolute",
       left: 0,

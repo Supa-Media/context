@@ -16,6 +16,7 @@ import {
   clockText,
   dayText,
   fractionOf,
+  placeMoments,
   replayBadge,
   replayReducer,
   replayTicks,
@@ -23,6 +24,7 @@ import {
   startReplay,
   type ReplayState,
 } from "../features/console/map/live/replayClock";
+import { tickLabels } from "../features/console/map/live/ui/zoomTicks";
 import { ev, para } from "./liveMapFixture";
 
 const at = (h: number, m = 0, day = 7) => new Date(2026, 9, day, h, m).getTime();
@@ -118,6 +120,39 @@ describe("the playhead", () => {
   });
 });
 
+describe("the marked moments over the bar", () => {
+  const at = (frac: number) => 1000 + frac * 1000;
+  const moments = (fracs: number[]) => fracs.map((f, i) => ({ at: at(f), label: `m${i}` }));
+
+  test("never overlap: a moment too close to both rows' last label is left out", () => {
+    const placed = placeMoments(moments([0.1, 0.12, 0.14, 0.5, 0.52]), 1000, 2000, 0.2);
+    expect(placed.map((p) => [p.label, p.row])).toEqual([
+      ["m0", 0],
+      ["m1", 1],
+      ["m3", 0],
+      ["m4", 1],
+    ]);
+    for (const row of [0, 1]) {
+      const fracs = placed.filter((p) => p.row === row).map((p) => p.frac);
+      for (let i = 1; i < fracs.length; i++) expect(fracs[i]! - fracs[i - 1]!).toBeGreaterThanOrEqual(0.2);
+    }
+  });
+
+  test("a label near the end reads leftward from its dot, and is kept clear of the one before it", () => {
+    // 0.35 apart, but the second reads leftward from 0.85, back over the first.
+    const placed = placeMoments(moments([0.5, 0.85]), 1000, 2000, 0.3);
+    expect(placed.map((p) => [p.label, p.row])).toEqual([
+      ["m0", 0],
+      ["m1", 1],
+    ]);
+  });
+
+  test("only what falls inside the window, at its place along it", () => {
+    const placed = placeMoments([{ at: 500, label: "before" }, { at: 1250, label: "in" }, { at: 2500, label: "after" }], 1000, 2000, 0.2);
+    expect(placed).toEqual([{ at: 1250, label: "in", frac: 0.25, row: 0 }]);
+  });
+});
+
 describe("the sidebar's counts follow the replay", () => {
   afterEach(() => setMapFolderCounts(null));
 
@@ -141,5 +176,18 @@ describe("the sidebar's counts follow the replay", () => {
     expect(mapFolderCount("ws-b", "0-inbox")).toBeNull();
     setMapFolderCounts(null);
     expect(mapFolderCount("ws-a", "0-inbox")).toBeNull();
+  });
+});
+
+describe("the zoom control's level names", () => {
+  test("stops too close together keep one name, and the level you are at wins", () => {
+    const stops = { all: 0, workspace: 0.4, folders: 0.8, notes: 0.9 };
+    expect([...tickLabels(["all", "workspace", "folders", "notes"], stops, "all", 0.16)]).toEqual(["all", "workspace", "folders"]);
+    expect([...tickLabels(["all", "workspace", "folders", "notes"], stops, "notes", 0.16)]).toEqual(["all", "workspace", "notes"]);
+  });
+
+  test("stops far enough apart are all named", () => {
+    const stops = { workspace: 0, folders: 0.5, notes: 1 };
+    expect([...tickLabels(["workspace", "folders", "notes"], stops, "workspace", 0.16)]).toEqual(["workspace", "folders", "notes"]);
   });
 });

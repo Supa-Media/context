@@ -229,7 +229,7 @@ export function useMapPage(data: ConsoleData) {
     events,
     feed,
     working,
-    workingLine: workingNowLine(working),
+    workingLine: workingNowLine(working, replaying),
     crossRows,
     bars,
     moments,

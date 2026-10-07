@@ -240,7 +240,7 @@ export function ExplorerToolbar({
         {mapRoute !== undefined && !(inBar && filtering) ? (
           <IconButton
             label={mapRoute.open ? "Close the map" : "Map"}
-            icon="constellation"
+            icon="liveMap"
             on={mapRoute.open}
             onPress={mapRoute.toggle}
             testID="explorer-map"

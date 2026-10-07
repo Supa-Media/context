@@ -374,7 +374,7 @@ function MapPlace({ onPress }: { onPress: () => void }) {
           style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
           testID="phone-home-map"
         >
-          <Icon name="constellation" size={20} color={colors.text2} />
+          <Icon name="liveMap" size={20} color={colors.text2} />
           <View style={styles.folderName}>
             <Text style={styles.rowTitle} numberOfLines={1}>
               Map

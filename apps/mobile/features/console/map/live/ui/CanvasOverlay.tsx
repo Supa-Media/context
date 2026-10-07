@@ -7,6 +7,7 @@ import { useThemedStyles, type Colors } from "../../../../design/theme";
 import type { CameraDetail, MapEngine } from "../engine";
 import type { ZoomLevel } from "../types";
 import { RoundButton } from "./controls";
+import { tickLabels } from "./zoomTicks";
 
 /**
  * Where the camera is, told by the engine on every frame it moves. A store
@@ -91,6 +92,7 @@ export function ZoomControl({ store, engine }: { store: CameraStore; engine: () 
   if (camera === null) return null;
   const levels = levelsOf(camera);
   const knob = Math.max(0, Math.min(1, camera.zoom));
+  const named = tickLabels(levels, camera.stops, camera.level, 0.16);
   return (
     <View style={styles.zoom} testID="map-zoom">
       <RoundButton icon="minus" label="Zoom out" onPress={() => engine()?.zoomOut()} size={28} testID="map-zoom-out" />
@@ -110,9 +112,11 @@ export function ZoomControl({ store, engine }: { store: CameraStore; engine: () 
               testID={`map-zoom-${level}`}
             >
               <View style={styles.stopDot} />
-              <Text style={[styles.stopText, here && styles.stopTextHere]} numberOfLines={1}>
-                {LEVEL_LABELS[level]}
-              </Text>
+              {named.has(level) ? (
+                <Text style={[styles.stopText, here && styles.stopTextHere]} numberOfLines={1}>
+                  {LEVEL_LABELS[level]}
+                </Text>
+              ) : null}
             </Pressable>
           );
         })}

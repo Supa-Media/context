@@ -12,6 +12,7 @@ type StatusIconName =
   | "gear"
   | "mic"
   | "constellation"
+  | "liveMap"
   | "exchange"
   | "share"
   | "sun"
@@ -43,6 +44,19 @@ export const statusIcons: Record<StatusIconName, DrawFn> = {
     dot("n1", u, c, { cx: 0.2, cy: 0.55, r: 0.1 }),
     dot("n2", u, c, { cx: 0.52, cy: 0.28, r: 0.1 }),
     dot("n3", u, c, { cx: 0.78, cy: 0.74, r: 0.1 }),
+  ],
+
+  /**
+   * The live map's button: three notes as rings, two links between them —
+   * the proposal's own mark. Rings rather than `constellation`'s dots, which
+   * close up into a blot at the sidebar's 15pt.
+   */
+  liveMap: (u, w, c) => [
+    bar("e1", u, w, c, { cx: 0.506, cy: 0.494, length: 0.3, angle: -45 }),
+    bar("e2", u, w, c, { cx: 0.528, cy: 0.728, length: 0.24, angle: 6 }),
+    ring("n1", u, w, c, { cx: 0.25, cy: 0.69, r: 0.14 }),
+    ring("n2", u, w, c, { cx: 0.75, cy: 0.28, r: 0.14 }),
+    ring("n3", u, w, c, { cx: 0.78, cy: 0.75, r: 0.11 }),
   ],
 
   exchange: (u, w, c) => [

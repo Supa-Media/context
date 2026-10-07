@@ -63,6 +63,7 @@ docs/shots/*.html
 # other `dist/` in this list.
 apps/mobile/web-build/
 apps/mobile/resume-shots/
+apps/mobile/live-map-shots/
 apps/mobile/e2e/webkit/playwright-report/
 apps/mobile/e2e/webkit/test-results/
 

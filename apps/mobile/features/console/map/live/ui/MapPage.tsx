@@ -12,10 +12,8 @@ import { MapBar } from "./MapBar";
 import { Feed, MapPanel, WorkingNow } from "./MapPanel";
 import { PhoneMap } from "./PhoneMap";
 import { ReplayBar } from "./ReplayBar";
+import { mapNotice, statusParts } from "./status";
 
-/** The two hints under the map; the second only where several workspaces are drawn. */
-export const ZOOM_HINT = "Scroll or pinch to zoom · double-click a folder to dive in";
-export const MEMBERSHIP_HINT = "You only see workspaces you belong to";
 
 /**
  * The live map, in the document slot: `?map=1` over Browse. The bar of
@@ -44,8 +42,12 @@ function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: 
         <View style={styles.column}>
           <View style={styles.canvasBox}>
             <MapCanvas page={page} camera={camera} onOpenNote={onOpenNote} />
-            <Breadcrumb store={camera} engine={() => page.engineRef.current} />
-            <ZoomControl store={camera} engine={() => page.engineRef.current} />
+            {page.view === "map" ? (
+              <>
+                <Breadcrumb store={camera} engine={() => page.engineRef.current} />
+                <ZoomControl store={camera} engine={() => page.engineRef.current} />
+              </>
+            ) : null}
             {page.replaying && page.replay !== null ? (
               <View style={styles.badge} pointerEvents="none" testID="map-replay-badge">
                 <Text style={styles.badgeText}>{replayBadge(page.replay.range, page.replay.speed)}</Text>
@@ -62,17 +64,6 @@ function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: 
   );
 }
 
-/** What the map cannot draw yet, said over it rather than left as an empty canvas. */
-export function mapNotice(page: Pick<MapPageState, "graphs" | "historyLoading" | "data">): string | null {
-  if (page.graphs.loading && page.graphs.graphs.length === 0) return "Drawing the map…";
-  if (page.historyLoading) return "Gathering what happened…";
-  const notes = page.data.graphs.reduce((n, g) => n + g.nodes.length, 0);
-  if (notes === 0) return "No notes to draw here yet.";
-  if (page.graphs.partial.indexMissing) return "This workspace's map is still being built.";
-  if (page.graphs.partial.truncated) return "This workspace is too big to draw every note; the map shows the first part of it.";
-  if (page.graphs.partial.behind) return "The map is catching up with the latest changes.";
-  return null;
-}
 
 function MapNotice({ page }: { page: MapPageState }) {
   const styles = useThemedStyles(makeStyles);
@@ -85,29 +76,6 @@ function MapNotice({ page }: { page: MapPageState }) {
   );
 }
 
-/** "Map · Supa · 412 notes", and the hints for what the pointer can do. */
-export function statusParts(page: Pick<MapPageState, "data" | "follow" | "view" | "scope" | "many" | "selected" | "events" | "t">): {
-  left: string[];
-  right: string[];
-} {
-  const view = page.view === "folders" ? "Folders" : "Map";
-  const notes = page.data.graphs.reduce((n, g) => n + g.nodes.length, 0);
-  const all = page.scope === "all" && page.many;
-  const where = all ? "All workspaces" : (page.selected?.displayName ?? "This workspace");
-  const detail =
-    page.follow !== null
-      ? `Following ${page.follow.name}`
-      : page.view === "folders"
-        ? `Moved today: ${movedToday(page.events, page.t)}`
-        : `${where} · ${notes.toLocaleString("en-US")} ${notes === 1 ? "note" : "notes"}`;
-  return { left: [view, detail], right: all ? [MEMBERSHIP_HINT, ZOOM_HINT] : [ZOOM_HINT] };
-}
-
-function movedToday(events: MapPageState["events"], t: number): number {
-  const day = new Date(t);
-  day.setHours(0, 0, 0, 0);
-  return events.filter((e) => e.kind === "move" && e.at >= day.getTime() && e.at <= t).length;
-}
 
 function StatusLine({ page }: { page: MapPageState }) {
   const styles = useThemedStyles(makeStyles);
@@ -159,8 +127,8 @@ const makeStyles = (colors: Colors) =>
     canvasBox: { flex: 1, minHeight: 0, position: "relative", overflow: "hidden", backgroundColor: colors.surface2 },
     badge: {
       position: "absolute",
-      top: 16,
-      alignSelf: "center",
+      left: 16,
+      bottom: 16,
       paddingHorizontal: 12,
       paddingVertical: 6,
       borderRadius: 999,

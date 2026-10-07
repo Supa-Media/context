@@ -18,6 +18,7 @@ import {
   type FeedItem,
 } from "../features/console/map/live/feed";
 import { clockText } from "../features/console/map/live/replayClock";
+import { MEMBERSHIP_HINT, ZOOM_HINT, mapNotice, statusParts } from "../features/console/map/live/ui/status";
 import type { MapActor } from "../features/console/map/live/engine/timeline";
 import { WHO, ev, graph } from "./liveMapFixture";
 
@@ -136,6 +137,7 @@ describe("who is working", () => {
     expect(workingNowLine([p("1"), p("1")])).toBe("1 person");
     expect(workingNowLine([a("1")])).toBe("1 AI tool");
     expect(workingNowLine([])).toBe("Nobody is working here right now");
+    expect(workingNowLine([], true)).toBe("Nobody was working here at this point");
   });
 });
 
@@ -151,5 +153,57 @@ describe("moves between workspaces", () => {
     ];
     const rows = crossMoveRows(events, 10, 100, book);
     expect(rows.map((r) => `${r.fromName} → ${r.toName} ${r.count}`)).toEqual(["Personal → Supa 2", "Supa → Personal 1"]);
+  });
+});
+
+describe("the line under the map", () => {
+  const supa = graph("ws-s", "Supa", ["1-projects/a.md", "1-projects/b.md"]);
+  const base = {
+    data: { graphs: [supa] } as never,
+    follow: null,
+    view: "map" as const,
+    scope: "one" as const,
+    many: true,
+    selected: { id: "ws-s", slug: "supa", displayName: "Supa", kind: "shared" },
+    events: [],
+    t: Date.UTC(2026, 9, 7, 12),
+  };
+
+  test("names the view, the workspace and its notes, and how to zoom", () => {
+    expect(statusParts(base)).toEqual({ left: ["Map", "Supa · 2 notes"], right: [ZOOM_HINT] });
+  });
+
+  test("across workspaces it also says you only see the ones you belong to", () => {
+    expect(statusParts({ ...base, scope: "all" }).right).toEqual([MEMBERSHIP_HINT, ZOOM_HINT]);
+    expect(statusParts({ ...base, scope: "all" }).left).toEqual(["Map", "All workspaces · 2 notes"]);
+  });
+
+  test("Folders does not zoom, so it gives no zoom hint; it counts today's moves", () => {
+    const parts = statusParts({ ...base, view: "folders" });
+    expect(parts.left[0]).toBe("Folders");
+    expect(parts.left[1]).toMatch(/^Moved today: \d+$/);
+    expect(parts.right).toEqual([]);
+  });
+
+  test("following someone says who", () => {
+    expect(statusParts({ ...base, follow: { name: "Seyi's Claude" } as never }).left).toEqual(["Map", "Following Seyi's Claude"]);
+  });
+});
+
+describe("what the map says when it cannot draw yet", () => {
+  const partial = { behind: false, indexMissing: false, truncated: false };
+  const page = (graphs: number, extra: Partial<typeof partial> = {}) => ({
+    graphs: { graphs: [], loading: false, partial: { ...partial, ...extra } },
+    historyLoading: false,
+    data: { graphs: graphs === 0 ? [] : [graph("ws", "W", Array.from({ length: graphs }, (_, i) => `n${i}.md`))] } as never,
+  });
+
+  test("a workspace with no index yet is being built, not empty", () => {
+    expect(mapNotice(page(0, { indexMissing: true }))).toBe("This workspace's map is still being built.");
+  });
+
+  test("an empty workspace says so, and a drawn one says nothing", () => {
+    expect(mapNotice(page(0))).toBe("No notes to draw here yet.");
+    expect(mapNotice(page(3))).toBeNull();
   });
 });

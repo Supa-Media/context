@@ -9,6 +9,7 @@ import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
 import { ProjectsFixture } from "./projects/ProjectsFixture";
 import { CastStudioFixture } from "./CastStudioFixture";
+import { LiveMapFixture } from "./LiveMapFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -69,6 +70,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "cast-studio-pages") return <CastStudioFixture pages />;
   if (first(params.screen) === "cast-studio-folders") return <CastStudioFixture folders />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
+  // The live map open over Browse, on invented data. See its own header.
+  if (first(params.screen) === "live-map") return <LiveMapFixture />;
 
   /*
     The application frame, which is otherwise on no browser-reachable screen

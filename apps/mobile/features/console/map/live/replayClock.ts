@@ -177,3 +177,34 @@ export function fractionOf(at: number, from: number, to: number): number {
 export function replayBadge(range: ReplayRange, speed: ReplaySpeed): string {
   return `Replaying ${range === "today" ? "today" : "this week"} · ${speed}× speed`;
 }
+
+export type PlacedMoment = { at: number; label: string; frac: number; row: 0 | 1 };
+
+/**
+ * Where the marked moments sit over the bar: two rows of labels, each label at
+ * least `minGap` of the bar's width after the one before it in its row. A
+ * moment with no room in either row is left out rather than drawn over its
+ * neighbour; it is still on the map, and still in the feed.
+ */
+export function placeMoments(
+  moments: ReadonlyArray<{ at: number; label: string }>,
+  from: number,
+  to: number,
+  minGap: number,
+): PlacedMoment[] {
+  // Where each row's last label ends. A label is `minGap` wide and reads
+  // rightward from its dot, except in the last `minGap` of the bar, where it
+  // reads leftward so it stays on the bar (`ReplayBar` draws it that way).
+  const end: [number, number] = [-Infinity, -Infinity];
+  const out: PlacedMoment[] = [];
+  for (const m of [...moments].sort((a, b) => a.at - b.at)) {
+    if (m.at < from || m.at > to) continue;
+    const frac = fractionOf(m.at, from, to);
+    const start = frac > 1 - minGap ? frac - minGap : frac;
+    const row = start >= end[0] ? 0 : start >= end[1] ? 1 : null;
+    if (row === null) continue;
+    end[row] = start + minGap;
+    out.push({ at: m.at, label: m.label, frac, row });
+  }
+  return out;
+}

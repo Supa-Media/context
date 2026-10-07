@@ -192,7 +192,7 @@ export function replayWhen(item: Pick<FeedItem, "at">): string {
 }
 
 /** "2 people, 4 AI tools", "1 person", "3 AI tools", or nobody. */
-export function workingNowLine(actors: ReadonlyArray<{ id: string; kind: "person" | "agent" }>): string {
+export function workingNowLine(actors: ReadonlyArray<{ id: string; kind: "person" | "agent" }>, replaying = false): string {
   const ids = new Map<string, "person" | "agent">();
   for (const a of actors) ids.set(a.id, a.kind);
   let people = 0;
@@ -205,7 +205,8 @@ export function workingNowLine(actors: ReadonlyArray<{ id: string; kind: "person
     people === 0 ? null : `${people} ${people === 1 ? "person" : "people"}`,
     tools === 0 ? null : `${tools} AI ${tools === 1 ? "tool" : "tools"}`,
   ].filter((part): part is string => part !== null);
-  return parts.length === 0 ? "Nobody is working here right now" : parts.join(", ");
+  if (parts.length > 0) return parts.join(", ");
+  return replaying ? "Nobody was working here at this point" : "Nobody is working here right now";
 }
 
 /** One direction notes moved in between two workspaces, and how many. */
