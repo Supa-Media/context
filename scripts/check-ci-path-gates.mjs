@@ -431,25 +431,39 @@ export function check(root = ROOT) {
   const browser = readFileSync(browserPath, "utf8");
   const collaboration = readFileSync(collaborationPath, "utf8");
 
-  const browserMobile = requiredPaths(["@context/mobile"], ".github/workflows/browser.yml", root);
-  assertPaths(filterPaths(browser, "webkit_build", "mobile"), browserMobile, "webkit browser build");
   const nativeMobile = requiredPaths(["@context/mobile"], ".github/workflows/ci.yml", root);
   assertPaths(filterPaths(ci, "native-bundle", "mobile"), nativeMobile, "native-bundle");
 
-  const fullWebkit = new Set([
-    "apps/mobile/e2e/webkit/**",
-    "apps/mobile/features/console/**",
-    "packages/collaboration/**",
-    "packages/communications/**",
-    "packages/desktop-bridge/**",
-    "packages/drawings/**",
-    "packages/meetings/**",
-    "packages/obsidian-runtime/**",
-    "packages/shared/**",
-    ...INFRA_PATHS,
-    ".github/workflows/browser.yml",
-  ]);
-  assertPaths(filterPaths(browser, "webkit_build", "full"), fullWebkit, "full WebKit suite");
+  // Per push the browser runs only the note editor's tests, scoped by what the
+  // editor imports; the rest of the suite is daily (Dev2, 2026-10-07). The
+  // editor job must run exactly the specs the scope watches, or an editor
+  // test could change without running, or run without its file being watched.
+  const browserTrigger = browser.slice(browser.indexOf("\non:"), browser.indexOf("\njobs:"));
+  for (const event of ["pull_request", "push", "schedule", "workflow_dispatch"]) {
+    if (!browserTrigger.includes(`\n  ${event}:`)) throw new Error(`browser.yml no longer runs on ${event}`);
+  }
+  const scopeStep = jobBlock(browser, "webkit_build");
+  for (const entry of [
+    "apps/mobile/features/console/files/LiveEditor.web.tsx",
+    "apps/mobile/features/console/files/LiveEditor.tsx",
+    "apps/mobile/features/console/files/webview/entry.ts",
+  ]) {
+    if (!scopeStep.includes(`            ${entry}\n`)) throw new Error(`the editor browser scope no longer follows ${entry}`);
+  }
+  const scopedSpecs = [...scopeStep.matchAll(/^ {12}(apps\/mobile\/e2e\/webkit\/[\w.]+\.spec\.ts)$/gm)].map((m) => m[1]).sort();
+  const editorJob = jobBlock(browser, "webkit_editor");
+  const editorSpecs = [...editorJob.matchAll(/(e2e\/webkit\/[\w.]+\.spec\.ts)/g)].map((m) => `apps/mobile/${m[1]}`).sort();
+  if (!scopedSpecs.length || scopedSpecs.join() !== [...new Set(editorSpecs)].join()) {
+    throw new Error(`the editor job runs ${editorSpecs.join(", ")} but the scope watches ${scopedSpecs.join(", ")}`);
+  }
+  for (const job of ["webkit_full", "webkit_offline"]) {
+    if (!/\n    if: .*needs\.webkit_build\.outputs\.daily == 'true'/.test(jobBlock(browser, job))) {
+      throw new Error(`${job} runs on every push again; it is daily`);
+    }
+  }
+  if (!/\n    if: .*needs\.webkit_build\.outputs\.daily != 'true'/.test(editorJob)) {
+    throw new Error("the note editor job no longer runs per push");
+  }
   const build = jobBlock(browser, "webkit_build");
   const shards = jobBlock(browser, "webkit_full");
   const summary = jobBlock(browser, "editor_webkit");
