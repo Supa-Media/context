@@ -101,7 +101,7 @@ function routineFromPath(path) {
 function frontMatter(text) {
   const out = {};
   if (typeof text !== "string") return out;
-  const lines = text.replace(/^﻿/, "").split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   if (lines[0] === undefined || lines[0].trim() !== "---") return out;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
