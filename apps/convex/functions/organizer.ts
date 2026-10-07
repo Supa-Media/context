@@ -25,7 +25,6 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
-  type ActionCtx,
   action,
   internalAction,
   internalMutation,
@@ -33,7 +32,6 @@ import {
   mutation,
   query,
 } from "../_generated/server";
-import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 import { requireUserId } from "./lib/billing/plan";
 import { withJev } from "./lib/jev/client";
@@ -48,8 +46,10 @@ import {
   sweepIsDue,
   organizerAvailable,
 } from "./lib/organizer/settings";
-import { type OrganizerSuggestion, type OrganizerUndo, type SweepWork, suggestionFor } from "./lib/organizer/sweepOps";
+import { type OrganizerSuggestion, type OrganizerUndo, type SweepWork, isOrganizing, suggestionFor } from "./lib/organizer/sweepOps";
 import { readWhatChanged } from "./lib/organizer/whatChanged";
+import { organizerOp, ownerOf } from "./lib/organizer/trip";
+import { teamOutlines, unsendRoute } from "./lib/organizer/routeTrips";
 
 const kindValidator = v.union(v.literal("done"), v.literal("archive"), v.literal("file"));
 const countsValidator = v.object({ done: v.number(), archive: v.number(), file: v.number() });
@@ -70,6 +70,7 @@ const undoValidator = v.union(
   v.object({ kind: v.literal("status"), path: v.string(), value: v.string() }),
   fieldUndo,
   v.object({ kind: v.literal("batch"), undos: v.array(v.union(moveUndo, fieldUndo)) }),
+  v.object({ kind: v.literal("sent"), team: v.string(), path: v.string() }),
 );
 /** A What changed card, for the app: what changed, the sentence that says so, and its steps. */
 const changeValidator = v.object({
@@ -264,45 +265,6 @@ export const sweepNow = mutation({
 /*                         suggestions, through the barrier                   */
 /* -------------------------------------------------------------------------- */
 
-type OrganizerAction = "gather" | "record" | "read" | "resolve" | "clear" | "autopilot" | "undo";
-
-/** One trip through the barrier at the owner's clearance. */
-async function organizerOp(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  actorUserId: Id<"users">,
-  op: { action: OrganizerAction; input?: unknown; autopilot?: boolean },
-): Promise<unknown> {
-  const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-    actorUserId,
-    workspaceId,
-    minimum: "owner",
-  });
-  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-    workspaceId,
-    scope,
-    grantedNames,
-    actorName,
-    operation: {
-      kind: "organizer",
-      action: op.action,
-      input: JSON.stringify(op.input ?? {}),
-      ...(op.autopilot === true ? { autopilot: true } : {}),
-    },
-  })) as OperationResult;
-  if (result.kind !== "organizerResult") throw new ConvexError({ code: "ORGANIZER_FAILED", message: "Auto-organize couldn't reach your notes." });
-  return JSON.parse(result.output) as unknown;
-}
-
-/** Owner check for an action, which cannot read the database itself. */
-async function ownerOf(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Sign in first." });
-  const allowed = await ctx.runQuery(internal.functions.organizer.isOwnerOnPlan, { workspaceId, userId });
-  if (!allowed) throw new ConvexError({ code: "INSUFFICIENT_ROLE", message: "Only the owner can do this." });
-  return userId;
-}
-
 export const isOwnerOnPlan = internalQuery({
   args: { workspaceId: v.id("workspaces"), userId: v.id("users") },
   returns: v.boolean(),
@@ -356,10 +318,6 @@ export const changes = action({
     return { changes: cards };
   },
 });
-
-function isOrganizing(suggestion: OrganizerSuggestion): suggestion is OrganizerSuggestion & { kind: OrganizerKind } {
-  return suggestion.kind !== "change";
-}
 
 /** The app's shape: no etag, nothing undefined. */
 function forApp(suggestion: OrganizerSuggestion & { kind: OrganizerKind }) {
@@ -450,6 +408,8 @@ export const undo = action({
   returns: v.object({ applied: v.boolean(), error: v.optional(v.string()) }),
   handler: async (ctx, args) => {
     const userId = await ownerOf(ctx, args.workspaceId);
+    // A note sent to a team is undone in the team's workspace, not here.
+    if (args.token?.kind === "sent") return await unsendRoute(ctx, args.workspaceId, userId, args.token);
     const outcome = (await organizerOp(ctx, args.workspaceId, userId, {
       action: "undo",
       input: { ...(args.token ? { token: args.token } : {}), ...(args.entry ? { entry: args.entry } : {}) },
@@ -571,9 +531,14 @@ export const runSweep = internalAction({
         input: { changes: changesGate.allowed },
       })) as SweepWork;
       // First, before anything is filed away: what the arrivals say changed.
+      // A personal workspace's arrivals may be news for its owner's teams too.
+      const teams =
+        work.changes && work.changes.sources.length > 0 && work.routing
+          ? await teamOutlines(ctx, workspaceId, claim.ownerUserId, work.routing)
+          : null;
       const changed =
         work.changes && work.changes.sources.length > 0
-          ? await withJev(ctx, { feature: "whatChanged", workspaceId }, (jev) => readWhatChanged(jev, work.changes, Date.now()))
+          ? await withJev(ctx, { feature: "whatChanged", workspaceId }, (jev) => readWhatChanged(jev, work.changes, Date.now(), teams))
           : null;
       total = work.items.length;
       await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });

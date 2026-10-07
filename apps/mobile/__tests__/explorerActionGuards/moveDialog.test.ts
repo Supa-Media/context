@@ -199,7 +199,104 @@ describe("the move dialog's other contexts", () => {
     press("@work");
     await settle();
 
-    expect(document.body.textContent).toContain("Showing the first 1 folders");
+    expect(document.body.textContent).toContain("too big to list in full");
+  });
+
+  /*
+    THE FIX FOR A DIALOG THAT SAT ON "Reading its folders…".
+
+    Choosing a context reads its top level and nothing else; opening a folder
+    reads that folder. The whole-tree walk this replaced made somebody wait on
+    every folder in the other workspace before seeing the first one.
+  */
+  test("choosing one reads only its top level, and opening a folder reads that folder", async () => {
+    const asked: string[] = [];
+    const TREE: Record<string, string[]> = {
+      "": ["clients", "team"],
+      clients: ["clients/acme"],
+      "clients/acme": [],
+    };
+    const dialog = mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async (contextId, folder) => {
+        asked.push(`${contextId}:${folder}`);
+        return { folders: TREE[folder] ?? [], truncated: false };
+      },
+    });
+
+    press("@work");
+    await settle();
+    expect(asked).toEqual(["w-work:"]);
+    expect(labelled("clients")).toBeDefined();
+    // Not read, so not drawn: a nested folder appears only once its parent opens.
+    expect(labelled("clients/acme")).toBeUndefined();
+
+    press("Open clients");
+    await settle();
+    expect(asked).toEqual(["w-work:", "w-work:clients"]);
+    expect(labelled("clients/acme")).toBeDefined();
+
+    // Closing and opening again reads nothing twice, and nor does switching
+    // away and back.
+    press("Close clients");
+    press("Open clients");
+    press("This context");
+    press("@work");
+    await settle();
+    expect(asked).toEqual(["w-work:", "w-work:clients"]);
+
+    press("Open clients");
+    await settle();
+    press("clients/acme");
+    press("Move to @work");
+    expect(dialog.calls.entries).toEqual([
+      { name: "moveToContext", args: ["note.md", "w-work", "clients/acme"] },
+    ]);
+  });
+
+  test("a folder that has been read and has no folders inside does not offer to open", async () => {
+    mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async (_contextId, folder) => ({
+        folders: folder === "" ? ["clients"] : [],
+        truncated: false,
+      }),
+    });
+
+    press("@work");
+    await settle();
+    expect(labelled("Open clients")).toBeDefined();
+    press("Open clients");
+    await settle();
+    // Read and empty: no chevron promising more.
+    expect(labelled("Close clients")).toBeUndefined();
+    expect(labelled("Open clients")).toBeUndefined();
+  });
+
+  test("a folder that failed to open can be opened again", async () => {
+    let fail = true;
+    const asked: string[] = [];
+    mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async (_contextId, folder) => {
+        asked.push(folder);
+        if (folder === "clients" && fail) throw new Error("nope");
+        return { folders: folder === "" ? ["clients"] : ["clients/acme"], truncated: false };
+      },
+    });
+
+    press("@work");
+    await settle();
+    press("Open clients");
+    await settle();
+    expect(labelled("clients/acme")).toBeUndefined();
+
+    fail = false;
+    press("Close clients");
+    press("Open clients");
+    await settle();
+    expect(asked).toEqual(["", "clients", "clients"]);
+    expect(labelled("clients/acme")).toBeDefined();
   });
 
   test("a context whose folders cannot be read says so and offers nothing", async () => {

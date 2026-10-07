@@ -741,6 +741,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link an owner pasted into a chat",
   },
   {
+    route: "/texts/[token]",
+    file: "app/texts/[token].tsx",
+    reachable: false,
+    reason:
+      "The link the texting assistant sends a phone nobody has linked. The " +
+      "token exists in that one text message and nowhere in the app, and the " +
+      "page only means something to the person holding that phone.",
+    marker: "the link the texting assistant sends a phone nobody has",
+  },
+  {
     route: "/[handle]",
     file: "app/[handle]/index.tsx",
     reachable: false,

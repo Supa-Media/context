@@ -21,6 +21,15 @@ export const ORGANIZER_KINDS = Object.freeze(["done", "archive", "file"]);
  * without asking, so they have no streak and no autopilot.
  */
 export const CHANGE_KIND = "change";
+/**
+ * "For your teams" cards (`./routes.js`): a note for a team, waiting for its
+ * owner to read it and press Add. Kept like change cards, and never sent alone.
+ */
+export const ROUTE_KIND = "route";
+/** The cards that wait across sweeps and are only ever answered by a person. */
+export const CARD_KINDS = Object.freeze([CHANGE_KIND, ROUTE_KIND]);
+/** Teams a personal workspace may name a switch for; more are ignored. */
+const MAX_ROUTING_TEAMS = 50;
 /** A change card nobody answered goes away after this long. */
 export const CHANGE_MEMORY_MS = 30 * 24 * 60 * 60 * 1000;
 /** A dismissed suggestion stays dismissed this long, then may come back. */
@@ -34,11 +43,39 @@ const STATE_BYTE_CAP = 256_000;
 export const OFFER_AFTER_ACCEPTS = 3;
 
 export function emptyOrganizerState() {
-  return { version: 1, sweptAt: null, pending: [], dismissed: {}, streaks: { done: 0, archive: 0, file: 0 }, reverts: {}, changesReadUpTo: null };
+  return {
+    version: 1,
+    sweptAt: null,
+    pending: [],
+    dismissed: {},
+    streaks: { done: 0, archive: 0, file: 0 },
+    reverts: {},
+    changesReadUpTo: null,
+    routing: emptyRouting(),
+  };
+}
+
+/**
+ * Which teams a personal workspace writes notes for, and what its owner keeps
+ * to themselves, in their own words. Kept here, in their bucket, because the
+ * rule is theirs to write and may say anything. A team not named is on.
+ */
+export function emptyRouting() {
+  return { off: [], keep: "" };
+}
+
+function parseRouting(raw) {
+  const routing = emptyRouting();
+  if (!raw || typeof raw !== "object") return routing;
+  if (Array.isArray(raw.off)) {
+    routing.off = [...new Set(raw.off.filter((name) => typeof name === "string" && /^@[a-z0-9][a-z0-9-]{0,62}$/.test(name)))].slice(0, MAX_ROUTING_TEAMS);
+  }
+  if (typeof raw.keep === "string") routing.keep = raw.keep.replace(/\s+/g, " ").trim().slice(0, 300);
+  return routing;
 }
 
 function isKind(value) {
-  return ORGANIZER_KINDS.includes(value) || value === CHANGE_KIND;
+  return ORGANIZER_KINDS.includes(value) || CARD_KINDS.includes(value);
 }
 
 /** Read it back, forgiving anything malformed rather than failing the sweep. */
@@ -75,6 +112,7 @@ export function parseOrganizerState(text) {
     streaks,
     reverts,
     changesReadUpTo: typeof raw.changesReadUpTo === "number" ? raw.changesReadUpTo : null,
+    routing: parseRouting(raw.routing),
   };
 }
 
@@ -107,8 +145,8 @@ function forgetOldDismissals(dismissed, now) {
 
 /**
  * A finished sweep replaces the pending list, minus anything dismissed. Change
- * cards are the exception: each comes from one arrival that is read once, so
- * those still waiting stay (for `CHANGE_MEMORY_MS`) beside the new ones.
+ * and team cards are the exception: each comes from one arrival that is read
+ * once, so those still waiting stay (for `CHANGE_MEMORY_MS`) beside the new ones.
  * `readUpTo` moves the mark of what has been read for changes.
  */
 export function mergeSweep(state, fresh, now, readUpTo) {
@@ -116,7 +154,7 @@ export function mergeSweep(state, fresh, now, readUpTo) {
   const seen = new Set();
   const pending = [];
   const waiting = state.pending.filter(
-    (item) => item.kind === CHANGE_KIND && typeof item.at === "number" && now - item.at < CHANGE_MEMORY_MS,
+    (item) => CARD_KINDS.includes(item.kind) && typeof item.at === "number" && now - item.at < CHANGE_MEMORY_MS,
   );
   for (const suggestion of [...waiting, ...fresh]) {
     if (dismissed[suggestion.id] !== undefined || seen.has(suggestion.id)) continue;
@@ -166,4 +204,15 @@ export function rememberRevert(state, path, value) {
   if (value !== undefined) reverts[path] = value;
   const kept = Object.entries(reverts).slice(-MAX_REVERTS);
   return { ...state, reverts: Object.fromEntries(kept) };
+}
+
+/** Switch one team on or off, or rewrite the owner's rule. */
+export function setRouting(state, change) {
+  const routing = parseRouting(state.routing);
+  if (typeof change.team === "string" && typeof change.on === "boolean") {
+    const off = routing.off.filter((name) => name !== change.team);
+    routing.off = parseRouting({ off: change.on ? off : [...off, change.team] }).off;
+  }
+  if (typeof change.keep === "string") routing.keep = parseRouting({ keep: change.keep }).keep;
+  return { ...state, routing };
 }

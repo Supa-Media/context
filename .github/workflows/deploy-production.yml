@@ -11,7 +11,8 @@ name: Deploy to Production
 #             ├─ convex ─┬─ gateway ─────────────┼─ router + assets
 #             │          ├─ email ───────────────┤
 #             │          ├─ transcribe ──────────┼─ mobile-update
-#             │          └─ egress ──────────────┘
+#             │          ├─ egress ──────────────┘
+#             │          └─ agent
 #             └─ sentry
 #
 # Why each edge exists:
@@ -50,6 +51,7 @@ jobs:
       gateway: ${{ steps.plan.outputs.gateway }}
       email: ${{ steps.plan.outputs.email }}
       transcribe: ${{ steps.plan.outputs.transcribe }}
+      agent: ${{ steps.plan.outputs.agent }}
       egress: ${{ steps.plan.outputs.egress }}
       sentry: ${{ steps.plan.outputs.sentry }}
       web: ${{ steps.plan.outputs.web }}
@@ -97,6 +99,12 @@ jobs:
     needs: [validate, convex]
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.transcribe == 'true' }}
     uses: ./.github/workflows/deploy-transcribe-worker.yml
+    secrets: inherit
+
+  agent:
+    needs: [validate, convex]
+    if: ${{ !cancelled() && !failure() && needs.validate.outputs.agent == 'true' }}
+    uses: ./.github/workflows/deploy-agent-worker.yml
     secrets: inherit
 
   egress:

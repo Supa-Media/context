@@ -5,7 +5,7 @@ import type { PremiumStatus, PremiumView } from "../../features/console/settings
 import type { ToastSpec } from "../../features/design/components/Toast";
 import { ORGANIZER_ACTOR, offerAction, offerToast } from "../../features/organizer/copy";
 import { usePremiumOrganizerSlots } from "../../features/organizer/PremiumParts";
-import type { ChangeCard, OrganizerStatus, OrganizerSuggestion } from "../../features/organizer/types";
+import type { ChangeCard, OrganizerStatus, OrganizerSuggestion, RouteCard, RouteTeam } from "../../features/organizer/types";
 import type { OrganizerView } from "../../features/organizer/useOrganizer";
 import { NOW } from "./workspace";
 
@@ -45,6 +45,10 @@ export interface OrganizerFixture {
   changes?: ChangeCard[];
   /** The What changed page is open. */
   pageOpen?: boolean;
+  /** Notes for the owner's teams, their teams, and their own rule. */
+  routes?: RouteCard[];
+  teams?: RouteTeam[];
+  keep?: string;
 }
 
 /** A still view of auto-organize, in the frame's state. Nothing on it does anything. */
@@ -54,13 +58,28 @@ export function fixtureView(fixture: OrganizerFixture, list: OrganizerSuggestion
     state: { kind: "ready", status: fixture.status },
     status: fixture.status,
     slug: "seyi",
-    suggestions: { list, changes: fixture.changes ?? [], loading: false, failed: false, busy: new Set() },
+    suggestions: {
+      list,
+      changes: fixture.changes ?? [],
+      routes: fixture.routes ?? [],
+      teams: fixture.teams ?? [],
+      keep: fixture.keep ?? "",
+      loading: false,
+      failed: false,
+      busy: new Set(),
+    },
     loadSuggestions: noop,
     reviewOpen: fixture.reviewOpen === true,
     openReview: noop,
     closeReview: noop,
     resolve: noop,
     resolveChange: noop,
+    sendRoute: async () => false,
+    sendRoutes: async () => 0,
+    dismissRoute: noop,
+    dismissRoutes: noop,
+    setTeamOn: noop,
+    setKeep: noop,
     setEnabled: noop,
     setAutopilot: noop,
     acknowledgeNotice: noop,
@@ -237,6 +256,47 @@ const openRoot: ShotFrame["prepare"] = async ({ density, settle, press }) => {
 const sweepRunning = { state: "running" as const, startedAt: NOW - 60_000, finishedAt: null, read: 212, total: 450, found: { done: 0, archive: 0, file: 0 } };
 const sweepDone = { ...sweepRunning, state: "done" as const, finishedAt: NOW, read: 450, found: { done: 4, archive: 0, file: 7 } };
 
+const FOR_TEAMS: RouteCard[] = [
+  {
+    id: "r1",
+    team: "@supa",
+    teamTitle: "Supa Media",
+    folder: "1-projects/context-private-beta",
+    folderTitle: "Context private beta",
+    title: "Private beta opens to the waitlist on Oct 20",
+    body: "Invites start on October 20. We send 50 a day, starting with the people who joined the waitlist first.\n\nBefore then:\n- Welcome email reads well on a phone\n- Waitlist page says when invites start",
+    uses: [
+      "We open the private beta to the waitlist on October 20.",
+      "Fifty invites a day, oldest sign-ups first.",
+      "The welcome email still needs a pass on a phone.",
+    ],
+    leftOut: [
+      { what: "Something said about a person’s role", why: "people", quote: "Sam is moving to part-time from next month." },
+      { what: "Someone’s time off", why: "personal", quote: "I’m out the week of the 25th for a family thing." },
+    ],
+    source: { path: "0-inbox/meetings/2026-10-02-leadership-sync.md", title: "Leadership sync", kind: "meeting" },
+    at: NOW - 3_600_000,
+  },
+  {
+    id: "r2",
+    team: "@public-worship",
+    teamTitle: "Public Worship",
+    folder: "1-projects/easter",
+    folderTitle: "Easter",
+    title: "The Easter set list is final",
+    body: "Six songs are locked for Easter. No more changes to the list.",
+    uses: ["The six songs for Easter are locked, no more changes please."],
+    leftOut: [],
+    source: { path: "0-inbox/email/2026-10-04.md", title: "2026 10 04", kind: "messages", subject: "Easter set list" },
+    at: NOW - 7_200_000,
+  },
+];
+
+const TEAMS: RouteTeam[] = [
+  { name: "@public-worship", title: "Public Worship", on: true },
+  { name: "@supa", title: "Supa Media", on: true },
+];
+
 export const FRAMES: ReadonlyArray<ShotFrame> = [
   {
     id: "01-upgrade",
@@ -274,6 +334,37 @@ export const FRAMES: ReadonlyArray<ShotFrame> = [
     at: listAt,
     organizer: () => ({ status: { ...STATUS, changes: WHAT_CHANGED.length }, pageOpen: true, changes: WHAT_CHANGED }),
     assert: ["What changed", "Waiting for you", "Dana Reyes has left the team", "Apply 3 changes", "This is wrong"],
+    schemes: ["light", "dark"],
+  },
+  {
+    id: "04d-for-your-teams",
+    at: listAt,
+    organizer: () => ({ status: { ...STATUS, changes: 2 }, pageOpen: true, changes: [], routes: FOR_TEAMS, teams: TEAMS }),
+    assert: ["For your teams (2)", "2 of 2 ticked", "Add 2 ticked: 1 to @supa, 1 to @public-worship", "Show original", "Sending to your teams"],
+    schemes: ["light", "dark"],
+  },
+  {
+    id: "04f-team-note-original",
+    at: listAt,
+    organizer: () => ({ status: { ...STATUS, changes: 2 }, pageOpen: true, changes: [], routes: FOR_TEAMS, teams: TEAMS }),
+    prepare: async ({ settle, press }) => {
+      press(document.querySelector('[data-testid="team-note-show-r1"]'));
+      await settle();
+    },
+    assert: ["The original · only you can see it", "Open meeting ↗", "What @supa gets", "Edit the note"],
+    schemes: ["light", "dark"],
+  },
+  {
+    id: "04e-team-note-preview",
+    at: listAt,
+    organizer: () => ({ status: { ...STATUS, changes: 2 }, pageOpen: true, changes: [], routes: FOR_TEAMS, teams: TEAMS }),
+    prepare: async ({ settle, press }) => {
+      press(document.querySelector('[data-testid="team-note-show-r1"]'));
+      await settle();
+      press(document.querySelector('[data-testid="team-note-edit-r1"]'));
+      await settle();
+    },
+    assert: ["Before it goes to @supa", "Left out, and why", "What can go to a team"],
     schemes: ["light", "dark"],
   },
   {

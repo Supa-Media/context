@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "September 29, 2026",
+  updated: "October 5, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -37,6 +37,7 @@ export const privacyContent: LegalPageContent = {
         "Context.lc is in early beta. To find and fix problems, the app sends crash reports to Sentry and counts which screens are opened with PostHog, linked to your internal account id rather than your name or email. On the web, PostHog also records some visits with every word, picture and form field hidden.",
         "These never include your notes, their titles, your folder names, your links, your email address or your @handle. Addresses in the app are reduced to the kind of screen before they are sent.",
         "You can turn crash reports, screen counts and recordings off in Settings, under Feedback. The switches follow your account to every device you sign in on.",
+        "Our public homepage at context.lc loads the advertising pixels of X (Twitter) and Meta (Facebook and Instagram), so we can tell whether our ads there bring people who join. They run only on that page, never inside the app or on your notes. When you join the waitlist or create an account, we also tell X and Meta about the signup with a one-way hash of your email address and, if you arrived from one of their ads, that ad's click id and their browser id, never the address itself.",
         "When you send a feedback report, it goes through Context.lc to Sentry with what you typed and only the attachments you left ticked: the app version and your browser or system version, a log of the screens and errors from the last ten minutes, and a screenshot, whose words are hidden unless you choose to show them. We use reports only to fix Context.lc and to reply to you.",
       ],
     },

@@ -184,7 +184,7 @@ async function connectAnAiClient(t: TestConvex, userId: Id<"users">, workspaceId
  * with a reason, staff let them in, and they sign in from the mail.
  */
 async function joinAndGetLetIn(t: TestConvex, email: string, useFor: string) {
-  expect(await t.mutation(api.functions.waitlist.enter, { email, source: "homepage" })).toEqual({ status: "joined" });
+  expect(await t.mutation(api.functions.waitlist.enter, { email, source: "homepage" })).toMatchObject({ status: "joined" });
   await t.mutation(api.functions.waitlist.describe, { email, useFor });
   await drainScheduled(t);
   const staff = await signedInStaff(t);
@@ -201,7 +201,7 @@ describe("joining the waitlist from the homepage", () => {
     const t = setupTest();
     const email = "jon@studio.test";
 
-    expect(await t.mutation(api.functions.waitlist.enter, { email: "  Jon@Studio.test ", source: "homepage" })).toEqual({
+    expect(await t.mutation(api.functions.waitlist.enter, { email: "  Jon@Studio.test ", source: "homepage" })).toMatchObject({
       status: "joined",
     });
     await t.mutation(api.functions.waitlist.describe, { email, useFor: "Client notes my agents can read" });

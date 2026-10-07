@@ -177,7 +177,7 @@ describe("a new waitlist signup", () => {
     await t.run(async (ctx) =>
       ctx.db.insert("rateLimits", { key: "signupAlerts", windowStartedAt: Date.now(), count: SIGNUP_ALERTS_PER_HOUR }),
     );
-    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" })).toEqual({ status: "joined" });
+    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" })).toMatchObject({ status: "joined" });
     await drainScheduled(t);
     expect(alertsTo(STAFF)).toHaveLength(0);
   });

@@ -100,6 +100,9 @@ jobs:
           FORM_NOTIFY_EMAIL_FROM: ${{ secrets.FORM_NOTIFY_EMAIL_FROM }}
           APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+          # Opens only /agent-texts/*, for the Worker people text (apps/agent).
+          # Absent is a working state: those routes refuse every request.
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
           # Google communications connect. The client id is not itself secret,
@@ -170,6 +173,12 @@ jobs:
           # working state: the deployment takes no reports and the app hides
           # its report button.
           FEEDBACK_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+          # X ads' Conversion API token (`functions/xConversions.ts`), generated in
+          # X Ads Manager. Absent is a working state: no sign-up is reported to X.
+          X_PIXEL_TOKEN: ${{ secrets.X_PIXEL_TOKEN }}
+          # Meta's Conversions API token (`functions/metaConversions.ts`), from
+          # Meta Events Manager. Absent is a working state: nothing goes to Meta.
+          META_CAPI_TOKEN: ${{ secrets.META_CAPI_TOKEN }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -182,7 +191,7 @@ jobs:
                      STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
                      STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS \
                      STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
-                     RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET \
+                     RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET \
                      DROPBOX_APP_KEY DROPBOX_APP_SECRET \
                      GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
                      MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
@@ -192,7 +201,8 @@ jobs:
                      STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
                      TURNSTILE_SECRET_KEY \
                      CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
-                     REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN; do
+                     REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
+                     META_CAPI_TOKEN; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.

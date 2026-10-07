@@ -55,6 +55,8 @@ export function pickerRows({
   query,
   rootLabel,
   top = true,
+  unexplored,
+  loading,
 }: {
   folders: readonly string[];
   open: ReadonlySet<string>;
@@ -62,6 +64,14 @@ export function pickerRows({
   rootLabel: string;
   /** Offer the top of the workspace as a place. Off where nothing may be put there. */
   top?: boolean;
+  /**
+   * Folders whose own folders have not been read yet, so whether they have any
+   * is unknown: each is drawn as one that opens, and opening it is what reads
+   * it. For a picker fed a level at a time (another workspace's folders).
+   */
+  unexplored?: ReadonlySet<string>;
+  /** Folders being read right now, which say so on their second line. */
+  loading?: ReadonlySet<string>;
 }): PickerRow[] {
   const children = childrenOf(folders);
   const typed = query.trim().toLocaleLowerCase();
@@ -87,9 +97,16 @@ export function pickerRows({
     : [];
   const walk = (folder: string, depth: number) => {
     for (const child of children.get(folder) ?? []) {
-      const opens = (children.get(child)?.length ?? 0) > 0;
+      const opens = (children.get(child)?.length ?? 0) > 0 || unexplored?.has(child) === true;
       const isOpen = opens && open.has(child);
-      rows.push({ path: child, label: folderLabel(baseName(child)), depth, opens, open: isOpen });
+      rows.push({
+        path: child,
+        label: folderLabel(baseName(child)),
+        depth,
+        ...(isOpen && loading?.has(child) === true ? { sub: "Opening…" } : {}),
+        opens,
+        open: isOpen,
+      });
       if (isOpen) walk(child, depth + 1);
     }
   };

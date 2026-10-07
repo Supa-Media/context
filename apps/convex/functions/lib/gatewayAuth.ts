@@ -56,6 +56,19 @@ export const GATEWAY_SECRET_ENV_VAR = "GATEWAY_SECRET";
 export const EMAIL_WORKER_SECRET_ENV_VAR = "EMAIL_WORKER_SECRET";
 
 /**
+ * The shared secret the **texting assistant** (`apps/agent`) presents. A third
+ * secret, for a third pair of parties.
+ *
+ * Its power is nameable, so it gets its own key: it can mint a short-lived
+ * grant for whoever linked a phone number, with no human in the loop. That is
+ * what lets a text be answered, and it is why the number the Worker passes is
+ * only trusted after Linq's signature and an iMessage-only check
+ * (`apps/agent/src/inbound.ts`). It opens `/agent-texts/*` and nothing else, and
+ * neither of the other two secrets opens those.
+ */
+export const AGENT_WORKER_SECRET_ENV_VAR = "AGENT_WORKER_SECRET";
+
+/**
  * Origin of the app that hosts the consent screen — where a *human* signs in
  * and approves an authorization request.
  *
@@ -173,6 +186,14 @@ export async function requestIsFromEmailWorker(
   env: Record<string, string | undefined> = process.env,
 ): Promise<boolean> {
   return await requestCarriesSecret(request, EMAIL_WORKER_SECRET_ENV_VAR, env);
+}
+
+/** Is this request carrying the texting assistant's secret? */
+export async function requestIsFromAgentWorker(
+  request: Request,
+  env: Record<string, string | undefined> = process.env,
+): Promise<boolean> {
+  return await requestCarriesSecret(request, AGENT_WORKER_SECRET_ENV_VAR, env);
 }
 
 /**

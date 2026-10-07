@@ -27,11 +27,17 @@
   colour palette because the whole file ships inside the Worker bundle and the
   truecolour version is several times the size for no visible gain.
 
-  Palette and type are Graphite, from apps/mobile/features/design/tokens.ts and
-  apps/mobile/features/design/fonts.ts — the same two files the generated card
-  follows (apps/convex/functions/lib/cardArt.ts). The three cards a person
-  might see in one thread are one object in three states, so they share a frame:
-  ground, an inset panel on a hairline, one petrol rule, one lockup.
+  Paper (Dev2, 2026-10-06): warm paper ground, ink type, the motto "Less
+  chaos." with its line on top, the # tile from the app icon
+  (apps/mobile/assets/source/favicon.svg) top right, and "Context" set huge
+  along the bottom with a blue period shaped like the tile. It is drawn to be
+  read at feed size, like a video thumbnail, so the only small type is the one
+  line under the motto.
+
+  The word stops 64px above the bottom edge on purpose: X draws its domain
+  label over the bottom-left corner of a card.
+
+  Everything is 600, the one weight of Instrument Sans this repository holds.
 -->
 <html lang="en">
 <head>
@@ -54,77 +60,55 @@
 -->
 <style>
   :root{
-    /* Graphite. See darkColors in apps/mobile/features/design/tokens.ts. */
-    --ground:#100F0E;
-    --surface:#191715;
-    --line:rgba(237,232,224,.07);
-    --line-strong:rgba(237,232,224,.14);
-    --text:#EDE8E0;
-    --text-2:#C3BCB2;
-    --muted:#A79F95;
-    --dim:#7A736A;
-    --accent:#6BC8C1;
+    --ground:#EDE4D3;
+    --ink:#16181C;
+    --ink-2:#55534E;
+    --tile-top:#15151A;
+    --tile-bottom:#050506;
+    --dot:#2F7BF5;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
   body{
-    width:1200px;height:630px;overflow:hidden;
-    background:var(--ground);color:var(--text);
+    width:1200px;height:630px;overflow:hidden;position:relative;
+    background:var(--ground);color:var(--ink);
     font-family:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;
-    -webkit-font-smoothing:antialiased;
+    font-weight:600;-webkit-font-smoothing:antialiased;
   }
-  .card{
-    width:1200px;height:630px;padding:40px;display:flex;
+  .top{
+    position:absolute;left:68px;right:68px;top:54px;
+    display:flex;justify-content:space-between;align-items:flex-start;
   }
-  .panel{
-    flex:1;display:flex;flex-direction:column;
-    padding:58px 64px;
-    background:var(--surface);
-    border:1px solid var(--line);
-    border-radius:28px;
+  .motto{font-size:64px;letter-spacing:-.035em;line-height:1}
+  .line{font-size:36px;letter-spacing:-.015em;color:var(--ink-2);margin-top:16px}
+  .tile{
+    width:100px;height:100px;border-radius:22px;
+    background:linear-gradient(var(--tile-top),var(--tile-bottom));
+    display:flex;align-items:center;justify-content:center;
   }
-
-  .mark{display:flex;align-items:center;gap:14px}
-  .mark .dot{width:13px;height:13px;border-radius:50%;background:var(--accent)}
-  .mark em{
-    font-style:normal;font-size:28px;color:var(--dim);letter-spacing:.01em;
+  .tile svg{width:66px;height:66px}
+  .word{
+    position:absolute;left:58px;bottom:64px;
+    font-size:288px;letter-spacing:-.045em;line-height:.8;white-space:nowrap;
   }
-
-  .rule{width:84px;height:3px;background:var(--accent);margin-top:40px}
-
-  h1{
-    font-weight:600;font-size:72px;line-height:1.05;letter-spacing:-.03em;
-    margin:32px 0 0;max-width:17ch;
+  /* The C's own side bearing leaves a gap the rest of the word does not have. */
+  .word .c{margin-right:-.03em}
+  .word .dot{
+    display:inline-block;width:.19em;height:.19em;margin-left:.035em;
+    border-radius:22%;background:var(--dot);
   }
-  h1 .dim{color:var(--dim)}
-
-  .spacer{flex:1}
-
-  p.sub{
-    /*
-      600, like everything else here. The generated card registers one weight
-      with satori, so its subtitle is drawn at 600 too — a 400 here would make
-      the two cards differ in the one place a person sees them side by side.
-    */
-    margin:0;font-size:29px;line-height:1.35;color:var(--text-2);
-    max-width:34ch;font-weight:600;letter-spacing:-.01em;
-  }
-  /*
-    No `.foot`. The lockup above already says `context.lc`, and this card has
-    no handle to put there instead — so a second copy at the bottom is the word
-    twice. The generated card has the same rule, in cardArt.ts.
-  */
 </style>
 </head>
 <body>
-  <div class="card">
-    <div class="panel">
-      <div class="mark"><i class="dot"></i><em>context.lc</em></div>
-      <div class="rule"></div>
-      <h1>Free your context.<br><span class="dim">Share your context.</span></h1>
-      <div class="spacer"></div>
-      <p class="sub">One MCP endpoint for every AI client, backed by plain markdown in a bucket you own.</p>
+  <div class="top">
+    <div>
+      <div class="motto">Less chaos.</div>
+      <div class="line">Finally, everyone’s on the same page.</div>
+    </div>
+    <div class="tile">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#52A9FE" stroke-width="12" stroke-linecap="round"><path d="M40 7 L30 93"/><path d="M70 7 L60 93"/><path d="M13 36 L93 36"/><path d="M7 66 L87 66"/></g></svg>
     </div>
   </div>
+  <div class="word"><span class="c">C</span>ontext<i class="dot"></i></div>
 </body>
 </html>
