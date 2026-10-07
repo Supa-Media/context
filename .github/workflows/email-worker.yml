@@ -1,6 +1,6 @@
 # The email worker's own CI.
 #
-# Same gap `mcp.yml` and `router.yml` were written to close: the Supa
+# Same gap `mcp.yml` and `workers.yml` were written to close: the Supa
 # framework's reusable pipeline filters on apps/mobile, apps/convex and
 # packages/shared, so nothing under infra/ is covered. Without this job the
 # 210 tests that hold this worker's security properties — DMARC before the
@@ -82,7 +82,7 @@ jobs:
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
 
-      # Second host for the browser-scope guard. The first is in router.yml, not
+      # Second host for the browser-scope guard. The first is in workers.yml, not
       # in either workflow whose path gates the script validates.
       - name: Expensive CI stays scoped to its dependency graph
         run: |
