@@ -771,12 +771,8 @@ gateway:
 
 - **read**: `read_note` or `fetch` returned a note;
 - **write**: `write_note` stored one;
-- **active**: either of those within the last five minutes.
-
-Since 2026-10-07 a write is recorded as `edit` or `create`, moves are
-recorded too, and people can be placed on the note they have open, all for
-the live map and all still `read | write` to the tree:
-[live-map-feed](./gateway-protocol/live-map-feed.md).
+- **active**: either of those within the last five minutes. (The live map's
+  finer kinds and people's notes: [live-map-feed](./gateway-protocol/live-map-feed.md).)
 
 It does not show "writing now" or "about to edit this section". The model
 finishes the text before it calls the tool, so nothing reaches us until the
