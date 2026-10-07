@@ -13,6 +13,8 @@ import { Explorer } from "../features/console/files/Explorer";
 import { FileTree } from "../features/console/files/FileTree";
 import type { TreeRow } from "../features/console/files/tree";
 import { setMapFolderCounts } from "../features/console/map/live/mapCounts";
+import { Feed } from "../features/console/map/live/ui/MapPanel";
+import { FIRST_STRONG_ISOLATE, POP_DIRECTIONAL_ISOLATE } from "@context/shared/src/displayText.cjs";
 import type { FileBrowser } from "../features/console/files/browser";
 import { emptyEditor } from "../features/console/files/editor";
 import { PhoneHome } from "../features/console/home/PhoneHome";
@@ -226,6 +228,34 @@ describe("the map on a phone", () => {
   test("slides forward in from Home and back out to it", () => {
     expect(slideDirection("", MAP_PAGE_KEY)).toBe("forward");
     expect(slideDirection(MAP_PAGE_KEY, "")).toBe("back");
+  });
+});
+
+describe("names on the map's panel", () => {
+  test("a tool named to reverse the line is held inside an isolate", () => {
+    const evil = "Sam\u202e's tool";
+    mount(
+      createElement(Feed, {
+        items: [
+          {
+            key: "1",
+            actor: { id: "a:x", kind: "agent", name: evil },
+            now: true,
+            at: 0,
+            parts: [{ text: "is reading " }, { text: "Brand", strong: true }],
+            workspaceId: "ws",
+            path: "2-areas/brand.md",
+          },
+        ],
+        replaying: false,
+        now: 0,
+        onOpenNote: noop,
+      }),
+    );
+    const line = byId("map-feed-row")!.textContent ?? "";
+    expect(line).toContain(`${FIRST_STRONG_ISOLATE}`);
+    expect(line).toContain(POP_DIRECTIONAL_ISOLATE);
+    expect(line).not.toContain(`Sam\u202e's tool `);
   });
 });
 

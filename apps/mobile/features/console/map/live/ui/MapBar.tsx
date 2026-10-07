@@ -1,3 +1,4 @@
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { space } from "../../../../design/tokens";
@@ -48,7 +49,7 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
       {following !== null ? (
         <Chip
           on
-          label={`Following: ${following.name}`}
+          label={`Following: ${isolateForDisplay(following.name)}`}
           accessibilityLabel={`Stop following ${following.name}`}
           trailing={<Icon name="close" size={12} color={colors.pageSurface} />}
           onPress={() => page.followActor(null)}

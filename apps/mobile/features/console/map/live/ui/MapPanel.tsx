@@ -1,3 +1,4 @@
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { fonts, space, pointerType } from "../../../../design/tokens";
@@ -90,7 +91,7 @@ export function Feed({
           </View>
           <View style={styles.feedText}>
             <Text style={[styles.line, item.now && styles.lineNow]}>
-              {item.actor.name}{" "}
+              {isolateForDisplay(item.actor.name)}{" "}
               {item.parts.map((part, index) => (
                 <Text key={index} style={part.strong ? styles.strong : undefined}>
                   {part.text}
@@ -115,7 +116,7 @@ function CrossMoves({ rows, replaying }: { rows: readonly CrossMoveRow[]; replay
       ) : (
         rows.map((row) => (
           <View key={`${row.from}>${row.to}`} style={styles.between} accessibilityLabel={`${row.count} moved from ${row.fromName} to ${row.toName}`}>
-            <Text style={styles.betweenText} numberOfLines={1}>{`${row.fromName} → ${row.toName}`}</Text>
+            <Text style={styles.betweenText} numberOfLines={1}>{`${isolateForDisplay(row.fromName)} → ${isolateForDisplay(row.toName)}`}</Text>
             <Text style={styles.betweenCount}>{String(row.count)}</Text>
           </View>
         ))

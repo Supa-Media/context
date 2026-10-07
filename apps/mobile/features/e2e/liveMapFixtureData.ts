@@ -1,3 +1,4 @@
+import { baseName } from "../console/files/paths";
 import type { MapFixtureSource } from "../console/map/live/MapSourceContext";
 import type { MapActor } from "../console/map/live/engine";
 import type { ActorRef, MapEvent, MapNode, WorkspaceGraph } from "../console/map/live/types";
@@ -138,7 +139,7 @@ export function liveMapFixture(now: number): MapFixtureSource {
     { kind: "read", at: now - 5_000, workspaceId: SEYI.id, path: find("Weekly update"), actor: CLAUDE },
     // Something sent across: a note moved from @seyi to Public Worship today.
     { kind: "move", at: now - 3 * 3_600_000, workspaceId: SEYI.id, from: find("Call with Dana"), to: "1-projects/call-with-dana.md", toWorkspaceId: PW.id, actor: SEYI_ME },
-    { kind: "move", at: now - 2 * 3_600_000, workspaceId: PW.id, from: graphs[1]!.nodes[3]!.path, to: `2-areas/${graphs[1]!.nodes[3]!.path.split("/").pop()}`, toWorkspaceId: SEYI.id, actor: CLAUDE },
+    { kind: "move", at: now - 2 * 3_600_000, workspaceId: PW.id, from: graphs[1]!.nodes[3]!.path, to: `2-areas/${baseName(graphs[1]!.nodes[3]!.path)}`, toWorkspaceId: SEYI.id, actor: CLAUDE },
   ];
 
   const history = (from: number, to: number): MapEvent[] => {
@@ -163,7 +164,7 @@ export function liveMapFixture(now: number): MapFixtureSource {
       const kind = kinds[Math.floor(rand() * kinds.length)]!;
       if (kind === "move") {
         const folder = FOLDERS[1 + Math.floor(rand() * 4)]!;
-        out.push({ kind: "move", at, workspaceId: ws.workspaceId, from: node.path, to: `${folder}/${node.path.split("/").pop()}`, actor });
+        out.push({ kind: "move", at, workspaceId: ws.workspaceId, from: node.path, to: `${folder}/${baseName(node.path)}`, actor });
       } else {
         out.push({ kind, at, workspaceId: ws.workspaceId, path: node.path, actor });
       }
