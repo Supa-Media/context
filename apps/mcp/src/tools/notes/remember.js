@@ -22,6 +22,13 @@ const MAX_FACT_LENGTH = 500;
 const KINDS = new Set(["stated", "inferred"]);
 /** Context's own files at the root: never an agent's to edit line by line. */
 const RESERVED = new Set(["index.md", "privacy.md", "activity.md"]);
+/**
+ * Where a fact with no note goes: its own folder in the inbox, so memories do
+ * not mix with everything else waiting there (the owner, 2026-10-07). The name
+ * is ours, so the control plane lists it among the paths a share preview must
+ * not confirm (`PRODUCT_MANDATED_PATHS`).
+ */
+export const MEMORY_FOLDER = "0-inbox/memories";
 /** New inbox notes for one day's facts are numbered past this many collisions, then refused. */
 const MAX_INBOX_ATTEMPTS = 20;
 
@@ -181,7 +188,7 @@ async function rememberInInbox(store, scope, rules, overrides, fact, kind) {
       .slice(0, 40)
       .replace(/-+$/, "") || "fact";
   for (let attempt = 1; attempt <= MAX_INBOX_ATTEMPTS; attempt += 1) {
-    const path = `0-inbox/remembered-${day}-${slug}${attempt === 1 ? "" : `-${attempt}`}.md`;
+    const path = `${MEMORY_FOLDER}/${day}-${slug}${attempt === 1 ? "" : `-${attempt}`}.md`;
     const written = await toolWriteNote(
       store,
       scope,
@@ -193,7 +200,7 @@ async function rememberInInbox(store, scope, rules, overrides, fact, kind) {
         record: { action: "remember_fact", details: { fact, kind, count: 1, created: true } },
       },
     );
-    if (!written.isError) return toolText(`remembered in ${path} (new note in the inbox)`);
+    if (!written.isError) return toolText(`remembered in ${path} (new note in ${MEMORY_FOLDER})`);
     const text = textOf(written);
     if (!text.startsWith("that note already exists") && !text.startsWith("conflict")) return written;
   }

@@ -118,6 +118,8 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   "4-archive/chat-history",
   "5-archive/chat-history",
   "0-inbox/sessions",
+  // Where `remember` files a fact given no note.
+  "0-inbox/memories",
   // Capture folders the gateway derives from a capture's `source`.
   // `writeInboxCapture` files an `external_id` capture under
   // `0-inbox/<safeSlug(source)>/`, and three senders are the product's own:
