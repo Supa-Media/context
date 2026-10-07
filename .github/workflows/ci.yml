@@ -60,6 +60,12 @@ jobs:
       # on a pull request. Three runners each take a third of the files
       # (vitest --shard); `ci / Test Summary` still fails if any shard does.
       convex-test-shards: 3
+      # The mobile suite (737 files) took 2m45 on one runner once the Convex
+      # one was split, so it gets the same treatment. Each shard appends
+      # --shard=i/n, which `pnpm run test` forwards to jest and the bare
+      # `pnpm test` shorthand would refuse.
+      mobile-test-shards: 3
+      mobile-test-command: "pnpm run test"
       # The upstream filters, with `convex` widened to everything the
       # control-plane suite reads outside apps/convex: the gateway, the
       # packages and Workers it imports or scans, the few mobile files it
@@ -84,6 +90,8 @@ jobs:
           - 'pnpm-lock.yaml'
           - 'tsconfig.json'
           - 'pnpm-workspace.yaml'
+          # How the mobile job runs is set here, so a change to it runs it.
+          - '.github/workflows/ci.yml'
         convex:
           - 'apps/convex/**'
           - 'apps/mcp/**'
