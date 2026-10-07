@@ -18,7 +18,6 @@
  *   GC may delete the building or retained generation                     1 (hostile collect)
  *   GC without the conditionalDelete check                                1 (no conditionalDelete)
  *   GC prefix widened to GRAPH_PREFIX                                     2 (retention, pending)
- *   GC takes the whole budget instead of half                             1 (retention: bounded page)
  *   collect never cleared                                                 1 (retention)
  *   cutover does not hand the old previous to collect                     1 (retention)
  *   generation incremented with Number                                    1 (2^53)
@@ -52,6 +51,19 @@
  * The "measured zero" audit-turn gate above is superseded: a building
  * generation now takes audit turns once `recheck` is set, and that row bites.
  *
+ * Fix round 2 (red first: the three fix-round-2 tests at the bottom; the
+ * "GC takes the whole budget instead of half" row above is retired, a GC turn
+ * now takes the whole pass and the bounded-page assert says 7). Counts over
+ * every graph*.test.mjs:
+ *   GC first on half the pass (the round 1 order, whole fix reverted)     2 (2,000 junk, 20,000 junk)
+ *   GC halved again, order kept                                           1 (2,000 junk)
+ *   no GC turn (GC only on what the sweep leaves)                         2 (2,000 junk, GC failure)
+ *   no GC after the sweep (GC turn only)                                  1 (two code versions)
+ *   older code publishes ready during a newer build                       1 (older code during a newer build)
+ *
+ * Helpers live in graphRebuildFixtures.mjs (split out in fix round 2 to keep
+ * this file under the 700-line review threshold).
+ *
  * Process note: tests written first; RED was every cutover-dependent test
  * ("no cutover to 2"). The crash test first threw from the store, which
  * reconciliation swallows as unreadable reads, so it never crashed; it now
@@ -62,105 +74,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { reconcileGraph } from "../src/graph/reconcile.js";
-import { graphHealth, loadGraphManifest } from "../src/graph/manifest.js";
-import { projectNote, removeNote, validateEntry } from "../src/graph/project.js";
+import { graphHealth } from "../src/graph/manifest.js";
+import { projectNote, removeNote } from "../src/graph/project.js";
 import { projectNoteAfterWrite } from "../src/graph/afterWrite.js";
-import { readPostings } from "../src/graph/postings.js";
 import { RESOLVER_VERSION } from "../src/graph/facts.js";
-import { generationPrefix, graphManifestKey, maintenanceCursorKey, nodeKey, pathHash } from "../src/graph/keys.js";
-import { parseNode } from "../src/graph/records.js";
+import { generationPrefix, graphManifestKey, maintenanceCursorKey } from "../src/graph/keys.js";
 import { GRAPH_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 import { createSearchBudget, defaultIsIndexable } from "../src/search/maintain.js";
-import { memoryBucket } from "./store/fixtures.mjs";
-
-const now = 1_700_000_000_000;
-const big = () => createSearchBudget(100000);
-const links = (...targets) => targets.map((t) => `[${t}](./${t})`).join(" ");
-const pad = (i) => String(i).padStart(3, "0");
-
-function bucket({ conditional = true, conditionalDelete = true } = {}) {
-  const b = memoryBucket();
-  b.capabilities = conditional
-    ? { conditionalWrite: true, conditionalCreate: true, conditionalDelete }
-    : { conditionalDelete };
-  return b;
-}
-/** A view of `b` whose `list` honours `limit` and `cursor` like R2 does. */
-function paged(b) {
-  return {
-    ...b,
-    async list(options = {}) {
-      const all = (await b.list({ prefix: options.prefix })).objects;
-      const start = options.cursor ? Number(options.cursor) : 0;
-      const end = options.limit ? start + options.limit : all.length;
-      const truncated = end < all.length;
-      return { objects: all.slice(start, end), truncated, ...(truncated && { cursor: String(end) }) };
-    },
-  };
-}
-function censusOf(b) {
-  const census = new Map();
-  for (const [key, { etag }] of b.objects) if (defaultIsIndexable(key)) census.set(key, etag);
-  return census;
-}
-const pass = (b, budget = big(), extra = {}) =>
-  reconcileGraph(b, budget, {
-    census: censusOf(b),
-    censusComplete: true,
-    removedHints: [],
-    isIndexable: defaultIsIndexable,
-    now,
-    ...extra,
-  });
-const manifestOf = (b) => loadGraphManifest(b, big());
-const rawManifest = (b) => JSON.parse(b.objects.get(graphManifestKey()).body);
-const nodeIn = async (b, gen, path) => {
-  const got = await b.get(nodeKey(gen, await pathHash(path)));
-  return got ? parseNode(await got.text(), path) : null;
-};
-const settledIn = async (b, gen, path) => {
-  const n = await nodeIn(b, gen, path);
-  return n !== null && n.observedSourceVersion === b.objects.get(path).etag && n.reverseRepair.length === 0;
-};
-/** Validated backlinks of `target` as a reader pinned to `gen` sees them. */
-const backlinks = async (b, gen, target) => {
-  const { entries } = await readPostings(b, big(), {
-    gen, family: "incoming", hash: await pathHash(target), canSee: () => true, validate: validateEntry(b, big(), gen),
-  });
-  return entries.map((e) => e.source).sort();
-};
-const keysUnder = (b, prefix) => [...b.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
-const snapshot = (b, prefix) => keysUnder(b, prefix).map((k) => `${k}=${b.objects.get(k).body}`);
-
-/** Simulate deploying code with a newer resolver: the manifest names an older one. */
-async function bump(b) {
-  const m = rawManifest(b);
-  await b.put(graphManifestKey(), JSON.stringify({ ...m, resolverVersion: RESOLVER_VERSION - 1 }));
-}
-async function converge(b, budget = big) {
-  for (let i = 0; i < 10; i += 1) {
-    await pass(b, budget());
-    if ((await manifestOf(b))?.health.state === "ready") return;
-  }
-  assert.fail("did not converge");
-}
-/** Bump and pass at a big budget until `gen` is serving. */
-async function rebuildTo(b, gen, store = b) {
-  await bump(b);
-  for (let i = 0; i < 10; i += 1) {
-    await pass(store);
-    if ((await manifestOf(b)).generation === gen) return;
-  }
-  assert.fail(`no cutover to ${gen}`);
-}
-
-async function seed(b) {
-  await b.put("a.md", links("t.md", "u.md"));
-  await b.put("b.md", links("t.md"));
-  await b.put("c.md", "no links");
-  await b.put("t.md", links("a.md"));
-  await b.put("u.md", "plain");
-}
+import { GRAPH_PASS_FLOOR } from "../src/search/pacing.js";
+import {
+  now, big, links, pad, bucket, paged, censusOf, pass, manifestOf, rawManifest, nodeIn, settledIn, backlinks,
+  keysUnder, snapshot, bump, converge, rebuildTo, seed, audited, twoCutovers, refusingDeletes, capturingLogs,
+  collecting, passesUntil, olderCode,
+} from "./graphRebuildFixtures.mjs";
 
 test("a fresh manifest records the running versions and starts no rebuild", async () => {
   const b = bucket();
@@ -445,27 +371,6 @@ test("a newer-format manifest is never rebuilt, cut over or collected", async ()
   assert.deepEqual(snapshot(b, GRAPH_PREFIX).filter((s) => !s.startsWith(graphManifestKey())), before);
 });
 
-/** Records every delete and every write outside the graph prefix. */
-function audited(b) {
-  const log = { deleted: [], outside: [] };
-  const store = {
-    ...paged(b),
-    put: (k, v, o) => { if (!k.startsWith(GRAPH_PREFIX)) log.outside.push(k); return b.put(k, v, o); },
-    delete: (k, o) => { log.deleted.push(k); if (!k.startsWith(GRAPH_PREFIX)) log.outside.push(k); return b.delete(k, o); },
-  };
-  return { store, log };
-}
-async function twoCutovers(b) {
-  await seed(b);
-  await b.put(".context/forwarding.json", "{\"fake\":true}");
-  await b.put(".context/search/manifest.json", "{\"fake\":true}");
-  // A decoy generation whose prefix shares the digit: g/10/ is not g/1/.
-  await b.put(`${generationPrefix("10")}nodes/decoy.json`, "{}");
-  await converge(b);
-  await rebuildTo(b, "2");
-  await rebuildTo(b, "3");
-}
-
 test("GC after the second cutover deletes only g/<old>/ in bounded pages and nothing else", async () => {
   const b = bucket();
   await twoCutovers(b);
@@ -483,7 +388,8 @@ test("GC after the second cutover deletes only g/<old>/ in bounded pages and not
     const before = log.deleted.length;
     await pass(store, budget);
     assert.ok(budget.spent <= 13);
-    assert.ok(log.deleted.length - before <= 6, "bounded page per pass");
+    // Fix round 2: a GC turn takes the whole pass: 13 less two reads, the wrap reserve (3) and the list.
+    assert.ok(log.deleted.length - before <= 7, "bounded page per pass");
   }
   assert.equal(rawManifest(b).collect, null, "collect cleared when g/1/ is empty");
   assert.deepEqual(keysUnder(b, generationPrefix("1")), []);
@@ -534,25 +440,6 @@ test("nothing outside .context/graph/ is written or deleted through a rebuild, t
 });
 
 // Fix round 1
-
-/** A store whose deletes under `prefix` always fail, like a 403 on a locked prefix. */
-const refusingDeletes = (b, prefix) => ({
-  ...paged(b),
-  delete: (k, o) => (k.startsWith(prefix) ? Promise.reject(new Error("403")) : b.delete(k, o)),
-});
-/** Captures console.error and console.warn lines during `fn`. */
-async function capturingLogs(fn) {
-  const lines = [];
-  const saved = [console.error, console.warn];
-  console.error = (...a) => lines.push(a.join(" "));
-  console.warn = (...a) => lines.push(a.join(" "));
-  try {
-    await fn();
-  } finally {
-    [console.error, console.warn] = saved;
-  }
-  return lines;
-}
 
 test("GC whose deletes always fail never blocks reconciliation, and collect is abandoned after bounded failures", async () => {
   for (const B of [13, 100000]) {
@@ -677,4 +564,74 @@ test("graphHealth names the building generation, or null", async () => {
   assert.equal(h.generation, "1");
   await rebuildTo(b, "2");
   assert.equal((await graphHealth(b, big())).building, null);
+});
+
+// Fix round 2
+
+// Measured at B=11: the new note projects in 6 (cond) and 8 (best-effort)
+// passes with or without the junk, so the delay allowed is 0; the 2,000 junk
+// keys are gone after 1,605 (cond) and 1,151 (best-effort) more passes, so the
+// bound is about twice the worst. 20,000 junk keys: projected and ready in 4
+// and 5 passes, cap 20.
+const MAX_GC_DELAY = 0;
+const GC_EMPTY_BOUND = 3300;
+
+test("GC never starves the sweep: 2,000 junk keys in the collected generation delay no projection, and it still empties", async () => {
+  assert.equal(GRAPH_PASS_FLOOR, 11);
+  for (const conditional of [true, false]) {
+    const counts = [];
+    for (const junk of [0, 2000]) {
+      const b = await collecting(conditional, junk);
+      await b.put("new-note.md", links("t.md"));
+      counts.push(await passesUntil(b, GRAPH_PASS_FLOOR, 200, () => settledIn(b, "3", "new-note.md")));
+      if (junk === 0) continue;
+      const emptied = await passesUntil(b, GRAPH_PASS_FLOOR, GC_EMPTY_BOUND, () => rawManifest(b).collect === null);
+      assert.notEqual(emptied, null, `${conditional ? "cond" : "best"}: collect cleared within ${GC_EMPTY_BOUND}`);
+      assert.deepEqual(keysUnder(b, generationPrefix("1")), []);
+      assert.deepEqual(await backlinks(b, "3", "t.md"), ["a.md", "b.md", "new-note.md"]);
+    }
+    const [clean, junky] = counts;
+    assert.ok(clean !== null && junky !== null && junky <= clean + MAX_GC_DELAY, `${conditional ? "cond" : "best"}: ${junky} vs ${clean}`);
+  }
+});
+
+test("20,000 junk keys in the collected generation: a new note projects and health reaches ready in bounded passes", async () => {
+  for (const conditional of [true, false]) {
+    const b = await collecting(conditional, 20000);
+    const m = rawManifest(b);
+    await b.put(graphManifestKey(), JSON.stringify({ ...m, health: { ...m.health, state: "behind" } }));
+    await b.put("new-note.md", links("t.md"));
+    const done = async () => rawManifest(b).health.state === "ready" && (await settledIn(b, "3", "new-note.md"));
+    assert.notEqual(await passesUntil(b, GRAPH_PASS_FLOOR, 20, done), null, conditional ? "cond" : "best");
+  }
+});
+
+test("older code during a newer build reconciles the active generation but never publishes it complete", async () => {
+  const b = bucket();
+  await seed(b);
+  for (let i = 0; i < 20; i += 1) await b.put(`z${pad(i)}.md`, "plain");
+  await converge(b);
+  await bump(b); // this code is now the newer one; olderCode(b) is the code it replaces
+  const older = olderCode(b);
+  const check = async (when) => {
+    if (rawManifest(b).building) assert.equal((await graphHealth(b, big())).complete, false, when);
+  };
+  await pass(b, createSearchBudget(15)); // starts the build
+  assert.equal(rawManifest(b).building.generation, "2");
+  for (let i = 0; i < 5; i += 1) {
+    await pass(older, createSearchBudget(100000));
+    await check(`older pass ${i}`);
+    await pass(b, createSearchBudget(15));
+    await check(`newer pass ${i}`);
+  }
+  // Only the newer code runs from here; a note is deleted outside the gateway.
+  b.objects.delete("z05.md");
+  for (let i = 0; rawManifest(b).building; i += 1) {
+    assert.ok(i < 400, "cut over");
+    await pass(b, createSearchBudget(15));
+    await check(`after the delete, pass ${i}`);
+  }
+  assert.equal(rawManifest(b).generation, "2");
+  assert.equal(await nodeIn(b, "2", "z05.md"), null);
+  assert.equal((await graphHealth(b, big())).complete, true);
 });

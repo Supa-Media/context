@@ -6,8 +6,11 @@
 // not clear state it does not understand), so during a rolling deploy older
 // code neither rebuilds nor writes into a generation labelled newer, and
 // only code whose versions equal a `building` generation's builds into it or
-// cuts it over. A build started by older code is restarted at the next
-// generation, the abandoned one named in `collect` when that is free. Reconciliation sweeps the census into that generation while
+// cuts it over. Older code still reconciles the active generation during a
+// newer build but publishes it "behind" (reconcile.js). A build started by
+// older code is restarted at the next generation, the abandoned one named in
+// `collect` when that is free. Reconciliation sweeps the census into that
+// generation while
 // writes and readers stay pinned to the active one. Cutover (OPEN-16) is one
 // conditional manifest write after two consecutive clean wraps of the
 // building generation on a complete census: the second wrap is the re-check,
@@ -83,8 +86,9 @@ export function cutover(store, budget, { manifest, etag }, health) {
 }
 
 /**
- * One bounded GC page of `manifest.collect`, on at most half of `budget` so
- * the sweep keeps the rest. Clears `collect` once its prefix lists empty.
+ * One bounded GC page of `manifest.collect` on whatever `budget` has left
+ * (reconcile.js decides how much that is). Clears `collect` once its prefix
+ * lists empty.
  * Returns "failed" (a list or delete failed; the page ended there), "done"
  * (progress or cleared) or undefined (nothing to do, or no budget). Never
  * throws for a store failure.
@@ -94,7 +98,7 @@ export async function collectGarbage(store, budget, manifest) {
   if (gen === undefined || gen === null || store.capabilities?.conditionalDelete !== true) return;
   if (!isGen(gen) || gen === manifest.generation || gen === manifest.building?.generation || gen === manifest.previous) return;
   const prefix = generationPrefix(gen);
-  const limit = Math.min(GC_LIST_LIMIT, Math.floor((budget.remaining - 1) / 2));
+  const limit = Math.min(GC_LIST_LIMIT, budget.remaining - 1);
   if (limit < 1 || !budget.take()) return;
   let listed;
   try {

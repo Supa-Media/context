@@ -21,8 +21,8 @@
 //
 // Liveness: projectNote checkpoints its progress, so a note larger than one
 // pass's budget converges over passes instead of blocking the sweep. Once the
-// graph is ready, the sweep and the audit alternate passes (`auditTurn`), each
-// taking the whole remainder on its turn, so neither is starved below its
+// graph is ready, passes take turns (`turn`: sweep, audit, sweep, GC), each
+// taking the whole remainder on its turn, so none is starved below its
 // smallest unit of work.
 //
 // Accepted races. The exact clear is time-of-check/time-of-use: an entry
@@ -33,13 +33,16 @@
 //
 // Generations (rebuild.js): while the manifest names a `building` generation,
 // every piece above runs on it instead of the active one, in the sweep-first
-// order until its first clean wrap and in alternating audit turns after it,
+// order until its first clean wrap and in turns after it,
 // and its wraps publish no health; two consecutive clean wraps on a complete
 // census, with a full audit listing begun after the first, cut over. The
 // active generation gets only pinned writes until then (removal hints
 // included go to the building one). A manifest or building generation from
-// newer code is left alone. A `collect` generation is garbage-collected
-// first, on at most half the pass; a GC failure never stops the pass.
+// newer code is left alone, and while a newer build exists the active
+// generation's wraps publish "behind", never ready, so it is never complete
+// until that build cuts over. A `collect` generation is garbage-collected on
+// GC turns and otherwise only on what the sweep leaves, so junk under it never
+// delays a projection; a GC failure never stops the pass.
 import { membershipsFor } from "./facts.js";
 import { generationPrefix, maintenanceCursorKey, nodeKey, pathHash } from "./keys.js";
 import { initGraphManifest, publishHealth, readGraphManifest } from "./manifest.js";
@@ -73,7 +76,7 @@ const capped = (budget, keep) => ({
 // cuts over once `auditWrapped` says an audit listing begun since then ended.
 // `gcFailures`: consecutive passes whose GC page failed.
 const freshCursor = () => ({
-  sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, auditTurn: false,
+  sweepCursor: "", sweepStartedAt: "", auditCursor: "", sweepPending: false, turn: 0,
   recheck: false, auditWrapped: false, gcFailures: 0,
 });
 
@@ -97,7 +100,7 @@ async function readCursor(store, budget, gen) {
         sweepStartedAt: value.sweepStartedAt,
         auditCursor: value.auditCursor,
         sweepPending: value.sweepPending,
-        auditTurn: value.auditTurn === true,
+        turn: Number.isInteger(value.turn) && value.turn > 0 ? value.turn % 4 : 0,
         recheck: value.recheck === true,
         auditWrapped: value.auditWrapped === true,
         gcFailures: Number.isInteger(value.gcFailures) && value.gcFailures > 0 ? value.gcFailures : 0,
@@ -313,6 +316,25 @@ async function audit(store, budget, ctx, cursor, out) {
   if (!next) cursor.auditWrapped = true;
 }
 
+/** One GC page on what `budget` has left; a GC failure never stops the pass. */
+async function garbage(store, budget, manifest, cursor) {
+  let gc;
+  try {
+    gc = await collectGarbage(store, budget, manifest);
+  } catch {
+    gc = "failed"; // a manifest op inside GC
+  }
+  if (gc === "done") cursor.gcFailures = 0;
+  if (gc === "failed" && (cursor.gcFailures += 1) >= GC_FAILURE_LIMIT) {
+    cursor.gcFailures = 0;
+    try {
+      await abandonCollect(store, budget, manifest.collect);
+    } catch {
+      // Retried after the next GC_FAILURE_LIMIT failures.
+    }
+  }
+}
+
 /**
  * One bounded reconciliation pass. Returns `{ projected, pending,
  * sweepComplete, cutover? }` (internal, never printed to a caller).
@@ -340,39 +362,27 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
   const reserve = wrapReserve(mode);
   const work = capped(budget, reserve);
   ctx.validate = validateEntry(store, work, gen);
-  let gc;
-  try {
-    gc = await collectGarbage(store, work, manifest);
-  } catch {
-    gc = "failed"; // a manifest op inside GC: never stops the pass
-  }
-  if (gc === "done") cursor.gcFailures = 0;
-  if (gc === "failed" && (cursor.gcFailures += 1) >= GC_FAILURE_LIMIT) {
-    cursor.gcFailures = 0;
-    try {
-      await abandonCollect(store, work, manifest.collect);
-    } catch {
-      // Retried after the next GC_FAILURE_LIMIT failures.
-    }
-  }
-
   for (const path of removedHints) {
     if (typeof path !== "string" || !isIndexable(path) || census.has(path)) continue;
     const state = await removeIfGone(store, work, path, ctx);
     if (state === "stop" || state === "budget") break;
     tally(out, state);
   }
-  // Once the graph is ready, sweep and audit alternate passes and each takes
-  // the whole remainder on its turn; a split share could fall below the
-  // audit's smallest unit and livelock it. Before ready the sweep comes first
-  // and the audit gets what it leaves.
+  // Once the graph is ready, turns cycle sweep, audit, sweep, GC, and each
+  // takes the whole remainder on its turn; a split share could fall below the
+  // audit's smallest unit and livelock it. The GC turn's leftover goes to the
+  // audit. Off its turn GC gets only what the sweep leaves, so it never delays
+  // a projection. Before ready the sweep comes first, then GC, then the audit.
   // The active generation's health says nothing about a building one, which
-  // takes audit turns once its first clean wrap set `recheck`.
+  // takes turns once its first clean wrap set `recheck`.
   const ready = building ? cursor.recheck : manifest.health.state === "ready";
-  const auditFirst = censusComplete && ready && cursor.auditTurn;
-  if (censusComplete && ready) cursor.auditTurn = !cursor.auditTurn;
+  const turn = censusComplete && ready ? cursor.turn : 0;
+  if (censusComplete && ready) cursor.turn = (turn + 1) % 4;
+  const auditFirst = turn % 2 === 1;
+  if (turn === 3) await garbage(store, work, manifest, cursor);
   if (auditFirst) await audit(store, work, ctx, cursor, out);
   const wrapped = await sweep(store, work, ctx, cursor, out);
+  if (turn !== 3) await garbage(store, work, manifest, cursor);
   if (censusComplete && !auditFirst) await audit(store, work, ctx, cursor, out);
 
   if (wrapped) {
@@ -381,7 +391,11 @@ export async function reconcileGraph(store, budget, { census, censusComplete, re
       const state = cursor.sweepPending ? "behind" : "ready";
       const health = { sweepComplete: true, lastSweepAt: new Date(now).toISOString(), state };
       if (!building) {
+        // A build here was started by newer code (or by another worker since
+        // this pass began): this generation is about to be replaced, so it
+        // stays behind (never complete) until then.
         const fresh = await readGraphManifest(store, budget);
+        if (fresh.manifest?.building) health.state = "behind";
         if (fresh.manifest?.generation === gen) await publishHealth(store, budget, fresh.manifest, fresh.etag, { health });
       } else if (state === "ready" && cursor.recheck && cursor.auditWrapped) {
         // This clean wrap was the re-check (OPEN-16) and the audit has
