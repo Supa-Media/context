@@ -21,10 +21,19 @@ function deps(opts: {
   asks?: string[];
   now?: number;
   unlinked?: boolean;
+  events?: string[];
+  typingStatus?: number;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
     const body = JSON.parse(String(init.body));
+    if (path.endsWith("/typing")) {
+      // Slower than the answer, as Linq can be, so a bubble that is not
+      // awaited would land after the reply and hang in the chat.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      opts.events?.push("typing");
+      return new Response(null, { status: opts.typingStatus ?? 204 });
+    }
     if (path === "/agent-texts/session") {
       return Response.json(opts.unlinked ? { status: "unlinked" } : { status: "linked", accessToken: "t" });
     }
@@ -38,6 +47,7 @@ function deps(opts: {
     if (path.endsWith("/messages")) {
       const status = opts.linqStatus?.() ?? 200;
       if (status < 300) opts.sent?.push({ text: body.message.parts[0].value, idempotency: body.message.idempotency_key });
+      opts.events?.push("send");
       return new Response("{}", { status });
     }
     throw new Error(`unexpected ${path}`);
@@ -141,5 +151,31 @@ describe("inbox", () => {
     const storage = new MemoryStorage();
     for (let i = 0; i < MAX_PENDING; i++) expect(await accept(storage, msg(`e${i}`), 1_000)).toBe("queued");
     expect(await accept(storage, msg("overflow"), 1_000)).toBe("full");
+  });
+  it("shows the typing bubble while it works, and before the answer, never after", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "who's my brother"), 1_000);
+    const events: string[] = [];
+    await drain(storage, deps({ events }));
+    expect(events).toEqual(["typing", "send"]);
+  });
+
+  it("answers anyway when the typing bubble is refused", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    const sent: Sent[] = [];
+    await drain(storage, deps({ sent, typingStatus: 500 }));
+    expect(sent.map((s) => s.text)).toEqual(["answer to hi"]);
+  });
+
+  it("sends a multi-paragraph answer as separate texts with their own keys", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "**bold**\n\nsecond"), 1_000);
+    const sent: Sent[] = [];
+    await drain(storage, deps({ sent }));
+    expect(sent).toEqual([
+      { text: "answer to bold", idempotency: "reply:e1" },
+      { text: "second", idempotency: "reply:e1:1" },
+    ]);
   });
 });
