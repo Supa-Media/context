@@ -1,6 +1,8 @@
 /** Move limits and the plumbing keys move jobs live under. Moved verbatim out of `src/index.js`. */
 
-const FOLDER_MOVE_CAP = 500;
+// Direct moves of a few hundred headed notes can outlive a gateway request.
+// Hand those trees to the resumable materializer before they reach that size.
+const FOLDER_MOVE_CAP = 100;
 export const LOGICAL_FOLDER_MOVE_THRESHOLD = FOLDER_MOVE_CAP;
 export const MOVE_JOB_PREFIX = ".context/moves/";
 export const MOVE_SENTINEL_KEY = ".context/moves/active";

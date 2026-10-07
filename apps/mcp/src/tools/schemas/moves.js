@@ -118,7 +118,7 @@ export function searchAndMoveToolDefinitions() {
       name: "move_folder",
       title: "Move folder",
       description:
-        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Folders above 500 visible objects are moved logically immediately and physically synced by a resumable materialization job. Private overrides are preserved and privacy is never implicitly reduced.",
+        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Folders above 100 visible objects are moved logically immediately and physically synced by a resumable materialization job. Private overrides are preserved and privacy is never implicitly reduced.",
       inputSchema: {
         type: "object",
         properties: {

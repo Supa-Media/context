@@ -19,8 +19,8 @@
  * folder needs no line in `privacy.md` at all.
  *
  * So the same operation, on the same notes, gives two different answers
- * depending on how many objects the folder happens to hold: at 500 the notes
- * stay private, and at 501 they land on the destination folder's rule. The
+ * depending on how many objects the folder happens to hold: at the threshold
+ * the notes stay private, and one above it they land on the destination folder's rule. The
  * owner is told `logical move active` either way.
  *
  * This is the shape the register already knows from the control plane's
@@ -147,7 +147,7 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
 
   /* ---------- 1. over the threshold, private only by inheritance ---------- */
 
-  // 600 > LOGICAL_FOLDER_MOVE_THRESHOLD (500), so this takes the logical path.
+  // 600 > LOGICAL_FOLDER_MOVE_THRESHOLD, so this takes the logical path.
   const BULK = 600;
   for (let n = 0; n < BULK; n += 1) {
     primary.set(`2-areas/deep/note-${String(n).padStart(4, "0")}.md`, {
@@ -259,6 +259,16 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
         } catch { return false; }
       }),
   );
+
+  for (let n = 0; n < 101; n += 1) {
+    primary.set(`2-areas/medium/note-${n}.md`, { body: `MEDIUM-${n}`, etag: `m${n}` });
+  }
+  const medium = await callTool(env, TOKEN_OWNER, "move_folder", {
+    source: "2-areas/medium",
+    destination: "1-projects/medium",
+  });
+  check("a 101-note folder uses the resumable logical move",
+    !medium?.isError && textOf(medium).includes("logical move active"));
 
   /* ---------------- 2. the small path, for the same shape ----------------- */
 
