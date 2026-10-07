@@ -159,6 +159,59 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     }
   };
 
+  /*
+    Work that is ours rather than the person's runs after the answer has gone,
+    where the host lets it, rather than before.
+  */
+  const afterAnswer = async (work) => {
+    try {
+      if (typeof store.defer !== "function") throw new Error("no defer");
+      store.defer(work);
+    } catch {
+      await work;
+    }
+  };
+
+  /*
+    Every turn goes to the turn log (`apps/convex/functions/agentTurns.ts`) and
+    to this deployment's logs: where its time went, by model round and tool
+    name, so the agent can be audited and made faster. Never text. Best effort
+    like the meter: a log that could not be reached costs us a row, not the
+    person their answer.
+  */
+  const logTurn = (outcome, model, timing, usage) => {
+    const report = {
+      provider: credential.provider,
+      model: typeof model === "string" ? model : "unknown",
+      outcome,
+      ms: Date.now() - received,
+      modelMs: timing?.modelMs ?? 0,
+      toolMs: timing?.toolMs ?? 0,
+      rounds: timing?.rounds ?? 0,
+      inputTokens: usage?.input ?? 0,
+      outputTokens: usage?.output ?? 0,
+      trace: Array.isArray(timing?.trace) ? timing.trace : [],
+    };
+    console.log(
+      JSON.stringify({
+        event: "agent_turn",
+        workspace: session.workspaceId,
+        grant: session.grantId,
+        texting,
+        ...report,
+        trace: undefined,
+        tools: report.trace.filter((entry) => entry.kind === "tool").map((entry) => entry.tool),
+      }),
+    );
+    return (async () => {
+      try {
+        await controlPlane.recordAgentTurn(session.accessToken, session.workspaceId, report);
+      } catch {
+        // See above.
+      }
+    })();
+  };
+
   try {
     const turn = await runTurn({
       question,
@@ -181,29 +234,8 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       history,
       texting,
     });
-    console.log(
-      JSON.stringify({
-        event: "agent_turn",
-        workspace: session.workspaceId,
-        grant: session.grantId,
-        provider: turn.provider,
-        texting,
-        ms: Date.now() - received,
-        rounds: turn.timing?.rounds ?? 0,
-        modelMs: turn.timing?.modelMs ?? 0,
-        toolMs: turn.timing?.toolMs ?? 0,
-        tools: turn.steps.length,
-      }),
-    );
-    // The meter is ours, not the person's: it is reported after the answer
-    // has gone, where the host lets it, rather than before.
-    const metering = meter(turn.usage, false);
-    try {
-      if (typeof store.defer !== "function") throw new Error("no defer");
-      store.defer(metering);
-    } catch {
-      await metering;
-    }
+    await afterAnswer(meter(turn.usage, false));
+    await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (conversation !== null && !turn.exhausted) {
       try {
@@ -224,6 +256,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   } catch (error) {
     await meter(null, true);
     if (error instanceof ProviderError) {
+      await afterAnswer(logTurn("failed", error.model, error.timing, null));
       // Logged for an operator, opaque to the caller. `reason` is a phrase this
       // worker wrote and a status; `providers.js` never puts a response body in
       // it, for the reason its `readJson` gives.
