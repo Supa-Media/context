@@ -23,7 +23,12 @@ import {
 } from "./clients";
 import type { Inbound } from "./inbound";
 
-export type Message = Extract<Inbound, { kind: "message" }>;
+/**
+ * One text to answer. `channel` is set only by the staging simulator, whose
+ * replies are written to its log instead of sent (simulator.ts); a Linq
+ * delivery never carries it.
+ */
+export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator" };
 
 export type ReplyDeps = {
   fetch: Fetch;
