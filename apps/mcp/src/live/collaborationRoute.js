@@ -233,6 +233,9 @@ export async function handleCollaboration(request, store, session, origin) {
       content: result.text,
       version: result.etag,
       visibility,
+      // A commit per typing pause: search by meaning catches the note up from
+      // its new version rather than re-embedding it every few seconds.
+      meaning: false,
     });
   }
   await announceCommittedToPresence(store, effectivePath, result);

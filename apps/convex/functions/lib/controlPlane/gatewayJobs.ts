@@ -21,6 +21,7 @@ import type {
   GatewayBinding,
   GatewayEncryptionKey,
   GatewayKeyRotation,
+  GatewayMeaningIndex,
   GatewaySearchIndex,
 } from "./bindingShapes";
 
@@ -45,6 +46,7 @@ export interface OpenedGatewayJob {
   job: ClaimedGatewayJob;
   binding: GatewayBinding;
   searchIndex?: GatewaySearchIndex;
+  meaningIndex?: GatewayMeaningIndex;
   encryptionKey?: GatewayEncryptionKey;
   rotation?: GatewayKeyRotation;
   /** Managed-storage encryption mode, as on `OpenedGatewayBinding`. */

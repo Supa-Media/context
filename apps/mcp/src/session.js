@@ -40,6 +40,7 @@
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { readSearchIndexBinding } from "./search/d1/client.js";
+import { attachMeaningIndex } from "./search/meaning/store.js";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -759,7 +760,7 @@ export async function storeForSession(session, env, controlPlane) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable("control plane");
     throw error;
   }
-  const { binding, searchIndex, encryptionKey, rotation, noteCap } = opened;
+  const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
@@ -825,6 +826,8 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
+  // Search by meaning's index, on the same terms (`search/meaning/store.js`).
+  attachMeaningIndex(store, meaningIndex, env?.AI);
 
   /**
    * The key that opens this context's encrypted notes, for this request only.
@@ -922,6 +925,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     writable: false,
     configurable: true,
   });
+  attachMeaningIndex(store, opened?.meaningIndex, env?.AI);
   Object.defineProperty(store, "encryptionKey", {
     value: readEncryptionKey(opened?.encryptionKey),
     enumerable: false,

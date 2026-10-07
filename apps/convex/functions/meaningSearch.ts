@@ -31,6 +31,31 @@ export const indexForWorkspace = internalQuery({
   },
 });
 
+/**
+ * Where the gateway writes this workspace's passages, or `null`.
+ *
+ * Only an index that is on, named, and past provisioning takes writes:
+ * `backfilling` does, so a save during the catch-up pass is not lost to it.
+ * `workspaceId` comes off the grant in `controlPlane.ts`, never the caller, for
+ * `fastSearch.projectionTargetForWorkspace`'s reason.
+ */
+export const writeTargetForWorkspace = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      indexName: v.string(),
+      state: v.union(v.literal("backfilling"), v.literal("ready")),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await meaningRowFor(ctx, args.workspaceId);
+    if (row === null || !row.enabled || row.indexName === undefined) return null;
+    if (row.status !== "backfilling" && row.status !== "ready") return null;
+    return { indexName: row.indexName, state: row.status };
+  },
+});
+
 export const enable = internalMutation({
   args: { workspaceId: v.id("workspaces"), by: v.optional(v.id("users")) },
   returns: v.object({ scheduled: v.boolean() }),

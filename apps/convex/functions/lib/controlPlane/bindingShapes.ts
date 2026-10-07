@@ -129,6 +129,20 @@ export interface GatewaySearchIndex {
 }
 
 /**
+ * The meaning index's coordinates: search by meaning's sibling of
+ * `searchIndex`, on the same credential and the same terms (see above for what
+ * handing the gateway that token widens). `backfilling` already takes writes,
+ * so a note saved while the catch-up pass runs is not missed by it.
+ */
+export interface GatewayMeaningIndex {
+  indexName: string;
+  accountId: string;
+  /** Radioactive: write with it, never log it, never cache it. */
+  apiToken: string;
+  state: "backfilling" | "ready";
+}
+
+/**
  * What `/gateway/binding` answers with: the storage binding, and — only where
  * an owner asked for one and it exists — the index credential beside it.
  *
@@ -141,6 +155,8 @@ export interface OpenedGatewayBinding {
   binding: GatewayBinding;
   /** Absent is the normal case: no opt-in, or one not yet provisioned. */
   searchIndex?: GatewaySearchIndex;
+  /** Absent until search by meaning's index exists and takes writes. */
+  meaningIndex?: GatewayMeaningIndex;
   /**
    * The key that opens this context's encrypted notes, where one exists.
    *
@@ -237,6 +253,13 @@ export const keyRotationValidator = v.object({
 
 export const searchIndexValidator = v.object({
   databaseId: v.string(),
+  accountId: v.string(),
+  apiToken: v.string(),
+  state: v.union(v.literal("backfilling"), v.literal("ready")),
+});
+
+export const meaningIndexValidator = v.object({
+  indexName: v.string(),
   accountId: v.string(),
   apiToken: v.string(),
   state: v.union(v.literal("backfilling"), v.literal("ready")),
