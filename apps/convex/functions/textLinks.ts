@@ -63,6 +63,13 @@ const TEXTS_CLIENT_NAME = "Texts (iMessage)";
 export const TEXTS_GRANT_TTL_MS = 15 * 60 * 1000;
 const TEXTS_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 
+/** How long a texted sign-in link stays open. */
+export const INVITE_TTL_MS = 30 * 60 * 1000;
+/** Links texted to one phone per hour. */
+const INVITE_LIMIT = 10;
+const INVITE_WINDOW_MS = 60 * 60 * 1000;
+export const TEXTS_LINK_ROUTE = "/texts";
+
 /** Codes one person may ask for per hour. */
 const START_LIMIT = 10;
 /** Link attempts per phone per hour, right or wrong. */
@@ -139,27 +146,94 @@ export const storeLinkCode = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await consumeRateLimit(ctx, {
-      key: `texts.startLink:${args.userId}`,
-      limit: START_LIMIT,
-      windowMs: START_LINK_WINDOW_MS,
-    });
-    if ((await personalWorkspaceOf(ctx, args.userId)) === null) {
-      throw new ConvexError({
-        code: "NO_PERSONAL_WORKSPACE",
-        message: "Texting answers from your personal workspace, and this account has none.",
-      });
-    }
-    // One live code per person: asking again replaces the last one.
-    const previous = await ctx.db
-      .query("phoneLinkCodes")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .collect();
-    for (const row of previous) await ctx.db.delete(row._id);
-    await ctx.db.insert("phoneLinkCodes", { ...args, wrongTries: 0 });
+    await storeCode(ctx, args);
     return null;
   },
 });
+
+/**
+ * Show a code for the phone a texted link was sent to. The person never types
+ * their number: the link carries it, and only its hash names it here. The code
+ * still has to be texted back from that phone (`consumeLinkCode`), so a link
+ * that was forwarded or seen over a shoulder links nothing on its own.
+ */
+export const claimPhoneLinkInvite = action({
+  args: { token: v.string() },
+  returns: v.object({ code: v.string(), expiresAt: v.number(), phoneEnding: v.string() }),
+  handler: async (ctx, args): Promise<{ code: string; expiresAt: number; phoneEnding: string }> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) {
+      throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
+    }
+    if (args.token.length === 0 || args.token.length > 128) throw deadInvite();
+    const code = newCode();
+    const expiresAt = Date.now() + CODE_TTL_MS;
+    const phone: string = await ctx.runMutation(internal.functions.textLinks.storeInviteCode, {
+      userId: userId as Id<"users">,
+      hashedToken: await hashToken(args.token),
+      hashedCode: await hashToken(code),
+      expiresAt,
+    });
+    return { code, expiresAt, phoneEnding: phone.slice(-4) };
+  },
+});
+
+function deadInvite(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "INVITE_DEAD",
+    message: "This link has expired. Text the same number again for a new one.",
+  });
+}
+
+export const storeInviteCode = internalMutation({
+  args: {
+    userId: v.id("users"),
+    hashedToken: v.string(),
+    hashedCode: v.string(),
+    expiresAt: v.number(),
+  },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const invite = await ctx.db
+      .query("phoneLinkInvites")
+      .withIndex("by_hashed_token", (q) => q.eq("hashedToken", args.hashedToken))
+      .unique();
+    if (invite === null || invite.expiresAt <= Date.now()) throw deadInvite();
+    // The link stays open until it expires, so reloading the page works; each
+    // visit replaces the code it showed last.
+    await storeCode(ctx, {
+      userId: args.userId,
+      phone: invite.phone,
+      hashedCode: args.hashedCode,
+      expiresAt: args.expiresAt,
+    });
+    return invite.phone;
+  },
+});
+
+async function storeCode(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; phone: string; hashedCode: string; expiresAt: number },
+): Promise<void> {
+  await consumeRateLimit(ctx, {
+    key: `texts.startLink:${args.userId}`,
+    limit: START_LIMIT,
+    windowMs: START_LINK_WINDOW_MS,
+  });
+  if ((await personalWorkspaceOf(ctx, args.userId)) === null) {
+    throw new ConvexError({
+      code: "NO_PERSONAL_WORKSPACE",
+      message: "Texting answers from your personal workspace, and this account has none.",
+    });
+  }
+  // One live code per person: asking again replaces the last one.
+  const previous = await ctx.db
+    .query("phoneLinkCodes")
+    .withIndex("by_user", (q) => q.eq("userId", args.userId))
+    .collect();
+  for (const row of previous) await ctx.db.delete(row._id);
+  await ctx.db.insert("phoneLinkCodes", { ...args, wrongTries: 0 });
+}
 
 /** The number this person has linked, if any. Only ever their own. */
 export const myPhoneLink = query({
@@ -216,6 +290,70 @@ async function removeLinksOf(ctx: MutationCtx, userId: Id<"users">, action: stri
 }
 
 // ── The Worker's side (reached only through `/agent-texts/*`) ──────────────
+
+/**
+ * Open a sign-in link for a phone that texted without being linked. One live
+ * link per phone: a new one replaces the last. Never throws, so the count holds.
+ */
+export const issueLinkInvite = internalMutation({
+  args: { phone: v.string(), hashedToken: v.string() },
+  returns: v.union(v.literal("issued"), v.literal("refused")),
+  handler: async (ctx, args) => {
+    if (!isPhoneNumber(args.phone)) return "refused";
+    try {
+      await consumeRateLimit(ctx, {
+        key: `texts.invite:${args.phone}`,
+        limit: INVITE_LIMIT,
+        windowMs: INVITE_WINDOW_MS,
+      });
+    } catch {
+      return "refused";
+    }
+    const previous = await ctx.db
+      .query("phoneLinkInvites")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .collect();
+    for (const row of previous) await ctx.db.delete(row._id);
+    await ctx.db.insert("phoneLinkInvites", {
+      phone: args.phone,
+      hashedToken: args.hashedToken,
+      expiresAt: Date.now() + INVITE_TTL_MS,
+    });
+    return "issued";
+  },
+});
+
+/**
+ * Unlink whoever `phone` belongs to, because the phone asked. Holding the
+ * phone is what linked it, so it is enough to unlink it too.
+ */
+export const unlinkByPhone = internalMutation({
+  args: { phone: v.string() },
+  returns: v.union(v.literal("unlinked"), v.literal("not_linked")),
+  handler: async (ctx, args) => {
+    if (!isPhoneNumber(args.phone)) return "not_linked";
+    const links = await ctx.db
+      .query("phoneLinks")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .collect();
+    for (const link of links) await removeLinksOf(ctx, link.userId, "texts.phone.unlinked");
+    return links.length > 0 ? "unlinked" : "not_linked";
+  },
+});
+
+/** Hourly: texted links and codes nobody used, with the numbers they name. */
+export const purgeExpiredPhoneLinkInvites = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const expired = await ctx.db
+      .query("phoneLinkInvites")
+      .withIndex("by_expires", (q) => q.lte("expiresAt", Date.now()))
+      .take(500);
+    for (const row of expired) await ctx.db.delete(row._id);
+    return null;
+  },
+});
 
 /**
  * Link `phone` if `hashedCode` is the code shown for it. Never throws for a

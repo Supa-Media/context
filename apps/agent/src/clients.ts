@@ -179,3 +179,40 @@ export async function askAgent(
   if (result.status === 429) return { kind: "daily_limit" };
   return { kind: "unavailable" };
 }
+
+/** A sign-in link for a phone nobody has linked, or none for now. */
+export type InviteAnswer = { status: "issued"; url: string } | { status: "refused" };
+
+export async function requestLinkInvite(
+  fetcher: Fetch,
+  origin: string,
+  secret: string,
+  phone: string,
+): Promise<InviteAnswer> {
+  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/invite`, secret, {
+    phone,
+  });
+  if (status !== 200) throw new ServiceError("control_plane", status);
+  const body = record(json);
+  // Only an https link to a path is ever texted to anybody: the URL is built by
+  // the control plane, and this is the last place a bad one can be stopped.
+  if (body.status === "issued" && typeof body.url === "string" && /^https:\/\/[^\s/]+\/\S+$/.test(body.url)) {
+    return { status: "issued", url: body.url };
+  }
+  return { status: "refused" };
+}
+
+export async function unlinkPhone(
+  fetcher: Fetch,
+  origin: string,
+  secret: string,
+  phone: string,
+): Promise<"unlinked" | "not_linked"> {
+  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/unlink`, secret, {
+    phone,
+  });
+  if (status !== 200) throw new ServiceError("control_plane", status);
+  const body = record(json);
+  if (body.status === "unlinked" || body.status === "not_linked") return body.status;
+  throw new ServiceError("control_plane", status);
+}

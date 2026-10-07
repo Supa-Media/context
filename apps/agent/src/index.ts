@@ -1,5 +1,5 @@
 /**
- * context-agent: the Worker behind the Context assistant people text.
+ * context-agent: the Worker behind the texting assistant (it calls itself "your Context").
  *
  *     Linq ──POST /linq──▶ this Worker ──▶ SenderInbox (one per phone number)
  *                                             │  alarm
