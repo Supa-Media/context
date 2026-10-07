@@ -159,6 +159,69 @@ export async function runTreeHintChecks(check) {
     });
     check("an edit to an existing note sends nothing", hints().length === 0);
 
+    /*
+      A FRONT MATTER CHANGE DOES, because a project List is drawn from it.
+
+      Reported 2026-10-07: an agent made a folder a project and set statuses,
+      and the Projects List went on showing the old values until the
+      console's five-minute pass. Sabotage-checked: gating on TREE_ACTIONS
+      alone fails "an agent changing a note's status tells the consoles".
+    */
+    const fm = async (content) => {
+      const current = await call("read_note", { path: "1-projects/status.md" });
+      const tag = /etag: (\S+)/.exec(current?.content?.[0]?.text ?? "")?.[1];
+      return await call("write_note", { path: "1-projects/status.md", content, ...(tag ? { expected_etag: tag } : {}) });
+    };
+    await call("write_note", {
+      path: "1-projects/status.md",
+      content: "---\nstatus: to do\n---\n\n# Status\n",
+      visibility: "team",
+      confirm_team_publish: true,
+    });
+    reset();
+    await fm("---\nstatus: in progress\n---\n\n# Status\n");
+    check(
+      "an agent changing a note's status tells the consoles, at the note's own audiences",
+      JSON.stringify(hints()) === JSON.stringify([{ workspaceId: "ws_tree", audiences: ["private", "team"] }]),
+    );
+    reset();
+    await fm("---\nstatus: in progress\n---\n\n# Status\n\nA line of body.\n");
+    check("a body edit under unchanged front matter still sends nothing", hints().length === 0);
+
+    /*
+      A REWRITE THAT DROPPED THE FIRST `---` GETS IT BACK, AND IS TOLD.
+
+      The 2026-10-07 case: a client rewrote @supa's context-agent overview as
+      `updated: …\nstatus: in progress\n…\n---`, and the project fell into
+      the List's Notes section. Sabotage-checked: without the repair, "the
+      stored note opens with its front matter again" fails.
+    */
+    reset();
+    const dropped = await fm("updated: 2026-10-07\nstatus: finished\ntags: [context]\n---\n\n# Status\n");
+    const droppedText = dropped?.content?.[0]?.text ?? "";
+    const stored = await store.get("1-projects/status.md");
+    const storedText = stored ? await stored.text() : "";
+    check(
+      "a missing opening --- is put back, and the stored note opens with its front matter again",
+      !dropped?.isError && storedText.startsWith("---\nupdated: 2026-10-07\nstatus: finished\n"),
+    );
+    check("the writer is told it was put back", /opening --- line was missing/.test(droppedText));
+    check("and the status change it carried reaches the consoles", hints().length === 1);
+
+    await store.put("1-projects/plain.md", "# Plain\n");
+    const plainRead = await call("read_note", { path: "1-projects/plain.md" });
+    const plainTag = /etag: (\S+)/.exec(plainRead?.content?.[0]?.text ?? "")?.[1];
+    await call("write_note", {
+      path: "1-projects/plain.md",
+      content: "Summary: a heading on purpose\n---\n\nBody.\n",
+      ...(plainTag ? { expected_etag: plainTag } : {}),
+    });
+    const plain = await store.get("1-projects/plain.md");
+    check(
+      "a note that never had front matter is stored as written, setext heading and all",
+      plain !== null && (await plain.text()).startsWith("Summary: a heading on purpose\n---"),
+    );
+
     reset();
     await call("move_note", { source: "1-projects/pay.md", destination: "2-areas/pay.md" });
     check(
@@ -232,10 +295,8 @@ export async function runTreeHintChecks(check) {
       content: "---\ntitle: Home\nnav: 0\naudience: members\n---\n\n# Home\n",
       ...(pageEtag ? { expected_etag: pageEtag } : {}),
     });
-    check(
-      "restricting a page that already exists says so, where the tree hint does not",
-      siteCalls().length === 1 && hints().length === 0,
-    );
+    // Its front matter changed, so since 2026-10-07 the tree hint goes too (see above).
+    check("restricting a page that already exists says so", siteCalls().length === 1);
 
     reset();
     await call("write_note", { path: "2-areas/notes.md", content: "# Notes\n" });

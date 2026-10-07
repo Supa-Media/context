@@ -306,6 +306,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every note on the device: the mirror
 - The file tree is drawn from the mirror's metadata, so a folder opens without a request
 - Somebody else's change reaches an open tree as a hint per audience, never as the change
+- A front matter change is a hint too, and an open project page fetches what moved
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note

@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FolderListSource, ListNote, PropertyValue } from "../listBlock/model";
+import type { FolderListSource, ListNote, ListSource, PropertyValue } from "../listBlock/model";
 import { parentPath } from "../paths";
 import { isProjectsFolder } from "./model";
 import type { TaskHost } from "./tasks/taskHost";
@@ -119,7 +119,11 @@ function settle(notes: readonly ListNote[], chosen: Chosen): void {
 export function useFolderNotes(host: FolderPageHost | undefined, folder: string): FolderNotes {
   const source = host?.source;
   const scope = folder === "" ? "" : parentPath(folder);
-  const [loaded, setLoaded] = useState<{ notes: readonly ListNote[]; complete: boolean } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    notes: readonly ListNote[];
+    complete: boolean;
+    missing?: readonly string[];
+  } | null>(null);
   const [chosen, setChosen] = useState<Chosen>(() => new Map());
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
@@ -149,7 +153,7 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
           // Only the front notes above matter (a status list is inherited), and a note is never listed twice.
           const byPath = new Map(result.notes.map((note) => [note.path, note]));
           for (const each of above) for (const note of each?.notes ?? []) if (!byPath.has(note.path)) byPath.set(note.path, note);
-          setLoaded({ notes: [...byPath.values()], complete: result.complete });
+          setLoaded({ notes: [...byPath.values()], complete: result.complete, missing: result.missing });
         })
         .catch(() => {
           if (current) setLoaded({ notes: [], complete: false });
@@ -228,15 +232,19 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
     () => (loaded === null ? null : overlay(loaded.notes, chosen, Date.now())),
     [loaded, chosen],
   );
+  const complete = useMemo(
+    () => loaded !== null && holdsFolder({ notes: loaded.notes, complete: loaded.complete, missing: loaded.missing }, folder),
+    [loaded, folder],
+  );
   const settled = useMemo(() => {
     if (loaded === null) return false;
-    if (loaded.complete || waited) return true;
+    if (complete || waited) return true;
     const under = folder === "" ? "" : `${folder}/`;
     return loaded.notes.some((note) => note.path.startsWith(under));
-  }, [loaded, waited, folder]);
+  }, [loaded, complete, waited, folder]);
   return {
     notes,
-    complete: loaded?.complete ?? false,
+    complete,
     settled,
     canEdit: setProperty !== undefined,
     problem,
@@ -245,6 +253,25 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
     chooseMany,
     loadAll,
   };
+}
+
+/**
+ * Whether the device holds every note this page draws. The read is of the
+ * folder's parent, with subfolders — for `1-projects` that is the whole
+ * workspace — so the read's own `complete` was false while any note anywhere
+ * lacked a body: two hundred saved sessions in `0-inbox/` kept "This device
+ * is still fetching some notes" under the Projects List for good. Only this
+ * folder's notes, and the front notes above it, decide it.
+ */
+export function holdsFolder(result: ListSource, folder: string): boolean {
+  if (result.complete) return true;
+  if (result.missing === undefined) return false;
+  const under = folder === "" ? "" : `${folder}/`;
+  return !result.missing.some((path) => {
+    if (path.startsWith(under)) return true;
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    return parent === "" || folder.startsWith(`${parent}/`);
+  });
 }
 
 /** Every folder above `folder`, nearest first, not the workspace root. */
