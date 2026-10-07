@@ -84,3 +84,22 @@ index up once a day, and retries a failure that waiting can fix. A `ready`
 index stays `ready` while it catches up, because the notes it holds are still
 worth searching. An encrypted note is embedded as its title only, as fast
 search projects it.
+
+### An AI search asks both ways at once, and meaning can only add
+
+Decided 2026-10-07 while building it, on the owner's "one list". `search_notes`
+and ChatGPT's `search` ask the word search and the meaning index together
+(`apps/mcp/src/search/meaning/serve.js`) and merge the two by reciprocal rank,
+so a note both find rises and a note only meaning finds places among the word
+hits. **Every word hit stays**; meaning adds at most three notes the words
+missed, each marked "Same topic, different words" and shown with a snippet read
+from the bucket at answer time. A note that cannot be read now (moved, deleted,
+or outside what this connection's store will open) is dropped rather than
+listed blind. Matches below a closeness of 0.55 are noise and dropped.
+
+A failing model or index costs nothing but the merge: the word answer comes
+back unchanged, the miss text says it searched words only, and one log line
+carries a closed code. The extra cost per search is one embedding, one query,
+and up to three reads, inside the free tier's 50-subrequest ceiling that the
+word search's 40-op budget was set under. The tests that fail if any of this
+is loosened: `apps/mcp/test/meaningServe.test.mjs`.
