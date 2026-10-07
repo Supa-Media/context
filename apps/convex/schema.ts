@@ -28,6 +28,7 @@ import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
+import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { routineTables } from "./functions/lib/schema/routines";
 
 /**
@@ -88,6 +89,7 @@ const schema = defineSchema({
   ...feedbackTables,
   ...textLinkTables,
   ...agentTurnTables,
+  ...searchTimingTables,
   ...routineTables,
 });
 

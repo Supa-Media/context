@@ -100,6 +100,14 @@ export interface SearchResults {
    * actionable rather than a bare count.
    */
   reducedRecallNotes: string[];
+  /**
+   * Which derivative answered: the D1 projection (`fast`), the shard index in
+   * the bucket (`index`), or neither (`none`: an empty query, or no index
+   * yet). Recorded with the search's time so the admin console can say which
+   * path the slow searches took (`functions/searchTimings.ts`). Never shown to
+   * the person searching.
+   */
+  answeredBy?: "fast" | "index" | "none";
 }
 
 /**
@@ -247,6 +255,7 @@ export async function searchNotes(
       indexMissing: false,
       reducedRecall: false,
       reducedRecallNotes: [],
+      answeredBy: "none",
     };
   }
 
@@ -305,6 +314,7 @@ export async function searchNotes(
           // `SearchResults.reducedRecall`.
           reducedRecall: false,
           reducedRecallNotes: [],
+          answeredBy: "fast",
         };
       }
     } catch {
@@ -344,6 +354,7 @@ export async function searchNotes(
       indexMissing: true,
       reducedRecall: false,
       reducedRecallNotes: [],
+      answeredBy: "none",
     };
   }
 
@@ -359,6 +370,7 @@ export async function searchNotes(
     indexMissing: false,
     reducedRecall: Boolean(found.reducedRecall),
     reducedRecallNotes: found.reducedRecallNotes ?? [],
+    answeredBy: "index",
   };
 }
 

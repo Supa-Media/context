@@ -57,6 +57,7 @@ import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { normalizeSecretName } from "./lib/appSecrets";
 import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } from "./lib/admin";
 import { agentReportHandler, agentReportValidator } from "./lib/adminFns/agentReport";
+import { searchReportHandler, searchReportValidator } from "./lib/adminFns/searchReport";
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, usageReportValidator, type CountedTotal, type MetricSeries } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
@@ -148,6 +149,24 @@ export const agentReport = query({
       throw toConvexError(error);
     }
     return await agentReportHandler(ctx, args);
+  },
+});
+
+/** The Search tab: how long searches take, and which index answered. See `lib/adminFns/searchReport.ts`. */
+export const searchReport = query({
+  args: {
+    days: v.optional(v.number()),
+    view: v.optional(v.union(v.literal("screen"), v.literal("app"), v.literal("ai"))),
+    workspace: v.optional(v.string()),
+  },
+  returns: searchReportValidator,
+  handler: async (ctx, args) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await searchReportHandler(ctx, args);
   },
 });
 

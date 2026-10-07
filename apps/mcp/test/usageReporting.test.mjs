@@ -71,10 +71,16 @@ const S3_ENDPOINT = "https://s3.example-usage.test";
 const TOKEN = `cat_usage_${"0".repeat(28)}`;
 const WS = "ws_usage";
 
-/** Everything readable by a team connection, so the fixtures stay short. */
+/**
+ * A manifest the privacy engine accepts. It used to say
+ * `default_visibility: team`, which the parser refuses, and nothing noticed
+ * because these checks only looked at the counters: every search here was
+ * answered "access failed closed" and still counted. The timing checks below
+ * need a search that actually runs, so it is a real manifest now.
+ */
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
-  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: team\n\n" +
+  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  0-inbox: team\n\nnote_overrides:\n  # none\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
@@ -138,11 +144,13 @@ export async function runUsageReportingChecks(check) {
   });
 
   const bucket = s3.bucketFor("usage-bucket");
-  bucket.set("index.md", "# Usage\n\nA note about quokkas.\n");
-  bucket.set("privacy.md", PRIVACY_MANIFEST);
+  // Objects in the stub's own shape. These were bare strings, which the stub
+  // serves as empty bodies, so no tool here had ever read a real note.
+  bucket.set("index.md", { body: "# Usage\n\nA note about quokkas.\n", etag: "u1" });
+  bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "u0" });
   const other = s3.bucketFor("usage-other");
-  other.set("index.md", "# Other\n");
-  other.set("privacy.md", PRIVACY_MANIFEST);
+  other.set("index.md", { body: "# Other\n\nAnother note about quokkas.\n", etag: "o1" });
+  other.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "o0" });
 
   async function call(name, args = {}, harness = createWorkerCtx()) {
     const response = await worker.fetch(
@@ -218,6 +226,88 @@ export async function runUsageReportingChecks(check) {
     check(
       "an event carries a metric and a workspace, and nothing else",
       [...keys].sort().join(",") === "metric,workspaceId",
+    );
+  }
+
+  // -- search timings ------------------------------------------------------
+  //
+  // The admin console's Search tab (`apps/convex/functions/searchTimings.ts`):
+  // one report per search, with how long it took and which index answered.
+  // Held to the same bar as the counters: an exact key set, no words.
+
+  controlPlane.calls.length = 0;
+  {
+    await call("search_notes", { query: "my private diagnosis and the password hunter2" });
+    const timings = controlPlane.calls.filter((c) => c.path === "/gateway/search-timing").map((c) => c.body);
+    check("a search reports one timing", timings.length === 1);
+    const [timing] = timings;
+    check(
+      "a timing carries a workspace, which index answered, whether it found anything and a time, and nothing else",
+      timing !== undefined &&
+        Object.keys(timing).sort().join(",") === "answeredBy,found,ms,workspaceId" &&
+        timing.workspaceId === WS &&
+        ["fast", "index", "scan"].includes(timing.answeredBy) &&
+        typeof timing.found === "boolean" &&
+        typeof timing.ms === "number" &&
+        timing.ms >= 0,
+    );
+    const serialized = JSON.stringify(timings);
+    check(
+      "and the query never leaves the gateway in it",
+      !serialized.includes("diagnosis") && !serialized.includes("hunter2"),
+    );
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    await call("list_notes", {});
+    check(
+      "a call that is not a search reports no timing",
+      !controlPlane.calls.some((c) => c.path === "/gateway/search-timing"),
+    );
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    await call("search_notes", { query: "quokkas", context: "@other" });
+    const timings = controlPlane.calls.filter((c) => c.path === "/gateway/search-timing").map((c) => c.body);
+    check(
+      "a cross-context search is timed against the context it searched",
+      timings.length === 1 && timings[0].workspaceId === "ws_other",
+    );
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    const originalHandle = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.endsWith("/gateway/search-timing")) throw new Error("network down");
+      return originalHandle(input, init);
+    };
+    const response = await call("search_notes", { query: "quokkas" });
+    globalThis.fetch = originalHandle;
+    const body = await response.json();
+    check(
+      "a timing that cannot be sent leaves the search's answer alone",
+      response.status === 200 && JSON.stringify(body.result).includes("index.md"),
+    );
+  }
+
+  {
+    controlPlane.calls.length = 0;
+    await worker.fetch(
+      mcpRequest({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "search_notes", arguments: { query: "quokkas" } },
+      }),
+      env(),
+    );
+    check(
+      "a host that cannot defer sends no timing",
+      !controlPlane.calls.some((c) => c.path === "/gateway/search-timing"),
     );
   }
 

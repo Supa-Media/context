@@ -101,3 +101,7 @@ Moved to [With no connection, search reads the copy on the device, and says so](
 ### The map's graph is read per shard at request time, and stored nowhere
 
 Moved to [The map's graph is read per shard at request time, and stored nowhere](./search/workspace-map.md#the-maps-graph-is-read-per-shard-at-request-time-and-stored-nowhere).
+
+### Every search is timed, and the time is all that is kept
+
+Moved to [Every search is timed, and the time is all that is kept](./search/search-timings.md#every-search-is-timed-and-the-time-is-all-that-is-kept).

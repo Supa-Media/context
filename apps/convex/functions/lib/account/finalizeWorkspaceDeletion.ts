@@ -75,6 +75,16 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const turn of turns) await ctx.db.delete(turn._id);
 
+  // The search timing log: durations and which index answered, at most 30
+  // days. Bounded, because a busy workspace's month of searches could pass a
+  // mutation's read limit and fail the deletion; anything left is a duration
+  // with no workspace behind it, and the hourly retention sweep takes it.
+  const timings = await ctx.db
+    .query("searchTimings")
+    .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
+    .take(4000);
+  for (const timing of timings) await ctx.db.delete(timing._id);
+
   const events = await ctx.db
     .query("auditEvents")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

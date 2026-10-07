@@ -286,6 +286,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A shed index must say so to the caller it happened to, not only to the operator
 - With no connection, search reads the copy on the device, and says so
 - The map's graph is read per shard at request time, and stored nowhere
+- Every search is timed, and the time is all that is kept
 
 ## [The mobile app and the console](./app-and-console.md)
 

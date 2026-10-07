@@ -30,6 +30,8 @@ export const searchResultsValidator = v.object({
   reducedRecall: v.boolean(),
   /** Which of the caller's own visible notes those are — already `canSee`-filtered. */
   reducedRecallNotes: v.array(v.string()),
+  /** Which index answered, for the search timing log. See `SearchResults.answeredBy`. */
+  answeredBy: v.optional(v.union(v.literal("fast"), v.literal("index"), v.literal("none"))),
 });
 
 /**
