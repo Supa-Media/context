@@ -41,8 +41,8 @@ const COLUMNS: readonly Column[] = [
 export function MeaningIndexPanel() {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
-  const report = useQuery(api.functions.admin.meaningIndexReport, {});
-  const restart = useMutation(api.functions.admin.restartMeaningIndexing);
+  const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
+  const restart = useMutation(api.functions.meaningAdmin.restartMeaningIndexing);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<{ text: string; tone: "ok" | "crit" } | null>(null);
 

@@ -86,9 +86,9 @@ describe("the indexing panel", () => {
   test("only staff can read it or restart anything", async () => {
     const { t, ada, adaWs } = await world();
     await seedRow(t, adaWs);
-    await expect(asUser(t, ada).query(api.functions.admin.meaningIndexReport, {})).rejects.toThrow();
+    await expect(asUser(t, ada).query(api.functions.meaningAdmin.meaningIndexReport, {})).rejects.toThrow();
     await expect(
-      asUser(t, ada).mutation(api.functions.admin.restartMeaningIndexing, { workspaceId: adaWs }),
+      asUser(t, ada).mutation(api.functions.meaningAdmin.restartMeaningIndexing, { workspaceId: adaWs }),
     ).rejects.toThrow();
     expect((await rowOf(t, adaWs))?.status).toBe("failed");
   });
@@ -99,7 +99,7 @@ describe("the indexing panel", () => {
     const boWs = await createWorkspace(t, bo, "bo", { kind: "personal" });
     await seedRow(t, boWs, { status: "ready", errorCode: undefined, errorCause: undefined, notesPending: 0 });
     await seedRow(t, adaWs);
-    const report = await asUser(t, staff).query(api.functions.admin.meaningIndexReport, {});
+    const report = await asUser(t, staff).query(api.functions.meaningAdmin.meaningIndexReport, {});
     expect(report.truncated).toBe(false);
     expect(report.rows.map((row) => [row.slug, row.status])).toEqual([
       ["ada", "failed"],
@@ -123,7 +123,7 @@ describe("Restart", () => {
   test("a failed row goes back through the provisioner and keeps its generation", async () => {
     const { t, staff, adaWs } = await world();
     await seedRow(t, adaWs);
-    const result = await asUser(t, staff).mutation(api.functions.admin.restartMeaningIndexing, { workspaceId: adaWs });
+    const result = await asUser(t, staff).mutation(api.functions.meaningAdmin.restartMeaningIndexing, { workspaceId: adaWs });
     expect(result).toEqual({ restarted: 1, outcome: "restarted" });
     const row = await rowOf(t, adaWs);
     expect(row?.status).toBe("provisioning");
@@ -139,7 +139,7 @@ describe("Restart", () => {
   test("a stalled walk is started again where it stopped", async () => {
     const { t, staff, adaWs } = await world();
     await seedRow(t, adaWs, { status: "backfilling", errorCode: undefined, errorCause: undefined });
-    await asUser(t, staff).mutation(api.functions.admin.restartMeaningIndexing, { workspaceId: adaWs });
+    await asUser(t, staff).mutation(api.functions.meaningAdmin.restartMeaningIndexing, { workspaceId: adaWs });
     expect((await rowOf(t, adaWs))?.status).toBe("backfilling");
     expect(await queued(t, "runFileOperation")).toHaveLength(1);
   });
@@ -147,7 +147,7 @@ describe("Restart", () => {
   test("an owner's off is never restarted", async () => {
     const { t, staff, adaWs } = await world();
     await seedRow(t, adaWs, { enabled: false, optedOut: true, status: "off", errorCode: undefined });
-    const result = await asUser(t, staff).mutation(api.functions.admin.restartMeaningIndexing, { workspaceId: adaWs });
+    const result = await asUser(t, staff).mutation(api.functions.meaningAdmin.restartMeaningIndexing, { workspaceId: adaWs });
     expect(result).toEqual({ restarted: 0, outcome: "turnedOff" });
     expect((await rowOf(t, adaWs))?.status).toBe("off");
     expect(await queued(t, "provisionMeaningIndex")).toHaveLength(0);
@@ -155,7 +155,7 @@ describe("Restart", () => {
 
   test("a workspace not reached yet is turned on the way the rollout would", async () => {
     const { t, staff, adaWs } = await world();
-    await asUser(t, staff).mutation(api.functions.admin.restartMeaningIndexing, { workspaceId: adaWs });
+    await asUser(t, staff).mutation(api.functions.meaningAdmin.restartMeaningIndexing, { workspaceId: adaWs });
     const row = await rowOf(t, adaWs);
     expect(row?.status).toBe("provisioning");
     expect(row?.enabledBy).toBeUndefined();
@@ -174,7 +174,7 @@ describe("Restart", () => {
     await seedRow(t, ids[0]!, { status: "backfilling", errorCode: undefined });
     await seedRow(t, ids[1]!, { status: "ready", errorCode: undefined });
     await seedRow(t, ids[2]!, { enabled: false, optedOut: true, status: "off", errorCode: undefined });
-    const result = await asUser(t, staff).mutation(api.functions.admin.restartMeaningIndexing, {});
+    const result = await asUser(t, staff).mutation(api.functions.meaningAdmin.restartMeaningIndexing, {});
     expect(result.restarted).toBe(2);
     expect(await queued(t, "provisionMeaningIndex")).toHaveLength(1);
     expect(await queued(t, "runFileOperation")).toHaveLength(1);

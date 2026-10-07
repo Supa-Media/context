@@ -8,7 +8,7 @@ import type { FunctionReturnType } from "convex/server";
 import type { api } from "@context/convex/_generated/api";
 import type { PillTone } from "../design";
 
-export type MeaningIndexReport = FunctionReturnType<typeof api.functions.admin.meaningIndexReport>;
+export type MeaningIndexReport = FunctionReturnType<typeof api.functions.meaningAdmin.meaningIndexReport>;
 export type MeaningIndexRow = MeaningIndexReport["rows"][number];
 
 /** The pill beside a workspace. */
