@@ -119,6 +119,34 @@ export async function startLinqTyping(fetcher: Fetch, apiKey: string, chatId: st
   }
 }
 
+/**
+ * Offer the line's contact card in this chat, so the person's Messages shows
+ * "Context" and its icon in place of a bare number and a grey silhouette.
+ *
+ * The card itself (name and photo) is set once per line in Linq, not here; this
+ * only shares it. Linq takes it only in an iMessage chat that already has an
+ * outbound message, says it may not take effect in every chat, and gives no
+ * confirmation the person saved it, so the inbox offers it at most once a day
+ * per sender, after a reply has gone out. Best effort and quick, like the
+ * typing bubble: it never throws, and a refusal (no card set up yet) costs one
+ * small request. Returns whether Linq accepted it.
+ */
+export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatId: string): Promise<boolean> {
+  try {
+    const { status } = await post(
+      fetcher,
+      "linq",
+      `${LINQ_API}/chats/${encodeURIComponent(chatId)}/share_contact_card`,
+      apiKey,
+      {},
+      TYPING_TIMEOUT_MS,
+    );
+    return status >= 200 && status < 300;
+  } catch {
+    return false;
+  }
+}
+
 // ── Control plane ─────────────────────────────────────────────────────────
 
 export type SessionAnswer = { status: "linked"; accessToken: string } | { status: "unlinked" };

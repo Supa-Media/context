@@ -160,7 +160,13 @@ describe("texts simulator", () => {
     );
     const linqCalls: string[] = [];
     await drain(storage, unlinkedDeps(linqCalls));
-    expect(linqCalls.map((url) => new URL(url).pathname.split("/").pop())).toEqual(["typing", "messages", "messages"]);
+    expect(linqCalls.map((url) => new URL(url).pathname.split("/").pop())).toEqual([
+      "typing",
+      "messages",
+      "messages",
+      // A real chat is offered the line's contact card after the reply.
+      "share_contact_card",
+    ]);
     expect((await thread(storage, 2_000)).messages).toEqual([]);
   });
 });

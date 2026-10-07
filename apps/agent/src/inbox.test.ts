@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accept, drain, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, type InboxDeps } from "./inbox";
+import { accept, CARD_EVERY_MS, drain, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -23,6 +23,8 @@ function deps(opts: {
   unlinked?: boolean;
   events?: string[];
   typingStatus?: number;
+  cards?: string[];
+  cardStatus?: number;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -33,6 +35,10 @@ function deps(opts: {
       await new Promise((resolve) => setTimeout(resolve, 5));
       opts.events?.push("typing");
       return new Response(null, { status: opts.typingStatus ?? 204 });
+    }
+    if (path.endsWith("/share_contact_card")) {
+      opts.cards?.push(path);
+      return new Response("{}", { status: opts.cardStatus ?? 200 });
     }
     if (path === "/agent-texts/session") {
       return Response.json(opts.unlinked ? { status: "unlinked" } : { status: "linked", accessToken: "t" });
@@ -177,5 +183,46 @@ describe("inbox", () => {
       { text: "answer to bold", idempotency: "reply:e1" },
       { text: "second", idempotency: "reply:e1:1" },
     ]);
+  });
+
+  it("offers the contact card after a reply goes out, then not again for a day", async () => {
+    const storage = new MemoryStorage();
+    const cards: string[] = [];
+    const events: string[] = [];
+    await accept(storage, msg("e1"), 1_000);
+    await drain(storage, deps({ cards, events }));
+    expect(cards).toEqual(["/api/partner/v3/chats/chat_1/share_contact_card"]);
+    // After the reply: Linq shares a card only into a chat with an outbound message.
+    expect(events).toEqual(["typing", "send"]);
+    expect(typeof storage.data.get("card")).toBe("number");
+
+    await accept(storage, msg("e2"), 2_000);
+    await drain(storage, deps({ cards, now: 2_000 }));
+    expect(cards).toHaveLength(1);
+
+    await accept(storage, msg("e3"), 1_000 + CARD_EVERY_MS);
+    await drain(storage, deps({ cards, now: 1_000 + CARD_EVERY_MS }));
+    expect(cards).toHaveLength(2);
+  });
+
+  it("answers anyway when the card is refused, and does not ask again that day", async () => {
+    const storage = new MemoryStorage();
+    const cards: string[] = [];
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1"), 1_000);
+    await drain(storage, deps({ cards, sent, cardStatus: 404 }));
+    await accept(storage, msg("e2"), 1_500);
+    await drain(storage, deps({ cards, sent, cardStatus: 404, now: 1_500 }));
+    expect(sent.map((s) => s.text)).toEqual(["answer to hi", "answer to hi"]);
+    expect(cards).toHaveLength(1);
+  });
+
+  it("offers no card while the reply has not gone out", async () => {
+    const storage = new MemoryStorage();
+    const cards: string[] = [];
+    await accept(storage, msg("e1"), 1_000);
+    await drain(storage, deps({ cards, linqStatus: () => 503 }));
+    expect(cards).toEqual([]);
+    expect(storage.data.has("card")).toBe(false);
   });
 });
