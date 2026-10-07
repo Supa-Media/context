@@ -129,7 +129,7 @@ const makeStyles = (colors: Colors) =>
     },
     code: {
       fontFamily: fonts.mono,
-      fontSize: 28,
+      fontSize: t.title,
       letterSpacing: 2,
       color: colors.text,
     },
