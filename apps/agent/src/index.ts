@@ -86,6 +86,7 @@ export default {
 
     const now = Math.floor(Date.now() / 1000);
     if (!(await verifyLinqSignature(env.LINQ_WEBHOOK_SECRET ?? "", request.headers, raw, now))) {
+      logWebhook("unsigned");
       return new Response(null, { status: 401 });
     }
 
@@ -96,9 +97,16 @@ export default {
       return new Response(null, { status: 400 });
     }
     const inbound = parseInbound(payload);
-    if (inbound.kind === "invalid") return new Response(null, { status: 400 });
+    if (inbound.kind === "invalid") {
+      logWebhook("invalid");
+      return new Response(null, { status: 400 });
+    }
     // Signed, but nothing we act on: 200 so Linq does not retry it.
-    if (inbound.kind === "ignored") return new Response(null, { status: 200 });
+    if (inbound.kind === "ignored") {
+      logWebhook("ignored", inbound.reason);
+      return new Response(null, { status: 200 });
+    }
+    logWebhook("accepted");
 
     const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
     const result = await stub.fetch("https://inbox/accept", {
@@ -121,6 +129,15 @@ export default {
     );
   },
 };
+
+/**
+ * One line per webhook, so "they texted and nothing came back" can be told
+ * apart from "nothing ever arrived": an outcome and, for a dropped event, why.
+ * Never the sender's number, never the text (see `inbox.ts` on what is kept).
+ */
+function logWebhook(outcome: "unsigned" | "invalid" | "ignored" | "accepted", reason?: string): void {
+  console.log(JSON.stringify({ event: "linq_webhook", outcome, ...(reason ? { reason } : {}) }));
+}
 
 /** Ask one phone's inbox to text it a routine's answer. */
 async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string): Promise<PhoneTexted> {
