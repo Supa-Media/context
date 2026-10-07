@@ -25,6 +25,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { attachMeaningIndex } from "../../mcp/src/search/meaning/store.js";
 import { MEANING_DIMENSIONS } from "../../mcp/src/search/meaning/embed.js";
+import { fuse } from "../functions/lib/blendedSearch";
 
 const DESCRIPTOR = { indexName: "context-meaning-ws1", accountId: "fake-account", apiToken: "fake-token", state: "ready" };
 
@@ -109,5 +110,25 @@ describe("the console's search, by meaning", () => {
     const answer = await searchNotes(store, { query: "vegetables", clearance: clearanceOf("private"), refreshOnMiss: false });
     expect(answer.hits.map((hit) => hit.path)).toEqual(["1-projects/vegetables.md"]);
     expect(sent).toEqual([]);
+  });
+});
+
+describe("across workspaces", () => {
+  test("a note found by meaning alone keeps its mark through the blend", () => {
+    const rows = fuse([
+      {
+        key: "ws1",
+        offset: 0,
+        asked: 10,
+        hits: [
+          { path: "1-projects/plan.md", title: "Plan", snippets: ["words"] },
+          { path: "1-projects/garden.md", title: "Garden", snippets: ["tomatoes"], meaningOnly: true },
+        ],
+      },
+    ]);
+    expect(Object.fromEntries(rows.map((row) => [row.path, row.meaningOnly]))).toEqual({
+      "1-projects/plan.md": false,
+      "1-projects/garden.md": true,
+    });
   });
 });
