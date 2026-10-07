@@ -20,14 +20,24 @@ import { getWithLegacyFallback } from "../storageLayout.js";
  * How many notes one `rotate_encryption_keys` call re-wraps before reporting
  * back rather than continuing.
  *
- * Small next to `FOLDER_MOVE_CAP`'s 500 on purpose: a re-wrap is two
+ * Sized against the Worker subrequest budget
+ * `docs/decisions/storage-and-credentials.md` measures every bulk operation in
+ * this file against, not against another limit's number: a re-wrap is two
  * subrequests per note (`get`, then a conditional `put`) plus whatever the
- * listing itself costs, against the same 50-subrequest Worker budget
- * `docs/decisions/storage-and-credentials.md` already measures every bulk
- * operation in this file against. Call the tool again to continue — that is
- * the entire resumption protocol, and it is safe to call as many times as it
- * takes, because a note already on the target generation is skipped rather
- * than re-wrapped.
+ * listing itself costs. Call the tool again to continue — that is the entire
+ * resumption protocol, and it is safe to call as many times as it takes,
+ * because a note already on the target generation is skipped rather than
+ * re-wrapped.
+ *
+ * It used to justify itself as "small next to" the folder-move cap, quoting
+ * that cap's value. #1301 lowered the cap and the sentence stayed, so the
+ * comparison was both stale and backwards — this cap is the larger of the two
+ * now. It is gone rather than corrected, and `gatewaySourceGuards.test.mjs`
+ * fails if any module writes a move limit's value down again.
+ *
+ * What justifies this number and whether it is still the right number are two
+ * questions; this comment answers only the first. Measure a batch against the
+ * budget before changing it, rather than against another limit.
  *
  * Not exported: this file's only export is the default worker
  * (`scripts/check-gateway-imports.mjs`/`gatewayFormat.helpers.ts` in
