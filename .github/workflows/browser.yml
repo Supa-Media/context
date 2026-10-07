@@ -1,10 +1,20 @@
 name: Browser CI
 
 # Required checks must report on every pull request, so scope work inside jobs.
+#
+# Per push, a real browser runs only the note editor's tests, and only when the
+# editor or what it is built from changed. Everything else the WebKit suite
+# covers (settings, panels, plugins, casts, phone screens, the offline shell)
+# runs once a day and on demand; per push those screens rely on their unit
+# tests (Dev2, 2026-10-07: "we don't need the browser to test settings panels
+# etc, only super critical things like the note editor").
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "47 7 * * *"
+  workflow_dispatch:
 
 jobs:
   # ── NO WEBKIT IN CI OR IN AN AGENT SANDBOX, UNTIL NOW ─────────────────────
@@ -39,8 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
-      affected: ${{ steps.changes.outputs.mobile }}
-      full: ${{ steps.changes.outputs.full }}
+      affected: ${{ steps.scope.outputs.affected }}
+      daily: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -52,28 +62,50 @@ jobs:
       # the job always runs and always reports; an unrelated pull request just
       # finds every step after this one skipped, which is a pass.
       - name: Does this touch the editor or what it runs on?
-        uses: dorny/paths-filter@v3
-        id: changes
+        uses: ./.github/actions/ci-scope
+        id: scope
         with:
-          filters: |
-            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/browser.yml"]
-            full: ["apps/mobile/e2e/webkit/**", "apps/mobile/features/console/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/browser.yml"]
+          # Followed file by file through imports (scripts/import-reach.mjs):
+          # the web editor, the native one in its WebView, and what they import.
+          # A schedule or a push to main always runs.
+          entries: |
+            apps/mobile/features/console/files/LiveEditor.web.tsx
+            apps/mobile/features/console/files/LiveEditor.tsx
+            apps/mobile/features/console/files/webview/entry.ts
+          # The editor tests, the harness they share, and the fixture route
+          # they open.
+          paths: |
+            apps/mobile/e2e/webkit/editor.spec.ts
+            apps/mobile/e2e/webkit/editorFormatting.spec.ts
+            apps/mobile/e2e/webkit/callouts.spec.ts
+            apps/mobile/e2e/webkit/tables.spec.ts
+            apps/mobile/e2e/webkit/comments.spec.ts
+            apps/mobile/e2e/webkit/helpers.ts
+            apps/mobile/e2e/webkit/playwright.config.ts
+            apps/mobile/e2e/webkit/static-server.mjs
+            apps/mobile/e2e/webkit/ci-workers.cjs
+            apps/mobile/app/e2e-fixture.tsx
+            apps/mobile/features/console/E2EFixtureScreen.tsx
+            apps/mobile/features/console/e2eFixtureData.ts
+            apps/mobile/features/console/e2eEncryptionFixture.ts
+            scripts/webkit-ci-workers.test.mjs
+            .github/workflows/browser.yml
 
       - uses: pnpm/action-setup@v4
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true'
 
       - uses: actions/setup-node@v5
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: The browser suite uses the measured CI worker count
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true'
         run: node --test scripts/webkit-ci-workers.test.mjs
 
       # `EXPO_PUBLIC_E2E_FIXTURE=1` is the only thing that makes `/e2e-fixture`
@@ -92,7 +124,7 @@ jobs:
       # measured 110s cold against 19s warm. The lockfile is in the key so a
       # dependency change starts cold; each run saves under its own commit.
       - name: Restore Metro's cache
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true'
         uses: actions/cache@v4
         with:
           path: /tmp/metro-cache
@@ -101,7 +133,7 @@ jobs:
             metro-e2e-web-${{ hashFiles('pnpm-lock.yaml') }}-
 
       - name: Build the web export with the E2E fixture route enabled
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true'
         working-directory: apps/mobile
         env:
           EXPO_PUBLIC_E2E_FIXTURE: "1"
@@ -124,14 +156,15 @@ jobs:
       # in a public repository) and the spec skips when they are absent, so a
       # GitHub outage costs a skip rather than a red run. `continue-on-error`
       # says that out loud rather than leaving it to a silent `|| true`.
+      # Only the daily full suite runs the plugin specs.
       - name: Fetch the community plugin releases the browser suite runs
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
         working-directory: apps/mobile
         run: node e2e/webkit/fetch-bundles.mjs
 
       - name: Share the built fixture with every browser group
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.scope.outputs.affected == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: webkit-fixture
@@ -145,7 +178,7 @@ jobs:
   webkit_full:
     name: WebKit full suite (${{ matrix.shard }})
     needs: webkit_build
-    if: needs.webkit_build.outputs.full == 'true'
+    if: needs.webkit_build.outputs.affected == 'true' && needs.webkit_build.outputs.daily == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     container:
@@ -196,12 +229,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  webkit_smoke:
-    name: WebKit smoke suite
+  # The per-push browser run: the note editor's own tests, in one job.
+  webkit_editor:
+    name: Note editor in WebKit
     needs: webkit_build
-    if: needs.webkit_build.outputs.affected == 'true' && needs.webkit_build.outputs.full != 'true'
+    if: needs.webkit_build.outputs.affected == 'true' && needs.webkit_build.outputs.daily != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
@@ -216,26 +250,27 @@ jobs:
         with:
           name: webkit-fixture
           path: apps/mobile
-      - name: Prove the built app boots, navigates and renders a note
+      - name: Type, format, tables, callouts and comments in the real editor
         working-directory: apps/mobile
         env:
           CI: "true"
-        run: pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit e2e/webkit/smoke.spec.ts
-      - name: Keep smoke failure evidence
+        run: >-
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list
+          e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts
+          e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts
+      - name: Keep editor failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: webkit-smoke-report
-          path: |
-            apps/mobile/e2e/webkit/playwright-report/
-            apps/mobile/e2e/webkit/test-results/
+          name: webkit-editor-results
+          path: apps/mobile/e2e/webkit/test-results/
           retention-days: 7
           if-no-files-found: ignore
 
   webkit_offline:
     name: Offline shell in Chromium
     needs: webkit_build
-    if: needs.webkit_build.outputs.affected == 'true'
+    if: needs.webkit_build.outputs.affected == 'true' && needs.webkit_build.outputs.daily == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     container:
@@ -268,7 +303,7 @@ jobs:
 
   editor_webkit:
     name: Editor in WebKit
-    needs: [webkit_build, webkit_full, webkit_smoke, webkit_offline]
+    needs: [webkit_build, webkit_full, webkit_editor, webkit_offline]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -276,20 +311,20 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: pnpm/action-setup@v4
-        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        if: needs.webkit_build.outputs.daily == 'true' && needs.webkit_full.result != 'skipped'
 
       - uses: actions/setup-node@v5
-        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        if: needs.webkit_build.outputs.daily == 'true' && needs.webkit_full.result != 'skipped'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install Playwright's report merger
-        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        if: needs.webkit_build.outputs.daily == 'true' && needs.webkit_full.result != 'skipped'
         run: pnpm install --filter "@context/mobile..." --frozen-lockfile
 
       - name: Download both shard reports
-        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        if: needs.webkit_build.outputs.daily == 'true' && needs.webkit_full.result != 'skipped'
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -298,13 +333,13 @@ jobs:
           merge-multiple: true
 
       - name: Merge the full suite report
-        if: needs.webkit_build.outputs.full == 'true' && needs.webkit_full.result != 'skipped'
+        if: needs.webkit_build.outputs.daily == 'true' && needs.webkit_full.result != 'skipped'
         continue-on-error: true
         working-directory: apps/mobile
         run: pnpm exec playwright merge-reports --reporter html "$GITHUB_WORKSPACE/all-blob-reports"
 
       - name: Keep one report for the full suite
-        if: always() && needs.webkit_build.outputs.full == 'true'
+        if: always() && needs.webkit_build.outputs.daily == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: editor-webkit-report
@@ -316,22 +351,20 @@ jobs:
         env:
           BUILD_RESULT: ${{ needs.webkit_build.result }}
           AFFECTED: ${{ needs.webkit_build.outputs.affected }}
-          FULL: ${{ needs.webkit_build.outputs.full }}
+          DAILY: ${{ needs.webkit_build.outputs.daily }}
           FULL_RESULT: ${{ needs.webkit_full.result }}
-          SMOKE_RESULT: ${{ needs.webkit_smoke.result }}
+          EDITOR_RESULT: ${{ needs.webkit_editor.result }}
           OFFLINE_RESULT: ${{ needs.webkit_offline.result }}
         run: |
           set -euo pipefail
           [ "$BUILD_RESULT" = success ] || { echo "Fixture build: $BUILD_RESULT"; exit 1; }
           if [ "$AFFECTED" != true ]; then
-            echo "No browser-owned path changed."
+            echo "Nothing the note editor is built from changed."
             exit 0
           fi
-          [ "$OFFLINE_RESULT" = success ] || { echo "Offline shell: $OFFLINE_RESULT"; exit 1; }
-          if [ "$FULL" = true ]; then
+          if [ "$DAILY" = true ]; then
             [ "$FULL_RESULT" = success ] || { echo "Full WebKit suite: $FULL_RESULT"; exit 1; }
+            [ "$OFFLINE_RESULT" = success ] || { echo "Offline shell: $OFFLINE_RESULT"; exit 1; }
           else
-            [ "$SMOKE_RESULT" = success ] || { echo "WebKit smoke suite: $SMOKE_RESULT"; exit 1; }
+            [ "$EDITOR_RESULT" = success ] || { echo "Note editor in WebKit: $EDITOR_RESULT"; exit 1; }
           fi
-
-

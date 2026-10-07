@@ -133,6 +133,18 @@ export function selfTest() {
     decide({ entries: ["apps/mobile/app/_layout.tsx", "apps/mobile/features/e2e/collaboration/Fixture.tsx"], changed: [file], root }).affected;
   if (!collaboration("apps/mobile/features/console/files/NoteEditor.tsx")) throw new Error("the editor is outside the collaboration scope");
   if (collaboration("apps/mobile/__tests__/formBlock.test.ts")) throw new Error("an app unit test matched the collaboration scope");
+  // The editor's browser run: packages and other apps are followed by file.
+  const editor = (file) =>
+    decide({
+      entries: ["apps/mobile/features/console/files/LiveEditor.web.tsx", "apps/mobile/features/console/files/webview/entry.ts"],
+      changed: [file],
+      root,
+    }).affected;
+  if (!editor("packages/shared/src/links.ts")) throw new Error("a shared file the editor imports is outside its scope");
+  if (editor("packages/shared/src/siteDesign/css.ts")) throw new Error("a shared file the editor never imports matched its scope");
+  if (!editor("apps/mcp/src/forms/grammar.js")) throw new Error("gateway code the editor imports is outside its scope");
+  if (editor("apps/mcp/wrangler.toml")) throw new Error("a config of an app the editor only imports from matched its scope");
+  if (!editor("apps/mobile/app.json")) throw new Error("a config of the app the editor is built in did not fail open");
 }
 
 async function main(env = process.env) {

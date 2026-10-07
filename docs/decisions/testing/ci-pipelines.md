@@ -19,39 +19,50 @@ Sentry or control-plane test graphs. `scripts/check-ci-path-gates.mjs` names
 every scoped job, requires its owning packages and workflow file, and rejects
 any expensive step after the detector without the shared condition.
 
-## Browser groups match the defect they prove
+## Per push, a real browser tests only the note editor
+
+_Decided by Dev2, 2026-10-07: "we don't need the browser to test settings
+panels etc, only super critical things like the note editor and changes to
+that, everything else can use regular unit testing."_
 
 The browser build is made once per configuration and passed to its test jobs as
-an artifact. The groups are:
+an artifact. On a pull request or a push to main:
 
-- WebKit smoke: app-shell or packaging changes outside a full-suite owner. It
-  boots the built export, walks the real file tree and renders a fixture note.
-- Full WebKit: editor, plugin runtime, offline shell, shared runtime and browser
-  fixture changes. Two shards run in parallel and produce one merged HTML
-  report. Failed shards retain screenshots and traces.
-- Offline Chromium: the service-worker reload that Playwright WebKit cannot
-  perform while offline. It runs beside either WebKit mode.
-- Collaboration Chromium: storage recovery, two-editor convergence, presence,
-  offline edits, rename, trash, restart, revocation and stalled connections
-  against a local gateway and local R2.
+- Note editor in WebKit runs the editor's own specs (`editor`,
+  `editorFormatting`, `callouts`, `tables`, `comments`) in one job, and only
+  when the editor or what it is built from changed.
 
-Collaboration Chromium is scoped by file rather than by package, because what
-it runs is a few entry points. These are the root layout, the collaboration
-fixture, the test Worker and its harness. Their `entries` on the scope step are
-followed through imports by `scripts/import-reach.mjs`. A change to a console
-screen the fixture never mounts, or to a Convex function the gateway never
-imports, does not run it. Replayed over the 100 merges before 2026-09-29, 59
-ran it, down from 81.
+Once a day (and on demand):
+
+- Full WebKit runs every spec in two shards with one merged HTML report.
+  Settings, panels, plugins, casts, phone screens and the rest are proven here
+  and by their unit tests, not per push.
+- Offline Chromium proves the service-worker reload Playwright WebKit cannot
+  perform offline.
+- Collaboration Chromium (collaboration.yml) covers storage recovery,
+  two-editor convergence, presence, offline edits, rename, trash, restart,
+  revocation and stalled connections against a local gateway and local R2.
+
+The editor job is scoped by file. Its scope step's `entries` are the web
+editor, the native one in its WebView and that WebView's entry, followed
+through imports by `scripts/import-reach.mjs`. The specs, their harness and the
+fixture route are named in `paths`. Replayed over the 110 merges before
+2026-10-07, 24 ran it; the old per-push browser trigger ran the full suite on 43.
 
 The scope fails open:
 
-- a workspace package imported by name counts whole;
-- configs, assets and top-level files of a reached app count;
-- the route and switch that lead to the fixture are named in `paths`.
+- a workspace package with no `main` to follow counts whole (one with a `main`
+  is followed file by file: the editor imports five files of
+  `@context/shared`, and claiming all of it ran the editor tests on every
+  website change);
+- configs, assets and top-level files of the app an entry lives in count; an
+  app the walk only passes through (the editor imports the gateway's form
+  grammar) counts only the files reached in it;
+- root dependency files and the scope tooling count everywhere.
 
-The path guard pins the entries. The scope self-test fails if the editor ever
-falls outside them. Undo this and every app change pays about four and a half
-runner-minutes again.
+The path guard pins the entries, the trigger, the daily gate on the full and
+offline jobs, and that the editor job runs exactly the specs its scope watches.
+The scope self-test fails if a shared file the editor does not import matches.
 
 The WebKit and Collaboration jobs use
 `mcr.microsoft.com/playwright:v1.56.1-noble`, which matches the repository's
