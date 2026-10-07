@@ -163,6 +163,26 @@ export function createReportingMethods({ post }) {
     },
 
     /**
+     * That a write touched `routines/`, the paths it touched and who wrote
+     * them. Paths and an id, never text: the control plane re-reads the folder
+     * through the bucket before it schedules anything
+     * (`docs/decisions/routines.md`).
+     *
+     * @param {string} workspaceId
+     * @param {string | null} userId
+     * @param {string[]} paths
+     */
+    async reportRoutineChange(workspaceId, userId, paths) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      if (!Array.isArray(paths) || paths.length === 0) return null;
+      return await post("/gateway/routines", {
+        workspaceId,
+        ...(typeof userId === "string" && userId ? { userId } : {}),
+        paths,
+      });
+    },
+
+    /**
      * That a form took an answer, and who the block says to tell.
      *
      * **Identifiers only.** No field values, no submitter, no timestamp — the

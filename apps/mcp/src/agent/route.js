@@ -21,6 +21,17 @@ import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
 import { appendConversation, conversationPath, readConversation } from "./conversation.js";
+import {
+  loadRoutine,
+  readRuns,
+  recordRun,
+  RoutineRefusal,
+  ROUTINES_CLIENT_ID,
+  routinePathFrom,
+  routineQuestion,
+  routineTimeZone,
+  runOutcome,
+} from "./routine.js";
 
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
@@ -67,7 +78,50 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     return json({ error: "invalid_request", error_description: "Expected a JSON body." }, 400);
   }
 
-  const question = typeof body.question === "string" ? body.question.trim() : "";
+  /*
+    A routine's connection runs routines and nothing else, and nothing else runs
+    one: both decided by the grant's client, never by the body. A routine grant
+    that answered free questions would be a second texting grant nobody linked.
+  */
+  const runner = session.actorClientId === ROUTINES_CLIENT_ID;
+  if (runner !== (body.routine !== undefined)) {
+    return json(
+      {
+        error: "invalid_request",
+        error_description: runner ? "This connection only runs routines." : "Only a routine's own connection runs one.",
+      },
+      runner ? 400 : 403,
+    );
+  }
+
+  store.actor = actorFor(session);
+  store.contexts = contextsFor(session);
+
+  /*
+    The routine is re-read now, before any model is opened, so a paused or
+    vanished one costs nobody a turn from their daily allowance.
+  */
+  let routine = null;
+  let runs = [];
+  let question = typeof body.question === "string" ? body.question.trim() : "";
+  if (runner) {
+    try {
+      routine = await loadRoutine(
+        (name, args) => callToolForSession({ name, arguments: args }, store, session),
+        routinePathFrom(body.routine),
+      );
+    } catch (error) {
+      if (!(error instanceof RoutineRefusal)) throw error;
+      return json({ error: error.code, error_description: error.message }, error.code === "routine_gone" ? 404 : 400);
+    }
+    if (routine.settings.paused) return json({ outcome: "paused", skipped: true });
+    runs = await readRuns(store, routine.path);
+    question = routineQuestion(routine, {
+      now: Date.now(),
+      timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
+      lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
+    });
+  }
   if (question.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);
   }
@@ -85,6 +139,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   try {
     credential = await openProvider(controlPlane, session, body.provider, env);
   } catch (error) {
+    if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
     if (error instanceof AgentRefusal && error.code === "daily_limit") {
       return json(
         { error: "daily_limit", error_description: "That's all the questions for today. Ask me again tomorrow." },
@@ -107,9 +162,6 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     return json({ error: "model_unavailable" }, 503);
   }
 
-  store.actor = actorFor(session);
-  store.contexts = contextsFor(session);
-
   const offered = await toolsForSession(session, store);
 
   /*
@@ -120,7 +172,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     hold. Kept in the default context, the one this grant was approved against.
   */
   const conversation =
-    conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)
+    !runner && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
@@ -132,8 +184,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   */
   const builtin = credential.provider === BUILTIN_PROVIDER;
   // Decided by the grant, never by the request body: only the texting client's
-  // answers go out as iMessages, and only they are written for one.
-  const texting = session.actorClientId === TEXTS_CLIENT_ID;
+  // answers go out as iMessages, and only they are written for one. A
+  // routine's answer is a text too, when it says anything.
+  const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
   const computer = texting ? computerFor(env) : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
@@ -243,6 +296,21 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     await afterAnswer(meter(turn.usage, false));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
+    if (runner) {
+      const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
+      await keepRun(store, routine, runs, ran.outcome, ran.text);
+      return json({
+        outcome: ran.outcome,
+        answer: ran.text,
+        skipped: ran.outcome !== "answered" && ran.outcome !== "finished",
+        send: routine.settings.send,
+        to: routine.settings.to,
+        provider: turn.provider,
+        model: turn.model,
+        steps: turn.steps,
+      });
+    }
+
     if (conversation !== null && !turn.exhausted) {
       try {
         await appendConversation(store, conversation, history, question, turn.answer);
@@ -261,6 +329,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     });
   } catch (error) {
     await meter(null, true);
+    if (runner) await keepRun(store, routine, runs, "failed", "");
     if (error instanceof ProviderError) {
       await afterAnswer(logTurn("failed", error.model, error.timing, null));
       // Logged for an operator, opaque to the caller. `reason` is a phrase this
@@ -279,5 +348,18 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       return json({ error: "model_unavailable" }, 502);
     }
     throw error;
+  }
+}
+
+/**
+ * A run goes in the routine's history whatever became of it. Best effort: a
+ * history that failed to save costs the next run its "last time", not this
+ * one its answer.
+ */
+async function keepRun(store, routine, runs, outcome, text) {
+  try {
+    await recordRun(store, routine.path, runs, { at: Date.now(), outcome, text });
+  } catch {
+    // See above.
   }
 }

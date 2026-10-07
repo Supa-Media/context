@@ -547,6 +547,8 @@ function attachChangeReporters(store, workspaceId, controlPlane) {
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
   store.reportWebsiteChange = () =>
     controlPlane.reportWebsiteChange(workspaceId).catch(() => {});
+  store.reportRoutineChange = (paths, userId) =>
+    controlPlane.reportRoutineChange(workspaceId, userId, paths).catch(() => {});
   // A note leaving this context for another: the console map's record of it.
   // Deferred and swallowed like `reportActivity`; the move itself has landed.
   store.reportContextMove = (move) => {
