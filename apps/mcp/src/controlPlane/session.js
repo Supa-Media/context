@@ -152,6 +152,15 @@ export function createSessionMethods({ post, required }) {
       return required(parsed, "verdict");
     },
 
+    /**
+     * One finished agent turn for the turn log (`apps/convex/functions/agentTurns.ts`):
+     * provider, model, outcome, durations, token counts and the trace of
+     * model rounds and tool names. Never text, never a tool's arguments.
+     */
+    async recordAgentTurn(accessToken, expectedWorkspaceId, turn) {
+      await post("/gateway/agent-turn", { accessToken, expectedWorkspaceId, ...turn });
+    },
+
     /** What a finished built-in turn spent: token counts and a duration, never text. */
     async recordBuiltinUsage(accessToken, expectedWorkspaceId, { input, output, decision = 0, failed, ms }) {
       await post("/gateway/builtin-model/usage", {

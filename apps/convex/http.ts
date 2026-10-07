@@ -127,6 +127,7 @@ import * as site from "./functions/lib/gatewayRoutes/site";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
+import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
@@ -302,6 +303,7 @@ export const gatewayProvider = gatewayRoute(credentials.gatewayProviderHandler);
 /** The built-in model's gate and meter, for a texting grant with no account connected. */
 export const gatewayBuiltinModel = gatewayRoute(builtinModel.gatewayBuiltinModelHandler);
 export const gatewayBuiltinUsage = gatewayRoute(builtinModel.gatewayBuiltinUsageHandler);
+export const gatewayAgentTurn = gatewayRoute(agentTurns.gatewayAgentTurnHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
@@ -857,6 +859,7 @@ http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding }
 http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
 http.route({ path: "/gateway/builtin-model", method: "POST", handler: gatewayBuiltinModel });
 http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gatewayBuiltinUsage });
+http.route({ path: "/gateway/agent-turn", method: "POST", handler: gatewayAgentTurn });
 http.route({ path: "/gateway/search-index/progress", method: "POST", handler: gatewaySearchIndexProgress });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
