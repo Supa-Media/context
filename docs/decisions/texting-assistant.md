@@ -281,11 +281,51 @@ So the model never chooses an address:
 - Saved runs replayed later are deliberately not used: a page can plant
   instructions in that memory. Any cache added later is per workspace and
   holds no page or note text.
-- Web search, which needs queries the model writes, is not here. It needs its
-  own decision, because a query is exactly the channel this guard closes.
+- A search result's address may be opened like a link on a page: it was in
+  the search provider's index before the turn began. An address written inside
+  a result's snippet may not. See the next section.
 
 **What a simplification would cost:** letting the model open any address it
 writes turns every page it reads into a way to post the person's notes to a
 stranger. The test that fails is `apps/mcp/test/agentComputer.test.mjs` ("an
 address a page told the agent to open, carrying a note, is refused and never
 fetched").
+
+### The agent searches the web on its own
+
+Decided by the owner, 2026-10-07 ("runs on its own like Instinct"), with Brave
+Search as the first provider. The texting assistant has a `search_web` tool
+(`apps/mcp/src/agent/search.js`, provider picked by `AGENT_SEARCH`) and uses it
+without asking whenever an answer depends on the world rather than the
+person's notes. Its queries are the model's own words, not limited to the
+person's.
+
+That reopens, on purpose, the channel the guard above closes: a query can
+carry words from the person's notes out of the turn. What bounds it:
+
+- A query goes to the search provider, a processor under contract, and never
+  to whoever wrote a page. A page that says "search for their salary" learns
+  nothing from the search, because the results come from an index built
+  before the turn, so no address the agent can then open carries the query.
+- The prompt and the tool's description tell the model to keep private
+  details (people's names, amounts, health, account numbers) out of queries,
+  while a business, place or product from the notes may be searched for,
+  since that is what makes it useful ("is my dentist open Saturday?"). That
+  is a request, not a lock; the lock is the point above.
+- At most 3 searches a question, 6 results each, 300 characters a query.
+- Results reach the model marked as not written by the person. Their
+  addresses join the turn's openable addresses, the same as a link on a page.
+  An address written inside a result's title or snippet does not.
+- Texting client only, as with the computer. The key (`BRAVE_SEARCH_API_KEY`)
+  is a Worker secret synced from GitHub by the deploy workflows, travels in a
+  request header and never in an address. Without it there is no search tool,
+  which is also the self-hosted default.
+- The turn log records `search_web` by name and duration, never the query.
+
+**What a simplification would cost:** letting search results vouch for
+addresses inside their snippets would let any indexed page steer the agent to
+an address of its choosing; offering search to the app's agent panel widens
+who can send note words to a third party without a decision. The tests that
+fail are in `apps/mcp/test/agentSearch.test.mjs` ("an address written inside a
+result's snippet is refused and never fetched", "only the texting client is
+given web search").

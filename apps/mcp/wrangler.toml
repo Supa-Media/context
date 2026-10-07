@@ -166,6 +166,11 @@ service = "context-site-shots"
 #   CALENDAR_ICS_URL        a calendar's secret iCal URL
 #   GRANOLA_API_KEY         reads Granola note contents
 #   GRANOLA_WEBHOOK_SECRET  verifies signed Granola webhook deliveries
+#
+# Optional on any deployment:
+#   BRAVE_SEARCH_API_KEY    lets the texting assistant search the web
+#                           (src/agent/search.js); without it there is no
+#                           search tool. AGENT_SEARCH picks another provider.
 
 # ── Self-host only, commented out on purpose ────────────────────────────────
 #

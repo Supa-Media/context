@@ -278,6 +278,7 @@ jobs:
           CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
           TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
           TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
         run: |
           set -euo pipefail
           printf '%s' "$GATEWAY_SECRET" | pnpm exec wrangler secret put GATEWAY_SECRET --config "$MCP_WRANGLER_CONFIG"
@@ -303,6 +304,15 @@ jobs:
             exit 1
           else
             echo "OK — no transcription configured; meetings on the desktop will be typed."
+          fi
+
+          # Web search for the texting assistant (src/agent/search.js):
+          # optional, and absent means the assistant has no search tool.
+          if [ -n "${BRAVE_SEARCH_API_KEY:-}" ]; then
+            printf '%s' "$BRAVE_SEARCH_API_KEY" | pnpm exec wrangler secret put BRAVE_SEARCH_API_KEY --config "$MCP_WRANGLER_CONFIG"
+            echo "OK — web search is configured for this gateway."
+          else
+            echo "OK — no web search key; the texting assistant searches nothing."
           fi
           echo "OK — the Worker's secrets match this repository's."
 
