@@ -257,6 +257,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Each week has four sections, and exploring is never a promise
 - What's new reads the published page and remembers only a number
 
+## [Link graph](./link-graph.md)
+
+- The reference index is approved, and it is a derivative that is never the authority
+
 ## [Search and the derived index](./search.md)
 
 - Search answers from a derived index, and the index is budgeted, filtered, and disposable
