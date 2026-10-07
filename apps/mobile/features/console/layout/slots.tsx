@@ -12,6 +12,7 @@ import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
 import { PhoneBack } from "../home/PhoneBack";
 import { phoneBackTarget } from "../home/phoneBack";
+import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
@@ -68,19 +69,24 @@ export function consoleAccountSlot({
   browsing,
   data,
   switcherProps,
+  map,
 }: {
   phone: boolean;
   browsing: boolean;
   data: ConsoleData;
   switcherProps: ComponentProps<typeof SwitcherMenu>;
+  /** The live map's route, when the console has one: ‹ Home closes it. */
+  map?: MapRoute;
 }) {
   const account = <SwitcherMenu {...switcherProps} trigger="phone" />;
-  const target = phone && browsing ? phoneBackTarget(data.files.selectedPath) : null;
+  const mapOpen = map?.open === true;
+  const target = phone && browsing ? phoneBackTarget(data.files.selectedPath, mapOpen) : null;
   if (target === null) return account;
   return (
     <PhoneBack
       target={target}
       onBack={() => {
+        if (mapOpen) map?.closeMap();
         if (target.folder === null) data.files.deselect();
         else data.files.select(target.folder);
       }}

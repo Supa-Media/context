@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { agentActivityQuery } from "../../agents/agentActivity";
 
 /**
@@ -24,6 +25,15 @@ export function announceOpenNote(workspaceId: string | null, path: string | null
   // One open note per console: opening one here closes whatever was open anywhere.
   open.clear();
   if (path !== null && path !== "") open.set(workspaceId, { path, doing });
+}
+
+/** The console's note on screen, announced while it is on screen and taken back after. */
+export function useAnnounceOpenNote(workspaceId: string | undefined, path: string | null, editing: boolean): void {
+  useEffect(() => {
+    if (workspaceId === undefined) return;
+    announceOpenNote(workspaceId, path, editing ? "edit" : "read");
+    return () => announceOpenNote(workspaceId, null);
+  }, [workspaceId, path, editing]);
 }
 
 /** A create or a move the console finished. Notes only: a folder is not a dot on the map. */

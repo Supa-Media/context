@@ -122,7 +122,7 @@ export function RoundButton({
   size = 32,
   testID,
 }: {
-  icon: "plus" | "play" | "pause" | "close" | "chevronUp" | "chevronDown";
+  icon: "plus" | "minus" | "play" | "pause" | "close" | "chevronUp" | "chevronDown";
   label: string;
   onPress: () => void;
   filled?: boolean;

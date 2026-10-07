@@ -36,6 +36,8 @@ export const ICON_NAMES = [
   "panelRight",
   "search",
   "plus",
+  /** Zoom out, on the live map's zoom control. */
+  "minus",
   "check",
   "close",
   "chevronLeft",

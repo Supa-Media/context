@@ -2,6 +2,7 @@ import { bar, chevron, cradle, dot, rect, ring, shackle, type DrawFn } from "./p
 
 type StatusIconName =
   | "plus"
+  | "minus"
   | "check"
   | "close"
   | "lock"
@@ -22,6 +23,9 @@ export const statusIcons: Record<StatusIconName, DrawFn> = {
     bar("h", u, w, c, { cx: 0.5, cy: 0.5, length: 0.62 }),
     bar("v", u, w, c, { cx: 0.5, cy: 0.5, length: 0.62, angle: 90 }),
   ],
+
+  /** The plus without its upright: the live map's zoom out. */
+  minus: (u, w, c) => [bar("h", u, w, c, { cx: 0.5, cy: 0.5, length: 0.62 })],
 
   check: (u, w, c) => [
     bar("short", u, w, c, { cx: 0.325, cy: 0.625, length: 0.3, angle: 45 }),

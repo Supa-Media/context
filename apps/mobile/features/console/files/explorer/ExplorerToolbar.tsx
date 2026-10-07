@@ -13,6 +13,7 @@ import { IconButton } from "./IconButton";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
 import { useFieldFont } from "../../../design/fieldFont";
+import { useMapRoute } from "../../map/live/MapRouteContext";
 
 type NewId = "new-note" | "new-folder" | "new-drawing";
 type ViewId = "sort-asc" | "sort-desc" | "collapse";
@@ -157,6 +158,7 @@ export function ExplorerToolbar({
     if (id === "collapse") files.collapseAll();
   };
 
+  const mapRoute = useMapRoute();
   return (
     <View style={inBar ? styles.toolbarInBar : styles.toolbar} testID="explorer-header">
       {filtering ? (
@@ -230,6 +232,20 @@ export function ExplorerToolbar({
             />
           </View>
         )}
+        {/*
+          The live map: a page in the document slot (`?map=1`), lit while it
+          is open, and the same press closes it. Only inside the console
+          layout, which is the only place that provides the route.
+        */}
+        {mapRoute !== undefined && !(inBar && filtering) ? (
+          <IconButton
+            label={mapRoute.open ? "Close the map" : "Map"}
+            icon="constellation"
+            on={mapRoute.open}
+            onPress={mapRoute.toggle}
+            testID="explorer-map"
+          />
+        ) : null}
       </View>
 
       {open === "new" ? (

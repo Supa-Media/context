@@ -49,6 +49,7 @@ export function PhoneHome({
   onActions,
   onTogglePin,
   foot,
+  onOpenMap,
 }: {
   title: string;
   source: HomeSource;
@@ -67,6 +68,8 @@ export function PhoneHome({
   onTogglePin: ((path: string, kind: "note" | "folder") => void) | null;
   /** The workspace's storage line, as the root listing had it. */
   foot?: string;
+  /** The live map, a place of its own on Home. `undefined` where there is none (a visitor, the demo). */
+  onOpenMap?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -139,6 +142,8 @@ export function PhoneHome({
           </Pressable>
         </View>
       )}
+
+      {onOpenMap === undefined ? null : <MapPlace onPress={onOpenMap} />}
 
       {home.pinned.length === 0 ? null : (
         <Section label="Pinned">
@@ -351,6 +356,37 @@ function NoteRow({
         )}
       </View>
     </Pressable>
+  );
+}
+
+/** The live map's row on Home: a place, like a folder, that opens the map. */
+function MapPlace({ onPress }: { onPress: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  return (
+    <Card>
+      {[
+        <Pressable
+          key="map"
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel="Map, who is working in this workspace, live"
+          style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+          testID="phone-home-map"
+        >
+          <Icon name="constellation" size={20} color={colors.text2} />
+          <View style={styles.folderName}>
+            <Text style={styles.rowTitle} numberOfLines={1}>
+              Map
+            </Text>
+          </View>
+          <Text variant="meta" numberOfLines={1} style={styles.counts}>
+            Who is working, live
+          </Text>
+          <Icon name="chevronRight" size={16} color={colors.muted} />
+        </Pressable>,
+      ]}
+    </Card>
   );
 }
 

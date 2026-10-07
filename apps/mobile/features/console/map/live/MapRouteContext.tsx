@@ -19,9 +19,20 @@ export function useMapRoute(): MapRoute | undefined {
   return useContext(MapRouteContext);
 }
 
-/** The route the layout provides, stable while the URL and router are. */
-export function useConsoleMapRoute(router: ConsoleRouter, open: boolean): MapRoute {
-  return useMemo(() => routeMap(router, open), [router, open]);
+/**
+ * The route the layout provides, stable while the URL and router are — or
+ * `undefined` where the map cannot work (a visitor on a shared link, the
+ * landing page's demo), so no button is drawn for it. Choosing a note in the
+ * tree leaves it (`useLeaveMapOnOpen`).
+ */
+export function useConsoleMapRoute(
+  router: ConsoleRouter,
+  open: boolean,
+  { available, selectedPath }: { available: boolean; selectedPath: string | null },
+): MapRoute | undefined {
+  const route = useMemo(() => (available ? routeMap(router, open) : undefined), [available, router, open]);
+  useLeaveMapOnOpen(route, selectedPath);
+  return route;
 }
 
 /**

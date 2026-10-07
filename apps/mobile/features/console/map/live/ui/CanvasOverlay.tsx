@@ -93,7 +93,7 @@ export function ZoomControl({ store, engine }: { store: CameraStore; engine: () 
   const knob = Math.max(0, Math.min(1, camera.zoom));
   return (
     <View style={styles.zoom} testID="map-zoom">
-      <RoundButton icon="close" label="Zoom out" onPress={() => engine()?.zoomOut()} size={28} testID="map-zoom-out" />
+      <RoundButton icon="minus" label="Zoom out" onPress={() => engine()?.zoomOut()} size={28} testID="map-zoom-out" />
       <View style={styles.zoomTrack}>
         <View style={styles.zoomLine} />
         {levels.map((level) => {

@@ -64,7 +64,7 @@ describe("routing", () => {
     routed.openPage();
     routed.closePage();
     expect(closed).toEqual(["review"]);
-    expect(params).toEqual([{ changes: "1", settings: undefined }, { changes: undefined }]);
+    expect(params).toEqual([{ changes: "1", settings: undefined, map: undefined }, { changes: undefined }]);
   });
 
   test("the page is open only for somebody who sees suggestions", () => {

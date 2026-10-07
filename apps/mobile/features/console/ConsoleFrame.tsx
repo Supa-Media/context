@@ -77,6 +77,7 @@ import { consoleCreateButton, consolePhoneChat } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
 import { OrganizerProvider } from "../organizer/OrganizerContext";
 import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
+import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import {
   consoleReviewSheet,
   consoleToasts,
@@ -123,6 +124,8 @@ export function ConsoleFrame({
     connectAgent: SetupAgent | null;
     /** `?changes=1`: the What changed page. Absent on the homepage. */
     changesOpen?: boolean;
+    /** `?map=1`: the live map is open over Browse. */
+    mapOpen?: boolean;
   };
   /** The pane: the route's `<Slot/>`, or the homepage's `BrowsePane`. */
   children: ReactNode;
@@ -277,6 +280,11 @@ export function ConsoleFrame({
   const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
   // Opening a note or folder from the tree leaves the page for it.
   useLeavePageOnOpen(organizer, data.files.selectedPath);
+  // The live map (`?map=1`), over Browse in the same slot; leaves the same way.
+  const mapRoute = useConsoleMapRoute(router, params.mapOpen === true, {
+    available: !data.demo && visitor === undefined,
+    selectedPath: data.files.selectedPath,
+  });
 
   const { selectedEntry, readable } = noteTargetsFor({ browsing, data });
   const reading = useReadMode();
@@ -404,6 +412,7 @@ export function ConsoleFrame({
   return (
     <ConsoleDataProvider value={data}>
       <OrganizerProvider value={organizer}>
+      <MapRouteProvider value={mapRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {/*
@@ -483,7 +492,7 @@ export function ConsoleFrame({
           switching, and neither could say the other's rows). On any page below
           Home it is ‹ back instead, naming where it goes (owner, 2026-10-01).
         */
-        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps })}
+        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps, map: mapRoute })}
         /*
           `browsing`, not `insideContext`.
 
@@ -636,6 +645,7 @@ export function ConsoleFrame({
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
+      </MapRouteProvider>
       </OrganizerProvider>
     </ConsoleDataProvider>
   );

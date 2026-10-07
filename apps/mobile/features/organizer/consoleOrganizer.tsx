@@ -45,7 +45,7 @@ export function routeOrganizer(
     pageOpen: changesOpen && changesCount(organizer.status) !== null,
     openPage: () => {
       organizer.closeReview();
-      router.setParams({ changes: "1", settings: undefined });
+      router.setParams({ changes: "1", settings: undefined, map: undefined });
     },
     closePage: () => router.setParams({ changes: undefined }),
   };
