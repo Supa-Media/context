@@ -46,8 +46,13 @@ Once a day (and on demand):
 The editor job is scoped by file. Its scope step's `entries` are the web
 editor, the native one in its WebView and that WebView's entry, followed
 through imports by `scripts/import-reach.mjs`. The specs, their harness and the
-fixture route are named in `paths`. Replayed over the 110 merges before
-2026-10-07, 24 ran it; the old per-push browser trigger ran the full suite on 43.
+fixture route are named in `paths`. A push to main is diffed against the
+commit it replaced (`push-diff`), so a merge that does not touch the editor
+runs no browser at all either (Dev2: "there should be NO browser test when we
+aren't touching the editor"). Replayed over the 111 merges before 2026-10-07,
+22 ran it, most of them real editor changes; the rest were a dependency bump
+or a change to the CI scope tooling itself. The old per-push trigger ran the
+full suite on 43.
 
 The scope fails open:
 
@@ -55,9 +60,11 @@ The scope fails open:
   is followed file by file: the editor imports five files of
   `@context/shared`, and claiming all of it ran the editor tests on every
   website change);
-- configs, assets and top-level files of the app an entry lives in count; an
-  app the walk only passes through (the editor imports the gateway's form
-  grammar) counts only the files reached in it;
+- top-level build configs of the app an entry lives in count (`metro`,
+  `babel`, `app.config`, `package.json`), but not its lint, test-runner or
+  store configs, and not an asset nothing imports; an app the walk only passes
+  through (the editor imports the gateway's form grammar) counts only the
+  files reached in it;
 - root dependency files and the scope tooling count everywhere.
 
 The path guard pins the entries, the trigger, the daily gate on the full and

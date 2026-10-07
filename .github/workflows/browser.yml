@@ -67,7 +67,9 @@ jobs:
         with:
           # Followed file by file through imports (scripts/import-reach.mjs):
           # the web editor, the native one in its WebView, and what they import.
-          # A schedule or a push to main always runs.
+          # A schedule always runs; a push to main runs only when the merge
+          # touched the editor (push-diff), like a pull request.
+          push-diff: "true"
           entries: |
             apps/mobile/features/console/files/LiveEditor.web.tsx
             apps/mobile/features/console/files/LiveEditor.tsx

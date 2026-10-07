@@ -450,6 +450,7 @@ export function check(root = ROOT) {
   ]) {
     if (!scopeStep.includes(`            ${entry}\n`)) throw new Error(`the editor browser scope no longer follows ${entry}`);
   }
+  if (!scopeStep.includes('push-diff: "true"')) throw new Error("a merge that does not touch the editor runs its browser tests again");
   const scopedSpecs = [...scopeStep.matchAll(/^ {12}(apps\/mobile\/e2e\/webkit\/[\w.]+\.spec\.ts)$/gm)].map((m) => m[1]).sort();
   const editorJob = jobBlock(browser, "webkit_editor");
   const editorSpecs = [...editorJob.matchAll(/(e2e\/webkit\/[\w.]+\.spec\.ts)/g)].map((m) => `apps/mobile/${m[1]}`).sort();

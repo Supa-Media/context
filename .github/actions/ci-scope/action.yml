@@ -14,6 +14,10 @@ inputs:
     description: Newline-separated entry files; the job is affected only by the repository files they import (scripts/import-reach.mjs)
     required: false
     default: ""
+  push-diff:
+    description: On a push, diff against the commit it replaced instead of always running (the main-branch backstop)
+    required: false
+    default: "false"
 
 outputs:
   affected:
@@ -32,4 +36,5 @@ runs:
         CI_SCOPE_PACKAGES: ${{ inputs.packages }}
         CI_SCOPE_PATHS: ${{ inputs.paths }}
         CI_SCOPE_ENTRIES: ${{ inputs.entries }}
+        CI_SCOPE_PUSH_DIFF: ${{ inputs.push-diff }}
       run: node scripts/ci-change-scope.mjs

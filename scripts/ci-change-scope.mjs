@@ -8,7 +8,9 @@
  * filter prevented it from existing. Pushes to main always run as a backstop.
  */
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { matches, workspacePaths } from "./check-ci-path-gates.mjs";
 import { reach, reached } from "./import-reach.mjs";
@@ -61,17 +63,23 @@ function hasCommit(sha) {
   }
 }
 
-function changedFiles(env = process.env) {
-  if (env.GITHUB_EVENT_NAME !== "pull_request") {
+export function changedFiles(env = process.env) {
+  // A push is diffed against the commit it replaced only when the job asks
+  // (`push-diff`): the editor's browser run must not run on a merge that did
+  // not touch the editor (Dev2, 2026-10-07). Every other job keeps the
+  // unconditional main-branch backstop.
+  const pushDiff = env.GITHUB_EVENT_NAME === "push" && env.CI_SCOPE_PUSH_DIFF === "true";
+  if (env.GITHUB_EVENT_NAME !== "pull_request" && !pushDiff) {
     return { files: [], backstop: `${env.GITHUB_EVENT_NAME || "local"} runs the main-branch backstop` };
   }
   if (!env.GITHUB_EVENT_PATH || !existsSync(env.GITHUB_EVENT_PATH)) {
-    return { files: [], backstop: "the pull-request event payload is unavailable" };
+    return { files: [], backstop: "the event payload is unavailable" };
   }
   const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
-  const base = event.pull_request?.base?.sha;
-  if (!/^[0-9a-f]{40}$/.test(base ?? "")) {
-    return { files: [], backstop: "the pull-request base commit is unavailable" };
+  // A new branch or a force push reports no usable `before`; that runs.
+  const base = pushDiff ? event.before : event.pull_request?.base?.sha;
+  if (!/^[0-9a-f]{40}$/.test(base ?? "") || /^0+$/.test(base)) {
+    return { files: [], backstop: "the base commit is unavailable" };
   }
   if (!hasCommit(base)) {
     try {
@@ -144,7 +152,19 @@ export function selfTest() {
   if (editor("packages/shared/src/siteDesign/css.ts")) throw new Error("a shared file the editor never imports matched its scope");
   if (!editor("apps/mcp/src/forms/grammar.js")) throw new Error("gateway code the editor imports is outside its scope");
   if (editor("apps/mcp/wrangler.toml")) throw new Error("a config of an app the editor only imports from matched its scope");
-  if (!editor("apps/mobile/app.json")) throw new Error("a config of the app the editor is built in did not fail open");
+  if (!editor("apps/mobile/metro.config.js")) throw new Error("a build config of the app the editor is built in did not fail open");
+  if (editor("apps/mobile/public/index.html")) throw new Error("an asset nothing imports matched the editor scope");
+  if (editor("apps/mobile/eslint.config.js")) throw new Error("a lint config matched the editor scope");
+  // A push runs the backstop unless the job asked to diff it.
+  const event = join(mkdtempSync(join(tmpdir(), "ci-scope-")), "event.json");
+  const head = git("rev-parse", "HEAD");
+  const push = (before, flag) => {
+    writeFileSync(event, JSON.stringify({ before }));
+    return changedFiles({ GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event, CI_SCOPE_PUSH_DIFF: flag });
+  };
+  if (!push(head, undefined).backstop) throw new Error("a push without push-diff skipped the backstop");
+  if (push(head, "true").backstop) throw new Error("a push with push-diff was not diffed");
+  if (!push("0".repeat(40), "true").backstop) throw new Error("a push with no previous commit did not fail open");
 }
 
 async function main(env = process.env) {
