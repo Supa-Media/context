@@ -107,6 +107,7 @@ export function ExplorerTree({
           pendingStateFor={files.pending?.stateFor}
           markedPaths={markedPaths}
           agentMarks={agentMarks}
+          workspaceId={files.contextId}
         />
       )}
 

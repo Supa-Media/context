@@ -64,10 +64,13 @@ const boxOf = (discs: readonly Disc[]) => ({
   maxY: Math.max(...discs.map((d) => d.y + d.r)),
 });
 
-/** A workspace framed by its folders (tighter than its island's circle). */
+/**
+ * A workspace framed by its folders (tighter than its island's circle), with
+ * room below for the faces that rest on a folder's lower edge.
+ */
 export function fitIsland(vp: Viewport, island: IslandPlace): Cam {
   if (island.folders.length === 0) return fitCircle(vp, island.x, island.y, island.r);
-  return fitBox(vp, boxOf(island.folders), 24, 34, 16);
+  return fitBox(vp, boxOf(island.folders), 24, 34, 30);
 }
 
 /** Every workspace, with room above each for its name and total. */

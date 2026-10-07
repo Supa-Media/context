@@ -17,6 +17,7 @@ import { toFileError } from "../browser";
 import { baseName, describeMoveProblem, parentPath, restoreTargetFor } from "../paths";
 import { canDrop as planDrop } from "../dnd";
 import { findEntry, namesIn } from "../tree";
+import { announceDid } from "../../map/live/announce";
 import { countOf, folderLabel } from "./copy";
 import type { BatchStep } from "./types";
 import type { BrowserStateValues } from "./useBrowserState";
@@ -199,6 +200,7 @@ export function useBatch(deps: BatchDeps) {
           name: folderLabel(baseName(step.from)),
           work: async () => {
             await moveEntry({ workspaceId: workspaceId!, from: step.from, to: step.to });
+            announceDid(workspaceId ?? null, { kind: "move", from: step.from, to: step.to });
             return {
               touched: [step.from, step.to],
               undo: () => moveEntry({ workspaceId: workspaceId!, from: step.to, to: step.from }),

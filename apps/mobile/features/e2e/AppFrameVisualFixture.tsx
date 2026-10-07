@@ -4,6 +4,7 @@ import { AppFrame, FrameIconButton, useFrame } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
 import { ConsoleBottomBar } from "../console/ConsoleBottomBar";
+import { useMapRoute } from "../console/map/live/MapRouteContext";
 import { SaveMark } from "../console/SaveMark";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
@@ -122,6 +123,7 @@ export function AppFrameVisualFixture({
   const data = shape?.data === undefined ? fixtureData : shape.data(fixtureData);
   const tabs = shape?.tabs ?? TABS;
   useFakeMeeting(fakeMeeting);
+  const mapOpen = useMapRoute()?.open === true;
   /*
     A context, not the landing route.
 
@@ -331,7 +333,8 @@ export function AppFrameVisualFixture({
           dead, which is what a phone actually looks like.
         */
         bottomBar={
-          <ConsoleBottomBar data={data} onSearch={() => {}} onCreate={() => {}} onAskWhere={() => {}} />
+          // As `consoleBottomBar`: the live map's sheet takes the bottom edge.
+          mapOpen ? undefined : <ConsoleBottomBar data={data} onSearch={() => {}} onCreate={() => {}} onAskWhere={() => {}} />
         }
         /*
           The tab strip in the frame's own slot, which is the point of putting

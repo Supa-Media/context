@@ -89,7 +89,20 @@ export type MapView = "map" | "folders";
 /** Live, or a replay of a time range at a playhead. */
 export type MapClock =
   | { kind: "live" }
-  | { kind: "replay"; from: number; to: number; at: number; speed: 1 | 10 | 60 };
+  | {
+      kind: "replay";
+      from: number;
+      to: number;
+      at: number;
+      /** Recorded milliseconds per real one: 60 plays an hour in a minute. */
+      speed: number;
+      /**
+       * How long somebody stays on the replayed map after their last step. A
+       * week played at 600x needs longer than a day at 60x, or the swarm is
+       * empty between steps. Absent means the engine's own default.
+       */
+      idleMs?: number;
+    };
 
 /** Semantic zoom levels, far to near. */
 export type ZoomLevel = "all" | "workspace" | "folders" | "notes";

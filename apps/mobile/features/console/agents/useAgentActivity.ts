@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@context/convex/_generated/api";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import { decodeAgentActivity, type AgentActivityView } from "./agentActivity";
+import { takeAnnouncement } from "../map/live/announce";
 
 /**
  * How often the tree asks.
@@ -67,9 +68,15 @@ export function useAgentActivity(
         if (grant === null || grant.expiresAt - Date.now() < 60_000) {
           grant = await mintRef.current({ workspaceId: workspaceId as never });
         }
-        const response = await fetch(new URL("/agent-activity", origin).toString(), {
+        // The open note and a finished create or move ride along (`map/live/announce.ts`).
+        const told = takeAnnouncement(workspaceId);
+        const response = await fetch(new URL(`/agent-activity${told.query}`, origin).toString(), {
           headers: { authorization: `Bearer ${grant.accessToken}` },
+        }).catch((error: unknown) => {
+          told.restore();
+          throw error;
         });
+        if (!response.ok) told.restore();
         if (response.ok && !stopped) {
           setView({ workspaceId, view: decodeAgentActivity(await response.json()) });
         }

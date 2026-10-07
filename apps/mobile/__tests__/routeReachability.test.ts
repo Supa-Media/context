@@ -207,6 +207,12 @@ const NAVIGATES = [
   "router.navigate",
   "Redirect href",
   "<Link",
+  /*
+    A page carried in the query of the route it is on (`?map=1`, the live
+    map; `?settings=`), which Back and a shared link both find. It is a
+    navigation in every sense this guard cares about: a press changes the URL.
+  */
+  "router.setParams",
 ];
 
 /** Every file a claim rests on, control and navigation together. */

@@ -117,7 +117,7 @@ export function buildModel(
     speed: data.clock.kind === "replay" ? data.clock.speed : 1,
     selfId: data.selfId,
     liveReads,
-    idleMs: options.idleMs,
+    idleMs: data.clock.kind === "replay" && data.clock.idleMs !== undefined ? data.clock.idleMs : options.idleMs,
     reducedMotion: options.reducedMotion,
     following: options.following,
   };

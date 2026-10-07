@@ -33,6 +33,9 @@ import { useRecordOpen, useRecordRecent } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
 import { useOrganizerView } from "../../../organizer/OrganizerContext";
 import { WhatChangedPage } from "../../../organizer/WhatChangedPage";
+import { useMapRoute } from "../../map/live/MapRouteContext";
+import { useAnnounceOpenNote } from "../../map/live/announce";
+import { MapPage } from "../../map/live/ui/MapPage";
 
 /**
  * Whatever is in front of somebody: the empty state or the phone's landing
@@ -211,6 +214,7 @@ export function BrowseDocument({
     open most, Recent and All folders — see `home/PhoneHome.tsx`. A pointer
     layout keeps the listing: its tree is on the screen beside it.
   */
+  const mapRoute = useMapRoute();
   // Every note and folder in this workspace, for Home and a folder page's counts: a phone only.
   const phoneHome = (
     <PhoneHome
@@ -225,6 +229,7 @@ export function BrowseDocument({
       onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
       onTogglePin={places.togglePin}
       foot={contextFoot}
+      onOpenMap={mapRoute?.openMap}
     />
   );
   // What a phone's folder rows say beside their names: counts, dates, first lines, pins.
@@ -271,8 +276,33 @@ export function BrowseDocument({
   // In storage but can't be opened: drawn with no editor, so nothing saves over it.
   const unreadable = files.unreadable ?? null;
   const organizer = useOrganizerView();
+  // Tell the people and tools on the map which note this person has open.
+  useAnnounceOpenNote(
+    current?.id,
+    settled && selected?.kind === "file" && mapRoute !== undefined ? selected.path : null,
+    files.editor.path === selected?.path && files.editor.draft !== files.editor.baseline,
+  );
   const openDocument =
-    organizer?.pageOpen ? (
+    mapRoute?.open && current !== null && current !== undefined ? (
+      /*
+        The live map (`?map=1`), where a note would be, filling the slot: the
+        tree stays beside it. A note in this workspace opens as the tree opens
+        one, which leaves the map; a note in another opens at its own address.
+      */
+      <MapPage
+        data={data}
+        compact={compact}
+        onOpenNote={(workspaceId, path) => {
+          if (workspaceId === current.id) {
+            files.select(path);
+            mapRoute.closeMap();
+            return;
+          }
+          const slug = data.contexts.find((c) => c.id === workspaceId)?.slug;
+          if (slug !== undefined) mapRoute.openNoteIn(slug, path);
+        }}
+      />
+    ) : organizer?.pageOpen ? (
       /*
         What changed (`?changes=1`), where a note would be: the tree stays
         beside it, and opening one of its sources is opening that note.

@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Icon, type IconName } from "../../design/components/Icon";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, leading, radii, space, touchType, tracking } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
@@ -8,14 +8,13 @@ import {
   buildHome,
   countLabel,
   whenLabel,
-  type HomeFolder,
-  type HomeNoteTile,
   type HomeOpened,
   type HomePin,
   type HomeRecent,
 } from "./homeModel";
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
+import { Card, FolderLine, MapPlace, NoteRow, Section, Tile } from "./homeRows";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
@@ -49,6 +48,7 @@ export function PhoneHome({
   onActions,
   onTogglePin,
   foot,
+  onOpenMap,
 }: {
   title: string;
   source: HomeSource;
@@ -67,6 +67,8 @@ export function PhoneHome({
   onTogglePin: ((path: string, kind: "note" | "folder") => void) | null;
   /** The workspace's storage line, as the root listing had it. */
   foot?: string;
+  /** The live map, a place of its own on Home. `undefined` where there is none (a visitor, the demo). */
+  onOpenMap?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -139,6 +141,8 @@ export function PhoneHome({
           </Pressable>
         </View>
       )}
+
+      {onOpenMap === undefined ? null : <MapPlace onPress={onOpenMap} />}
 
       {home.pinned.length === 0 ? null : (
         <Section label="Pinned">
@@ -244,152 +248,6 @@ export function PhoneHome({
   );
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.section}>
-      <Text variant="eyebrow" style={styles.sectionLabel} accessibilityRole="header">
-        {label}
-      </Text>
-      {children}
-    </View>
-  );
-}
-
-function Card({ children }: { children: ReactNode[] }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.card}>
-      {children.map((child, index) => (
-        <Fragment key={index}>
-          {index === 0 ? null : <View style={styles.rule} />}
-          {child}
-        </Fragment>
-      ))}
-    </View>
-  );
-}
-
-function Tile({
-  icon,
-  title,
-  shared,
-  lines,
-  onPress,
-  onLongPress,
-  style,
-}: {
-  icon: IconName;
-  title: string;
-  shared: boolean;
-  lines: string[];
-  onPress: () => void;
-  onLongPress?: () => void;
-  style: object;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      accessibilityRole="button"
-      accessibilityLabel={[title, ...lines].join(", ")}
-      accessibilityHint={onLongPress === undefined ? undefined : "Hold to pin or unpin"}
-      style={({ pressed }) => [styles.tile, style, pressed ? styles.pressed : null]}
-    >
-      <Icon name={icon} size={20} color={colors.text2} />
-      <View style={styles.tileTitleRow}>
-        <Text style={styles.tileTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        {shared ? <Icon name="people" size={14} color={colors.markTeam} /> : null}
-      </View>
-      {lines.map((line) => (
-        <Text key={line} variant="meta" numberOfLines={1}>
-          {line}
-        </Text>
-      ))}
-    </Pressable>
-  );
-}
-
-function NoteRow({
-  note,
-  when,
-  onPress,
-  onLongPress,
-}: {
-  note: HomeNoteTile;
-  when: string;
-  onPress: () => void;
-  onLongPress?: () => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const detail = [note.place, note.lede].filter((part): part is string => !!part).join(" · ");
-  return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      accessibilityRole="button"
-      accessibilityLabel={[note.title, detail, when].filter(Boolean).join(", ")}
-      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
-    >
-      <Icon name="file" size={20} color={colors.text2} />
-      <View style={styles.rowText}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowTitle} numberOfLines={1}>
-            {note.title}
-          </Text>
-          <Text variant="meta">{when}</Text>
-        </View>
-        {detail === "" ? null : (
-          <Text variant="meta" numberOfLines={1}>
-            {detail}
-          </Text>
-        )}
-      </View>
-    </Pressable>
-  );
-}
-
-function FolderLine({
-  folder,
-  onPress,
-  onLongPress,
-}: {
-  folder: HomeFolder;
-  onPress: () => void;
-  onLongPress?: () => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const counts = countLabel(folder.notes, folder.folders);
-  return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${folder.title}${folder.shared ? ", shared" : ""}, ${counts}`}
-      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
-      testID="phone-home-folder"
-    >
-      <Icon name="folder" size={20} color={colors.text2} />
-      <View style={styles.folderName}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
-          {folder.title}
-        </Text>
-        {folder.shared ? <Icon name="people" size={14} color={colors.markTeam} /> : null}
-      </View>
-      <Text variant="meta" numberOfLines={1} style={styles.counts}>
-        {counts}
-      </Text>
-      <Icon name="chevronRight" size={16} color={colors.muted} />
-    </Pressable>
-  );
-}
-
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     page: { paddingHorizontal: layout.readingMargin, paddingBottom: space.x6, gap: space.x5 },
@@ -426,43 +284,10 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     taggedText: { flex: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.accentText },
     taggedClear: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.x4 },
     taggedClearText: { fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "600", color: colors.accentText },
-    section: { gap: space.x2 },
-    sectionLabel: { paddingHorizontal: space.x1 },
     grid: { flexDirection: "row", flexWrap: "wrap", gap: space.x3 },
-    tile: {
-      backgroundColor: colors.pageSurface,
-      borderRadius: radii.sheet,
-      padding: space.x4,
-      gap: space.x1,
-      minHeight: 104,
-    },
     gridTile: { flexBasis: "46%", flexGrow: 1 },
     rail: { gap: space.x3, paddingRight: space.x4 },
     railTile: { width: 148 },
-    tileTitleRow: { flexDirection: "row", alignItems: "center", gap: space.x1 + 2, marginTop: space.x2 },
-    tileTitle: {
-      fontFamily: fonts.body,
-      fontSize: touchType.ui,
-      fontWeight: "600",
-      color: colors.text,
-      flexShrink: 1,
-    },
-    card: { backgroundColor: colors.pageSurface, borderRadius: radii.sheet, overflow: "hidden" },
-    rule: { height: 1, marginLeft: space.x4 + 20 + space.x3, backgroundColor: colors.line },
-    row: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      minHeight: 52,
-      paddingHorizontal: space.x4,
-      paddingVertical: space.x3,
-    },
-    rowPressed: { backgroundColor: colors.rowSelected },
-    rowText: { flex: 1, gap: 2 },
-    rowTop: { flexDirection: "row", alignItems: "baseline", gap: space.x2 },
-    rowTitle: { flexShrink: 1, flexGrow: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text },
-    folderName: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.x1 + 2 },
-    counts: { flexShrink: 0 },
     empty: { paddingHorizontal: space.x1 },
     foot: { color: colors.muted },
   });

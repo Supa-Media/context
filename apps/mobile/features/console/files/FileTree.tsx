@@ -1,3 +1,4 @@
+import { useMapFolderCount } from "../map/live/mapCounts";
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -95,8 +96,11 @@ export function FileTree({
   pendingStateFor,
   markedPaths,
   agentMarks,
+  workspaceId = null,
 }: {
   rows: readonly TreeRow[];
+  /** Whose tree this is, for the counts the live map puts on its top folders (`mapCounts.ts`). */
+  workspaceId?: string | null;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -183,6 +187,7 @@ export function FileTree({
         sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
         marked={markedPaths?.has(row.path) ?? false}
         agent={agentMarks?.get(row.path) ?? null}
+        workspaceId={workspaceId}
       />
     );
   }
@@ -219,8 +224,10 @@ function FileRow({
   sync,
   marked,
   agent,
+  workspaceId,
 }: {
   row: TreeRow;
+  workspaceId: string | null;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -244,6 +251,8 @@ function FileRow({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  // Only while the live map is open, and only on a top folder: see `mapCounts.ts`.
+  const mapCount = useMapFolderCount(workspaceId, row.kind === "folder" && row.depth === 0 ? row.path : null);
   const interactions = useRowInteractions({
     path: row.path,
     // Passed through as absent rather than wrapped in a no-op, because
@@ -353,6 +362,11 @@ function FileRow({
           children's. See `AgentMark` for the shape.
         */}
         {agent === null ? null : <AgentMark kind={agent} />}
+        {mapCount === null ? null : (
+          <Text variant="treeMeta" style={styles.mapCount} testID="tree-map-count">
+            {String(mapCount)}
+          </Text>
+        )}
       </PressRow>
 
       <VisibilityControl
@@ -564,6 +578,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginLeft: space.x2,
     backgroundColor: colors.accent,
   },
+  /** The live map's count on a top folder, in the tree's quiet meta type, tabular so it does not jitter. */
+  mapCount: { marginLeft: space.x2, color: colors.chromeMuted, fontVariant: ["tabular-nums"] },
 
   /**
    * The trailing metadata's box.
