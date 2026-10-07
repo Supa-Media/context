@@ -523,6 +523,35 @@ export const lightGraphColors: GraphColors = {
 };
 
 /**
+ * The live workspace map's own shades (`features/console/map/live/engine`),
+ * the ones the app palette has no word for: the paper of a workspace island,
+ * a resting note, a link, a folder's bubble and its dashed rim, and `ink`,
+ * the dark that reading is drawn in. Reading is deliberately ink and not a
+ * hue: teal (`accent`) is spent only on live writing, a selected note and a
+ * new one, so the eye can find what is changing. Taken from the approved
+ * prototype; the rest of the map's colours come from `Colors`.
+ */
+export const lightMapColors = {
+  island: "#F7F4ED",
+  dot: "#A9A195",
+  edge: "#D6D0C4",
+  zone: "#F3EFE7",
+  zoneLine: "#DCD5C8",
+  ink: "#2E2A25",
+} as const;
+
+export type MapColors = Readonly<Record<keyof typeof lightMapColors, string>>;
+
+export const darkMapColors: MapColors = {
+  island: "#24221F",
+  dot: "#8A8277",
+  edge: "#47423C",
+  zone: "#2B2825",
+  zoneLine: "#504A43",
+  ink: "#D8D2C9",
+};
+
+/**
  * The colours a presence room gives its members, as the gateway assigns them
  * (`PRESENCE_COLORS` in `apps/mcp/src/presence.js`), in that order.
  *
