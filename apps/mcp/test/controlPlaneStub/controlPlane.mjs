@@ -834,6 +834,12 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/moves": {
+        // Answered `{ok: true}` on every path, like the real route; `calls`
+        // carries the body a test asserts on.
+        return ok({ ok: true });
+      }
+
       case "/gateway/tree": {
         // Answered `{ok: true}` on every path, like `/gateway/activity`.
         // `calls` carries the body, which is what a test asserts on.

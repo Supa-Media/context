@@ -92,6 +92,37 @@ export function createReportingMethods({ post }) {
     },
 
     /**
+     * Say that a note moved out of this context into another one.
+     *
+     * **The one report here that carries paths**, and deliberately: the
+     * control plane records it as the same `file.moveOut` / `file.moveIn`
+     * audit pair a console move writes, which names paths for every move
+     * already, so that the console map can show notes moving between a
+     * person's workspaces without walking every bucket's audit folder. Two
+     * ids, two note paths and the acting identity — never content. The
+     * control plane re-checks that the actor can write both ends.
+     *
+     * @param {string} fromWorkspaceId
+     * @param {{toWorkspaceId: string, fromPath: string, toPath: string,
+     *          actorUserId: string, actorClientId?: string}} move
+     */
+    async reportContextMove(fromWorkspaceId, move) {
+      if (typeof fromWorkspaceId !== "string" || !fromWorkspaceId) return null;
+      const { toWorkspaceId, fromPath, toPath, actorUserId, actorClientId } = move || {};
+      if (![toWorkspaceId, fromPath, toPath, actorUserId].every((value) => typeof value === "string" && value)) {
+        return null;
+      }
+      return await post("/gateway/moves", {
+        fromWorkspaceId,
+        toWorkspaceId,
+        fromPath,
+        toPath,
+        actorUserId,
+        actorClientId: typeof actorClientId === "string" ? actorClientId : undefined,
+      });
+    },
+
+    /**
      * Say that this context's file tree changed, and which audiences —
      * `private`, `team`, `@name` — could see the change. Labels and an id and
      * nothing else: no path, no count, no content (non-negotiable #1). The

@@ -319,6 +319,9 @@ export const gatewaySearchIndexProgress = gatewayRoute(
 
 export const gatewayActivity = gatewayRoute(signals.gatewayActivityHandler);
 
+/* 2b-quater. POST /gateway/moves — an AI client moved a note between contexts */
+export const gatewayMoves = gatewayRoute(signals.gatewayMovesHandler);
+
 /* -------------------------------------------------------------------------- */
 /* 2b-tree. POST /gateway/tree — a context's file tree changed               */
 /* -------------------------------------------------------------------------- */
@@ -859,6 +862,7 @@ http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gate
 http.route({ path: "/gateway/agent-turn", method: "POST", handler: gatewayAgentTurn });
 http.route({ path: "/gateway/search-index/progress", method: "POST", handler: gatewaySearchIndexProgress });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
+http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });

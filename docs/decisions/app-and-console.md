@@ -530,3 +530,11 @@ make sure we are not bombarding users". So:
 Reversing it means a message that shows per browser again, or two that stack.
 `inAppMessages.test.ts`, `inAppMessagesRender.test.ts` and
 `messageReads.test.ts` fail.
+
+### A replay reads the activity feed, and a move line carries its pairs (2026-10-07)
+
+Moved to [A replay reads the activity feed, and a move line carries its pairs](./app-and-console/live-map-history.md#a-replay-reads-the-activity-feed-and-a-move-line-carries-its-pairs-2026-10-07).
+
+### Moves between workspaces are read from the control plane, and an agent's move now leaves a row there (2026-10-07)
+
+Moved to [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07).

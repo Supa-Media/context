@@ -547,6 +547,17 @@ function attachChangeReporters(store, workspaceId, controlPlane) {
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
   store.reportWebsiteChange = () =>
     controlPlane.reportWebsiteChange(workspaceId).catch(() => {});
+  // A note leaving this context for another: the console map's record of it.
+  // Deferred and swallowed like `reportActivity`; the move itself has landed.
+  store.reportContextMove = (move) => {
+    const send = controlPlane.reportContextMove(workspaceId, move).catch(() => {});
+    if (typeof store.defer !== "function") return;
+    try {
+      store.defer(send);
+    } catch {
+      // A host whose `waitUntil` refuses the work simply does not report.
+    }
+  };
   store.reportActivity = (teamVisible) => {
     const send = controlPlane.reportActivity(workspaceId, teamVisible === true).catch(() => {});
     if (typeof store.defer !== "function") return;

@@ -177,6 +177,9 @@ describe("a stranger cannot reach another workspace's files", () => {
       // cross-tenant risk: a stranger asking for another workspace's note
       // paths must get `WORKSPACE_NOT_FOUND`, never a real (even empty) list.
       (workspaceId) => as.action(api.functions.files.notePaths, { workspaceId }),
+      // The console map reads the same docmap plus every shard's links: a
+      // stranger must be refused, never handed an empty (or any) graph.
+      (workspaceId) => as.action(api.functions.files.workspaceGraph, { workspaceId }),
       // The same shape one level up: every FOLDER this caller can see, for the
       // "move into another context" picker. A folder name is itself private —
       // `1-projects/acme-acquisition` names a deal — so handing a stranger an
