@@ -4,12 +4,12 @@ import { readFileSync } from 'node:fs';
 import { deploymentFromKey, deploymentUrl, plannedChanges, syncConvexEnv } from './convex-env-sync.mjs';
 
 // Fake values only: this repository is public.
-const KEY = 'prod:happy-otter-123|fake-admin-token';
-const URL_OK = 'https://happy-otter-123.convex.cloud';
+const KEY = 'prod:example-deployment|fake-admin-token';
+const URL_OK = 'https://example-deployment.convex.cloud';
 
 test('the deployment comes from the key, and a malformed key is refused', () => {
-  assert.equal(deploymentFromKey(KEY), 'happy-otter-123');
-  assert.throws(() => deploymentFromKey('happy-otter-123'), /not a Convex deploy key/);
+  assert.equal(deploymentFromKey(KEY), 'example-deployment');
+  assert.throws(() => deploymentFromKey('example-deployment'), /not a Convex deploy key/);
   assert.throws(() => deploymentFromKey(undefined), /not a Convex deploy key/);
 });
 
@@ -17,13 +17,13 @@ test('the key is only ever sent to the deployment it opens', () => {
   assert.equal(deploymentUrl(URL_OK, KEY), URL_OK);
   assert.equal(deploymentUrl(`${URL_OK}/`, KEY), URL_OK);
   for (const bad of [
-    'https://other-deployment-1.convex.cloud',
-    'http://happy-otter-123.convex.cloud',
-    'https://happy-otter-123.convex.cloud.evil.example',
-    'https://happy-otter-123.convex.site',
-    'https://happy-otter-123.convex.cloud/api',
+    'https://your-deployment.convex.cloud',
+    'http://example-deployment.convex.cloud',
+    'https://example-deployment.convex.cloud.evil.example',
+    'https://example-deployment.convex.site',
+    'https://example-deployment.convex.cloud/api',
   ]) {
-    assert.throws(() => deploymentUrl(bad, KEY), /not https:\/\/happy-otter-123\.convex\.cloud/, bad);
+    assert.throws(() => deploymentUrl(bad, KEY), /not https:\/\/example-deployment\.convex\.cloud/, bad);
   }
 });
 
