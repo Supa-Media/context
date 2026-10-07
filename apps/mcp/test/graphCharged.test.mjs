@@ -210,35 +210,42 @@ async function unremoved(store, keys) {
   return left;
 }
 
+/** The markers scenario: 300 one-link notes built, then the even half deleted. */
+async function markersCell(caps) {
+  const { raw, store } = pagedGateway(caps);
+  const pass = async (budget) => {
+    const census = await logicalCensus(store, raw);
+    const b = createSearchBudget(budget);
+    const restore = store.setExtraOperationCharge(() => {
+      if (b.take(0)) return;
+      const error = new Error("search budget exhausted");
+      error[BUDGET_EXHAUSTED] = true;
+      throw error;
+    });
+    try {
+      await reconcileGraph(store, b, { census, censusComplete: true, removedHints: [], isIndexable: defaultIsIndexable, now });
+    } finally {
+      restore();
+    }
+  };
+  for (let i = 0; i < 300; i += 1) await store.put(`n${i}.md`, "[t](./t.md)");
+  for (let i = 0; i < 40; i += 1) await pass(100000);
+  const keys = [];
+  for (let i = 0; i < 300; i += 2) {
+    keys.push(nodeKey("1", await pathHash(`n${i}.md`)));
+    await store.delete(`n${i}.md`);
+  }
+  const health = () => JSON.parse(raw.objects.get(graphManifestKey()).body).health.state;
+  return { raw, store, pass, keys, health };
+}
+
 // Measured worst at the floor: 840 (conditional at 26), 1,238 (best-effort at 18).
 const MARKERS_BOUND = { conditional: 1200, "best-effort": 1600 };
 
 test("markers scenario: at the logical-delete floor, 150 deleted of 300 notes are all removed within the stated bound", async () => {
   for (const [mode, caps] of [["conditional", CONDITIONAL], ["best-effort", BEST_EFFORT]]) {
-    const { raw, store } = pagedGateway(caps);
+    const { store, pass, keys } = await markersCell(caps);
     const B = graphPassFloor(store);
-    const pass = async (budget) => {
-      const restoreCensus = await logicalCensus(store, raw);
-      const b = createSearchBudget(budget);
-      const restore = store.setExtraOperationCharge(() => {
-        if (b.take(0)) return;
-        const error = new Error("search budget exhausted");
-        error[BUDGET_EXHAUSTED] = true;
-        throw error;
-      });
-      try {
-        await reconcileGraph(store, b, { census: restoreCensus, censusComplete: true, removedHints: [], isIndexable: defaultIsIndexable, now });
-      } finally {
-        restore();
-      }
-    };
-    for (let i = 0; i < 300; i += 1) await store.put(`n${i}.md`, "[t](./t.md)");
-    for (let i = 0; i < 40; i += 1) await pass(100000);
-    const keys = [];
-    for (let i = 0; i < 300; i += 2) {
-      keys.push(nodeKey("1", await pathHash(`n${i}.md`)));
-      await store.delete(`n${i}.md`);
-    }
     assert.equal(await unremoved(store, keys), 150, `${mode}: built before the deletes`);
     let done = null;
     for (let p = 1; p <= MARKERS_BOUND[mode]; p += 1) {
@@ -287,5 +294,20 @@ test("maintainNow on a logical-delete store: below its floor the graph pass is s
       if (budget.remaining >= GRAPH_PASS_FLOOR) skippedBetween.push(budget.remaining);
     }
     assert.ok(skippedBetween.length > 0, `${caps.conditionalWrite ? "conditional" : "best-effort"}: no skip observed between the old and new floor`);
+  }
+});
+
+test("health reads behind while deleted notes remain in the graph, and ready once they are removed", async () => {
+  // The stuck zone below each floor (pacing.js): removals there never finish.
+  for (const [caps, B] of [[CONDITIONAL, 25], [BEST_EFFORT, 17]]) {
+    const { pass, keys, store, health } = await markersCell(caps);
+    for (let p = 0; p < 300; p += 1) await pass(B);
+    assert.ok((await unremoved(store, keys)) > 0, `B=${B}: still stuck`);
+    assert.equal(health(), "behind", `B=${B}: deleted notes remain`);
+    let p = 0;
+    while ((await unremoved(store, keys)) > 0 && p < 200) (await pass(400), (p += 1));
+    assert.equal(await unremoved(store, keys), 0, `B=${B}: removed at 400`);
+    for (let i = 0; i < 40 && health() !== "ready"; i += 1) await pass(400);
+    assert.equal(health(), "ready", `B=${B}: ready once removed`);
   }
 });

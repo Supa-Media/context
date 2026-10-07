@@ -78,8 +78,10 @@ a reviewer.
   review): the smallest budgets above which a deleted-note markers scenario
   (300 notes, 150 deleted, paged bucket, search charge installed) converges
   in every measured cell; below them a removal repeats every pass. Below the
-  floor the pass is skipped and the manifest is not written, so health stays
-  as last published (it does not turn `behind`).
+  floor the pass is skipped at no extra cost. A node whose note is gone but is
+  still in the graph keeps the sweep pending (owner ruling), so health reads
+  `behind` from the pass whose audit meets it until it is removed; a skipped
+  pass leaves that state as last published.
 - **A path leaves the graph only after a direct read of the note returns
   not-found** (controller ruling OPEN-15). That read is triggered either by a
   complete census that omits the path, or by a removal hint from the search
