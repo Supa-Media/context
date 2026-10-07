@@ -50,6 +50,7 @@ import {
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
 import { recordProjectionOutcome } from "./projectionOutcome";
+import { IDLE_MEANING, type MeaningPassContext, meaningPassContext, runMeaningPass } from "./meaningPass";
 import {
   failForwardSync,
   releaseForwardSync,
@@ -249,6 +250,14 @@ export async function runFileOperationHandler(
     }
   }
 
+  // Search by meaning's catch-up pass asks its row first too, for the reason
+  // above (`meaningPass.ts`).
+  let meaning: MeaningPassContext | null = null;
+  if (args.operation.kind === "projectMeaning") {
+    meaning = await meaningPassContext(ctx, args.workspaceId);
+    if (meaning === null) return IDLE_MEANING;
+  }
+
   if (args.operation.kind === "googleGmailBackfill") {
     return await runGoogleGmailBackfill(
       ctx,
@@ -404,6 +413,10 @@ export async function runFileOperationHandler(
       message:
         "This context's bucket configuration could not be used. Reconnect storage.",
     });
+  }
+
+  if (meaning !== null && args.operation.kind === "projectMeaning") {
+    return await runMeaningPass(ctx, { ...args, operation: args.operation }, store, meaning);
   }
 
   if (args.operation.kind === "googleForwardSync" && forwardSyncJob?.kind === "run") {

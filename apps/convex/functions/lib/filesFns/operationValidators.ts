@@ -55,6 +55,7 @@ import {
   forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
+  meaningProjectedValidator,
   notePathsValidator,
   workspaceGraphValidator,
   visiblePathsValidator,
@@ -121,6 +122,7 @@ export const operationResultValidator = v.union(
   forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
+  meaningProjectedValidator,
   googleSyncRunValidator,
   googleForwardSyncValidator,
   formResultValidator,
@@ -239,6 +241,8 @@ export const operationValidator = v.union(
    * stopped being `backfilling`, or a projection that reached `ready`.
    */
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
+  /** A search-by-meaning catch-up pass; scheduled only, like `projectIndex`. */
+  v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   /**
    * Advance one connected Google account from its own cursor. Scheduled by

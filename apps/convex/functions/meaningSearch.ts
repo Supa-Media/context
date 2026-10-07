@@ -18,7 +18,9 @@ import {
   enableMeaningHandler,
   forgetMeaningIndexHandler,
   meaningRowFor,
+  recordMeaningProgressHandler,
   recordMeaningProvisionHandler,
+  sweepMeaningHandler,
 } from "./lib/meaningFns/rows";
 
 /** The row, for the provisioner. Internal: it names an index. */
@@ -45,6 +47,9 @@ export const writeTargetForWorkspace = internalQuery({
     v.null(),
     v.object({
       indexName: v.string(),
+      // When the index was turned on, for the catch-up pass: a new index after
+      // an off and an on is empty, and its map in the bucket must not say otherwise.
+      generation: v.string(),
       state: v.union(v.literal("backfilling"), v.literal("ready")),
     }),
   ),
@@ -52,7 +57,7 @@ export const writeTargetForWorkspace = internalQuery({
     const row = await meaningRowFor(ctx, args.workspaceId);
     if (row === null || !row.enabled || row.indexName === undefined) return null;
     if (row.status !== "backfilling" && row.status !== "ready") return null;
-    return { indexName: row.indexName, state: row.status };
+    return { indexName: row.indexName, generation: String(row.enabledAt), state: row.status };
   },
 });
 
@@ -96,4 +101,24 @@ export const forgetIndex = internalMutation({
     await forgetMeaningIndexHandler(ctx, args);
     return null;
   },
+});
+
+export const recordProgress = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notesIndexed: v.number(),
+    notesPending: v.number(),
+    ready: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await recordMeaningProgressHandler(ctx, args);
+    return null;
+  },
+});
+
+export const sweep = internalMutation({
+  args: {},
+  returns: v.object({ started: v.number() }),
+  handler: (ctx) => sweepMeaningHandler(ctx),
 });

@@ -10,6 +10,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
+import { isRetryableMeaningError } from "../vectorize";
 
 export type MeaningRowStatus = "provisioning" | "backfilling" | "ready" | "failed" | "releasing";
 
@@ -128,4 +129,72 @@ export async function forgetMeaningIndexHandler(
   const row = await meaningRowFor(ctx, args.workspaceId);
   if (row === null || row.enabled) return;
   await ctx.db.delete(row._id);
+}
+
+/**
+ * What a catch-up pass found, in counts. A `backfilling` row that reached
+ * `ready` becomes `ready`; a `ready` row stays `ready` while it catches up on
+ * edits, because the notes it already holds are still worth searching. A row
+ * turned off, failed or releasing meanwhile is left alone.
+ */
+export async function recordMeaningProgressHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces">; notesIndexed: number; notesPending: number; ready: boolean },
+): Promise<void> {
+  const row = await meaningRowFor(ctx, args.workspaceId);
+  if (row === null || !row.enabled) return;
+  if (row.status !== "backfilling" && row.status !== "ready") return;
+  await ctx.db.patch(row._id, {
+    status: args.ready ? "ready" : row.status,
+    notesIndexed: Math.max(0, Math.floor(args.notesIndexed)),
+    notesPending: Math.max(0, Math.floor(args.notesPending)),
+    updatedAt: Date.now(),
+  });
+}
+
+/** A catch-up chain's length: what ends it is a pass that moved nothing or finished. */
+export const MEANING_PASS_CHAIN = 200;
+/** A `backfilling` row nothing has written to for this long has a dead chain. */
+export const MEANING_STALL_MS = 15 * 60 * 1000;
+/** A `ready` row is caught up at least this often, for edits nothing else embedded. */
+export const MEANING_REFRESH_MS = 24 * 60 * 60 * 1000;
+/** A failure worth waiting out is retried after this long. */
+export const MEANING_RETRY_MS = 15 * 60 * 1000;
+const MEANING_SWEEP_BATCH = 50;
+
+/**
+ * Restart what stopped: a stalled `backfilling` chain, a `ready` index due its
+ * daily catch-up, and a failure whose code says waiting will fix it (which
+ * goes back through the provisioner, so a lost filter is made again too).
+ * Bounded per run; a backlog drains over several.
+ */
+export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: number }> {
+  const now = Date.now();
+  let started = 0;
+  const due = async (status: "backfilling" | "ready" | "failed", olderThan: number) =>
+    await ctx.db
+      .query("meaningIndexes")
+      .withIndex("by_status_updated", (q) => q.eq("status", status).lt("updatedAt", now - olderThan))
+      .take(MEANING_SWEEP_BATCH);
+
+  for (const row of [...(await due("backfilling", MEANING_STALL_MS)), ...(await due("ready", MEANING_REFRESH_MS))]) {
+    if (!row.enabled) continue;
+    // Touched now, so the next sweep does not start a second chain over it.
+    await ctx.db.patch(row._id, { updatedAt: now });
+    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId: row.workspaceId,
+      scope: "private",
+      operation: { kind: "projectMeaning", passes: MEANING_PASS_CHAIN },
+    });
+    started += 1;
+  }
+  for (const row of await due("failed", MEANING_RETRY_MS)) {
+    if (!row.enabled || !isRetryableMeaningError(row.errorCode)) continue;
+    await ctx.db.patch(row._id, { status: "provisioning", errorCode: undefined, error: undefined, updatedAt: now });
+    await ctx.scheduler.runAfter(0, internal.functions.meaningProvision.provisionMeaningIndex, {
+      workspaceId: row.workspaceId,
+    });
+    started += 1;
+  }
+  return { started };
 }

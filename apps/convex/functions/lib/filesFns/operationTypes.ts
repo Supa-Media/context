@@ -43,6 +43,17 @@ export const IDLE_PROJECTION = {
   report: false,
 } as const;
 
+/** What a meaning pass answers when its index is not there to fill. */
+export const IDLE_MEANING = {
+  kind: "meaningProjected",
+  embedded: 0,
+  deleted: 0,
+  notesIndexed: 0,
+  notesPending: 0,
+  ready: false,
+  moved: false,
+} as const;
+
 export type FileOperation =
   | { kind: "readActivity" }
   /** A routine's recent runs, for a caller who can see the routine note. See `fileOps/routineRuns.ts`. */
@@ -84,6 +95,8 @@ export type FileOperation =
    */
   | { kind: "indexNotes"; written: string[]; gone: string[] }
   | { kind: "projectIndex"; passes?: number }
+  /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
+  | { kind: "projectMeaning"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -262,6 +275,16 @@ export type OperationResult =
       oversizedShards: number;
     }
   | ({ kind: "indexProjected" } & Omit<ProjectionPass, "failure"> & { failure?: string })
+  | {
+      kind: "meaningProjected";
+      embedded: number;
+      deleted: number;
+      notesIndexed: number;
+      notesPending: number;
+      ready: boolean;
+      moved: boolean;
+      failure?: string;
+    }
   | {
       kind: "googleSyncRun";
       runId: Id<"googleSyncRuns">;
