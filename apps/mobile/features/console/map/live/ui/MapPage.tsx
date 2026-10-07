@@ -44,7 +44,12 @@ function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: 
             <MapCanvas page={page} camera={camera} onOpenNote={onOpenNote} />
             {page.view === "map" ? (
               <>
-                <Breadcrumb store={camera} engine={() => page.engineRef.current} />
+                <Breadcrumb
+                  store={camera}
+                  engine={() => page.engineRef.current}
+                  many={page.many}
+                  onAllWorkspaces={() => page.setScope("all")}
+                />
                 <ZoomControl store={camera} engine={() => page.engineRef.current} />
               </>
             ) : null}

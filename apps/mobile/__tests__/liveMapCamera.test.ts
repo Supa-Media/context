@@ -17,6 +17,7 @@ import {
   type Viewport,
 } from "../features/console/map/live/engine/camera";
 import { buildLayout } from "../features/console/map/live/engine/layout";
+import { crumbsOf } from "../features/console/map/live/ui/breadcrumb";
 import { para } from "./liveMapFixture";
 
 /**
@@ -119,5 +120,36 @@ describe("camera", () => {
     expect(info.level).toBe("notes");
     expect(info.trail).toEqual(["All workspaces", "Supa", "Projects", "Launch"]);
     expect(info.zoom).toBeGreaterThan(0.9);
+  });
+});
+
+describe("the breadcrumb over the map", () => {
+  const stopsAll = { all: 0, workspace: 0.3, folders: 0.6, notes: 1 };
+  const stopsOne = { workspace: 0, folders: 0.5, notes: 1 };
+
+  test("every workspace: each crumb zooms out to its level", () => {
+    const crumbs = crumbsOf({ trail: ["All workspaces", "Personal", "Projects"], stops: stopsAll }, true);
+    expect(crumbs).toEqual([
+      { name: "All workspaces", to: "all" },
+      { name: "Personal", to: "workspace" },
+      { name: "Projects", to: "folders" },
+    ]);
+  });
+
+  test("one workspace of several: 'All workspaces' still leads, and switches to every workspace", () => {
+    // The camera has no "all" level here, so it never names one; a lone
+    // "Personal" chip said nothing about where the rest had gone.
+    const crumbs = crumbsOf({ trail: ["Personal", "Projects"], stops: stopsOne }, true);
+    expect(crumbs).toEqual([
+      { name: "All workspaces", to: "scope" },
+      { name: "Personal", to: "workspace" },
+      { name: "Projects", to: "folders" },
+    ]);
+  });
+
+  test("a person with one workspace has no 'All workspaces' to go back to", () => {
+    expect(crumbsOf({ trail: ["Personal", "Projects"], stops: stopsOne }, false).map((c) => c.name)).toEqual(["Personal", "Projects"]);
+    expect(crumbsOf({ trail: ["All workspaces", "Personal"], stops: stopsAll }, false).map((c) => c.name)).toEqual(["Personal"]);
+    expect(crumbsOf({ trail: [], stops: stopsOne }, true)).toEqual([]);
   });
 });

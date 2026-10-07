@@ -78,6 +78,12 @@ describe("a graph answer", () => {
     );
     expect(g).toEqual({ workspaceId: "ws-a", slug: "maya", name: "Personal", kind: "personal", nodes: [{ path: "a.md", title: "A" }, { path: "b.md", title: "B" }], edges: [[0, 1]] });
   });
+
+  test("is named by the workspace's display name, and by its address only when it has none", () => {
+    const answer = { nodes: [], edges: [], truncated: false };
+    expect(graphFromAnswer(answer, { id: "ws-a", slug: "maya", name: "Personal", kind: "personal" }).name).toBe("Personal");
+    expect(graphFromAnswer(answer, { id: "ws-a", slug: "maya", name: "  ", kind: "personal" }).name).toBe("maya");
+  });
 });
 
 describe("history for a replay", () => {

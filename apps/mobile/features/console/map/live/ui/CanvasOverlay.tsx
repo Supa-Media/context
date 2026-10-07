@@ -6,6 +6,7 @@ import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
 import type { CameraDetail, MapEngine } from "../engine";
 import type { ZoomLevel } from "../types";
+import { crumbsOf, levelsOf } from "./breadcrumb";
 import { RoundButton } from "./controls";
 import { tickLabels } from "./zoomTicks";
 
@@ -36,8 +37,6 @@ export function createCameraStore(): CameraStore {
   };
 }
 
-const ORDER: ZoomLevel[] = ["all", "workspace", "folders", "notes"];
-
 /** What the zoom control calls each level. */
 export const LEVEL_LABELS: Record<ZoomLevel, string> = {
   all: "All workspaces",
@@ -46,27 +45,36 @@ export const LEVEL_LABELS: Record<ZoomLevel, string> = {
   notes: "Notes",
 };
 
-/** The levels this camera can stop at, far to near: the trail's crumbs map onto these in order. */
-export function levelsOf(camera: Pick<CameraDetail, "stops">): ZoomLevel[] {
-  return ORDER.filter((level) => camera.stops[level] !== undefined);
-}
-
-/** Top left: where you are, far to near. A crumb zooms back out to it. */
-export function Breadcrumb({ store, engine }: { store: CameraStore; engine: () => MapEngine | null }) {
+/**
+ * Top left: where you are, far to near, "All workspaces › Personal ›
+ * Projects". A crumb zooms back out to it; "All workspaces", while one
+ * workspace is shown, switches to every workspace (`onAllWorkspaces`).
+ */
+export function Breadcrumb({
+  store,
+  engine,
+  many,
+  onAllWorkspaces,
+}: {
+  store: CameraStore;
+  engine: () => MapEngine | null;
+  many: boolean;
+  onAllWorkspaces: () => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const camera = useSyncExternalStore(store.subscribe, store.get, store.get);
-  if (camera === null || camera.trail.length === 0) return null;
-  const levels = levelsOf(camera);
+  if (camera === null) return null;
+  const crumbs = crumbsOf(camera, many);
+  if (crumbs.length === 0) return null;
   return (
     <View style={styles.crumbs} accessibilityRole="toolbar" accessibilityLabel="Where you are on the map" testID="map-breadcrumb">
-      {camera.trail.map((name, i) => {
-        const last = i === camera.trail.length - 1;
-        const level = levels[i];
+      {crumbs.map(({ name, to }, i) => {
+        const last = i === crumbs.length - 1;
         return (
           <View key={`${i}-${name}`} style={styles.crumbItem}>
             {i > 0 ? <Text style={styles.crumbSep}>›</Text> : null}
             <Pressable
-              onPress={() => (level === undefined ? undefined : engine()?.zoomTo(level))}
+              onPress={() => (to === "scope" ? onAllWorkspaces() : engine()?.zoomTo(to))}
               disabled={last}
               accessibilityRole="button"
               accessibilityState={{ selected: last }}

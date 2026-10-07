@@ -94,7 +94,7 @@ function graphFor(ws: Workspace, sizes: Record<(typeof FOLDERS)[number], number>
   return { workspaceId: ws.id, slug: ws.slug, name: ws.name, kind: ws.kind, nodes, edges };
 }
 
-const SEYI: Workspace = { id: "seyi", slug: "seyi", name: "seyi", kind: "personal" };
+const SEYI: Workspace = { id: "seyi", slug: "seyi", name: "Personal", kind: "personal" };
 const PW: Workspace = { id: "pw", slug: "public-worship", name: "Public Worship", kind: "shared" };
 const LK: Workspace = { id: "lk", slug: "lk", name: "lk", kind: "personal" };
 

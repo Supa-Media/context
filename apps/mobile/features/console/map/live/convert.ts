@@ -98,7 +98,8 @@ export function graphFromAnswer(
   return {
     workspaceId: workspace.id,
     slug: workspace.slug,
-    name: workspace.name,
+    // The name a person gave it; a workspace with none is called by its address.
+    name: workspace.name.trim() || workspace.slug,
     kind: workspace.kind === "shared" ? "shared" : "personal",
     nodes,
     edges,
