@@ -411,11 +411,13 @@ describe("names for what the census counts", () => {
 
 describe("the tabs", () => {
   test("the errands are distinct and growth comes first", () => {
-    // The waitlist joined as a fifth when sign-up became invite-only.
+    // The waitlist joined as a fifth when sign-up became invite-only, and the
+    // agent as a sixth when the texting assistant's turns started being timed.
     expect(ADMIN_TABS.map((tab) => tab.key)).toEqual([
       "growth",
       "estate",
       "activity",
+      "agent",
       "credentials",
       "waitlist",
     ]);

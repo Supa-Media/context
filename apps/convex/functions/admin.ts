@@ -56,8 +56,9 @@ import {
 import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { normalizeSecretName } from "./lib/appSecrets";
 import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } from "./lib/admin";
+import { agentReportHandler, agentReportValidator } from "./lib/adminFns/agentReport";
 import { toConvexError } from "./lib/adminFns/errors";
-import { COUNT_CEILING, usageReportHandler, type CountedTotal, type MetricSeries, countedTotalValidator } from "./lib/adminFns/usage";
+import { COUNT_CEILING, usageReportHandler, usageReportValidator, type CountedTotal, type MetricSeries } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
 import { censusWaitlistValidator } from "./lib/adminFns/censusWaitlist";
 import { jevUsageReportHandler, jevUsageReportValidator, setJevSwitchHandler } from "./lib/jev/admin";
@@ -121,25 +122,7 @@ export const amIAdmin = query({
  */
 export const usageReport = query({
   args: { days: v.optional(v.number()) },
-  returns: v.object({
-    days: v.number(),
-    window: v.array(v.string()),
-    series: v.array(
-      v.object({
-        metric: v.string(),
-        points: v.array(v.object({ day: v.string(), count: v.number() })),
-        total: v.number(),
-      }),
-    ),
-    activeContexts: v.object({
-      points: v.array(v.object({ day: v.string(), count: v.number() })),
-      distinctInWindow: v.number(),
-    }),
-    totals: v.object({
-      workspaces: countedTotalValidator,
-      users: countedTotalValidator,
-    }),
-  }),
+  returns: usageReportValidator,
   handler: async (ctx, args) => {
     try {
       await requireAdmin(ctx);
@@ -147,6 +130,24 @@ export const usageReport = query({
       throw toConvexError(error);
     }
     return await usageReportHandler(ctx, args);
+  },
+});
+
+/** The Agent tab: answer times, outcomes and tool calls. See `lib/adminFns/agentReport.ts`. */
+export const agentReport = query({
+  args: {
+    days: v.optional(v.number()),
+    client: v.optional(v.union(v.literal("all"), v.literal("texts"), v.literal("app"))),
+    workspace: v.optional(v.string()),
+  },
+  returns: agentReportValidator,
+  handler: async (ctx, args) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await agentReportHandler(ctx, args);
   },
 });
 
