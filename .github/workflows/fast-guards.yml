@@ -45,9 +45,9 @@ jobs:
       # `check-ci-path-gates.mjs` asserts what every scoped job watches: the
       # WebKit path sets, that each scoped job names its packages and gates
       # every step, and that the editor-bundle job watches every source the
-      # bundle records. It was hosted only in `router.yml` and
-      # `email-worker.yml`, and since #1074 both of those are themselves
-      # `ci-scope`d — to `@context/router` plus `router.yml`, and
+      # bundle records. It was hosted only in `router.yml` (now `workers.yml`)
+      # and `email-worker.yml`, and since #1074 both of those are themselves
+      # `ci-scope`d — to `@context/router` plus its workflow, and
       # `@context/email-worker` plus `email-worker.yml`.
       #
       # So on a pull request that changes only `.github/workflows/ci.yml`, both

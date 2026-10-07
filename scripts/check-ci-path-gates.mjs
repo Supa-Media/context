@@ -403,6 +403,13 @@ export function assertMultiScopedJob(yaml, job, workflow, suites) {
     const name = step.match(/name:\s*([^\n]+)/)?.[1] ?? step.match(/uses:\s*([^\n]+)/)?.[1] ?? "unnamed step";
     if (ids.length !== 1) throw new Error(`${workflow}:${job}: ${name} is not gated by exactly one package scope`);
     if (!gated.has(ids[0])) throw new Error(`${workflow}:${job}: ${name} is gated by unknown scope ${ids[0]}`);
+    // A step that runs another package's suite behind this scope would skip
+    // when that package changes and nothing here does.
+    for (const [other, { runs }] of Object.entries(suites)) {
+      if (other !== ids[0] && step.includes(runs) && !step.includes(suites[ids[0]].runs)) {
+        throw new Error(`${workflow}:${job}: ${name} runs ${runs} behind the ${ids[0]} scope`);
+      }
+    }
     gated.get(ids[0]).push(step);
   }
   for (const [id, { runs }] of Object.entries(suites)) {
@@ -505,10 +512,7 @@ export function check(root = ROOT) {
     [".github/workflows/gateway-contracts.yml", "contracts", ["@context/mcp", "@context/convex"]],
     [".github/workflows/mcp.yml", "test", ["@context/mcp"]],
     [".github/workflows/mcp.yml", "desktop", ["@context/desktop"]],
-    [".github/workflows/router.yml", "test", ["@context/router"]],
     [".github/workflows/email-worker.yml", "test", ["@context/email-worker"]],
-    [".github/workflows/transcribe-worker.yml", "test", ["@context/transcribe-worker"]],
-    [".github/workflows/egress-service.yml", "test", ["@context/egress-service"]],
     [".github/workflows/cli.yml", "test", ["@supa-media/context"]],
     [".github/workflows/cli.yml", "no-dependencies", ["@supa-media/context"]],
   ];
@@ -520,6 +524,13 @@ export function check(root = ROOT) {
     communications: { packages: ["@context/communications"], runs: "packages/communications" },
     drawings: { packages: ["@context/drawings"], runs: "packages/drawings" },
     sentry: { packages: ["@context/sentry-worker"], runs: "infra/sentry-worker" },
+  });
+  assertMultiScopedJob(readFileSync(join(root, ".github/workflows/workers.yml"), "utf8"), "test", ".github/workflows/workers.yml", {
+    router: { packages: ["@context/router"], runs: "infra/router" },
+    transcribe: { packages: ["@context/transcribe-worker"], runs: "infra/transcribe-worker" },
+    egress: { packages: ["@context/egress-service"], runs: "infra/egress-service" },
+    siteshots: { packages: ["@context/site-shots"], runs: "infra/site-shots" },
+    agent: { packages: ["@context/agent"], runs: "apps/agent" },
   });
 
   for (const [workflow, job, packages] of scoped) {
