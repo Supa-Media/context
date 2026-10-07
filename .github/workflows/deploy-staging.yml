@@ -197,6 +197,7 @@ jobs:
       AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
       LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
       LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -254,6 +255,13 @@ jobs:
               printf '%s' "$GATEWAY_SECRET" | pnpm --dir apps/mcp exec wrangler secret put GATEWAY_SECRET --env staging
               printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
               printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_URL --env staging
+              # Web search for the texting assistant: optional, and with no
+              # key the assistant simply has no search tool.
+              if [ -n "${BRAVE_SEARCH_API_KEY:-}" ]; then
+                printf '%s' "$BRAVE_SEARCH_API_KEY" | pnpm --dir apps/mcp exec wrangler secret put BRAVE_SEARCH_API_KEY --env staging
+              else
+                echo "::warning::BRAVE_SEARCH_API_KEY is not set; the texting assistant has no web search until it is."
+              fi
               ;;
             *)
               echo "No secret list for Worker '$WORKER'; add one before deploying it." >&2
