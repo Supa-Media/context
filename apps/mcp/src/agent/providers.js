@@ -242,7 +242,7 @@ async function anthropicRequest({ model, system, messages, tools, apiKey }, fetc
 /* OpenAI                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function openAiMessages(system, messages) {
+export function openAiMessages(system, messages) {
   const out = system ? [{ role: "system", content: system }] : [];
   for (const message of messages) {
     if (message.role === "tool") {
@@ -270,33 +270,21 @@ function openAiMessages(system, messages) {
   return out;
 }
 
-async function openAiRequest({ model, system, messages, tools, apiKey }, fetchImpl) {
-  const body = {
-    model,
-    messages: openAiMessages(system, messages),
-    ...(tools.length > 0
-      ? {
-          tools: tools.map((tool) => ({
-            type: "function",
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.inputSchema || { type: "object" },
-            },
-          })),
-        }
-      : {}),
-  };
+/** Tool definitions in the chat-completions shape, also what Workers AI takes. */
+export function openAiTools(tools) {
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema || { type: "object" },
+    },
+  }));
+}
 
-  const parsed = await post(
-    ENDPOINTS.openai,
-    // The key appears here and nowhere else in this module.
-    { Authorization: `Bearer ${apiKey}` },
-    body,
-    fetchImpl,
-  );
-
-  const message = parsed.choices?.[0]?.message ?? {};
+/** Read one chat-completions answer into this module's shape. */
+export function readChatCompletion(parsed) {
+  const message = parsed?.choices?.[0]?.message ?? {};
   const toolCalls = (Array.isArray(message.tool_calls) ? message.tool_calls : [])
     .filter((call) => typeof call?.function?.name === "string")
     .map((call) => ({
@@ -314,11 +302,31 @@ async function openAiRequest({ model, system, messages, tools, apiKey }, fetchIm
   return {
     text: typeof message.content === "string" ? message.content : "",
     toolCalls,
-    stop: parsed.choices?.[0]?.finish_reason ?? null,
+    stop: parsed?.choices?.[0]?.finish_reason ?? null,
   };
 }
 
-function parseArguments(raw) {
+async function openAiRequest({ model, system, messages, tools, apiKey }, fetchImpl) {
+  const body = {
+    model,
+    messages: openAiMessages(system, messages),
+    ...(tools.length > 0 ? { tools: openAiTools(tools) } : {}),
+  };
+
+  const parsed = await post(
+    ENDPOINTS.openai,
+    // The key appears here and nowhere else in this module.
+    { Authorization: `Bearer ${apiKey}` },
+    body,
+    fetchImpl,
+  );
+
+  return readChatCompletion(parsed);
+}
+
+export function parseArguments(raw) {
+  // Workers AI hands some models' arguments over already parsed.
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
   if (typeof raw !== "string" || raw.length === 0) return {};
   try {
     const parsed = JSON.parse(raw);

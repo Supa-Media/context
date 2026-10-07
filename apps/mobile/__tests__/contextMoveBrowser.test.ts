@@ -124,11 +124,6 @@ beforeEach(() => {
   window.localStorage.clear();
   actions[name("files", "listFiles")] = async () => ROOT;
   actions[name("files", "notePaths")] = async () => ({ kind: "notePaths", paths: [] });
-  actions[name("files", "folderPaths")] = async () => ({
-    kind: "folderPaths",
-    folders: ["clients"],
-    truncated: false,
-  });
   actions[name("contextMoves", "startContextMove")] = async () => ({ moveId: "mv1" });
 });
 
@@ -207,15 +202,31 @@ describe("starting one", () => {
     expect(browser.notice).toContain("a context you can write to");
   });
 
-  test("the folders of another context are read from that context", async () => {
+  test("the folders of another context are read from that context, one level at a time", async () => {
     mount({ isOwner: true, destinations: [WORK] });
     await settle();
+    const CLIENTS: FolderListing = {
+      path: "clients",
+      folderDefault: "private",
+      entries: [
+        { kind: "folder", path: "clients/acme", name: "acme", visibility: "private", inherited: "private", exception: false, readOnly: false },
+        { kind: "file", path: "clients/list.md", name: "list.md", visibility: "private", inherited: "private", exception: false, readOnly: false },
+      ],
+      truncated: true,
+      manifestUsable: true,
+    };
+    actions[name("files", "listFiles")] = async () => CLIENTS;
+    calls.length = 0;
 
-    const answer = await browser.destinationFolders("w-work");
+    const answer = await browser.destinationFolders("w-work", "clients");
 
-    expect(answer).toEqual({ folders: ["clients"], truncated: false });
-    expect(calls.filter((call) => call.name === name("files", "folderPaths"))).toEqual([
-      { name: name("files", "folderPaths"), args: { workspaceId: "w-work" } },
+    // Folders only — a note is not somewhere to move into — and a listing cut
+    // short says so rather than reading as the whole folder.
+    expect(answer).toEqual({ folders: ["clients/acme"], truncated: true });
+    // That one folder, in that context: never the whole-bucket walk, which is
+    // what kept the dialog on "Reading its folders…".
+    expect(calls).toEqual([
+      { name: name("files", "listFiles"), args: { workspaceId: "w-work", path: "clients" } },
     ]);
   });
 });

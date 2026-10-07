@@ -27,6 +27,9 @@ export function PlacePicker({
   confirmLabel,
   onPick,
   top = true,
+  unexplored,
+  loading,
+  onOpen,
 }: {
   folders: readonly string[];
   rootLabel: string;
@@ -41,6 +44,12 @@ export function PlacePicker({
   onPick: (folder: string) => void;
   /** Offer the top of the workspace. Off where nothing may be put there (`NewNoteWhere`). */
   top?: boolean;
+  /** Folders not read yet, for a picker fed a level at a time — see `pickerRows`. */
+  unexplored?: ReadonlySet<string>;
+  /** Folders being read right now. */
+  loading?: ReadonlySet<string>;
+  /** Called as a folder is opened, so its own folders can be read. */
+  onOpen?: (folder: string) => void;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -49,16 +58,18 @@ export function PlacePicker({
   const [open, setOpen] = useState<ReadonlySet<string>>(() => openTo(initial));
   const [picked, setPicked] = useState(initial);
   const rows = useMemo(
-    () => pickerRows({ folders, open, query, rootLabel, top }),
-    [folders, open, query, rootLabel, top],
+    () => pickerRows({ folders, open, query, rootLabel, top, unexplored, loading }),
+    [folders, open, query, rootLabel, top, unexplored, loading],
   );
-  const toggle = (folder: string) =>
+  const toggle = (folder: string) => {
+    if (!open.has(folder)) onOpen?.(folder);
     setOpen((current) => {
       const next = new Set(current);
       if (next.has(folder)) next.delete(folder);
       else next.add(folder);
       return next;
     });
+  };
 
   return (
     <>

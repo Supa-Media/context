@@ -65,6 +65,12 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep expired texted sign-in links",
+  { hours: 1 },
+  internal.functions.textLinks.purgeExpiredPhoneLinkInvites,
+);
+
+crons.interval(
   "sweep expired authorization requests",
   { hours: 1 },
   internal.functions.authorizations.purgeExpiredAuthorizations,

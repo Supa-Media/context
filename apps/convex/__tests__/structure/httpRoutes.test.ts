@@ -27,15 +27,15 @@ import {
  * door is a diff to this file that a reviewer sees, rather than a route that
  * quietly checks nothing.
  *
- * They are separate factories because the two callers have different powers and
- * hold different secrets — see `EMAIL_WORKER_SECRET_ENV_VAR` in
- * `functions/lib/gatewayAuth.ts`. A test below asserts they really do read
- * different environment variables, so collapsing them into one shared secret
- * fails here.
+ * They are separate factories because each caller has different powers and
+ * holds its own secret (see `functions/lib/gatewayAuth.ts`). A test below
+ * asserts they read different environment variables, so collapsing them into
+ * one shared secret fails here.
  */
 const ROUTE_FACTORIES: Record<string, string> = {
   gatewayRoute: "requestIsFromGateway",
   emailWorkerRoute: "requestIsFromEmailWorker",
+  agentWorkerRoute: "requestIsFromAgentWorker",
 };
 
 /**

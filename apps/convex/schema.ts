@@ -26,6 +26,7 @@ import { telemetryTables } from "./functions/lib/schema/telemetry";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
+import { textLinkTables } from "./functions/lib/schema/textLinks";
 
 /**
  * Control-plane schema for Context.
@@ -83,6 +84,7 @@ const schema = defineSchema({
   ...messageTables,
   ...placeTables,
   ...feedbackTables,
+  ...textLinkTables,
 });
 
 export default schema;

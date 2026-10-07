@@ -286,6 +286,7 @@ export const APP_SEGMENTS: ReadonlySet<string> = new Set([
   "privacy",
   "s",
   "terms",
+  "texts",
   "welcome",
   "workspace",
   // The edge's.

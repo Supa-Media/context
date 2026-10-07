@@ -21,6 +21,9 @@ import { isAdmitted, USE_FOR_MAX, waitlistEmail } from "./lib/waitlist";
 import { renderWaitlistEmail } from "./lib/waitlistEmail";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { scheduleSignupAlert } from "./signupAlerts";
+import { scheduleXConversion } from "./xConversions";
+import { scheduleMetaConversion } from "./metaConversions";
+import { waitlistConversionId } from "./lib/xConversion";
 
 /** New waitlist rows per window, across every caller. */
 export const WAITLIST_JOINS_PER_HOUR = 300;
@@ -30,9 +33,22 @@ const invalidEmail = () =>
   new ConvexError({ code: "INVALID_EMAIL", message: "Check the address and try again." });
 
 export const enter = mutation({
-  args: { email: v.string(), source: v.optional(v.union(v.literal("homepage"), v.literal("login"))) },
+  args: {
+    email: v.string(),
+    source: v.optional(v.union(v.literal("homepage"), v.literal("login"))),
+    // The click id an X ad put on the landing URL, for the sign-up conversion
+    // (`xConversions.ts`). Checked there; never stored.
+    twclid: v.optional(v.string()),
+    // Meta's `_fbc` click id and `_fbp` browser id, for the same conversion
+    // reported to Meta (`metaConversions.ts`). Checked there; never stored.
+    fbc: v.optional(v.string()),
+    fbp: v.optional(v.string()),
+  },
   returns: v.object({
     status: v.union(v.literal("admitted"), v.literal("joined"), v.literal("already")),
+    // On `joined` only: the id the page's X and Meta pixel events report,
+    // matching the server's conversions so each network counts it once.
+    conversionId: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const email = waitlistEmail(args.email);
@@ -60,7 +76,9 @@ export const enter = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, { waitlistId: id, kind: "joined" });
     await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
-    return { status: "joined" as const };
+    await scheduleXConversion(ctx, { kind: "waitlist", waitlistId: id, twclid: args.twclid });
+    await scheduleMetaConversion(ctx, { kind: "waitlist", waitlistId: id, fbc: args.fbc, fbp: args.fbp });
+    return { status: "joined" as const, conversionId: waitlistConversionId(id) };
   },
 });
 

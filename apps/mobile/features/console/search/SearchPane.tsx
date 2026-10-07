@@ -401,6 +401,8 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: space.x2,
       color: colors.text,
       backgroundColor: colors.surface,
+      // Its own border is the field; no browser focus ring on top of it.
+      outlineWidth: 0,
     },
     scope: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     scopeButton: {

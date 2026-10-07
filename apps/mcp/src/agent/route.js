@@ -13,8 +13,16 @@ import {
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
 import { json } from "../http/responses.js";
+import { hasScope, SCOPE_WRITE } from "../session.js";
+import { BUILTIN_PROVIDER } from "./builtin.js";
+import { computerFor, webSession } from "./computer.js";
+import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
+import { appendConversation, conversationPath, readConversation } from "./conversation.js";
+
+/** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
+const TEXTS_CLIENT_ID = "context_texts";
 
 /**
  * One agent turn over HTTP.
@@ -73,8 +81,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
 
   let credential;
   try {
-    credential = await openProvider(controlPlane, session, body.provider);
+    credential = await openProvider(controlPlane, session, body.provider, env);
   } catch (error) {
+    if (error instanceof AgentRefusal && error.code === "daily_limit") {
+      return json(
+        { error: "daily_limit", error_description: "That's all the questions for today. Ask me again tomorrow." },
+        429,
+      );
+    }
     if (error instanceof AgentRefusal) {
       return json(
         {
@@ -96,6 +110,51 @@ export async function handleAgent(request, env, store, session, controlPlane) {
 
   const offered = await toolsForSession(session, store);
 
+  /*
+    A named conversation carries its recent turns into this one. Only a name
+    from `conversation.js`'s fixed list, never a path, and only on a grant that
+    can write: the history is a file in the bucket, and a read-only grant writes
+    nothing, so it gets a turn with no memory rather than a write it does not
+    hold. Kept in the default context, the one this grant was approved against.
+  */
+  const conversation =
+    conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)
+      ? body.conversation
+      : null;
+  const history = conversation === null ? [] : await readConversation(store, conversation);
+
+  /*
+    The computer is the texting assistant's for now (the owner's decision is
+    about texting), behind the address guard in `computer.js`. Widening it to
+    the app's agent panel is one condition here.
+  */
+  const builtin = credential.provider === BUILTIN_PROVIDER;
+  const computer = session.actorClientId === TEXTS_CLIENT_ID ? computerFor(env) : null;
+  // Clef only on a built-in turn: that is the turn the meter covers.
+  const web =
+    computer === null ? null : webSession(computer, question, { decide: builtin ? decisionEngine(env.AI) : null });
+
+  const started = Date.now();
+  /*
+    The built-in turn was counted when it was allowed; this adds what it spent.
+    Counts only, best effort: a meter that could not be reached costs us a
+    report, not the person their answer.
+  */
+  const meter = async (usage, failed) => {
+    if (!builtin) return;
+    try {
+      await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
+        input: usage?.input ?? 0,
+        output: usage?.output ?? 0,
+        decision: web?.usage.decision ?? 0,
+        failed,
+        ms: Date.now() - started,
+      });
+    } catch {
+      // See above.
+    }
+  };
+
   try {
     const turn = await runTurn({
       question,
@@ -113,7 +172,20 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         callToolForSession({ name, arguments: args }, store, session),
       env,
       model: typeof body.model === "string" ? body.model : undefined,
+      providerOptions: builtin ? { ai: env.AI } : undefined,
+      web,
+      history,
     });
+    await meter(turn.usage, false);
+
+    if (conversation !== null && !turn.exhausted) {
+      try {
+        await appendConversation(store, conversation, history, question, turn.answer);
+      } catch {
+        // The answer is still owed. A history that failed to save costs the
+        // next turn some context, not this one its reply.
+      }
+    }
 
     return json({
       answer: turn.answer,
@@ -123,6 +195,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       ...(turn.exhausted ? { exhausted: true } : {}),
     });
   } catch (error) {
+    await meter(null, true);
     if (error instanceof ProviderError) {
       // Logged for an operator, opaque to the caller. `reason` is a phrase this
       // worker wrote and a status; `providers.js` never puts a response body in

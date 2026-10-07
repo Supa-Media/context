@@ -4,7 +4,7 @@ import { privacyContent } from "../features/legal/content";
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("September 29, 2026");
+    expect(privacyContent.updated).toBe("October 5, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -33,5 +33,14 @@ describe("the privacy policy describes early-beta diagnostics", () => {
     expect(text).toContain("never include your notes, their titles, your folder names, your links");
     expect(text).toContain("Feedback");
     expect(text).toContain("only the attachments you left ticked");
+  });
+});
+
+describe("the privacy policy describes X ads' pixel", () => {
+  test("says where it runs and that only a hash of the address is sent", () => {
+    const text = privacyContent.sections.flatMap((section) => section.body).join("\n");
+    expect(text).toContain("advertising pixels of X (Twitter) and Meta (Facebook and Instagram)");
+    expect(text).toContain("never inside the app or on your notes");
+    expect(text).toContain("one-way hash of your email address");
   });
 });

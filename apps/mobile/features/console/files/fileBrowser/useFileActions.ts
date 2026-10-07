@@ -47,7 +47,6 @@ export function useFileActions(deps: FileActionsDeps) {
   const createDirectory = useAction(api.functions.files.createDirectory);
   const undoNewFolder = useAction(api.functions.folders.undoNewFolder);
   const moveEntry = useAction(api.functions.files.moveEntry);
-  const folderPathsAction = useAction(api.functions.files.folderPaths);
   const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
   const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
   const dismissContextMoveMutation = useMutation(api.functions.contextMoves.dismissContextMove);
@@ -67,7 +66,7 @@ export function useFileActions(deps: FileActionsDeps) {
     workspaceId, slug, listFiles, readNote, readNotesAction, searchContext, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
-    folderPathsAction, startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
+    startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
     copyEntry, duplicateEntry, archiveEntry, trashEntry, restoreTrashEntry, setNoteVisibility,
     setNoteGroupAction, setFolderGroupAction, setDirectoryVisibility, resetPrivacyAction,
     updateStorageLayoutAction,
