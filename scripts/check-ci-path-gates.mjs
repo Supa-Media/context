@@ -376,6 +376,42 @@ export function assertScopedJob(yaml, job, workflow, packages) {
   }
 }
 
+/**
+ * A job that runs several packages' suites, each behind its own scope step.
+ * Every scope names its package and the workflow; every step after the first
+ * scope (other than the scopes themselves) is gated by exactly one of them;
+ * and each scope gates a step that runs its own package — so a suite cannot
+ * end up behind another package's scope and skip when its own code changes.
+ */
+export function assertMultiScopedJob(yaml, job, workflow, suites) {
+  const steps = stepBlocks(jobBlock(yaml, job));
+  const first = steps.findIndex((step) => step.includes("uses: ./.github/actions/ci-scope"));
+  if (first === -1) throw new Error(`${workflow}:${job} has no scope step`);
+  const gated = new Map(Object.keys(suites).map((id) => [id, []]));
+  for (const step of steps.slice(first)) {
+    if (step.includes("uses: ./.github/actions/ci-scope")) {
+      const id = step.match(/\bid:\s*([\w-]+)/)?.[1];
+      const suite = suites[id];
+      if (!suite) throw new Error(`${workflow}:${job} has a scope step "${id}" nobody declared`);
+      if (!step.includes(workflow)) throw new Error(`${workflow}:${job}:${id} does not run when its workflow changes`);
+      for (const name of suite.packages) {
+        if (!step.includes(name)) throw new Error(`${workflow}:${job}:${id} does not name package ${name}`);
+      }
+      continue;
+    }
+    const ids = [...step.matchAll(/steps\.([\w-]+)\.outputs\.affected == 'true'/g)].map((match) => match[1]);
+    const name = step.match(/name:\s*([^\n]+)/)?.[1] ?? step.match(/uses:\s*([^\n]+)/)?.[1] ?? "unnamed step";
+    if (ids.length !== 1) throw new Error(`${workflow}:${job}: ${name} is not gated by exactly one package scope`);
+    if (!gated.has(ids[0])) throw new Error(`${workflow}:${job}: ${name} is gated by unknown scope ${ids[0]}`);
+    gated.get(ids[0]).push(step);
+  }
+  for (const [id, { runs }] of Object.entries(suites)) {
+    if (!gated.get(id).some((step) => step.includes(runs))) {
+      throw new Error(`${workflow}:${job}: no step behind scope ${id} runs ${runs}`);
+    }
+  }
+}
+
 function requiredPaths(rootNames, workflow, root = ROOT) {
   return new Set([...workspacePaths(rootNames, root), ...INFRA_PATHS, workflow]);
 }
@@ -468,20 +504,24 @@ export function check(root = ROOT) {
     [".github/workflows/ci.yml", "convex-deploy-typecheck", ["@context/convex"]],
     [".github/workflows/gateway-contracts.yml", "contracts", ["@context/mcp", "@context/convex"]],
     [".github/workflows/mcp.yml", "test", ["@context/mcp"]],
-    [".github/workflows/mcp.yml", "decryptor", ["@supa-media/context-encryption-decryptor"]],
-    [".github/workflows/mcp.yml", "meetings", ["@context/meetings"]],
-    [".github/workflows/mcp.yml", "obsidian-runtime", ["@context/obsidian-runtime"]],
-    [".github/workflows/mcp.yml", "communications", ["@context/communications"]],
-    [".github/workflows/mcp.yml", "drawings", ["@context/drawings"]],
     [".github/workflows/mcp.yml", "desktop", ["@context/desktop"]],
     [".github/workflows/router.yml", "test", ["@context/router"]],
     [".github/workflows/email-worker.yml", "test", ["@context/email-worker"]],
     [".github/workflows/transcribe-worker.yml", "test", ["@context/transcribe-worker"]],
     [".github/workflows/egress-service.yml", "test", ["@context/egress-service"]],
-    [".github/workflows/sentry-worker.yml", "test", ["@context/sentry-worker"]],
     [".github/workflows/cli.yml", "test", ["@supa-media/context"]],
     [".github/workflows/cli.yml", "no-dependencies", ["@supa-media/context"]],
   ];
+  // One job, several packages: each suite is gated by its own package's scope.
+  assertMultiScopedJob(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"), "packages", ".github/workflows/mcp.yml", {
+    decryptor: { packages: ["@supa-media/context-encryption-decryptor"], runs: "packages/encryption-decryptor" },
+    meetings: { packages: ["@context/meetings"], runs: "packages/meetings" },
+    obsidian: { packages: ["@context/obsidian-runtime"], runs: "packages/obsidian-runtime" },
+    communications: { packages: ["@context/communications"], runs: "packages/communications" },
+    drawings: { packages: ["@context/drawings"], runs: "packages/drawings" },
+    sentry: { packages: ["@context/sentry-worker"], runs: "infra/sentry-worker" },
+  });
+
   for (const [workflow, job, packages] of scoped) {
     assertScopedJob(readFileSync(join(root, workflow), "utf8"), job, workflow, packages);
   }

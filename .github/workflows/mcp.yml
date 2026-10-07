@@ -66,6 +66,8 @@ on:
       # And the drawings core, same reason again: `Test Drawings Core` below is
       # its only CI anywhere.
       - "packages/drawings/**"
+      - "packages/obsidian-runtime/**"
+      - "infra/sentry-worker/**"
       - ".github/workflows/mcp.yml"
 
 permissions:
@@ -148,26 +150,37 @@ jobs:
         if: steps.scope.outputs.affected == 'true'
         run: pnpm --filter @context/collaboration test
 
-  decryptor:
-    name: Test Offline Decryptor
+  packages:
+    # Six suites that need no install, in one job (2026-10-07). Each was its
+    # own job — and its own runner, checkout and Node setup, ~10s of overhead
+    # for 1-5s of tests — and together they held six of the twenty runners a
+    # free account gets at once, so the jobs that matter queued behind them.
+    # Each keeps its own scope step and runs only when its package's inputs
+    # change; `scripts/check-ci-path-gates.mjs` checks every step is gated by
+    # its own package's scope. `!cancelled()` keeps one red suite from
+    # skipping the ones after it, so every suite still reports.
+    name: Test package cores
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
+      # Before the scopes, unconditionally: a few seconds, and the one step
+      # every suite below shares.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # ── Test Offline Decryptor ──
       - uses: ./.github/actions/ci-scope
-        id: scope
+        if: ${{ !cancelled() }}
+        id: decryptor
         with:
           packages: "@supa-media/context-encryption-decryptor"
           paths: |
             apps/mcp/src/encryption.js
             .github/workflows/mcp.yml
-
-      - uses: actions/setup-node@v5
-        if: steps.scope.outputs.affected == 'true'
-        with:
-          node-version: 22
-          package-manager-cache: false
 
       # NO CI JOB RAN THIS PACKAGE'S SUITE EITHER, for the same reason the
       # comment on `Test Meetings Core` below records: `ci.yml`'s reusable
@@ -190,28 +203,17 @@ jobs:
       # the change most likely to break it. Bare node, no install: zero
       # dependencies is this package's promise too.
       - name: Run test suite
-        if: steps.scope.outputs.affected == 'true'
+        if: ${{ !cancelled() && steps.decryptor.outputs.affected == 'true' }}
         working-directory: packages/encryption-decryptor
         run: node test/decrypt.test.mjs
 
-  meetings:
-    name: Test Meetings Core
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
+      # ── Test Meetings Core ──
       - uses: ./.github/actions/ci-scope
-        id: scope
+        if: ${{ !cancelled() }}
+        id: meetings
         with:
           packages: "@context/meetings"
           paths: ".github/workflows/mcp.yml"
-
-      - uses: actions/setup-node@v5
-        if: steps.scope.outputs.affected == 'true'
-        with:
-          node-version: 22
-          package-manager-cache: false
 
       # NO CI JOB RAN THIS PACKAGE'S SUITE AT ALL. Measured on #247, from that
       # run's own `Detect Changes` log: `ci.yml` filters on
@@ -237,28 +239,17 @@ jobs:
       # shape that ran nothing before. Bare node with no install, because this
       # package has no dependencies either.
       - name: Run test suite
-        if: steps.scope.outputs.affected == 'true'
+        if: ${{ !cancelled() && steps.meetings.outputs.affected == 'true' }}
         working-directory: packages/meetings
         run: node test/test.mjs
 
-  obsidian-runtime:
-    name: Test Obsidian Runtime
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
+      # ── Test Obsidian Runtime ──
       - uses: ./.github/actions/ci-scope
-        id: scope
+        if: ${{ !cancelled() }}
+        id: obsidian
         with:
           packages: "@context/obsidian-runtime"
           paths: ".github/workflows/mcp.yml"
-
-      - uses: actions/setup-node@v5
-        if: steps.scope.outputs.affected == 'true'
-        with:
-          node-version: 22
-          package-manager-cache: false
 
       # THE EIGHTH PACKAGE FOUND THIS WAY, AND THE FIRST FOUND BY A CHECK
       # RATHER THAN BY SOMEBODY NOTICING. Every job above carries its own
@@ -278,28 +269,17 @@ jobs:
       # including one that changes only the console's plugin host. Bare node,
       # no install: this package's only dependency is a typechecker.
       - name: Run test suite
-        if: steps.scope.outputs.affected == 'true'
+        if: ${{ !cancelled() && steps.obsidian.outputs.affected == 'true' }}
         working-directory: packages/obsidian-runtime
         run: node test/test.mjs
 
-  communications:
-    name: Test Communications Core
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
+      # ── Test Communications Core ──
       - uses: ./.github/actions/ci-scope
-        id: scope
+        if: ${{ !cancelled() }}
+        id: communications
         with:
           packages: "@context/communications"
           paths: ".github/workflows/mcp.yml"
-
-      - uses: actions/setup-node@v5
-        if: steps.scope.outputs.affected == 'true'
-        with:
-          node-version: 22
-          package-manager-cache: false
 
       # Beside `Test Meetings Core` and for the reason written there in full:
       # a package whose suite no job runs has local-only checks, and this one
@@ -312,28 +292,17 @@ jobs:
       # owning package's suite is the contract. Bare node with no install,
       # because this package has no dependencies either.
       - name: Run test suite
-        if: steps.scope.outputs.affected == 'true'
+        if: ${{ !cancelled() && steps.communications.outputs.affected == 'true' }}
         working-directory: packages/communications
         run: node test/test.mjs
 
-  drawings:
-    name: Test Drawings Core
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
+      # ── Test Drawings Core ──
       - uses: ./.github/actions/ci-scope
-        id: scope
+        if: ${{ !cancelled() }}
+        id: drawings
         with:
           packages: "@context/drawings"
           paths: ".github/workflows/mcp.yml"
-
-      - uses: actions/setup-node@v5
-        if: steps.scope.outputs.affected == 'true'
-        with:
-          node-version: 22
-          package-manager-cache: false
 
       # Beside `Test Meetings Core` and for the reason written there in full: a
       # package whose suite no job runs has local-only checks. `ci.yml`'s
@@ -364,9 +333,21 @@ jobs:
       # so running the script costs neither a package-manager setup step nor an
       # install, and the promise above holds.
       - name: Run test suite
-        if: steps.scope.outputs.affected == 'true'
+        if: ${{ !cancelled() && steps.drawings.outputs.affected == 'true' }}
         working-directory: packages/drawings
         run: npm test
+
+      # ── Test Sentry Inbox ── (was its own workflow, sentry-worker.yml)
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: sentry
+        with:
+          packages: "@context/sentry-worker"
+          paths: ".github/workflows/mcp.yml"
+
+      - name: Sentry inbox tests
+        if: ${{ !cancelled() && steps.sentry.outputs.affected == 'true' }}
+        run: node infra/sentry-worker/test/worker.test.mjs
 
   desktop:
     name: Test Desktop
