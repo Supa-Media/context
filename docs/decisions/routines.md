@@ -142,3 +142,18 @@ run still out waits for it rather than have its token replaced mid-turn. The
 result releases the lease and ends the token. Tests: "a claim moves the next
 run on, and a live lease is not claimed twice", "a routine's grant leaves the
 texting grant alone".
+
+### Texting writes routine files, and nothing else
+
+The owner decided on 2026-10-07 that texting "every morning tell me..." makes
+the routine file and says where it is. That is the one exception to "writes
+are proposals": a texting turn on a grant that can write is offered
+`write_note` and `archive_note` with a narrower schema (a path and the text,
+nothing else: no `context`, no visibility, no sharing), and a dispatcher in
+front of the client's that refuses any path that is not exactly
+`routines/<schedule>/<name>.md` (`src/agent/routineWrites.js`). The routine's
+own run is never offered either, so a routine cannot rewrite itself or
+another one. A routine whose `until:` came true is archived, recoverably, and
+paused in place where the layout has no archive. Tests (`agentRoutine.test.mjs`):
+"a write anywhere else is refused, whatever the model named", "a routine's
+own run is never offered a write", "and stops itself, recoverably".

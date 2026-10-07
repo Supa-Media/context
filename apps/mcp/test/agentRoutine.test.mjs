@@ -27,6 +27,10 @@
  *     not run` fails.
  *  3. The paused check moved below `openProvider`. → `a paused routine costs
  *     no turn` fails.
+ *  4. `routineAwareCallTool` passing every call through. → `a write anywhere
+ *     else is refused, whatever the model named` fails.
+ *  5. `routineTools` ignoring whether the turn is a text. → `a routine's own
+ *     run is never offered a write` fails.
  */
 
 import worker from "../src/index.js";
@@ -37,18 +41,21 @@ import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
-import { MAX_RUNS_KEPT, routineBody, runOutcome } from "../src/agent/routine.js";
+import { MAX_RUNS_KEPT, routineBody, runOutcome, stopRoutine, withPaused } from "../src/agent/routine.js";
+import { isRoutineFilePath } from "../src/agent/routineWrites.js";
 
 const S3_ENDPOINT = "https://s3.example-routine.test";
 const TOKEN_RUNNER = `cat_routine_runner_${"0".repeat(21)}`;
 const TOKEN_RUNNER_TEAM = `cat_routine_team_${"0".repeat(23)}`;
 const TOKEN_CLIENT = `cat_routine_client_${"0".repeat(21)}`;
+const TOKEN_TEXTS = `cat_routine_texts_${"0".repeat(22)}`;
+const TOKEN_TEXTS_READ = `cat_routine_tread_${"0".repeat(22)}`;
 const API_KEY = "zarquon-plumbago-routine-not-a-real-key";
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-  "folder_defaults:\n  routines/daily/team: team\n\nnote_overrides:\n  # none\n```\n\n" +
+  "folder_defaults:\n  routines/daily/team: team\n  4-archive: private\n\nnote_overrides:\n  # none\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 const BRIEF =
@@ -68,8 +75,12 @@ function fakeModel() {
       const next = script.shift();
       if (!next) throw new Error("fake model: the script ran out");
       if (next.status) return new Response("{}", { status: next.status });
+      const content = next.text ? [{ type: "text", text: next.text }] : [];
+      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+        content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
+      }
       return new Response(
-        JSON.stringify({ content: [{ type: "text", text: next.text }], stop_reason: "end_turn" }),
+        JSON.stringify({ content, stop_reason: (next.toolCalls ?? []).length > 0 ? "tool_use" : "end_turn" }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     },
@@ -96,6 +107,28 @@ async function ask(env, token, body) {
     parsed = null;
   }
   return { status: response.status, body: parsed };
+}
+
+/** A tool call through the same worker, as an ordinary client would make it. */
+async function readAs(env, token, path) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: path.endsWith(".md") ? "read_note" : "list_notes", arguments: path.endsWith(".md") ? { path } : { prefix: path } },
+      }),
+    }),
+    env,
+    ctx,
+  );
+  const body = JSON.parse(await response.text());
+  await settle();
+  return body?.result ?? { isError: true };
 }
 
 function userText(request) {
@@ -135,6 +168,8 @@ export async function runAgentRoutineChecks(check) {
     // The writer's access narrowed to `team`: a private routine is out of reach.
     await grant(TOKEN_RUNNER_TEAM, "context_routines", ["context:read", "context:write"]);
     await grant(TOKEN_CLIENT, "mcp_client_routine", ["context:read", "context:write", "context:private"]);
+    await grant(TOKEN_TEXTS, "context_texts", ["context:read", "context:write", "context:private"]);
+    await grant(TOKEN_TEXTS_READ, "context_texts", ["context:read", "context:private"]);
     controlPlane.connectProvider("ws_routine", "anthropic", API_KEY);
 
     const bucket = s3.bucketFor("tenant-routine");
@@ -147,6 +182,7 @@ export async function runAgentRoutineChecks(check) {
       etag: "g4",
     });
     bucket.set("1-projects/notes.md", { body: "# Notes\n", etag: "g5" });
+    bucket.set("4-archive/old.md", { body: "# Old\n", etag: "g6" });
     const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
     const runsOf = (name) => {
       const object = bucket.get(`.context/agent/routines/${name}.json`);
@@ -248,6 +284,64 @@ export async function runAgentRoutineChecks(check) {
         done.body?.outcome === "finished" &&
         done.body?.answer === "It landed at 3:12 pm.",
     );
+    check(
+      "and stops itself, recoverably: the file leaves routines/ for the archive",
+      // The old address forwards to where it went, which is the archive.
+      JSON.stringify(await readAs(env, TOKEN_CLIENT, "routines/every-5-minutes/landed.md")).includes(
+        "moved_from: routines/every-5-minutes/landed.md",
+      ) &&
+        JSON.stringify(await readAs(env, TOKEN_CLIENT, "4-archive/")).includes("landed.md"),
+    );
+
+    /* ---------------- texting writes routine files, and only those ---------------- */
+
+    const offeredTo = (request) => (request?.tools ?? []).map((tool) => tool.name);
+    model.install([{ text: "ok" }]);
+    await ask(env, TOKEN_RUNNER, { routine: { path: "routines/daily/morning-brief.md" } });
+    check(
+      "a routine's own run is never offered a write",
+      !offeredTo(model.requests.at(-1)).includes("write_note") &&
+        !offeredTo(model.requests.at(-1)).includes("archive_note"),
+    );
+    model.install([{ text: "ok" }]);
+    await ask(env, TOKEN_TEXTS_READ, { question: "every morning tell me what's due" });
+    check(
+      "a texting grant that cannot write is offered no write",
+      !offeredTo(model.requests.at(-1)).includes("write_note"),
+    );
+
+    const brief = "---\nat: 7:30 am\n---\nText me what's due today.\n";
+    model.install([
+      {
+        toolCalls: [
+          { name: "write_note", args: { path: "routines/daily/due-today.md", content: brief } },
+          { name: "write_note", args: { path: "1-projects/sneaky.md", content: "x" } },
+          { name: "write_note", args: { path: "routines/daily/../../privacy.md", content: "x" } },
+          { name: "write_note", args: { path: "routines/daily/other.md", content: "x", context: "@someone" } },
+          { name: "write_note", args: { path: "routines/daily/shared.md", content: "x", visibility: "team" } },
+          { name: "archive_note", args: { path: "1-projects/notes.md" } },
+        ],
+      },
+      { text: "Done. It's saved as routines › daily › Due today." },
+    ]);
+    const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due" });
+    const writeTool = (model.requests.at(-2)?.tools ?? []).find((tool) => tool.name === "write_note");
+    check(
+      "a texting turn is offered a write_note that only writes routines, and says how",
+      writeTool !== undefined && writeTool.description.includes("routines/<how-often>/<name>.md"),
+    );
+    check(
+      "texting \"every morning...\" writes the routine file",
+      made.status === 200 && bucket.get("routines/daily/due-today.md")?.body.includes("Text me what's due today."),
+    );
+    check(
+      "a write anywhere else is refused, whatever the model named",
+      bucket.get("1-projects/sneaky.md") === undefined &&
+        !bucket.get("privacy.md")?.body.startsWith("x") &&
+        bucket.get("routines/daily/other.md") === undefined &&
+        bucket.get("routines/daily/shared.md") === undefined &&
+        bucket.get("1-projects/notes.md") !== undefined,
+    );
 
     model.install([{ status: 500 }]);
     const failed = await ask(env, TOKEN_RUNNER, { routine: { path: "routines/daily/morning-brief.md" } });
@@ -271,6 +365,35 @@ export async function runAgentRoutineChecks(check) {
         routineBody("---\nunclosed\nDo it.") === "---\nunclosed\nDo it.",
     );
     check("history is bounded", MAX_RUNS_KEPT === 20);
+    const calls = [];
+    const noArchive = async (name, args) => {
+      calls.push({ name, args });
+      if (name === "read_note") return { content: [{ type: "text", text: "etag: e1\npath: p\n\n---\nat: 9am\n---\nDo it." }] };
+      if (name === "archive_note") return { isError: true, content: [{ type: "text", text: "no archive" }] };
+      return { content: [{ type: "text", text: "ok" }] };
+    };
+    const outcome = await stopRoutine(noArchive, "routines/daily/x.md");
+    check(
+      "where there is no archive, a finished routine is paused in place instead",
+      outcome === "paused" &&
+        calls.at(-1).name === "write_note" &&
+        calls.at(-1).args.content === "---\nat: 9am\npaused: yes\n---\nDo it." &&
+        calls.at(-1).args.expected_etag === "e1",
+    );
+    check(
+      "pausing adds or replaces one line and keeps the rest",
+      withPaused("---\nat: 9am\npaused: no\n---\nDo it.") === "---\nat: 9am\npaused: yes\n---\nDo it." &&
+        withPaused("Do it.") === "---\npaused: yes\n---\nDo it.",
+    );
+    check(
+      "only an exact routine path is writable",
+      isRoutineFilePath("routines/weekly/wrap.md") &&
+        !isRoutineFilePath("routines/wrap.md") &&
+        !isRoutineFilePath("/routines/weekly/wrap.md") &&
+        !isRoutineFilePath("routines//weekly/wrap.md") &&
+        !isRoutineFilePath("routines/weekly/../daily/x.md") &&
+        !isRoutineFilePath("routines/weekly/wrap.png"),
+    );
   } finally {
     restoreControlPlane();
     restoreS3();

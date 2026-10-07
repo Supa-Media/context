@@ -186,3 +186,46 @@ export async function recordRun(store, path, runs, run) {
   const kept = [...runs, entry].slice(-MAX_RUNS_KEPT);
   await store.put(routineRunsKey(path), JSON.stringify({ version: 1, runs: kept }));
 }
+
+/** The note's text with `paused: yes` in its front matter, added or replaced. */
+export function withPaused(text) {
+  const lines = text.split("\n");
+  if (lines[0]?.replace(/^\uFEFF/, "").trim() === "---") {
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line === "---" || line === "...") {
+        const kept = lines.slice(1, i).filter((l) => !/^paused\s*:/i.test(l.trim()));
+        return [lines[0], ...kept, "paused: yes", ...lines.slice(i)].join("\n");
+      }
+    }
+  }
+  return `---\npaused: yes\n---\n${text}`;
+}
+
+/**
+ * Stop a routine whose `until:` came true: archived, so it can be recovered,
+ * and where the layout has no archive, paused in place. Best effort: a routine
+ * that could not be stopped runs again and says DONE again, which is noisy but
+ * not wrong.
+ */
+export async function stopRoutine(callTool, path) {
+  try {
+    // Read first: a shared workspace's archive and write both want the etag.
+    const read = await callTool("read_note", { path });
+    const text = read?.content?.[0]?.text;
+    if (read?.isError === true || typeof text !== "string") return "kept";
+    const split = text.indexOf("\n\n");
+    const etag = /^etag: (.+)$/m.exec(split === -1 ? text : text.slice(0, split))?.[1];
+    const archived = await callTool("archive_note", { path, ...(etag ? { expected_etag: etag } : {}) });
+    if (archived?.isError !== true) return "archived";
+    const note = split === -1 ? "" : text.slice(split + 2);
+    const written = await callTool("write_note", {
+      path,
+      content: withPaused(note),
+      ...(etag ? { expected_etag: etag } : {}),
+    });
+    return written?.isError === true ? "kept" : "paused";
+  } catch {
+    return "kept";
+  }
+}
