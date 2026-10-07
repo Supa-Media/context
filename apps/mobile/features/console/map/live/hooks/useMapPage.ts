@@ -19,7 +19,7 @@ import {
 import { crossMoveRows, liveFeed, nameBook, replayFeed, workingNowLine, type CrossMoveRow, type FeedItem } from "../feed";
 import { setMapFolderCounts } from "../mapCounts";
 import { useMapFixtureSource } from "../MapSourceContext";
-import { replayReducer, replayWindow, startOfDay, type ReplayAction, type ReplayState } from "../replayClock";
+import { REPLAY_IDLE_MS, replayReducer, replayWindow, startOfDay, type ReplayAction, type ReplayState } from "../replayClock";
 import type { MapClock, MapEvent, MapView } from "../types";
 import { useCrossMovesSince, useReplayHistory } from "./useHistory";
 import { useLiveActivity } from "./useLiveActivity";
@@ -28,8 +28,6 @@ import { useMapGraphs, type MapWorkspace } from "./useMapGraphs";
 export type MapMode = "live" | "today" | "week";
 export type MapScopeChoice = "one" | "all";
 
-/** How long somebody stays on a replayed map after their last step. */
-const REPLAY_IDLE_MS = 10 * 60_000;
 /** Bars on the replay's activity histogram. */
 export const HISTOGRAM_BARS = 72;
 
@@ -141,7 +139,7 @@ export function useMapPage(data: ConsoleData) {
   );
   const selfId = live.actors.find((a) => a.self && a.kind === "person")?.id ?? null;
   const clock: MapClock = replaying
-    ? { kind: "replay", from: replay.from, to: replay.to, at: replay.seek, speed: replay.speed }
+    ? { kind: "replay", from: replay.from, to: replay.to, at: replay.seek, speed: replay.speed, idleMs: REPLAY_IDLE_MS[replay.range] }
     : { kind: "live" };
   const palette = useMemo(() => mapPalette(colors, scheme === "dark" ? darkMapColors : lightMapColors), [colors, scheme]);
 
@@ -158,7 +156,7 @@ export function useMapPage(data: ConsoleData) {
     }),
     // `clock` is rebuilt from its parts each render; these are what change it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [present, actors, events, scope, many, selected?.id, view, replaying, replay?.from, replay?.to, replay?.seek, replay?.speed, palette, selfId],
+    [present, actors, events, scope, many, selected?.id, view, replaying, replay?.from, replay?.to, replay?.seek, replay?.speed, replay?.range, palette, selfId],
   );
 
   const book = useMemo(() => nameBook(present), [present]);
@@ -179,8 +177,8 @@ export function useMapPage(data: ConsoleData) {
     [replaying, events, t, book, live.actors, now, selfId],
   );
   const working: MapActor[] = useMemo(
-    () => (replaying ? actorsAt(events, t, REPLAY_IDLE_MS) : live.actors.filter((a) => !a.self)),
-    [replaying, events, t, live.actors],
+    () => (replaying ? actorsAt(events, t, REPLAY_IDLE_MS[replay.range]) : live.actors.filter((a) => !a.self)),
+    [replaying, events, t, live.actors, replay?.range],
   );
   const crossRows: CrossMoveRow[] = useMemo(
     () => (scope === "all" && many ? crossMoveRows(events, replaying ? replay.from : todayFrom, t, book) : []),

@@ -43,7 +43,7 @@ export function ReplayBar({ page, compact = false }: { page: MapPageState; compa
           testID="map-replay-play"
         />
         <View style={styles.speeds} accessibilityRole="radiogroup" accessibilityLabel="Replay speed">
-          {REPLAY_SPEEDS.map((speed) => (
+          {REPLAY_SPEEDS[replay.range].map((speed) => (
             <Pressable
               key={speed}
               onPress={() => page.dispatch({ type: "speed", speed })}

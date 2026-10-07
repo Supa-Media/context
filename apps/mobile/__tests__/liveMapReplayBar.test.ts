@@ -8,15 +8,19 @@
  * Times are built in local time so the suite reads the same in any timezone.
  */
 import { afterEach, describe, expect, test } from "@jest/globals";
-import { folderCountsAt } from "../features/console/map/live/engine";
+import { actorsAt, folderCountsAt } from "../features/console/map/live/engine";
 import { mapFolderCount, setMapFolderCounts } from "../features/console/map/live/mapCounts";
 import {
   DAY_MS,
+  DEFAULT_SPEED,
   HOUR_MS,
+  REPLAY_IDLE_MS,
+  REPLAY_SPEEDS,
   clockText,
   dayText,
   fractionOf,
   placeMoments,
+  playbackMs,
   replayBadge,
   replayReducer,
   replayTicks,
@@ -41,7 +45,57 @@ describe("the clock reads as a wall clock", () => {
 
   test("the badge says what is replaying and how fast", () => {
     expect(replayBadge("today", 60)).toBe("Replaying today · 60× speed");
-    expect(replayBadge("week", 10)).toBe("Replaying this week · 10× speed");
+    expect(replayBadge("week", 600)).toBe("Replaying this week · 600× speed");
+  });
+});
+
+describe("how fast a replay plays", () => {
+  test("a day offers 1×, 10× and 60×; a week 60×, 600× and 3600×", () => {
+    expect(REPLAY_SPEEDS.today).toEqual([1, 10, 60]);
+    expect(REPLAY_SPEEDS.week).toEqual([60, 600, 3600]);
+    expect(startReplay("today", at(18), at(8)).speed).toBe(DEFAULT_SPEED.today);
+    expect(startReplay("week", at(18)).speed).toBe(600);
+  });
+
+  test("a working day at 60× is ten minutes; the week at 3600× is about three", () => {
+    const day = startReplay("today", at(18), at(8));
+    expect(playbackMs(day.from, day.to, 60)).toBe(10 * 60_000);
+    const week = startReplay("week", at(18));
+    const fastest = playbackMs(week.from, week.to, 3600);
+    expect(fastest).toBeGreaterThan(2.5 * 60_000);
+    expect(fastest).toBeLessThanOrEqual(3 * 60_000);
+    // 600× is a week in under twenty minutes; a day's 60× would be hours.
+    expect(playbackMs(week.from, week.to, 600)).toBeLessThan(20 * 60_000);
+    expect(playbackMs(week.from, week.to, 60)).toBeGreaterThan(2 * HOUR_MS);
+  });
+
+  test("only a speed the range offers is taken, and a new range starts at its own", () => {
+    let s = startReplay("week", at(18));
+    s = replayReducer(s, { type: "speed", speed: 3600 });
+    expect(s.speed).toBe(3600);
+    expect(replayReducer(s, { type: "speed", speed: 1 })).toBe(s);
+    s = replayReducer(s, { type: "start", range: "today", now: at(18), firstAt: at(8) });
+    expect(s.speed).toBe(60);
+    expect(replayReducer(s, { type: "speed", speed: 600 }).speed).toBe(60);
+  });
+});
+
+describe("who was here, at the playhead", () => {
+  const NOTE = "1-projects/launch.md";
+  // Somebody working in bursts: a step at 12:00 and the next at 12:40.
+  const events = [ev.edit(at(12), "ws-a", NOTE), ev.edit(at(12, 40), "ws-a", NOTE)];
+
+  test("a day's replay keeps somebody half an hour after their last step", () => {
+    expect(REPLAY_IDLE_MS.today).toBe(30 * 60_000);
+    expect(actorsAt(events, at(12, 20), REPLAY_IDLE_MS.today).map((a) => a.name)).toEqual(["Maya"]);
+    expect(actorsAt(events, at(13, 20), REPLAY_IDLE_MS.today)).toEqual([]);
+  });
+
+  test("a week's keeps them three hours, so a sped-up week is not an empty map", () => {
+    expect(REPLAY_IDLE_MS.week).toBe(3 * HOUR_MS);
+    expect(actorsAt(events, at(15), REPLAY_IDLE_MS.week)).toHaveLength(1);
+    expect(actorsAt(events, at(16), REPLAY_IDLE_MS.week)).toEqual([]);
+    expect(REPLAY_IDLE_MS.week).toBeGreaterThan(REPLAY_IDLE_MS.today);
   });
 });
 

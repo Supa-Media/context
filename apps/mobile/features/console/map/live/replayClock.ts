@@ -12,11 +12,29 @@
 
 export type ReplayRange = "today" | "week";
 
-export const REPLAY_SPEEDS = [1, 10, 60] as const;
-export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
-
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * The speeds the bar offers, slowest first. A day at 60x is ten minutes; a week
+ * at 60x would be nearly three hours, so a week starts where a day stops and
+ * goes on to 3600x, a week in under three minutes.
+ */
+export const REPLAY_SPEEDS: Record<ReplayRange, readonly number[]> = {
+  today: [1, 10, 60],
+  week: [60, 600, 3600],
+};
+
+/** The speed a replay starts at: the fastest of a day's, the middle of a week's. */
+export const DEFAULT_SPEED: Record<ReplayRange, number> = { today: 60, week: 600 };
+
+/**
+ * How long somebody stays on a replayed map after their last step. Live, ten
+ * minutes of quiet means they have gone; played back at 60x that is ten
+ * seconds, and the map empties between bursts of work that were one sitting.
+ * So the window grows with how much time the bar covers.
+ */
+export const REPLAY_IDLE_MS: Record<ReplayRange, number> = { today: 30 * 60_000, week: 3 * HOUR_MS };
 
 export function startOfDay(t: number): number {
   const d = new Date(t);
@@ -107,7 +125,8 @@ export type ReplayState = {
   /** Where a person last put it: what the engine is told to jump to. */
   seek: number;
   playing: boolean;
-  speed: ReplaySpeed;
+  /** One of `REPLAY_SPEEDS[range]`. */
+  speed: number;
 };
 
 export type ReplayAction =
@@ -115,7 +134,7 @@ export type ReplayAction =
   | { type: "play" }
   | { type: "pause" }
   | { type: "toggle" }
-  | { type: "speed"; speed: ReplaySpeed }
+  | { type: "speed"; speed: number }
   | { type: "scrub"; at: number }
   /** The engine moved the playhead while playing. */
   | { type: "tick"; at: number }
@@ -129,10 +148,10 @@ export function keyStep(range: ReplayRange, shift: boolean): number {
   return shift ? HOUR_MS : 5 * 60_000;
 }
 
-/** A replay of `range` ending now, from its start, playing at 60×. */
+/** A replay of `range` ending now, from its start, playing at the range's default speed. */
 export function startReplay(range: ReplayRange, now: number, firstAt?: number): ReplayState {
   const { from, to } = replayWindow(range, now, firstAt);
-  return { range, from, to, at: from, seek: from, playing: true, speed: 60 };
+  return { range, from, to, at: from, seek: from, playing: true, speed: DEFAULT_SPEED[range] };
 }
 
 export function replayReducer(state: ReplayState, action: ReplayAction): ReplayState {
@@ -147,7 +166,8 @@ export function replayReducer(state: ReplayState, action: ReplayAction): ReplayS
     case "toggle":
       return replayReducer(state, { type: state.playing ? "pause" : "play" });
     case "speed":
-      return { ...state, speed: action.speed };
+      // Only a speed this range offers: a day's 1x is not a week's.
+      return REPLAY_SPEEDS[state.range].includes(action.speed) ? { ...state, speed: action.speed } : state;
     case "scrub": {
       const at = clampTo(state, action.at);
       return { ...state, at, seek: at };
@@ -168,13 +188,21 @@ export function replayReducer(state: ReplayState, action: ReplayAction): ReplayS
   }
 }
 
+/**
+ * How long the replay takes to play from start to end at `speed`, in real
+ * milliseconds: what "a week in about three minutes" means.
+ */
+export function playbackMs(from: number, to: number, speed: number): number {
+  return Math.max(0, to - from) / Math.max(1e-9, speed);
+}
+
 /** 0..1 along the bar. */
 export function fractionOf(at: number, from: number, to: number): number {
   return to > from ? Math.max(0, Math.min(1, (at - from) / (to - from))) : 0;
 }
 
 /** "Replaying today · 60× speed". */
-export function replayBadge(range: ReplayRange, speed: ReplaySpeed): string {
+export function replayBadge(range: ReplayRange, speed: number): string {
   return `Replaying ${range === "today" ? "today" : "this week"} · ${speed}× speed`;
 }
 

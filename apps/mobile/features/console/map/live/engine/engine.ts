@@ -343,7 +343,12 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       data = { ...data, clock };
       if (clock.kind === "replay") replayAt = clock.at;
       if (wasLive !== (clock.kind === "live")) rebuild();
-      else if (model) model = { ...model, speed: clock.kind === "replay" ? clock.speed : 1 };
+      else if (model)
+        model = {
+          ...model,
+          speed: clock.kind === "replay" ? clock.speed : 1,
+          idleMs: clock.kind === "replay" && clock.idleMs !== undefined ? clock.idleMs : (options.idleMs ?? 600_000),
+        };
       wake();
     },
     setPlaying(next) {
