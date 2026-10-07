@@ -14,10 +14,11 @@
  * - a workspace package imported by name is followed from its `main` (or the
  *   subpath named) like any other file, but one with no `main` to follow
  *   claims the whole package and its workspace dependencies;
- * - inside an app an entry lives in, every file that is not source (configs,
- *   assets, `wrangler*.toml`, `app.json`) and every top-level file (build
- *   configs like `metro.config.js` that nothing imports) stays watched. An
- *   app the walk only passes through (the editor imports the gateway's form
+ * - inside an app an entry lives in, every top-level file but lint,
+ *   test-runner and store configs (build configs like `metro.config.js`,
+ *   `wrangler.toml` or `package.json` that nothing imports) stays watched. An
+ *   asset nothing imports is not; one that is imported was reached. An app
+ *   the walk only passes through (the editor imports the gateway's form
  *   grammar) is not built by this job, so only the files reached in it count;
  * - a specifier it cannot resolve is ignored only when it names no workspace
  *   file, which is the case for every npm dependency.
@@ -152,7 +153,10 @@ export function reached(file, scope) {
   const app = appOf(file);
   if (!app || !scope.apps.has(app)) return false;
   const inside = file.slice(app.length + 1);
-  if (!inside.includes("/")) return !/\.md$/.test(inside);
-  if (SOURCE.test(file)) return false;
-  return !/(^|\/)(__tests__|test|tests|e2e)\//.test(inside) && !/\.md$/.test(inside);
+  // A top-level build config (metro, babel, app.config, package.json,
+  // tsconfig) can change what the bundle executes; lint, test-runner and
+  // store configs cannot, and neither can an asset nothing imports (an
+  // imported one is in `files` above).
+  if (inside.includes("/")) return false;
+  return !/\.md$/.test(inside) && !/^(eslint|jest|prettier)[.\w-]*\.(c?js|mjs|json)$|^eas\.json$/.test(inside);
 }
