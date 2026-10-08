@@ -52,6 +52,9 @@ export const MEANING_STATE_KEY = `${SEARCH_PREFIX}meaning/v1/state.json`;
  */
 export const MEANING_PASS_NOTE_CAP = 100;
 
+/** Notes read and embedded at once within a pass. */
+export const MEANING_PASS_CONCURRENCY = 8;
+
 /** Vectors held before an upsert is sent. Under the client's own batch. */
 const MEANING_HELD_VECTORS = 240;
 
@@ -218,27 +221,42 @@ export async function meaningPass(
       heldPaths = [];
     };
 
-    for (const path of changed.slice(0, cap)) {
-      let object;
-      try {
-        object = await store.get(path);
-      } catch {
-        // One unreadable note must not cost the rest of the pass. It stays
-        // unrecorded and the next pass tries it again.
-        continue;
-      }
-      if (!object) {
-        // Gone between the docmap and now: the next pass's census drops it.
-        continue;
-      }
-      const change = await meaningChangeFor(
-        path,
-        { content: await object.text(), visibility: visibilityOf(path) },
-        embed,
+    // A note is a bucket read and a model call, each a round trip, so notes
+    // go `MEANING_PASS_CONCURRENCY` at a time rather than one after another:
+    // one at a time, a 9,000-note workspace took most of a day. Results are
+    // still recorded in order, and a refused call still ends the pass with
+    // nothing of its group recorded, so the next pass redoes it.
+    const todo = changed.slice(0, cap);
+    for (let start = 0; start < todo.length; start += MEANING_PASS_CONCURRENCY) {
+      const group = todo.slice(start, start + MEANING_PASS_CONCURRENCY);
+      const changes = await Promise.all(
+        group.map(async (path) => {
+          let object;
+          try {
+            object = await store.get(path);
+          } catch {
+            // One unreadable note must not cost the rest of the pass. It stays
+            // unrecorded and the next pass tries it again.
+            return null;
+          }
+          if (!object) {
+            // Gone between the docmap and now: the next pass's census drops it.
+            return null;
+          }
+          return await meaningChangeFor(
+            path,
+            { content: await object.text(), visibility: visibilityOf(path) },
+            embed,
+          );
+        }),
       );
-      held.push(...change.vectors);
-      heldDeletes.push(...change.deleteIds);
-      heldPaths.push([path, census.get(path)]);
+      for (let index = 0; index < group.length; index += 1) {
+        const change = changes[index];
+        if (change === null) continue;
+        held.push(...change.vectors);
+        heldDeletes.push(...change.deleteIds);
+        heldPaths.push([group[index], census.get(group[index])]);
+      }
       if (held.length >= MEANING_HELD_VECTORS) await flush();
     }
     await flush();

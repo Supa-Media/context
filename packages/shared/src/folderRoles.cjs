@@ -183,7 +183,8 @@ function missingMainRoles(names) {
 }
 
 /**
- * Which notes a search index fills first (decided by the owner, 2026-10-08):
+ * Which notes a search index fills first (decided by the owner, 2026-10-08;
+ * the admin console names them T0, T1, T2):
  * everything else is 1, the Inbox 2 because it changes so much, the Archive 3,
  * "whenever we can get to it". Read from the note's TOP-LEVEL folder, so
  * `0-inbox/a.md` is 2 and `1-projects/inbox/a.md` is 1; a note at the root is 1.

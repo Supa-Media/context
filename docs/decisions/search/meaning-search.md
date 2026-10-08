@@ -163,3 +163,30 @@ The row now keeps which call failed (`errorCause`, our closed set), and the
 admin console's Search tab lists every index with a Restart button that keeps
 the generation and never overrides an owner's off. Tests:
 `apps/mcp/test/meaningCatchup.test.mjs`, `apps/convex/__tests__/meaningAdmin.test.ts`.
+
+### Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
+
+Decided by the owner, 2026-10-08: "indexing everything other than inbox and
+archive is priority 1, indexing inbox is priority 2 (since it changes so
+much) indexing archive is priority 3 (whenever we can get to it)", shown in
+the admin console, and named T0, T1, T2 there. Rows store them as priority
+1–3. The tier is read from a note's top-level folder by its role
+(`indexingPriority` in `packages/shared/src/folderRoles.cjs`), so
+`0-inbox/a.md` is T1, `4-archive/` and `9-archive/` are T2, and a note at the
+root or under `1-projects/inbox/` is T0. It decides **order and counts
+only**: every note is still indexed, and nothing about what a search may
+return changes.
+
+The meaning catch-up embeds its diff in that order (`meaningDiff`), eight
+notes at a time (`MEANING_PASS_CONCURRENCY`; one at a time, a 9,000-note
+workspace filled at about 15 notes a minute). The fast index's backfill walks
+its census in the same order, so its cursor is a place in that order, written
+`<priority>\t<path>`; a cursor in the older bare-path form reads as the start,
+which costs one sweep of version probes and copies nothing already current.
+Fresh edits still go first in both. Each pass reports indexed and pending per
+tier to its row (`priorities`, counts only), and admin › Search shows both
+indexes' counts per workspace. A gateway-side fast index pass reports totals
+only, so the row keeps the last per-tier counts the control plane's own
+backfill sent. Tests: `apps/mcp/test/meaningCatchup.test.mjs`,
+`apps/mcp/test/searchProjection/priority.test.mjs`,
+`apps/convex/__tests__/meaningAdmin.test.ts`.

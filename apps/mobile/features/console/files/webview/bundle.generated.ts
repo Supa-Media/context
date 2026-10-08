@@ -129,7 +129,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "packages/shared/src/comments.cjs": "67ea8cf56cc97c8ed363882f9044d624be79ba06009c6d3be9b9dbbedcef8639",
   "packages/shared/src/customEmoji.ts": "e0e4f6b54f6bec2730b5b49a7966e839a5e68087adf3888980a1026088b9e8e0",
   "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
-  "packages/shared/src/folderRoles.cjs": "7b905416b753737f99bb6e7a8f87e9095e4ed3c81a5a2c0445bf46a764e9e3b5",
+  "packages/shared/src/folderRoles.cjs": "2836044e0f1ea83192591c5fdf711e01955637a6d9189c381d96d9d6ec121aa8",
   "packages/shared/src/links.ts": "7ca91f796e70bddcb6b6ca05170e446d241ed1e3a9bdd8c24ef055d281cbdbce",
   "packages/shared/src/websiteCast.ts": "8a84c0e78e67a0d4c3cba3e66944f1d2bd9ce1cc15316af30f709c7521971e8e",
   "packages/shared/src/websiteJoin.ts": "932bada3c41ead60f1f0236eaefabb2ebbefc7ec50bc1e8a27aa205929561235"

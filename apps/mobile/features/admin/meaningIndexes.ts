@@ -43,8 +43,9 @@ const PRIORITY_NAMES: Record<number, string> = { 1: "Everything else", 2: "Inbox
 /**
  * Indexing priorities in one line (decided by the owner, 2026-10-08: everything
  * but the Inbox and Archive first, then the Inbox, then the Archive):
- * `P1 Everything else 300/300 · P2 Inbox 12/42 · P3 Archive 0/900`, or null
- * before a pass has counted them.
+ * `T0 Everything else 300/300 · T1 Inbox 12/42 · T2 Archive 0/900`, or null
+ * before a pass has counted them. Tiers are named from T0 (the owner,
+ * 2026-10-08); the rows store priority 1–3, so T0 is priority 1.
  */
 export function priorityLine(priorities: MeaningIndexRow["priorities"]): string | null {
   if (priorities === null || priorities.length === 0) return null;
@@ -52,7 +53,7 @@ export function priorityLine(priorities: MeaningIndexRow["priorities"]): string 
   return priorities
     .map(
       ({ priority, indexed, pending }) =>
-        `P${priority} ${PRIORITY_NAMES[priority] ?? ""} ${format(indexed)}/${format(indexed + pending)}`.replace("  ", " "),
+        `T${priority - 1} ${PRIORITY_NAMES[priority] ?? ""} ${format(indexed)}/${format(indexed + pending)}`.replace("  ", " "),
     )
     .join(" · ");
 }
