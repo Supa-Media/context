@@ -66,11 +66,6 @@ export function noteUnderPrefix(path, prefix) {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
-function movedDestinationFor(job, sourceKey) {
-  const item = (job.objects || []).find((entry) => entry.source === sourceKey);
-  return item?.destination || null;
-}
-
 export function movedSourceFor(job, destinationKey) {
   const item = (job.objects || []).find((entry) => entry.destination === destinationKey);
   return item?.source || null;
@@ -168,18 +163,21 @@ export async function fallbackMoveJobs(store, prefix, budget = null) {
 
 export function applyMoveOverlay(keys, jobs) {
   if (!jobs.length) return keys;
+  // A workspace can have thousands of notes and several thousand objects in
+  // active moves. Looking through every job's object list for every listed
+  // note made ordinary listings and orientation take minutes. Index the
+  // source paths once, retaining the earliest job's precedence for a source.
+  const destinations = new Map();
+  for (const job of jobs) {
+    for (const item of job.objects || []) {
+      if (!destinations.has(item.source)) destinations.set(item.source, item.destination);
+    }
+  }
   const out = new Map();
   for (const object of keys) {
-    let hidden = false;
-    for (const job of jobs) {
-      const destination = movedDestinationFor(job, object.key);
-      if (destination !== null) {
-        hidden = true;
-        out.set(destination, { ...object, key: destination, logicalSource: object.key });
-        break;
-      }
-    }
-    if (!hidden && !out.has(object.key)) out.set(object.key, object);
+    const destination = destinations.get(object.key);
+    if (destination) out.set(destination, { ...object, key: destination, logicalSource: object.key });
+    else if (!out.has(object.key)) out.set(object.key, object);
   }
   return [...out.values()];
 }
