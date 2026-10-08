@@ -166,3 +166,34 @@ test("every call to safeMoveStorageDetail passes the store it must redact agains
   );
   assert.deepEqual(short, []);
 });
+
+/*
+  A LINK MAY NOT BE POINTED SOMEWHERE ITS OWN NOTE'S READERS CANNOT GO, AND
+  THAT RULE IS ONE ARGUMENT AT ONE CALL SITE.
+
+  `rewriteLinks` edits notes OTHER than the one that moved, and each keeps its
+  own visibility. Without `allowTarget` it follows a move into a private folder
+  and writes that path into every team-visible note that referenced it: the
+  privacy engine answers `not found` for the note while a note the same reader
+  may open spells out where it went. That was proved end to end against the
+  real tools before `allowTarget` existed.
+
+  `canSee` higher up in `rewriteReferences` does not catch it, which is why a
+  reader of the call site cannot see the danger: it asks which notes THIS
+  CALLER may scan, and the caller is the owner, who may scan everything. It
+  says nothing about who reads those notes afterwards.
+
+  Nothing else in the gateway calls `rewriteLinks` today. This guard is for the
+  second caller, and for the day somebody simplifies the argument list.
+*/
+test("every call to rewriteLinks passes the predicate that stops it publishing a path", () => {
+  const calls = FILES.flatMap((file) =>
+    [...file.text.matchAll(/(?<!function\s)\brewriteLinks\(([\s\S]*?)\)\s*;/g)].map((match) => ({
+      path: file.path,
+      args: match[1],
+    })),
+  );
+  assert.ok(calls.length >= 1, "no call to rewriteLinks found");
+  const unguarded = calls.filter((call) => !/\ballowTarget\b/.test(call.args)).map((call) => call.path);
+  assert.deepEqual(unguarded, []);
+});
