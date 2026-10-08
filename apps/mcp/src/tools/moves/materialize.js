@@ -49,8 +49,8 @@ export function safeMoveStorageDetail(error) {
     .replace(/[\r\n\t]+/g, " ")
     .replace(/https?:\/\/\S+/gi, "[url]")
     .replace(/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "[email]")
-    .replace(/\b(?:authorization|bearer|basic|api[_-]?key|token|secret|password)\b\s*[:=]?\s*\S+/gi, "[credential]")
     .replace(/\b[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+\b/g, "[path]")
+    .replace(/\b(?:authorization|bearer|basic|api[_-]?key|token|secret|password)\b\s*[:=]?\s*\S+/gi, "[credential]")
     .replace(/\b[A-Za-z0-9+_=-]{32,}\b/g, "[long value]")
     .slice(0, 180).trim();
   return detail ? `\nprovider detail (redacted): ${detail}` : "";

@@ -6,13 +6,14 @@ import { safeMoveStorageDetail } from "../src/tools/moves/materialize.js";
 
 export async function runMovesAndBatchChecks() {
   const wrappedFailure = Object.assign(new Error("collaboration storage write failed", {
-    cause: new Error("PUT https://storage.test/private/path.md authorization: secret-value token=another-value refused"),
+    cause: new Error("PUT https://storage.test/private/path.md object=2-areas/secret.md authorization: secret-value token=another-value refused"),
   }), { code: "STORAGE_WRITE_FAILED" });
   const safeDetail = safeMoveStorageDetail(wrappedFailure);
   check("owner move diagnostics redact provider URLs, paths and credentials",
     safeDetail.includes("[url]") && safeDetail.includes("[credential]") &&
       !safeDetail.includes("storage.test") && !safeDetail.includes("secret-value") &&
-      !safeDetail.includes("another-value") && !safeDetail.includes("path.md"));
+      !safeDetail.includes("another-value") && !safeDetail.includes("path.md") &&
+      !safeDetail.includes("secret.md"));
 
   // -- batch move plan and apply
   // Raw legacy notes deliberately have no collaboration head. This case pins
