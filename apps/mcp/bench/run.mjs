@@ -11,6 +11,8 @@
  *   --runs <n>          runs per question (default: the test's `runs`)
  *   --out <file>        where the result goes (default: results/<date> <test>.md)
  *   --fake              a scripted model: checks the plumbing, spends nothing
+ *   --no-fluff          leave out the fluff files' generated notes (a quick check)
+ *   --cold              skip warming: no search index, every search a bucket scan
  *   --verbose           keep the gateway's own log lines
  *
  * Runs one conversation at a time: each world swaps the global fetch, so two at
@@ -20,12 +22,15 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
-import { readBenchFolder } from "./load.mjs";
+import { expandWorkspaces, readBenchFolder } from "./load.mjs";
 import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
-import { resultMarkdown } from "./report.mjs";
+import { prepareRun } from "./warm.mjs";
+import { judgeCommand } from "./judge.mjs";
+import { scoreCommand } from "./score.mjs";
+import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 
 /** The most texts the played person may send in one conversation. */
@@ -36,7 +41,7 @@ function parseArgs(argv) {
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
-    if (flag === "--fake" || flag === "--verbose") options[flag.slice(2)] = true;
+    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold") options[flag.slice(2)] = true;
     else if (flag.startsWith("--")) options[flag.slice(2)] = rest[++i];
   }
   return options;
@@ -95,7 +100,11 @@ async function converse(world, question, person) {
 async function run(options) {
   const dir = options.dir ?? process.env.AI_BENCH_DIR;
   if (!options.job || !dir) throw new Error("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]");
-  const bench = await readBenchFolder(dir);
+  const loaded = await readBenchFolder(dir);
+  // Fluff files are written out unless --no-fluff asks for the hand-written notes alone.
+  const fluffOn = options["no-fluff"] !== true;
+  const bench = fluffOn ? expandWorkspaces(loaded) : loaded;
+  const fluffNotes = fluffOn ? Object.values(bench.workspaces).reduce((total, ws) => total + ws.generated.length, 0) : 0;
   const testName = options.test ?? options.job;
   const test = bench.tests[testName];
   if (!test) throw new Error(`no tests/${testName}.md`);
@@ -111,59 +120,89 @@ async function run(options) {
     : { gatewayFetch: anthropicGateway(send), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null) };
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
+  // Warm by default (decided 2026-10-08): every workspace indexed once, every
+  // conversation a clone of it. --cold measures the scan a fresh import gets.
+  const today = test.front.today ?? null;
+  const prepared = options.cold ? null : await prepareRun(bench, { today });
+  if (prepared) process.stderr.write(`warmed ${prepared.buckets.size} workspaces\n`);
+
   const records = [];
-  for (const setup of setups) {
-    for (const question of questions) {
-      const as = question.as ?? test.front.run_as;
-      for (let n = 1; n <= runs; n += 1) {
-        const world = await createWorld(bench, as, setup.raw, models);
-        try {
-          const result = await converse(world, question, person);
-          records.push({
-            setup: setup.name,
-            question: question.n,
-            questionText: question.text,
-            as,
-            kind: question.kind,
-            gate: question.gate,
-            run: n,
-            ...result,
-            model: result.model ?? setup.model,
-            changes: world.changes(),
-          });
-        } finally {
-          world.close();
+  try {
+    for (const setup of setups) {
+      for (const question of questions) {
+        const as = question.as ?? test.front.run_as;
+        for (let n = 1; n <= runs; n += 1) {
+          const world = await createWorld(bench, as, setup.raw, models, today, prepared);
+          try {
+            const result = await converse(world, question, person);
+            records.push({
+              setup: setup.name,
+              question: question.n,
+              questionText: question.text,
+              as,
+              kind: question.kind,
+              gate: question.gate,
+              run: n,
+              ...result,
+              model: result.model ?? setup.model,
+              changes: world.changes(),
+            });
+          } finally {
+            world.close();
+          }
+          process.stderr.write(`${setup.name} q${question.n} run ${n}: ${records.at(-1)?.error ?? "ok"}\n`);
         }
-        process.stderr.write(`${setup.name} q${question.n} run ${n}: ${records.at(-1)?.error ?? "ok"}\n`);
       }
     }
+  } finally {
+    prepared?.close();
   }
 
   const date = new Date().toISOString().slice(0, 10);
-  const markdown = resultMarkdown({
+  const out = options.out ?? join(dir, "results", `${date} ${testName}${options.fake ? " (fake)" : ""}.md`);
+  const keyOut = keyPathFor(out);
+  const result = {
     job: options.job,
     test: testName,
     testVersion: version(test.raw),
+    fluff: { on: fluffOn, notes: fluffNotes },
     date,
+    today: test.front.today,
+    world: prepared ? "warm" : "cold",
     commit: commit(),
     playedBy: options.fake ? null : test.front.played_by ?? null,
     setups: setups.map(({ name, version: v, model }) => ({ name, version: v, model })),
     runs: records,
-  });
-  const out = options.out ?? join(dir, "results", `${date} ${testName}${options.fake ? " (fake)" : ""}.md`);
+    resultFile: basename(out),
+    keyFile: basename(keyOut),
+  };
   await mkdir(join(out, ".."), { recursive: true });
-  await writeFile(out, markdown);
-  process.stderr.write(`wrote ${out}\n`);
+  await writeFile(out, resultMarkdown(result));
+  await writeFile(keyOut, keyMarkdown(result));
+  process.stderr.write(`wrote ${out}\nwrote ${keyOut}\n`);
 }
+
+const USAGE = [
+  "usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]",
+  "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--fake]",
+  "       pnpm ai score <result file> --dir <benchmarks folder>",
+].join("\n");
+
+const COMMANDS = new Map([
+  ["run", run],
+  ["judge", judgeCommand],
+  ["score", scoreCommand],
+]);
 
 const options = parseArgs(process.argv.slice(2));
 // The gateway logs a line per search and turn; a run's output is the result note.
 if (!options.verbose) console.log = () => {};
-if (options.command !== "run") {
-  process.stderr.write("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]\n");
+const command = COMMANDS.get(options.command);
+if (!command) {
+  process.stderr.write(`${USAGE}\n`);
   process.exit(2);
 }
-run(options).catch((error) => {
+command(options).catch((error) => {
   process.stderr.write(`${error.message}\n`);
   process.exit(1);
 });

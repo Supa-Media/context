@@ -5,7 +5,7 @@
  * and object store its tests use. Every invented workspace becomes its own
  * bucket with a real `privacy.md`, every invented person a texting grant
  * covering exactly the workspaces `people.md` gives them, and the setup under
- * test is written where the product reads it: `assistant/production/` in a
+ * test is written where the product reads it: `ai/production/` in a
  * pinned `@context-lc`. So a benchmark answer goes through the same tools,
  * routing and privacy decisions a texted answer does, and a setup that leaks
  * a held-back note does it here first.
@@ -13,15 +13,23 @@
  * Nothing leaves the world except the model calls: writes land in the
  * throwaway buckets and are read back as a list of changes, never applied
  * anywhere.
+ *
+ * A test may pin the day it is on (`today`, see clock.mjs): the world's clock
+ * then reads that day, and each note's modified time comes from its own front
+ * matter, so "untouched for a month" means the same on every run.
  */
 
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
-import { createWorkerCtx } from "../test/workerCtx.mjs";
+import { rmSync } from "node:fs";
 
-const S3_ENDPOINT = "https://s3.bench.invalid";
+import { createWorkerCtx } from "../test/workerCtx.mjs";
+import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
+import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
+
+export const S3_ENDPOINT = "https://s3.bench.invalid";
 const PINNED = "context-lc";
 
 /**
@@ -44,7 +52,16 @@ export function manifest({ shared, files = [], heldBack = [] }) {
   );
 }
 
-function binding(bucket, n) {
+export function workspaceId(name) {
+  return `ws_${name.replace(/-/g, "_")}`;
+}
+
+/** The search-database descriptor a warmed workspace carries (`search/d1/client.js`). */
+export function searchIndexFor(name, state) {
+  return { databaseId: `db-bench-${name}`, accountId: D1_ACCOUNT_ID, apiToken: D1_API_TOKEN, state };
+}
+
+export function binding(bucket, n, searchIndex = null) {
   return {
     provider: "s3",
     endpoint: S3_ENDPOINT,
@@ -55,6 +72,7 @@ function binding(bucket, n) {
     forcePathStyle: true,
     capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
+    ...(searchIndex ? { searchIndex } : {}),
   };
 }
 
@@ -70,21 +88,72 @@ function snapshot(bucket) {
 }
 
 /**
+ * Register every workspace and fill its bucket, from the fixture or from a
+ * prepared run's snapshot. Every workspace exists whoever is asking, so a leak
+ * is a real leak. `search` is `null` (no search database: the cold world),
+ * `"backfilling"` (a database to warm) or `"ready"` (a warmed clone).
+ */
+export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null, prepared = null }) {
+  const modified = (ms) => new Date(ms).toISOString();
+  const ids = new Map();
+  let n = 0;
+  for (const [name, workspace] of Object.entries(bench.workspaces)) {
+    const id = workspaceId(name);
+    const shared = !bench.people.some((row) => row.workspace === name && row.personal);
+    const searchIndex = search ? searchIndexFor(name, search) : null;
+    controlPlane.addWorkspace(id, name, binding(`bench-${name}`, ++n, searchIndex), shared ? { kind: "shared" } : {});
+    const bucket = s3.bucketFor(`bench-${name}`);
+    if (prepared) {
+      // The warmed bucket, index shards included; each object copied so a turn's
+      // write never reaches the snapshot.
+      for (const [key, object] of prepared.buckets.get(name)) bucket.set(key, { ...object });
+    } else {
+      bucket.set("privacy.md", {
+        body: manifest({ shared, files: Object.keys(workspace.files), heldBack: workspace.heldBack }),
+        etag: "p0",
+        lastModified: modified(baseMs),
+      });
+      for (const [path, text] of Object.entries(workspace.files)) {
+        bucket.set(path, { body: text, etag: "e0", lastModified: modified(noteModifiedAt(text, baseMs)) });
+      }
+    }
+    controlPlane.setBuiltinVerdict(id, { allowed: true, remaining: 1000 });
+    ids.set(name, id);
+  }
+  return ids;
+}
+
+/**
  * Build the world for one person.
  *
  * @param {object} bench what `readBenchFolder` returned
  * @param {string} person e.g. "Maya"
  * @param {string} setupRaw the setup file's text, written as the production note
  * @param {{ ai?: object, gatewayFetch: Function }} models where model calls go
+ * @param {string | null} [today] the day the world is on, as YYYY-MM-DD; null
+ *   keeps the real clock. The clock reads noon UTC that day and runs on from there.
+ * @param {object | null} [prepared] what `prepareRun` (warm.mjs) returned: the
+ *   world then starts from the warmed snapshot, with a ready search database
+ *   per workspace, instead of from cold fixture files.
  */
-export async function createWorld(bench, person, setupRaw, models) {
+export async function createWorld(bench, person, setupRaw, models, today = null, prepared = null) {
+  if (today !== null) assertIsoDate(today);
   const rows = bench.people.filter((row) => row.person === person);
   const own = rows.find((row) => row.personal);
   if (!own) throw new Error(`${person} has no personal workspace in people.md`);
 
-  const s3 = createS3Backend(S3_ENDPOINT);
+  // Notes are dated from the pinned day, or from the real clock when there is none.
+  const baseMs = today === null ? realNow() : noonUtcMs(today);
+  const modified = (ms) => new Date(ms).toISOString();
+
+  // A write a turn makes is stamped on the world's clock, so it reads as just written.
+  const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() });
   const controlPlane = createControlPlaneStub();
-  const restore = [s3.install(), controlPlane.install()];
+  // A warmed world answers searches from a copy of the snapshot's database.
+  const copies = [];
+  const d1 = prepared ? createD1Backend({ open: (id) => prepared.openCopy(id, copies) }) : null;
+  const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : [])];
+  if (today !== null) restore.push(installClock(today));
 
   // Model calls are the only traffic that leaves the world.
   const below = globalThis.fetch;
@@ -92,30 +161,19 @@ export async function createWorld(bench, person, setupRaw, models) {
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) return models.gatewayFetch(url, init);
     if (url.startsWith(S3_ENDPOINT) || url.startsWith(CONTROL_PLANE_ORIGIN)) return below(input, init);
+    if (d1 && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
     throw new Error("a benchmark turn tried to reach the network outside the model");
   };
   restore.push(() => {
     globalThis.fetch = below;
   });
 
-  // Every workspace exists, whoever is asking, so a leak is a real leak.
-  const ids = new Map();
-  let n = 0;
-  for (const [name, workspace] of Object.entries(bench.workspaces)) {
-    const id = `ws_${name.replace(/-/g, "_")}`;
-    const shared = !bench.people.some((row) => row.workspace === name && row.personal);
-    controlPlane.addWorkspace(id, name, binding(`bench-${name}`, ++n), shared ? { kind: "shared" } : {});
-    const bucket = s3.bucketFor(`bench-${name}`);
-    bucket.set("privacy.md", { body: manifest({ shared, files: Object.keys(workspace.files), heldBack: workspace.heldBack }), etag: "p0" });
-    for (const [path, text] of Object.entries(workspace.files)) bucket.set(path, { body: text, etag: "e0" });
-    controlPlane.setBuiltinVerdict(id, { allowed: true, remaining: 1000 });
-    ids.set(name, id);
-  }
+  const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, prepared });
 
-  controlPlane.addWorkspace("ws_pinned", PINNED, binding("bench-pinned", ++n), { kind: "shared" });
+  controlPlane.addWorkspace("ws_pinned", PINNED, binding("bench-pinned", 999), { kind: "shared" });
   const pinned = s3.bucketFor("bench-pinned");
-  pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0" });
-  pinned.set(PRODUCTION_TEXTING_PATH, { body: setupRaw, etag: "s0" });
+  pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0", lastModified: modified(baseMs) });
+  pinned.set(PRODUCTION_TEXTING_PATH, { body: setupRaw, etag: "s0", lastModified: modified(noteModifiedAt(setupRaw, baseMs)) });
 
   const token = `cat_bench_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
   await controlPlane.addGrant({
@@ -135,6 +193,10 @@ export async function createWorld(bench, person, setupRaw, models) {
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
+    // The deployed Worker's search budget (wrangler.toml). The free-tier default
+    // of 40 is spent by one bucket scan, and every read, listing and orient in the
+    // same turn then fails: the 2026-10-08 results measured exactly that.
+    SEARCH_SUBREQUEST_BUDGET: "600",
     ...(models.ai ? { AI: models.ai } : {}),
     AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
     AI_GATEWAY_ID: "bench",
@@ -145,7 +207,8 @@ export async function createWorld(bench, person, setupRaw, models) {
     /** One texted message, answered with the conversation so far. */
     async text(message) {
       const { ctx, settle } = createWorkerCtx();
-      const started = Date.now();
+      // The real clock, not the world's: a turn's recorded time is how long it took.
+      const started = realNow();
       const response = await worker.fetch(
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
@@ -155,7 +218,7 @@ export async function createWorld(bench, person, setupRaw, models) {
         env,
         ctx,
       );
-      const ms = Date.now() - started;
+      const ms = realNow() - started;
       const body = await response.json().catch(() => null);
       await settle();
       const turn = controlPlane.turnReports.at(-1) ?? {};
@@ -166,7 +229,9 @@ export async function createWorld(bench, person, setupRaw, models) {
         error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
         ms,
         model: usage.model ?? body?.model ?? null,
-        tools: (turn.trace ?? []).filter((entry) => entry.kind === "tool").map((entry) => entry.tool),
+        // Each call with whether it succeeded: a result note that hides failed calls
+        // reads like a model that could not find anything.
+        tools: (turn.trace ?? []).filter((entry) => entry.kind === "tool").map((entry) => ({ tool: entry.tool, ok: entry.ok !== false })),
         usage: {
           input: usage.inputTokens ?? 0,
           output: usage.outputTokens ?? 0,
@@ -212,6 +277,8 @@ export async function createWorld(bench, person, setupRaw, models) {
 
     close() {
       for (const undo of restore.reverse()) undo();
+      d1?.close();
+      for (const file of copies) rmSync(file, { force: true });
     },
   };
 }
