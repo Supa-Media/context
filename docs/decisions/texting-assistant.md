@@ -484,7 +484,7 @@ The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
 never reads a note the workspace holds back", "the world lets no request out
 except the model's").
 
-### A text has every MCP tool except the key export
+### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
 "writes are proposals" for the texting client: a proposal has no screen on a
@@ -498,10 +498,11 @@ addresses, which a second version had still held back.
 
 So a texting turn on a grant that can write is offered every write tool its
 connection's `toolsForSession` returned, with the MCP's own descriptions and
-fields, generated in `apps/mcp/src/agent/textingWrites.js`. The one tool
-withheld (`WITHHELD_TOOLS`) is `export_encryption_keys`: with any write tool it
-puts the key that opens every encrypted note into the bucket beside them in
-plain text, which non-negotiable #1 forbids. The dispatcher in front of the
+fields, generated in `apps/mcp/src/agent/textingWrites.js`, with nothing
+withheld (`WITHHELD_TOOLS` is empty). The one tool it used to withhold,
+`export_encryption_keys`, was removed from the MCP itself the same day
+([encryption](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08)).
+The dispatcher in front of the
 client's also refuses any path into a dot folder or `privacy.md` and a
 malformed routine under `routines/` ([routines](./routines.md)). Everything
 else, including whether the person may write in another workspace, is the

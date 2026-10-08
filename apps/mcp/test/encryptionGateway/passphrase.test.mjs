@@ -199,7 +199,7 @@ export async function runEncryptionGatewayPassphraseChecks(check, harness) {
           jsonrpc: "2.0",
           id: 9911,
           method: "tools/call",
-          params: { name: "export_encryption_keys", arguments: {} },
+          params: { name: "rotate_encryption_keys", arguments: {} },
         }),
       }),
       env,

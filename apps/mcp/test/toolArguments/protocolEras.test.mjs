@@ -106,10 +106,10 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
     ).includes("MINE-MARKER")
   );
   check(
-    "...and masks the two encryption tools there identically to an invented name",
+    "...and masks the key rotation tool there identically to an invented name",
     textOf(
-      await callToolModern(env, TOKEN_TEAM, "export_encryption_keys", { workspaceId: "ws_x" })
-    ) === "unknown tool: export_encryption_keys" &&
+      await callToolModern(env, TOKEN_TEAM, "rotate_encryption_keys", { workspaceId: "ws_x" })
+    ) === "unknown tool: rotate_encryption_keys" &&
       textOf(
         await callToolModern(env, TOKEN_TEAM, "no_such_tool_at_all", { workspaceId: "ws_x" })
       ) === "unknown tool: no_such_tool_at_all"

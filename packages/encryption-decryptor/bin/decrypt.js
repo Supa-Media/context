@@ -9,8 +9,8 @@
  *   context-decrypt <keys.json> <note.md> [out.md]
  *   context-decrypt <keys.json> <bucket-dir> [out-dir]
  *
- * `keys.json` is what `export_encryption_keys` (or the console's export
- * action) produced. The second argument is either one note or a directory —
+ * `keys.json` is what the console's export action produced (or, before
+ * 2026-10-08, the gateway's `export_encryption_keys` tool). The second argument is either one note or a directory —
  * the customer's whole exported bucket, or a folder within it. Given a
  * directory, every file is walked: an encrypted `.md` note is decrypted into
  * the mirrored output tree, and everything else — plaintext notes,

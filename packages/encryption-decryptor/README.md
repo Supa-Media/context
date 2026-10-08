@@ -1,8 +1,8 @@
 # @supa-media/context-encryption-decryptor
 
 Offline, zero-dependency decryptor for [Context](https://github.com/Supa-Media/context)'s
-encrypted notes. If you exported your workspace's data key with
-`export_encryption_keys` (or the console's export action) and revoked or lost
+encrypted notes. If you exported your workspace's data key with the console's
+export action and revoked or lost
 access to Context, this is the whole of what you need to read your notes back
 — your bucket, this package, and a Node.js runtime with Web Crypto. No
 gateway, no control plane, no network access.
@@ -49,7 +49,7 @@ npx @supa-media/context-encryption-decryptor keys.json 1-projects/secret.md out.
 npx @supa-media/context-encryption-decryptor keys.json ./my-bucket ./my-bucket-decrypted
 ```
 
-`keys.json` is the document `export_encryption_keys` returns: a versioned
+`keys.json` is the document the console's export action gives you: a versioned
 bundle naming every live key generation in your workspace, so notes from
 before and after a rotation both open with the same file.
 

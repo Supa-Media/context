@@ -1,6 +1,6 @@
 /**
  * What the texting assistant may write: the same tools, with the same fields,
- * that an MCP client on this connection is offered, minus the key export.
+ * that an MCP client on this connection is offered.
  *
  * The owner decided on 2026-10-08 ("Edit directly") that a text edits notes
  * itself instead of only proposing, and then, the same day, that the
@@ -14,9 +14,9 @@
  *
  * Then the owner removed the last limits ("our inhouse assistant should have
  * just as much tool access as any other mcp"; "yes go"): public links,
- * website publishing and image addresses included. What is still withheld is
- * in the two lists below, and the dispatcher still refuses plumbing paths and
- * malformed routines. A note the agent reads can carry instructions, and a
+ * website publishing and image addresses included. The two lists below are
+ * empty, and the dispatcher still refuses plumbing paths and malformed
+ * routines. A note the agent reads can carry instructions, and a
  * personal context takes email from strangers into `0-inbox/`; that is the
  * accepted cost, recorded in docs/decisions/texting-assistant.md.
  *
@@ -34,17 +34,15 @@ import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
 
 /**
- * Tools a text is never offered, with the reason. One, on purpose: the owner
- * decided on 2026-10-08 ("our inhouse assistant should have just as much tool
- * access as any other mcp", then "yes go" to public links, website publishing
- * and image addresses) that a text has everything an MCP client has. The key
- * export stays out because non-negotiable #1 does: with any write tool it
- * puts the key that opens every encrypted note into the bucket beside them,
- * in plain text.
+ * Tools a text is never offered, with the reason. None: the owner decided on
+ * 2026-10-08 ("our inhouse assistant should have just as much tool access as
+ * any other mcp") that a text has everything an MCP client has. The one name
+ * that was here, the key export, was then removed from the MCP itself (the
+ * owner chose "Remove it" the same day), so no client is offered it. A name
+ * added here must still be a tool the MCP has: the drift test fails on a
+ * stale one.
  */
-export const WITHHELD_TOOLS = new Map([
-  ["export_encryption_keys", "returns the workspace data key in the clear; with a write it lands in the bucket"],
-]);
+export const WITHHELD_TOOLS = new Map();
 
 /** Fields of an offered tool a text never passes, with the reason. None. */
 export const WITHHELD_FIELDS = new Map();

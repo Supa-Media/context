@@ -57,8 +57,7 @@ export const ROTATION_BATCH_CAP = 200;
  * corrupted, or concurrently-overwritten copy costs a wider re-scan next
  * call, never a wrong answer. See `loadRotationProgress`.
  *
- * Lives in the customer's own bucket rather than the control plane, matching
- * `EXPORT_RATE_LIMIT_PATH` elsewhere in this file: the control plane holds
+ * Lives in the customer's own bucket rather than the control plane: the control plane holds
  * the one fact that has to be authoritative across every Worker isolate —
  * whether a rotation may be *started* (`workspaceKeyRotations`) — and the
  * walk's own progress over the customer's content lives beside that content,
@@ -255,7 +254,7 @@ export async function loadRotationProgress(store, fromGeneration, toGeneration, 
 
 /**
  * Persist the walk's resume point after a call that did not finish the
- * rotation. Best-effort, like `checkAndConsumeExportRateLimit`'s counter: this
+ * rotation. Best-effort: this
  * file is never the source of truth for whether a note is on the outgoing
  * generation — a note's own frontmatter always is — only for where to resume
  * *looking*. A lost conditional-write race (two overlapping calls against the

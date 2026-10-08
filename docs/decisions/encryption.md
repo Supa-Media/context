@@ -66,6 +66,10 @@ Moved to [What a teardown deletes, and what it keeps — OPEN](./encryption/tear
 
 Moved to [Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable](./encryption/teardown-and-revocation.md#revocation-and-export-the-customer-keeps-a-usable-context-or-this-feature-breaks-the-first-non-negotiable).
 
+### There is no key export over MCP (decided by the owner, 2026-10-08)
+
+Moved to [There is no key export over MCP](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08).
+
 ### Encrypted notes are for humans; no AI client reads one
 
 Moved to [Encrypted notes are for humans; no AI client reads one](./encryption/clients-and-kdf.md#encrypted-notes-are-for-humans-no-ai-client-reads-one).

@@ -139,6 +139,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Rotation: three different things, and they must not be confused
 - What a teardown deletes, and what it keeps — OPEN
 - Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
+- There is no key export over MCP (decided by the owner, 2026-10-08)
 - Encrypted notes are for humans; no AI client reads one
 - The KDF, per client
 - Bounds on a KDF descriptor, because a bucket is not a trusted input
@@ -605,4 +606,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`
 - Setups are benchmarked in a throwaway world, on invented workspaces
-- A text has every MCP tool except the key export
+- A text has every MCP tool
