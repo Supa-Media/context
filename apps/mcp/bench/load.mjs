@@ -2,18 +2,11 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import { normalize, parseFront, unquote } from "./frontMatter.mjs";
+
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
 const PRIVACY_FILES = new Set(["privacy.md", "privacy-rules.md"]);
-
-// Normalize line endings so CRLF files parse the same as LF files.
-const normalize = (raw) => String(raw ?? "").replace(/\r\n?/g, "\n");
-
-// Strip one pair of matching quotes around a value.
-function unquote(s) {
-  const t = s.trim();
-  return /^(["']).*\1$/.test(t) && t.length >= 2 ? t.slice(1, -1) : t;
-}
 
 // Read the people table: "| Maya | maya (personal) | owner |" rows.
 export function parsePeople(raw) {
@@ -58,25 +51,8 @@ export function heldBack(raw) {
   return out;
 }
 
-// Parse the YAML front matter: "key: value" and one level of "  sub: value".
-function parseFront(lines) {
-  const front = {};
-  let key = null;
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const sub = line.match(/^ {2}([\w-]+):(?:\s+(.*))?$/);
-    if (sub && key) {
-      if (front[key] === "") front[key] = {};
-      if (typeof front[key] !== "object") throw new Error(`front matter: "${key}" has a value and sub-keys`);
-      front[key][sub[1]] = unquote(sub[2] ?? "");
-      continue;
-    }
-    const top = line.match(/^([\w-]+):(?:\s+(.*))?$/);
-    if (!top) throw new Error(`front matter: cannot read line "${line}"`);
-    key = top[1];
-    front[key] = unquote(top[2] ?? "");
-  }
-  // runs is the only non-string value; it defaults to 3.
+// runs is the only non-string value in a test's front matter; it defaults to 3.
+function withRuns(front) {
   const runs = front.runs === undefined ? 3 : Number.parseInt(front.runs, 10);
   if (!Number.isInteger(runs)) throw new Error(`front matter: runs must be a whole number, got "${front.runs}"`);
   return { ...front, runs };
@@ -121,7 +97,7 @@ export function parseTest(raw) {
   if (lines[0] === "---") {
     const end = lines.indexOf("---", 1);
     if (end > 0) {
-      front = parseFront(lines.slice(1, end));
+      front = withRuns(parseFront(lines.slice(1, end), 2));
       bodyStart = end + 1;
     }
   }
