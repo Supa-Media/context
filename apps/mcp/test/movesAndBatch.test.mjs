@@ -293,7 +293,7 @@ export async function runMovesAndBatchChecks() {
   );
   const markerBeforeInspection = storedText(`.context/moves/${bigMoveId}.json`);
   const inspection = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 0 });
-  check("zero batch inspects without moving", !inspection.isError && inspection.content[0].text.includes("next_source: 1-projects/big-move/note-000.md") && storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection && !objects.has("1-projects/big-moved/note-000.md"));
+  check("zero batch inspects without moving", !inspection.isError && inspection.content[0].text.includes("references_scanned: 0/0") && inspection.content[0].text.includes("next_source: 1-projects/big-move/note-000.md") && storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection && !objects.has("1-projects/big-moved/note-000.md"));
   const legacyInspection = await call("priv-token", "materialize_move", { id: `${bigMoveId}:inspect`, batch_size: 1 });
   check("cached connector inspection does not move", legacyInspection.content[0].text === inspection.content[0].text && storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection);
   await contextStore.put("1-projects/big-moved/note-000.md", "user edit during pending move");
