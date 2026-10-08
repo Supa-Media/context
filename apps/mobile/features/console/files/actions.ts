@@ -64,6 +64,8 @@ export type Dialog =
   | { kind: "share"; path: string }
   /** A folder's tags (`TagsSheet`). */
   | { kind: "tags"; folder: string }
+  /** A folder's emoji icon, from a grid (`FolderIconDialog`). */
+  | { kind: "folderIcon"; path: string }
   /** Several picked rows' tags, from a phone's select bar (board 16). */
   | { kind: "tagsMany"; paths: readonly string[] }
   | null;
@@ -246,6 +248,11 @@ export function runMenuAction(
       return;
     case "tags":
       context.setDialog({ kind: "tags", folder: path });
+      return;
+    case "setIcon":
+      // Folders only, though the item is never offered for a note: a dispatcher
+      // that ran it on one would open a dialog about something with no icon.
+      if (kind === "folder") context.setDialog({ kind: "folderIcon", path });
       return;
     case "selectNotes":
       context.startSelect?.(path);

@@ -159,6 +159,8 @@ function browser(canSetVisibility: boolean): FileBrowser {
     openLinkPaths: new Set<string>(),
     linkPaths: [],
     resetPrivacy: noop,
+    iconOf: () => null,
+    setIcon: async () => {},
     canResetPrivacy: false,
     canSetVisibility,
     canShare: false,

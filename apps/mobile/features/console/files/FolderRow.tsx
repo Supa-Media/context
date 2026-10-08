@@ -9,7 +9,7 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space, touchType } from "../../design/tokens";
+import { fonts, layout, pointerType, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { PhoneRowMeta } from "../home/folderRows";
 import type { DragModifier } from "./dnd";
@@ -39,6 +39,7 @@ export function FolderRow({
   picked,
   onHold,
   phone,
+  folderIcon = null,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
@@ -67,6 +68,8 @@ export function FolderRow({
    * only a folder has a chevron. Only in the card.
    */
   phone?: PhoneRowMeta;
+  /** The emoji this folder was given, drawn in the card in place of the folder icon. `null` for the plain one. */
+  folderIcon?: string | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -163,11 +166,18 @@ export function FolderRow({
             {picked ? <Icon name="check" size={12} color={colors.surface} /> : null}
           </View>
         ) : card ? (
-          <Icon
-            name={row.kind === "folder" ? "folder" : "file"}
-            size={home === null ? 16 : 20}
-            color={home === null ? colors.muted : colors.text2}
-          />
+          row.kind === "folder" && folderIcon !== null ? (
+            // Sized to the glyph it replaces, so the name beside it does not move.
+            <Text style={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone} testID="folder-row-emoji">
+              {folderIcon}
+            </Text>
+          ) : (
+            <Icon
+              name={row.kind === "folder" ? "folder" : "file"}
+              size={home === null ? 16 : 20}
+              color={home === null ? colors.muted : colors.text2}
+            />
+          )
         ) : row.kind === "folder" ? (
           <Icon name="chevronRight" size={15} color={colors.muted} />
         ) : null}
@@ -346,6 +356,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   picked: { backgroundColor: colors.accent, borderColor: colors.accent },
   /** The chevron gutter, so a file's name lines up with a folder's. */
   chevron: { width: 18, alignItems: "center", justifyContent: "center" },
+  /** A folder's own emoji, sized to the glyph it stands in for (16pt on the desktop, 20pt on the phone). */
+  cardEmojiPointer: { fontSize: pointerType.lede, lineHeight: 18 },
+  cardEmojiPhone: { fontSize: touchType.h3, lineHeight: 22 },
   rowName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },
 
   /**

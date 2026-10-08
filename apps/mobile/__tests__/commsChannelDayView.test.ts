@@ -112,6 +112,8 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     openLinkPaths: new Set<string>(),
     linkPaths: [],
     resetPrivacy: noop,
+    iconOf: () => null,
+    setIcon: async () => {},
     canResetPrivacy: false,
     canSetVisibility: false,
     canShare: false,

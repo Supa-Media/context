@@ -108,6 +108,7 @@ export function ExplorerTree({
           markedPaths={markedPaths}
           agentMarks={agentMarks}
           workspaceId={files.contextId}
+          iconOf={files.iconOf}
         />
       )}
 

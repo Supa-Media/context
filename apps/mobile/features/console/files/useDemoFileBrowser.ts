@@ -253,6 +253,9 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       // complete answer and there is no docmap to merge in.
       linkPaths: knownNotePaths(tree.listings),
       resetPrivacy: noop,
+      // No folder has an icon on the landing page, and there is nothing to set one on.
+      iconOf: () => null,
+      setIcon: async () => {},
       canResetPrivacy: false,
       canSetVisibility: false,
       // No bucket behind this surface, so a Download would do nothing.

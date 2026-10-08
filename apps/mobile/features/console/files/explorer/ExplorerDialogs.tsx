@@ -6,6 +6,7 @@ import {
   MovePicker,
   NamePrompt,
 } from "../Dialogs";
+import { FolderIconDialog } from "../FolderIconDialog";
 import { NewFolderForm } from "../NewFolderForm";
 import { NewNoteWhere } from "../NewNoteWhere";
 import { TagsSheet } from "../TagsSheet";
@@ -226,6 +227,15 @@ export function ExplorerDialogs({
         />
       );
     }
+    case "folderIcon":
+      return (
+        <FolderIconDialog
+          path={dialog.path}
+          current={files.iconOf(dialog.path)}
+          onSet={(icon) => files.setIcon(dialog.path, icon)}
+          onClose={onClose}
+        />
+      );
     case "rename":
       return (
         <NamePrompt

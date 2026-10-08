@@ -392,6 +392,8 @@ export function browser(
     openLinkPaths: new Set<string>(),
     linkPaths: [],
     resetPrivacy: noop,
+    iconOf: () => null,
+    setIcon: async () => {},
     canResetPrivacy: false,
     // Both are `canEdit && isOwner` in the real hook, so an owner is the only
     // shape in which they can differ from `canEdit` — and moving them

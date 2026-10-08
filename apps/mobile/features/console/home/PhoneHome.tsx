@@ -47,6 +47,7 @@ export function PhoneHome({
   onNewFolder,
   onActions,
   onTogglePin,
+  iconOf,
   foot,
   onOpenMap,
 }: {
@@ -65,6 +66,8 @@ export function PhoneHome({
   onActions?: (anchor: { x: number; y: number }) => void;
   /** Held on a tile or row: pin it, or unpin it. `null` without an account. */
   onTogglePin: ((path: string, kind: "note" | "folder") => void) | null;
+  /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
+  iconOf?: (path: string) => string | null;
   /** The workspace's storage line, as the root listing had it. */
   foot?: string;
   /** The live map, a place of its own on Home. `undefined` where there is none (a visitor, the demo). */
@@ -215,6 +218,7 @@ export function PhoneHome({
               <FolderLine
                 key={folder.path}
                 folder={folder}
+                icon={iconOf?.(folder.path) ?? null}
                 onPress={() => onOpen(folder.path)}
                 onLongPress={hold(folder.path, "folder")}
               />

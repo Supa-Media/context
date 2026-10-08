@@ -23,6 +23,7 @@ import type { FileBrowser } from "./browser";
 import { isDirty } from "./editor";
 import type { FileBrowserOptions } from "./fileBrowser/types";
 import { useFileActions } from "./fileBrowser/useFileActions";
+import { useFolderIcons } from "./fileBrowser/useFolderIcons";
 import { useBrowserState } from "./fileBrowser/useBrowserState";
 import { useWritesAndImages } from "./fileBrowser/useWritesAndImages";
 import { useOfflineQueue } from "./fileBrowser/useOfflineQueue";
@@ -62,7 +63,14 @@ export { INSTANT_OPEN_MS, OPERATION_TIMEOUT_MS } from "./fileBrowser/timing";
   comment there.
 */
 export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
-  const bound = { options, ...useFileActions({ options }) };
+  // First, because the file actions below move folders and must tell it so.
+  const folderIcons = useFolderIcons(options);
+  const bound = {
+    options,
+    ...useFileActions({ options, folderIcons }),
+    iconOf: folderIcons.iconOf,
+    setIcon: folderIcons.setIcon,
+  };
   const withBrowserState = { ...bound, ...useBrowserState() };
   const withWritesAndImages = { ...withBrowserState, ...useWritesAndImages(withBrowserState) };
   const withOfflineQueue = { ...withWritesAndImages, ...useOfflineQueue(withWritesAndImages) };

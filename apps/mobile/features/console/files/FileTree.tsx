@@ -5,7 +5,7 @@ import { Icon } from "../../design/components/Icon";
 import { Reveal } from "../../design/components/Reveal";
 import { useArrivals } from "../../design/useArrivals";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import type { SyncMark } from "./pendingMarks";
@@ -97,10 +97,13 @@ export function FileTree({
   markedPaths,
   agentMarks,
   workspaceId = null,
+  iconOf,
 }: {
   rows: readonly TreeRow[];
   /** Whose tree this is, for the counts the live map puts on its top folders (`mapCounts.ts`). */
   workspaceId?: string | null;
+  /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
+  iconOf?: (path: string) => string | null;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -188,6 +191,7 @@ export function FileTree({
         marked={markedPaths?.has(row.path) ?? false}
         agent={agentMarks?.get(row.path) ?? null}
         workspaceId={workspaceId}
+        folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
       />
     );
   }
@@ -225,9 +229,12 @@ function FileRow({
   marked,
   agent,
   workspaceId,
+  folderIcon,
 }: {
   row: TreeRow;
   workspaceId: string | null;
+  /** The emoji this folder was given, or `null` for the plain folder icon. Files never have one. */
+  folderIcon: string | null;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -328,6 +335,20 @@ function FileRow({
               color={colors.chromeMuted}
             />
           ) : null}
+        </View>
+        {/*
+          The folder's own glyph, between its chevron and its name. A file gets
+          the same empty box, so the names still start on one line: the box is
+          the reserved space, and a file has nothing to draw in it.
+        */}
+        <View style={styles.glyph}>
+          {row.kind !== "folder" ? null : folderIcon === null ? (
+            <Icon name="folder" size={14} color={colors.chromeMuted} />
+          ) : (
+            <Text style={styles.glyphEmoji} testID="tree-folder-emoji">
+              {folderIcon}
+            </Text>
+          )}
         </View>
         <Text
           variant="tree"
@@ -561,6 +582,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The name you are reading is the emphasised one: weight, not hue. */
   nodeSelectedLabel: { color: colors.text, fontWeight: "500" },
   chevron: { width: 10, alignItems: "center", justifyContent: "center" },
+  /** The folder's glyph: 16pt of room, with the gap after it the name needs. */
+  glyph: { width: 16, marginRight: 4, alignItems: "center", justifyContent: "center" },
+  glyphEmoji: { fontSize: pointerType.ui, lineHeight: 16 },
   /** Shrinks before the sync mark after it does — a long name ellipsises, the mark stays. */
   label: { flexShrink: 1, minWidth: 0 },
 

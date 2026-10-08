@@ -633,6 +633,18 @@ export interface FileBrowser extends BesideEditing {
    */
   resetPrivacy: () => void;
   /**
+   * The emoji a folder was given with "Set icon…" in its menu, or `null` for
+   * the plain folder icon. Built-in folders are no different: none has one
+   * unless somebody gave it one (`folderIcons.ts`).
+   */
+  iconOf: (path: string) => string | null;
+  /**
+   * Give a folder an emoji, or remove its icon with `null`. Editor only, and
+   * inert on a browser that cannot edit. Rejects with the server's own message
+   * when the change is refused, so the dialog can say why.
+   */
+  setIcon: (path: string, icon: string | null) => Promise<void>;
+  /**
    * Re-home Context's reserved bucket objects under `.context/`.
    *
    * Optional because this is an owner maintenance control, not an editing

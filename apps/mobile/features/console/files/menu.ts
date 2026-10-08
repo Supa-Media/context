@@ -106,6 +106,11 @@ export type MenuActionId =
   | "unpin"
   /** A folder's tags, on its front note (`TagsSheet`, board 14). */
   | "tags"
+  /**
+   * An emoji for a folder, from a grid (`FolderIconDialog`). Editor only, and
+   * offered for folders alone: a note has no icon of its own.
+   */
+  | "setIcon"
   /** Pick several rows of the folder page (board 16). */
   | "selectNotes"
   | "archive"
@@ -385,6 +390,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...(builtIn ? [] : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
       ...pinGroup(context, row),
       ...tagsGroup(context, row),
+      ...iconGroup(context, row),
     ],
     /*
       Board 15: "the same Share the app already has, as a full sheet" —
@@ -465,6 +471,18 @@ function tagsGroup(context: MenuContext, row: TreeRow): MenuItem[] {
   if (tags == null) return [];
   const item = makeItem(context, "tags", "Tags");
   return [tags.length === 0 ? item : { ...item, value: tags.join(", ") }];
+}
+
+/**
+ * "Set icon…" on one folder, where its icon can be changed from here.
+ *
+ * Editor only, and absent rather than disabled like every other write. Built-in
+ * folders are offered it too: an icon is decoration on a folder, not a move of
+ * one, so `menuBuiltIn.ts`'s locks do not apply.
+ */
+function iconGroup(context: MenuContext, row: TreeRow | null): MenuItem[] {
+  if (!context.canEdit || row === null || row.kind !== "folder") return [];
+  return [makeItem(context, "setIcon", "Set icon…")];
 }
 
 /** "Paste foo.md", or nothing. The label names the thing so it is not a guess. */
@@ -591,6 +609,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
         ? []
         : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
     ],
+
+    iconGroup(context, single),
 
     // `copyEntry` and the clipboard both take folders, so a folder is copied
     // and cut exactly like a note is. A selection gets neither: the clipboard

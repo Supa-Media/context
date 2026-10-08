@@ -14,6 +14,7 @@ import { localPathOf, opsOf } from "../../../offline/outbox";
 import { canResetPrivacy, canSetVisibility } from "../../capabilities";
 import { describeOp } from "../pendingMarks";
 import type { FileBrowserOptions } from "./types";
+import type { FolderIconsValues } from "./useFolderIcons";
 import type { BatchValues } from "./useBatch";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { ConflictsAndDraftsValues } from "./useConflictsAndDrafts";
@@ -126,7 +127,8 @@ type FileBrowserValueDeps =
     | "shares"
   >
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
-  & Pick<PendingOpsValues, "answerOp" | "pending">;
+  & Pick<PendingOpsValues, "answerOp" | "pending">
+  & Pick<FolderIconsValues, "iconOf" | "setIcon">;
 
 export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
   const {
@@ -143,12 +145,14 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setCollaborationState, setDraft, focusTitle, setTitleCaret, titleEdit, titleFocus, setScope,
     setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
-    toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm,
+    toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon,
   } = deps;
 
   return useMemo(
     () => ({
       canEdit: options.canEdit,
+      iconOf,
+      setIcon,
       submitForm,
       loadImage,
       storeImage,
@@ -382,6 +386,8 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       useTheirs,
       ensureListing,
       readRaw,
+      iconOf,
+      setIcon,
     ],
   );
 }

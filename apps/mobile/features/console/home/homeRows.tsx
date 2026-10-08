@@ -156,10 +156,13 @@ export function MapPlace({ onPress }: { onPress: () => void }) {
 
 export function FolderLine({
   folder,
+  icon = null,
   onPress,
   onLongPress,
 }: {
   folder: HomeFolder;
+  /** The emoji this folder was given, drawn in place of the folder icon. `null` for the plain one. */
+  icon?: string | null;
   onPress: () => void;
   onLongPress?: () => void;
 }) {
@@ -175,7 +178,13 @@ export function FolderLine({
       style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
       testID="phone-home-folder"
     >
-      <Icon name="folder" size={20} color={colors.text2} />
+      {icon === null ? (
+        <Icon name="folder" size={20} color={colors.text2} />
+      ) : (
+        <Text style={styles.folderEmoji} testID="phone-home-folder-emoji">
+          {icon}
+        </Text>
+      )}
       <View style={styles.folderName}>
         <Text style={styles.rowTitle} numberOfLines={1}>
           {folder.title}
@@ -225,5 +234,7 @@ const makeStyles = (colors: Colors) =>
     rowTop: { flexDirection: "row", alignItems: "baseline", gap: space.x2 },
     rowTitle: { flexShrink: 1, flexGrow: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text },
     folderName: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.x1 + 2 },
+    /** Where the 20pt folder icon sits, so a row with an emoji lines up with one without. */
+    folderEmoji: { width: 20, textAlign: "center", fontSize: touchType.h3, lineHeight: 24 },
     counts: { flexShrink: 0 },
   });
