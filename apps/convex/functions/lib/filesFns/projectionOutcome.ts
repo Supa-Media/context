@@ -99,6 +99,7 @@ export async function recordProjectionOutcome(
       notesPending: result.notesPending,
       ...(result.priorities ? { priorities: result.priorities } : {}),
       ready: result.ready,
+      fromChain: true,
     });
   }
   // Only a link that made progress and did not finish schedules the next.
