@@ -159,8 +159,11 @@ function unsupportedRecreation(key, value) {
   if (!isMarkdownPath(key)) {
     throw new Error("cannot recreate an unsupported object over a logical tombstone");
   }
+  if (text === null) {
+    throw new Error("cannot recreate a non-text or control-character Markdown body over a logical tombstone");
+  }
   if (!isStampEligible(key, text)) {
-    throw new Error("cannot recreate an unsupported Markdown path over a logical tombstone");
+    throw new Error("cannot recreate an ineligible Markdown body over a logical tombstone");
   }
   return true;
 }
