@@ -29,7 +29,7 @@ jest.mock("../features/offline/reachability", () => ({
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { useMirrorSync, SERVER_TREE_FLOOR_MS } = require("../features/offline/useMirrorSync") as typeof import("../features/offline/useMirrorSync");
+const { useMirrorSync, SERVER_TREE_FLOOR_MS, TABLE_TREE_FLOOR_MS } = require("../features/offline/useMirrorSync") as typeof import("../features/offline/useMirrorSync");
 const events = require("../features/offline/mirrorEvents") as typeof import("../features/offline/mirrorEvents");
 const { serverTree, keptServerTree, forgetServerTrees } = require("../features/offline/serverTree") as typeof import("../features/offline/serverTree");
 const { currentEpoch } = require("../features/offline/epoch") as typeof import("../features/offline/epoch");
@@ -186,6 +186,52 @@ describe("a browser tab's tree", () => {
         jest.advanceTimersByTime(SERVER_TREE_FLOOR_MS);
       });
       await settle();
+      expect(calls.length).toBe(first + 1);
+      await act(async () => root.unmount());
+    } finally {
+      jest.useRealTimers();
+      spy.mockRestore();
+    }
+  });
+  test("a tree the table answers is walked again within a second, and asked for by name", async () => {
+    const calls: { at: number; source?: string }[] = [];
+    let now = 2_000_000;
+    const spy = jest.spyOn(Date, "now").mockImplementation(() => now);
+    const actions = {
+      syncManifest: async (args: { source?: "tree" }) => {
+        calls.push({ at: now, source: args.source });
+        return {
+          entries: [],
+          folders: [{ path: "", visibility: "private" as const }],
+          cursor: null,
+          truncated: false,
+          manifestUsable: true,
+          source: "tree" as const,
+        };
+      },
+      readNotes: async () => ({ results: [] }),
+    };
+    const contexts = [{ workspaceId: "w5", role: "owner" }];
+    function Harness() {
+      useMirrorSync({ contexts, actions });
+      return null;
+    }
+    jest.useFakeTimers({ doNotFake: ["nextTick", "queueMicrotask"] });
+    try {
+      const root = createRoot(document.createElement("div"));
+      await act(async () => root.render(createElement(Harness)));
+      await act(async () => events.requestMirrorRefresh("w5"));
+      await settle();
+      const first = calls.length;
+      expect(first).toBeGreaterThan(0);
+      expect(calls.every((call) => call.source === "tree")).toBe(true);
+      now += TABLE_TREE_FLOOR_MS;
+      await act(async () => events.requestMirrorRefresh("w5"));
+      await act(async () => {
+        jest.advanceTimersByTime(TABLE_TREE_FLOOR_MS);
+      });
+      await settle();
+      // Walked again a second later, not held for the bucket's fifteen.
       expect(calls.length).toBe(first + 1);
       await act(async () => root.unmount());
     } finally {

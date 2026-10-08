@@ -17,31 +17,16 @@ import { ConvexError, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-// The gateway's D1 wire, imported rather than ported, for the same reason
-// `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
-// which is Convex's runtime too. It holds the write token for the life of one
-// call and puts it in exactly one place, an `Authorization` header.
-import { createD1Client } from "../../../../mcp/src/search/d1/client.js";
 import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
 import { clearanceOf } from "../clearance";
-import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET, messageFor } from "../d1";
-import {
-  type FileStore,
-  loadPrivacyState,
-  type PrivacyState,
-  type ProjectionClient,
-} from "../fileOps";
+import { messageFor } from "../d1";
+import { type FileStore, loadPrivacyState, type ProjectionClient } from "../fileOps";
 import type { FormNotifyMaterial } from "../formOps";
-import {
-  audiencesForChange,
-  recordWrites,
-  type TreeChange,
-  trimTrailingSlashes,
-} from "../treeAnnounce";
+import { recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf } from "./access";
 import {
   operationMayRestrictWebsite,
@@ -49,6 +34,14 @@ import {
 } from "../websites/changes";
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
+import {
+  announceTreeChange,
+  manifestSource,
+  runTreeOperation,
+  searchDatabaseClient,
+  type TreeOperation,
+  treeOperationClient,
+} from "./treeTableOps";
 import { recordProjectionOutcome } from "./projectionOutcome";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
@@ -72,51 +65,6 @@ import {
   type OperationResult,
 } from "./operationTypes";
 import { operationValidator } from "./operationValidators";
-
-/**
- * Tell the audiences that can see this change that their tree is stale.
- *
- * After the operation and never inside it, like the activity stamp: the
- * change is in the customer's bucket by now, a hint is a derivative of it,
- * and a failure to send one must never look like a failed save — so every
- * step is inside the catch, and a lost hint is caught by the client's
- * periodic walk. An operation that threw never reaches here, so a failed
- * change is never announced.
- *
- * Who is told is `audiencesForChange`, beside `treeAudiences`.
- */
-async function announceTreeChange(
-  ctx: ActionCtx,
-  store: FileStore,
-  workspaceId: Id<"workspaces">,
-  change: TreeChange,
-  result: OperationResult,
-  before: PrivacyState | null,
-): Promise<void> {
-  try {
-    const paths = [...change.paths];
-    const gone = new Set((change.gone ?? []).map(trimTrailingSlashes));
-    // Where a note actually landed — an archive's dated folder, a duplicate's
-    // new name — is only in the answer. Its source is gone from where it was.
-    if (result.kind === "moved") {
-      const moved = result as { from?: unknown; to?: unknown };
-      if (typeof moved.from === "string") {
-        paths.push(moved.from);
-        gone.add(trimTrailingSlashes(moved.from));
-      }
-      if (typeof moved.to === "string") paths.push(moved.to);
-    }
-    const after = await loadPrivacyState(store);
-    const audiences = audiencesForChange({ change, paths, gone, before, after });
-    if (audiences.length === 0) return;
-    await ctx.runMutation(internal.functions.treeSignals.markTreeChanged, {
-      workspaceId,
-      audiences,
-    });
-  } catch {
-    // See above: a hint is never a failed change.
-  }
-}
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
@@ -183,37 +131,8 @@ export async function runFileOperationHandler(
    * and a missing Cloudflare credential is a reported failure for a pass and
    * a silent fall-through for a search.
    */
-  const clientFor = async (
-    target: { databaseId: string; state: string },
-  ): Promise<ProjectionClient | null> => {
-    // Ours, not a customer's — `appSecrets` holds this deployment's own
-    // integration credentials.
-    const apiToken = await ctx.runAction(
-      internal.functions.admin.readIntegrationSecret,
-      { name: D1_TOKEN_SECRET },
-    );
-    const accountId = await ctx.runAction(
-      internal.functions.admin.readIntegrationSecret,
-      { name: D1_ACCOUNT_SECRET },
-    );
-    if (
-      typeof apiToken !== "string" ||
-      apiToken.length === 0 ||
-      typeof accountId !== "string" ||
-      accountId.length === 0
-    ) {
-      // Both or neither, as `provisionIndex` reads them: a half-configured
-      // deployment is two error states with one cure.
-      return null;
-    }
-    return createD1Client(
-      { databaseId: target.databaseId, accountId, apiToken, state: target.state },
-      // No `fetchImpl`: the client resolves `globalThis.fetch` per call and
-      // carries its own deadline. Handing it `timeoutFetch` would *replace*
-      // the abort signal it sets with a longer one, quietly disabling the
-      // timeout it thinks it has.
-    ) as ProjectionClient;
-  };
+  // Both or neither secret, as `provisionIndex` reads them (`treeTableOps.ts`).
+  const clientFor = (target: { databaseId: string; state: string }) => searchDatabaseClient(ctx, target);
 
   /*
    * A SEARCH READS THE PROJECTION AND NEVER WRITES THE ROW.
@@ -327,6 +246,10 @@ export async function runFileOperationHandler(
     }
   }
 
+  // A tree operation asks for its database before the bucket's credential, as a projection pass does.
+  const treeOperation = await treeOperationClient(ctx, args);
+  if (treeOperation !== null && treeOperation.client === null) return { kind: "treeKept", complete: false };
+
   let credential: GatewayCredential | null;
   try {
     credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
@@ -430,6 +353,10 @@ export async function runFileOperationHandler(
     });
   }
 
+  if (treeOperation?.client) {
+    return await runTreeOperation(ctx, { ...args, operation: args.operation as TreeOperation }, store, treeOperation.client);
+  }
+
   // Non-enumerable, as the gateway attaches it: `searchNotes` asks it, and
   // no serializer walking the store can carry the token out.
   if (meaningSearch !== null) attachMeaningIndex(store, meaningSearch, null);
@@ -449,14 +376,7 @@ export async function runFileOperationHandler(
     const written = recordWrites(store);
     const result = await runGoogleForwardSync(ctx, store, forwardSyncJob);
     if (written.size > 0) {
-      await announceTreeChange(
-        ctx,
-        store,
-        args.workspaceId,
-        { paths: [...written], narrows: false },
-        result,
-        null,
-      );
+      await announceTreeChange(ctx, store, args, { paths: [...written], narrows: false }, result, null);
     }
     return result;
   }
@@ -476,8 +396,9 @@ export async function runFileOperationHandler(
   // relocation window (`store/noteCap.js`). Copying, duplicating, restoring
   // from the trash and a move in from another context all add one, and stay
   // capped.
+  const listing = await manifestSource(ctx, args, store);
   const operate = () => executeOperation(
-    store,
+    listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
     args.operation as FileOperation,
     Date.now(),
@@ -499,6 +420,7 @@ export async function runFileOperationHandler(
     ? asRelocation(store, operate)
     : operate()
   ).catch(rethrowUnreadable);
+  if (result.kind === "manifest") result.source = listing.source;
 
   // Website rows are a derivative of bucket bytes. Mark a complete snapshot
   // stale after the canonical write lands; failure here never rewrites the
@@ -560,9 +482,8 @@ export async function runFileOperationHandler(
       .catch(() => {});
   }
 
-  if (treeChange !== null) {
-    await announceTreeChange(ctx, store, args.workspaceId, treeChange, result, privacyBefore);
-  }
+  const indexChange = indexChangeOf(args.operation as FileOperation);
+  await announceTreeChange(ctx, store, args, treeChange, result, privacyBefore, indexChange?.written);
 
   /*
     The notes this operation changed, re-indexed now rather than whenever a
@@ -570,7 +491,6 @@ export async function runFileOperationHandler(
     returns without waiting on it, and caught, because the index is a
     derivative and a failure here must never read as a failed save.
   */
-  const indexChange = indexChangeOf(args.operation as FileOperation);
   if (indexChange !== null) {
     await ctx.scheduler
       .runAfter(0, internal.functions.files.runFileOperation, {

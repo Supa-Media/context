@@ -371,7 +371,7 @@ export const readNote = action({
 
 /** See `syncManifestHandler` in `lib/filesFns/noteReads.ts`. */
 export const syncManifest = action({
-  args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()), folder: v.optional(v.string()) },
+  args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()), folder: v.optional(v.string()), source: v.optional(v.literal("tree")) },
   returns: manifestValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "manifest" }>> => await syncManifestHandler(ctx, args),
 });

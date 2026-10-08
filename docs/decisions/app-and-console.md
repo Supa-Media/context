@@ -94,6 +94,10 @@ Moved to [Somebody else's change reaches an open tree as a hint per audience, ne
 
 Moved to [A front matter change is a hint too, and an open project page fetches what moved](./app-and-console/offline-mirror-and-tree.md#a-front-matter-change-is-a-hint-too-and-an-open-project-page-fetches-what-moved).
 
+### A workspace's tree is a table in its own database, and the bucket stays the truth
+
+Moved to [A workspace's tree is a table in its own database, and the bucket stays the truth](./app-and-console/tree-table.md#a-workspaces-tree-is-a-table-in-its-own-database-and-the-bucket-stays-the-truth).
+
 ### Offline is more than saving: create, rename, move, delete
 
 Moved to [Offline is more than saving: create, rename, move, delete](./app-and-console/offline-mutations-and-team-links.md#offline-is-more-than-saving-create-rename-move-delete).

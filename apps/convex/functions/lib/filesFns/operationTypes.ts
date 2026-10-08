@@ -61,7 +61,7 @@ export type FileOperation =
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
   | { kind: "forward"; paths: string[] }
-  | { kind: "manifest"; cursor?: string; folder?: string }
+  | { kind: "manifest"; cursor?: string; folder?: string; source?: "tree" }
   | { kind: "readMany"; paths: string[] }
   | {
       kind: "writeWebsiteRelease";
@@ -97,6 +97,9 @@ export type FileOperation =
   | { kind: "projectIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
+  /** The tree table (`treeTableOps.ts`): scheduled by the barrier, never sent by a client. */
+  | { kind: "sweepTree"; passes?: number }
+  | { kind: "touchTree"; paths: string[]; files: string[]; audiences: string[] }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -342,7 +345,8 @@ export type OperationResult =
       /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
       encrypted: boolean;
     }
-  | ({ kind: "manifest" } & SyncManifest)
+  | ({ kind: "manifest"; source?: "tree" | "bucket" } & SyncManifest)
+  | { kind: "treeKept"; complete: boolean }
   | {
       kind: "notes";
       results: Array<

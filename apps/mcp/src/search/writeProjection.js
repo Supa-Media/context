@@ -20,6 +20,8 @@
 import { countProjected } from "./d1/backfill.js";
 import { createD1Client } from "./d1/client.js";
 import { projectNote, upsertStatements } from "./d1/project.js";
+import { TREE_STATEMENTS } from "../tree/table.js";
+import { writtenStatements } from "../tree/touch.js";
 import { createSearchBudget } from "./maintain.js";
 import { syncShardedIndex } from "./shards.js";
 import { meaningWritable, removeMeaningNotes, writeMeaningNote } from "./meaning/store.js";
@@ -125,7 +127,14 @@ export async function projectWrittenNoteAfterResponse(
           visibility,
           content,
         });
-        await client.runAll(upsertStatements(path, projected));
+        // The tree table's row for the note rides the same request, with the
+        // table's own `CREATE ... IF NOT EXISTS` in front of it so a database
+        // no sweep has reached yet cannot fail the projection.
+        await client.runAll([
+          ...upsertStatements(path, projected),
+          ...TREE_STATEMENTS.map((sql) => ({ sql, params: [] })),
+          ...writtenStatements([{ path, etag: version }], Date.now()),
+        ]);
         if (typeof store.reportSearchIndexProgress === "function") {
           const notesIndexed = await countProjected(client);
           await store.reportSearchIndexProgress({
