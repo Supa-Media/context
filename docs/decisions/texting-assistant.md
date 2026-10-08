@@ -516,6 +516,21 @@ stays held back. `--no-fluff` runs the hand-written notes alone. Tests:
 `bench/test/fluff.test.mjs`, `load.test.mjs` ("fluff.md never appears in
 files", "a distractor copy of a held-back note is held back").
 
+**The world starts warm.** Decided by the owner, 2026-10-08. A cold world has
+no search index, so every search is a bucket scan, which is the free-tier
+first-minute of a fresh import and not the product people use. `pnpm ai run`
+now warms every workspace once (`bench/warm.mjs`): each gets a search database
+on the test suite's D1 stand-in, its owner searches it until the projection
+reports nothing pending, and the bucket (index shards included) and the
+database are snapshotted. Every conversation then starts from copies, so a
+turn's write never reaches the next conversation and the first search is
+answered from the index for a handful of store operations. `--cold` keeps the
+old behaviour for the fresh-import case, and the result note says which
+(`world: warm` or `cold`). Tests: `bench/test/warm.test.mjs` ("the first search
+of a conversation is served from the index", "a turn's write in one
+conversation never reaches the next", "a warmed world still holds back what the
+workspace holds back").
+
 ### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced

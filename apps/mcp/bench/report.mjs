@@ -126,6 +126,8 @@ export function resultMarkdown(result) {
     `date: ${result.date}`,
     // The day the world was on: a pinned one, or "real" when the run used the clock.
     `today: ${result.today ?? "real"}`,
+    // warm: indexed before the first question; cold: a fresh import, every search a scan.
+    ...(result.world ? [`world: ${result.world}`] : []),
     `code_commit: ${result.commit}`,
     ...(result.playedBy ? [`played_by: ${result.playedBy}`] : []),
     `setups: [${setups.map((s) => `${s.name}@${s.version}`).join(", ")}]`,
