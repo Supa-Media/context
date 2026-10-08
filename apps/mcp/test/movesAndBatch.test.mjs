@@ -166,10 +166,19 @@ export async function runMovesAndBatchChecks() {
       objects.has("1-projects/big-move/note-000.md") &&
       !objects.has("1-projects/big-moved/note-000.md")
   );
+  await contextStore.put(".context/folder-icons.json", JSON.stringify({
+    version: 1,
+    icons: { "1-projects/big-move": "🚀", "1-projects/big-move/sub": "🧪", "2-areas": "🏠" },
+  }));
   const bigMove = await call("priv-token", "move_folder", {
     source: "1-projects/big-move",
     destination: "1-projects/big-moved",
   });
+  check(
+    "a folder's icon, and the icons inside it, move with it",
+    JSON.stringify(JSON.parse(storedText(".context/folder-icons.json")).icons) ===
+      JSON.stringify({ "1-projects/big-moved": "🚀", "1-projects/big-moved/sub": "🧪", "2-areas": "🏠" })
+  );
   const bigMoveId = bigMove.content[0].text.match(/move_id: (\S+)/)?.[1];
   check(
     "owner move_folder creates a logical move for a too-large tree",

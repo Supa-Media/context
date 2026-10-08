@@ -41,6 +41,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
+import { remapFolderIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { recordPartialMove } from "./notes.js";
 import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
@@ -136,6 +137,8 @@ async function createLogicalFolderMove(store, scope, source, destination, object
   // moved from here on, so a link that arrives in between must forward too.
   // One folder entry covers every object under it — see `forwarding.js`.
   await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
+  // A folder icon follows its folder (`folderIcons.cjs`); never fails the move.
+  await remapFolderIcons(store, source, destination);
   const now = new Date().toISOString();
   const id = `move-${crypto.randomUUID()}`;
   const job = {
@@ -416,6 +419,8 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     { roots: [source], keep: [destination] }
   );
   await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
+  // A folder icon follows its folder (`folderIcons.cjs`); never fails the move.
+  await remapFolderIcons(store, source, destination);
   const references = await rewriteReferencesOrQueue(
     store,
     scope,
