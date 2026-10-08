@@ -130,6 +130,7 @@ export function resultMarkdown(result) {
     ...(result.playedBy ? [`played_by: ${result.playedBy}`] : []),
     `setups: [${setups.map((s) => `${s.name}@${s.version}`).join(", ")}]`,
     `runs_per_question: ${maxRun}`,
+    ...(result.fluff ? [`fluff: ${result.fluff.on ? "on" : "off"}`, `fluff_notes: ${result.fluff.notes}`] : []),
     "status: not judged",
     "---",
   ];
