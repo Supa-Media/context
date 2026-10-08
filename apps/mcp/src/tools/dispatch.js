@@ -173,6 +173,11 @@ export async function callTool(name, args, store, scope) {
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       if (scope !== "private") return toolError("permission denied: move materialization requires owner access.");
       {
+        // Cached connector schemas may still require batch_size >= 1. Let
+        // those clients inspect the marker through the existing string field.
+        if (typeof args.id === "string" && args.id.endsWith(":inspect")) {
+          return toolMaterializeMove(store, scope, args.id.slice(0, -8), 0);
+        }
         if (args.batch_size === 0) return toolMaterializeMove(store, scope, args.id, 0);
         // Check before this pass refreshes updated_at. Old clients do not know
         // resume_background, so an ordinary call must revive a stalled worker.

@@ -135,7 +135,7 @@ export function searchAndMoveToolDefinitions() {
       name: "materialize_move",
       title: "Finish folder move",
       description:
-        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set batch_size to 0 to inspect progress and the next pending source without changing anything. Set resume_background to restart a stalled queued worker.",
+        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set batch_size to 0, or append :inspect to the id in clients with an older batch_size schema, to inspect progress without changing anything. Set resume_background to restart a stalled queued worker.",
       inputSchema: {
         type: "object",
         properties: {
