@@ -319,6 +319,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Somebody else's change reaches an open tree as a hint per audience, never as the change
 - A front matter change is a hint too, and an open project page fetches what moved
 - A workspace's tree is a table in its own database, and the bucket stays the truth
+- Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note

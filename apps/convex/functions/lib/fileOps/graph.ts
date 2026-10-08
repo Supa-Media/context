@@ -3,6 +3,11 @@
  * between them — `docs/decisions/search.md`, "The map's graph is read per
  * shard at request time, and stored nowhere".
  *
+ * Where the context's tree table has read every note's links
+ * (`apps/mcp/src/tree/links.js`), the notes and links come from it instead,
+ * in a few queries, and no shard is read; everything below about who may see
+ * what applies to those rows exactly as to the shards'.
+ *
  * Built from the search index this bucket already keeps, never from a listing
  * or a body read: the docmap names every note and which shard holds it, and
  * each shard stores, per note, the `.md` targets the indexer resolved out of
@@ -50,6 +55,7 @@ import {
   indexIsBehind,
   loadDocmap,
 } from "../../../../mcp/src/search/shards.js";
+import { treeLinkRows, treeNotePaths } from "../../../../mcp/src/tree/links.js";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 
@@ -135,6 +141,28 @@ function decoded(target: string): string {
   }
 }
 
+/** The tree's link table, as the barrier attaches it to the map's store (`treeTableOps.ts`). */
+interface LinkTable {
+  client: Parameters<typeof treeNotePaths>[0];
+  /** Notes changed since their links were read: the map is "catching up". */
+  unparsed: number;
+}
+
+function linkTableOf(store: FileStore): LinkTable | null {
+  const table = (store as unknown as { linkTable?: LinkTable }).linkTable;
+  return table && typeof table === "object" ? table : null;
+}
+
+/** Every note path and every link, from the table; `null` when it cannot be read. */
+async function readLinkTable(table: LinkTable): Promise<{ paths: string[]; links: string[][] } | null> {
+  try {
+    const [paths, links] = await Promise.all([treeNotePaths(table.client), treeLinkRows(table.client)]);
+    return { paths, links };
+  } catch {
+    return null;
+  }
+}
+
 export async function workspaceGraph(
   store: FileStore,
   clearance: Clearance,
@@ -144,18 +172,25 @@ export async function workspaceGraph(
   const nodeCap = options.nodeCap ?? (compact ? GRAPH_ALL_NODE_CAP : GRAPH_NODE_CAP);
   const edgeCap = options.edgeCap ?? (compact ? GRAPH_ALL_EDGE_CAP : GRAPH_EDGE_CAP);
   const budget = createSearchBudget(GRAPH_BUDGET);
+  const table = linkTableOf(store);
   // Independent reads, so one round trip rather than three: the time to the
-  // first drawn note is round trips to the bucket, not bytes.
-  const [state, found, jobs] = await Promise.all([
+  // first drawn note is round trips to the bucket, not bytes. Where the tree's
+  // link table has read every note once, it answers both the notes and the
+  // links in two queries and the search index is not read at all.
+  const [state, tableRows, jobs] = await Promise.all([
     loadPrivacyState(store),
-    loadDocmap(store as unknown as Parameters<typeof loadDocmap>[0], budget, 0),
+    table === null ? Promise.resolve(null) : readLinkTable(table),
     loadMoveJobs(store),
   ]);
+  const found =
+    tableRows === null
+      ? await loadDocmap(store as unknown as Parameters<typeof loadDocmap>[0], budget, 0)
+      : null;
   const isVisible = (path: string) =>
     !isPlumbing(path) &&
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
 
-  if (found === null) {
+  if (tableRows === null && found === null) {
     return { nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true };
   }
 
@@ -177,8 +212,9 @@ export async function workspaceGraph(
   };
 
   const visible = new Set<string>();
-  for (const docs of found.docsByShard) {
-    for (const path of docs.keys()) if (mayDraw(path)) visible.add(logicalPath(path));
+  const physicalPaths = tableRows !== null ? [tableRows.paths] : found!.docsByShard.map((docs) => docs.keys());
+  for (const paths of physicalPaths) {
+    for (const path of paths) if (mayDraw(path)) visible.add(logicalPath(path));
   }
   const sorted = [...visible].sort();
   let truncated = sorted.length > nodeCap;
@@ -199,13 +235,76 @@ export async function workspaceGraph(
     const unique = byName.get(nameOf(decoded(link)));
     return unique === null ? undefined : unique;
   };
+  // A bare `[[name]]` from the table: the note of that name beside the one
+  // linking, as the search index resolved it, else the one drawn note
+  // carrying the name. Both looked up among the nodes only.
+  const namedTarget = (from: string, name: string): number | undefined => {
+    const file = name.endsWith(".md") || /\.[a-z0-9]{1,8}$/i.test(name) ? name : `${name}.md`;
+    const folder = from.includes("/") ? from.slice(0, from.lastIndexOf("/") + 1) : "";
+    const beside = indexOf.get(logicalPath(`${folder}${file}`));
+    if (beside !== undefined) return beside;
+    const unique = byName.get(file);
+    return unique === null ? undefined : unique;
+  };
 
-  let behind = indexIsBehind(found.manifest.freshness);
   const edges = new Map<string, [number, number]>();
+  const addEdge = (source: number, target: number | undefined) => {
+    if (target === undefined || target === source) return;
+    const pair = `${source}>${target}`;
+    if (edges.has(pair)) return;
+    if (edges.size >= edgeCap) {
+      truncated = true;
+      linksCut = true;
+      return;
+    }
+    edges.set(pair, [source, target]);
+  };
+
+  let behind: boolean;
+  if (tableRows !== null) {
+    behind = table!.unparsed > 0;
+    for (const [physical, kind, target] of tableRows.links) {
+      const source = mayDraw(physical) ? indexOf.get(logicalPath(physical)) : undefined;
+      if (source === undefined) continue;
+      addEdge(source, kind === "name" ? namedTarget(physical, target) : targetOf(target));
+    }
+  } else {
+    behind = await shardEdges(store, budget, found!, { indexOf, logicalPath, mayDraw, targetOf, addEdge });
+  }
+
+  const sortedEdges = [...edges.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const common = { truncated, noteCount: sorted.length, linksCut, behind, indexMissing: false };
+  if (!compact) return { nodes, edges: sortedEdges, ...common };
+  return {
+    nodes: [],
+    edges: [],
+    pathChunks: chunks(nodes.map((node) => node.path), GRAPH_CHUNK),
+    linkChunks: chunks(sortedEdges.flat(), GRAPH_CHUNK),
+    ...common,
+  };
+}
+
+/**
+ * The links from the search index's shards, for a context whose link table
+ * cannot answer yet. Returns whether the map is behind the bucket.
+ */
+async function shardEdges(
+  store: FileStore,
+  budget: ReturnType<typeof createSearchBudget>,
+  found: NonNullable<Awaited<ReturnType<typeof loadDocmap>>>,
+  draw: {
+    indexOf: Map<string, number>;
+    logicalPath: (path: string) => string;
+    mayDraw: (path: string) => boolean;
+    targetOf: (link: string) => number | undefined;
+    addEdge: (source: number, target: number | undefined) => void;
+  },
+): Promise<boolean> {
+  let behind = indexIsBehind(found.manifest.freshness);
   const wanted: number[] = [];
   for (let id = 0; id < found.docsByShard.length; id += 1) {
     for (const path of found.docsByShard[id].keys()) {
-      if (indexOf.has(logicalPath(path)) && mayDraw(path)) {
+      if (draw.indexOf.has(draw.logicalPath(path)) && draw.mayDraw(path)) {
         wanted.push(id);
         break;
       }
@@ -227,34 +326,13 @@ export async function workspaceGraph(
       }
       for (const [key, doc] of shard.docs) {
         const physical = doc.notePath ?? key;
-        const source = mayDraw(physical) ? indexOf.get(logicalPath(physical)) : undefined;
+        const source = draw.mayDraw(physical) ? draw.indexOf.get(draw.logicalPath(physical)) : undefined;
         if (source === undefined) continue;
-        for (const link of doc.links) {
-          const target = targetOf(link);
-          if (target === undefined || target === source) continue;
-          const pair = `${source}>${target}`;
-          if (edges.has(pair)) continue;
-          if (edges.size >= edgeCap) {
-            truncated = true;
-            linksCut = true;
-            continue;
-          }
-          edges.set(pair, [source, target]);
-        }
+        for (const link of doc.links) draw.addEdge(source, draw.targetOf(link));
       }
     }
   }
-
-  const sortedEdges = [...edges.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const common = { truncated, noteCount: sorted.length, linksCut, behind, indexMissing: false };
-  if (!compact) return { nodes, edges: sortedEdges, ...common };
-  return {
-    nodes: [],
-    edges: [],
-    pathChunks: chunks(nodes.map((node) => node.path), GRAPH_CHUNK),
-    linkChunks: chunks(sortedEdges.flat(), GRAPH_CHUNK),
-    ...common,
-  };
+  return behind;
 }
 
 function chunks<T>(items: readonly T[], size: number): T[][] {

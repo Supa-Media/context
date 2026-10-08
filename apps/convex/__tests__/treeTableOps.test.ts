@@ -199,6 +199,8 @@ describe("a console change", () => {
     expect(scheduled.map((args) => args.operation)).toEqual([{ kind: "sweepTree", passes: 0 }]);
 
     await sweepTreePass(store, database);
+    // A whole table: a change to its shape has the links it touched read now,
+    // and a save of text alone waits for the next reader rather than a pass per save.
     const after = fakeCtx({ target: true });
     await ops.runTreeOperation(
       after.ctx,
@@ -206,7 +208,15 @@ describe("a console change", () => {
       store,
       database,
     );
-    expect(after.scheduled).toEqual([]);
+    expect(after.scheduled.map((args) => args.operation)).toEqual([{ kind: "sweepTree", passes: 0 }]);
+    const saved = fakeCtx({ target: true });
+    await ops.runTreeOperation(
+      saved.ctx,
+      { ...ARGS, operation: { kind: "touchTree", paths: [], files: ["1-projects/a.md"], audiences: [] } },
+      store,
+      database,
+    );
+    expect(saved.scheduled).toEqual([]);
   });
 
   test("a deleted note carries who could see it before, not who could after", async () => {
@@ -233,10 +243,21 @@ describe("a console change", () => {
     expect(touch?.left).toEqual([{ path: "1-projects/a.md", audiences: ["private"] }]);
   });
 
-  test("a sweep that finished schedules no further pass", async () => {
+  test("a sweep that finished goes on to read the links, and stops once they are read", async () => {
+    const store = bucket();
     const { ctx, scheduled } = fakeCtx({ target: true });
-    const answer = await ops.runTreeOperation(ctx, { ...ARGS, operation: { kind: "sweepTree" } }, bucket(), database);
+    const answer = await ops.runTreeOperation(ctx, { ...ARGS, operation: { kind: "sweepTree" } }, store, database);
     expect(answer).toEqual({ kind: "treeKept", complete: true });
-    expect(scheduled).toEqual([]);
+    expect(scheduled.map((args) => args.operation)).toEqual([{ kind: "sweepTree", passes: 1 }]);
+
+    // The next pass finds the tree whole and no sweep due: it reads the links.
+    const links = fakeCtx({ target: true });
+    const read = await ops.runTreeOperation(links.ctx, { ...ARGS, operation: { kind: "sweepTree", passes: 1 } }, store, database);
+    expect(read).toEqual({ kind: "treeKept", complete: true });
+    expect(links.scheduled).toEqual([]);
+    const [sources] = await database.query("SELECT count(*) AS n FROM tree_link_sources");
+    expect(Number(sources!.n)).toBeGreaterThan(0);
+    const [ready] = await database.query("SELECT value FROM index_state WHERE key = 'tree_links_ready'");
+    expect(ready?.value).toBe("1");
   });
 });

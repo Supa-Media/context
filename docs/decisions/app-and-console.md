@@ -98,6 +98,10 @@ Moved to [A front matter change is a hint too, and an open project page fetches 
 
 Moved to [A workspace's tree is a table in its own database, and the bucket stays the truth](./app-and-console/tree-table.md#a-workspaces-tree-is-a-table-in-its-own-database-and-the-bucket-stays-the-truth).
 
+### Links live beside the tree, and "who links here" is one query
+
+Moved to [Links live beside the tree, and "who links here" is one query](./app-and-console/tree-table.md#links-live-beside-the-tree-and-who-links-here-is-one-query).
+
 ### Offline is more than saving: create, rename, move, delete
 
 Moved to [Offline is more than saving: create, rename, move, delete](./app-and-console/offline-mutations-and-team-links.md#offline-is-more-than-saving-create-rename-move-delete).

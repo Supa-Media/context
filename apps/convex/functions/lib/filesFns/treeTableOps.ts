@@ -35,6 +35,7 @@ import { readTreeState } from "../../../../mcp/src/tree/table.js";
 import { sweepDue, sweepTreePass } from "../../../../mcp/src/tree/sweep.js";
 import { touchTree } from "../../../../mcp/src/tree/touch.js";
 import { treeListingStore } from "../../../../mcp/src/tree/source.js";
+import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
 import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
 import { clearanceOf } from "../clearance";
 import { treeChanges } from "./treeChanges";
@@ -186,6 +187,7 @@ export async function manifestSource(
   },
   store: FileStore,
 ): Promise<{ store: FileStore; source: "tree" | "bucket"; since?: number; privacy?: string | null }> {
+  if (args.operation.kind === "workspaceGraph") return { store: await withLinkTable(ctx, args, store), source: "bucket" };
   if (args.operation.kind !== "manifest") return { store, source: "bucket" };
   if (args.operation.source !== "tree") {
     // An app that walks the bucket still starts the table filling, so it is
@@ -209,6 +211,36 @@ export async function manifestSource(
   } catch {
     // A database that cannot be read is no table: the walk goes to the bucket.
     return { store, source: "bucket" };
+  }
+}
+
+/**
+ * The map's store: the same bucket, carrying the tree's link table where it
+ * has parsed every note once (`linkTable`, read by `workspaceGraph`). Where
+ * it has not, or notes have changed since, a fill pass is scheduled and the
+ * map reads the search index meanwhile, or draws from the table as "behind".
+ */
+async function withLinkTable(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; scope: "private" | "team" },
+  store: FileStore,
+): Promise<FileStore> {
+  try {
+    const client = await treeClient(ctx, args.workspaceId);
+    if (client === null) return store;
+    const links = await readLinkState(client);
+    if (!links.treeReady) {
+      await startSweepIfDue(ctx, args);
+      return store;
+    }
+    if (!links.ready || (links.unparsed ?? 0) > 0) await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
+    if (!links.ready) return store;
+    const linkTable = { client, unparsed: links.unparsed ?? 0 };
+    // Non-enumerable, as the meaning index is attached: nothing that walks the store carries it out.
+    Object.defineProperty(store, "linkTable", { value: linkTable, enumerable: false, configurable: true });
+    return store;
+  } catch {
+    return store;
   }
 }
 
@@ -241,17 +273,33 @@ export async function runTreeOperation(
       await markChanged(ctx, args.workspaceId, operation.audiences);
     }
     // A table never filled, or one a change was too big for, is filled now
-    // rather than when somebody next happens to read it.
+    // rather than when somebody next happens to read it. On a whole one, a
+    // change to the tree's shape has its links read now; a save of text alone
+    // waits for the next reader, since every save would otherwise be a pass.
     const state = await readTreeState(client).catch(() => null);
-    if (state !== null && (!state.ready || state.dirty) && sweepDue(state, Date.now())) {
+    const due = state !== null && (!state.ready || state.dirty) && sweepDue(state, Date.now());
+    const linksDue = state !== null && state.ready && state.cursor === null && operation.paths.length > 0;
+    if (due || linksDue) {
       await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
     }
     return { kind: "treeKept", complete: true };
   }
   if (operation.kind === "treeState") return await treeStateOf(client);
-  const pass = await sweepTreePass(store, client).catch(() => null);
   const passes = Math.floor(operation.passes ?? 0) + 1;
-  if (pass !== null && !pass.complete && !pass.unsupported && pass.rows + pass.pages > 0 && passes < TREE_SWEEP_CHAIN) {
+  // A whole tree with no sweep due spends this pass on its links instead: the
+  // notes changed since they were last parsed (`tree/links.js`).
+  const state = await readTreeState(client).catch(() => null);
+  if (state !== null && state.ready && !state.unsupported && state.cursor === null && !sweepDue(state, Date.now())) {
+    const links = await linkFillPass(store, client).catch(() => null);
+    if (links !== null && links.read > 0 && links.remaining > 0 && passes < TREE_SWEEP_CHAIN) {
+      await scheduleSweep(ctx, args.workspaceId, args.scope, passes);
+    }
+    return { kind: "treeKept", complete: links?.remaining === 0 };
+  }
+  const pass = await sweepTreePass(store, client).catch(() => null);
+  // A finished sweep goes on to the links, through the branch above.
+  const more = pass !== null && !pass.unsupported && (pass.complete || pass.rows + pass.pages > 0);
+  if (more && passes < TREE_SWEEP_CHAIN) {
     await scheduleSweep(ctx, args.workspaceId, args.scope, passes);
   }
   return { kind: "treeKept", complete: pass?.complete === true };
