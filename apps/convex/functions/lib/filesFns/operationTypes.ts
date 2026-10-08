@@ -143,6 +143,7 @@ export type FileOperation =
   | { kind: "readImage"; leaf: string }
   | { kind: "emojiList" }
   | { kind: "folderIconsRead" }
+  | { kind: "addBuiltInFolder"; role: string }
   | { kind: "folderIconSet"; path: string; icon: string | null }
   | { kind: "emojiRead"; name: string }
   | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; replace: boolean }

@@ -55,6 +55,7 @@ import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
 import { listFolderIcons, setFolderIcon } from "../fileOps/folderIcons";
+import { addBuiltInFolder } from "../fileOps/builtInFolders";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -719,6 +720,8 @@ export async function executeOperation(
         const created = await createFolder(store, { path: operation.path, clearance, now });
         return { kind: "folderCreated", ...created };
       }
+      case "addBuiltInFolder":
+        return { kind: "folderCreated", ...(await addBuiltInFolder(store, { role: operation.role, clearance, now })) };
       case "removeNewFolder":
         return { kind: "deleted", ...(await removeNewFolder(store, { path: operation.path, clearance })) };
       case "move": {

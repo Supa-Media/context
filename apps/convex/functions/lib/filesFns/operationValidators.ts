@@ -295,6 +295,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
   v.object({ kind: v.literal("emojiList") }),
   v.object({ kind: v.literal("folderIconsRead") }),
+  v.object({ kind: v.literal("addBuiltInFolder"), role: v.string() }),
   v.object({ kind: v.literal("folderIconSet"), path: v.string(), icon: v.union(v.string(), v.null()) }),
   v.object({ kind: v.literal("emojiRead"), name: v.string() }),
   v.object({

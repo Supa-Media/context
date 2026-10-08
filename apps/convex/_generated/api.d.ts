@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as functions_builtInFolders from "../functions/builtInFolders.js";
 import type * as functions_stagingPersonas from "../functions/stagingPersonas.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
@@ -132,6 +133,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "functions/builtInFolders": typeof functions_builtInFolders;
   "functions/stagingPersonas": typeof functions_stagingPersonas;
   auth: typeof auth;
   crons: typeof crons;
