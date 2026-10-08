@@ -187,7 +187,7 @@ describe("a shared workspace is asked what kind it is", () => {
     expect(screen.text()).toMatch(/what kind of workspace/i);
     const folders = screen.find("console-setup-folders")?.textContent ?? "";
     for (const row of presetRows("business")) expect(folders).toContain(row.name);
-    expect(folders).not.toContain("2-areas");
+    expect(folders).not.toContain("6-products");
     // No custom editor in a notice band.
     expect(screen.text()).not.toMatch(/something else/i);
   });
@@ -199,12 +199,12 @@ describe("a shared workspace is asked what kind it is", () => {
       shared: true,
       kind: { preset: "business", onChoose: (preset) => chosen.push(preset) },
     });
-    const agency = Array.from(
+    const product = Array.from(
       screen.container.querySelectorAll('[role="radio"]'),
-    ).find((node) => /agency/i.test(node.textContent ?? "")) as HTMLElement | undefined;
-    expect(agency).toBeDefined();
-    act(() => agency?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(chosen).toEqual(["agency"]);
+    ).find((node) => /product company/i.test(node.textContent ?? "")) as HTMLElement | undefined;
+    expect(product).toBeDefined();
+    act(() => product?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(chosen).toEqual(["product"]);
   });
 
   test("its folders are said to start open to the workspace, not private", () => {

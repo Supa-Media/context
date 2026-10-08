@@ -31,9 +31,48 @@
  * to "you" reads as somebody else's file to everyone but its author.
  */
 
+/**
+ * The kinds of workspace somebody can make, and the folders each starts with.
+ *
+ * ## Every kind starts with the same five folders
+ *
+ * The five built-in folders (`packages/shared/src/folderRoles.cjs`) are the
+ * same in every workspace: Inbox, Projects, Areas, Resources and Archive, named
+ * `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `9-archive`. The gateway,
+ * the organizer and `archive_note` rely on them, so the kind a person picks
+ * never removes one.
+ *
+ * The kind chooses only the **extras**: `business` adds clients and teams,
+ * `product` adds teams and products, and `project` adds nothing. That is
+ * decided by the owner (2026-10-08). The older per-kind layouts (a handbook,
+ * a pipeline, a set of client-named folders) are gone; a workspace made with
+ * one still has its folders, and nothing here reads them again.
+ *
+ * PARA is the same five folders. It stays as its own choice because a person
+ * who already uses it expects the control plane's list, and its folders are
+ * not editable here.
+ *
+ * Every folder here is **a suggestion, not a schema**: the gateway addresses
+ * whatever paths exist, and a folder can be renamed, nested, added to, or
+ * deleted in the console or in Obsidian five minutes later. Nothing below this
+ * reads the choice again.
+ *
+ * ## The descriptions are load-bearing, not blurb
+ *
+ * Each becomes that folder's `README.md` and its line in `index.md`, verbatim —
+ * which means it is also the thing a connected AI client reads when it is
+ * deciding where to file a note. The descriptions come from `ROLE_DESCRIPTION`
+ * so the five main folders say the same thing in every app.
+ *
+ * They are written in the third person ("the team's", never "your") because a
+ * workspace has no single reader, and `index.md` in a shared bucket addressed
+ * to "you" reads as somebody else's file to everyone but its author.
+ */
+
+import { ROLE_DESCRIPTION } from "@context/shared/src/folderRoles.cjs";
 import type { CustomFolderRow } from "../onboarding/structure";
 
-export type WorkspacePresetKey = "business" | "agency" | "project" | "para" | "custom";
+export type WorkspacePresetKey = "business" | "product" | "project" | "para" | "custom";
 
 export interface WorkspacePreset {
   key: WorkspacePresetKey;
@@ -47,147 +86,45 @@ export interface WorkspacePreset {
   folders: readonly { folder: string; description: string }[] | null;
 }
 
-/**
- * The default. A business's own context: what it is working on, the teams that
- * run it, the clients it works for, and how it works.
- *
- * `0-inbox` is kept from PARA deliberately — it is the one folder whose job is
- * the same for a person and for a team, it is where an AI client drops a
- * capture it has not been told how to file, and its absence is what makes
- * agents guess.
- *
- * `2-teams` and `3-clients` are the two folders a business reaches for first
- * and PARA has no word for (the owner asked for exactly these, 2026-09-26).
- */
-const BUSINESS_FOLDERS = [
-  {
-    folder: "0-inbox",
-    description:
-      "Unfiled captures. Anything that arrives before somebody has decided where it belongs — meeting notes, forwarded threads, half-formed ideas. Empty it by moving notes out, not by deleting them.",
-  },
-  {
-    folder: "1-projects",
-    description:
-      "Active work with an end state, one folder per project. Something that will not finish belongs in 2-teams instead.",
-  },
-  {
-    folder: "2-teams",
-    description:
-      "Ongoing responsibilities, one folder per team or function. What a team owns, how it runs, and the standing context somebody joining it would need.",
-  },
-  {
-    folder: "3-clients",
-    description:
-      "One folder per client or customer: who they are, what they need, what has been promised, and what has actually happened.",
-  },
-  {
-    folder: "4-handbook",
-    description:
-      "How this business works: decisions and why they were made, policies, processes, and onboarding. The answer to a question that has been asked twice belongs here.",
-  },
-  {
-    folder: "5-archive",
-    description:
-      "Finished, cancelled, or superseded. Move things here rather than deleting them — an archived project is the record of a decision.",
-  },
-] as const;
+// The five built-in folders, in drawing order. Literal names, so the guard in
+// `teamShare` can read them out of this file as text.
+const INBOX = { folder: "0-inbox", description: ROLE_DESCRIPTION.inbox };
+const PROJECTS = { folder: "1-projects", description: ROLE_DESCRIPTION.projects };
+const AREAS = { folder: "2-areas", description: ROLE_DESCRIPTION.areas };
+const RESOURCES = { folder: "3-resources", description: ROLE_DESCRIPTION.resources };
+const ARCHIVE = { folder: "9-archive", description: ROLE_DESCRIPTION.archive };
 
-/**
- * For an agency, a studio, or a consultancy — an organisation whose work is
- * sorted by *who it is for* before anything else.
- *
- * The distinction from `business` is not cosmetic. In a client business the
- * same project name recurs across three clients, so a flat `1-projects`
- * collides on day one and everything ends up prefixed by hand.
- */
-const AGENCY_FOLDERS = [
-  {
-    folder: "0-inbox",
-    description:
-      "Unfiled captures. Anything that arrives before somebody has decided which client or which project it belongs to.",
-  },
-  {
-    folder: "1-clients",
-    description:
-      "One folder per client, with their engagements nested inside. Everything about the work for one client lives under their folder.",
-  },
-  {
-    folder: "2-pipeline",
-    description:
-      "Prospects, proposals, and pitches that are not signed work yet. A win moves into 1-clients; a loss moves into 5-archive with the reason.",
-  },
-  {
-    folder: "3-team",
-    description:
-      "The people doing the work: who does what, availability, and how the studio is organised.",
-  },
-  {
-    folder: "4-practice",
-    description:
-      "How this studio works: templates, process, rate cards, contract language, and the lessons worth carrying to the next engagement.",
-  },
-  {
-    folder: "5-archive",
-    description:
-      "Finished engagements and closed pipeline. Move things here rather than deleting them.",
-  },
-] as const;
+// The extras, at their fixed numbers.
+const CLIENTS = { folder: "4-clients", description: ROLE_DESCRIPTION.clients };
+const TEAMS = { folder: "5-teams", description: ROLE_DESCRIPTION.teams };
+const PRODUCTS = { folder: "6-products", description: ROLE_DESCRIPTION.products };
 
-/**
- * One shared piece of work with a finish line — a launch, an event, a book, a
- * renovation. Sorted by stage of the work rather than by who owns it, because
- * everybody in it owns the same thing.
- */
-const PROJECT_FOLDERS = [
-  {
-    folder: "0-inbox",
-    description:
-      "Unfiled captures. Anything that arrives before somebody has decided where in the project it belongs.",
-  },
-  {
-    folder: "1-plan",
-    description:
-      "The goal, the scope, the timeline, and the decisions that shaped them. Somebody joining late reads this folder first.",
-  },
-  {
-    folder: "2-work",
-    description:
-      "The work itself: drafts, specs, designs, and task lists. One note or folder per piece of work.",
-  },
-  {
-    folder: "3-meetings",
-    description:
-      "Notes from meetings and calls, one per meeting, dated. Decisions made in one move into 1-plan.",
-  },
-  {
-    folder: "4-reference",
-    description:
-      "Material the project draws on but did not produce: research, contacts, links, and source documents.",
-  },
-  {
-    folder: "5-archive",
-    description:
-      "Superseded drafts and dropped ideas. Move things here rather than deleting them.",
-  },
-] as const;
+/** A company: the people it works for, and the teams that run it. */
+const BUSINESS_FOLDERS = [INBOX, PROJECTS, AREAS, RESOURCES, CLIENTS, TEAMS, ARCHIVE] as const;
+
+/** A company that sells or makes things: what it makes, and who builds it. */
+const PRODUCT_FOLDERS = [INBOX, PROJECTS, AREAS, RESOURCES, TEAMS, PRODUCTS, ARCHIVE] as const;
+
+/** One shared piece of work with a finish line: the five and nothing more. */
+const PROJECT_FOLDERS = [INBOX, PROJECTS, AREAS, RESOURCES, ARCHIVE] as const;
 
 export const WORKSPACE_PRESETS: readonly WorkspacePreset[] = [
   {
     key: "business",
     label: "Business",
-    summary: "Projects, teams, clients, and a handbook. The default for a company.",
+    summary: "The five standard folders, plus clients and teams. The default for a company.",
     folders: BUSINESS_FOLDERS,
   },
   {
-    key: "agency",
-    label: "Agency or studio",
-    summary: "Sorted by client first: engagements, pipeline, the team, and how the studio works.",
-    folders: AGENCY_FOLDERS,
+    key: "product",
+    label: "Product company",
+    summary: "The five standard folders, plus teams and products: what is made or sold, and who makes it.",
+    folders: PRODUCT_FOLDERS,
   },
   {
     key: "project",
     label: "A shared project",
-    summary: "One piece of work with a finish line: the plan, the work, meetings, and reference.",
+    summary: "The five standard folders and nothing more: one piece of work with a finish line.",
     folders: PROJECT_FOLDERS,
   },
   {

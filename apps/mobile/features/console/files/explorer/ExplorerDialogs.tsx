@@ -397,7 +397,7 @@ export function ExplorerDialogs({
         <Confirm
           title={`Archive ${dialog.paths.length} items`}
           body={[
-            `These move into 4-archive/ with their original paths kept inside, so you can move them straight back. Nothing is deleted.`,
+            `These move into the archive with their original paths kept inside, so you can move them straight back. Nothing is deleted.`,
             sharesBreakingWarningMany(files.shares, dialog.paths, "Archiving"),
           ]
             .filter(Boolean)
@@ -422,7 +422,7 @@ export function ExplorerDialogs({
         <Confirm
           title="Archive"
           body={[
-            `${dialog.path} moves into 4-archive/ with its original path kept inside, so you can move it straight back. Nothing is deleted.`,
+            `${dialog.path} moves into the archive with its original path kept inside, so you can move it straight back. Nothing is deleted.`,
             sharesBreakingWarning(files.shares, dialog.path, "Archiving"),
           ]
             .filter(Boolean)

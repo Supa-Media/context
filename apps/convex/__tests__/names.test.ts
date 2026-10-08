@@ -260,7 +260,7 @@ describe("validateName (pure rules)", () => {
       "1-projects",
       "2-areas",
       "3-resources",
-      "4-archive",
+      ...["4-archive", "9-archive", "4-clients", "5-teams", "6-products"],
       "history",
       "audit",
     ]) {

@@ -57,6 +57,27 @@ describe("path arithmetic", () => {
     );
     expect(restoreTargetFor("1-projects/foo.md")).toBeNull();
   });
+
+  test("every archive-role folder restores, whatever its number", () => {
+    // A new workspace archives into `9-archive`; an older PARA one into
+    // `4-archive`, or a preset's `5-archive`. The word decides the role, so
+    // all three restore the same way and none needs renaming first.
+    expect(restoreTargetFor("9-archive/2026-10-08T09-14-02-113Z/1-projects/foo.md")).toBe(
+      "1-projects/foo.md",
+    );
+    expect(restoreTargetFor("5-archive/2026-10-08T09-14-02-113Z/2-areas/bar.md")).toBe(
+      "2-areas/bar.md",
+    );
+    expect(restoreTargetFor("archive/2026-10-08T09-14-02-113Z/3-resources/baz.md")).toBe(
+      "3-resources/baz.md",
+    );
+  });
+
+  test("a folder that only looks like an archive does not restore", () => {
+    expect(restoreTargetFor("old-archive/2026-10-08T09-14-02-113Z/1-projects/foo.md")).toBeNull();
+    expect(restoreTargetFor("1-projects/2026-10-08/archive/foo.md")).toBeNull();
+    expect(restoreTargetFor("9-archive")).toBeNull();
+  });
 });
 
 describe("names the bucket would refuse", () => {

@@ -10,6 +10,7 @@ import { classifyCaptureKind } from "../communications/paths.js";
 import { createSearchBudget } from "../search/maintain.js";
 import { INSTRUCTIONS_NAME_CHAR_CAP } from "../mcp/instructions.js";
 import { loadIndexManifest, shedNotePathsOf } from "../search/shards.js";
+import { ROLE_LABEL, compareTopLevelFolders, folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
 
 /**
  * `orient` is called at the top of a session, before the agent knows whether
@@ -199,6 +200,27 @@ export const NO_FRONT_PAGE =
   "looked around, offer to write one with write_note at path `index.md` — " +
   "every agent that connects reads it first.";
 
+const folderName = (folder) => folder.prefix.replace(/\/+$/, "");
+
+/**
+ * Which top-level folder plays which built-in role (`folderRoles.cjs`), so an
+ * agent files into "the inbox" without guessing at numbers. Only folders this
+ * connection can see are named, and a workspace with none gets no line.
+ */
+export function renderBuiltInFolders(survey) {
+  const named = [];
+  for (const folder of [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)))) {
+    const role = folderRole(folderName(folder));
+    if (role !== null && !named.some((entry) => entry.role === role)) named.push({ role, prefix: folder.prefix });
+  }
+  if (named.length === 0) return "";
+  return (
+    "Built-in folders: " +
+    named.map(({ role, prefix }) => `${ROLE_LABEL[role]} \`${prefix}\``).join(" · ") +
+    ". Inbox, Projects, Areas, Resources and Archive exist in every Context workspace and cannot be renamed, moved or deleted; file into them by what they are for, and move what is inside them freely."
+  );
+}
+
 export function renderStructure(survey) {
   const lines = [];
   for (const note of survey.rootNotes.slice(0, ORIENT_ROOT_NOTE_LIMIT)) {
@@ -207,7 +229,9 @@ export function renderStructure(survey) {
   if (survey.rootNotes.length > ORIENT_ROOT_NOTE_LIMIT) {
     lines.push(`- (+${survey.rootNotes.length - ORIENT_ROOT_NOTE_LIMIT} more notes at the root)`);
   }
-  for (const folder of survey.folders) {
+  // Drawn in the app's order: built-in folders first and Archive last.
+  const folders = [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)));
+  for (const folder of folders) {
     // The floor travels down as well as up: a child count drawn from a walk
     // that stopped early is no more a total than its parent's is.
     const floor = folder.truncated ? "+" : "";
