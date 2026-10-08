@@ -36,7 +36,7 @@
  * the whole sentence out. What is dropped is a label, not a control.
  */
 
-import { baseName, displayName, isMarkdown, isUnlistedFile } from "./paths";
+import { aboutNoteName, baseName, displayName, isMarkdown, isUnlistedFile, parentPath } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
 export interface TreeRow {
@@ -186,13 +186,15 @@ export function orderedEntries(
  *
  * The filter is by name, not by contents — `isFolderPlaceholder` says why, and
  * what that costs. `privacy.md` is dropped by the same rule
- * (`isPrivacyManifest`).
+ * (`isPrivacyManifest`), and so is the folder's about note (`aboutNoteOf`),
+ * whose words its page draws at the top instead.
  */
 export function listedEntries(
   entries: readonly FileEntry[],
   options: { descending?: boolean; keep?: string | null } = {},
 ): readonly FileEntry[] {
   const keep = options.keep ?? null;
+  const about = aboutNoteOf(entries);
   const listed = entries.filter(
     // `kind === "file"`, because a FOLDER somebody called `README.md` is a
     // folder — pathological, and `isFolderPlaceholder` is a path predicate with
@@ -200,9 +202,23 @@ export function listedEntries(
     // instead of merely unlisted, which is the one outcome this rule promises
     // never to produce.
     (entry) =>
-      entry.kind !== "file" || entry.path === keep || !isUnlistedFile(entry.path),
+      entry.kind !== "file" || entry.path === keep || (!isUnlistedFile(entry.path) && entry.path !== about),
   );
   return orderedEntries(listed, options.descending ?? false);
+}
+
+/**
+ * The path of the folder's about note among one listing's entries, which all
+ * share a folder (`aboutNoteName`); null for none. Its words are drawn at the
+ * top of the folder's page, so neither the tree nor the page's listing draws
+ * it as a row as well.
+ */
+export function aboutNoteOf(entries: readonly FileEntry[]): string | null {
+  const files = entries.filter((entry) => entry.kind === "file");
+  if (files.length === 0) return null;
+  const folder = parentPath(files[0]!.path);
+  const name = aboutNoteName(folder, files.map((entry) => baseName(entry.path)));
+  return name === null ? null : folder === "" ? name : `${folder}/${name}`;
 }
 
 /**

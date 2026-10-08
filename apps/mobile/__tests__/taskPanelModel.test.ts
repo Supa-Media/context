@@ -121,7 +121,7 @@ describe("what a panel writes and says", () => {
   test("a note task shown as the folder it became is written to as that folder", () => {
     const lease = panelEntry(`${P}/lease.md`, P, NOTES)!.item;
     expect(taskRefOf(lease, `${P}/lease.md`)).toMatchObject({ path: `${P}/lease.md`, kind: "note", target: `${P}/lease.md` });
-    expect(taskRefOf(lease, `${P}/lease`)).toMatchObject({ path: `${P}/lease`, kind: "folder", target: `${P}/lease/overview.md`, creates: false });
+    expect(taskRefOf(lease, `${P}/lease`)).toMatchObject({ path: `${P}/lease`, kind: "folder", target: `${P}/lease/about.md`, creates: false });
   });
 
   test("opens wherever the panel itself fits, beside the list or over it", () => {

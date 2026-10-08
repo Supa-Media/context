@@ -58,8 +58,13 @@ export const LAYOUTS = new Set(["list", "board"]);
 /**
  * The note that speaks for a folder, first one present wins. A folder is a
  * project when this note has a `status`. See `docs/decisions/folder-lists.md`.
+ *
+ * All four names mean the same thing (decided by the owner, 2026-10-08:
+ * "index = overview = readme = about"). `about.md` is the one this product
+ * writes, first so a new one is what a folder page reads; the other three are
+ * read forever, because a bucket's existing names are never rewritten.
  */
-export const FRONT_NOTES = ["overview.md", "index.md", "README.md"];
+export const FRONT_NOTES = ["about.md", "overview.md", "index.md", "README.md"];
 
 /**
  * The order groups are drawn in when their values are lifecycle words, for a
