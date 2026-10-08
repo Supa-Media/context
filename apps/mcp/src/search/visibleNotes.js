@@ -97,9 +97,21 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
    * R2 search below was going to need. See `fastSearchAnswer`.
    */
   const fastSpan = trace.span("fast");
-  const fast = hasActiveLogicalMoves
+  // A folder move in flight no longer sends a whole-context search to the
+  // literal scan, which on a large context spent the budget before it found
+  // anything (@seyi, 2026-10-08). The projection still holds the notes at
+  // their old paths, so its hits are shown at their new ones, through the
+  // caller's privacy engine again. A folder search during a move keeps the
+  // scan: notes moving INTO the folder are not under it in the projection.
+  const moveAware = hasActiveLogicalMoves && !prefix;
+  const fastAnswer = hasActiveLogicalMoves && !moveAware
     ? null
     : await fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace);
+  const fast =
+    fastAnswer && moveAware
+      ? showAtMovedPaths(fastAnswer, activeLogicalMoves, (path) => canSee(path, scope, rules, overrides))
+      : fastAnswer;
+  if (moveAware) trace.set("logicalMoves", true);
   fastSpan();
   if (fast) {
     /*
@@ -290,4 +302,27 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     totalCount: scan.totalCount,
     totalIsFloor: scan.totalIsFloor,
   };
+}
+
+/**
+ * A fast answer as the caller sees the context mid-move: a note the
+ * projection holds at a source path is shown at its destination, and dropped
+ * if the caller may not see it there. The overlay is the same first-job-wins
+ * map `applyMoveOverlay` draws listings with.
+ */
+export function showAtMovedPaths(answer, jobs, isVisible) {
+  const destinations = new Map();
+  for (const job of jobs) {
+    for (const item of job.objects || []) {
+      if (!destinations.has(item.source)) destinations.set(item.source, item.destination);
+    }
+  }
+  const hits = [];
+  for (const hit of answer.hits) {
+    const key = destinations.get(hit.key) ?? hit.key;
+    if (key !== hit.key && !isVisible(key)) continue;
+    hits.push(key === hit.key ? hit : { ...hit, key });
+  }
+  const dropped = answer.hits.length - hits.length;
+  return { ...answer, hits, matchCount: Math.max(hits.length, answer.matchCount - dropped) };
 }
