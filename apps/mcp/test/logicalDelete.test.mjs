@@ -544,6 +544,8 @@ test("listing preserves a marker-only page cursor for the caller to follow", asy
   assert.deepEqual(first.objects, []);
   assert.equal(first.truncated, true);
   assert.equal(first.cursor, "1");
+  // Resuming by key needs the hidden key too, or the same page comes back.
+  assert.equal(first.resumeAfter, "a.md");
   const second = await store.list({ prefix: "", cursor: first.cursor, limit: 1 });
   assert.deepEqual(second.objects.map(({ key }) => key), ["b.md"]);
   assert.equal(second.truncated, false);

@@ -140,6 +140,11 @@ async function sweepTreePassUnrecorded(store, client, { now = Date.now, maxPages
       if (row !== null) kept.push(row);
     }
     rows += kept.length;
+    // A page whose keys were all hidden (deleted notes' markers) lists nothing
+    // yet moves on: resume after the last key the provider listed, or every
+    // pass would ask for the same page again (2026-10-08).
+    const resumeAfter = listing.resumeAfter;
+    if (jump === null && typeof resumeAfter === "string" && compareKeys(resumeAfter, last) > 0) last = resumeAfter;
 
     const statements = observeStatements(kept, observedAt);
     const finished = jump === null && !listing.truncated;

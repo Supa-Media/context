@@ -490,10 +490,14 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
         seenPrefixes.add(prefix);
         delimitedPrefixes.push(prefix);
       }
+      // The last key the provider listed, hidden or not: a caller resuming by
+      // key (`startAfter`) needs it to get past a page that was all markers.
+      const lastListed = (page.objects || []).at(-1)?.key;
       return {
         ...page,
         objects,
         ...(page.delimitedPrefixes === undefined ? {} : { delimitedPrefixes }),
+        ...(typeof lastListed === "string" ? { resumeAfter: lastListed } : {}),
       };
     },
 
