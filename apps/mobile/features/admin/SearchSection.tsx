@@ -25,6 +25,7 @@ import { EmptyNote, NoticeLine, Panel, Skeleton, TwoUp, useCompact } from "./Adm
 import { ListRow, RowValue, TableHead, TableRow, type Column } from "./AdminTable";
 import { AgentChart } from "./AgentChart";
 import { MeaningIndexPanel } from "./MeaningIndexPanel";
+import { TreeIndexPanel } from "./TreeIndexPanel";
 import { whenLabel } from "./agent";
 import { Segments } from "./Segments";
 import {
@@ -56,6 +57,7 @@ export function SearchSection() {
 
   return (
     <View style={styles.section} testID="admin-search">
+      <TreeIndexPanel />
       <MeaningIndexPanel />
       <View style={styles.filters}>
         <Segments options={SEARCH_WINDOWS} value={days} onChange={setDays} label="Window" testID="admin-search-days" />

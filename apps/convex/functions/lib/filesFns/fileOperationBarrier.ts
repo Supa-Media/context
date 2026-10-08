@@ -41,6 +41,8 @@ import {
   searchDatabaseClient,
   type TreeOperation,
   treeOperationClient,
+  noTreeTable,
+  treeStateOf,
 } from "./treeTableOps";
 import { recordProjectionOutcome } from "./projectionOutcome";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
@@ -248,7 +250,8 @@ export async function runFileOperationHandler(
 
   // A tree operation asks for its database before the bucket's credential, as a projection pass does.
   const treeOperation = await treeOperationClient(ctx, args);
-  if (treeOperation !== null && treeOperation.client === null) return { kind: "treeKept", complete: false };
+  if (treeOperation !== null && treeOperation.client === null) return noTreeTable(args.operation as TreeOperation);
+  if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
 
   let credential: GatewayCredential | null;
   try {

@@ -38,7 +38,16 @@ read starts a sweep. A table is swept again when read an hour after its last
 sweep. A store that cannot resume a listing in key order (Dropbox) is never
 served from the table.
 
-**Who reads it.** A browser tab's sidebar walk asks for it (`source: "tree"`).
+**What starts a sweep.** Any first page of any tree walk, whether it can read
+the table or not, and any console change to a table never filled or marked
+dirty. Waiting for a reader that asks for the table was the first version's
+mistake: the desktop and phone apps never asked, so no table anywhere was ever
+filled (2026-10-08). Staff see every table and can fill them all at once in
+admin › Search › Tree index (`functions/treeAdmin.ts`), which reads counts and
+bookkeeping through the credential barrier (`treeState`), never a path.
+
+**Who reads it.** Every tree walk asks for it (`source: "tree"`): a browser
+tab's sidebar, and the desktop and phone apps' copy of a workspace.
 The table answers once a sweep has finished, and until then, or where the
 context has no database, the walk goes to the bucket as before. Served from
 the table, a tab may walk again a second after the last walk rather than

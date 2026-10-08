@@ -159,10 +159,13 @@ export function useMirrorSync(options: {
         mine,
         now: () => Date.now(),
         needed: (workspaceId) => neededEtags(kv, workspaceId),
+        // The tree table where it can answer, as a tab's walk asks: the same
+        // `canSee` over the same keys, without walking the bucket.
         manifest: (workspaceId, cursor) =>
           withTimeout(
             actionsRef.current.syncManifest({
               workspaceId,
+              source: "tree",
               ...(cursor === undefined ? {} : { cursor }),
             }),
             MANIFEST_TIMEOUT_MS,

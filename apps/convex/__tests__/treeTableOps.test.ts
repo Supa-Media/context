@@ -86,11 +86,22 @@ beforeEach(() => {
 });
 
 describe("which store a sidebar walk reads", () => {
-  test("only a manifest that asks for the table is ever given it", async () => {
+  test("only a manifest that asks for the table is ever given it, but any walk starts it filling", async () => {
     const { ctx, scheduled } = fakeCtx({ target: true });
     const store = bucket();
     const answer = await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest" } }, store);
     expect(answer).toEqual({ store, source: "bucket" });
+    expect(scheduled.map((args) => args.operation)).toEqual([{ kind: "sweepTree", passes: 0 }]);
+    // Once per walk, not once per page.
+    await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest", cursor: "a" } }, store);
+    expect(scheduled).toHaveLength(1);
+  });
+
+  test("a walk of a filled table starts nothing", async () => {
+    const store = bucket();
+    await sweepTreePass(store, database);
+    const { ctx, scheduled } = fakeCtx({ target: true });
+    await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest" } }, store);
     expect(scheduled).toEqual([]);
   });
 
@@ -157,6 +168,28 @@ describe("a console change", () => {
     } as never);
     expect(answer).toEqual({ client: null });
     expect(marked.map((mark) => mark.audiences)).toEqual([["team"]]);
+  });
+
+  test("a change to a context whose table was never filled starts the filling", async () => {
+    const store = bucket();
+    const { ctx, scheduled } = fakeCtx({ target: true });
+    await ops.runTreeOperation(
+      ctx,
+      { ...ARGS, operation: { kind: "touchTree", paths: ["1-projects/a.md"], files: [], audiences: ["private"] } },
+      store,
+      database,
+    );
+    expect(scheduled.map((args) => args.operation)).toEqual([{ kind: "sweepTree", passes: 0 }]);
+
+    await sweepTreePass(store, database);
+    const after = fakeCtx({ target: true });
+    await ops.runTreeOperation(
+      after.ctx,
+      { ...ARGS, operation: { kind: "touchTree", paths: ["1-projects/a.md"], files: [], audiences: ["private"] } },
+      store,
+      database,
+    );
+    expect(after.scheduled).toEqual([]);
   });
 
   test("a sweep that finished schedules no further pass", async () => {
