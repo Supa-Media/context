@@ -609,6 +609,13 @@ export async function runMovesAndBatchChecks() {
   check("an owner move schedules reference repair beyond the scan cap",
     !queuedLinks.isError && Boolean(linkJobId) &&
       queuedLinks.content[0].text.includes("references: updating in background"));
+  const profileMarker = storedText(`.context/moves/${linkJobId}.json`);
+  const profile = await call("priv-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 });
+  check("owner can profile without changing the marker; other scopes are masked",
+    !profile.isError && profile.content[0].text.includes("note inventory:") &&
+    profile.content[0].text.includes("active move markers:") &&
+    storedText(`.context/moves/${linkJobId}.json`) === profileMarker &&
+    (await call("pub-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 })).isError);
   const restarted = await call("priv-token", "materialize_move", {
     id: linkJobId,
     batch_size: 1,
@@ -617,12 +624,19 @@ export async function runMovesAndBatchChecks() {
   check("an owner can restart a stalled reference worker",
     !restarted.isError && restarted.content[0].text.includes("background worker queued") &&
       referenceMessages.length >= 2);
+  const inventoryAfterFirstPass = JSON.parse(storedText(`.context/moves/${linkJobId}.json`));
+  check("reference inventory saves its first storage page before rewriting",
+    inventoryAfterFirstPass.reference_inventory_pages === 1 &&
+      Array.isArray(inventoryAfterFirstPass.reference_inventory_keys) &&
+      inventoryAfterFirstPass.reference_scanned === undefined);
   const queuedBeforeFreshPass = referenceMessages.length;
   const freshPass = await call("priv-token", "materialize_move", {
     id: linkJobId, batch_size: 1,
   });
   check("a fresh move pass does not queue a duplicate worker",
     !freshPass.isError && referenceMessages.length === queuedBeforeFreshPass);
+  check("reference inventory resumes from the saved cursor",
+    JSON.parse(storedText(`.context/moves/${linkJobId}.json`)).reference_inventory_pages === 2);
   const staleKey = `.context/moves/${linkJobId}.json`;
   const staleJob = JSON.parse(storedText(staleKey));
   staleJob.updated_at = new Date(Date.now() - 10 * 60 * 1000).toISOString();

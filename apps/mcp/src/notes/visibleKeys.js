@@ -12,13 +12,18 @@ import {
 } from "../moves/jobs.js";
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
-import { listAllKeys, listImmediateLayout } from "./storage.js";
+import { listAllKeys, listImmediateLayout, mapInBatches } from "./storage.js";
 
 /** List note objects without traversing dot-prefixed history/audit/ACL plumbing. */
 export async function listAllNoteKeys(store) {
-  const root = await listImmediateLayout(store);
-  const nested = await Promise.all(root.prefixes.map((prefix) => listAllKeys(store, prefix)));
-  return [...root.objects, ...nested.flat()].filter(
+  // A recursive delimiter walk made one or more list requests for every
+  // contact/conversation directory. Large communication trees have thousands
+  // of those directories, so a reference rewrite timed out before its first
+  // note. Partition at the workspace root, then page each root in parallel:
+  // the number of requests follows object pages rather than folder count.
+  const layout = await listImmediateLayout(store);
+  const branches = await mapInBatches(layout.prefixes, 8, (prefix) => listAllKeys(store, prefix));
+  return [...layout.objects, ...branches.flat()].filter(
     ({ key }) => key.endsWith(".md") && !isPlumbing(key)
   );
 }
