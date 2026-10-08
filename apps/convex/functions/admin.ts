@@ -57,6 +57,8 @@ import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { normalizeSecretName } from "./lib/appSecrets";
 import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } from "./lib/admin";
 import { agentReportHandler, agentReportValidator } from "./lib/adminFns/agentReport";
+import { aiCostsAccountValidator, aiCostsReportValidator } from "./lib/adminFns/aiCostsShape";
+import { aiCostsAccountHandler, aiCostsReportHandler } from "./lib/adminFns/aiCostsReport";
 import { searchReportHandler, searchReportValidator } from "./lib/adminFns/searchReport";
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, usageReportValidator, type CountedTotal, type MetricSeries } from "./lib/adminFns/usage";
@@ -145,6 +147,30 @@ export const agentReport = query({
       throw toConvexError(error);
     });
     return await agentReportHandler(ctx, args);
+  },
+});
+
+/** The AI costs tab: what Jev and the assistant cost, by feature, model, day and account. See `lib/adminFns/aiCostsReport.ts`. */
+export const aiCostsReport = query({
+  args: { days: v.optional(v.number()) },
+  returns: aiCostsReportValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await aiCostsReportHandler(ctx, args);
+  },
+});
+
+/** One account's drawer on the AI costs tab. `null` for an unknown or malformed user id. See `lib/adminFns/aiCostsReport.ts`. */
+export const aiCostsAccount = query({
+  args: { userId: v.string(), days: v.optional(v.number()) },
+  returns: aiCostsAccountValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await aiCostsAccountHandler(ctx, args);
   },
 });
 
