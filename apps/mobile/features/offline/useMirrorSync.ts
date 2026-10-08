@@ -15,10 +15,14 @@ import {
   onMirrorRefreshRequest,
   publishMirrorListed,
   publishMirrorNotesChanged,
+  lastMirrorRefreshRequest,
+  requestMirrorRefresh,
 } from "./mirrorEvents";
 import { folderFreshener } from "./folderFreshener";
 import { freshenFolder } from "./mirrorFolder";
+import { holdServerTree } from "./serverTree";
 import {
+  listContext,
   refreshMetadata,
   syncAll,
   type BatchRead,
@@ -286,6 +290,42 @@ export function useMirrorSync(options: {
     during one runs once more after it.
   */
   const refreshing = useRef(new Map<string, boolean>());
+  const runRefresh = useCallback((workspaceId: string, walk: () => Promise<void>) => {
+    const inFlight = refreshing.current;
+    if (inFlight.has(workspaceId)) {
+      inFlight.set(workspaceId, true);
+      return;
+    }
+    inFlight.set(workspaceId, false);
+    void (async () => {
+      do {
+        inFlight.set(workspaceId, false);
+        await walk();
+      } while (inFlight.get(workspaceId) === true && epochRef.current === currentEpoch());
+    })()
+      .catch(() => {})
+      .finally(() => inFlight.delete(workspaceId));
+  }, []);
+  /** A walk with nowhere to write: `listContext` reads only these. */
+  const serverDeps = useCallback(
+    (): Pick<MirrorSyncDeps, "manifest" | "mine" | "now" | "epoch"> => {
+      const epoch = epochRef.current;
+      return {
+        epoch,
+        mine: () => epoch === currentEpoch(),
+        now: () => Date.now(),
+        manifest: (workspaceId, cursor) =>
+          withTimeout(
+            actionsRef.current.syncManifest({
+              workspaceId,
+              ...(cursor === undefined ? {} : { cursor }),
+            }),
+            MANIFEST_TIMEOUT_MS,
+          ),
+      };
+    },
+    [],
+  );
   useEffect(
     () =>
       onMirrorRefreshRequest((workspaceId) => {
@@ -294,6 +334,23 @@ export function useMirrorSync(options: {
         if (epochRef.current !== currentEpoch()) return;
         const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
         if (target === undefined) return;
+        /*
+          A browser tab keeps no copy, so its walk is held in memory instead
+          (`serverTree.ts`): the side panel opens every folder from it, and
+          this request — the tree signal's, or opening the context — is how
+          it stays live.
+        */
+        if (!mirrorSupported()) {
+          runRefresh(workspaceId, async () => {
+            const deps = serverDeps();
+            const listing = await listContext(deps, target);
+            if (listing === null || listing === "aborted") return;
+            if (holdServerTree(listing, deps.epoch, Date.now()) && deps.mine()) {
+              publishMirrorListed(workspaceId);
+            }
+          });
+          return;
+        }
         /*
           A project List or Board was opened in this context: its walk is the
           freshen's, which commits the same listing and then fetches the notes
@@ -305,24 +362,12 @@ export function useMirrorSync(options: {
           freshener.retry(workspaceId);
           return;
         }
-        const inFlight = refreshing.current;
-        if (inFlight.has(workspaceId)) {
-          inFlight.set(workspaceId, true);
-          return;
-        }
-        inFlight.set(workspaceId, false);
-        void (async () => {
+        runRefresh(workspaceId, async () => {
           const store = await openMirrorStore();
-          if (store === null) return;
-          do {
-            inFlight.set(workspaceId, false);
-            await refreshMetadata(engine(store), target);
-          } while (inFlight.get(workspaceId) === true && epochRef.current === currentEpoch());
-        })()
-          .catch(() => {})
-          .finally(() => inFlight.delete(workspaceId));
+          if (store !== null) await refreshMetadata(engine(store), target);
+        });
       }),
-    [engine, freshener],
+    [engine, freshener, runRefresh, serverDeps],
   );
 
   useEffect(() => onMirrorFolderRequest((workspaceId, folder) => freshener.request(workspaceId, folder)), [freshener]);
@@ -332,6 +377,11 @@ export function useMirrorSync(options: {
     if (reachability !== "online") return;
     freshener.retry();
     sync();
+    // A tab asks for its tree as the context opens, which on a cold load is
+    // before the connection is known or the context list has landed — and the
+    // request is dropped. Ask again now that both are here.
+    const wanted = focused.current ?? lastMirrorRefreshRequest();
+    if (!mirrorSupported() && wanted !== null) requestMirrorRefresh(wanted);
   }, [reachability, sync, targets, freshener]);
 
   // Back to the foreground, and a modest interval while it stays there.
