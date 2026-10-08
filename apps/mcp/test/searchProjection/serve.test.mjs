@@ -26,6 +26,7 @@ import {
   searchProjection,
   worker,
 } from "./fixtures.mjs";
+import { showAtMovedPaths } from "../../src/search/visibleNotes.js";
 
 
 /* ========================================================================
@@ -851,6 +852,46 @@ export async function runServeChecks(check) {
       d1.rowsIn(DATABASE_ID_B, `SELECT path FROM notes`).every((row) =>
         row.path.startsWith("1-projects/field"),
       ) && d1.rows(`SELECT path FROM notes WHERE path = '1-projects/field.md'`).length === 0,
+    );
+
+    // -- a folder move in flight -------------------------------------------
+    /*
+     * Production, 2026-10-08: a stalled folder move in @seyi sent every
+     * whole-context search to the literal scan, which spent the budget and
+     * failed "search budget exhausted". A ready projection now answers, with
+     * a moved note shown at its new path.
+     */
+    const job = {
+      version: 1,
+      id: "move-serve-0000000001",
+      source: "1-projects/roster.md",
+      destination: "2-areas/roster.md",
+      objects: [{ source: "1-projects/roster.md", destination: "2-areas/roster.md" }],
+      status: "logical_active",
+      created_at: "2026-10-08T00:00:00.000Z",
+    };
+    seed(".context/moves/move-serve-0000000001.json", JSON.stringify(job), "mv1");
+    seed(".context/moves/active", JSON.stringify({ version: 1, active: true }), "mv2");
+    const midMove = await search("roster");
+    bucket.delete(".context/moves/move-serve-0000000001.json");
+    bucket.delete(".context/moves/active");
+    check(
+      "a move in flight does not send a whole-context search to the scan",
+      !midMove.body.result?.isError && midMove.answerReads === 0,
+    );
+    check(
+      "...and a moved note is shown at its new path, never its old one",
+      midMove.text.includes("2-areas/roster.md") && !midMove.text.includes("1-projects/roster.md"),
+    );
+
+    const hidden = showAtMovedPaths(
+      { hits: [{ key: "1-projects/roster.md", title: "Roster", snippets: [] }], matchCount: 1, matchCountIsFloor: false },
+      [job],
+      (path) => path !== "2-areas/roster.md",
+    );
+    check(
+      "...and one the caller may not see at its new path is dropped, count and all",
+      hidden.hits.length === 0 && hidden.matchCount === 0,
     );
 
     // -- the credential, on the read path ----------------------------------
