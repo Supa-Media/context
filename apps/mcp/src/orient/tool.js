@@ -14,6 +14,7 @@ import {
   ORIENT_SIBLING_LIMIT,
   reducedRecallNotesFor,
   relativeAge,
+  FOLDER_ABOUT_GUIDANCE,
   renderBuiltInFolders,
   renderStructure,
 } from "./render.js";
@@ -29,6 +30,7 @@ import { websiteGuideFor } from "./websiteGuide.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
 import { surveyContext } from "./survey.js";
+import { describeFolders } from "./folderAbout.js";
 import { toolError, toolText } from "../tools/results.js";
 
 async function surveyOtherContexts(store) {
@@ -106,7 +108,12 @@ export async function toolOrient(store, scope, rules, overrides) {
       readSaveProcedure(store, scope, rules, overrides),
       scope === "private" ? getWithLegacyFallback(store, "index-private.md") : Promise.resolve(null),
       scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
-      surveyContext(store, scope, rules, overrides),
+      // Described after the survey, because the descriptions are read only for
+      // the folders the survey is about to draw, and it names their front notes.
+      surveyContext(store, scope, rules, overrides).then(async (survey) => {
+        await describeFolders(store, survey);
+        return survey;
+      }),
       reducedRecallNotesFor(store, (path) => canSee(path, scope, rules, overrides)),
       readGlobalOrientNote({
         contexts: store.contexts,
@@ -174,6 +181,7 @@ export async function toolOrient(store, scope, rules, overrides) {
   parts.push(
     `## Structure\n${renderStructure(survey)}\n\n` +
       (renderBuiltInFolders(survey) ? `${renderBuiltInFolders(survey)}\n\n` : "") +
+      `${FOLDER_ABOUT_GUIDANCE}\n\n` +
       (survey.truncated
         ? "Counts marked `+` are floors: the folder was larger than one orientation walks. "
         : "") +
