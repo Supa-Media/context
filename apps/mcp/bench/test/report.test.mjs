@@ -359,3 +359,17 @@ test("priceUsd prices the catalog models the setups name", () => {
   assert.equal(priceUsd("google/gemini-2.5-flash", { input: 1000000, output: 0 }), 0.3);
   assert.equal(priceUsd("openai/gpt-5-mini", { input: 0, output: 1000000 }), 2);
 });
+
+test("front matter records whether fluff was on and how many notes it wrote", () => {
+  const on = resultMarkdown({ ...fixture, fluff: { on: true, notes: 41 } }).split("\n---\n")[0].split("\n");
+  assert.ok(on.includes("fluff: on"));
+  assert.ok(on.includes("fluff_notes: 41"));
+  const off = resultMarkdown({ ...fixture, fluff: { on: false, notes: 0 } }).split("\n---\n")[0].split("\n");
+  assert.ok(off.includes("fluff: off"));
+  assert.ok(off.includes("fluff_notes: 0"));
+});
+
+test("fluff lines are omitted when the run did not say", () => {
+  const md = resultMarkdown(fixture);
+  assert.ok(!md.includes("fluff"));
+});

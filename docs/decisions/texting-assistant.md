@@ -504,6 +504,18 @@ the real clock and the result note says `today: real`. Tests: `world.test.mjs`
 (the clock and the note ages), `load.test.mjs` (a bad `today` is refused by
 name).
 
+**Fixtures grow by fluff files, never by hand.** Decided by the owner,
+2026-10-08: the hand-written workspaces stay small and readable in
+`@context-lc`, and a `fluff.md` in any folder says what filler to generate
+there (`count`, `seed`, `from` a template folder under `workspaces/_bank/`, a
+`name` pattern, a date range) and which hand-written notes to copy as older,
+dated distractors. The run expands them deterministically from the seed, so two
+runs on different days write identical notes; a fluff file is never served as a
+note, `_bank` is never a workspace, and a distractor copy of a held-back note
+stays held back. `--no-fluff` runs the hand-written notes alone. Tests:
+`bench/test/fluff.test.mjs`, `load.test.mjs` ("fluff.md never appears in
+files", "a distractor copy of a held-back note is held back").
+
 ### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
