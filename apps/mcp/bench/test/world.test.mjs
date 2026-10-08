@@ -144,6 +144,11 @@ test("after a search, reads, listing and orient in the same turn still work", as
       calls.map((call) => ({ tool: call.name, ok: true })),
       `every call after the search must succeed, got ${JSON.stringify(turn.tools)}`,
     );
+  } finally {
+    world.close();
+  }
+});
+
 // ---- the pinned day, and the dates on each note ----
 
 /** A model that answers at once, with no tool call. */
