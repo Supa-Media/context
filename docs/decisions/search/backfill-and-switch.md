@@ -156,6 +156,8 @@ where there were under a thousand, and the copy could never finish. A row the
 census lacks was also never revisited, so those old paths kept answering
 searches with notes that open nothing. Each pass now deletes rows for paths
 the listing does not hold, only in folders the listing finished. The R2 index
-pass still runs in front of it, for the recent edits it reports and for the
-searches that fall back to it. Reverting either half fails
+pass no longer runs in front of it, only when the listing fails: on @seyi it
+never converged, so every link re-copied the notes it reported touching and
+the walk never left its first window. Searches still keep that index for their
+fallback. Reverting either half fails
 `apps/convex/__tests__/searchBackfillCensus.test.ts`.
