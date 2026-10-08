@@ -133,10 +133,10 @@ const SNAPSHOT = [
   "",
   "## Summary",
   "",
-  "| Setup | Model | Answers | Errors | Median time | Price per question | Texts per question |",
-  "| --- | --- | --- | --- | --- | --- | --- |",
-  "| production | anthropic/claude-haiku-5-5 | 3 | 1 | 2.2 s | $0.0001 | 0.8 |",
-  "| glm-trial | @cf/zai-org/glm-4.7-flash | 4 | 0 | 2.9 s | unknown | 1.0 |",
+  "| Setup | Model | Answers | Errors | Median time | Price per question | Texts per question | Failed tool calls |",
+  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  "| production | anthropic/claude-haiku-5-5 | 3 | 1 | 2.2 s | $0.0001 | 0.8 | 0 |",
+  "| glm-trial | @cf/zai-org/glm-4.7-flash | 4 | 0 | 2.9 s | unknown | 1.0 | 0 |",
   "",
   "## Answers",
   "",
@@ -334,4 +334,19 @@ test("an errored run shows its error instead of a time line", () => {
 test("the judging section is present and the note says it is not judged", () => {
   const md = resultMarkdown(fixture);
   assert.ok(md.endsWith("## Judging\n\nNot judged yet. Add a `## Judged by <model>, <date>` section; never edit an earlier one.\n"));
+});
+
+test("a failed tool call is named as failed and counted per setup", () => {
+  const run = {
+    ...fixture.runs[0],
+    tools: [{ tool: "search_notes", ok: true }, { tool: "read_note", ok: false }, "orient"],
+  };
+  const md = resultMarkdown({ ...fixture, runs: [run] });
+  assert.ok(md.includes("Tools: search_notes, read_note (failed), orient"));
+  assert.ok(md.includes("| production | anthropic/claude-haiku-5-5 | 1 | 0 | 4.2 s | $0.0002 | 1.0 | 1 |"));
+});
+
+test("priceUsd prices the catalog models the setups name", () => {
+  assert.equal(priceUsd("google/gemini-2.5-flash", { input: 1000000, output: 0 }), 0.3);
+  assert.equal(priceUsd("openai/gpt-5-mini", { input: 0, output: 1000000 }), 2);
 });

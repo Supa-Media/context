@@ -5,7 +5,7 @@
  * and object store its tests use. Every invented workspace becomes its own
  * bucket with a real `privacy.md`, every invented person a texting grant
  * covering exactly the workspaces `people.md` gives them, and the setup under
- * test is written where the product reads it: `assistant/production/` in a
+ * test is written where the product reads it: `ai/production/` in a
  * pinned `@context-lc`. So a benchmark answer goes through the same tools,
  * routing and privacy decisions a texted answer does, and a setup that leaks
  * a held-back note does it here first.
@@ -135,6 +135,10 @@ export async function createWorld(bench, person, setupRaw, models) {
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
+    // The deployed Worker's search budget (wrangler.toml). The free-tier default
+    // of 40 is spent by one bucket scan, and every read, listing and orient in the
+    // same turn then fails: the 2026-10-08 results measured exactly that.
+    SEARCH_SUBREQUEST_BUDGET: "600",
     ...(models.ai ? { AI: models.ai } : {}),
     AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
     AI_GATEWAY_ID: "bench",
@@ -166,7 +170,9 @@ export async function createWorld(bench, person, setupRaw, models) {
         error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
         ms,
         model: usage.model ?? body?.model ?? null,
-        tools: (turn.trace ?? []).filter((entry) => entry.kind === "tool").map((entry) => entry.tool),
+        // Each call with whether it succeeded: a result note that hides failed calls
+        // reads like a model that could not find anything.
+        tools: (turn.trace ?? []).filter((entry) => entry.kind === "tool").map((entry) => ({ tool: entry.tool, ok: entry.ok !== false })),
         usage: {
           input: usage.inputTokens ?? 0,
           output: usage.outputTokens ?? 0,
