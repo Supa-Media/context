@@ -48,6 +48,14 @@ describe("/gateway/jobs/*", () => {
     expect(rows[0].hashedTicket).toBe(await hashToken(ticket));
     expect(JSON.stringify(rows[0])).not.toContain(ticket);
 
+    const duplicate = await bodyOf(await gatewayPost(t, "/gateway/jobs/create", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      job: { kind: "materialize_move", moveId: "move-aaaaaaaaaaaa" },
+    }));
+    expect(duplicate).toEqual({ ticket: null, alreadyActive: true });
+    expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(1);
+
     const opened = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
     const job = opened.job as {
       job: { workspaceId: Id<"workspaces">; moveId: string };
@@ -134,6 +142,33 @@ describe("/gateway/jobs/*", () => {
       }),
     );
     expect(teamTier).toEqual({ ticket: null });
+  });
+
+  test("a stale queued ticket can be replaced, but a live lease cannot", async () => {
+    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+    const create = () => gatewayPost(t, "/gateway/jobs/create", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      job: { kind: "materialize_move", moveId: "move-dddddddddddd" },
+    });
+    expect(typeof (await bodyOf(await create())).ticket).toBe("string");
+    const first = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(first).not.toBeNull();
+    await t.run((ctx) => ctx.db.patch(first!._id, { updatedAt: Date.now() - 6 * 60 * 1000 }));
+    expect(typeof (await bodyOf(await create())).ticket).toBe("string");
+    const rows = await t.run((ctx) => ctx.db.query("gatewayJobs").collect());
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row._id === first!._id)?.status).toBe("failed");
+    const second = rows.find((row) => row._id !== first!._id)!;
+    await t.run((ctx) => ctx.db.patch(second._id, {
+      status: "running",
+      leasedAt: Date.now() - 6 * 60 * 1000,
+    }));
+    expect(await bodyOf(await create())).toEqual({ ticket: null, alreadyActive: true });
+    expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(2);
   });
 });
 

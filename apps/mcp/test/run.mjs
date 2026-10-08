@@ -21,6 +21,7 @@ const ENTRIES = [
   ["test.mjs", ["test/test.mjs"]],
   ["bulkMoves.mjs move", ["test/bulkMoves.mjs", "move"]],
   ["bulkMoves.mjs folder", ["test/bulkMoves.mjs", "folder"]],
+  ["move queue dedupe", ["test/moveQueueDedupe.test.mjs"]],
   ["node --test", unit.split(/\s+/).slice(1)],
 ];
 

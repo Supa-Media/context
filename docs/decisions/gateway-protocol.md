@@ -511,6 +511,20 @@ frame carries offsets and nothing else", "another workspace's token addresses
 its own room, never the first's", "a private note and a missing note refuse
 identically" and "a client's own member header is overwritten, not honoured".
 
+### A logical move has one active background worker
+
+Large folder moves keep their state in the bucket move marker. The control
+plane holds only a ticket, workspace identity, move ID, status, and counts.
+Creating a second ticket while one is queued or leased runs two materializers
+against the same marker and can report conflicting progress. The control plane
+therefore coalesces live tickets by workspace and move ID. A stale queued
+ticket may be replaced after five minutes, or a running one after its lease;
+the replaced row is retired so a delayed message cannot start it. When the
+durable queue accepts a new move, the request does not also launch its own
+deferred materializer. A deferred pass remains the fallback when queueing is
+unavailable. This changes scheduling only; the bucket marker remains the
+source of truth for bytes, privacy, and reference rewriting.
+
 ### An agent asks for a link and is handed the URL, never the token
 
 Decided 2026-09-20, with short links, and it is the smaller half of the same

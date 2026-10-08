@@ -36,7 +36,9 @@ export async function gatewayJobsCreateHandler(
     kind,
     moveId,
   });
-  return json({ ticket: created ? ticket : null });
+  return json(created === "already_active"
+    ? { ticket: null, alreadyActive: true }
+    : { ticket: created ? ticket : null });
 }
 
 export async function gatewayJobsOpenHandler(

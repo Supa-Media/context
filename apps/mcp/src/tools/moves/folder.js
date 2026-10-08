@@ -163,16 +163,19 @@ async function createLogicalFolderMove(store, scope, source, destination, object
   };
   await store.put(moveJobKey(id), JSON.stringify(job, null, 2));
   await writeMoveSentinel(store);
+  let queued = false;
   if (typeof store.enqueueGatewayJob === "function") {
     try {
-      await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id });
+      queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id }) !== false;
     } catch {
       // The on-bucket marker is the source of truth. Queueing is what makes the
       // move autonomous, but a control-plane blip must not roll back the
       // logical cutover; the owner can still resume with `materialize_move`.
     }
   }
-  if (typeof store.defer === "function") {
+  // The durable queue owns the job once accepted. Running the request's
+  // waitUntil materializer as well starts two writers on the same move marker.
+  if (!queued && typeof store.defer === "function") {
     try {
       store.defer(() => materializeMoveInBackground(store, scope, id));
     } catch {
