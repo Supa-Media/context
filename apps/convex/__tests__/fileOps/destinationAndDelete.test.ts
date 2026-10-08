@@ -161,12 +161,12 @@ describe("a destination the caller cannot see", () => {
 
   /**
    * Archiving is a move, so it inherits the rule — and on the scaffold's own
-   * defaults `4-archive` is private, which means an editor can no longer
+   * defaults `9-archive` is private, which means an editor can no longer
    * archive. That is deliberate rather than incidental: archiving a shared
    * note into a private archive is the same one-way removal as the test three
    * above, reached through a friendlier button, and the gateway has always
    * refused it (`archive_note` checks `visibilityOf(dest)` before writing).
-   * An owner who wants editors to archive shares `4-archive`.
+   * An owner who wants editors to archive shares `9-archive`.
    */
   test("archiving follows the same rule, in both directions", async () => {
     const store = await withHiddenNote();
@@ -176,9 +176,9 @@ describe("a destination the caller cannot see", () => {
     // Its own code and its own sentence. Inheriting the move's "that file does
     // not exist" would say it about a note the caller is looking at.
     expect(refused.code).toBe("ARCHIVE_UNAVAILABLE");
-    expect(refused.message).toContain("4-archive");
+    expect(refused.message).toContain("9-archive");
 
-    // The owner leg belongs here, while `4-archive` is still private — that is
+    // The owner leg belongs here, while `9-archive` is still private — that is
     // the case this change alters, and asserting it after the folder is shared
     // would prove nothing about it.
     const owner = await archivePath(store, {
@@ -186,10 +186,10 @@ describe("a destination the caller cannot see", () => {
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    expect(owner.paths[0]).toContain("4-archive/");
+    expect(owner.paths[0]).toContain("9-archive/");
 
     await setFolderVisibility(store, {
-      path: "4-archive",
+      path: "9-archive",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
@@ -198,7 +198,7 @@ describe("a destination the caller cannot see", () => {
       clearance: clearanceOf("team"),
       now: NOW,
     });
-    expect(allowed.paths[0]).toContain("4-archive/");
+    expect(allowed.paths[0]).toContain("9-archive/");
   });
 
   /**
@@ -488,15 +488,19 @@ describe("deleting is the permanent one", () => {
     expect(survivors).toEqual([]);
   });
 
+  // An own folder: the built-in ones (`1-projects`) cannot be deleted at all.
   test("deleting a folder takes everything under it", async () => {
     const store = bucket();
+    store.seed("work/README.md", "# Work\n");
+    store.seed("work/plan.md", "# Plan\n");
+    store.seed("work/deep/notes.md", "# Notes\n");
     await deletePath(store, {
-      path: "1-projects",
+      path: "work",
       confirmation: DELETE_CONFIRMATION,
       clearance: clearanceOf("private"),
     });
     const remaining = Object.keys(store.snapshot()).filter((key) =>
-      key.startsWith("1-projects/"),
+      key.startsWith("work/"),
     );
     expect(remaining).toEqual([]);
   });
@@ -583,12 +587,16 @@ describe("deleting is the permanent one", () => {
 
     test("deleting a folder purges the whole history subtree beneath it", async () => {
       const store = bucket();
+      store.seed("work/pay.md", "# Pay\n\nsalaries\n");
+      store.seed(".history/work/pay.md.2026-07-01T09-00-00-000Z.md", "# Pay\n\nsalaries\n");
+      store.seed(".history/work/deep/old.md.2026-07-01T09-00-00-000Z.md", "# older\n");
+      expect(historyKeys(store).filter((key) => key.startsWith(".history/work/")).length).toBe(2);
       await deletePath(store, {
-        path: "1-projects",
+        path: "work",
         confirmation: DELETE_CONFIRMATION,
         clearance: clearanceOf("private"),
       });
-      expect(historyKeys(store).filter((key) => key.startsWith(".history/1-projects/"))).toEqual(
+      expect(historyKeys(store).filter((key) => key.startsWith(".history/work/"))).toEqual(
         [],
       );
     });

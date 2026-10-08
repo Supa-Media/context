@@ -269,7 +269,7 @@ describe("the presets are things the control plane will accept", () => {
     expect([...PARA_FOLDERS].sort()).toEqual([...five].sort());
     for (const key of ["business", "product", "project"] as const) {
       const names = presetRows(key).map((row) => row.name);
-      for (const folder of five) expect(names, `${key} is missing ${folder}`).toContain(folder);
+      for (const folder of five) expect(names).toContain(folder);
     }
   });
 

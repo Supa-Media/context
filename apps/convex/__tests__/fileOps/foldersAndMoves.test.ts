@@ -214,18 +214,21 @@ describe("moving and renaming", () => {
     expect(snapshot["1-projects/context-lc.md"]).toBeUndefined();
   });
 
+  // An own folder: the built-in ones (`1-projects`) stay where they are.
   test("a whole folder moves, keeping its shape", async () => {
     const store = bucket();
+    store.seed("work/context-lc.md", "# Context.LC\n\nnotes\n");
+    store.seed("work/money/pay.md", "# Pay\n\nsalaries\n");
     await movePath(store, {
-      from: "1-projects",
-      to: "2-areas/projects",
+      from: "work",
+      to: "2-areas/work",
       clearance: clearanceOf("private"),
       now: NOW,
     });
     const snapshot = store.snapshot();
-    expect(snapshot["2-areas/projects/context-lc.md"]).toContain("# Context.LC");
-    expect(snapshot["2-areas/projects/pay.md"]).toContain("salaries");
-    expect(snapshot["1-projects/pay.md"]).toBeUndefined();
+    expect(snapshot["2-areas/work/context-lc.md"]).toContain("# Context.LC");
+    expect(snapshot["2-areas/work/money/pay.md"]).toContain("salaries");
+    expect(snapshot["work/money/pay.md"]).toBeUndefined();
   });
 
   test("an existing destination is refused rather than merged over", async () => {
@@ -321,9 +324,12 @@ describe("moving and renaming", () => {
 
   test("moving a folder moves its folder default with it", async () => {
     const store = bucket();
-    await shareProjects(store);
+    store.seed("work/context-lc.md", "# Context.LC\n");
+    store.seed("work/pay.md", "# Pay\n\nsalaries\n");
+    await setFolderVisibility(store, { path: "work", visibility: "team", clearance: clearanceOf("private") });
+    await setVisibility(store, { path: "work/pay.md", visibility: "private", clearance: clearanceOf("private") });
     await movePath(store, {
-      from: "1-projects",
+      from: "work",
       to: "5-work",
       clearance: clearanceOf("private"),
       now: NOW,
@@ -465,7 +471,7 @@ describe("archiving is the recoverable one", () => {
     // An owner who shares their archive so the team can see what was retired.
     // Nothing about that choice should reach into a private folder.
     await setFolderVisibility(store, {
-      path: "4-archive",
+      path: "9-archive",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
@@ -478,14 +484,14 @@ describe("archiving is the recoverable one", () => {
     expect(canSee(archived.paths[0]!, "team", manifest.rules, manifest.overrides)).toBe(false);
   });
 
-  test("the note moves into 4-archive with its original path preserved", async () => {
+  test("the note moves into 9-archive with its original path preserved", async () => {
     const store = bucket();
     const result = await archivePath(store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    expect(result.to).toMatch(/^4-archive\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
+    expect(result.to).toMatch(/^9-archive\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
     expect(store.snapshot()[result.to]).toContain("# Context.LC");
     expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
   });
@@ -533,7 +539,7 @@ describe("archiving is the recoverable one", () => {
   test("something already in the archive is not archived again", async () => {
     const store = bucket();
     const error = await capture(() =>
-      archivePath(store, { path: "4-archive/README.md", clearance: clearanceOf("private"), now: NOW }),
+      archivePath(store, { path: "9-archive/README.md", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("PATH_INVALID");
   });

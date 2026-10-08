@@ -30,7 +30,7 @@ describe("listing a folder", () => {
       "0-inbox",
       "1-projects",
       "2-areas",
-      "4-archive",
+      "9-archive",
       "index.md",
       "privacy.md",
     ]);

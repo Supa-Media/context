@@ -25,7 +25,7 @@ describe("a fresh bucket", () => {
         "1-projects/README.md",
         "2-areas/README.md",
         "3-resources/README.md",
-        "4-archive/README.md",
+        "9-archive/README.md",
         INDEX_KEY,
         PRIVACY_KEY,
       ].sort(),

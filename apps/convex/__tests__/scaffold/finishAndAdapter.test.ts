@@ -365,7 +365,7 @@ describe("a shared workspace's starting manifest", () => {
       "0-inbox/README.md",
       "1-projects/README.md",
       "1-projects/anything.md",
-      "4-archive/deep/nested/note.md",
+      "9-archive/deep/nested/note.md",
     ]) {
       expect(canSee(key, "team", rules, overrides), `${key} is not readable`).toBe(
         true,

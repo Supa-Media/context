@@ -50,7 +50,7 @@ export function bucket(options: { ignoreIfMatch?: boolean; conditional?: boolean
   store.seed("1-projects/pay.md", "# Pay\n\nsalaries\n");
   store.seed("2-areas/README.md", "# Areas\n");
   store.seed("2-areas/health.md", "# Health\n");
-  store.seed("4-archive/README.md", "# Archive\n");
+  store.seed("9-archive/README.md", "# Archive\n");
   store.seed(".history/1-projects/context-lc.md.old.md", "# older\n");
   // A bucket connected before snapshots stopped being written. Nothing creates
   // these any more, but every bucket that predates that change is full of them

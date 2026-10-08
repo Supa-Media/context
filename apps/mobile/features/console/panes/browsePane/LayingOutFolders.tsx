@@ -56,7 +56,7 @@ export function LayingOutPage({
  * progress bar about nothing.
  *
  * **Chips only for the standard five.** A shared workspace can be laid out as a
- * business, an agency or a project (`features/workspace/presets.ts`), and the
+ * business, a product company or a project (`features/workspace/presets.ts`), and the
  * console is not told which folders that choice named — so it draws the line
  * alone rather than five PARA chips the bucket is not getting. The tree beside
  * it shows the real folders the moment they land.

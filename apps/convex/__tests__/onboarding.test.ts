@@ -195,7 +195,7 @@ describe("the answer is what gets written", () => {
         "1-projects/README.md",
         "2-areas/README.md",
         "3-resources/README.md",
-        "4-archive/README.md",
+        "9-archive/README.md",
         "index.md",
         "privacy.md",
       ].sort(),

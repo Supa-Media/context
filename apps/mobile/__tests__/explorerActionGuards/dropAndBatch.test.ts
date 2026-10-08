@@ -97,15 +97,17 @@ describe("a pick is acted on as one batch", () => {
     ]);
   });
 
+  // From a note rather than from `2-areas`: a range holding a built-in folder
+  // offers no trash at all (`menuBuiltIn.ts`), which `fileMenu` pins.
   test("shift-click picks the range between", () => {
     const editor = mount(true);
-    clickRow(editor.container, "2-areas", { ctrlKey: true });
+    clickRow(editor.container, "note.md", { ctrlKey: true });
     clickRow(editor.container, "other.md", { shiftKey: true });
     openRowMenu(editor.container, "note.md");
-    pressMenuItem("Move 3 items to trash");
+    pressMenuItem("Move 2 items to trash");
 
     expect(editor.calls.entries).toEqual([
-      { name: "destroyMany", args: [["2-areas", "note.md", "other.md"]] },
+      { name: "destroyMany", args: [["note.md", "other.md"]] },
     ]);
   });
 

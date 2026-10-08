@@ -523,7 +523,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   }
 
   /**
-   * Restore replaces archive for anything already under `4-archive/`, because
+   * Restore replaces archive for anything already in the archive
+   * (`9-archive/`, or `4-archive/` in older workspaces), because
    * for something that is already put away the recoverable action is undoing
    * it. `restoreTargetFor` reads the original path back out of the timestamped
    * folder, so this is a string question with a definite answer rather than a
