@@ -86,7 +86,7 @@ export type FileOperation =
       refreshOnMiss?: boolean;
     }
   | { kind: "notePaths" }
-  | { kind: "workspaceGraph" }
+  | { kind: "workspaceGraph"; compact?: boolean }
   | { kind: "visiblePaths"; paths: string[] }
   | { kind: "maintainIndex"; passes?: number }
   /**

@@ -562,7 +562,7 @@ export async function executeOperation(
         return { kind: "notePaths", paths: found?.paths ?? null };
       }
       case "workspaceGraph":
-        return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance)) };
+        return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance, { compact: operation.compact === true })) };
       case "visiblePaths":
         return { kind: "visiblePaths", paths: await visiblePathsOf(store, clearance, operation.paths) };
       case "projectIndex": {

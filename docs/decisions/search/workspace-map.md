@@ -29,12 +29,40 @@ Reverse any of these and "the team answer is identical whether or not the
 hidden note exists" or "a team caller sees neither the private note nor any
 edge into or out of it" (`__tests__/workspaceGraph.test.ts`) fails.
 
-**Shards are read one at a time and only `path → links` survives.** The
-PageRank note in `search/CONTRACT.md` is why: a global link graph needs every
-shard in memory at maintenance time, which is the blowup v2 exists to remove.
-At request time the walk holds one parsed shard plus the integer edge list.
+**Shards are fetched in waves and parsed one at a time; only `path → links`
+survives.** The PageRank note in `search/CONTRACT.md` is why: a global link
+graph needs every shard in memory at maintenance time, which is the blowup v2
+exists to remove. At request time the walk holds one parsed shard plus the
+integer edge list, and a wave of `SHARD_READ_CONCURRENCY` (6) raw byte buffers,
+as the search query walk does. Until 2026-10-08 the fetches were one at a time
+too, and that was most of a slow map: a 15,000-note workspace is about 50
+shards, so 54 round trips in a row from the control plane to the bucket. With a
+simulated 100 ms per round trip, the graph read took 5.7 s; in waves, with the
+privacy manifest, docmap and move jobs fetched together, it takes 1.4 s for
+every note rather than 5,000. "Shards are fetched in waves"
+(`__tests__/workspaceGraphCompact.test.ts`) fails if they go back to one at a
+time.
 
-**It is capped and honest.** 5,000 nodes and 20,000 edges (`GRAPH_NODE_CAP`,
+**It draws every note** (decided by the owner, 2026-10-08: "I want us to show
+all, but of course if an area is too dense we may not see details until we
+zoom in"). The console asks with `compact: true` and gets every visible path
+and every link, as chunks under Convex's 8,192-item array limit, with a title
+being the file name and so not sent. Ceilings stay (`GRAPH_ALL_NODE_CAP`
+60,000, `GRAPH_ALL_EDGE_CAP` 150,000) because one answer must stay a few
+megabytes, but the index itself tops out near them. The canvas copes by
+drawing what is on screen: notes are bucketed in a grid per layout and a frame
+reads only the cells it sees, resting dots share one path and one fill, dots a
+pixel or two across are squares, and level of detail is unchanged (names,
+links and faces fade in by on-screen size), so a dense folder is a texture
+until somebody zooms into it. The last answer per workspace is kept in the
+tab's memory only (`graphCache.ts`, keyed by the session epoch, at most 30
+minutes old, never on the device), so the map opens drawn and is replaced by a
+fresh read a moment later. A role that shrank in that window shows the older
+map until the fresh read lands; the cache is the person's own last answer in
+their own tab, so it is accepted.
+
+**The object answer is capped and honest, for old clients.** A console that
+does not ask for `compact` gets what it always got: 5,000 nodes and 20,000 edges (`GRAPH_NODE_CAP`,
 `GRAPH_EDGE_CAP`), with `truncated` set when either cut, `noteCount` (every
 visible note, drawn or not) and `linksCut`, so the map says "Showing 5,000 of
 8,214 notes" rather than "the first part". The node cap is **shared, not cut
@@ -56,7 +84,8 @@ not built because it needs exactly what v2 gave up — every shard's links in
 memory, or a second incremental structure kept in step with every shard write
 — and because it would still have to be filtered per caller at serve time, so
 it saves reads and none of the privacy work. At the shard ceiling (64) a map
-costs 67 reads, which a Convex action affords. Revisit when a measured map open
-is slow, with a design that keeps the one-shard memory bound; it would be a
-disposable derivative like the rest of `.context/search/`, rebuildable and
-never the only copy of a link.
+costs 67 reads, now in about a dozen waves. If links move into the fast-search
+database with the file tree (proposed 2026-10-08 by the sidebar-tree work,
+which owns it), the map reads from there instead, with the same serve-time
+filter. Any such store must be a disposable derivative like the rest of
+`.context/search/`, rebuildable and never the only copy of a link.

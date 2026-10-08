@@ -46,28 +46,44 @@ export function scatter(ids: readonly string[], r: number): Point[] {
 
 /** Push points apart until none is closer than `d0`, keeping them inside radius `R`. */
 function relax(pts: Point[], R: number, d0: number): void {
+  const n = pts.length;
   const cell = d0;
-  const iterations = 36;
+  // A folder of thousands is seen as a texture long before single dots can be
+  // told apart, and evening it out costs its owner a frozen page on open.
+  const iterations = n > 4000 ? 12 : 36;
+  // Points stay inside the disc between passes, so the grid is a fixed
+  // square of cells over it, bucketed by counting sort: no per-pass maps or
+  // arrays, which is what made big folders slow. Cells list points in index
+  // order, so pairs are visited in the same order as a plain scan would.
+  const lo = Math.floor(-R / cell) - 1;
+  const side = Math.floor(R / cell) + 2 - lo;
+  const cells = side * side;
+  const start = new Int32Array(cells + 1);
+  const order = new Int32Array(n);
+  const cellIndex = new Int32Array(n);
+  const cellOf = (v: number) => Math.min(side - 1, Math.max(0, Math.floor(v / cell) - lo));
   for (let it = 0; it < iterations; it += 1) {
-    const grid = new Map<number, number[]>();
-    const cellOf = (v: number) => Math.floor(v / cell);
-    const keyOf = (cx: number, cy: number) => cx * 73856093 + cy * 19349663;
-    pts.forEach((p, i) => {
-      const k = keyOf(cellOf(p.x), cellOf(p.y));
-      const list = grid.get(k);
-      if (list) list.push(i);
-      else grid.set(k, [i]);
-    });
-    let moved = 0;
-    for (let i = 0; i < pts.length; i += 1) {
+    start.fill(0);
+    for (let i = 0; i < n; i += 1) {
       const p = pts[i]!;
+      const c = cellOf(p.y) * side + cellOf(p.x);
+      cellIndex[i] = c;
+      start[c + 1] += 1;
+    }
+    for (let c = 0; c < cells; c += 1) start[c + 1] += start[c]!;
+    const fill = start.slice(0, cells);
+    for (let i = 0; i < n; i += 1) order[fill[cellIndex[i]!]++] = i;
+    let moved = 0;
+    for (let i = 0; i < n; i += 1) {
+      const p = pts[i]!;
+      // Where the point is now, earlier pushes in this pass included.
       const cx = cellOf(p.x);
       const cy = cellOf(p.y);
-      for (let gx = cx - 1; gx <= cx + 1; gx += 1) {
-        for (let gy = cy - 1; gy <= cy + 1; gy += 1) {
-          const list = grid.get(keyOf(gx, gy));
-          if (!list) continue;
-          for (const j of list) {
+      for (let gx = Math.max(0, cx - 1); gx <= Math.min(side - 1, cx + 1); gx += 1) {
+        for (let gy = Math.max(0, cy - 1); gy <= Math.min(side - 1, cy + 1); gy += 1) {
+          const k = gy * side + gx;
+          for (let at = start[k]!; at < start[k + 1]!; at += 1) {
+            const j = order[at]!;
             if (j <= i) continue;
             const q = pts[j]!;
             let dx = q.x - p.x;

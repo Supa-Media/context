@@ -1,4 +1,6 @@
-import { fitAll, fitIsland, toScreen, visibleRect, type Cam, type Viewport } from "../camera";
+import { fitAll, fitIsland, toScreen, toWorld, visibleRect, type Cam, type Viewport } from "../camera";
+import { notesNear } from "../grid";
+import type { NotePlace } from "../layout";
 import { HitFrame } from "../hit";
 import { Occupancy } from "../labels";
 import { minimapAlpha } from "../lod";
@@ -31,6 +33,11 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   const hot = new Set<string>([...scene.editing.keys(), ...scene.reading.keys()]);
   if (opts.selected) hot.add(opts.selected);
   for (const a of scene.actors) if (a.note && a.doing) hot.add(a.note.key);
+  // The widest margin any pass tests with is 30 + 40 pixels; a little more.
+  const lo = toWorld(cam, vp, { x: -120, y: -120 });
+  const hi = toWorld(cam, vp, { x: vp.w + 120, y: vp.h + 120 });
+  const near: NotePlace[] = [];
+  for (const n of notesNear(model.layout, lo.x, lo.y, hi.x, hi.y)) if (scene.present.has(n.key)) near.push(n);
   const env: DrawEnv = {
     ctx,
     style: opts.style,
@@ -49,6 +56,7 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     selected: opts.selected,
     counts: countPresent(model, scene),
     hot,
+    near,
     pills: [],
     quiet: [],
     flyingAt: new Map(scene.flights.filter((f) => !f.cross && f.landedFor < 0).map((f) => [f.to.key, f.pos])),

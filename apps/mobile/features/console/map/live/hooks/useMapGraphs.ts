@@ -1,7 +1,9 @@
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { graphFromAnswer, type GraphAnswer } from "../convert";
+import { currentEpoch } from "../../../../offline/epoch";
+import { expandAnswer, graphFromAnswer, type GraphAnswer } from "../convert";
+import { cachedGraph, holdGraph } from "../graphCache";
 import { workspaceGraphRef } from "../mapData";
 import type { WorkspaceGraph } from "../types";
 
@@ -33,8 +35,10 @@ export type GraphGaps = {
 /**
  * Every visible note and link of each workspace on the map, from
  * `files.workspaceGraph` (one call per workspace; the control plane filters
- * each through the caller's own access). Read on the way in and every two
- * minutes after, while `enabled`.
+ * each through the caller's own access), in its compact form, which carries
+ * every note rather than the first 5,000. Read on the way in and every two
+ * minutes after, while `enabled`; a workspace read earlier this session is
+ * drawn from memory at once while its fresh answer comes (`graphCache.ts`).
  */
 export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boolean): MapGraphs {
   const read = useAction(workspaceGraphRef);
@@ -46,11 +50,23 @@ export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boole
   useEffect(() => {
     if (!enabled || workspaces.length === 0) return;
     let stopped = false;
+    // What this tab already read is drawn now; the reads below replace it.
+    setAnswers((prev) => {
+      let next: Map<string, GraphAnswer | "failed"> | null = null;
+      for (const ws of workspaces) {
+        const cached = prev.has(ws.id) ? undefined : cachedGraph(ws.id);
+        if (cached !== undefined) (next ??= new Map(prev)).set(ws.id, cached);
+      }
+      return next ?? prev;
+    });
     const load = () => {
       for (const ws of workspaces) {
+        const epoch = currentEpoch();
         void readRef
-          .current({ workspaceId: ws.id as Id<"workspaces"> })
-          .then((answer) => {
+          .current({ workspaceId: ws.id as Id<"workspaces">, compact: true })
+          .then((raw) => {
+            const answer = expandAnswer(raw);
+            holdGraph(ws.id, answer, epoch);
             if (!stopped) setAnswers((prev) => new Map(prev).set(ws.id, answer));
           })
           .catch(() => {

@@ -65,6 +65,12 @@ export const workspaceGraphValidator = v.object({
   noteCount: v.number(),
   /** The link cap cut links between drawn notes. */
   linksCut: v.boolean(),
+  /**
+   * The compact answer (`compact: true`): every path, then the links as flat
+   * index pairs, each in chunks under Convex's 8,192-item array limit.
+   */
+  pathChunks: v.optional(v.array(v.array(v.string()))),
+  linkChunks: v.optional(v.array(v.array(v.number()))),
   behind: v.boolean(),
   indexMissing: v.boolean(),
 });

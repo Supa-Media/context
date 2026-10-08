@@ -199,6 +199,8 @@ export async function workspaceGraphHandler(
   ctx: ActionCtx,
   args: {
     workspaceId: Id<"workspaces">;
+    /** Every note, as path chunks: see `GRAPH_ALL_NODE_CAP`. Old clients leave it out. */
+    compact?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "workspaceGraph" }>> {
   const actorUserId = await callerId(ctx);
@@ -211,7 +213,7 @@ export async function workspaceGraphHandler(
     workspaceId: args.workspaceId,
     scope,
     grantedNames,
-    operation: { kind: "workspaceGraph" },
+    operation: args.compact === true ? { kind: "workspaceGraph", compact: true } : { kind: "workspaceGraph" },
   });
   return result as Extract<OperationResult, { kind: "workspaceGraph" }>;
 }

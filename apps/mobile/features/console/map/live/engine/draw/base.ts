@@ -1,3 +1,4 @@
+import { toWorld } from "../camera";
 import { LAYER } from "../hit";
 import type { IslandPlace } from "../layout";
 import { dotRadius, edgeAlpha, highwayAlpha, subRimAlpha } from "../lod";
@@ -129,6 +130,9 @@ export function drawLinks(env: DrawEnv): void {
     if (scene.actors.find((a) => a.id === id)?.doing === "create") creating.add(key);
   }
   if (ea > 0) {
+    const lo = toWorld(env.cam, env.vp, { x: -40, y: -40 });
+    const hi = toWorld(env.cam, env.vp, { x: env.vp.w + 40, y: env.vp.h + 40 });
+    const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
     ctx.lineWidth = 1;
     ctx.strokeStyle = C.edge;
     ctx.globalAlpha = ea * (env.dim ? 0.55 : 1);
@@ -140,8 +144,14 @@ export function drawLinks(env: DrawEnv): void {
       const fa = env.flyingAt.get(ka);
       const fb = env.flyingAt.get(kb);
       if ((scene.hidden.has(ka) && !fa) || (scene.hidden.has(kb) && !fb)) continue;
-      const a = env.screen(fa ?? notes.get(ka)!);
-      const b = env.screen(fb ?? notes.get(kb)!);
+      const wa = fa ?? notes.get(ka)!;
+      const wb = fb ?? notes.get(kb)!;
+      // Off screen in the world's own units first: tens of thousands of
+      // links are tested every frame, and most go nowhere near the view.
+      if (Math.max(wa.x, wb.x) < view.x0 || Math.min(wa.x, wb.x) > view.x1) continue;
+      if (Math.max(wa.y, wb.y) < view.y0 || Math.min(wa.y, wb.y) > view.y1) continue;
+      const a = env.screen(wa);
+      const b = env.screen(wb);
       if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -235,8 +245,35 @@ export function drawNotes(env: DrawEnv): void {
   const rm = model.reducedMotion;
   const follow = new Set(scene.followReads.map((n) => n.key));
   const popping = new Set(scene.pops.map((p) => p.note.key));
-  for (const key of scene.present) {
-    if (scene.hidden.has(key) || popping.has(key)) continue;
+  // Resting dots, the great majority, go into one path and one fill: what a
+  // frame costs is how many times the canvas paints, and a workspace of
+  // 20,000 notes painted one dot at a time is a slide show.
+  ctx.beginPath();
+  for (const n of env.near) {
+    const key = n.key;
+    if (scene.hidden.has(key) || popping.has(key) || scene.editing.has(key) || scene.reading.has(key) || follow.has(key)) continue;
+    if (env.selected === key) continue;
+    const p = env.screen(n);
+    if (!env.onScreen(p, 30)) continue;
+    const R = dotRadius(s, n.deg);
+    // A dot a pixel or two across looks the same as a square and paints far
+    // faster, which is what a whole workspace of tiny dots is made of.
+    if (R <= 1.5) ctx.rect(p.x - R, p.y - R, R * 2, R * 2);
+    else {
+      ctx.moveTo(p.x + R, p.y);
+      ctx.arc(p.x, p.y, R, 0, Math.PI * 2);
+    }
+    env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
+  }
+  ctx.fillStyle = C.dot;
+  ctx.globalAlpha = env.dim ? 0.5 : 1;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  // Then the few with something happening to them, each with its own marks.
+  const marked = new Set<string>([...scene.editing.keys(), ...scene.reading.keys(), ...follow]);
+  if (env.selected !== null) marked.add(env.selected);
+  for (const key of marked) {
+    if (!scene.present.has(key) || scene.hidden.has(key) || popping.has(key)) continue;
     const n = model.layout.notes.get(key);
     if (!n) continue;
     const p = env.screen(n);

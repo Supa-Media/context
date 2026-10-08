@@ -1,6 +1,7 @@
 import type { Cam, Viewport } from "../camera";
 import type { HitFrame } from "../hit";
 import type { Bounds, Occupancy } from "../labels";
+import type { NotePlace } from "../layout";
 import type { Point } from "../math";
 import type { Model, SceneAt } from "../scene";
 import type { Rect } from "../labels";
@@ -37,12 +38,24 @@ export type DrawEnv = {
   pills: Pill[];
   /** Where words are: moving dots fade out as they pass under these. */
   quiet: Rect[];
+  /**
+   * Notes present now and roughly on screen, found through the layout's grid
+   * rather than by walking every note. Hidden ones included; each pass still
+   * tests what it draws with `onScreen`.
+   */
+  near: NotePlace[];
   /** Notes mid-move inside a workspace, by key: where they are now (world). Their links and name follow them. */
   flyingAt: Map<string, Point>;
 };
 
 /** Notes present under each folder, subfolder and workspace at this instant. */
+const countsOf = new WeakMap<Set<string>, { layout: Model["layout"]; counts: Map<string, number> }>();
+
 export function countPresent(model: Model, scene: SceneAt): Map<string, number> {
+  // The same set of notes as last frame (`presentAt` hands one back while
+  // nothing is still to come) counts the same.
+  const known = countsOf.get(scene.present);
+  if (known && known.layout === model.layout) return known.counts;
   const counts = new Map<string, number>();
   const bump = (k: string) => counts.set(k, (counts.get(k) ?? 0) + 1);
   for (const key of scene.present) {
@@ -52,5 +65,6 @@ export function countPresent(model: Model, scene: SceneAt): Map<string, number> 
     bump(n.sub.folder.key);
     bump(n.workspaceId);
   }
+  countsOf.set(scene.present, { layout: model.layout, counts });
   return counts;
 }
