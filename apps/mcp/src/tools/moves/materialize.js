@@ -43,16 +43,31 @@ import { toolError, toolText } from "../results.js";
 // may echo request URLs, object keys or credentials, so return a short redacted
 // fragment only in the immediate tool response; never persist it in the move
 // marker, activity or gateway job status.
-export function safeMoveStorageDetail(error) {
+//
+// The shape rules below cannot see an access key id: ~20 unlabelled
+// alphanumerics, no scheme, no `/`, nothing beside it to key on, and under the
+// 32-character run the catch-all looks for. `InvalidAccessKeyId` is also the
+// provider error most likely to echo one, and `bindingView` masks that same
+// value everywhere else it surfaces. So `store` is read for the id this
+// request is signing with and that exact value is replaced — the argument
+// `scrubProviderError` already makes in the control plane: a value we hold is
+// detectable, while a shape rule broad enough to catch it would also redact
+// real all-caps provider codes like REQUESTTIMETOOSKEWED. The plaintext secret
+// is not compared because it is 40 characters and the catch-all has it.
+export function safeMoveStorageDetail(error, store) {
   if (error?.code !== "STORAGE_WRITE_FAILED" || typeof error?.cause?.message !== "string") return "";
-  const detail = error.cause.message
+  let detail = error.cause.message
     .replace(/[\r\n\t]+/g, " ")
     .replace(/https?:\/\/\S+/gi, "[url]")
     .replace(/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "[email]")
     .replace(/\b[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+\b/g, "[path]")
     .replace(/\b(?:authorization|bearer|basic|api[_-]?key|token|secret|password)\b\s*[:=]?\s*\S+/gi, "[credential]")
-    .replace(/\b[A-Za-z0-9+_=-]{32,}\b/g, "[long value]")
-    .slice(0, 180).trim();
+    .replace(/\b[A-Za-z0-9+_=-]{32,}\b/g, "[long value]");
+  // Before the cap, so a half-cut id cannot survive it. Split/join rather than
+  // a built regex: the value is not ours to assume is regex-safe.
+  const keyId = store?.accessKeyId;
+  if (typeof keyId === "string" && keyId.length >= 8) detail = detail.split(keyId).join("[credential]");
+  detail = detail.slice(0, 180).trim();
   return detail ? `\nprovider detail (redacted): ${detail}` : "";
 }
 
@@ -455,6 +470,6 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       ? ` (provider code: ${providerCode})` : "";
     job.error = `${stage}: ${error.message}${causeCode}`;
     await persistMoveJob(store, job).catch(() => {});
-    return toolError(`move ${job.id} materialization paused: ${job.error}${safeMoveStorageDetail(error)}`);
+    return toolError(`move ${job.id} materialization paused: ${job.error}${safeMoveStorageDetail(error, store)}`);
   }
 }

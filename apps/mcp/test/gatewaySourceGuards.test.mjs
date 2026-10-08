@@ -141,3 +141,28 @@ test("no gateway module restates a move limit's value beside its name", () => {
   );
   assert.deepEqual(offenders, []);
 });
+
+/*
+  The redactor is only a guard if the call site hands it the value to redact.
+
+  `safeMoveStorageDetail(error, store)` reads `store.accessKeyId` to replace the
+  id a provider auth error echoes — the one credential shape its regexes cannot
+  see. Its own unit test calls the function directly, so dropping the second
+  argument at the call site redacts nothing and reddens nothing: measured, and
+  the suite stayed green. That is the same shape as this file's other guards —
+  a check that follows the code rather than the wiring goes quiet when the
+  wiring changes.
+*/
+test("every call to safeMoveStorageDetail passes the store it must redact against", () => {
+  const calls = FILES.flatMap((file) =>
+    [...file.text.matchAll(/(?<!function\s)\bsafeMoveStorageDetail\(([^)]*)\)/g)].map((match) => ({
+      path: file.path,
+      args: match[1],
+    })),
+  );
+  assert.ok(calls.length >= 1, "no call to safeMoveStorageDetail found");
+  const short = calls.filter(
+    (call) => call.args.split(",").filter((part) => part.trim() !== "").length !== 2,
+  );
+  assert.deepEqual(short, []);
+});
