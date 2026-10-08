@@ -22,13 +22,15 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
 import { expandWorkspaces, readBenchFolder } from "./load.mjs";
 import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
-import { resultMarkdown } from "./report.mjs";
 import { prepareRun } from "./warm.mjs";
+import { judgeCommand } from "./judge.mjs";
+import { scoreCommand } from "./score.mjs";
+import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 
 /** The most texts the played person may send in one conversation. */
@@ -50,73 +52,73 @@ const version = (raw) => createHash("sha256").update(raw).digest("hex").slice(0,
 
 function commit() {
   try {
-      return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-    } catch {
-      return "unknown";
-    }
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "unknown";
   }
+}
 
-  async function readSetups(dir, job, only) {
-    const folder = join(dir, "setups", job);
-    const names = (await readdir(folder)).filter((name) => name.endsWith(".md")).map((name) => name.slice(0, -3)).sort();
-    const chosen = only ? names.filter((name) => only.includes(name)) : names;
-    if (chosen.length === 0) throw new Error(`no setups to run in setups/${job}/`);
-    const setups = [];
-    for (const name of chosen) {
-      const raw = await readFile(join(folder, `${name}.md`), "utf8");
-      const parsed = await parseSetup(raw);
-      // The product would refuse it and fall back, so a run of it measures nothing.
-      if (!parsed) throw new Error(`setups/${job}/${name}.md is not a valid setup file`);
-      setups.push({ name, raw, version: parsed.version, model: parsed.model });
-    }
-    return setups;
+async function readSetups(dir, job, only) {
+  const folder = join(dir, "setups", job);
+  const names = (await readdir(folder)).filter((name) => name.endsWith(".md")).map((name) => name.slice(0, -3)).sort();
+  const chosen = only ? names.filter((name) => only.includes(name)) : names;
+  if (chosen.length === 0) throw new Error(`no setups to run in setups/${job}/`);
+  const setups = [];
+  for (const name of chosen) {
+    const raw = await readFile(join(folder, `${name}.md`), "utf8");
+    const parsed = await parseSetup(raw);
+    // The product would refuse it and fall back, so a run of it measures nothing.
+    if (!parsed) throw new Error(`setups/${job}/${name}.md is not a valid setup file`);
+    setups.push({ name, raw, version: parsed.version, model: parsed.model });
   }
+  return setups;
+}
 
-  /** One conversation: the person's opening text, then as many turns as they take. */
-  async function converse(world, question, person) {
-    const conversation = [];
-    const totals = { ms: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: null, error: null };
-    let message = question.personStarts ?? question.text;
-    for (let texts = 0; message !== null && texts < MAX_PERSON_TEXTS; texts += 1) {
-      conversation.push({ from: "person", text: message });
-      const turn = await world.text(message);
-      totals.ms += turn.ms;
-      totals.tools.push(...turn.tools);
-      for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
-      totals.model = turn.model ?? totals.model;
-      if (!turn.ok) {
-        totals.error = turn.error;
-        break;
-      }
-      conversation.push({ from: "assistant", text: turn.answer });
-      // Only a back-and-forth has a person who answers back.
-      message = question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null;
+/** One conversation: the person's opening text, then as many turns as they take. */
+async function converse(world, question, person) {
+  const conversation = [];
+  const totals = { ms: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: null, error: null };
+  let message = question.personStarts ?? question.text;
+  for (let texts = 0; message !== null && texts < MAX_PERSON_TEXTS; texts += 1) {
+    conversation.push({ from: "person", text: message });
+    const turn = await world.text(message);
+    totals.ms += turn.ms;
+    totals.tools.push(...turn.tools);
+    for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
+    totals.model = turn.model ?? totals.model;
+    if (!turn.ok) {
+      totals.error = turn.error;
+      break;
     }
-    return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
+    conversation.push({ from: "assistant", text: turn.answer });
+    // Only a back-and-forth has a person who answers back.
+    message = question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null;
   }
+  return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
+}
 
-  async function run(options) {
-    const dir = options.dir ?? process.env.AI_BENCH_DIR;
-    if (!options.job || !dir) throw new Error("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]");
-    const loaded = await readBenchFolder(dir);
-    // Fluff files are written out unless --no-fluff asks for the hand-written notes alone.
-    const fluffOn = options["no-fluff"] !== true;
-    const bench = fluffOn ? expandWorkspaces(loaded) : loaded;
-    const fluffNotes = fluffOn ? Object.values(bench.workspaces).reduce((total, ws) => total + ws.generated.length, 0) : 0;
-    const testName = options.test ?? options.job;
-    const test = bench.tests[testName];
-    if (!test) throw new Error(`no tests/${testName}.md`);
-    const setups = await readSetups(dir, options.job, list(options.setups));
-    const only = list(options.questions)?.map(Number);
-    const questions = test.questions.filter((question) => !only || only.includes(question.n));
-    const runs = Number(options.runs ?? test.front.runs);
+async function run(options) {
+  const dir = options.dir ?? process.env.AI_BENCH_DIR;
+  if (!options.job || !dir) throw new Error("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]");
+  const loaded = await readBenchFolder(dir);
+  // Fluff files are written out unless --no-fluff asks for the hand-written notes alone.
+  const fluffOn = options["no-fluff"] !== true;
+  const bench = fluffOn ? expandWorkspaces(loaded) : loaded;
+  const fluffNotes = fluffOn ? Object.values(bench.workspaces).reduce((total, ws) => total + ws.generated.length, 0) : 0;
+  const testName = options.test ?? options.job;
+  const test = bench.tests[testName];
+  if (!test) throw new Error(`no tests/${testName}.md`);
+  const setups = await readSetups(dir, options.job, list(options.setups));
+  const only = list(options.questions)?.map(Number);
+  const questions = test.questions.filter((question) => !only || only.includes(question.n));
+  const runs = Number(options.runs ?? test.front.runs);
 
-    const send = claudeTransport(process.env);
-    if (!options.fake) process.stderr.write(`Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
-    const models = options.fake
-      ? { gatewayFetch: fakeGateway(), ai: fakeAi() }
-      : { gatewayFetch: anthropicGateway(send), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null) };
-    const person = { fake: options.fake === true, send, model: test.front.played_by };
+  const send = claudeTransport(process.env);
+  if (!options.fake) process.stderr.write(`Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
+  const models = options.fake
+    ? { gatewayFetch: fakeGateway(), ai: fakeAi() }
+    : { gatewayFetch: anthropicGateway(send), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null) };
+  const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
   // conversation a clone of it. --cold measures the scan a fresh import gets.
@@ -124,7 +126,7 @@ function commit() {
   const prepared = options.cold ? null : await prepareRun(bench, { today });
   if (prepared) process.stderr.write(`warmed ${prepared.buckets.size} workspaces\n`);
 
-    const records = [];
+  const records = [];
   try {
     for (const setup of setups) {
       for (const question of questions) {
@@ -157,7 +159,9 @@ function commit() {
   }
 
   const date = new Date().toISOString().slice(0, 10);
-  const markdown = resultMarkdown({
+  const out = options.out ?? join(dir, "results", `${date} ${testName}${options.fake ? " (fake)" : ""}.md`);
+  const keyOut = keyPathFor(out);
+  const result = {
     job: options.job,
     test: testName,
     testVersion: version(test.raw),
@@ -169,21 +173,36 @@ function commit() {
     playedBy: options.fake ? null : test.front.played_by ?? null,
     setups: setups.map(({ name, version: v, model }) => ({ name, version: v, model })),
     runs: records,
-  });
-  const out = options.out ?? join(dir, "results", `${date} ${testName}${options.fake ? " (fake)" : ""}.md`);
+    resultFile: basename(out),
+    keyFile: basename(keyOut),
+  };
   await mkdir(join(out, ".."), { recursive: true });
-  await writeFile(out, markdown);
-  process.stderr.write(`wrote ${out}\n`);
+  await writeFile(out, resultMarkdown(result));
+  await writeFile(keyOut, keyMarkdown(result));
+  process.stderr.write(`wrote ${out}\nwrote ${keyOut}\n`);
 }
+
+const USAGE = [
+  "usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]",
+  "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--fake]",
+  "       pnpm ai score <result file> --dir <benchmarks folder>",
+].join("\n");
+
+const COMMANDS = new Map([
+  ["run", run],
+  ["judge", judgeCommand],
+  ["score", scoreCommand],
+]);
 
 const options = parseArgs(process.argv.slice(2));
 // The gateway logs a line per search and turn; a run's output is the result note.
 if (!options.verbose) console.log = () => {};
-if (options.command !== "run") {
-  process.stderr.write("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]\n");
+const command = COMMANDS.get(options.command);
+if (!command) {
+  process.stderr.write(`${USAGE}\n`);
   process.exit(2);
 }
-run(options).catch((error) => {
+command(options).catch((error) => {
   process.stderr.write(`${error.message}\n`);
   process.exit(1);
 });

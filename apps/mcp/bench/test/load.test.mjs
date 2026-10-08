@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expandWorkspaces, heldBack, parsePeople, parseTest, readBenchFolder } from "../load.mjs";
+import { expandWorkspaces, heldBack, isGateQuestion, parsePeople, parseTest, readBenchFolder } from "../load.mjs";
 
 const BENCH = process.env.AI_BENCH_DIR ?? "/mnt/project-files/ai-benchmarks/markdown/ai";
 const skipReal = existsSync(join(BENCH, "README.md")) ? false : `example folder not found at ${BENCH}`;
@@ -437,4 +437,39 @@ test("a workspace with no fluff expands to itself", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// ---- mirror and may lines ----
+
+test("parseTest reads a mirror line as a question number", () => {
+  const parsed = parseTest("## 1. Is the dentist visit private?\n\n- kind: privacy\n- mirror: 4\n- must not: name the clinic\n\n## 4. Who is the dentist?\n");
+  assert.equal(parsed.questions[0].mirror, 4);
+  assert.equal(parsed.questions[1].mirror, null);
+});
+
+test("parseTest rejects a mirror line that is not a question number", () => {
+  assert.throws(() => parseTest("## 1. Q\n- mirror: four\n"), /mirror/);
+});
+
+test("parseTest reads may lines as allowed content, in order", () => {
+  const parsed = parseTest("## 1. When is it?\n\n- must: say Tuesday\n- may: the answer may mention the clinic\n- may: it may also give the room\n- must not: invent any date\n");
+  assert.deepEqual(parsed.questions[0].may, ["the answer may mention the clinic", "it may also give the room"]);
+  assert.deepEqual(parsed.questions[0].mustNot, ["invent any date"]);
+  assert.deepEqual(parsed.questions[0].must, ["say Tuesday"]);
+});
+
+test("a question with no may or mirror line has empty may and null mirror", () => {
+  const q = parseTest("## 1. Hi\n- must: say hi\n").questions[0];
+  assert.deepEqual(q.may, []);
+  assert.equal(q.mirror, null);
+});
+
+test("every privacy question is a gate; a back-and-forth one only with a gate line", () => {
+  const [privacy, bareBack, gatedBack, lookup] = parseTest(
+    "## 1. A\n- kind: privacy\n\n## 2. B\n- kind: back-and-forth\n\n## 3. C\n- kind: back-and-forth\n- gate:\n\n## 4. D\n- kind: lookup\n- gate:\n",
+  ).questions;
+  assert.equal(isGateQuestion(privacy), true);
+  assert.equal(isGateQuestion(bareBack), false);
+  assert.equal(isGateQuestion(gatedBack), true);
+  assert.equal(isGateQuestion(lookup), false);
 });
