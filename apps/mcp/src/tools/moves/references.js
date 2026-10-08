@@ -1,6 +1,6 @@
 /** Rewriting the links that point at a moved note. */
 
-import { canSee } from "../../privacy/engine.js";
+import { canSee, effectiveVisibility, narrowerVisibility } from "../../privacy/engine.js";
 import { recordChange } from "../../activity/record.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
@@ -134,7 +134,33 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
         ciphertext".
       */
       if (isEncryptedNote(text)) return { notes: 0, links: 0, written: null, failed: false };
-      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName, forwardTarget });
+      /*
+        A LINK MAY NOT BE POINTED SOMEWHERE ITS OWN NOTE'S READERS CANNOT GO.
+
+        This sweep edits notes OTHER than the one that moved, and each keeps
+        its own visibility. `canSee` above decides which notes this caller may
+        scan; it says nothing about who reads them afterwards. So an owner
+        moving a team-visible note into a private folder had its new path
+        written into every team-visible note that referenced it — the privacy
+        engine answering `not found` for the note while a note the same reader
+        may open spelled out where it went.
+
+        The test is the destination's reach against the referrer's own, so a
+        narrowing is refused and a widening is not: `private` may name
+        anything, `team` may not name a group's or a private note's path, and
+        two different groups resolve to `private` and refuse each other, which
+        is `narrowerVisibility`'s existing rule rather than a second one here.
+
+        The manifest this reads is the one the move already wrote through, and
+        a destination narrower than `team` can only come from a source that was
+        narrower than `team` — whose path the referrer was naming before this
+        move and which is not this sweep's to repair.
+      */
+      const referrerVisibility = effectiveVisibility(key, rules, overrides);
+      const allowTarget = (destination) =>
+        narrowerVisibility(referrerVisibility, effectiveVisibility(destination, rules, overrides)) ===
+          referrerVisibility;
+      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName, forwardTarget, allowTarget });
       if (rewritten === null) return { notes: 0, links: 0, written: null, failed: false };
       if (!write) return { notes: 1, links: rewritten.changed, written: null, failed: false };
       /*

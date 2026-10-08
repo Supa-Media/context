@@ -369,6 +369,72 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     ).includes("not found")
   );
 
+  /* ---- 4. a move must not publish the PATH of what it moves ------------- */
+
+  /*
+    The privacy engine answers `not found` for the moved note. The link sweep
+    then writes that note's new path into every note that referenced it — and
+    those notes keep their own, wider visibility. So a team reader who is
+    refused the note is handed its exact path by a note they may read.
+
+    `rewriteLinks` resolves a link, maps it through `renames`, and writes the
+    result back; nothing compares the destination's visibility with the
+    referrer's. The owner-only forwarding sweep widens the same write to every
+    earlier move in the ledger.
+
+    The third check below is the positive control, and it is not optional: the
+    sweep is skipped entirely past `LINK_SCAN_CAP`, and a skipped sweep writes
+    no path and would read as "no leak". It has to be proved that a rewrite
+    this move SHOULD make still happens.
+  */
+
+  primary.set("1-projects/linkhub/hub.md", {
+    body: "# Hub\n\nPrivate-bound: [[1-projects/linkhub/secret-topic]]\n" +
+      "Group-bound: [[1-projects/linkhub/circle-topic]]\n" +
+      "Stays in team: [[1-projects/linkhub/open-topic]]\n",
+    etag: "lh1",
+  });
+  for (const name of ["secret-topic", "circle-topic", "open-topic"]) {
+    primary.set(`1-projects/linkhub/${name}.md`, { body: `BODY-${name}`, etag: `lt-${name}` });
+  }
+
+  check(
+    "the hub and its three targets all start readable by a team connection",
+    textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "1-projects/linkhub/hub.md" })).includes("Hub") &&
+      textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "1-projects/linkhub/secret-topic.md" }))
+        .includes("BODY-secret-topic"),
+  );
+
+  // Into `2-areas` (private), into `1-projects/circle` (@bulkvis-circle, from
+  // section 3), and within `1-projects` (team) — one referrer, three fates.
+  for (const [from, to] of [
+    ["1-projects/linkhub/secret-topic.md", "2-areas/vault/secret-topic.md"],
+    ["1-projects/linkhub/circle-topic.md", "1-projects/circle/circle-topic.md"],
+    ["1-projects/linkhub/open-topic.md", "1-projects/open/open-topic.md"],
+  ]) {
+    const moved = await callTool(env, TOKEN_OWNER, "move_note", { source: from, destination: to });
+    check(`${from} moves to ${to}`, !moved?.isError);
+  }
+
+  const hubAsTeam = textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "1-projects/linkhub/hub.md" }));
+
+  check(
+    "a team reader is refused the moved note itself",
+    textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "2-areas/vault/secret-topic.md" }))
+      .includes("not found"),
+  );
+  check(
+    "...and the referring note it CAN read does not name that private path",
+    hubAsTeam.includes("# Hub") && !hubAsTeam.includes("2-areas/vault"),
+  );
+  check(
+    "...nor the path of one moved into a group it is not in",
+    hubAsTeam.includes("# Hub") && !hubAsTeam.includes("1-projects/circle/circle-topic"),
+  );
+  check(
+    "POSITIVE CONTROL: a move within team visibility still rewrites the link",
+    hubAsTeam.includes("1-projects/open/open-topic"),
+  );
   restoreS3();
   restoreControlPlane();
 }

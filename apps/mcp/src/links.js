@@ -525,13 +525,21 @@ function encodeTarget(file) {
  * An owner sweep may also pass `forwardTarget` to follow an earlier move from
  * the forwarding ledger, including a move whose link sweep was deferred.
  *
+ * `allowTarget` decides whether a link MAY be pointed at its new destination.
+ * A rewrite happens inside somebody else's note, which keeps its own
+ * visibility, so following a move into a narrower place would write that
+ * place's path where a wider audience reads it. A refused target leaves the
+ * link on the path it already named: broken for everybody rather than
+ * readable by the wrong people. Callers that rewrite notes they do not own
+ * the audience of must pass it.
+ *
  * Returns `null` when nothing changed, so a caller can skip the write rather
  * than stamp a new etag and a `.history/` entry on an unchanged file — and
  * otherwise the new text with the number of targets it moved, because the count
  * is what a move reports back and deriving it by diffing afterwards would be a
  * second, disagreeing implementation of "what changed".
  */
-export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardTarget = undefined }) {
+export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardTarget = undefined, allowTarget = undefined }) {
   const links = parseLinks(text);
   if (links.length === 0) return null;
 
@@ -543,7 +551,10 @@ export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardT
     const resolved = resolveLink(link, fromPath, byName);
     if (resolved === null) continue;
     const moved = renames.get(resolved) ?? resolved;
-    const destination = forwardTarget?.(moved) ?? moved;
+    const followed = forwardTarget?.(moved) ?? moved;
+    // Asked only where the link would actually move, so a referrer that merely
+    // changed depth still re-expresses a target it was always allowed to name.
+    const destination = followed !== resolved && allowTarget && !allowTarget(followed) ? resolved : followed;
     // The referrer stayed put and the target stayed put: nothing to say.
     if (destination === resolved && fromPath === toPath) continue;
 
