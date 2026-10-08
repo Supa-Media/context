@@ -884,6 +884,30 @@ export async function runServeChecks(check) {
       midMove.text.includes("2-areas/roster.md") && !midMove.text.includes("1-projects/roster.md"),
     );
 
+    /*
+     * The same move, beside the tombstones of every move that finished before
+     * it. Each is a marker-sized object the logical-delete view must GET to
+     * hide, and each GET was charged to the search's budget, so loading the
+     * move list spent it all and the search died "search budget exhausted"
+     * (@seyi, production, 2026-10-08, still failing after the move-aware fast
+     * path above).
+     */
+    const TOMBSTONES = 60;
+    const marker = (n) => `context.logical-delete.v1.${String(n).padStart(32, "0")}.${"a".repeat(64)}`;
+    for (let n = 0; n < TOMBSTONES; n += 1) {
+      seed(`.context/moves/move-done-${String(n).padStart(10, "0")}.json`, marker(n), `mt${n}`);
+    }
+    seed(".context/moves/move-serve-0000000001.json", JSON.stringify(job), "mv1");
+    seed(".context/moves/active", JSON.stringify({ version: 1, active: true }), "mv2");
+    const pastTombstones = await search("roster", SERVE_TOKEN_OWNER, 40);
+    bucket.delete(".context/moves/move-serve-0000000001.json");
+    bucket.delete(".context/moves/active");
+    for (let n = 0; n < TOMBSTONES; n += 1) bucket.delete(`.context/moves/move-done-${String(n).padStart(10, "0")}.json`);
+    check(
+      "finished moves' tombstones do not spend a search's budget before it asks anything",
+      !pastTombstones.body.result?.isError && pastTombstones.text.includes("2-areas/roster.md"),
+    );
+
     const hidden = showAtMovedPaths(
       { hits: [{ key: "1-projects/roster.md", title: "Roster", snippets: [] }], matchCount: 1, matchCountIsFloor: false },
       [job],
