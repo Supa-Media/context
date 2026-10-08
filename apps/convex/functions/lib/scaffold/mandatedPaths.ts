@@ -204,8 +204,10 @@ export const SESSION_FOLDERS: readonly string[] = sessionFolders();
  * note filename, and refusing it cost a card for nothing; a folder *this
  * product* wrote is five guesses, which is the whole risk. Notes are a bigger
  * list than "index.md":
- * `scaffoldFiles` also lays a `README.md` into every PARA folder, so a fresh
+ * `scaffoldFiles` also lays an `about.md` into every PARA folder, so a fresh
  * workspace arrives with six guessable note names before its owner writes anything.
+ * Workspaces scaffolded before that wrote `README.md` there instead, so both names
+ * stay listed: a `README.md` in one of these folders is still ours.
  *
  * The test for this drives `scaffoldFiles` rather than restating its output, so
  * an eighth scaffolded file cannot quietly become an eighth guess.
@@ -216,7 +218,7 @@ export const SESSION_FOLDERS: readonly string[] = sessionFolders();
  * list below spreads those. What follows argues the original half.
  *
  * **The `custom` template is deliberately out of scope.** It also writes a
- * `README.md` per folder, but those folder names are the owner's — `Journal/`,
+ * folder note, but those folder names are the owner's — `Journal/`,
  * `Clients/` — so the guessability premise that makes this list a security
  * control simply does not hold for them, and refusing them would cost a card
  * for nothing. Only `PARA_FOLDERS` is consulted, and the test's claim that
@@ -239,11 +241,15 @@ export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   "0-inbox/memories",
   ...CAPTURE_SOURCE_FOLDERS,
   ...CALENDAR_PATHS,
+  ...PARA_FOLDERS.map((folder) => `${folder}/about.md`),
+  // Older workspaces were scaffolded with `README.md` in the same folders, and
+  // still have them, so the old name stays guarded too.
   ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
   // The preset layouts, for the reason `PRESET_FOLDERS` gives. `0-inbox`,
   // `1-projects` and their READMEs are already above via `PARA_FOLDERS`; a
   // duplicate would be harmless but this list is read by two tests as a set.
   ...PRESET_FOLDERS,
+  ...PRESET_FOLDERS.map((folder) => `${folder}/about.md`),
   ...PRESET_FOLDERS.map((folder) => `${folder}/README.md`),
 ];
 

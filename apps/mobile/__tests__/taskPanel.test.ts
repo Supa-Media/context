@@ -159,7 +159,7 @@ describe("the side panel", () => {
     await type(one("quick-add-title"), "Read the small print");
     await key(one("quick-add-title"), "Enter");
     expect(files).toEqual([
-      `move ${CAFE}/lease.md -> ${CAFE}/lease/overview.md`,
+      `move ${CAFE}/lease.md -> ${CAFE}/lease/about.md`,
       `create ${CAFE}/lease/Read the small print.md\n---\nstatus: to do\n---\n\n# Read the small print\n`,
     ]);
     // Still open, on the task it became, and a second subtask goes in without converting it again.
@@ -183,7 +183,7 @@ describe("the side panel", () => {
     expect(toasts.at(-1)?.undo).toBeDefined();
     await act(async () => toasts.at(-1)!.undo!());
     await act(async () => undefined);
-    expect(files.slice(2)).toEqual([`remove ${CAFE}/lease/Read the small print.md`, `move ${CAFE}/lease/overview.md -> ${CAFE}/lease.md`]);
+    expect(files.slice(2)).toEqual([`remove ${CAFE}/lease/Read the small print.md`, `move ${CAFE}/lease/about.md -> ${CAFE}/lease.md`]);
     expect(toasts.at(-1)!.message).toBe("Undone.");
   });
 

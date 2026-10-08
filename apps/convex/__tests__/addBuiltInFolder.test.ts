@@ -1,6 +1,6 @@
 /**
  * "Add a folder" for a built-in role (`lib/fileOps/builtInFolders.ts`): the
- * fixed name, a README saying what it is for, never a second folder for a role
+ * fixed name, an about.md saying what it is for, never a second folder for a role
  * the workspace already has under any number, and nothing disclosed about a
  * folder the caller cannot see.
  *
@@ -40,14 +40,23 @@ describe("adding a built-in folder", () => {
     ["clients", "4-clients", "# Clients"],
     ["teams", "5-teams", "# Teams"],
     ["products", "6-products", "# Products"],
-  ])("%s lands at its fixed name with a README saying what it is for", async (role, folder, heading) => {
+  ])("%s lands at its fixed name with an about.md saying what it is for", async (role, folder, heading) => {
     const store = bucket();
     expect(await addBuiltInFolder(store, { role, clearance: OWNER, now: NOW })).toEqual({
       path: folder,
-      readme: `${folder}/README.md`,
+      readme: `${folder}/about.md`,
     });
-    const readme = store.snapshot()[`${folder}/README.md`];
+    expect(store.snapshot()[`${folder}/README.md`]).toBeUndefined();
+    const readme = store.snapshot()[`${folder}/about.md`];
     expect(typeof readme === "string" && readme.startsWith(`${heading}\n\nOne folder per`)).toBe(true);
+  });
+
+  test("a folder that already has its about.md is refused, even with no README beside it", async () => {
+    const store = bucket(["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"]);
+    store.seed("4-clients/about.md", "# Clients\n");
+    const error = await refusal(() => addBuiltInFolder(store, { role: "clients", clearance: OWNER, now: NOW }));
+    expect(error.code).toBe("DESTINATION_EXISTS");
+    expect(store.snapshot()["4-clients/about.md"]).toBe("# Clients\n");
   });
 
   test("a missing main folder can be added back too", async () => {

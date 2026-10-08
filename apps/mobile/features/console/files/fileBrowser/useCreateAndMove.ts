@@ -244,7 +244,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
       const path = joinPath(folder, name);
       if (offlineRef.current.reachability === "offline") {
         /*
-          The server makes a folder real by writing its README placeholder,
+          The server makes a folder real by writing its about note,
           and this is that same call made later (`queueFolder`). Drawn now, as
           an empty folder, so a note can be made in it straight away.
         */
@@ -269,7 +269,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
         async () => {
           await createDirectory({ workspaceId: workspaceId!, path });
           return {
-            touched: [path, joinPath(path, "README.md")],
+            touched: [path, joinPath(path, "about.md")],
             message: folder === "" ? `Created ${folderLabel(name)}.` : `Created ${folderLabel(name)} in ${folderLabel(folder)}.`,
             /*
               Undo takes it back while it is still empty (board 05c). The

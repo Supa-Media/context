@@ -4,7 +4,7 @@
  * workspace lacks (decided by the owner, 2026-10-08; see
  * `packages/shared/src/folderRoles.cjs`).
  *
- * The folder gets its fixed name (`4-clients`) and a README saying what it is
+ * The folder gets its fixed name (`4-clients`) and an `about.md` saying what it is
  * for, which is what an AI reads when deciding where to file. A workspace that
  * already has a folder playing that role, under any number or none, is told so
  * rather than given a second one.
@@ -33,8 +33,8 @@ export function isBuiltInRole(role: string): role is FolderRole {
   return ROLES.includes(role);
 }
 
-/** The README a built-in folder starts with. */
-export function renderBuiltInReadme(role: FolderRole): string {
+/** The `about.md` a built-in folder starts with. */
+export function renderBuiltInAbout(role: FolderRole): string {
   return [`# ${ROLE_LABEL[role]}`, "", ROLE_DESCRIPTION[role], ""].join("\n");
 }
 
@@ -55,10 +55,10 @@ export async function addBuiltInFolder(
   const existing = rolesIn(names)[role];
   if (existing !== null) throw new FileOpError("DESTINATION_EXISTS", `${ROLE_LABEL[role]} is already in this workspace.`);
 
-  const readme = joinPath(folder, "README.md");
-  if ((await store.get(readme)) !== null) {
+  const about = joinPath(folder, "about.md");
+  if ((await store.get(about)) !== null) {
     throw new FileOpError("DESTINATION_EXISTS", `${ROLE_LABEL[role]} is already in this workspace.`);
   }
-  await writeFile(store, { path: readme, text: renderBuiltInReadme(role), clearance: options.clearance, now: options.now });
-  return { path: folder, readme };
+  await writeFile(store, { path: about, text: renderBuiltInAbout(role), clearance: options.clearance, now: options.now });
+  return { path: folder, readme: about };
 }

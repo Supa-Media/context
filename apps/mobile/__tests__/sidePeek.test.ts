@@ -76,7 +76,9 @@ beforeEach(() => {
 afterEach(unmountAll);
 
 const row = (testID: string, name: string) => all(testID).find((node) => strip(node.textContent).includes(name))!;
-const body = () => one("task-panel-body-editor");
+// The folder page draws its own about note with the same editor; these are the panel's.
+const panel = () => one("task-panel");
+const body = () => one("task-panel-body-editor", panel());
 
 describe("a note opens beside the list", () => {
   test("a plain note: its name and its words, read-only, with no task values", async () => {
@@ -123,11 +125,11 @@ describe("a note opens beside the list", () => {
   test("a note this device has not got yet says so, and a locked one says it is locked", async () => {
     await mount(host([], { bodies: { ...BODIES, [`${CAFE}/budget.md`]: "---\ncontext_encryption: v1\n---\nciphertext\n" } }));
     await press(row("folder-note", "Opening budget"));
-    expect(all("task-panel-body-editor")).toHaveLength(0);
-    expect(strip(one("task-panel-body-note").textContent)).toMatch(/locked/i);
+    expect(all("task-panel-body-editor", panel())).toHaveLength(0);
+    expect(strip(one("task-panel-body-note", panel()).textContent)).toMatch(/locked/i);
     expect(strip(one("task-panel").textContent)).not.toContain("ciphertext");
     await press(row("folder-item", "Take photos for the menu"));
-    expect(strip(one("task-panel-body-note").textContent)).toMatch(/not on this device/i);
+    expect(strip(one("task-panel-body-note", panel()).textContent)).toMatch(/not on this device/i);
   });
 
   test("a member reads the words, and nothing in the panel writes", async () => {
@@ -327,6 +329,6 @@ describe("a writer edits in the peek, through the console's one editor", () => {
     const { editing } = lender(LEASE, "ciphertext");
     await mount({ ...host([], { files: [] }), editing: { ...editing, editor: { ...editing.editor, encrypted: true } } });
     await press(row("folder-item", "Sign the lease"));
-    expect(all("task-panel-body-editor").every((node) => node.getAttribute("data-editable") === "false")).toBe(true);
+    expect(all("task-panel-body-editor", panel()).every((node) => node.getAttribute("data-editable") === "false")).toBe(true);
   });
 });

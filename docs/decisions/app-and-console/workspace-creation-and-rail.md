@@ -76,7 +76,7 @@ meant to be edited:
   "Business" and renaming `3-clients` is the common case. Every preset except
   PARA travels to `applyStructure` as `custom` with its rows, so nothing
   downstream knows which button was pressed.
-- **The descriptions are load-bearing.** Each becomes that folder's `README.md`
+- **The descriptions are load-bearing.** Each becomes that folder's `about.md`
   and its line in `index.md`, verbatim, which is what a connected AI client reads
   to decide where a note belongs. A vague description produces a folder that
   fills with everything. They are written in the third person, because a

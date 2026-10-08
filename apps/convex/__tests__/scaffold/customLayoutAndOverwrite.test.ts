@@ -22,7 +22,7 @@ describe("a custom layout is written in the owner's own words", () => {
     { folder: "reading", description: "Books and articles worth keeping." },
   ];
 
-  test("each folder gets a README carrying its description, verbatim", async () => {
+  test("each folder gets an about.md carrying its description, verbatim", async () => {
     const store = memoryStore();
     const result = await scaffoldContext(store, {
       structureTemplate: "custom",
@@ -30,14 +30,14 @@ describe("a custom layout is written in the owner's own words", () => {
     });
 
     expect(result.written.sort()).toEqual(
-      ["clients/README.md", "reading/README.md", INDEX_KEY, PRIVACY_KEY].sort(),
+      ["clients/about.md", "reading/about.md", INDEX_KEY, PRIVACY_KEY].sort(),
     );
-    expect(store.objects.get("clients/README.md")!.body).toContain(
+    expect(store.objects.get("clients/about.md")!.body).toContain(
       "One folder per client.",
     );
     // None of PARA's folders appear — they chose otherwise.
     for (const folder of PARA_FOLDERS) {
-      expect(store.objects.has(`${folder}/README.md`)).toBe(false);
+      expect(store.objects.has(`${folder}/about.md`)).toBe(false);
     }
   });
 
@@ -354,7 +354,7 @@ describe("an existing context is never overwritten", () => {
    */
   test("a stray file at a scaffold key survives even when detection says fresh", async () => {
     const store = memoryStore();
-    store.seed("1-projects/README.md", "do not touch me\n");
+    store.seed("1-projects/about.md", "do not touch me\n");
 
     // A blind listing: `hasExistingContext` sees an empty bucket and clears
     // the scaffold to run. Only the per-key `get` stands between us and
@@ -371,8 +371,8 @@ describe("an existing context is never overwritten", () => {
     expect(await hasExistingContext(blind)).toBe(false);
     const result = await scaffoldContext(blind, { structureTemplate: "para" });
 
-    expect(result.skipped).toEqual(["1-projects/README.md"]);
-    expect(store.objects.get("1-projects/README.md")!.body).toBe(
+    expect(result.skipped).toEqual(["1-projects/about.md"]);
+    expect(store.objects.get("1-projects/about.md")!.body).toBe(
       "do not touch me\n",
     );
     expect(result.written).toContain(INDEX_KEY);

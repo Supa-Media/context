@@ -160,7 +160,7 @@ export async function applyStructureHandler(
     // bucket-relative paths, and they are about to exist as keys in the
     // owner's own bucket. The descriptions are not recorded anywhere — they
     // are prose, and prose does not belong in an audit trail.
-    paths: folders.map((entry) => `${entry.folder}/README.md`),
+    paths: folders.map((entry) => `${entry.folder}/about.md`),
     details: {
       template: args.template,
       folderCount: folders.length,

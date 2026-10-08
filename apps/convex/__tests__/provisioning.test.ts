@@ -729,11 +729,11 @@ describe("scaffolding the layout the caller asked for", () => {
     expect(result).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
     expect([...backend.objects.keys()].sort()).toEqual(
       [
-        "0-inbox/README.md",
-        "1-projects/README.md",
-        "2-areas/README.md",
-        "3-resources/README.md",
-        "9-archive/README.md",
+        "0-inbox/about.md",
+        "1-projects/about.md",
+        "2-areas/about.md",
+        "3-resources/about.md",
+        "9-archive/about.md",
         "index.md",
         "privacy.md",
       ].sort(),
@@ -761,13 +761,13 @@ describe("scaffolding the layout the caller asked for", () => {
     });
 
     expect([...backend.objects.keys()].sort()).toEqual([
-      "clients/README.md",
+      "clients/about.md",
       "index.md",
       "privacy.md",
-      "reading/README.md",
+      "reading/about.md",
     ]);
-    // Their description, verbatim, in the folder's README and in the manifest.
-    expect(backend.objects.get("clients/README.md")!.body).toContain(
+    // Their description, verbatim, in the folder's about.md and in the manifest.
+    expect(backend.objects.get("clients/about.md")!.body).toContain(
       "One folder per client.",
     );
     expect(backend.objects.get("index.md")!.body).toContain(
@@ -864,7 +864,7 @@ describe("scaffolding the layout the caller asked for", () => {
     expect([...backend.objects.keys()].sort()).toEqual([
       "notes/workspace/index.md",
       "notes/workspace/privacy.md",
-      "notes/workspace/work/README.md",
+      "notes/workspace/work/about.md",
     ]);
     // Nothing derived from a workspace id ever appears in a key.
     for (const key of backend.objects.keys()) {

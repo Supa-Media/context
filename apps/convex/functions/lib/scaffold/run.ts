@@ -5,7 +5,7 @@
  * overall rules.
  */
 
-import { hasExistingContext, hasForeignContent } from "./detect";
+import { hasExistingContext, hasForeignContent, legacyFolderNoteKey } from "./detect";
 import { renderPrivacyManifest } from "./privacyManifest";
 import { renderCustomFolderReadme, renderFolderReadme, renderIndex } from "./readmes";
 import {
@@ -22,8 +22,9 @@ import {
  * Every file a fresh context starts with, **in write order, essentials first**.
  *
  * A folder in object storage is not a thing you create — it is the prefix of a
- * key that exists. `README.md` is what makes each one real, and it carries the
- * folder's purpose while it is at it.
+ * key that exists. `about.md` is what makes each one real, and it carries the
+ * folder's purpose while it is at it. (It used to be `README.md`; see
+ * `hasForeignContent`, which still recognises the old name in old buckets.)
  *
  * The order is not cosmetic. A bucket can stop accepting writes partway
  * through — a credential rotated out from under us, a policy change, a bucket
@@ -43,12 +44,12 @@ export function scaffoldFiles(
   ];
   if (template === "para") {
     for (const folder of PARA_FOLDERS) {
-      files.push({ key: `${folder}/README.md`, body: renderFolderReadme(folder) });
+      files.push({ key: `${folder}/about.md`, body: renderFolderReadme(folder) });
     }
   } else {
     for (const entry of customFolders) {
       files.push({
-        key: `${entry.folder}/README.md`,
+        key: `${entry.folder}/about.md`,
         body: renderCustomFolderReadme(entry),
       });
     }
@@ -133,14 +134,14 @@ export interface ScaffoldResult {
  *
  * ## Best effort, except where it is not
  *
- * One failed `README.md` used to abandon the whole run and report `failed`,
+ * One failed `about.md` used to abandon the whole run and report `failed`,
  * which is both a lie and a dead end: the bucket had a working `privacy.md`
  * in it, and the person was told their context did not get set up. So the loop
  * carries on past a refused write and the *outcome* is decided by
  * `ESSENTIAL_KEYS` — `created` when everything landed, `partial` when the
  * essentials did and something optional did not, `failed` only when an
  * essential did not. A failed essential does stop the loop: there is no point
- * laying READMEs into a bucket that has just refused the access manifest, and
+ * laying folder notes into a bucket that has just refused the access manifest, and
  * every extra `put` there is another write into storage that is misbehaving.
  */
 export async function scaffoldContext(
@@ -206,6 +207,14 @@ export async function scaffoldContext(
       // The second guard. The detector above looked at the shape of the
       // bucket; this looks at the exact key about to be written.
       if ((await store.get(file.key)) !== null) {
+        skipped.push(file.key);
+        continue;
+      }
+      // A folder whose note landed before the rename already has its note, under
+      // the old name. Writing `about.md` beside it would give the folder two.
+      // Counted as skipped, not missing: the folder is scaffolded.
+      const legacy = legacyFolderNoteKey(file.key);
+      if (legacy !== null && (await store.get(legacy)) !== null) {
         skipped.push(file.key);
         continue;
       }
