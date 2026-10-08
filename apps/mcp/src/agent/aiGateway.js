@@ -60,8 +60,12 @@ const RESPONSE_BYTE_CAP = 2_000_000;
  */
 const CREDIT_REST_MS = 15 * 60_000;
 
-/** Statuses after which a call with the credit key is retried without it. */
-const RETRY_WITHOUT_KEY = new Set([400, 401, 402, 403]);
+/**
+ * Statuses that mean the key itself was refused, after which a call is retried
+ * once without it. A 400 is not one of them unless it says the credit is
+ * spent: an ordinary bad request would only fail twice.
+ */
+const RETRY_WITHOUT_KEY = new Set([401, 403]);
 
 const ACCOUNT_ID = /^[0-9a-f]{32}$/;
 const GATEWAY_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -167,28 +171,39 @@ function saysCreditSpent(text) {
   }
 }
 
+/**
+ * One POST, with the round's deadline covering the body as well as the
+ * headers: a provider that trickles its answer must not hold the turn past
+ * the timeout. Returns `{ status, text }`, the text capped and `null` when
+ * unreadable.
+ */
 async function send(config, body, { withKey, metadata }, fetchImpl) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ROUND_TIMEOUT_MS);
   try {
-    return await fetchImpl(config.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "anthropic-version": ANTHROPIC_VERSION,
-        "cf-aig-authorization": `Bearer ${config.token}`,
-        "cf-aig-collect-log": "false",
-        ...metadataHeader(metadata),
-        // The plan's key appears here and nowhere else.
-        ...(withKey ? { "x-api-key": config.creditKey } : {}),
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-      redirect: "manual",
-    });
-  } catch {
-    // The caught error can quote the request, headers included.
-    throw new ProviderError("gateway request failed");
+    let response;
+    try {
+      response = await fetchImpl(config.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": ANTHROPIC_VERSION,
+          "cf-aig-authorization": `Bearer ${config.token}`,
+          "cf-aig-collect-log": "false",
+          ...metadataHeader(metadata),
+          // The plan's key appears here and nowhere else.
+          ...(withKey ? { "x-api-key": config.creditKey } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        redirect: "manual",
+      });
+    } catch {
+      // The caught error can quote the request, headers included.
+      throw new ProviderError("gateway request failed");
+    }
+    const status = response?.status ?? null;
+    return { status, text: response ? await readCapped(response) : null };
   } finally {
     clearTimeout(timer);
   }
@@ -210,30 +225,31 @@ export async function requestViaGateway(call, config, options = {}) {
   const body = gatewayBody(call);
 
   let paidBy = "cloudflare";
-  let response;
+  let answer = null;
   if (config.creditKey && now() >= creditRestingUntil) {
-    response = await send(config, body, { withKey: true, metadata: options.metadata }, fetchImpl);
-    if (response?.status === 200) {
+    answer = await send(config, body, { withKey: true, metadata: options.metadata }, fetchImpl);
+    if (answer.status === 200) {
       paidBy = "credit";
-    } else if (RETRY_WITHOUT_KEY.has(response?.status)) {
-      const text = await readCapped(response);
-      // A spent credit rests until it is worth asking again. Any other refusal
-      // of the key (revoked, wrong organization) is retried without it once,
-      // so a broken key costs a slower answer rather than no answer.
-      if (saysCreditSpent(text) || response.status === 402) creditRestingUntil = now() + CREDIT_REST_MS;
-      response = null;
+    } else if (saysCreditSpent(answer.text) || answer.status === 402) {
+      // The plan's credit is used up: rest it until it is worth asking again.
+      creditRestingUntil = now() + CREDIT_REST_MS;
+      answer = null;
+    } else if (RETRY_WITHOUT_KEY.has(answer.status)) {
+      // The key itself was refused (revoked, wrong organization): retried
+      // without it, so a broken key costs a slower answer, never no answer.
+      answer = null;
     } else {
-      throw new ProviderError(`status ${response?.status ?? "none"}`, response?.status ?? null);
+      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
     }
   }
-  if (!response) {
-    response = await send(config, body, { withKey: false, metadata: options.metadata }, fetchImpl);
+  if (!answer) {
+    answer = await send(config, body, { withKey: false, metadata: options.metadata }, fetchImpl);
   }
-  if (!response || response.status !== 200) {
-    throw new ProviderError(`status ${response?.status ?? "none"}`, response?.status ?? null);
+  if (answer.status !== 200) {
+    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
   }
 
-  const text = await readCapped(response);
+  const text = answer.text;
   if (text === null) throw new ProviderError("response too large", 200);
   let parsed;
   try {

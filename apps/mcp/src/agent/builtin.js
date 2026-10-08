@@ -54,9 +54,9 @@ export function builtinModel(env) {
   return gateway ? DEFAULT_GATEWAY_MODEL : DEFAULT_BUILTIN_MODEL;
 }
 
-/** Whether this deployment can run built-in turns at all. */
+/** Whether this deployment can run built-in turns at all: Workers AI, or a gateway. */
 export function hasBuiltinModel(env) {
-  return typeof env?.AI?.run === "function";
+  return typeof env?.AI?.run === "function" || aiGatewayConfig(env) !== null;
 }
 
 function count(value) {
