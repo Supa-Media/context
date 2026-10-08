@@ -111,4 +111,42 @@ describe("the manifest of one folder, for a List or Board read from the server",
     const store = await shared();
     await expect(syncManifest(store, { clearance: OWNER, folder: "../x" })).rejects.toThrow();
   });
+
+  /*
+    THE BODIES BEING EQUAL IS THE PROXY; THE COST IS THE THING.
+
+    The register's oldest cost-leak rule: a second route to a file is a second
+    access check, and the one nobody writes. It has been missed on three doors
+    already, and every time the refusal was byte-identical and the *number of
+    storage round trips* was not — which hands a team caller `canSee` on a name
+    it guessed, read with a clock instead of a read.
+
+    `syncManifest` closes it by walking one page for a folder it will say
+    nothing about, exactly as an absent folder costs one page. That walk looks
+    like dead work to anybody tidying this function, and deleting it would keep
+    the test above green: the two answers would stay equal and only their cost
+    would diverge. So the cost is asserted here as well, on data the same two
+    calls already produce.
+  */
+  test("a folder the reader cannot see costs exactly what an absent one costs", async () => {
+    const counted = async (folder: string): Promise<number> => {
+      const store = await shared();
+      const list = store.list.bind(store);
+      let lists = 0;
+      store.list = async (options) => {
+        lists += 1;
+        return list(options);
+      };
+      const manifest = await syncManifest(store, { clearance: TEAM, folder });
+      expect(manifest.entries).toEqual([]);
+      return lists;
+    };
+    const hidden = await counted("2-areas/secret");
+    const absent = await counted("1-projects/nothing-here");
+    // Non-vacuous in both directions: a real walk happens on each, and it is
+    // the same walk. Zero would mean the refusal never reached storage, which
+    // is the shape of the leak.
+    expect(hidden).toBeGreaterThan(0);
+    expect(hidden).toEqual(absent);
+  });
 });
