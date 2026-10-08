@@ -38,6 +38,7 @@ import { recordChange } from "../../activity/record.js";
 import { onlyLinkTargetsChanged } from "../../links.js";
 import { rewriteReferences } from "./references.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
+import { listImmediateLayout } from "../../notes/storage.js";
 import { loadMoveJobs } from "../../moves/jobs.js";
 import { readForwarding } from "../../forwarding.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
@@ -94,6 +95,50 @@ async function cleanupPrivacySourceAfterMove(store, job) {
 async function rewriteMoveReferences(store, scope, job, key, batchSize) {
   const state = await loadPrivacyState(store);
   if (state.error || state.legacy) return toolError(`move ${job.id} reference rewrite paused: privacy state unavailable`);
+  // A full inventory can take longer than one gateway request in a large
+  // workspace. Persist one object-store page per pass, so link rewriting can
+  // resume without starting the inventory again on every page of references.
+  if (job.reference_inventory_complete !== true) {
+    if ((job.reference_inventory_pages || 0) >= 100) {
+      return toolError(`move ${job.id} reference inventory paused: exceeded 100 pages`);
+    }
+    if (!Array.isArray(job.reference_inventory_prefixes)) {
+      const layout = await listImmediateLayout(store);
+      job.reference_inventory_prefixes = layout.prefixes;
+      job.reference_inventory_index = 0;
+      job.reference_inventory_keys = layout.objects
+        .map((object) => object.key)
+        .filter((path) => path.endsWith(".md") && !isPlumbing(path));
+    }
+    const prefix = job.reference_inventory_prefixes[job.reference_inventory_index];
+    if (!prefix) {
+      job.reference_inventory_complete = true;
+      await persistMoveJob(store, job);
+      return toolText(`move ${job.id}: reference inventory complete`);
+    }
+    const page = await store.list({
+      prefix,
+      cursor: job.reference_inventory_cursor || undefined,
+      limit: 1000,
+    });
+    if (page.truncated && (!page.cursor || page.cursor === job.reference_inventory_cursor)) {
+      return toolError(`move ${job.id} reference inventory paused: invalid storage cursor`);
+    }
+    for (const object of page.objects || []) {
+      if (object.key.endsWith(".md") && !isPlumbing(object.key)) {
+        job.reference_inventory_keys.push(object.key);
+      }
+    }
+    job.reference_inventory_pages = (job.reference_inventory_pages || 0) + 1;
+    job.reference_inventory_cursor = page.truncated ? page.cursor : null;
+    if (!page.truncated) job.reference_inventory_index += 1;
+    job.reference_inventory_complete = job.reference_inventory_index >= job.reference_inventory_prefixes.length;
+    if (job.reference_inventory_complete) {
+      job.reference_inventory_keys = [...new Set(job.reference_inventory_keys)];
+    }
+    await persistMoveJob(store, job);
+    return toolText(`move ${job.id}: inventorying references\npages: ${job.reference_inventory_pages}`);
+  }
   const renames = new Map(job.objects.map((item) => [item.source, item.destination]));
   // A large floor made even a one-object recovery call scan 50 notes. One
   // expensive collaboration document could then outlive the gateway timeout
@@ -103,8 +148,9 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
   const retrying = job.reference_scan_complete === true && pending.length > 0;
   const selected = retrying ? pending.slice(0, referenceBatchSize) : null;
   const result = await rewriteReferences(store, job.reference_scope || scope, state.rules, state.overrides, renames,
-    retrying ? { paths: selected, currentJobId: job.id } :
-      { after: job.reference_after, limit: referenceBatchSize, currentJobId: job.id });
+    retrying ? { paths: selected, currentJobId: job.id, inventoryKeys: job.reference_inventory_keys } :
+      { after: job.reference_after, limit: referenceBatchSize, currentJobId: job.id,
+        inventoryKeys: job.reference_inventory_keys });
   if (!Array.isArray(result.failedPaths)) {
     return toolError(`move ${job.id} reference rewrite paused: note listing did not finish`);
   }
