@@ -44,7 +44,14 @@
 
 import { MAX_RESULTS } from "../query.js";
 import { SEARCH_RESULT_LIMIT } from "../visible.js";
-import { mergeHits, searchParams, searchSql, tablesForTier, toMatchExpression } from "./query.js";
+import {
+  mergeHits,
+  searchParams,
+  searchSql,
+  tablesForTier,
+  toMatchExpression,
+  toRelaxedMatchExpression,
+} from "./query.js";
 
 /**
  * Chunk rows one table may return for one query.
@@ -108,9 +115,17 @@ export function pageDepth(limit) {
  */
 export async function searchProjection(
   client,
-  { query, prefix = "", tier, budget = null, reserve = 0, chunkCap = CHUNK_FETCH_CAP } = {}
+  {
+    query,
+    prefix = "",
+    tier,
+    budget = null,
+    reserve = 0,
+    chunkCap = CHUNK_FETCH_CAP,
+    match: given = undefined,
+  } = {}
 ) {
-  const match = toMatchExpression(query);
+  const match = given === undefined ? toMatchExpression(query) : given;
   // An empty MATCH is a syntax error in FTS5 and the other reading of it —
   // "match everything" — returns the whole context. Neither is an answer.
   if (match === null) return null;
@@ -224,15 +239,18 @@ export async function searchProjection(
  *   the two counts, for a caller with somewhere to log them. Their difference
  *   is how many matches this caller may not read — an operator's signal, and
  *   exactly the subtraction that must never be rendered.
+ * @param {boolean} [options.missIsAnswer] a ready projection's caller: a
+ *   query nothing matched, strictly or relaxed, answers no notes rather than
+ *   `null`.
  * @param {number} [options.limit] how far down the caller wants to read, in
  *   notes, clamped by `pageDepth`. Ten by default, which is every caller that
  *   renders a palette. A dedicated search page reading a second page asks for
  *   more of the SAME ranked list rather than a different one — see `pageDepth`.
  * @returns {Promise<{hits: {key: string, title: string, snippets: string[]}[],
  *   matchCount: number, matchCountIsFloor: boolean}|null>}
- *   `null` means **not answered** — a miss, a tier this build does not know, a
- *   budget too small, a query with no usable token. Every caller must fall
- *   through to the R2 index on `null` and must never report it as no results.
+ *   `null` means **not answered** — a tier this build does not know, a budget
+ *   too small, a query with no usable token, or a miss when `missIsAnswer` is
+ *   off. A caller must never report `null` as no results.
  */
 export async function answerFromProjection(
   client,
@@ -245,21 +263,39 @@ export async function answerFromProjection(
     reserve = 0,
     onCounts = null,
     limit = SEARCH_RESULT_LIMIT,
+    missIsAnswer = false,
   } = {}
 ) {
   const depth = pageDepth(limit);
-  const result = await searchProjection(client, { query, prefix, tier, budget, reserve });
+  let result = await searchProjection(client, { query, prefix, tier, budget, reserve });
   if (!result) return null;
 
   // The boundary. Nothing below this line has seen a path the caller may not
   // read, and the count is taken after the filter rather than before it —
   // slicing or counting first would make the number a caller sees depend on
   // how many notes they cannot see.
-  const visible = result.notes.filter((note) => isVisible(note.path));
+  let visible = result.notes.filter((note) => isVisible(note.path));
   if (typeof onCounts === "function") onCounts(result.notes.length, visible.length);
-  // A miss is not an answer. `searchIndexedNotes`' own rule, one layer up: "a
-  // miss may pay for a listing, a hit never does".
-  if (visible.length === 0) return null;
+
+  // Nothing had every word exactly: ask again for any of them, prefixes
+  // included, before calling it a miss (`toRelaxedMatchExpression`).
+  const relaxed = visible.length === 0 ? toRelaxedMatchExpression(query) : null;
+  if (relaxed !== null) {
+    const second = await searchProjection(client, { query, prefix, tier, budget, reserve, match: relaxed });
+    if (second) {
+      result = second;
+      visible = second.notes.filter((note) => isVisible(note.path));
+      if (typeof onCounts === "function") onCounts(second.notes.length, visible.length);
+    }
+  }
+
+  if (visible.length === 0) {
+    // A ready projection's miss is the answer: the bucket index it used to
+    // fall through to is the slow path (Dev2, 2026-10-08), and search by
+    // meaning, merged by every caller, is what covers a projection that is
+    // behind. A caller that has not opted in still gets "not answered".
+    return missIsAnswer ? { hits: [], matchCount: 0, matchCountIsFloor: false } : null;
+  }
 
   return {
     hits: visible.slice(0, depth).map((note) => ({

@@ -105,8 +105,8 @@ export function stubD1(): StubD1 {
    * own assumptions would bless them rather than test them.
    *
    * What it exists for is the layer above: does the console CALL the
-   * projection, does its own `canSee` filter what comes back, does a miss fall
-   * through to the R2 index, and does a refused database leave a working
+   * projection, does its own `canSee` filter what comes back, is a ready
+   * projection's miss the answer, and does a refused database leave a working
    * search. Those are properties of `fileOps.ts`, and they need a row that can
    * answer, not a row that is right.
    */
