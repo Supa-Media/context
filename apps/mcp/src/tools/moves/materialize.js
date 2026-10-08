@@ -39,6 +39,23 @@ import { onlyLinkTargetsChanged } from "../../links.js";
 import { rewriteReferences } from "./references.js";
 import { toolError, toolText } from "../results.js";
 
+// Owner-only diagnostics for a wrapped storage failure. Provider exceptions
+// may echo request URLs, object keys or credentials, so return a short redacted
+// fragment only in the immediate tool response; never persist it in the move
+// marker, activity or gateway job status.
+export function safeMoveStorageDetail(error) {
+  if (error?.code !== "STORAGE_WRITE_FAILED" || typeof error?.cause?.message !== "string") return "";
+  const detail = error.cause.message
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .replace(/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "[email]")
+    .replace(/\b(?:authorization|bearer|basic|api[_-]?key|token|secret|password)\b\s*[:=]?\s*\S+/gi, "[credential]")
+    .replace(/\b[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+\b/g, "[path]")
+    .replace(/\b[A-Za-z0-9+_=-]{32,}\b/g, "[long value]")
+    .slice(0, 180).trim();
+  return detail ? `\nprovider detail (redacted): ${detail}` : "";
+}
+
 async function cleanupPrivacySourceAfterMove(store, job) {
   const removableSources = new Set((job.objects || []).map((item) => item.source).filter(Boolean));
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -438,6 +455,6 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       ? ` (provider code: ${providerCode})` : "";
     job.error = `${stage}: ${error.message}${causeCode}`;
     await persistMoveJob(store, job).catch(() => {});
-    return toolError(`move ${job.id} materialization paused: ${job.error}`);
+    return toolError(`move ${job.id} materialization paused: ${job.error}${safeMoveStorageDetail(error)}`);
   }
 }
