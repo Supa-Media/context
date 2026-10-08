@@ -191,8 +191,8 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   // answers go out as iMessages, and only they are written for one. A
   // routine's answer is a text too, when it says anything.
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
-  // A text edits notes directly (`textingWrites.js`, the owner's "Edit
-  // directly", 2026-10-08); a routine's own run never may.
+  // A text has the MCP's own write tools (`textingWrites.js`, the owner,
+  // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
   const computer = texting ? computerFor(env) : null;
   // Web search is the texting assistant's too, and runs on its own (the
@@ -331,7 +331,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       */
       callTool: textingAwareCallTool(
         (name, args) => callToolForSession({ name, arguments: args }, store, session),
-        textingWriting.map((tool) => tool.name),
+        textingWriting,
       ),
       env,
       model: typeof body.model === "string" ? body.model : undefined,

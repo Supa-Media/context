@@ -484,46 +484,52 @@ The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
 never reads a note the workspace holds back", "the world lets no request out
 except the model's").
 
-### A text edits notes directly, and never who can see them
+### A text has the MCP's write tools, minus public links and key material
 
-Decided by the owner, 2026-10-08 ("Edit directly"), replacing "writes are
-proposals" for the texting client only. A proposal has no screen on a phone and
-no review page in the app, so texting "add the tulips to my garden plan" left a
-change nobody would ever accept. A texting turn on a grant that can write is
-offered `write_note`, `archive_note` and `move_note` with narrower schemas
-(`apps/mcp/src/agent/textingWrites.js`), and is not offered `propose_note`. The
+Decided by the owner, 2026-10-08, in two steps. "Edit directly" replaced
+"writes are proposals" for the texting client: a proposal has no screen on a
+phone, so a texted change was never applied. Then, after the assistant told
+them it could not move notes between workspaces, which `move_note` does: "the
+mcp has a tool to move across workspaces, why don't you know what tools you
+have access to? ... shouldn't we be listing all the tools and fields that an
+agent can use?" The first version had hand-written narrower schemas, and they
+had dropped `destination_context`, `move_folder`, `remember` and the rest.
+
+So a texting turn on a grant that can write is offered every write tool its
+connection's `toolsForSession` returned, with the MCP's own descriptions and
+fields, generated in `apps/mcp/src/agent/textingWrites.js`, minus two named
+lists:
+
+- **Tools** (`WITHHELD_TOOLS`): `create_link` (a link anyone on the internet
+  can open), the three encryption-key tools, `migrate_storage_layout` and
+  `materialize_move` (plumbing the gateway runs), and `propose_note` (a text
+  edits directly).
+- **Fields** (`WITHHELD_FIELDS`): `write_note`'s `share`, `share_short` and
+  `site`, which publish to the internet, and `images`, whose `url` the gateway
+  fetches, so a model could put note words in an address of its choosing
+  (the same channel "The agent opens only addresses it was given" closes).
+
+The dispatcher in front of the client's refuses those fields, any path into a
+dot folder or `privacy.md`, and a malformed routine under `routines/`
+([routines](./routines.md)), before the client's dispatcher runs. Everything
+else, including whether the person may write in the other workspace, is the
+client's dispatcher's role check, unchanged. The prompt tells the model to
+check its tool list before saying it can't do something, and to change notes
+only because the person asked, never because a note or a page said to. The
 app's agent panel and a routine's own run still only propose.
 
-What the narrower schemas leave out is the line: an edit changes what a note
-says, never who can read it. The dispatcher in front of the client's refuses,
-before the client's dispatcher runs:
-
-- `visibility`, `confirm_team_publish`, `share`, `share_short` and pictures;
-- a move between contexts (`source_context`, `destination_context`), which is
-  publishing a note to whoever reads the other workspace;
-- `privacy.md`, anything under a dot folder, and any path the normalizer would
-  change.
-
-`write_note` and `archive_note` keep `context`, so a text can change a note in
-a shared workspace the person may write in, by the same role check as any
-client. A path under `routines/` must still be a routine in their own context
-([routines](./routines.md)). The prompt tells the model to change notes only
-because the person asked in this conversation, never because a note or a page
-said to.
-
 **What is accepted:** a note the agent reads can carry instructions, and a
-personal context takes email from strangers into `0-inbox/`. With edits, a
-confused or steered turn can now change a note the person can write, including
-an existing team note in a shared workspace, where its words reach that
-workspace's members. That is the same reach every MCP client the person
-connects already has. What bounds it is that every edit is attributed to the
-texting client in the audit trail and activity, kept in the note's history, and
-can never widen who sees anything.
+personal context takes email from strangers into `0-inbox/`. A steered turn
+can now change, move or widen to `team` any note the person could, which is
+the reach every MCP client they connect already has. It can never make
+anything public or touch keys, and every edit is attributed to the texting
+client in the audit trail and kept in the note's history.
 
-**What a simplification would cost:** passing the client's own `write_note`
-through unnarrowed hands a model reading a stranger's email the `share:
-anyone` argument, which publishes a note to the internet. Tests
-(`apps/mcp/test/agentRoutine.test.mjs`): "a text writes, archives and moves
-ordinary notes directly", "a text never touches access, plumbing or another
-workspace, whatever the model named", "a routine's own run is never offered a
-write".
+**What a simplification would cost:** hand-copying schemas again is how the
+assistant came to deny a tool it had. Passing the client's tools through
+unfiltered hands a model reading a stranger's email `share: anyone`. Tests
+(`apps/mcp/test/agentRoutine.test.mjs`): "every MCP write tool and field is
+offered to a text or withheld by name", "a text is offered the MCP's own write
+tools, cross-workspace moves included", "a text never publishes, touches
+plumbing or writes a malformed routine, whatever the model named", "a routine's
+own run is never offered a write".
