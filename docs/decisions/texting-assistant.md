@@ -483,3 +483,47 @@ answers well; a world that could reach the network could text a real person.
 The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
 never reads a note the workspace holds back", "the world lets no request out
 except the model's").
+
+### A text edits notes directly, and never who can see them
+
+Decided by the owner, 2026-10-08 ("Edit directly"), replacing "writes are
+proposals" for the texting client only. A proposal has no screen on a phone and
+no review page in the app, so texting "add the tulips to my garden plan" left a
+change nobody would ever accept. A texting turn on a grant that can write is
+offered `write_note`, `archive_note` and `move_note` with narrower schemas
+(`apps/mcp/src/agent/textingWrites.js`), and is not offered `propose_note`. The
+app's agent panel and a routine's own run still only propose.
+
+What the narrower schemas leave out is the line: an edit changes what a note
+says, never who can read it. The dispatcher in front of the client's refuses,
+before the client's dispatcher runs:
+
+- `visibility`, `confirm_team_publish`, `share`, `share_short` and pictures;
+- a move between contexts (`source_context`, `destination_context`), which is
+  publishing a note to whoever reads the other workspace;
+- `privacy.md`, anything under a dot folder, and any path the normalizer would
+  change.
+
+`write_note` and `archive_note` keep `context`, so a text can change a note in
+a shared workspace the person may write in, by the same role check as any
+client. A path under `routines/` must still be a routine in their own context
+([routines](./routines.md)). The prompt tells the model to change notes only
+because the person asked in this conversation, never because a note or a page
+said to.
+
+**What is accepted:** a note the agent reads can carry instructions, and a
+personal context takes email from strangers into `0-inbox/`. With edits, a
+confused or steered turn can now change a note the person can write, including
+an existing team note in a shared workspace, where its words reach that
+workspace's members. That is the same reach every MCP client the person
+connects already has. What bounds it is that every edit is attributed to the
+texting client in the audit trail and activity, kept in the note's history, and
+can never widen who sees anything.
+
+**What a simplification would cost:** passing the client's own `write_note`
+through unnarrowed hands a model reading a stranger's email the `share:
+anyone` argument, which publishes a note to the internet. Tests
+(`apps/mcp/test/agentRoutine.test.mjs`): "a text writes, archives and moves
+ordinary notes directly", "a text never touches access, plumbing or another
+workspace, whatever the model named", "a routine's own run is never offered a
+write".
