@@ -36,6 +36,8 @@ import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { SignupAlerts } from "./SignupAlerts";
 import { totalReferrals } from "./referrals";
+import type { WAITLIST_PLACES } from "./place";
+import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistAdd } from "./WaitlistAdd";
 import { WaitlistRows } from "./WaitlistRows";
 import {
@@ -54,17 +56,36 @@ interface Outcome {
 }
 
 /** The waitlist's own lists, and the referrals beside them. */
-type WaitlistView = WaitlistStatus | "friends";
+export type WaitlistView = WaitlistStatus | "friends";
+
+type WaitlistPlace = (typeof WAITLIST_PLACES)[number];
+
+/** The view an address names (`/admin/waitlist/let-in`); bare is Waiting. */
+export function waitlistView(place: string | null): WaitlistView {
+  if (place === "let-in") return "admitted";
+  if (place === "removed" || place === "friends") return place;
+  return "waiting";
+}
+
+/** The address segment for a view: the inverse of `waitlistView`, `null` for the default. */
+export function waitlistPlace(view: WaitlistView): WaitlistPlace | null {
+  if (view === "waiting") return null;
+  return view === "admitted" ? "let-in" : view;
+}
 
 const VIEWS: readonly { key: WaitlistView; label: string }[] = [
   ...WAITLIST_FILTERS,
   { key: "friends", label: "Invited by friends" },
 ];
 
-export function WaitlistSection() {
+/**
+ * `view`/`onView` are the list on show, which the route keeps in the address
+ * (`/admin/waitlist/<view>`); without them the tab keeps its own.
+ */
+export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: WaitlistView) => void } = {}) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
-  const [view, setView] = useState<WaitlistView>("waiting");
+  const [view, setView] = useOwnedOr<WaitlistView>(props.view, props.onView, "waiting");
   // The waitlist's counts stay on the chips while referrals are showing.
   const status: WaitlistStatus = view === "friends" ? "waiting" : view;
   const friends = view === "friends";

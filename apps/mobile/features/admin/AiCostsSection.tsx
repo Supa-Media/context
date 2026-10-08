@@ -8,18 +8,31 @@
  * The window is the console's 7 / 30 / 90 picker, passed in from `AdminPane`.
  */
 
-import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useThemedStyles } from "../design";
 import { useCompact } from "./AdminKit";
 import { AiCostsAccount } from "./AiCostsAccount";
 import { useAiCostsAccount, useAiCostsData } from "./aiCostsData";
 import { AiCostsView } from "./AiCostsView";
+import { useOwnedOr } from "./useOwnedOr";
 
-export function AiCostsSection({ days }: { days: number }) {
+/**
+ * `openId`/`onOpen` are the account whose drawer is open, which the route
+ * keeps in the address (`/admin/ai-costs/<id>`) so Back closes it; without
+ * them the tab keeps its own.
+ */
+export function AiCostsSection({
+  days,
+  openId: ownedId,
+  onOpen,
+}: {
+  days: number;
+  openId?: string | null;
+  onOpen?: (id: string | null) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useOwnedOr<string | null>(ownedId, onOpen, null);
   const { report, cloudflare } = useAiCostsData(days);
   const account = useAiCostsAccount(openId, days);
   const close = () => setOpenId(null);

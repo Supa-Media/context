@@ -49,7 +49,7 @@
  * share in `./AdminKit`.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -66,9 +66,19 @@ import { GrowthSection } from "./GrowthSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
-import { WaitlistSection } from "./WaitlistSection";
+import { DEFAULT_PLACE, type AdminPlace } from "./place";
+import type { AdminPlaceControl } from "./useAdminPlace";
+import { useOwnedOr } from "./useOwnedOr";
+import { WaitlistSection, waitlistPlace, waitlistView } from "./WaitlistSection";
 
-export function AdminPane() {
+/**
+ * `place`/`onPlace` and `days`/`onDays` come from the route, which reads and
+ * writes them in the address (`./useAdminPlace`). Mounted without them — the
+ * render tests do — the console keeps its own, starting on Growth.
+ */
+export type AdminPaneProps = Partial<AdminPlaceControl>;
+
+export function AdminPane(props: AdminPaneProps = {}) {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
 
   // Undefined until the first round trip lands, which is not the same as
@@ -77,7 +87,7 @@ export function AdminPane() {
   if (!isAdmin) return <DeadLinkScreen />;
   return (
     <AdminChrome>
-      <Console />
+      <Console {...props} />
     </AdminChrome>
   );
 }
@@ -128,11 +138,17 @@ function AuthPending() {
  * not yet set from every tab — it is admin-gated like everything else here,
  * and this component only renders for an admin.
  */
-function Console() {
+function Console(props: AdminPaneProps) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
-  const [tab, setTab] = useState<AdminTab>("growth");
-  const [days, setDays] = useState<number>(DEFAULT_WINDOW);
+  const [place, go] = useOwnedOr(props.place, props.onPlace, DEFAULT_PLACE);
+  const [days, setDays] = useOwnedOr(props.days, props.onDays, DEFAULT_WINDOW);
+  const { tab, sub } = place;
+  const setTab = (next: AdminTab) => go({ tab: next, sub: null });
+  // Closing an opened answer or account replaces rather than pushes, so Back
+  // afterwards goes to where somebody was before opening it, not into it again.
+  const openOrClose = (next: AdminPlace) =>
+    next.sub === null && props.onPlace ? props.onPlace(next, { replace: true }) : go(next);
   const secrets = useQuery(api.functions.admin.listSecrets, {});
   const unset = useMemo(() => unsetKnownSecrets(secrets ?? []), [secrets]);
   // Zero until the list lands, rather than every known name at once.
@@ -157,11 +173,20 @@ function Console() {
         ) : null}
         {tab === "estate" ? <EstateSection days={days} /> : null}
         {tab === "activity" ? <ActivitySection days={days} /> : null}
-        {tab === "agent" ? <AgentSection /> : null}
-        {tab === "aiCosts" ? <AiCostsSection days={days} /> : null}
+        {tab === "agent" ? (
+          <AgentSection openId={sub} onOpen={(id) => openOrClose({ tab: "agent", sub: id })} />
+        ) : null}
+        {tab === "aiCosts" ? (
+          <AiCostsSection days={days} openId={sub} onOpen={(id) => openOrClose({ tab: "aiCosts", sub: id })} />
+        ) : null}
         {tab === "search" ? <SearchSection /> : null}
         {tab === "credentials" ? <SecretsSection secrets={secrets} unset={unset} /> : null}
-        {tab === "waitlist" ? <WaitlistSection /> : null}
+        {tab === "waitlist" ? (
+          <WaitlistSection
+            view={waitlistView(sub)}
+            onView={(view) => go({ tab: "waitlist", sub: waitlistPlace(view) })}
+          />
+        ) : null}
       </View>
     </>
   );
