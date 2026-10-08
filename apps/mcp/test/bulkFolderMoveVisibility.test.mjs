@@ -242,10 +242,20 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
   );
   const activeMoveId = /move_id: (\S+)/.exec(textOf(activeMove))?.[1];
   if (activeMoveId) {
+    let checkedReferenceBound = false;
     for (let attempt = 0; attempt < 30; attempt += 1) {
       const progress = await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId });
+      if (!checkedReferenceBound && textOf(progress).includes("rewriting")) {
+        const key = `.context/moves/${activeMoveId}.json`;
+        const before = JSON.parse(primary.get(key).body).reference_scanned;
+        await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId, batch_size: 1 });
+        const after = JSON.parse(primary.get(key).body).reference_scanned;
+        check("one-object recovery advances the reference cursor by one note", after - before === 1);
+        checkedReferenceBound = true;
+      }
       if (textOf(progress).includes("physical storage sync: complete")) break;
     }
+    check("large move reached a bounded reference pass", checkedReferenceBound);
   }
   check(
     "materialization moves the headed note and its identity",
