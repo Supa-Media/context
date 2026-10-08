@@ -355,6 +355,8 @@ export type OperationResult =
       rows: number | null;
       sweptAt: number | null;
       dirty: boolean;
+      /** Why the last sweep pass failed, keys removed. */
+      error: string | null;
     }
   | {
       kind: "notes";

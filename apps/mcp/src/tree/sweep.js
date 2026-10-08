@@ -73,7 +73,22 @@ export function sweepDue(state, now) {
  * @param {{ list: Function }} store the context's bucket
  * @param {{ query: Function, runAll: Function }} client its search database
  */
-export async function sweepTreePass(store, client, { now = Date.now, maxPages = SWEEP_PAGES } = {}) {
+export async function sweepTreePass(store, client, options = {}) {
+  try {
+    return await sweepTreePassUnrecorded(store, client, options);
+  } catch (error) {
+    // Kept beside the table, in the context's own database, so a sweep that
+    // fails at the same key every pass says why instead of only stalling.
+    const now = options.now ?? Date.now;
+    const message = String(error?.message ?? error).slice(0, 500);
+    await client
+      .runAll(setStateStatements({ [TREE_STATE.error]: message, [TREE_STATE.errorAt]: now() }))
+      .catch(() => {});
+    throw error;
+  }
+}
+
+async function sweepTreePassUnrecorded(store, client, { now = Date.now, maxPages = SWEEP_PAGES } = {}) {
   await ensureTreeTables(client);
   const state = await readTreeState(client);
   if (state.unsupported) return { complete: false, unsupported: true, pages: 0, rows: 0 };
@@ -140,6 +155,8 @@ export async function sweepTreePass(store, client, { now = Date.now, maxPages = 
           [TREE_STATE.cursor]: null,
           [TREE_STATE.startedAt]: null,
           [TREE_STATE.leaseAt]: null,
+          [TREE_STATE.error]: null,
+          [TREE_STATE.errorAt]: null,
         }),
       );
       await client.runAll(statements);
@@ -147,11 +164,24 @@ export async function sweepTreePass(store, client, { now = Date.now, maxPages = 
     }
     if (jump === null && last === cursor) {
       // Truncated, yet nothing new: a store that cannot make progress.
+      statements.push(
+        ...setStateStatements({
+          [TREE_STATE.error]: "the storage listing said there was more but returned nothing new",
+          [TREE_STATE.errorAt]: now(),
+        }),
+      );
       await client.runAll(statements);
       return { complete: false, unsupported: false, pages: page + 1, rows };
     }
     cursor = jump ?? last;
-    statements.push(...setStateStatements({ [TREE_STATE.cursor]: cursor, [TREE_STATE.leaseAt]: now() }));
+    statements.push(
+      ...setStateStatements({
+        [TREE_STATE.cursor]: cursor,
+        [TREE_STATE.leaseAt]: now(),
+        [TREE_STATE.error]: null,
+        [TREE_STATE.errorAt]: null,
+      }),
+    );
     await client.runAll(statements);
   }
   return { complete: false, unsupported: false, pages: maxPages, rows };

@@ -29,6 +29,8 @@ export const treeIndexRowValidator = v.object({
   sweptAt: v.union(v.number(), v.null()),
   /** A change was too big to re-check, so the next read starts a sweep. */
   dirty: v.boolean(),
+  /** Why the last sweep pass failed, keys removed; cleared once one moves on. */
+  error: v.union(v.string(), v.null()),
 });
 
 export const treeIndexReportValidator = v.object({

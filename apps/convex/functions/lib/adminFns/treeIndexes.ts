@@ -52,9 +52,16 @@ async function rowFor(ctx: ActionCtx, target: TreeTarget): Promise<TreeIndexRow>
       operation: { kind: "treeState" },
     });
     if (answer.kind !== "treeState") throw new Error("not a tree state");
-    return { ...base, status: answer.status, rows: answer.rows, sweptAt: answer.sweptAt, dirty: answer.dirty };
+    return {
+      ...base,
+      status: answer.status,
+      rows: answer.rows,
+      sweptAt: answer.sweptAt,
+      dirty: answer.dirty,
+      error: answer.error,
+    };
   } catch {
-    return { ...base, status: "unreachable", rows: null, sweptAt: null, dirty: false };
+    return { ...base, status: "unreachable", rows: null, sweptAt: null, dirty: false, error: null };
   }
 }
 

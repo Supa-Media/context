@@ -338,3 +338,37 @@ test("a table that cannot answer a page hands the walk to the bucket, not an err
   const page = await listing.list({ prefix: "", startAfter: "1-projects/plan.md" });
   assert.deepEqual(page.objects.map((object) => object.key), ["1-projects/plan/attachment.png", "2-areas/z.md", "2-areas/ü.md", "privacy.md"]);
 });
+
+test("a pass that fails says why, and the next one that moves on clears it", async () => {
+  const store = bucket(NOTES, { pageSize: 2 });
+  const client = sqliteClient();
+  const now = clock();
+  await sweepTreePass(store, client, { now, maxPages: 1 });
+  const list = store.list;
+  store.list = async () => {
+    throw new Error("S3 LIST failed: 403 AccessDenied");
+  };
+  await assert.rejects(sweepTreePass(store, client, { now }), /AccessDenied/);
+  const stuck = await readTreeState(client);
+  assert.match(stuck.error, /AccessDenied/);
+  assert.equal(typeof stuck.errorAt, "number");
+  // The failed pass did not move the sweep.
+  assert.equal(stuck.cursor, "1-projects/plan.md");
+  store.list = list;
+  const rest = await sweepTreePass(store, client, { now, maxPages: 1 });
+  assert.equal(rest.complete, false);
+  const moving = await readTreeState(client);
+  assert.equal(moving.error, null);
+  assert.equal(moving.errorAt, null);
+});
+
+test("a listing that says there is more but returns nothing new is recorded as stuck", async () => {
+  const store = bucket(NOTES, { pageSize: 2 });
+  const client = sqliteClient();
+  const now = clock();
+  await sweepTreePass(store, client, { now, maxPages: 1 });
+  store.list = async () => ({ objects: [], truncated: true });
+  const result = await sweepTreePass(store, client, { now });
+  assert.equal(result.complete, false);
+  assert.match((await readTreeState(client)).error, /returned nothing new/);
+});
