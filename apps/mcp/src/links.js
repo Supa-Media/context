@@ -506,8 +506,9 @@ function encodeTarget(file) {
  * and every relative one of them now needs a different number of `../`.
  *
  * `renames` maps a moved note's old path to its new one. A link resolving to a
- * path that is not in it is still re-expressed when the *referrer* moved, and
- * otherwise left byte-identical.
+ * path that is not in it is still re-expressed when the *referrer* moved.
+ * An owner sweep may also pass `forwardTarget` to follow an earlier move from
+ * the forwarding ledger, including a move whose link sweep was deferred.
  *
  * Returns `null` when nothing changed, so a caller can skip the write rather
  * than stamp a new etag and a `.history/` entry on an unchanged file — and
@@ -515,7 +516,7 @@ function encodeTarget(file) {
  * is what a move reports back and deriving it by diffing afterwards would be a
  * second, disagreeing implementation of "what changed".
  */
-export function rewriteLinks(text, { fromPath, toPath, renames, byName }) {
+export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardTarget = undefined }) {
   const links = parseLinks(text);
   if (links.length === 0) return null;
 
@@ -526,7 +527,8 @@ export function rewriteLinks(text, { fromPath, toPath, renames, byName }) {
   for (const link of links) {
     const resolved = resolveLink(link, fromPath, byName);
     if (resolved === null) continue;
-    const destination = renames.get(resolved) ?? resolved;
+    const moved = renames.get(resolved) ?? resolved;
+    const destination = forwardTarget?.(moved) ?? moved;
     // The referrer stayed put and the target stayed put: nothing to say.
     if (destination === resolved && fromPath === toPath) continue;
 

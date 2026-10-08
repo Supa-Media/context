@@ -61,7 +61,8 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
   const retrying = job.reference_scan_complete === true && pending.length > 0;
   const selected = retrying ? pending.slice(0, referenceBatchSize) : null;
   const result = await rewriteReferences(store, job.reference_scope || scope, state.rules, state.overrides, renames,
-    retrying ? { paths: selected } : { after: job.reference_after, limit: referenceBatchSize });
+    retrying ? { paths: selected, currentJobId: job.id } :
+      { after: job.reference_after, limit: referenceBatchSize, currentJobId: job.id });
   if (!Array.isArray(result.failedPaths)) {
     return toolError(`move ${job.id} reference rewrite paused: note listing did not finish`);
   }
