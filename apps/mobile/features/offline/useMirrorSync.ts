@@ -9,7 +9,7 @@ import {
   publishMirrorStatus,
   statusFromIndex,
 } from "./mirrorStatus";
-import { openMirrorStore } from "./mirrorStore";
+import { mirrorSupported, openMirrorStore } from "./mirrorStore";
 import {
   onMirrorFolderRequest,
   onMirrorRefreshRequest,
@@ -191,7 +191,8 @@ export function useMirrorSync(options: {
       for (const target of targets) {
         if (cancelled || epochRef.current !== currentEpoch()) return;
         if (store === null) {
-          publishMirrorStatus(target.workspaceId, UNAVAILABLE);
+          // A browser tab keeps no copy by design, and says nothing about one.
+          if (mirrorSupported()) publishMirrorStatus(target.workspaceId, UNAVAILABLE);
           continue;
         }
         if (target.tier === "unknown") continue;

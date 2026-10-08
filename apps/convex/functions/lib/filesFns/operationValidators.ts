@@ -160,7 +160,7 @@ export const operationValidator = v.union(
    */
   v.object({ kind: v.literal("forward"), paths: v.array(v.string()) }),
   /** The offline mirror's manifest, one page of it. See `syncManifest`. */
-  v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()) }),
+  v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()), folder: v.optional(v.string()) }),
   /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
   v.object({ kind: v.literal("readMany"), paths: v.array(v.string()) }),
   v.object({

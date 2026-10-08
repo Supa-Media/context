@@ -73,3 +73,42 @@ describe("the manifest steps over hidden plumbing", () => {
     );
   });
 });
+
+describe("the manifest of one folder, for a List or Board read from the server", () => {
+  const TEAM = clearanceOf("team");
+
+  async function shared(): Promise<MemoryStore & FileStore> {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    store.seed("1-projects/a.md", "# A\n");
+    store.seed("1-projects/deep/b.md", "# B\n");
+    store.seed("1-projectsX/no.md", "# not under 1-projects\n");
+    store.seed("2-areas/secret/c.md", "# C\n");
+    store.seed("index.md", "# Context\n");
+    const { setFolderVisibility } = await import("../functions/lib/fileOps");
+    await setFolderVisibility(store, { path: "1-projects", visibility: "team", clearance: OWNER });
+    return store;
+  }
+
+  test("only the subtree, recursively, with versions", async () => {
+    const store = await shared();
+    const manifest = await syncManifest(store, { clearance: OWNER, folder: "1-projects" });
+    expect(manifest.entries.map((entry) => entry.path)).toEqual(["1-projects/a.md", "1-projects/deep/b.md"]);
+    expect(manifest.entries.every((entry) => typeof entry.etag === "string")).toBe(true);
+    expect(manifest.cursor).toBeNull();
+  });
+
+  test("a folder the reader cannot see answers exactly as one that is not there", async () => {
+    const store = await shared();
+    const hidden = await syncManifest(store, { clearance: TEAM, folder: "2-areas/secret" });
+    const absent = await syncManifest(store, { clearance: TEAM, folder: "1-projects/nothing-here" });
+    expect(hidden.entries).toEqual([]);
+    expect(JSON.stringify(hidden)).not.toContain("secret");
+    expect(hidden).toEqual(absent);
+  });
+
+  test("a path that climbs out is refused", async () => {
+    const store = await shared();
+    await expect(syncManifest(store, { clearance: OWNER, folder: "../x" })).rejects.toThrow();
+  });
+});

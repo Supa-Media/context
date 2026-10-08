@@ -8,15 +8,21 @@ import { forgetMirroredNote, mirroredBodyAt, parseIndex, putMirroredNotes, type 
 import { onMirrorListed, onMirrorNotesChanged, publishMirrorNotesChanged, requestMirrorFolder } from "./mirrorEvents";
 import { mirroredListNotes } from "./mirrorLists";
 import type { MirrorStore } from "./mirrorStoreCore";
+import { onBucketWrite } from "../console/files/bucketWrites";
+import { serverListNotes, type ServerListIO, type ServerListMemo } from "./serverLists";
 
 /**
  * Where the console's folder lists read their notes, and the one road a list
  * write takes — `useFolderLists` without React, so it can be driven with a
  * store and a bucket in a test.
  *
- * **Reads** are this device's copy at one clearance (`mirroredListNotes`), and
- * a list re-reads whenever the mirror commits a new listing of the workspace
- * or new bodies for it.
+ * **Reads** come from the server whenever it can be reached (decided by the
+ * owner, 2026-10-08: "when connected to the internet we should always be
+ * using server"), through `serverListNotes`. This device's copy at one
+ * clearance (`mirroredListNotes`) answers only offline, and only where there
+ * is one: the desktop and phone apps. A browser keeps no copy at all. A list
+ * re-reads after its own writes, after any write announced on the bucket bus,
+ * and whenever the mirror commits a new listing or new bodies.
  *
  * **A write** reads the note from the bucket, changes one frontmatter line and
  * writes it back against the version read (`writeNoteProperty`). Then it
@@ -34,7 +40,7 @@ import type { MirrorStore } from "./mirrorStoreCore";
  * and the next sync brings the note.
  */
 
-export interface FolderListIO {
+export interface FolderListIO extends ServerListIO {
   readNote(path: string): Promise<OpenNote & { updatedAt?: number }>;
   /** `expectedEtag` undefined is a create, refused if the note exists. */
   writeNote(path: string, text: string, expectedEtag: string | undefined): Promise<{ path: string }>;
@@ -49,6 +55,8 @@ export interface FolderListInputs {
   openMirror: () => Promise<MirrorStore | null>;
   /** Which versions local work is based on — `neededEtags`. */
   needed: (workspaceId: string) => Promise<Needed>;
+  /** False only when the device is known to be offline: then the mirror answers. */
+  online: () => boolean;
 }
 
 /**
@@ -63,20 +71,47 @@ export interface ListWriteBack {
   remember?(written: readonly string[], gone: readonly string[]): Promise<void>;
 }
 
-export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, needed }: FolderListInputs): FolderListSource & ListWriteBack {
+export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, needed, online }: FolderListInputs): FolderListSource & ListWriteBack {
+  // Parsed frontmatter by version, in memory only, so a redraw reads only what changed.
+  const memo: ServerListMemo = new Map();
+  const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const listener of [...listeners]) listener();
+  };
   return {
     load: async (folder, subfolders) => {
+      if (online()) {
+        try {
+          return await serverListNotes(io, memo, folder, subfolders);
+        } catch (error) {
+          // The server did not answer: the device's copy, where there is one, rather than nothing.
+          const store = await openMirror().catch(() => null);
+          if (store === null) throw error;
+          return mirroredListNotes(store, scope, workspaceId, folder, subfolders);
+        }
+      }
       const store = await openMirror();
       if (store === null) return null;
       return mirroredListNotes(store, scope, workspaceId, folder, subfolders);
     },
     readBody: async (path) => {
       /*
-        This device's copy first, read at exactly the clearance the lists are
-        (`mirroredListNotes`' rule), so a team reader is never handed a body
-        filed under private. Otherwise the bucket, through the server, which
-        applies the same clearance to the same reader.
+        Online, the bucket through the server, which applies the reader's
+        clearance. Offline (or if the server fails), this device's copy, read
+        at exactly the clearance the lists are (`mirroredListNotes`' rule), so
+        a team reader is never handed a body filed under private.
       */
+      const fromServer = async () => {
+        const note = await io.readNote(path);
+        return { text: note.encrypted === true ? "" : note.text, encrypted: note.encrypted === true };
+      };
+      if (online()) {
+        try {
+          return await fromServer();
+        } catch {
+          // Fall through to the device's copy.
+        }
+      }
       const store = await openMirror().catch(() => null);
       if (store !== null) {
         const entry = parseIndex(await store.readIndex(scope, workspaceId))?.entries.get(path);
@@ -84,9 +119,9 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
         const text = entry === undefined ? null : await mirroredBodyAt(store, scope, workspaceId, entry);
         if (text !== null) return { text, encrypted: false };
       }
+      if (online()) return null;
       try {
-        const note = await io.readNote(path);
-        return { text: note.encrypted === true ? "" : note.text, encrypted: note.encrypted === true };
+        return await fromServer();
       } catch {
         return null;
       }
@@ -98,9 +133,13 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
       };
       const stopListed = onMirrorListed(mine);
       const stopNotes = onMirrorNotesChanged(mine);
+      const stopWrites = onBucketWrite((write) => mine(write.workspaceId));
+      listeners.add(listener);
       return () => {
         stopListed();
         stopNotes();
+        stopWrites();
+        listeners.delete(listener);
       };
     },
     ...(canEdit
@@ -117,6 +156,7 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
           remember: async (written: readonly string[], gone: readonly string[]) => {
             for (const path of written) await remember(path).catch(() => {});
             if (gone.length > 0) await forget(gone).catch(() => {});
+            changed();
           },
         }
       : {}),
@@ -161,7 +201,10 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
         written = (await io.writeNote(at, text, expectedEtag)).path;
       },
     });
-    if (answer === null) await remember(written).catch(() => {});
+    if (answer === null) {
+      await remember(written).catch(() => {});
+      changed();
+    }
     return answer;
   }
 

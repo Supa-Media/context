@@ -1,5 +1,35 @@
 # App and console — offline mirror and tree
 
+### Offline is the desktop and phone apps; online, lists read the server
+
+Decided by the owner, 2026-10-08: "when connected to the internet we should
+always be using server", and "offline should only be a thing on the desktop app
+and on a native mobile app. Like we shouldn't be doing that on web." This
+narrows the two sections below; where they say "the device's copy answers",
+read "offline, in an app that keeps one".
+
+**A browser tab keeps no copy of a workspace.** `mirrorStore.web.ts` opens
+IndexedDB only when `getDesktopBridge()` finds the desktop shell
+(`mirrorSupported`); a plain tab gets `null`, says nothing about an offline
+copy, and deletes the `context-offline-mirror` database an earlier version
+filled. The queue of unsent edits stays in `localStorage`: it is someone's
+typing, not a copy of the workspace, and dropping it would lose words.
+
+**A folder List or Board reads the server whenever it can.** `syncManifest`
+takes a `folder`, walks only that subtree through the same `canSee`, and a
+folder the caller cannot see answers byte-for-byte as an absent one at the same
+cost (`manifestSkipsPlumbing.test.ts`). `serverListNotes` then reads the notes
+whose version it has not parsed, fifty at a time, keeping parsed frontmatter in
+memory only. `folderListSource` uses the device's copy only when the device
+says it is offline, or when the server fails and a copy exists. The side
+panel's note body follows the same order. Tests: `serverLists.test.ts`
+(sabotage: preferring the mirror online fails "the server's answer, not the
+device's older copy") and `offlineMirrorIdb.test.ts` ("a plain browser tab: no
+mirror, and the old database is deleted").
+
+Search was already server-first online (`useDeviceSearch`). The phone app's
+Home still counts from its copy, which is the app's offline copy by design.
+
 ### The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
 
 The sections above cache what somebody happened to open. The mirror — every

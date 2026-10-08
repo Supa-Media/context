@@ -8,7 +8,7 @@
 import { type Visibility, canSee, visibilityOf } from "../privacy";
 import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
-import { requirePath, parentOf } from "./paths";
+import { requireFolderPath, requirePath, parentOf } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope, describeFile } from "./listing";
 
@@ -143,12 +143,32 @@ function compareKeys(a: string, b: string): number {
  */
 export async function syncManifest(
   store: FileStore,
-  options: { clearance: Clearance; cursor?: string; pageEntries?: number },
+  options: {
+    clearance: Clearance;
+    cursor?: string;
+    pageEntries?: number;
+    /**
+     * Only the subtree under this folder: what a folder List or Board reads
+     * from the server while there is a connection (decided by the owner,
+     * 2026-10-08). `""` or absent is the whole bucket.
+     */
+    folder?: string;
+  },
 ): Promise<SyncManifest> {
   const after = options.cursor === undefined ? undefined : requirePath(options.cursor);
   const pageEntries = options.pageEntries ?? MANIFEST_PAGE_ENTRIES;
   const state = await loadPrivacyState(store);
   const manifestUsable = state.text !== null && !state.invalid;
+  const folder = options.folder === undefined ? "" : requireFolderPath(options.folder);
+  const prefix = folder === "" ? "" : `${folder}/`;
+  if (folder !== "" && !folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {
+    // A folder the caller cannot see answers as an absent one does, at the
+    // same cost: one page walked, nothing returned (`listFolder`'s rule).
+    await store.list({ prefix, limit: 1000 });
+    // `folders` as an empty walk leaves it: the root alone.
+    const root = [{ path: "", visibility: visibilityOf("", state.rules) }];
+    return { entries: [], folders: root, cursor: null, truncated: false, manifestUsable };
+  }
   const short = (): SyncManifest => ({
     entries: [],
     folders: [],
@@ -215,7 +235,7 @@ export async function syncManifest(
   let skipThrough = -1;
 
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix: "", limit: 1000, ...request });
+    const listing = await store.list({ prefix, limit: 1000, ...request });
     const objects = listing.objects ?? [];
 
     if (jump !== null) {

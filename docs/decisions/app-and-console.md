@@ -70,6 +70,10 @@ Moved to [On the web the app has to be able to *start* offline, which is a servi
 
 Moved to [A reconnection empties every queue, not the one on screen](./app-and-console/offline-conflicts-and-startup.md#a-reconnection-empties-every-queue-not-the-one-on-screen).
 
+### Offline is the desktop and phone apps; online, lists read the server
+
+Moved to [Offline is the desktop and phone apps; online, lists read the server](./app-and-console/offline-mirror-and-tree.md#offline-is-the-desktop-and-phone-apps-online-lists-read-the-server).
+
 ### The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
 
 Moved to [The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber](./app-and-console/offline-mirror-and-tree.md#the-offline-mirror-is-fed-by-a-privacy-filtered-manifest-a-batched-read-and-a-create-that-cannot-clobber).

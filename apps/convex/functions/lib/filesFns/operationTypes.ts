@@ -61,7 +61,7 @@ export type FileOperation =
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
   | { kind: "forward"; paths: string[] }
-  | { kind: "manifest"; cursor?: string }
+  | { kind: "manifest"; cursor?: string; folder?: string }
   | { kind: "readMany"; paths: string[] }
   | {
       kind: "writeWebsiteRelease";
