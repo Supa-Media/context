@@ -41,6 +41,7 @@
 import { canSee, isPlumbing } from "../privacy";
 import type { Clearance } from "../clearance";
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
+import { loadMoveJobs } from "../../../../mcp/src/moves/jobs.js";
 import {
   MAX_SHARD_COUNT,
   decodeShard,
@@ -128,9 +129,27 @@ export async function workspaceGraph(
     return { nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true };
   }
 
+  // The index follows physical objects, while a folder move changes their
+  // public paths immediately. Draw the same logical paths as note listings
+  // while the background worker copies and retires the old objects.
+  const jobs = await loadMoveJobs(store);
+  const destinationOf = new Map<string, string>();
+  const sourceOf = new Map<string, string>();
+  for (const job of jobs) {
+    for (const item of job.objects) {
+      destinationOf.set(item.source, item.destination);
+      sourceOf.set(item.destination, item.source);
+    }
+  }
+  const logicalPath = (path: string) => destinationOf.get(path) ?? path;
+  const mayDraw = (path: string) => {
+    const logical = logicalPath(path);
+    return isVisible(logical) && isVisible(sourceOf.get(logical) ?? path);
+  };
+
   const visible = new Set<string>();
   for (const docs of found.docsByShard) {
-    for (const path of docs.keys()) if (isVisible(path)) visible.add(path);
+    for (const path of docs.keys()) if (mayDraw(path)) visible.add(logicalPath(path));
   }
   const sorted = [...visible].sort();
   let truncated = sorted.length > nodeCap;
@@ -146,7 +165,7 @@ export async function workspaceGraph(
     byName.set(name, byName.has(name) ? null : position);
   }
   const targetOf = (link: string): number | undefined => {
-    const direct = indexOf.get(link) ?? indexOf.get(decoded(link));
+    const direct = indexOf.get(logicalPath(link)) ?? indexOf.get(logicalPath(decoded(link)));
     if (direct !== undefined) return direct;
     const unique = byName.get(nameOf(decoded(link)));
     return unique === null ? undefined : unique;
@@ -157,7 +176,7 @@ export async function workspaceGraph(
   for (let id = 0; id < found.docsByShard.length; id += 1) {
     let holdsNode = false;
     for (const path of found.docsByShard[id].keys()) {
-      if (indexOf.has(path)) {
+      if (indexOf.has(logicalPath(path)) && mayDraw(path)) {
         holdsNode = true;
         break;
       }
@@ -175,7 +194,8 @@ export async function workspaceGraph(
       continue;
     }
     for (const [key, doc] of shard.docs) {
-      const source = indexOf.get(doc.notePath ?? key);
+      const physical = doc.notePath ?? key;
+      const source = mayDraw(physical) ? indexOf.get(logicalPath(physical)) : undefined;
       if (source === undefined) continue;
       for (const link of doc.links) {
         const target = targetOf(link);
