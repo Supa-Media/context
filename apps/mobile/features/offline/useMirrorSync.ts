@@ -20,9 +20,8 @@ import {
 } from "./mirrorEvents";
 import { folderFreshener } from "./folderFreshener";
 import { freshenFolder } from "./mirrorFolder";
-import { holdServerTree } from "./serverTree";
+import { holdServerTree, keepServerTree, walkServerTree } from "./serverTree";
 import {
-  listContext,
   refreshMetadata,
   syncAll,
   type BatchRead,
@@ -66,6 +65,8 @@ import { visibilityTierForRole, type VisibilityTier } from "../console/visibilit
 export const MIRROR_INTERVAL_MS = 5 * 60 * 1000;
 /** A manifest page is one walk of up to a thousand keys per store page. */
 export const MANIFEST_TIMEOUT_MS = 60_000;
+/** The least time between two walks of one context's tree in a browser tab. */
+export const SERVER_TREE_FLOOR_MS = 15_000;
 /** Fifty notes, up to four megabytes. */
 export const READ_TIMEOUT_MS = 60_000;
 
@@ -290,6 +291,7 @@ export function useMirrorSync(options: {
     during one runs once more after it.
   */
   const refreshing = useRef(new Map<string, boolean>());
+  const walkedAt = useRef(new Map<string, number>());
   const runRefresh = useCallback((workspaceId: string, walk: () => Promise<void>) => {
     const inFlight = refreshing.current;
     if (inFlight.has(workspaceId)) {
@@ -306,7 +308,7 @@ export function useMirrorSync(options: {
       .catch(() => {})
       .finally(() => inFlight.delete(workspaceId));
   }, []);
-  /** A walk with nowhere to write: `listContext` reads only these. */
+  /** A walk with nowhere to write: a browser tab's tree (`serverTree.ts`). */
   const serverDeps = useCallback(
     (): Pick<MirrorSyncDeps, "manifest" | "mine" | "now" | "epoch"> => {
       const epoch = epochRef.current;
@@ -341,13 +343,25 @@ export function useMirrorSync(options: {
           it stays live.
         */
         if (!mirrorSupported()) {
+          if (target.tier === "unknown") return;
+          const scope = target.tier;
           runRefresh(workspaceId, async () => {
+            // A busy workspace signals every few seconds; one walk per
+            // `SERVER_TREE_FLOOR_MS` is live enough and spares its bucket.
+            const wait = (walkedAt.current.get(workspaceId) ?? -Infinity) + SERVER_TREE_FLOOR_MS - Date.now();
+            if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+            walkedAt.current.set(workspaceId, Date.now());
             const deps = serverDeps();
-            const listing = await listContext(deps, target);
-            if (listing === null || listing === "aborted") return;
-            if (holdServerTree(listing, deps.epoch, Date.now()) && deps.mine()) {
-              publishMirrorListed(workspaceId);
-            }
+            await walkServerTree({
+              manifest: (cursor) => deps.manifest(workspaceId, cursor),
+              mine: deps.mine,
+              now: deps.now,
+              onTree: (tree) => {
+                if (!deps.mine() || !holdServerTree(scope, workspaceId, tree, deps.epoch)) return;
+                keepServerTree(scope, workspaceId, tree);
+                publishMirrorListed(workspaceId);
+              },
+            });
           });
           return;
         }

@@ -20,7 +20,7 @@ import {
 } from "../mirror";
 import { neededEtags } from "../mirrorHolds";
 import { openMirrorStore } from "../mirrorStore";
-import { serverTree } from "../serverTree";
+import { keptServerTree, serverTree } from "../serverTree";
 import type { KeyValueStore } from "../memory";
 import {
   claimedPaths,
@@ -187,7 +187,8 @@ export function buildOfflineNotesApi({
       const mirror = await openMirrorStore();
       // A browser tab keeps no copy; it has the tree it walked this session.
       return mirror === null
-        ? serverTree(copies.scope, copies.workspaceId, epochRef.current)
+        ? (serverTree(copies.scope, copies.workspaceId, epochRef.current) ??
+          keptServerTree(copies.scope, copies.workspaceId))
         : mirroredTree(mirror, copies.scope, copies.workspaceId);
     },
     instantCopy: async (path) => {
