@@ -308,6 +308,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A cold start with no network is the case the offline layer was built for
 - A reconnection empties every queue, not the one on screen
+- Offline is the desktop and phone apps; online, lists read the server
 - The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
 - Every note on the device: the mirror
 - The file tree is drawn from the mirror's metadata, so a folder opens without a request

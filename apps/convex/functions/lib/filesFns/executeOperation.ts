@@ -482,6 +482,7 @@ export async function executeOperation(
         const manifest = await syncManifestOp(store, {
           clearance,
           ...(operation.cursor === undefined ? {} : { cursor: operation.cursor }),
+          ...(operation.folder === undefined ? {} : { folder: operation.folder }),
         });
         return { kind: "manifest", ...manifest };
       }

@@ -1,4 +1,5 @@
-import { describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
+import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
 import { idbKeyValue, openMirrorDatabase } from "../features/offline/mirrorStore.web";
 import { currentEpoch } from "../features/offline/epoch";
 import { NOTHING_NEEDED, putMirroredNotes } from "../features/offline/mirror";
@@ -152,5 +153,58 @@ describe("searching the copy in IndexedDB", () => {
     expect(answer.hits).toEqual([
       { path: "1-projects/garden.md", title: "Garden", snippets: ["Plant the tomatoes in May."] },
     ]);
+  });
+});
+
+/**
+ * A browser tab keeps no copy of a workspace; only the desktop app does
+ * (decided by the owner, 2026-10-08). The database an earlier version filled
+ * is deleted, and nothing is opened in its place.
+ */
+describe("only the desktop app keeps a copy in the browser engine", () => {
+  const scope = globalThis as { desktop?: unknown; indexedDB?: unknown };
+
+  function freshModule(): typeof import("../features/offline/mirrorStore.web") {
+    let loaded!: typeof import("../features/offline/mirrorStore.web");
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      loaded = require("../features/offline/mirrorStore.web");
+    });
+    return loaded;
+  }
+
+  afterEach(() => {
+    delete scope.desktop;
+    delete scope.indexedDB;
+  });
+
+  test("a plain browser tab: no mirror, and the old database is deleted", async () => {
+    const { factory } = fakeFactory();
+    const deleted: string[] = [];
+    let opened = 0;
+    scope.indexedDB = {
+      ...factory,
+      open: (...args: Parameters<IDBFactory["open"]>) => {
+        opened += 1;
+        return factory.open(...args);
+      },
+      deleteDatabase: (name: string) => {
+        deleted.push(name);
+        return {} as IDBOpenDBRequest;
+      },
+    };
+    const web = freshModule();
+    expect(web.mirrorSupported()).toBe(false);
+    expect(await web.openMirrorStore()).toBeNull();
+    expect(deleted).toEqual(["context-offline-mirror"]);
+    expect(opened).toBe(0);
+  });
+
+  test("the desktop app: the mirror opens as before", async () => {
+    scope.desktop = fakeDesktopBridge().bridge;
+    scope.indexedDB = fakeFactory().factory;
+    const web = freshModule();
+    expect(web.mirrorSupported()).toBe(true);
+    expect(await web.openMirrorStore()).not.toBeNull();
   });
 });

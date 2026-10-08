@@ -85,6 +85,7 @@ export async function syncManifestHandler(
   args: {
     workspaceId: Id<"workspaces">;
     cursor?: string;
+    folder?: string;
   },
 ): Promise<Extract<OperationResult, { kind: "manifest" }>> {
   const actorUserId = await callerId(ctx);
@@ -100,6 +101,7 @@ export async function syncManifestHandler(
     operation: {
       kind: "manifest",
       ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
+      ...(args.folder === undefined ? {} : { folder: args.folder }),
     },
   });
   return result as Extract<OperationResult, { kind: "manifest" }>;
