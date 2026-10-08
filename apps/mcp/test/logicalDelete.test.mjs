@@ -367,6 +367,28 @@ test("unsupported Markdown recreation over a marker is refused", async () => {
   );
 });
 
+test("legacy Markdown strings with control characters recover without losing bytes or reopening stale writes", async () => {
+  const raw = new HashEtagStore();
+  raw.pauseBeforeFirstMarkerCheck = false;
+  const body = "Imported message before\u0000after";
+  raw.objects.set("note.md", {
+    body: new TextEncoder().encode(body),
+    etag: await hashText(body),
+    contentType: "text/markdown; charset=utf-8",
+  });
+  const store = withLogicalDelete(raw);
+  const before = await store.get("note.md");
+  await store.delete("note.md", { onlyIf: { etagMatches: before.etag } });
+  assert.equal(await store.get("note.md"), null);
+
+  const restored = await store.put("note.md", body, { onlyIf: { absent: true } });
+  assert.ok(restored);
+  assert.equal(await (await store.get("note.md")).text(), body);
+  assert.notEqual(restored.etag, before.etag);
+  assert.match(new TextDecoder().decode(raw.objects.get("note.md").body), /<!-- context-generation:v1:[0-9a-f]{32} -->$/);
+  assert.equal(await store.put("note.md", "stale edit", { onlyIf: { etagMatches: before.etag } }), null);
+});
+
 test("literal footer text is outer-stamped instead of being stripped", async () => {
   const raw = new RawStore();
   raw.seed("literal.md", "before");
