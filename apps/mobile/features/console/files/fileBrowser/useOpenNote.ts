@@ -44,11 +44,11 @@ type OpenNoteDeps =
     | "settleOpening"
   >
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
-  & Pick<ListingsValues, "refresh" | "reportRefreshFailure">;
+  & Pick<ListingsValues, "ensureListing" | "refresh" | "reportRefreshFailure">;
 
 export function useOpenNote(deps: OpenNoteDeps) {
   const {
-    autosave, dispatch, editorRef, listings, listingsRef, offlineRef, openRun, readNote, refresh,
+    autosave, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
     reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
     settleOpening, workspaceId,
   } = deps;
@@ -398,6 +398,9 @@ export function useOpenNote(deps: OpenNoteDeps) {
           // Nothing is on its way, including whatever was before this.
           setOpening(null);
           dispatch({ type: "closed" });
+          // Drawn already, but perhaps only from the device's copy: ask the
+          // server behind it, without holding the view (`liveListing.ts`).
+          ensureListing(path);
         }
         return true;
       }
@@ -407,7 +410,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
       // this answer is not about. A caller only needs to know the guard let go.
       return true;
     },
-    [autosave, listings, openNote, refresh, reportRefreshFailure, settleOpening, workspaceId],
+    [autosave, ensureListing, listings, openNote, refresh, reportRefreshFailure, settleOpening, workspaceId],
   );
 
   /**

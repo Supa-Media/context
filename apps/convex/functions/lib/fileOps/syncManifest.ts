@@ -86,6 +86,16 @@ export interface SyncManifest {
   manifestUsable: boolean;
 }
 
+/**
+ * The dot-prefixed top-level folder a key lives under (`.context`, `.history`,
+ * `.audit`, `.obsidian`), or null. Everything under one is plumbing.
+ */
+function plumbingRoot(key: string): string | null {
+  const slash = key.indexOf("/");
+  if (slash <= 1 || !key.startsWith(".")) return null;
+  return key.slice(0, slash);
+}
+
 /** S3 lists in UTF-8 byte order, which is not JavaScript's string order. */
 const KEY_BYTES = new TextEncoder();
 function compareKeys(a: string, b: string): number {
@@ -152,7 +162,6 @@ export async function syncManifest(
   const seenCursors = new Set<string>();
   let ordered = true;
   let previous: string | undefined;
-  let token: string | undefined;
 
   /*
     The folders, by `listFolder`'s own test and nothing else. A folder is
@@ -193,14 +202,41 @@ export async function syncManifest(
     };
   };
 
-  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({
-      prefix: "",
-      limit: 1000,
-      ...(token !== undefined ? { cursor: token } : after !== undefined ? { startAfter: after } : {}),
-    });
+  /*
+    Where the next page starts. Ordinarily the store's own token (or `after`
+    on the first page); after a jump over hidden plumbing, the key just past
+    it, with the page we jumped from kept so a store that ignores the position
+    can be walked the slow way instead.
+  */
+  type Resume = { cursor?: string; startAfter?: string };
+  let request: Resume = after !== undefined ? { startAfter: after } : {};
+  let jump: { target: string; from: Resume; handled: number } | null = null;
+  let canJump = true;
+  let skipThrough = -1;
 
-    for (const object of listing.objects ?? []) {
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix: "", limit: 1000, ...request });
+    const objects = listing.objects ?? [];
+
+    if (jump !== null) {
+      const first = objects[0]?.key;
+      if (first !== undefined && compareKeys(first, jump.target) <= 0) {
+        // The store did not honour the position (Dropbox has none). Go back to
+        // the page the jump left, past what was already handled, and walk the
+        // rest of the bucket one page at a time like any other store.
+        canJump = false;
+        request = jump.from;
+        skipThrough = jump.handled;
+        jump = null;
+        continue;
+      }
+      jump = null;
+    }
+
+    let jumpedAt = -1;
+    for (let index = 0; index < objects.length; index += 1) {
+      if (index <= skipThrough) continue;
+      const object = objects[index]!;
       const key = object.key;
       // The store went back to the start rather than resuming. Nothing it says
       // from here is "the rest", and `entries` may be a replay.
@@ -209,6 +245,20 @@ export async function syncManifest(
       previous = key;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
+      // **Hidden plumbing is stepped over, not walked.** `.context/` holds a
+      // note's collaboration history and, since 2026-10-07, one object per AI
+      // read, and it sorts ahead of every note. Walking it one page at a time
+      // made a heavily used workspace's manifest spend its whole page budget
+      // before the first note, so the device's tree named folders it never
+      // saw the notes of ("Empty", 2026-10-08). Nothing under a dot-prefixed
+      // root is ever an entry or a folder (`canSee`, `folderVisibleAtScope`),
+      // so skipping it changes no answer, only the cost.
+      const root = canJump && ordered ? plumbingRoot(key) : null;
+      if (root !== null) {
+        jumpedAt = index;
+        jump = { target: `${root}0`, from: request, handled: index };
+        break;
+      }
       // A manifest that Convex refuses to return cannot offer its cursor. Stop
       // before either returned array reaches the platform's element ceiling;
       // the last visible entry remains a safe resume point.
@@ -229,6 +279,13 @@ export async function syncManifest(
       });
       if (entries.length >= pageEntries) return stop();
     }
+    skipThrough = -1;
+    if (jumpedAt >= 0 && jump !== null) {
+      // `${root}0` sorts after every key under `${root}/` ("0" is the byte
+      // after "/") and before anything that is not under it.
+      request = { startAfter: jump.target };
+      continue;
+    }
 
     if (!listing.truncated) {
       return { entries, folders, cursor: null, truncated: false, manifestUsable };
@@ -239,7 +296,7 @@ export async function syncManifest(
       return { ...short(), entries, folders };
     }
     seenCursors.add(listing.cursor);
-    token = listing.cursor;
+    request = { cursor: listing.cursor };
   }
   // The page budget ran out mid-bucket. Resumable from the last path returned
   // where there is one; otherwise this call learned nothing it can hand on.

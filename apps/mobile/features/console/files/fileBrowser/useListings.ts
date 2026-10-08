@@ -23,6 +23,7 @@ import { onMirrorListed, requestMirrorRefresh } from "../../../offline/mirrorEve
 import type { MirroredTree } from "../../../offline/mirror";
 import type { FolderListing } from "../types";
 import type { Listings } from "./types";
+import { adoptMirroredTree, wantsLiveListing } from "./liveListing";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
@@ -211,7 +212,7 @@ export function useListings(deps: ListingsDeps) {
     (path: string, fresh = false) => {
       if (workspaceId === null) return;
       // `fresh`: something outside this browser wrote here — a layout landing.
-      if (!fresh && listings[path] !== undefined) return;
+      if (!fresh && !wantsLiveListing(path, listings, listedAtRef.current, offlineRef.current.reachability === "offline")) return;
       void refresh([path]).catch(reportRefreshFailure);
     },
     [listings, refresh, reportRefreshFailure, workspaceId],
@@ -234,33 +235,13 @@ export function useListings(deps: ListingsDeps) {
    * `fromDevice` is the tree as it was when this context was opened: it fills
    * only folders nothing has listed yet, because anything already here came
    * from the bucket this session. Otherwise the tree is a walk the mirror just
-   * committed, and it replaces each folder whose own live listing started
-   * before that walk did; when the walk was complete it also drops folders it
-   * no longer names — deleted, moved, or no longer visible — unless a newer
-   * live listing says otherwise.
+   * committed — see `adoptMirroredTree` for what a complete walk and a partial
+   * one may each replace.
    */
   const adoptTree = useCallback(
     (tree: MirroredTree, options: { fromDevice: boolean }) => {
       const listedAt = listedAtRef.current;
-      const newer = (folder: string) => (listedAt.get(folder) ?? -Infinity) >= tree.listedAt;
-      setListings((current) => {
-        const next: Listings = { ...current };
-        for (const [folder, listing] of tree.value) {
-          // From the device: only where the bucket has said nothing yet — no
-          // listing, and no refusal either.
-          const skip = options.fromDevice
-            ? current[folder] !== undefined || listedAt.has(folder)
-            : newer(folder);
-          if (skip) continue;
-          next[folder] = listing;
-        }
-        if (!options.fromDevice && tree.complete) {
-          for (const folder of Object.keys(current)) {
-            if (!tree.value.has(folder) && !newer(folder)) delete next[folder];
-          }
-        }
-        return next;
-      });
+      setListings((current) => adoptMirroredTree(current, tree, listedAt, options.fromDevice));
     },
     [],
   );
@@ -467,7 +448,11 @@ export function useListings(deps: ListingsDeps) {
         else next.add(path);
         return next;
       });
-      if (listings[path] === undefined) void refresh([path]).catch(reportRefreshFailure);
+      // A folder only the device has drawn is asked for too: its copy may be a
+      // walk that never reached the notes inside (`liveListing.ts`).
+      if (wantsLiveListing(path, listings, listedAtRef.current, offlineRef.current.reachability === "offline")) {
+        void refresh([path]).catch(reportRefreshFailure);
+      }
     },
     [listings, refresh, reportRefreshFailure],
   );
