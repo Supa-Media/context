@@ -402,8 +402,10 @@ export const durableMoveValidator = v.object({
     v.literal("complete"),
     v.literal("failed"),
   ),
-  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"), v.literal("rewriting"))),
   completed: v.optional(v.number()),
   total: v.optional(v.number()),
+  progressChangedAt: v.optional(v.number()),
+  progressPerMinute: v.optional(v.number()),
   updatedAt: v.number(),
 });

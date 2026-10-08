@@ -110,7 +110,31 @@ describe("/gateway/jobs/*", () => {
       progressPhase: "copying",
       progressCompleted: 100,
       progressTotal: 501,
+      progressChangedAt: expect.any(Number),
     });
+
+    await t.run((ctx) => ctx.db.patch(progressed!._id, {
+      progressChangedAt: Date.now() - 60_000,
+    }));
+    await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: { status: "queued", progress: { phase: "rewriting", completed: 10, total: 200 } },
+    });
+    const rewriting = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(rewriting).toMatchObject({ progressPhase: "rewriting", progressCompleted: 10 });
+    expect(rewriting?.progressPerMinute).toBeUndefined();
+    await t.run((ctx) => ctx.db.patch(rewriting!._id, {
+      progressChangedAt: Date.now() - 60_000,
+    }));
+    await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: { status: "queued", progress: { phase: "rewriting", completed: 30, total: 200 } },
+    });
+    const measured = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(measured?.progressPerMinute).toBeGreaterThan(19);
+    expect(measured?.progressPerMinute).toBeLessThan(21);
 
     const visible = await asUser(t, alice).query(api.functions.files.listDurableMoves, {
       workspaceId: aliceWs,
@@ -118,9 +142,11 @@ describe("/gateway/jobs/*", () => {
     expect(visible).toEqual([
       expect.objectContaining({
         status: "queued",
-        phase: "copying",
-        completed: 100,
-        total: 501,
+        phase: "rewriting",
+        completed: 30,
+        total: 200,
+        progressChangedAt: expect.any(Number),
+        progressPerMinute: expect.any(Number),
       }),
     ]);
     expect(JSON.stringify(visible)).not.toContain("move-aaaaaaaaaaaa");

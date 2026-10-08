@@ -515,9 +515,11 @@ export interface AdvancedView {
 export interface DurableMoveJob {
   jobId: string;
   status: "queued" | "running" | "complete" | "failed";
-  phase?: "copying" | "deleting";
+  phase?: "copying" | "deleting" | "rewriting";
   completed?: number;
   total?: number;
+  progressChangedAt?: number;
+  progressPerMinute?: number;
   updatedAt: number;
 }
 
@@ -529,7 +531,7 @@ export interface DurableMoveView {
 }
 
 /** One short, path-free sentence for a background folder move. */
-export function describeMoveProgress(job: DurableMoveJob): {
+export function describeMoveProgress(job: DurableMoveJob, now = Date.now()): {
   headline: string;
   detail: string;
 } {
@@ -549,10 +551,17 @@ export function describeMoveProgress(job: DurableMoveJob): {
     job.total > 0
   ) {
     const percent = Math.min(99, Math.floor((job.completed / job.total) * 100));
-    const phase = job.phase === "copying" ? "Copying safely" : "Cleaning up the original";
+    const phase = job.phase === "copying" ? "Copying safely" :
+      job.phase === "deleting" ? "Cleaning up the original" : "Updating links";
+    const ageMinutes = job.progressChangedAt === undefined ? undefined :
+      Math.max(0, Math.floor((now - job.progressChangedAt) / 60_000));
+    const pace = job.progressPerMinute !== undefined && ageMinutes !== undefined && ageMinutes < 10
+      ? ` · ${Math.round(job.progressPerMinute * 10) / 10}/min recently` : "";
+    const freshness = ageMinutes === undefined ? "" : ageMinutes >= 10
+      ? ` · No progress for ${ageMinutes} min` : ` · Last advanced ${ageMinutes} min ago`;
     return {
       headline: "Moving a large folder",
-      detail: `${phase} · ${job.completed} of ${job.total} · ${percent}%`,
+      detail: `${phase} · ${job.completed} of ${job.total} · ${percent}%${pace}${freshness}`,
     };
   }
   return {

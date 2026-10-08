@@ -194,7 +194,7 @@ export const reportGatewayJobArgs = {
     error: v.optional(v.string()),
     progress: v.optional(
       v.object({
-        phase: v.union(v.literal("copying"), v.literal("deleting")),
+        phase: v.union(v.literal("copying"), v.literal("deleting"), v.literal("rewriting")),
         completed: v.number(),
         total: v.number(),
       }),
@@ -223,16 +223,24 @@ export async function reportGatewayJobHandler(
     progress.completed >= 0 &&
     progress.total > 0 &&
     progress.completed <= progress.total;
+  const now = Date.now();
+  const progressChanged = validProgress && (job.progressPhase !== progress.phase ||
+    job.progressCompleted === undefined || progress.completed > job.progressCompleted);
+  const elapsed = now - (job.progressChangedAt ?? now);
+  const measuredRate = progressChanged && job.progressPhase === progress.phase &&
+    job.progressCompleted !== undefined && progress.completed > job.progressCompleted && elapsed > 0
+    ? (progress.completed - job.progressCompleted) * 60_000 / elapsed : undefined;
   await ctx.db.patch(job._id, {
     status: args.result.status,
-    updatedAt: Date.now(),
-    completedAt: args.result.status === "complete" ? Date.now() : undefined,
+    updatedAt: now,
+    completedAt: args.result.status === "complete" ? now : undefined,
     lastError: gatewayJobError(args.result.error),
     ...(validProgress
       ? {
           progressPhase: progress.phase,
           progressCompleted: progress.completed,
           progressTotal: progress.total,
+          ...(progressChanged ? { progressChangedAt: now, progressPerMinute: measuredRate } : {}),
         }
       : {}),
   });

@@ -12,7 +12,7 @@ import { MOVE_JOB_PREFIX, MOVE_JOB_VERSION, MOVE_SENTINEL_KEY } from "./limits.j
 
 /** Counts only: never forward a marker's paths or provider text to the control plane. */
 export function moveProgressFromText(text) {
-  const found = /^(copied|deleted): (\d+)\/(\d+)$/m.exec(text);
+  const found = /^(copied|deleted|references): (\d+)\/(\d+)$/m.exec(text);
   if (!found) return undefined;
   const completed = Number(found[2]);
   const total = Number(found[3]);
@@ -20,7 +20,7 @@ export function moveProgressFromText(text) {
     return undefined;
   }
   return {
-    phase: found[1] === "copied" ? "copying" : "deleting",
+    phase: found[1] === "copied" ? "copying" : found[1] === "deleted" ? "deleting" : "rewriting",
     completed,
     total,
   };

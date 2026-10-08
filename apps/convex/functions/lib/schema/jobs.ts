@@ -121,9 +121,11 @@ export const jobTables = {
     leasedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
-    progressPhase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+    progressPhase: v.optional(v.union(v.literal("copying"), v.literal("deleting"), v.literal("rewriting"))),
     progressCompleted: v.optional(v.number()),
     progressTotal: v.optional(v.number()),
+    progressChangedAt: v.optional(v.number()),
+    progressPerMinute: v.optional(v.number()),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
     .index("by_workspace_kind_move", ["workspaceId", "kind", "moveId"])
