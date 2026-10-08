@@ -47,6 +47,25 @@ import { toolRemember } from "./notes/remember.js";
 import { toolCommentNote } from "./notes/comment.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
+import { moveJobActive, moveJobKey } from "../moves/jobs.js";
+import { getWithLegacyFallback } from "../storageLayout.js";
+
+const STALLED_MOVE_MS = 5 * 60 * 1000;
+
+async function moveWorkerStalled(store, id) {
+  const key = moveJobKey(id);
+  if (!key) return false;
+  try {
+    const marker = await getWithLegacyFallback(store, key);
+    if (!marker) return false;
+    const job = JSON.parse(await marker.text());
+    const updatedAt = Date.parse(job.updated_at);
+    return moveJobActive(job) && Number.isFinite(updatedAt) &&
+      Date.now() - updatedAt > STALLED_MOVE_MS;
+  } catch {
+    return false;
+  }
+}
 
 export async function callTool(name, args, store, scope) {
   const privacy = await loadPrivacyState(store);
@@ -154,9 +173,13 @@ export async function callTool(name, args, store, scope) {
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       if (scope !== "private") return toolError("permission denied: move materialization requires owner access.");
       {
+        // Check before this pass refreshes updated_at. Old clients do not know
+        // resume_background, so an ordinary call must revive a stalled worker.
+        const restartWorker = args.resume_background === true ||
+          await moveWorkerStalled(store, args.id);
         const result = await toolMaterializeMove(store, scope, args.id, args.batch_size);
         const text = result?.content?.[0]?.text || "";
-        if (args.resume_background === true && !result?.isError &&
+        if (restartWorker && !result?.isError &&
             !text.includes("complete") && !text.includes("no active work")) {
           if (typeof store.enqueueGatewayJob !== "function") {
             return toolText(`${text}\nbackground worker unavailable; continue with materialize_move`);

@@ -499,6 +499,22 @@ export async function runMovesAndBatchChecks() {
   check("an owner can restart a stalled reference worker",
     !restarted.isError && restarted.content[0].text.includes("background worker queued") &&
       referenceMessages.length >= 2);
+  const queuedBeforeFreshPass = referenceMessages.length;
+  const freshPass = await call("priv-token", "materialize_move", {
+    id: linkJobId, batch_size: 1,
+  });
+  check("a fresh move pass does not queue a duplicate worker",
+    !freshPass.isError && referenceMessages.length === queuedBeforeFreshPass);
+  const staleKey = `.context/moves/${linkJobId}.json`;
+  const staleJob = JSON.parse(storedText(staleKey));
+  staleJob.updated_at = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  await contextStore.put(staleKey, JSON.stringify(staleJob));
+  const stalePass = await call("priv-token", "materialize_move", {
+    id: linkJobId, batch_size: 1,
+  });
+  check("an ordinary materialize call revives a stalled background worker",
+    !stalePass.isError && stalePass.content[0].text.includes("background worker queued") &&
+      referenceMessages.length === queuedBeforeFreshPass + 1);
   delete env.GATEWAY_JOBS;
   for (let i = 0; i < 100 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)); i += 1) {
