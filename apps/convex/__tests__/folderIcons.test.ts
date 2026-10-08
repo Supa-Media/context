@@ -22,6 +22,7 @@ import {
 import { listFolderIcons, setFolderIcon } from "../functions/lib/fileOps/folderIcons";
 import { FOLDER_ICONS_KEY, parseFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
+import { IMAGE_PREFIX } from "../functions/lib/fileOps/images";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 
 const NOW = 1_800_000_000_000;
@@ -88,6 +89,29 @@ describe("setting a folder icon", () => {
     expect(error.code).toBe("PATH_INVALID");
   });
 
+  test("one of the workspace's own emoji is saved as its :name:", async () => {
+    const store = bucket();
+    store.seed(`${IMAGE_PREFIX}emoji-party-parrot.gif`, "GIF89a");
+    expect(await setFolderIcon(store, { path: "recipes", icon: ":party-parrot:", clearance: OWNER })).toEqual({
+      recipes: ":party-parrot:",
+    });
+    expect(stored(store)).toEqual({ recipes: ":party-parrot:" });
+  });
+
+  test("a :name: the workspace has no emoji for is refused, and nothing is written", async () => {
+    const store = bucket();
+    const error = await refusal(() => setFolderIcon(store, { path: "recipes", icon: ":nobody-made-this:", clearance: OWNER }));
+    expect(error.code).toBe("PATH_INVALID");
+    expect(store.snapshot()[FOLDER_ICONS_KEY]).toBeUndefined();
+  });
+
+  test.each([":Party:", "::", ":a:b:", ":../x:", " :x: "])("refuses %j, which is not a workspace emoji's name", async (icon) => {
+    const store = bucket();
+    store.seed(`${IMAGE_PREFIX}emoji-x.png`, "png");
+    const error = await refusal(() => setFolderIcon(store, { path: "recipes", icon, clearance: OWNER }));
+    expect(error.code).toBe("PATH_INVALID");
+  });
+
   test("a folder that does not exist answers not found", async () => {
     const store = bucket();
     const error = await refusal(() => setFolderIcon(store, { path: "nowhere", icon: "🍳", clearance: OWNER }));
@@ -127,6 +151,10 @@ describe("a reader sees only the icons of folders they can see", () => {
     expect(await listFolderIcons(store, { clearance: OWNER })).toEqual({});
     store.seed(FOLDER_ICONS_KEY, JSON.stringify({ version: 1, icons: { recipes: "🍳", "../x": "🍳", ".context": "🍳", soups: 7 } }));
     expect(await listFolderIcons(store, { clearance: OWNER })).toEqual({ recipes: "🍳" });
+    // A workspace emoji's name runs past a character's length cap; a long string that is neither is still dropped.
+    const long = `:${"a".repeat(64)}:`;
+    store.seed(FOLDER_ICONS_KEY, JSON.stringify({ version: 1, icons: { recipes: long, secret: "x".repeat(66) } }));
+    expect(await listFolderIcons(store, { clearance: OWNER })).toEqual({ recipes: long });
   });
 });
 

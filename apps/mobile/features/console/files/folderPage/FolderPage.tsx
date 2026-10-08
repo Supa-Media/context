@@ -96,6 +96,7 @@ export function FolderPage({
   rows,
   host,
   fallbackTitle,
+  icon = null,
   compact,
   pageWidth = 0,
   onSelect,
@@ -109,6 +110,8 @@ export function FolderPage({
   host: FolderPageHost | undefined;
   /** The folder's own name, for a folder no note names. */
   fallbackTitle: string;
+  /** The folder's own emoji, drawn before its title. */
+  icon?: string | null;
   compact: boolean;
   /**
    * The page's own width. A board is the one view that breaks the note's
@@ -259,7 +262,7 @@ export function FolderPage({
   if (host === undefined) {
     return (
       <>
-        <FolderHead title={fallbackTitle} switcher={null} large={compact} actions={titleActions}>
+        <FolderHead title={fallbackTitle} icon={icon} switcher={null} large={compact} actions={titleActions}>
           {rule}
         </FolderHead>
         <View style={styles.contents}>{files}</View>
@@ -378,6 +381,7 @@ export function FolderPage({
       <FolderHead
         large={compact}
         title={summary?.title ?? fallbackTitle}
+        icon={icon}
         onOpenTitle={summary !== null && !summary.creates && summary.title !== null ? () => onSelect(summary.target) : undefined}
         switcher={tracks ? <ViewSwitch view={view} onChange={choose} compact={compact} /> : null}
         actions={

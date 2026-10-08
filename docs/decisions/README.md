@@ -363,6 +363,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
+- [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
 - [A scene's sounds are chosen in the note, and an uploaded one is stored like a pasted image](./app-and-console/scene-sounds.md)
 - [The script is edited on the studio's rail, and the note stays the only copy](./app-and-console/scene-sounds.md)
 - [A scene can be a chat with an assistant, and its workspace steps are real](./app-and-console/scene-sounds.md)

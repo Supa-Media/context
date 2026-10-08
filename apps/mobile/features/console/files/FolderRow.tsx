@@ -9,6 +9,7 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
+import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { fonts, layout, pointerType, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { PhoneRowMeta } from "../home/folderRows";
@@ -68,7 +69,7 @@ export function FolderRow({
    * only a folder has a chevron. Only in the card.
    */
   phone?: PhoneRowMeta;
-  /** The emoji this folder was given, drawn in the card in place of the folder icon. `null` for the plain one. */
+  /** The emoji this folder was given, drawn in place of the folder icon in a card and of the chevron outside one. `null` for the plain one. */
   folderIcon?: string | null;
 }) {
   const colors = useColors();
@@ -168,9 +169,15 @@ export function FolderRow({
         ) : card ? (
           row.kind === "folder" && folderIcon !== null ? (
             // Sized to the glyph it replaces, so the name beside it does not move.
-            <Text style={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone} testID="folder-row-emoji">
-              {folderIcon}
-            </Text>
+            <EmojiGlyph
+              emoji={folderIcon}
+              size={home === null ? 16 : 20}
+              textStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone}
+              fallback={
+                <Icon name="folder" size={home === null ? 16 : 20} color={home === null ? colors.muted : colors.text2} />
+              }
+              testID="folder-row-emoji"
+            />
           ) : (
             <Icon
               name={row.kind === "folder" ? "folder" : "file"}
@@ -179,7 +186,24 @@ export function FolderRow({
             />
           )
         ) : row.kind === "folder" ? (
-          <Icon name="chevronRight" size={15} color={colors.muted} />
+          /*
+            The desktop listing's gutter holds a chevron, and a folder somebody
+            gave an icon shows the icon there instead (owner, 2026-10-08: "when
+            it's set, it should show up in the main view as well"). Same slot,
+            so its name still starts where every other name does; the emoji
+            says "folder" as plainly as the chevron did.
+          */
+          folderIcon !== null ? (
+            <EmojiGlyph
+              emoji={folderIcon}
+              size={15}
+              textStyle={styles.cardEmojiPointer}
+              fallback={<Icon name="chevronRight" size={15} color={colors.muted} />}
+              testID="folder-row-emoji"
+            />
+          ) : (
+            <Icon name="chevronRight" size={15} color={colors.muted} />
+          )
         ) : null}
       </View>
       {home === null ? (

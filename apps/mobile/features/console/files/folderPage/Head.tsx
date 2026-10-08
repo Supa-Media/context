@@ -24,6 +24,7 @@ import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
+import { EmojiGlyph } from "../../emoji/EmojiGlyph";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
@@ -90,6 +91,7 @@ function SwitchWord({ label, on, compact, onPress, testID }: { label: string; on
 
 export function FolderHead({
   title,
+  icon = null,
   onOpenTitle,
   switcher,
   actions,
@@ -97,6 +99,8 @@ export function FolderHead({
   large = false,
 }: {
   title: string;
+  /** The emoji somebody gave this folder, drawn before its title as it is beside its name in every listing. */
+  icon?: string | null;
   /** A phone's page: Home's big title, so a folder reads as a place (board 07). */
   large?: boolean;
   /** Opens the front note; absent when there is none to open. */
@@ -117,7 +121,17 @@ export function FolderHead({
   return (
     <>
       <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
-        <View style={styles.titleBox}>
+        <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
+          {icon === null ? null : (
+            <EmojiGlyph
+              emoji={icon}
+              size={large ? ICON_LARGE : ICON}
+              textStyle={large ? styles.iconLarge : styles.icon}
+              testID="folder-head-icon"
+            />
+          )}
+          {/* Beside an icon, the title shrinks and ellipsises rather than pushing the row. */}
+          <View style={icon === null ? undefined : styles.titleText}>
           {onOpenTitle === undefined ? (
             heading
           ) : (
@@ -132,6 +146,7 @@ export function FolderHead({
               {heading}
             </Pressable>
           )}
+          </View>
         </View>
         {switcher}
         {actions}
@@ -224,12 +239,20 @@ export function PropertyLine({
   );
 }
 
+/** The title's emoji: a little over the title's own size, as a page icon is. */
+const ICON = 18;
+const ICON_LARGE = touchType.title;
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     /* `PhoneHome`'s head clearance, so the title lands where Home's does. */
     headLarge: { paddingTop: space.x2 },
     titleBox: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+    titleRow: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    titleText: { flexShrink: 1, minWidth: 0 },
+    icon: { fontSize: ICON, lineHeight: leading(ICON, 1.25) },
+    iconLarge: { fontSize: ICON_LARGE, lineHeight: leading(ICON_LARGE, 1.15) },
     title: { flexShrink: 1 },
     /* `PhoneHome`'s own title, so Home and a folder page have one heading size. */
     titleLarge: {

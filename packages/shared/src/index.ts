@@ -122,6 +122,7 @@ export {
   CUSTOM_EMOJI_NAME,
   customEmojiLeaf,
   customEmojiNameFrom,
+  customEmojiShortcode,
   publishedEmojiNames,
   findShortcodes,
   parseCustomEmojiLeaf,
