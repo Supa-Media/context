@@ -71,7 +71,7 @@ export async function gatewayJobsReportHandler(
       : null;
   const progress =
     rawProgress !== null &&
-    (rawProgress.phase === "copying" || rawProgress.phase === "deleting") &&
+    (rawProgress.phase === "copying" || rawProgress.phase === "deleting" || rawProgress.phase === "rewriting") &&
     typeof rawProgress.completed === "number" &&
     Number.isInteger(rawProgress.completed) &&
     rawProgress.completed >= 0 &&
@@ -80,7 +80,7 @@ export async function gatewayJobsReportHandler(
     rawProgress.total > 0 &&
     rawProgress.completed <= rawProgress.total
       ? {
-          phase: rawProgress.phase as "copying" | "deleting",
+          phase: rawProgress.phase as "copying" | "deleting" | "rewriting",
           completed: rawProgress.completed,
           total: rawProgress.total,
         }

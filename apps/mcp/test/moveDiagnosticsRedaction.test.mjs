@@ -21,9 +21,12 @@
  */
 import { check } from "./harness.mjs";
 import { safeMoveStorageDetail } from "../src/tools/moves/materialize.js";
-import { moveErrorForControlPlane } from "../src/moves/jobs.js";
+import { moveErrorForControlPlane, moveProgressFromText } from "../src/moves/jobs.js";
 
 export function runMoveDiagnosticsRedactionChecks() {
+  check("link scan counts reach the owner progress card without paths",
+    JSON.stringify(moveProgressFromText("move move-9f3a2b7c1d4e: rewriting\nreferences: 25/100\nnext: private.md")) ===
+      JSON.stringify({ phase: "rewriting", completed: 25, total: 100 }));
   /*
     A MOVE'S FAILURE TEXT GOES TO THE CONTROL PLANE. ITS PATHS MUST NOT.
 
