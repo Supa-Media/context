@@ -1,11 +1,19 @@
 /**
- * THE TEXTING ASSISTANT'S SETUP, IN ONE NOTE.
+ * THE ASSISTANT'S SETUP, ONE NOTE PER JOB.
  *
- * Decided by the owner, 2026-10-08: the texting assistant's model and its
- * prompt come from one plain Markdown note, `assistant/production/texting-assistant.md`
- * in the pinned `@context-lc` workspace. Promoting a new setup is editing that
- * file; the gateway does not ship. The file is read the way `instructions.js`
- * reads `assistant/`: through the caller's own reach and `privacy.md`.
+ * Decided by the owner, 2026-10-08: the assistant's model and its prompt come
+ * from one plain Markdown note per job in the pinned `@context-lc` workspace,
+ * `ai/production/texting-assistant.md` for texted turns and
+ * `ai/production/app-assistant.md` for questions asked in the app. Promoting a
+ * new setup is editing that file; the gateway does not ship. The rest of `ai/`
+ * is the benchmark that decides what goes in it, and is never read here.
+ *
+ * A file is read the way `orient`'s global note is (`orient/globalNote.js`):
+ * through the caller's own reach into the pinned workspace and its
+ * `privacy.md`, so a person's assistant is never told a word that person could
+ * not read there, and who may change it is who may write `@context-lc`
+ * (staff). Self-hosted deployments have no pinned workspace and use the
+ * built-in words in `prompt.js`.
  *
  * The file is YAML front matter and a body:
  *
@@ -15,18 +23,18 @@
  *   body           the whole prompt a texted turn is given
  *
  * Validated on read. A file that does not validate is `null`, and the turn
- * falls back to the pinned notes and then the built-in words, exactly as if the
- * file were missing. The front matter's grammar is the small subset below, so
+ * uses the built-in words, exactly as if the file were missing. The front matter's grammar is the small subset below, so
  * no YAML dependency is needed; anything outside it is refused, not guessed at.
  *
  * A person's own connected account never takes the setup's model: their bill,
  * their model. `route.js` decides that; this file only reads the note.
  */
 
-import { pinnedReach } from "./instructions.js";
-import { readPinnedNote } from "../orient/globalNote.js";
+import { loadPrivacyState } from "../privacy/state.js";
+import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
 
-export const PRODUCTION_TEXTING_PATH = "assistant/production/texting-assistant.md";
+export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
+export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
 
 const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
@@ -139,15 +147,33 @@ async function versionOf(raw) {
 }
 
 /**
- * The parsed setup, or `null` — absent, held back, unreadable, invalid, or no
- * pinned workspace. Read with the same reach as `assistant/` notes. Never throws.
- *
- * @param {object} store the session's store (see `instructions.js`)
- * @param {object} session the caller's session
+ * The reach a note in `@context-lc` is read with, for this caller: its own
+ * store and clearance when the turn runs inside the pinned workspace, otherwise
+ * the hop `openPinnedContext` makes.
  */
-export async function readProductionSetup(store, session) {
+async function pinnedReach(store, session) {
+  const current = (store.contexts || []).find((entry) => entry.current);
+  let here = null;
+  if (current?.name === PINNED_CONTEXT_NAME) {
+    const privacy = await loadPrivacyState(store);
+    if (!privacy.error) here = { store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides };
+  }
+  return { contexts: store.contexts, openPinned: store.openPinnedContext, here };
+}
+
+/**
+ * The parsed setup for this turn's job, or `null` — absent, held back,
+ * unreadable, invalid, or no pinned workspace. Never throws.
+ *
+ * @param {object} store the session's store, carrying `contexts` and
+ *   `openPinnedContext` as `http/route.js` attaches them
+ * @param {object} session the caller's session
+ * @param {{texting: boolean}} options a texted turn reads the texting job's file
+ */
+export async function readProductionSetup(store, session, { texting }) {
   try {
-    return await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, parseSetup);
+    const path = texting ? PRODUCTION_TEXTING_PATH : PRODUCTION_APP_PATH;
+    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
   } catch {
     return null;
   }

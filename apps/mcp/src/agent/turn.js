@@ -214,9 +214,9 @@ async function openBuiltin(controlPlane, session, env) {
  *   a tool's result (see `conversation.js`)
  * @param {{fetchImpl?: Function}} [options.providerOptions]
  * @param {boolean} [options.texting] the answer goes out as a text message
- * @param {{instructions: ?string, texting: ?string, prompt: ?string}} [options.notes]
- *   the editable prompt from `@context-lc` (`instructions.js`, or the production
- *   setup's `prompt` in `production.js`), or built-in words
+ * @param {{prompt: ?string}} [options.notes]
+ *   the production setup's prompt from `@context-lc` (`production.js`), or
+ *   null for the built-in words
  * @param {string} [options.builtinModelOverride] the built-in model to run
  *   instead of `builtinModel(env)`; `route.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,

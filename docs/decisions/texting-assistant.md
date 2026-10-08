@@ -371,16 +371,12 @@ given web search").
 
 Decided by the owner, 2026-10-07, after the assistant introduced itself as
 another notes app: the built-in prompt never said what Context is, so the
-model guessed from the folder names it saw. The assistant's instructions now
-live in the pinned `@context-lc` workspace, so they change by editing a note
-rather than by shipping the gateway (`apps/mcp/src/agent/instructions.js`).
+model guessed from the folder names it saw. The assistant's words live in the
+pinned `@context-lc` workspace, so they change by editing a note rather than by
+shipping the gateway. Since 2026-10-08 (the owner's decision) they live in
+`ai/production/`, one file per job, and the earlier `assistant/instructions.md`
+and `assistant/texting.md` are retired and no longer read.
 
-- `assistant/instructions.md` replaces the built-in opening (who it is, what
-  Context is) on every agent turn. `assistant/texting.md` replaces the built-in
-  texting style, on texting turns only. Front matter is stripped; each is
-  capped at 8,000 characters because it is sent with every turn. Longer guides
-  go elsewhere in `@context-lc` and these notes point at them; the assistant
-  reads them with `read_note` and `context: "@context-lc"`.
 - Read exactly as `orient`'s global note is: through the caller's own reach and
   that workspace's `privacy.md`, so a person's model is never sent a word that
   person could not `read_note` there. Who may change it is who may write
@@ -388,42 +384,40 @@ rather than by shipping the gateway (`apps/mcp/src/agent/instructions.js`).
 - What the code decides is still said by the code after the note: that the
   agent proposes rather than edits, and where the person is. A note can add to
   the agent's understanding but cannot misdescribe its reach.
-- Either note missing, held back or unreadable, and every self-hosted
-  deployment (no pinned workspace), means the built-in words, which now say
-  what Context is and that it is not any other notes app.
+- A file missing, held back or unreadable, and every self-hosted deployment
+  (no pinned workspace), means the built-in words, which say what Context is
+  and that it is not any other notes app.
 
 **What a simplification would cost:** reading the note with the gateway's own
 authority would hand a member text `privacy.md` holds back from them; dropping
 the built-in fallback would leave self-hosted deployments and a deleted note
 with no identity at all. The tests that fail are in
-`apps/mcp/test/agentInstructions.test.mjs` ("a note privacy.md holds back from
+`apps/mcp/test/agentInstructions.test.mjs` ("a file privacy.md holds back from
 members is not sent to their model", "with no pinned workspace the built-in
 words say what Context is").
 
-### The texting assistant's setup is one production note in `assistant/production/`
+### The assistant's setup is one production note per job in `ai/production/`
 
-Decided by the owner, 2026-10-08: the texting assistant's model and its prompt
-come from one plain Markdown note, `assistant/production/texting-assistant.md` in the
-pinned `@context-lc` workspace, so promoting a setup is editing that file and
-the gateway does not ship (`apps/mcp/src/agent/production.js`).
-It lives under `assistant/` because that is the folder of `@context-lc` agents
-can write and every member can read; the benchmarks that decide what goes in
-it (invented workspaces, tests, results) are internal and live in `@supa`, so
-no customer ever reads them.
+Decided by the owner, 2026-10-08: the assistant's model and its prompt come
+from one plain Markdown note per job in the pinned `@context-lc` workspace,
+`ai/production/texting-assistant.md` for texted turns and
+`ai/production/app-assistant.md` for questions asked in the app, so promoting a
+setup is editing that file and the gateway does not ship
+(`apps/mcp/src/agent/production.js`). The rest of `ai/` is the benchmark that
+decides what goes there (README, invented people and workspaces, tests,
+setups, results). Every member can read `@context-lc`, so `ai/` holds only
+invented data.
 
 - The front matter names the built-in model (`models.main`, an `@cf/` model or
   an `anthropic/claude-` one), the tools the setup was proved with, and
   `max_steps` (1 to 12). The body is the whole prompt, at most 1,000 lines and
   40,000 characters. Front matter is a small YAML subset; anything outside it
   is refused rather than guessed at.
-- It is read exactly as `assistant/` is: through the caller's own reach and that
-  workspace's `privacy.md`. Its prompt replaces both the pinned notes and the
-  built-in words on texting turns, and nothing else is said in their place
-  except what the code decides (that the agent proposes, and that this is a
-  text).
-- A file that is missing, does not validate, or is held back falls back to
-  `assistant/instructions.md` and `assistant/texting.md`, then to the built-in
-  words. Never an error.
+- Its prompt replaces the built-in words, and nothing else is said in their
+  place except what the code decides (that the agent proposes, and on a
+  texting turn that this is a text).
+- A file that is missing, does not validate, or is held back means the
+  built-in words for that job. Never an error.
 - Its model is used for a built-in turn only, and only when this deployment can
   call it (`canRunBuiltin`). A person's own connected account keeps their model:
   their bill, their model. The gateway call is filed under the file's version,
@@ -444,7 +438,7 @@ holds back from members falls back, and its owner still reads it").
 Decided by the owner, 2026-10-08: a setup earns its way into the production
 note by answering a test, and the test never sees a customer's notes. The
 benchmark data (invented people, workspaces, questions, results) is plain
-Markdown in `@supa` `4-resources/ai-benchmarks/`; its README is the process.
+Markdown in `@context-lc` `ai/`; its README is the process.
 `pnpm ai run <job> --dir <folder>` (`apps/mcp/bench/`) runs the real gateway
 in process over the in-memory control plane and store the tests use: each
 invented workspace is its own bucket with a real `privacy.md`, each invented
