@@ -91,6 +91,7 @@ export function aiGatewayConfig(env) {
   if (typeof token !== "string" || token.length < 20 || token.length > 512) return null;
   const creditKey = env?.ANTHROPIC_CREDIT_KEY;
   return {
+    gatewayId,
     url: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/anthropic/v1/messages`,
     token,
     creditKey: typeof creditKey === "string" && creditKey.length >= 20 && creditKey.length <= 512 ? creditKey : null,
@@ -113,11 +114,16 @@ function count(value) {
  * Up to five labels the gateway files the call's cost under. Ids only, never
  * text: they are what the AI costs tab groups by.
  */
-function metadataHeader(metadata) {
+export function gatewayMetadata(metadata) {
   const entries = Object.entries(metadata || {})
     .filter(([key, value]) => /^[a-z]{1,32}$/.test(key) && typeof value === "string" && /^[\w.:-]{1,128}$/.test(value))
     .slice(0, 5);
-  return entries.length > 0 ? { "cf-aig-metadata": JSON.stringify(Object.fromEntries(entries)) } : {};
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+function metadataHeader(metadata) {
+  const labels = gatewayMetadata(metadata);
+  return labels ? { "cf-aig-metadata": JSON.stringify(labels) } : {};
 }
 
 /**

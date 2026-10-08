@@ -104,7 +104,7 @@ const REFUSED = [
   ["a file with no front matter", `${PROMPT}\n`],
   ["a front matter line the subset does not read", file(`${OK_FRONT}\nnot a pair`)],
   ["models.main missing", file("models:\n  fallback: anthropic/claude-haiku-5-5")],
-  ["a model outside the two accepted shapes", file("models:\n  main: openai/gpt-5")],
+  ["a model outside the accepted shapes", file("models:\n  main: evil/model-x")],
   ["an empty body", file(OK_FRONT, "   ")],
   ["a body of more than 1,000 lines", file(OK_FRONT, Array.from({ length: 1001 }, (_, i) => `line ${i}`).join("\n"))],
   ["a body of more than 40,000 characters", file(OK_FRONT, "x".repeat(40_001))],
@@ -289,7 +289,7 @@ test("a missing production file falls back to the built-in words", async () => {
 });
 
 test("a malformed production file falls back to the built-in words", async () => {
-  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile({ model: "openai/gpt-5" }), etag: "s1" });
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile({ model: "evil/model-x" }), etag: "s1" });
   await ask(base, TOKEN_TEXTS);
   const system = anthropicSystem();
   assert.ok(system.includes(BUILTIN));
