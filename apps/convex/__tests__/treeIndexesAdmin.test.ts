@@ -80,14 +80,14 @@ describe("the tree index panel", () => {
     const failing = {
       ...store,
       list: async () => {
-        throw new Error('S3 LIST failed for "2-areas/codes/secret plan.md" at 2-areas/codes/secret plan.md: 403 AccessDenied');
+        throw new Error('S3 LIST failed for "2-areas/codes/secret plan draft.md" at 2-areas/codes/secret plan draft.md: 403 AccessDenied');
       },
     };
     await expect(sweepTreePass(failing, stuck)).rejects.toThrow(/AccessDenied/);
     databases.set("stuck", stuck);
     const report = await treeIndexReport(ctx as never, { targets: [target("stuck")], truncated: false });
-    expect(report.rows[0]?.error).toMatch(/403 AccessDenied/);
-    expect(JSON.stringify(report)).not.toMatch(/2-areas|codes|secret/);
+    expect(report.rows[0]?.error).toBe("Tree fill failed; inspect service logs");
+    expect(JSON.stringify(report)).not.toMatch(/2-areas|codes|secret|plan|draft|AccessDenied/);
   });
 
   test("Fill starts a sweep for every workspace asked about", async () => {

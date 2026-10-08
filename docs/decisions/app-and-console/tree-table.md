@@ -67,6 +67,7 @@ a tree with folders missing and call it complete.
 **A stalled fill says why.** A sweep pass that throws records its message
 beside the table (`tree_error`, in the context's own database), and the next
 pass that moves on clears it. The staff panel shows that row as **Stuck** with
-the message, quoted text and anything shaped like a key or file name taken out,
-because the panel never shows a path. Before this, a fill that failed at the
+a fixed, path-free reason. Raw errors remain in the workspace database and
+never reach staff: filenames with spaces cannot be reliably scrubbed from
+arbitrary errors. Before this, a fill that failed at the
 same key on every pass only looked slow (2026-10-08).
