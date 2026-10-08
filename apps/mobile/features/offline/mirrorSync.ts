@@ -173,7 +173,7 @@ export interface ContextListing {
  * `incomplete` when not one page arrived.
  */
 export async function listContext(
-  deps: MirrorSyncDeps,
+  deps: Pick<MirrorSyncDeps, "manifest" | "mine" | "now" | "maxPages">,
   target: { workspaceId: string; tier: VisibilityTier },
 ): Promise<(ContextListing & { pagesListed: number }) | "aborted" | null> {
   /*

@@ -47,8 +47,20 @@ export function onMirrorNotesChanged(listener: Listener): () => void {
   return () => notes.delete(listener);
 }
 
+let lastRequested: string | null = null;
+
 export function requestMirrorRefresh(workspaceId: string): void {
+  lastRequested = workspaceId;
   for (const listener of [...requested]) listener(workspaceId);
+}
+
+/**
+ * The context a refresh was last asked for, whether or not anybody was
+ * listening yet: a console's first request can come before the sync hook has
+ * subscribed, or before it is online, and it asks again from this.
+ */
+export function lastMirrorRefreshRequest(): string | null {
+  return lastRequested;
 }
 
 export function onMirrorRefreshRequest(listener: Listener): () => void {
