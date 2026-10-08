@@ -49,7 +49,12 @@ function isMarkdownPath(path) {
 const strictDecoder = new TextDecoder("utf-8", { fatal: true });
 
 function markdownText(value) {
-  if (typeof value === "string") return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) ? null : value;
+  // A JavaScript string is already text, including legacy Markdown that
+  // contains a control character from an imported conversation. Refusing it
+  // only when a move recreated a tombstoned destination stranded that note's
+  // collaboration journal. Stamp the exact string as a fresh generation;
+  // byte buffers below still need strict decoding before they count as text.
+  if (typeof value === "string") return value;
   try {
     if (value instanceof ArrayBuffer) {
       const text = strictDecoder.decode(new Uint8Array(value));
