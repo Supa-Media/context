@@ -154,7 +154,7 @@ export function rowText(entry: ActivityEntry): { title: string; meta: string } {
       folder. `status` is accepted too, should the file ever carry it.
     */
     if (isOrganizerEntry(entry) && !many && (entry.kind === "revised" || entry.kind === "status")) {
-      const front = /^(overview|index|README)\.md$/i.test(nameOf(first)) ? folderOf(first) : first;
+      const front = /^(about|overview|index|README)\.md$/i.test(nameOf(first)) ? folderOf(first) : first;
       return `${who} marked ${called(front)} done`;
     }
     switch (entry.kind) {

@@ -40,6 +40,7 @@ import { footLabel } from "../activity/activity";
 import { storagePillLabel } from "../storage/pill";
 import { noteLimitLabel, type NoteLimit } from "../noteLimit";
 import { isUnlistedFile } from "./paths";
+import { aboutNoteOf } from "./tree";
 import type { ConsoleStorage } from "../types";
 import type { FolderListing } from "./types";
 
@@ -65,12 +66,13 @@ export function loadedCounts(listings: Listings): string {
   let notes = 0;
   let folders = 0;
   for (const listing of Object.values(listings)) {
+    const about = aboutNoteOf(listing?.entries ?? []);
     for (const entry of listing?.entries ?? []) {
-      // A folder's placeholder (or `privacy.md`) is not a note, and this line is read against the
+      // A folder's placeholder, its about note (drawn atop its page) or `privacy.md` is not a row, and this line is read against the
       // rows on screen: the tree and the folder page both drop it
       // (`listedEntries`), so counting it here would print one more note than
       // anybody can find.
-      if (entry.kind === "file" && isUnlistedFile(entry.path)) continue;
+      if (entry.kind === "file" && (isUnlistedFile(entry.path) || entry.path === about)) continue;
       if (entry.kind === "folder") folders += 1;
       else notes += 1;
     }

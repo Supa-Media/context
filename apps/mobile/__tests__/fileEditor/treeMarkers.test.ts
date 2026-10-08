@@ -133,7 +133,7 @@ describe("a row is marked only when it differs from the folder it is in", () => 
 
 describe("building tree rows", () => {
   const listings = {
-    "": listing("", [folder("1-projects", "team"), file("index.md")]),
+    "": listing("", [folder("1-projects", "team"), file("todo.md")]),
     "1-projects": listing("1-projects", [
       folder("1-projects/plans"),
       file("1-projects/a.md", { visibility: "team", inherited: "team" }),
@@ -143,7 +143,7 @@ describe("building tree rows", () => {
 
   test("a collapsed folder shows only itself", () => {
     const rows = buildTreeRows({ listings, expanded: new Set(), selectedPath: null });
-    expect(rows.map((row) => row.path)).toEqual(["1-projects", "index.md"]);
+    expect(rows.map((row) => row.path)).toEqual(["1-projects", "todo.md"]);
   });
 
   test("an expanded folder shows its children one level deeper", () => {
@@ -157,7 +157,7 @@ describe("building tree rows", () => {
       "1-projects/plans",
       "1-projects/a.md",
       "1-projects/pay.md",
-      "index.md",
+      "todo.md",
     ]);
     expect(rows.find((row) => row.path === "1-projects/a.md")?.depth).toBe(1);
     expect(rows.find((row) => row.path === "1-projects/pay.md")?.selected).toBe(true);
@@ -174,6 +174,27 @@ describe("building tree rows", () => {
       selectedPath: null,
     });
     expect(rows.map((row) => row.kind)).toEqual(["folder", "loading", "file"]);
+  });
+
+  /**
+   * A folder's about note is drawn at the top of the folder's page, with its
+   * filename in the corner, so the tree does not draw it again as a row: the
+   * workspace's `index.md`, and a folder's `about.md` (or the older
+   * `overview.md`, `index.md`, `README.md`, the first of them present).
+   * Open, it is drawn, so the tree still shows where you are.
+   */
+  test("a folder's about note is not a row; the workspace's is index.md", () => {
+    const withAbout = {
+      "": listing("", [folder("1-projects"), file("index.md"), file("todo.md"), file("README.md")]),
+      "1-projects": listing("1-projects", [file("1-projects/about.md"), file("1-projects/overview.md"), file("1-projects/a.md")]),
+    };
+    const rows = buildTreeRows({ listings: withAbout, expanded: new Set(["1-projects"]), selectedPath: null });
+    // Only the first present is the about note: an overview.md beside an about.md is somebody's note.
+    expect(rows.map((row) => row.path)).toEqual(["1-projects", "1-projects/overview.md", "1-projects/a.md", "todo.md", "README.md"]);
+    const open = buildTreeRows({ listings: withAbout, expanded: new Set(["1-projects"]), selectedPath: "1-projects/about.md" });
+    expect(open.map((row) => row.path)).toContain("1-projects/about.md");
+    const older = { "": listing("", [folder("p")]), p: listing("p", [file("p/overview.md"), file("p/x.md")]) };
+    expect(buildTreeRows({ listings: older, expanded: new Set(["p"]), selectedPath: null }).map((row) => row.path)).toEqual(["p", "p/x.md"]);
   });
 
   test("a genuinely empty folder says that instead", () => {

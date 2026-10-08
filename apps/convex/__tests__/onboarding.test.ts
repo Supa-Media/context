@@ -191,11 +191,11 @@ describe("the answer is what gets written", () => {
 
     expect([...backend.objects.keys()].sort()).toEqual(
       [
-        "0-inbox/README.md",
-        "1-projects/README.md",
-        "2-areas/README.md",
-        "3-resources/README.md",
-        "9-archive/README.md",
+        "0-inbox/about.md",
+        "1-projects/about.md",
+        "2-areas/about.md",
+        "3-resources/about.md",
+        "9-archive/about.md",
         "index.md",
         "privacy.md",
       ].sort(),
@@ -219,7 +219,7 @@ describe("the answer is what gets written", () => {
     expect(index).toContain("Move, don't delete.");
   });
 
-  test("a custom layout writes their folders, with their words as the READMEs", async () => {
+  test("a custom layout writes their folders, with their words as the folder notes", async () => {
     const { t, owner, workspaceId, backend } = await connected();
 
     expect(
@@ -228,12 +228,12 @@ describe("the answer is what gets written", () => {
     await drainScheduled(t);
 
     expect([...backend.objects.keys()].sort()).toEqual([
-      "clients/README.md",
+      "clients/about.md",
       "index.md",
       "privacy.md",
-      "reading/README.md",
+      "reading/about.md",
     ]);
-    expect(backend.objects.get("clients/README.md")!.body).toContain(
+    expect(backend.objects.get("clients/about.md")!.body).toContain(
       "One folder per client.",
     );
     expect(backend.objects.get("index.md")!.body).toContain(
@@ -300,7 +300,7 @@ describe("the answer is what gets written", () => {
       (event) => event.action === "workspace.structure_applied",
     );
     expect(applied).toHaveLength(1);
-    expect(applied[0].paths).toEqual(["clients/README.md", "reading/README.md"]);
+    expect(applied[0].paths).toEqual(["clients/about.md", "reading/about.md"]);
     expect(applied[0].details).toMatchObject({ template: "custom", folderCount: 2 });
     // Prose does not go in an audit trail.
     expect(JSON.stringify(applied[0])).not.toContain("One folder per client.");
@@ -604,11 +604,11 @@ describe("choosing a layout is owner-only and validated", () => {
  * bucket we had half-written ourselves five seconds earlier.
  */
 describe("a scaffold that only partly lands can be finished from the console", () => {
-  const README_KEYS = PARA_FOLDERS.map((folder) => `${folder}/README.md`);
+  const FOLDER_NOTE_KEYS = PARA_FOLDERS.map((folder) => `${folder}/about.md`);
 
   test("lost folders are reported as a caveat on a success, not as a failure", async () => {
     const { t, owner, workspaceId, backend } = await connected({
-      refuseWrite: (key) => key.endsWith("/README.md"),
+      refuseWrite: (key) => key.endsWith("/about.md"),
     });
 
     await apply(t, owner, workspaceId, { template: "para" });
@@ -629,13 +629,13 @@ describe("a scaffold that only partly lands can be finished from the console", (
     });
     // …and it says exactly what is missing, so the console can name it rather
     // than apologise vaguely.
-    expect([...(row?.scaffoldMissing ?? [])].sort()).toEqual([...README_KEYS].sort());
+    expect([...(row?.scaffoldMissing ?? [])].sort()).toEqual([...FOLDER_NOTE_KEYS].sort());
   });
 
   test("the owner can retry and finish it — no S3 client required", async () => {
     const refuse = { readmes: true };
     const { t, owner, workspaceId, backend } = await connected({
-      refuseWrite: (key) => refuse.readmes && key.endsWith("/README.md"),
+      refuseWrite: (key) => refuse.readmes && key.endsWith("/about.md"),
     });
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
@@ -649,7 +649,7 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await drainScheduled(t);
 
     expect([...backend.objects.keys()].sort()).toEqual(
-      [...README_KEYS, "index.md", "privacy.md"].sort(),
+      [...FOLDER_NOTE_KEYS, "index.md", "privacy.md"].sort(),
     );
     const row = await binding(t, owner, workspaceId);
     expect(row).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
@@ -680,7 +680,7 @@ describe("a scaffold that only partly lands can be finished from the console", (
 
     expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe("created");
     expect([...backend.objects.keys()].sort()).toEqual(
-      [...README_KEYS, "index.md", "privacy.md"].sort(),
+      [...FOLDER_NOTE_KEYS, "index.md", "privacy.md"].sort(),
     );
   });
 
@@ -693,7 +693,7 @@ describe("a scaffold that only partly lands can be finished from the console", (
   test("re-verifying in between does not strand the half-written bucket", async () => {
     const refuse = { readmes: true };
     const { t, owner, workspaceId, backend } = await connected({
-      refuseWrite: (key) => refuse.readmes && key.endsWith("/README.md"),
+      refuseWrite: (key) => refuse.readmes && key.endsWith("/about.md"),
     });
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
@@ -709,26 +709,26 @@ describe("a scaffold that only partly lands can be finished from the console", (
     // …and still remembers what it owes.
     expect(
       [...((await binding(t, owner, workspaceId))?.scaffoldMissing ?? [])].sort(),
-    ).toEqual([...README_KEYS].sort());
+    ).toEqual([...FOLDER_NOTE_KEYS].sort());
 
     refuse.readmes = false;
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
     expect([...backend.objects.keys()].sort()).toEqual(
-      [...README_KEYS, "index.md", "privacy.md"].sort(),
+      [...FOLDER_NOTE_KEYS, "index.md", "privacy.md"].sort(),
     );
   });
 
   test("rebinding to another bucket takes the licence with it", async () => {
     const { t, owner, workspaceId } = await connected({
-      refuseWrite: (key) => key.endsWith("/README.md"),
+      refuseWrite: (key) => key.endsWith("/about.md"),
     });
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
     expect((await binding(t, owner, workspaceId))?.scaffoldMissing).not.toEqual([]);
 
     // A different bucket, which happens to be somebody's live workspace. Carrying
-    // "we owe this bucket five READMEs" across would carry a licence to write
+    // "we owe this bucket five folder notes" across would carry a licence to write
     // into it, earned somewhere else entirely.
     const other = memoryS3("some-other-bucket");
     other.seed("1-projects/theirs.md", "# Theirs\n");

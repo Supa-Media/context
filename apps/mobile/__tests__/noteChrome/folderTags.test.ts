@@ -6,7 +6,7 @@
  * A folder's Tags (board 14 of the phone Home artboards, approved by the
  * owner on 2026-09-30), wired to the real console: the folder's ••• has
  * Tags, the sheet writes the folder's front note through this device's copy
- * — making `overview.md` when there is none — and says so with an Undo. The
+ * — making `about.md` when there is none — and says so with an Undo. The
  * picked rows' Tags (board 16) writes each note it covers.
  *
  * ## Sabotage record
@@ -129,8 +129,8 @@ describe("tags from a phone's folder page", () => {
     app.press(byLabel("Add “client” as a new tag"));
     app.press(byLabel("Done"));
     await settle();
-    // No front note yet: overview.md, made by this write.
-    expect(mockWrites).toEqual([["notes/overview.md", [["tags", ["client"]]], { create: true }]]);
+    // No front note yet: about.md, made by this write.
+    expect(mockWrites).toEqual([["notes/about.md", [["tags", ["client"]]], { create: true }]]);
     expect(said).toEqual([["Changed the tags on notes.", true]]);
   });
 

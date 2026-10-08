@@ -114,9 +114,9 @@ Moved to [A team link's note survives the console's own cold start, and the logi
 
 Moved to [A folder page is a page, and a folder is acted on like a note](./app-and-console/mobile-navigation-shell.md#a-folder-page-is-a-page-and-a-folder-is-acted-on-like-a-note).
 
-### A folder's placeholder is not a row
+### A folder's about note is its description
 
-Moved to [A folder's placeholder is not a row](./app-and-console/mobile-navigation-shell.md#a-folders-placeholder-is-not-a-row).
+Moved to [A folder's about note is its description](./app-and-console/mobile-navigation-shell.md#a-folders-about-note-is-its-description).
 
 ### A phone gets a path bar, which is half of the line that was deleted
 

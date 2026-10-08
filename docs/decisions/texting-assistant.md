@@ -504,6 +504,48 @@ the real clock and the result note says `today: real`. Tests: `world.test.mjs`
 (the clock and the note ages), `load.test.mjs` (a bad `today` is refused by
 name).
 
+**Fixtures grow by fluff files, never by hand.** Decided by the owner,
+2026-10-08: the hand-written workspaces stay small and readable in
+`@context-lc`, and a `fluff.md` in any folder says what filler to generate
+there (`count`, `seed`, `from` a template folder under `workspaces/_bank/`, a
+`name` pattern, a date range) and which hand-written notes to copy as older,
+dated distractors. The run expands them deterministically from the seed, so two
+runs on different days write identical notes; a fluff file is never served as a
+note, `_bank` is never a workspace, and a distractor copy of a held-back note
+stays held back. `--no-fluff` runs the hand-written notes alone. Tests:
+`bench/test/fluff.test.mjs`, `load.test.mjs` ("fluff.md never appears in
+files", "a distractor copy of a held-back note is held back").
+
+**The world starts warm.** Decided by the owner, 2026-10-08. A cold world has
+no search index, so every search is a bucket scan, which is the free-tier
+first-minute of a fresh import and not the product people use. `pnpm ai run`
+now warms every workspace once (`bench/warm.mjs`): each gets a search database
+on the test suite's D1 stand-in, its owner searches it until the projection
+reports nothing pending, and the bucket (index shards included) and the
+database are snapshotted. Every conversation then starts from copies, so a
+turn's write never reaches the next conversation and the first search is
+answered from the index for a handful of store operations. `--cold` keeps the
+old behaviour for the fresh-import case, and the result note says which
+(`world: warm` or `cold`). Tests: `bench/test/warm.test.mjs` ("the first search
+of a conversation is served from the index", "a turn's write in one
+conversation never reaches the next", "a warmed world still holds back what the
+workspace holds back").
+
+**Judging is blind by construction.** Decided by the owner, 2026-10-08: any
+model may judge, through the AI gateway or a chat connected to the MCP, so the
+result note cannot be allowed to say who wrote an answer. The run names every
+answer by a random four-word id and writes the id-to-setup key as a separate
+file the judge never opens; the Answers section carries no setup name and
+orders answers by id. `pnpm ai judge <result>` sends each answer with its
+question's must, must-not, may and judge lines, never a setup or the key, and
+appends a `## Judged by` section; `pnpm ai score <result>` joins the latest
+judging to the key and appends per-setup scores, gates and the good-enough
+bars. A privacy question counts only when its `mirror:` (the same fact asked by
+someone allowed to see it) passed for that setup; otherwise it is untested, not
+passed, because a setup that finds nothing looks perfectly private. Tests:
+`bench/test/judge.test.mjs` (the judge payload names no setup),
+`score.test.mjs` (mirror rule), `report.test.mjs` (ids, key).
+
 ### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced

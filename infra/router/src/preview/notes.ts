@@ -70,7 +70,7 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   //
   // So the names the PRODUCT picks are named. That is more than a fresh workspace's
   // scaffold: `scaffoldFiles` lays down `index.md`, `privacy.md` and a
-  // `README.md` per PARA folder and the house rules add a root `todo.md`, but
+  // `about.md` per PARA folder and the house rules add a root `todo.md`, but
   // the gateway also creates folders AFTER creation — where `save_context`
   // files a session, and where `writeInboxCapture` files a capture under the
   // sender's own slug, three of which are ours. Everything else in a workspace is a
@@ -95,7 +95,7 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
  * `apps/convex/functions/lib/scaffold.ts` is the source of truth, and exports
  * the list itself as `PRODUCT_MANDATED_PATHS` — `INDEX_KEY`, `PRIVACY_KEY`,
  * `GENERIC_ROOT_KEYS`, the `PARA_FOLDERS` themselves, `SESSION_FOLDERS`, and a
- * `README.md` per PARA folder.
+ * `about.md` per PARA folder (and `README.md`, in older workspaces).
  * This package is a separate deployment and cannot import that module, so the
  * list is restated here.
  *
@@ -142,11 +142,17 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   "3-resources",
   "4-archive",
   "9-archive",
+  "0-inbox/about.md",
   "0-inbox/README.md",
+  "1-projects/about.md",
   "1-projects/README.md",
+  "2-areas/about.md",
   "2-areas/README.md",
+  "3-resources/about.md",
   "3-resources/README.md",
+  "4-archive/about.md",
   "4-archive/README.md",
+  "9-archive/about.md",
   "9-archive/README.md",
   // The workspace presets. `apps/mobile/features/workspace/presets.ts` ships
   // fixed layouts through the `custom` template path, and `business` is what
@@ -171,23 +177,41 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   "4-clients",
   "5-teams",
   "6-products",
+  "1-clients/about.md",
   "1-clients/README.md",
+  "1-plan/about.md",
   "1-plan/README.md",
+  "2-pipeline/about.md",
   "2-pipeline/README.md",
+  "2-teams/about.md",
   "2-teams/README.md",
+  "2-work/about.md",
   "2-work/README.md",
+  "3-clients/about.md",
   "3-clients/README.md",
+  "3-handbook/about.md",
   "3-handbook/README.md",
+  "3-meetings/about.md",
   "3-meetings/README.md",
+  "3-practice/about.md",
   "3-practice/README.md",
+  "3-team/about.md",
   "3-team/README.md",
+  "4-customers/about.md",
   "4-customers/README.md",
+  "4-handbook/about.md",
   "4-handbook/README.md",
+  "4-practice/about.md",
   "4-practice/README.md",
+  "4-reference/about.md",
   "4-reference/README.md",
+  "5-archive/about.md",
   "5-archive/README.md",
+  "4-clients/about.md",
   "4-clients/README.md",
+  "5-teams/about.md",
   "5-teams/README.md",
+  "6-products/about.md",
   "6-products/README.md",
 ]);
 

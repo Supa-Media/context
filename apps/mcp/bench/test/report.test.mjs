@@ -1,7 +1,8 @@
 // Tests for bench/report.mjs. All names and values are invented fixtures.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { priceUsd, resultMarkdown } from "../report.mjs";
+import { assignIds, keyMarkdown, priceUsd, resultMarkdown } from "../report.mjs";
+import { WORDS } from "../words.mjs";
 
 const fixture = {
   job: "texting-assistant",
@@ -10,6 +11,8 @@ const fixture = {
   date: "2026-10-08",
   today: "2026-10-08",
   commit: "55db45c",
+  resultFile: "2026-10-08 texting-assistant.md",
+  keyFile: "2026-10-08 texting-assistant key.md",
   playedBy: "claude-sonnet-5-5",
   setups: [
     { name: "production", version: "de6c72003282", model: "anthropic/claude-haiku-5-5" },
@@ -124,10 +127,13 @@ const SNAPSHOT = [
   "played_by: claude-sonnet-5-5",
   "setups: [production@de6c72003282, glm-trial@0123456789ab]",
   "runs_per_question: 2",
+  "key: 2026-10-08 texting-assistant key.md",
   "status: not judged",
   "---",
   "",
   "# texting-assistant run, 2026-10-08",
+  "",
+  "Answers are named by id. The key file maps ids to setups; a judge never opens it.",
   "",
   "This run asked 2 questions, 2 runs each, against 2 setups.",
   "",
@@ -146,7 +152,17 @@ const SNAPSHOT = [
   "",
   "as Maya, lookup",
   "",
-  "#### production, run 1",
+  "#### bucket-koala-brush-dew",
+  "",
+  "**Person:** when's my dentist appointment?",
+  "",
+  "**Assistant:** Your dentist is on Tuesday.",
+  "",
+  "Tools: search_notes, read_note",
+  "",
+  "Time 5.3 s, $0.0001, 1 text",
+  "",
+  "#### cargo-ruby-drift-paper",
   "",
   "**Person:** when's my dentist appointment?",
   "",
@@ -162,7 +178,7 @@ const SNAPSHOT = [
   "",
   "Time 4.2 s, $0.0002, 1 text",
   "",
-  "#### production, run 2",
+  "#### coral-cotton-quartz-pine",
   "",
   "**Person:** when's my dentist appointment?",
   "",
@@ -172,7 +188,7 @@ const SNAPSHOT = [
   "",
   "Time 2.9 s, $0.0001, 1 text",
   "",
-  "#### glm-trial, run 1",
+  "#### shore-paper-oyster-tide",
   "",
   "**Person:** when's my dentist appointment?",
   "",
@@ -182,21 +198,29 @@ const SNAPSHOT = [
   "",
   "Time 3.1 s, $0.0001, 1 text",
   "",
-  "#### glm-trial, run 2",
-  "",
-  "**Person:** when's my dentist appointment?",
-  "",
-  "**Assistant:** Your dentist is on Tuesday.",
-  "",
-  "Tools: search_notes, read_note",
-  "",
-  "Time 5.3 s, $0.0001, 1 text",
-  "",
   "### 2. Delete my old grocery list",
   "",
   "as Sam, edit, gate",
   "",
-  "#### production, run 1",
+  "#### bamboo-cloak-shade-air",
+  "",
+  "**Person:** delete the old grocery list",
+  "",
+  "**Assistant:** I can't see that list.",
+  "",
+  "Tools: search_notes",
+  "",
+  "Time 2.0 s, unknown, 1 text",
+  "",
+  "#### earth-pocket-torch-arrow",
+  "",
+  "**Person:** delete the old grocery list",
+  "",
+  "Tools: none",
+  "",
+  "Error: tool timeout",
+  "",
+  "#### sparrow-mist-bell-thyme",
   "",
   "**Person:** delete the old grocery list",
   "",
@@ -210,25 +234,7 @@ const SNAPSHOT = [
   "",
   "Time 1.5 s, $0.0001, 1 text",
   "",
-  "#### production, run 2",
-  "",
-  "**Person:** delete the old grocery list",
-  "",
-  "Tools: none",
-  "",
-  "Error: tool timeout",
-  "",
-  "#### glm-trial, run 1",
-  "",
-  "**Person:** delete the old grocery list",
-  "",
-  "**Assistant:** I can't see that list.",
-  "",
-  "Tools: search_notes",
-  "",
-  "Time 2.0 s, unknown, 1 text",
-  "",
-  "#### glm-trial, run 2",
+  "#### sparrow-pigeon-almond-puffin",
   "",
   "**Person:** delete the old grocery list",
   "",
@@ -240,7 +246,7 @@ const SNAPSHOT = [
   "",
   "## Judging",
   "",
-  "Not judged yet. Add a `## Judged by <model>, <date>` section; never edit an earlier one.",
+  "Judgments are added below as `## Judged by <model>, <date>` sections; never edit an earlier one.",
   "",
 ].join("\n");
 
@@ -337,12 +343,95 @@ test("a null price shows as unknown per run and per setup", () => {
 test("an errored run shows its error instead of a time line", () => {
   const md = resultMarkdown(fixture);
   assert.ok(md.includes("Error: tool timeout"));
-  assert.ok(!/Time [^\n]*\n\n#### glm-trial/.test(md.split("#### production, run 2")[1].split("#### glm-trial")[0]));
+  // fixture.runs[3] is the errored run; its block is headed by its id.
+  const errored = assignIds(fixture)[3].id;
+  const block = md.split(`#### ${errored}\n`)[1].split("\n#### ")[0];
+  assert.ok(block.includes("Error: tool timeout"));
+  assert.ok(!/^Time /m.test(block));
 });
 
-test("the judging section is present and the note says it is not judged", () => {
+test("the judging section says judgments are appended below", () => {
   const md = resultMarkdown(fixture);
-  assert.ok(md.endsWith("## Judging\n\nNot judged yet. Add a `## Judged by <model>, <date>` section; never edit an earlier one.\n"));
+  assert.ok(md.endsWith("## Judging\n\nJudgments are added below as `## Judged by <model>, <date>` sections; never edit an earlier one.\n"));
+});
+
+// ---- answer ids and the key file ----
+
+const ID = /^[a-z]+-[a-z]+-[a-z]+-[a-z]+$/;
+const idRows = (result) => assignIds(result).map((r) => [r.setup, r.question, r.run, r.id]);
+
+test("the word list has at least 200 distinct words", () => {
+  assert.ok(WORDS.length >= 200);
+  assert.equal(new Set(WORDS).size, WORDS.length);
+});
+
+test("every run gets four words from the list, joined by hyphens", () => {
+  for (const run of assignIds(fixture)) {
+    assert.match(run.id, ID);
+    for (const word of run.id.split("-")) assert.ok(WORDS.includes(word), `${word} is not in the list`);
+  }
+});
+
+test("ids are deterministic: the same run gets the same id in any order", () => {
+  assert.deepEqual(idRows(fixture), idRows(fixture));
+  const reversed = { ...fixture, runs: [...fixture.runs].reverse() };
+  const byKey = (rows) => Object.fromEntries(rows.map(([s, q, n, id]) => [`${s}/${q}/${n}`, id]));
+  assert.deepEqual(byKey(idRows(reversed)), byKey(idRows(fixture)));
+});
+
+test("an id depends on the test version and on the setup version", () => {
+  const base = assignIds(fixture)[0].id;
+  assert.notEqual(assignIds({ ...fixture, testVersion: "ffffffffffff" })[0].id, base);
+  const bumped = { ...fixture, setups: fixture.setups.map((s) => (s.name === "production" ? { ...s, version: "111111111111" } : s)) };
+  assert.notEqual(assignIds(bumped)[0].id, base);
+});
+
+test("ids are unique within a run, even when two runs share an identity", () => {
+  const dup = { ...fixture, runs: [fixture.runs[0], fixture.runs[0], fixture.runs[1]] };
+  const ids = assignIds(dup).map((r) => r.id);
+  assert.equal(new Set(ids).size, 3);
+  assert.deepEqual(assignIds(dup).map((r) => r.id), ids);
+});
+
+test("the Answers section names no setup, and heads each block with its id", () => {
+  const md = resultMarkdown(fixture);
+  const answers = md.slice(md.indexOf("## Answers"), md.indexOf("## Judging"));
+  for (const setup of fixture.setups) assert.ok(!answers.includes(setup.name), `${setup.name} appears in Answers`);
+  const heads = answers.split("\n").filter((line) => line.startsWith("#### "));
+  assert.equal(heads.length, fixture.runs.length);
+  const ids = new Set(assignIds(fixture).map((r) => r.id));
+  for (const head of heads) assert.ok(ids.has(head.slice(5)), `${head} is not an id`);
+});
+
+test("the result note names its key file and says answers are named by id", () => {
+  const md = resultMarkdown(fixture);
+  assert.ok(md.split("\n").includes("key: 2026-10-08 texting-assistant key.md"));
+  const lines = md.split("\n");
+  const title = lines.indexOf("# texting-assistant run, 2026-10-08");
+  assert.ok(lines.slice(title, title + 3).includes("Answers are named by id. The key file maps ids to setups; a judge never opens it."));
+});
+
+test("the key file names its result, and lists every id once with setup, question and run", () => {
+  const key = keyMarkdown(fixture);
+  const head = key.split("\n").slice(0, 4);
+  assert.deepEqual(head, ["---", "result: 2026-10-08 texting-assistant.md", "---", ""]);
+  const rows = key
+    .split("\n")
+    .filter((line) => line.startsWith("| ") && !line.startsWith("| id ") && !line.startsWith("| --- "))
+    .map((line) => line.slice(2, -2).split(" | "));
+  assert.equal(rows.length, fixture.runs.length);
+  assert.equal(new Set(rows.map((row) => row[0])).size, rows.length);
+  const expected = idRows(fixture).map(([setup, question, run, id]) => [id, setup, String(question), String(run)]);
+  const sorted = (xs) => [...xs].sort((a, b) => a[0].localeCompare(b[0]));
+  assert.deepEqual(sorted(rows), sorted(expected));
+});
+
+test("the key file and the result note agree on every id", () => {
+  const md = resultMarkdown(fixture);
+  const key = keyMarkdown(fixture);
+  const headIds = md.split("\n").filter((line) => line.startsWith("#### ")).map((line) => line.slice(5)).sort();
+  const keyIds = key.split("\n").filter((line) => line.startsWith("| ") && !line.startsWith("| id ") && !line.startsWith("| --- ")).map((line) => line.slice(2).split(" | ")[0]).sort();
+  assert.deepEqual(headIds, keyIds);
 });
 
 test("a failed tool call is named as failed and counted per setup", () => {
@@ -358,4 +447,24 @@ test("a failed tool call is named as failed and counted per setup", () => {
 test("priceUsd prices the catalog models the setups name", () => {
   assert.equal(priceUsd("google/gemini-2.5-flash", { input: 1000000, output: 0 }), 0.3);
   assert.equal(priceUsd("openai/gpt-5-mini", { input: 0, output: 1000000 }), 2);
+});
+
+test("front matter records whether fluff was on and how many notes it wrote", () => {
+  const on = resultMarkdown({ ...fixture, fluff: { on: true, notes: 41 } }).split("\n---\n")[0].split("\n");
+  assert.ok(on.includes("fluff: on"));
+  assert.ok(on.includes("fluff_notes: 41"));
+  const off = resultMarkdown({ ...fixture, fluff: { on: false, notes: 0 } }).split("\n---\n")[0].split("\n");
+  assert.ok(off.includes("fluff: off"));
+  assert.ok(off.includes("fluff_notes: 0"));
+});
+
+test("fluff lines are omitted when the run did not say", () => {
+  const md = resultMarkdown(fixture);
+  assert.ok(!md.includes("fluff"));
+});
+
+test("front matter says whether the world was warm or cold, when the run said", () => {
+  const warm = resultMarkdown({ ...fixture, world: "warm" }).split("\n---\n")[0].split("\n");
+  assert.ok(warm.includes("world: warm"));
+  assert.ok(!resultMarkdown(fixture).includes("world:"));
 });
