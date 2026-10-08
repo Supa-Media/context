@@ -255,6 +255,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   }
 
   let copiedThisPass = 0;
+  let stage = "copying";
   try {
     const copied = new Set(Array.isArray(job.copied) ? job.copied : []);
     job.status = "copying";
@@ -301,6 +302,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     }
 
     job.status = "deleting";
+    stage = "cleaning up";
     let deletedThisPass = 0;
     const deleted = new Set(Array.isArray(job.deleted) ? job.deleted : []);
     for (const pair of sources) {
@@ -363,12 +365,14 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
         throw new Error(`source collaboration generation appeared after conflict preservation: ${pair.source}`);
       }
       if (head) {
+        stage = "moving collaboration history";
         const destination = await getWithLegacyFallback(store, pair.destination);
         if (!destination || !await deleteCreatedDestination(store, pair.destination, destination.etag)) {
           throw new Error(`could not prepare collaboration destination: ${pair.destination}`);
         }
         const base = await readCollaborationDocument(store, pair.source);
         await moveCollaborationDocument(store, pair.source, pair.destination, { expectedEtag: base.etag });
+        stage = "cleaning up";
       } else {
         await deleteObjectForMove(store, pair);
       }
@@ -413,8 +417,17 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   } catch (error) {
     job.status = job.status === "deleting" ? "needs_cleanup" :
       job.status === "rewriting" ? "rewriting" : "copying";
-    job.error = error.message;
+    // Collaboration wraps storage failures to avoid leaking bucket details to
+    // ordinary editors. This command is owner-only maintenance, and the
+    // provider's error code is needed to distinguish a retryable outage from
+    // an invalid write that will pause the same job forever. Keep the message
+    // itself out of the response: providers may include customer paths in it.
+    const providerCode = String(error?.cause?.code ?? "");
+    const causeCode = error?.code === "STORAGE_WRITE_FAILED" &&
+      /^[A-Za-z0-9_-]{1,64}$/.test(providerCode)
+      ? ` (provider code: ${providerCode})` : "";
+    job.error = `${stage}: ${error.message}${causeCode}`;
     await persistMoveJob(store, job).catch(() => {});
-    return toolError(`move ${job.id} materialization paused: ${error.message}`);
+    return toolError(`move ${job.id} materialization paused: ${job.error}`);
   }
 }

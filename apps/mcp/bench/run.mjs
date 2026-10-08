@@ -24,7 +24,7 @@ import { join } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
 import { readBenchFolder } from "./load.mjs";
-import { anthropicGateway, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
+import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 
@@ -104,11 +104,12 @@ async function run(options) {
   const questions = test.questions.filter((question) => !only || only.includes(question.n));
   const runs = Number(options.runs ?? test.front.runs);
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const send = claudeTransport(process.env);
+  if (!options.fake) process.stderr.write(`Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
   const models = options.fake
     ? { gatewayFetch: fakeGateway(), ai: fakeAi() }
-    : { gatewayFetch: anthropicGateway(apiKey), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN) };
-  const person = { fake: options.fake === true, apiKey, model: test.front.played_by };
+    : { gatewayFetch: anthropicGateway(send), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN) };
+  const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   const records = [];
   for (const setup of setups) {
