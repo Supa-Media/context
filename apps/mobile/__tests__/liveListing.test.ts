@@ -13,7 +13,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   adoptMirroredTree,
-  trustCompleteWalk,
   wantsLiveListing,
 } from "../features/console/files/fileBrowser/liveListing";
 import type { FolderListing } from "../features/console/files/types";
@@ -41,7 +40,7 @@ describe("wantsLiveListing", () => {
     expect(wantsLiveListing("0-inbox", {}, new Map(), false)).toBe(true);
   });
 
-  test("a folder only the device's copy has drawn is still asked for", () => {
+  test("online, a folder only the device's copy has drawn is still asked for, complete walk or not", () => {
     const listings = { "0-inbox": listing("0-inbox") };
     expect(wantsLiveListing("0-inbox", listings, new Map(), false)).toBe(true);
   });
@@ -110,23 +109,3 @@ describe("adoptMirroredTree", () => {
   });
 });
 
-describe("trustCompleteWalk", () => {
-  test("a complete walk's folders open without a request; a partial walk's do not", () => {
-    const value = new Map([["0-inbox", listing("0-inbox", ["a.md"])]]);
-    const listedAt = new Map<string, number>();
-    const partial = adoptMirroredTree({}, { value, complete: false, listedAt: 100 }, listedAt, false);
-    trustCompleteWalk(partial, { value, complete: false, listedAt: 100 }, listedAt);
-    expect(wantsLiveListing("0-inbox", partial, listedAt, false)).toBe(true);
-
-    const whole = adoptMirroredTree({}, { value, complete: true, listedAt: 100 }, listedAt, false);
-    trustCompleteWalk(whole, { value, complete: true, listedAt: 100 }, listedAt);
-    expect(wantsLiveListing("0-inbox", whole, listedAt, false)).toBe(false);
-  });
-
-  test("a folder answered more recently keeps its own time", () => {
-    const value = new Map([["0-inbox", listing("0-inbox")]]);
-    const listedAt = new Map([["0-inbox", 500]]);
-    trustCompleteWalk({ "0-inbox": value.get("0-inbox") }, { value, complete: true, listedAt: 100 }, listedAt);
-    expect(listedAt.get("0-inbox")).toBe(500);
-  });
-});

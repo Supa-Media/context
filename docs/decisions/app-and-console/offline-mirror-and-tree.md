@@ -290,6 +290,16 @@ Android device are unverified until somebody runs a first sync on one.
 
 ### The file tree is drawn from the mirror's metadata, so a folder opens without a request
 
+> **Superseded in part (decided by the owner, 2026-10-08): online, the server
+> answers.** The device's rows still draw at once, but every folder opened while
+> connected is also asked of `listFiles` once per session, and that answer
+> replaces the rows. A mirror walk that stopped short had drawn Inbox and Areas
+> as "Empty" in a workspace where both hold notes, and because a drawn folder
+> never asked, they stayed that way. An incomplete walk also no longer
+> overwrites a folder the server answered. Rules: `fileBrowser/liveListing.ts`;
+> tests: `liveListing.test.ts` and `fileTreeMetadata.test.ts` ("online, a
+> nested folder draws from the device at once and still asks the bucket").
+
 Clicking a folder in the sidebar used to wait on `listFiles`: membership,
 storage, a read of `privacy.md`, then a provider listing, every time a folder
 had not been opened in this session — 200 to 800 ms on staging for folders of

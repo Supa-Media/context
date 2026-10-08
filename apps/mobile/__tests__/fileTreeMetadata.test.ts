@@ -20,9 +20,9 @@ import type { MirrorStore } from "../features/offline/mirrorStoreCore";
  * IndexedDB. Each property below fails when its rule is removed
  * (sabotage-checked while writing):
  *
- *  - **folders open without a request** — drawing only the root from the
- *    device fails "a nested folder opens from the tree without asking the
- *    bucket".
+ *  - **online, the server answers** — skipping the request for a folder the
+ *    device has drawn fails "online, a nested folder draws from the device at
+ *    once and still asks the bucket" (owner, 2026-10-08).
  *  - **cached rows before the network** — gating the device's tree on the
  *    root request fails "a reload draws the tree before the bucket answers".
  *  - **another writer's folder appears** — not redrawing on a committed walk
@@ -268,19 +268,31 @@ describe("the tree is drawn from metadata the device holds", () => {
     expect(browser.listings[""]?.entries.map((entry) => entry.path)).toEqual(["1-projects", "index.md"]);
   });
 
-  test("a nested folder opens from the tree without asking the bucket", async () => {
+  test("online, a nested folder draws from the device at once and still asks the bucket", async () => {
+    // Decided by the owner, 2026-10-08: with a connection the server answers.
+    // The device's rows fill the gap so nothing flickers; they never stand in.
     await walk();
+    let answer: (listing: FolderListing) => void = () => {};
+    actions[fn("listFiles")] = (args: never) => {
+      listCalls.push((args as unknown as { path: string }).path);
+      return new Promise((resolve) => {
+        answer = resolve as (listing: FolderListing) => void;
+      });
+    };
     unmount = mount();
     await settle();
     listCalls = [];
     act(() => browser.toggleFolder("1-projects"));
-    act(() => browser.toggleFolder("1-projects/deep"));
-    act(() => browser.toggleFolder("1-projects/deep/nested"));
     await settle();
-    expect(listCalls).toEqual([]);
-    expect(browser.listings["1-projects/deep/nested"]?.entries.map((entry) => entry.path)).toEqual([
-      "1-projects/deep/nested/plan.md",
-    ]);
+    expect(listCalls).toEqual(["1-projects"]);
+    expect(browser.listings["1-projects"]?.entries.map((entry) => entry.path)).toContain("1-projects/deep");
+    answer(listingOf("1-projects"));
+    await settle();
+    act(() => browser.toggleFolder("1-projects"));
+    act(() => browser.toggleFolder("1-projects"));
+    await settle();
+    // Answered once this session; folding and unfolding does not ask again.
+    expect(listCalls).toEqual(["1-projects"]);
   });
 
   test("a folder somebody else made appears without a reload, and what was open stays open", async () => {

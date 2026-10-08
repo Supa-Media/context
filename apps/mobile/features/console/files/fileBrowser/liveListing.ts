@@ -17,12 +17,12 @@ import type { MirroredTree } from "../../../offline/mirror";
 import type { Listings } from "./types";
 
 /**
- * Should opening `folder` ask the server? Yes when nothing is drawn, and yes
- * when what is drawn came from a device walk that stopped short. `listedAt`
- * holds the folders the server, this console's own change, or a **complete**
- * mirror walk has answered for (`trustCompleteWalk`) — a complete walk is the
- * whole tree, so its folders open without a request. Offline, the device is
- * all there is: a folder already drawn stays as it is.
+ * Should opening `folder` ask the server? **Online, always, unless the server
+ * (or this console's own change) has already answered for it this session**
+ * — `listedAt` holds those. The device's copy may draw the rows first so
+ * nothing flickers, but it never stands in for the server's answer while
+ * there is a connection (decided by the owner, 2026-10-08). Offline, the
+ * device is all there is: a folder already drawn stays as it is.
  */
 export function wantsLiveListing(
   folder: string,
@@ -71,20 +71,3 @@ export function adoptMirroredTree(
   return next;
 }
 
-/**
- * Record the folders a complete walk just drew as answered, at the time the
- * walk started, so opening one needs no request (`wantsLiveListing`) and a
- * later partial walk does not draw over it. A folder already answered more
- * recently keeps its own time. Mutates `listedAt`; returns nothing.
- */
-export function trustCompleteWalk(
-  next: Listings,
-  tree: Pick<MirroredTree, "value" | "complete" | "listedAt">,
-  listedAt: Map<string, number>,
-): void {
-  if (!tree.complete) return;
-  for (const [folder, listing] of tree.value) {
-    if (next[folder] !== listing) continue;
-    if ((listedAt.get(folder) ?? -Infinity) < tree.listedAt) listedAt.set(folder, tree.listedAt);
-  }
-}
