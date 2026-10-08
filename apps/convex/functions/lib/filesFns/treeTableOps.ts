@@ -43,10 +43,37 @@ import type { FileOperation, OperationResult } from "./operationTypes";
 /** Sweep passes one chain may run: a bound on a loop, not on any context. */
 export const TREE_SWEEP_CHAIN = 50;
 
-export type TreeOperation = Extract<FileOperation, { kind: "sweepTree" | "touchTree" }>;
+export type TreeOperation = Extract<FileOperation, { kind: "sweepTree" | "touchTree" | "treeState" }>;
 
 export function isTreeOperation(operation: { kind: string }): operation is TreeOperation {
-  return operation.kind === "sweepTree" || operation.kind === "touchTree";
+  return operation.kind === "sweepTree" || operation.kind === "touchTree" || operation.kind === "treeState";
+}
+
+/** What a tree operation answers for a context with no table to ask. */
+export function noTreeTable(operation: TreeOperation): OperationResult {
+  if (operation.kind === "treeState") return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false };
+  return { kind: "treeKept", complete: false };
+}
+
+/**
+ * The table's health, for the staff panel: counts and its own bookkeeping,
+ * never a path. Asked before the bucket's credential is, because it needs none.
+ */
+export async function treeStateOf(client: ProjectionClient): Promise<OperationResult> {
+  try {
+    const state = await readTreeState(client);
+    let rows = 0;
+    try {
+      const [count] = await client.query("SELECT count(*) AS n FROM tree");
+      rows = Number(count?.n ?? 0);
+    } catch {
+      // No table yet.
+    }
+    const status = state.unsupported ? "unsupported" : state.cursor !== null ? "filling" : state.ready ? "ready" : "empty";
+    return { kind: "treeState", status, rows, sweptAt: state.sweptAt, dirty: state.dirty };
+  } catch {
+    return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false };
+  }
 }
 
 /**
@@ -119,10 +146,14 @@ async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scop
  */
 export async function manifestSource(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; scope: "private" | "team"; operation: { kind: string; source?: string } },
+  args: { workspaceId: Id<"workspaces">; scope: "private" | "team"; operation: { kind: string; source?: string; cursor?: string } },
   store: FileStore,
 ): Promise<{ store: FileStore; source: "tree" | "bucket" }> {
-  if (args.operation.kind !== "manifest" || args.operation.source !== "tree") {
+  if (args.operation.kind !== "manifest") return { store, source: "bucket" };
+  if (args.operation.source !== "tree") {
+    // An app that walks the bucket still starts the table filling, so it is
+    // ready for the next walk that can read it.
+    if (args.operation.cursor === undefined) await startSweepIfDue(ctx, args).catch(() => {});
     return { store, source: "bucket" };
   }
   try {
@@ -136,6 +167,17 @@ export async function manifestSource(
     // A database that cannot be read is no table: the walk goes to the bucket.
     return { store, source: "bucket" };
   }
+}
+
+/** Schedule a sweep for this context's table if one is due. Never for a context with none. */
+async function startSweepIfDue(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; scope: "private" | "team" },
+): Promise<void> {
+  const client = await treeClient(ctx, args.workspaceId);
+  if (client === null) return;
+  const state = await readTreeState(client);
+  if (sweepDue(state, Date.now())) await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
 }
 
 /** Run a `sweepTree` or `touchTree` with the bucket the barrier opened. */
@@ -152,8 +194,15 @@ export async function runTreeOperation(
     } finally {
       await markChanged(ctx, args.workspaceId, operation.audiences);
     }
+    // A table never filled, or one a change was too big for, is filled now
+    // rather than when somebody next happens to read it.
+    const state = await readTreeState(client).catch(() => null);
+    if (state !== null && (!state.ready || state.dirty) && sweepDue(state, Date.now())) {
+      await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
+    }
     return { kind: "treeKept", complete: true };
   }
+  if (operation.kind === "treeState") return await treeStateOf(client);
   const pass = await sweepTreePass(store, client).catch(() => null);
   const passes = Math.floor(operation.passes ?? 0) + 1;
   if (pass !== null && !pass.complete && !pass.unsupported && pass.rows + pass.pages > 0 && passes < TREE_SWEEP_CHAIN) {

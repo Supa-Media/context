@@ -100,6 +100,8 @@ export type FileOperation =
   /** The tree table (`treeTableOps.ts`): scheduled by the barrier, never sent by a client. */
   | { kind: "sweepTree"; passes?: number }
   | { kind: "touchTree"; paths: string[]; files: string[]; audiences: string[] }
+  /** The tree table's health, for the staff panel (`adminFns/treeIndexes.ts`). No bucket opened. */
+  | { kind: "treeState" }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -347,6 +349,13 @@ export type OperationResult =
     }
   | ({ kind: "manifest"; source?: "tree" | "bucket" } & SyncManifest)
   | { kind: "treeKept"; complete: boolean }
+  | {
+      kind: "treeState";
+      status: "ready" | "filling" | "empty" | "unsupported" | "unreachable";
+      rows: number | null;
+      sweptAt: number | null;
+      dirty: boolean;
+    }
   | {
       kind: "notes";
       results: Array<

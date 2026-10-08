@@ -114,6 +114,8 @@ import type * as functions_routines from "../functions/routines.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
 import type * as functions_agentTurns from "../functions/agentTurns.js";
 import type * as functions_searchTimings from "../functions/searchTimings.js";
+import type * as functions_treeAdmin from "../functions/treeAdmin.js";
+import type * as functions_treeAdminInternal from "../functions/treeAdminInternal.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
@@ -239,6 +241,8 @@ declare const fullApi: ApiFromModules<{
   "functions/builtinModel": typeof functions_builtinModel;
   "functions/agentTurns": typeof functions_agentTurns;
   "functions/searchTimings": typeof functions_searchTimings;
+  "functions/treeAdmin": typeof functions_treeAdmin;
+  "functions/treeAdminInternal": typeof functions_treeAdminInternal;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
   "functions/waitlist": typeof functions_waitlist;

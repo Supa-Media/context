@@ -71,6 +71,19 @@ export const operationResultValidator = v.union(
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
   v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
   v.object({
+    kind: v.literal("treeState"),
+    status: v.union(
+      v.literal("ready"),
+      v.literal("filling"),
+      v.literal("empty"),
+      v.literal("unsupported"),
+      v.literal("unreachable"),
+    ),
+    rows: v.union(v.number(), v.null()),
+    sweptAt: v.union(v.number(), v.null()),
+    dirty: v.boolean(),
+  }),
+  v.object({
     kind: v.literal("websiteReleasePages"),
     results: v.array(
       v.union(
@@ -248,6 +261,8 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
   /** The tree table's sweep and re-check (`treeTableOps.ts`); scheduled only. */
   v.object({ kind: v.literal("sweepTree"), passes: v.optional(v.number()) }),
+  /** The tree table's health for the staff panel; no bucket is opened. */
+  v.object({ kind: v.literal("treeState") }),
   v.object({ kind: v.literal("touchTree"), paths: v.array(v.string()), files: v.array(v.string()), audiences: v.array(v.string()) }),
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   /**
