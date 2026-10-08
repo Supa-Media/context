@@ -229,6 +229,15 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       deletedThisPass += 1;
       if (deletedThisPass >= batchSize) break;
     }
+    // Recheck once at the finish line, including entries restored after an
+    // earlier pass. Ordinary passes stay bounded by the work left to do.
+    if (deleted.size === sources.length) {
+      for (const pair of sources) {
+        if ((await getWithLegacyFallback(store, pair.source)) !== null) {
+          deleted.delete(pair.source);
+        }
+      }
+    }
     job.deleted = [...deleted].sort();
     job.deleted_objects = deleted.size;
     if (deleted.size < sources.length) {
