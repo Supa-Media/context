@@ -67,14 +67,14 @@ function chat(text, toolCalls = [], usage = { prompt_tokens: 100, completion_tok
 }
 
 /** An Anthropic Messages answer, as the gateway returns it. */
-function answerShape(text, { toolUses = [], input, output, cacheRead = 0 }) {
+function answerShape(text, { toolUses = [], input, output, cacheRead = 0, cacheWrite = 0 }) {
   const content = [];
   if (text) content.push({ type: "text", text });
   for (const tool of toolUses) content.push({ type: "tool_use", id: tool.id, name: tool.name, input: tool.input });
   return {
     content,
     stop_reason: toolUses.length > 0 ? "tool_use" : "end_turn",
-    usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 },
+    usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite },
   };
 }
 
@@ -187,7 +187,7 @@ export async function runAgentBuiltinChecks(check) {
     controlPlane.setBuiltinVerdict("ws_texter", { allowed: true, remaining: 10 });
     const unbound = await ask({ ...env, AI: undefined }, TOKEN, { question: "When is the launch?" });
     check(
-      "a gateway with no Workers AI binding has no built-in model",
+      "with neither a gateway nor a Workers AI binding there is no built-in model",
       unbound.status === 409 && unbound.body?.error === "no_provider",
     );
 
@@ -293,7 +293,12 @@ export async function runAgentBuiltinChecks(check) {
       ANTHROPIC_CREDIT_KEY: "sk-ant-credit-fixture-0000000000",
     };
     gatewayReplies = [
-      answerShape("", { toolUses: [{ id: "toolu_1", name: "read_note", input: { path: "1-projects/launch.md" } }], input: 300, output: 20 }),
+      answerShape("", {
+        toolUses: [{ id: "toolu_1", name: "read_note", input: { path: "1-projects/launch.md" } }],
+        input: 300,
+        output: 20,
+        cacheWrite: 40,
+      }),
       answerShape("The launch is on Friday.", { input: 400, output: 12, cacheRead: 250 }),
     ];
     const viaGateway = await ask(gatewayEnv, TOKEN, { question: "When is the launch?" });
@@ -325,9 +330,9 @@ export async function runAgentBuiltinChecks(check) {
       gatewayTurnLog?.outcome === "answered" && gatewayTurnLog?.model === "anthropic/claude-haiku-5-5",
     );
     const gatewayReport = controlPlane.builtinReports.at(-1);
-    // Only what the control plane stub records: input and output counts. The
-    // cache counts and the model are sent by `route.js` but dropped by
-    // `controlPlane/session.js`'s recordBuiltinUsage; see the report.
+    // The rounds' counts are summed: 300+400 in, 20+12 out, 0+250 cache reads
+    // and 40+0 cache writes. `session.js` forwards the model and both cache
+    // counts with them, so the meter can price the turn.
     check(
       "the meter gets the gateway turn's input and output counts, and nothing that is text",
       gatewayReport?.inputTokens === 700 &&
@@ -335,6 +340,30 @@ export async function runAgentBuiltinChecks(check) {
         gatewayReport?.failed === false &&
         !JSON.stringify(gatewayReport).includes("launch") &&
         !JSON.stringify(gatewayReport).includes("Friday"),
+    );
+    check(
+      "the gateway report names anthropic/claude-haiku-5-5 and carries the rounds' cache counts",
+      gatewayReport?.model === "anthropic/claude-haiku-5-5" &&
+        gatewayReport?.cacheReadTokens === 250 &&
+        gatewayReport?.cacheWriteTokens === 40,
+    );
+
+    // A deployment with the gateway but no Workers AI binding: the built-in
+    // model is still Haiku on the gateway, so the turn is answered rather than
+    // refused as no_provider.
+    gatewayReplies = [
+      answerShape("", { toolUses: [{ id: "toolu_2", name: "read_note", input: { path: "1-projects/launch.md" } }], input: 300, output: 20 }),
+      answerShape("The launch is on Friday.", { input: 400, output: 12 }),
+    ];
+    const callsBeforeNoBinding = gatewayCalls.length;
+    const noBinding = await ask({ ...gatewayEnv, AI: undefined }, TOKEN, { question: "When is the launch?" });
+    check(
+      "a gateway with no Workers AI binding answers a texted turn through the gateway, not as no_provider",
+      noBinding.status === 200 &&
+        noBinding.body?.answer === "The launch is on Friday." &&
+        noBinding.body?.provider === "builtin" &&
+        gatewayCalls.length - callsBeforeNoBinding === 2 &&
+        gatewayCalls.slice(callsBeforeNoBinding).every((call) => call.body.model === "claude-haiku-5-5"),
     );
 
     /* ---------------- the adapter, directly ---------------- */

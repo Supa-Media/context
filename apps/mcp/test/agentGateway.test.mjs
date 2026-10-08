@@ -26,7 +26,7 @@ import {
   resetCreditState,
 } from "../src/agent/aiGateway.js";
 import { ProviderError } from "../src/agent/providers.js";
-import { builtinModel, DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL } from "../src/agent/builtin.js";
+import { builtinModel, DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL, hasBuiltinModel } from "../src/agent/builtin.js";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const GATEWAY_ID = "context-gw";
@@ -248,6 +248,58 @@ export async function runAgentGatewayChecks(check) {
   );
 
   resetCreditState();
+  const forbidden = scripted([
+    { status: 403, body: { error: { message: "forbidden" } } },
+    { status: 200, body: answer("no key") },
+    { status: 200, body: answer("keyed again") },
+  ]);
+  const forbiddenRetried = await requestViaGateway(CALL, cfg, { fetchImpl: forbidden.fetchImpl, now: () => T0 });
+  const forbiddenNext = await requestViaGateway(CALL, cfg, { fetchImpl: forbidden.fetchImpl, now: () => T0 + 1000 });
+  check(
+    "a 403 from the key is retried once without it, and does not rest: the next call tries the key again",
+    forbidden.calls.length === 3 &&
+      forbidden.calls[0].headers["x-api-key"] === CREDIT &&
+      !("x-api-key" in forbidden.calls[1].headers) &&
+      forbidden.calls[2].headers["x-api-key"] === CREDIT &&
+      forbiddenRetried.paidBy === "cloudflare" &&
+      forbiddenNext.paidBy === "credit",
+  );
+
+  resetCreditState();
+  const rest402 = scripted([
+    { status: 402, body: { error: "payment_required" } },
+    { status: 200, body: answer("no key") },
+    { status: 200, body: answer("still resting") },
+    { status: 200, body: answer("the plan again") },
+  ]);
+  await requestViaGateway(CALL, cfg, { fetchImpl: rest402.fetchImpl, now: () => T0 });
+  await requestViaGateway(CALL, cfg, { fetchImpl: rest402.fetchImpl, now: () => T0 + FIFTEEN_MINUTES - 1 });
+  await requestViaGateway(CALL, cfg, { fetchImpl: rest402.fetchImpl, now: () => T0 + FIFTEEN_MINUTES + 1 });
+  check(
+    "a 402 from the key rests the credit for exactly fifteen minutes: skipped a moment short of it, tried again just after",
+    rest402.calls.length === 4 &&
+      rest402.calls[0].headers["x-api-key"] === CREDIT &&
+      !("x-api-key" in rest402.calls[1].headers) &&
+      !("x-api-key" in rest402.calls[2].headers) &&
+      rest402.calls[3].headers["x-api-key"] === CREDIT,
+  );
+
+  resetCreditState();
+  const badRequest400 = scripted([
+    { status: 400, body: { error: { message: `invalid request quoting ${QUESTION}` } } },
+    { status: 200, body: answer("must not be asked") },
+  ]);
+  const refused400 = await failureOf(requestViaGateway(CALL, cfg, { fetchImpl: badRequest400.fetchImpl, now: () => T0 }));
+  check(
+    "a 400 that does not say the credit is spent, sent with the key, is a ProviderError after one fetch: no keyless retry",
+    refused400 instanceof ProviderError &&
+      refused400.status === 400 &&
+      badRequest400.calls.length === 1 &&
+      badRequest400.calls[0].headers["x-api-key"] === CREDIT &&
+      !String(refused400.message).includes("SECRET-QUESTION-MARKER"),
+  );
+
+  resetCreditState();
   const serverError = scripted([{ status: 500, body: { error: { message: `internal ${QUESTION} key ${CREDIT}` } } }]);
   const keyed500 = await failureOf(requestViaGateway(CALL, cfg, { fetchImpl: serverError.fetchImpl, now: () => T0 }));
   check(
@@ -332,6 +384,52 @@ export async function runAgentGatewayChecks(check) {
       !twiceText.includes(BODY_MARKER) &&
       !twiceText.includes(CREDIT) &&
       !twiceText.includes("SECRET-QUESTION-MARKER"),
+  );
+
+  /* ---------------- the round's deadline covers reading the body ---------------- */
+
+  // The round timer is 60 seconds and not exported, so the check fires it at
+  // once: the global setTimeout is wrapped so that only the 60-second timer is
+  // moved to a zero-delay real timer, and every other timer is left alone. The
+  // fake body never finishes on its own. It waits for the request's signal and
+  // rejects when that signal aborts, as a real body read does. A two-second
+  // safety timer makes a body that is not cut short fail the check instead of
+  // hanging the suite, and the wrapper is restored in `finally` either way.
+  resetCreditState();
+  const realSetTimeout = globalThis.setTimeout;
+  let bodyCutShort = false;
+  let requestSignal = null;
+  globalThis.setTimeout = (fn, ms, ...rest) => (ms === 60_000 ? realSetTimeout(fn, 0) : realSetTimeout(fn, ms, ...rest));
+  let stalled;
+  try {
+    stalled = await failureOf(
+      requestViaGateway(CALL, plain, {
+        now: () => T0,
+        fetchImpl: async (_url, init) => {
+          requestSignal = init.signal;
+          return {
+            status: 200,
+            text: () =>
+              new Promise((resolve, reject) => {
+                const safety = realSetTimeout(() => reject(new Error("body was never cut short")), 2000);
+                const abort = () => {
+                  clearTimeout(safety);
+                  bodyCutShort = true;
+                  reject(new Error("body aborted"));
+                };
+                if (init.signal.aborted) abort();
+                else init.signal.addEventListener("abort", abort, { once: true });
+              }),
+          };
+        },
+      }),
+    );
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  check(
+    "a body that never finishes is cut short by the round's deadline: a ProviderError, not a hang",
+    stalled instanceof ProviderError && bodyCutShort && requestSignal?.aborted === true,
   );
 
   /* ---------------- model and config refusals make no call ---------------- */
@@ -528,6 +626,16 @@ export async function runAgentGatewayChecks(check) {
   check(
     "a gateway whose token is too short is no gateway, so GLM stays the default",
     builtinModel({ ...gatewayOnly, AI_GATEWAY_TOKEN: "short", AGENT_BUILTIN_MODEL: "anthropic/claude-haiku-5-5" }) === DEFAULT_BUILTIN_MODEL,
+  );
+  check(
+    "a built-in model exists with a gateway alone, with Workers AI alone, or with both; with neither there is none",
+    hasBuiltinModel(gatewayOnly) === true &&
+      hasBuiltinModel({ AI: { run: async () => ({}) } }) === true &&
+      hasBuiltinModel({ ...gatewayOnly, AI: { run: async () => ({}) } }) === true &&
+      hasBuiltinModel({}) === false &&
+      hasBuiltinModel({ AI: {} }) === false &&
+      hasBuiltinModel({ AI_GATEWAY_TOKEN: "short" }) === false &&
+      hasBuiltinModel(undefined) === false,
   );
 
   resetCreditState();
