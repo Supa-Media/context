@@ -188,13 +188,11 @@ export async function passCensus(
  * `maintainSearchIndex` have with `searchIndexedNotes` and `syncShardedIndex`.
  * Three consequences are load-bearing:
  *
- *  - **The R2 index pass comes first, and its diff is what feeds the copy.**
- *    The projection's census is the index's own docmap, so a bucket no search
- *    has ever built an index over has nothing to walk. Running the sync here
- *    means a context that has never been searched still fills — which is the
- *    case the three contexts stuck at "Preparing" were in — and it means the
- *    notes that just moved are copied first, from the diff that pass already
- *    computed. No second listing and no second answer to "what changed".
+ *  - **The census is a listing of the bucket, not the R2 index** (since
+ *    2026-10-08; see `listingCensus`). A context nobody has searched still
+ *    fills, which was the case of the three contexts stuck at "Preparing",
+ *    and a bucket whose index never converges no longer starves the copy.
+ *    The R2 index pass runs only when the listing fails.
  *  - **The tier a note is copied at is this runtime's `effectiveVisibility`**,
  *    injected as `visibilityOf` exactly as `isVisible` is injected into
  *    `searchIndexedNotes`, and proven identical to the gateway's by
@@ -218,10 +216,16 @@ export async function projectSearchIndex(
   const budget = createSearchBudget(options.budget ?? PROJECTION_PASS_BUDGET);
   const reserve = Math.floor(budget.remaining / PROJECTION_RESERVE_SHARE);
 
-  const { census: indexCensus, indexPending: indexBehind, synced } = await passCensus(store, budget, reserve);
+  // The bucket's own listing first, and the R2 index pass only when that
+  // fails. On @seyi (2026-10-08) the index pass never converged and took the
+  // pass with it: each link re-copied the notes it reported touching, the walk
+  // in tier order never left its first window, and nothing was left over to
+  // remove the rows of notes that had moved. Searches still keep that index.
   const listed = await listingCensus(store, budget);
-  const census = listed?.census ?? indexCensus;
-  const indexPending = listed ? (listed.truncated ? 1 : 0) : indexBehind;
+  const fallback = listed ? null : await passCensus(store, budget, reserve);
+  const census = listed?.census ?? fallback?.census ?? null;
+  const indexPending = listed ? (listed.truncated ? 1 : 0) : (fallback?.indexPending ?? 0);
+  const synced = fallback?.synced ?? null;
 
   const moved = Boolean(synced?.committed);
   if (census === null) {

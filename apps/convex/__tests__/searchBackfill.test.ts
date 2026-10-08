@@ -48,12 +48,11 @@
  * file, one measured zero included — a record that lists only the satisfying
  * numbers is decoration.
  *
- *   `projectSearchIndex` not running the R2 sync in front of the copy     10
+ *   the copy building the R2 index again instead of listing the bucket     1
  *   the pass never reporting that it finished                              4
  *   a `D1Error` code swallowed instead of returned                         2
  *   every note projected at `team`                                     1 → 2
  *   a failed pass reported as progress                                     1
- *   `moved` ignoring a pass that only advanced the R2 index            0 → 1
  *   `indexPending` dropped, so `ready` may outrun the R2 index             0
  *
  * And the trigger, over the whole control-plane suite rather than this file,
@@ -91,13 +90,6 @@
  * projection answering "team" for everything satisfies exactly. The assertion
  * that does the work is the other direction — nothing under an unshared folder
  * may reach the team table — because that is the one a default breaks.
- *
- * **`moved` ignoring a pass that only advanced the R2 index** measured zero
- * until "a pass that only moved the R2 index is still progress" was written.
- * On a fixture small enough to index and copy in one pass, the copy always
- * moves something too, so the clause that keeps a *cold* chain alive was
- * unchecked — and its failure mode is the exact bug this file exists to end,
- * one layer up: the chain stops on link one and nothing is ever copied.
  *
  * **`indexPending` dropped** is zero and stays zero here: this fixture's R2
  * index converges in the same pass that builds it, so `pending` is never
@@ -206,19 +198,19 @@ describe("a projection pass the control plane runs itself", () => {
     expect(links).toBeLessThan(12);
   });
 
-  test("builds the R2 index it needs rather than waiting for one", async () => {
-    // The three stuck contexts are the case: provisioned before any of this
-    // existed, and there is no guarantee anybody ever searched them into
-    // having an index. The projection's census is that index's own docmap, so
-    // a pass that only projected would have nothing to walk, forever.
+  test("fills from the bucket's own listing, with no R2 index at all", async () => {
+    // The three stuck contexts were provisioned before any of this existed,
+    // with no guarantee anybody ever searched them into having an index. The
+    // copy walked that index's docmap and built it first; on @seyi
+    // (2026-10-08) building it never converged and took every pass with it.
+    // The census is the listing now, so no index is needed and none is built.
     const store = bucket();
-    expect(store.snapshot()[".context/search/v2/manifest.json"]).toBeUndefined();
+    const d1 = stubD1();
 
-    await chain(store, stubD1().client);
+    await chain(store, d1.client);
 
-    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/"))).toBe(
-      true,
-    );
+    expect(d1.paths()).toContain("1-projects/note-05.md");
+    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/"))).toBe(false);
   });
 
   test("projects a note at the tier its privacy manifest says, not a guess", async () => {
@@ -246,33 +238,6 @@ describe("a projection pass the control plane runs itself", () => {
     expect(d1.visibilityOf("2-areas/README.md")).toBe("private");
     expect(d1.chunksIn("team", "2-areas/README.md")).toBe(0);
     expect(d1.chunksIn("private", "2-areas/README.md")).toBeGreaterThan(0);
-  });
-
-  test("a pass that only moved the R2 index is still progress", async () => {
-    /*
-     * The link a cold workspace lives on. A bucket wide enough that the listing,
-     * the diff and the note re-reads spend the whole budget leaves the copy
-     * nothing to do that pass — and if that counts as "moved nothing", the
-     * chain stops on link one and the projection never starts. Which is the
-     * bug this whole file exists to end, reintroduced one layer up.
-     *
-     * `noteCap: 0` is how a test reaches that state deterministically: the
-     * sync runs and commits, the projection is allowed to copy nothing.
-     */
-    const store = bucket(4);
-    const d1 = stubD1();
-
-    const pass = await projectSearchIndex(store, d1.client, { noteCap: 0 });
-
-    expect(pass.projected).toBe(0);
-    expect(pass.deleted).toBe(0);
-    expect(pass.moved).toBe(true);
-    expect(pass.failure).toBe(null);
-    // Non-vacuity: the index really did advance, so "moved" is describing
-    // something rather than being hardcoded true.
-    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/"))).toBe(
-      true,
-    );
   });
 
   test("stops the moment a pass moves nothing", async () => {
