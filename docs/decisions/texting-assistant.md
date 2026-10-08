@@ -484,6 +484,16 @@ The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
 never reads a note the workspace holds back", "the world lets no request out
 except the model's").
 
+**The world runs with the deployed search budget, and says which calls failed.**
+The first run (2026-10-08) measured nothing: the world had no
+`SEARCH_SUBREQUEST_BUDGET`, so a search spent the free-tier 40 on a bucket scan
+and every `read_note`, `list_notes` and `orient` after it in the same turn was
+refused, which every setup reported as "I couldn't find that" or "the note
+won't open". The world now sets the budget `wrangler.toml` sets, and a result
+note names each tool call that failed and counts them per setup, so a run that
+is broken reads as broken rather than as a bad model. Test: `world.test.mjs`,
+"after a search, reads, listing and orient in the same turn still work".
+
 ### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced

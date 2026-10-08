@@ -104,3 +104,47 @@ test("a shared workspace shares its folders and root notes, and holds back the n
   assert.match(text, /note_overrides:\n {2}todo\.md: team\n {2}people\/john\.md: private\n/);
   assert.doesNotMatch(manifest({ shared: false, files: ["todo.md", "a/b.md"] }), /: team/);
 });
+
+/**
+ * The 2026-10-08 results were worthless because of this: one search spent the
+ * free-tier store budget on a bucket scan, and every read, listing and orient
+ * after it in the same turn failed. The world must give a turn the deployed
+ * budget, so that a search is followed by reads that work.
+ */
+test("after a search, reads, listing and orient in the same turn still work", async () => {
+  const files = { "health/dentist.md": "# Dentist\n\nAppointment: Tuesday 3 pm. DENTIST-MARK\n" };
+  for (let i = 0; i < 30; i += 1) files[`notes/filler-${i}.md`] = `# Filler ${i}\n\nNothing about teeth here, note ${i}.\n`;
+  const big = { ...bench, workspaces: { ...bench.workspaces, maya: { files, heldBack: [] } } };
+  const calls = [
+    { name: "search_notes", input: { query: "dentist" } },
+    { name: "read_note", input: { path: "health/dentist.md" } },
+    { name: "list_notes", input: {} },
+    { name: "orient", input: {} },
+  ];
+  let seen = 0;
+  const scripted = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const last = body.messages.at(-1);
+    if (Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")) seen += 1;
+    const reply =
+      seen < calls.length
+        ? { content: [{ type: "tool_use", id: `toolu_${seen}`, name: calls[seen].name, input: calls[seen].input }], stop_reason: "tool_use" }
+        : { content: [{ type: "text", text: "done" }], stop_reason: "end_turn" };
+    return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const world = await createWorld(big, "Maya", SETUP, { gatewayFetch: scripted });
+  try {
+    const turn = await world.text("go");
+    assert.ok(turn.ok);
+    assert.deepEqual(
+      turn.tools,
+      calls.map((call) => ({ tool: call.name, ok: true })),
+      `every call after the search must succeed, got ${JSON.stringify(turn.tools)}`,
+    );
+  } finally {
+    world.close();
+  }
+});

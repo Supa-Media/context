@@ -5,6 +5,11 @@
 // Prices in USD per million tokens. Models without cache prices bill
 // cache tokens at the input rate.
 const PRICES = {
+  // Catalog models through the AI gateway, at the providers' standard rates
+  // (aggregators citing the vendors' pricing pages, 2026-09; cached input where
+  // the vendor publishes one).
+  "google/gemini-2.5-flash": { input: 0.3, output: 2.5, cacheRead: 0.03 },
+  "openai/gpt-5-mini": { input: 0.25, output: 2, cacheRead: 0.025 },
   "@cf/zai-org/glm-4.7-flash": { input: 0.06, output: 0.4 },
   "anthropic/claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
@@ -52,6 +57,11 @@ function safeText(text) {
     .join("\n");
 }
 
+// A tool call as the world records it (`{ tool, ok }`) or as older results
+// carried it (a bare name), rendered for the note.
+const toolLabel = (call) => (typeof call === "string" ? call : call.ok === false ? `${call.tool} (failed)` : call.tool);
+const failedCalls = (run) => (run.tools ?? []).filter((call) => typeof call !== "string" && call.ok === false).length;
+
 // Price of one run, using the model that actually answered it.
 const runPrice = (run, setup) => priceUsd(run.model ?? setup?.model, run.usage);
 
@@ -64,6 +74,7 @@ function summaryRow(setup, runs) {
   else if (prices.length) price = fmtUsd(mean(prices));
   const med = median(mine.map((r) => r.ms));
   const texts = mean(mine.map((r) => r.texts ?? 0));
+  const failed = mine.reduce((sum, r) => sum + failedCalls(r), 0);
   return [
     setup.name,
     setup.model,
@@ -72,6 +83,7 @@ function summaryRow(setup, runs) {
     med === null ? "n/a" : fmtSecs(med),
     price,
     texts === null ? "n/a" : texts.toFixed(1),
+    String(failed),
   ];
 }
 
@@ -81,7 +93,7 @@ function runBlock(run, setup) {
     const who = m.from === "person" ? "Person" : "Assistant";
     lines.push(`**${who}:** ${safeText(m.text)}`, "");
   }
-  const tools = run.tools?.length ? run.tools.join(", ") : "none";
+  const tools = run.tools?.length ? run.tools.map(toolLabel).join(", ") : "none";
   lines.push(`Tools: ${tools}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
@@ -131,8 +143,8 @@ export function resultMarkdown(result) {
     "",
     "## Summary",
     "",
-    "| Setup | Model | Answers | Errors | Median time | Price per question | Texts per question |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "| Setup | Model | Answers | Errors | Median time | Price per question | Texts per question | Failed tool calls |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...setups.map((s) => `| ${summaryRow(s, runs).join(" | ")} |`),
     "",
     "## Answers",
