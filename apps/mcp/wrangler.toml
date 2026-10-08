@@ -117,6 +117,7 @@ queue = "context-gateway-jobs"
 queue = "context-gateway-jobs"
 max_batch_size = 1
 max_batch_timeout = 5
+max_retries = 20
 
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached

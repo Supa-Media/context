@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
+import type { ActionCtx } from "../../_generated/server";
 import type { Id } from "../../_generated/dataModel";
 import { hashToken } from "../../functions/lib/crypto";
+import { gatewayJobsReportHandler } from "../../functions/lib/gatewayRoutes/jobs";
 import {
   FAKE_D1,
   FAKE_STORAGE,
@@ -26,6 +28,18 @@ import {
 /* -------------------------------------------------------------------------- */
 
 describe("/gateway/jobs/*", () => {
+  test("a failed report returns a generic retryable error to the gateway", async () => {
+    const ctx = {
+      runMutation: async () => { throw new Error("database unavailable"); },
+    } as unknown as ActionCtx;
+    const response = await gatewayJobsReportHandler(ctx, {
+      ticket: "opaque-ticket",
+      result: { status: "queued" },
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false });
+  });
+
   test("an owner-private grant mints a hashed ticket and opens one queued move", async () => {
     const { t, alice, bob, aliceWs, grantA } = await twoConnectedTenants();
     await t.run((ctx) =>
@@ -67,7 +81,9 @@ describe("/gateway/jobs/*", () => {
     expect(job.binding.bucket).toBe("tenant-a");
 
     const replay = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
-    expect(replay).toEqual({ job: null });
+    expect(replay.job).toEqual({ retryAfterMs: expect.any(Number) });
+    expect((replay.job as { retryAfterMs: number }).retryAfterMs).toBeGreaterThan(0);
+    expect((replay.job as { retryAfterMs: number }).retryAfterMs).toBeLessThanOrEqual(15 * 60 * 1000);
 
     await gatewayPost(t, "/gateway/jobs/report", {
       ticket,
@@ -169,6 +185,28 @@ describe("/gateway/jobs/*", () => {
     }));
     expect(await bodyOf(await create())).toEqual({ ticket: null, alreadyActive: true });
     expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(2);
+  });
+
+  test("a redelivered running ticket waits for its lease and then resumes", async () => {
+    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+    const created = await bodyOf(await gatewayPost(t, "/gateway/jobs/create", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      job: { kind: "materialize_move", moveId: "move-eeeeeeeeeeee" },
+    }));
+    const ticket = created.ticket as string;
+    expect((await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }))).job).not.toBeNull();
+    const leased = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect(leased.job).toEqual({ retryAfterMs: expect.any(Number) });
+    const row = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    await t.run((ctx) => ctx.db.patch(row!._id, { leasedAt: Date.now() - 16 * 60 * 1000 }));
+    const recovered = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect((recovered.job as { job: { moveId: string } }).job.moveId).toBe("move-eeeeeeeeeeee");
+    const resumed = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(resumed?.attempts).toBe(2);
   });
 });
 

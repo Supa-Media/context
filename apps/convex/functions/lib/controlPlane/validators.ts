@@ -61,6 +61,7 @@ export const openGatewayJobArgs = { hashedTicket: v.string() };
 
 export const openGatewayJobReturns = v.union(
   v.null(),
+  v.object({ retryAfterMs: v.number() }),
   v.object({
     job: v.object({
       workspaceId: v.id("workspaces"),

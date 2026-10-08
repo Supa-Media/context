@@ -61,7 +61,7 @@ import {
   type GatewaySearchIndex,
   type OpenedGatewayBinding,
 } from "./lib/controlPlane/bindingShapes";
-import type { ClaimedGatewayJob, OpenedGatewayJob } from "./lib/controlPlane/gatewayJobs";
+import type { ClaimedGatewayJob, LeasedGatewayJob, OpenedGatewayJob } from "./lib/controlPlane/gatewayJobs";
 import * as session from "./lib/controlPlane/session";
 import * as authorization from "./lib/controlPlane/authorization";
 import * as gatewayJobs from "./lib/controlPlane/gatewayJobs";
@@ -495,14 +495,15 @@ export const claimGatewayJob = internalMutation({
 export const openGatewayJob = internalAction({
   args: validators.openGatewayJobArgs,
   returns: validators.openGatewayJobReturns,
-  handler: async (ctx, args): Promise<OpenedGatewayJob | null> => {
-    const claimed: ClaimedGatewayJob | null = await ctx.runMutation(
+  handler: async (ctx, args): Promise<OpenedGatewayJob | LeasedGatewayJob | null> => {
+    const claimed: ClaimedGatewayJob | LeasedGatewayJob | null = await ctx.runMutation(
       internal.functions.controlPlane.claimGatewayJob,
       {
         hashedTicket: args.hashedTicket,
       },
     );
     if (claimed === null) return null;
+    if ("retryAfterMs" in claimed) return claimed;
 
     let credential;
     try {
@@ -512,9 +513,9 @@ export const openGatewayJob = internalAction({
     } catch {
       await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
         hashedTicket: args.hashedTicket,
-        result: { status: "failed", error: "storage_unavailable" },
+        result: { status: "queued", error: "storage_unavailable" },
       });
-      return null;
+      return { retryAfterMs: 30_000 };
     }
     if (credential === null || !isUsable(credential.status as BindingStatus)) {
       await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
