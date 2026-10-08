@@ -80,22 +80,30 @@ export async function recoverMove(store, operationId, attempt = 0) {
   let destinationObject = await readObject(store, op.to);
   if (!destinationObject) {
     if (!sourceObject) {
-      if (state.path !== op.to) throw fail("STRUCTURAL_CONFLICT", "source Markdown disappeared before the move completed");
+      // A competing materialization pass may remove the provisional copy
+      // after this journal has safely retired the source. The frozen state and
+      // journal still own the original Markdown, so recreate the destination.
+      const frozenHere = state.path === op.from &&
+        state.structural?.operationId === operationId &&
+        sourceHead?.status === "moving";
+      if (state.path !== op.to && !frozenHere) {
+        throw fail("STRUCTURAL_CONFLICT", "source Markdown disappeared before the move completed");
+      }
     } else {
       if (sourceObject.etag !== op.sourceRawEtag || sourceObject.text !== op.sourceText) {
         return abortMove(store, opRecord, "source Markdown changed during the move");
       }
-      const copied = await put(store, op.to, op.sourceText, { absent: true });
-      if (!copied) return retry();
-      destinationObject = await readObject(store, op.to);
-      const journaled = await updateStructural(store, { ...op, destinationRawEtag: copied.etag }, opRecord.etag);
-      if (journaled.value.phase === "aborted") return finishAbortedMove(store, journaled);
-      if (journaled.value.phase === "complete") return journaled.value;
-      opRecord = journaled;
-      op = opRecord.value;
-      if (!destinationObject || destinationObject.etag !== copied.etag || destinationObject.text !== op.sourceText) {
-        return abortMove(store, opRecord, "destination path changed during the move");
-      }
+    }
+    const copied = await put(store, op.to, op.sourceText, { absent: true });
+    if (!copied) return retry();
+    destinationObject = await readObject(store, op.to);
+    const journaled = await updateStructural(store, { ...op, destinationRawEtag: copied.etag }, opRecord.etag);
+    if (journaled.value.phase === "aborted") return finishAbortedMove(store, journaled);
+    if (journaled.value.phase === "complete") return journaled.value;
+    opRecord = journaled;
+    op = opRecord.value;
+    if (!destinationObject || destinationObject.etag !== copied.etag || destinationObject.text !== op.sourceText) {
+      return abortMove(store, opRecord, "destination path changed during the move");
     }
   } else if (destinationObject.text !== op.sourceText) {
     return abortMove(store, opRecord, "destination path changed during the move");
