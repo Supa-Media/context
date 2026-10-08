@@ -157,7 +157,7 @@ export const fileValidator = v.object({
  * `lib/fileOps.ts`: the visibility fields are a listing's, `etag` is the
  * store's own from the listing and is absent only where the store gave none.
  */
-const manifestEntryValidator = v.object({
+export const manifestEntryValidator = v.object({
   path: v.string(),
   etag: v.optional(v.string()),
   size: v.optional(v.number()),
@@ -183,6 +183,24 @@ export const manifestValidator = v.object({
   manifestUsable: v.boolean(),
   /** Where the keys came from: the tree table, or a walk of the bucket. */
   source: v.optional(v.union(v.literal("tree"), v.literal("bucket"))),
+  /** Where a catch-up after this walk starts. See `TreeChangesResult`. */
+  since: v.optional(v.number()),
+  privacy: v.optional(v.union(v.string(), v.null())),
+});
+
+/** One page of what changed since a device's last sync. See `TreeChangesResult`. */
+export const treeChangesValidator = v.object({
+  kind: v.literal("treeChanges"),
+  full: v.boolean(),
+  entries: v.array(manifestEntryValidator),
+  folders: v.array(v.object({ path: v.string(), visibility: visibilityReadValidator })),
+  gone: v.array(v.string()),
+  goneFolders: v.array(v.string()),
+  since: v.number(),
+  after: v.string(),
+  more: v.boolean(),
+  privacy: v.union(v.string(), v.null()),
+  manifestUsable: v.boolean(),
 });
 
 /**

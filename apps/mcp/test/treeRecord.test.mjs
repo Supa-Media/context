@@ -104,6 +104,8 @@ test("an AI client's create, edit and move reach the tree table", async () => {
     const listed = rows(world.d1).map((row) => row.path);
     assert.ok(!listed.includes("2-areas/old.md"), "the moved note's old path stayed");
     assert.ok(listed.includes("1-projects/old.md"), "the moved note's new path is missing");
+    const left = world.d1.rows("SELECT path, gone, audiences FROM tree_log WHERE path = '2-areas/old.md'");
+    assert.deepEqual(left.map((row) => [row.gone, JSON.parse(row.audiences)]), [[1, ["private"]]], "the old path left without saying who saw it");
   } finally {
     world.restore();
   }
@@ -113,6 +115,13 @@ test("a body save is recorded without listing the bucket", () => {
   assert.equal(treeTouchOf("update_note", ["a.md"], {}), null);
   assert.deepEqual(treeTouchOf("update_note", ["a.md"], { front_matter_changed: true }), { paths: ["a.md"] });
   assert.deepEqual(treeTouchOf("move_note", ["a.md", "b/a.md"], {}), { paths: ["a.md", "b/a.md"] });
+  assert.deepEqual(treeTouchOf("move_note", ["a.md", "b/a.md"], { source_visibility: "private" }), {
+    paths: ["a.md", "b/a.md"],
+    left: [{ path: "a.md", audiences: ["private"] }],
+  });
+  assert.deepEqual(treeTouchOf("archive_note", ["a.md", "4-archive/a.md"], { source_visibility: "team" }).left, [
+    { path: "a.md", audiences: ["private", "team"] },
+  ]);
   assert.deepEqual(treeTouchOf("remember_fact", ["0-inbox/memories/x.md"], {}), { files: ["0-inbox/memories/x.md"] });
   assert.equal(treeTouchOf("create_note", [], {}), null);
 });

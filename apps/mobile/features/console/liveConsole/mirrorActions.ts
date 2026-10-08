@@ -2,7 +2,7 @@ import type { ReactAction } from "convex/react";
 import type { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { MirrorActions } from "../../offline/useMirrorSync";
-import type { BatchRead, ManifestPage } from "../../offline/mirrorSync";
+import type { BatchRead, ChangesPage, ManifestPage } from "../../offline/mirrorSync";
 
 /**
  * The mirror's two server calls, bound to the console's action handles.
@@ -18,9 +18,11 @@ import type { BatchRead, ManifestPage } from "../../offline/mirrorSync";
 export function mirrorActionsFor({
   syncManifestAction,
   readNotesAction,
+  syncTreeChangesAction,
 }: {
   syncManifestAction: ReactAction<typeof api.functions.files.syncManifest>;
   readNotesAction: ReactAction<typeof api.functions.files.readNotes>;
+  syncTreeChangesAction?: ReactAction<typeof api.functions.treeChanges.syncTreeChanges>;
 }): MirrorActions {
   return {
     syncManifest: async ({ workspaceId, cursor, source }) =>
@@ -34,5 +36,16 @@ export function mirrorActionsFor({
         workspaceId: workspaceId as Id<"workspaces">,
         paths,
       })) as unknown as { results: BatchRead[] },
+    ...(syncTreeChangesAction === undefined
+      ? {}
+      : {
+          syncTreeChanges: async ({ workspaceId, since, after, privacy }) =>
+            (await syncTreeChangesAction({
+              workspaceId: workspaceId as Id<"workspaces">,
+              since,
+              after,
+              privacy,
+            })) as unknown as ChangesPage,
+        }),
   };
 }

@@ -26,6 +26,7 @@ import {
   emojiStoredValidator,
   listingValidator,
   manifestValidator,
+  treeChangesValidator,
   movedValidator,
   notesValidator,
   privacyResetValidator,
@@ -70,6 +71,7 @@ export const operationResultValidator = v.union(
   }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
   v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
+  treeChangesValidator,
   v.object({
     kind: v.literal("treeState"),
     status: v.union(
@@ -264,7 +266,15 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("sweepTree"), passes: v.optional(v.number()) }),
   /** The tree table's health for the staff panel; no bucket is opened. */
   v.object({ kind: v.literal("treeState") }),
-  v.object({ kind: v.literal("touchTree"), paths: v.array(v.string()), files: v.array(v.string()), audiences: v.array(v.string()) }),
+  v.object({
+    kind: v.literal("touchTree"),
+    paths: v.array(v.string()),
+    files: v.array(v.string()),
+    audiences: v.array(v.string()),
+    left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
+  }),
+  /** What changed since a device's last sync (`treeChanges.ts`). */
+  v.object({ kind: v.literal("treeChanges"), since: v.number(), after: v.optional(v.string()), privacy: v.optional(v.string()) }),
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   /**
    * Advance one connected Google account from its own cursor. Scheduled by

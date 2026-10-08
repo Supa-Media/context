@@ -19,6 +19,7 @@
 
 import {
   TREE_STATE,
+  TREE_STATEMENTS,
   goneStatements,
   observeStatements,
   plumbingRoot,
@@ -60,10 +61,19 @@ async function folderRows(store, prefix) {
  *
  * @param {{ list: Function }} store
  * @param {{ runAll: Function }} client
- * @param {{ paths?: string[], files?: string[], now?: () => number }} [options]
+ * `left` names, for a key this change took away, the tree-hint audiences
+ * that could see it before (`table.js`, "What changed since"). A key it does
+ * not name that turns out gone is logged with none.
+ *
+ * @param {{ paths?: string[], files?: string[], left?: { path: string, audiences: string[] }[], now?: () => number }} [options]
  * @returns {Promise<{ checked: number, dirty: boolean }>}
  */
-export async function touchTree(store, client, { paths = [], files = [], now = Date.now } = {}) {
+export async function touchTree(store, client, { paths = [], files = [], left = [], now = Date.now } = {}) {
+  const audiences = new Map();
+  for (const entry of left) {
+    const path = touchablePath(entry?.path);
+    if (path !== null && Array.isArray(entry.audiences)) audiences.set(path, entry.audiences.filter((value) => typeof value === "string"));
+  }
   const asFolder = new Set();
   const asFile = new Set();
   for (const value of paths) {
@@ -95,7 +105,7 @@ export async function touchTree(store, client, { paths = [], files = [], now = D
       const exact = await store.list({ prefix: path, limit: 1 });
       const first = exact.objects?.[0];
       const row = first?.key === path ? rowOf(first) : null;
-      statements.push(...(row !== null ? observeStatements([row], at) : goneStatements([path], at)));
+      statements.push(...(row !== null ? observeStatements([row], at) : goneStatements([path], at, audiences)));
       if (!folder) return;
       const prefix = `${path}/`;
       const listed = await folderRows(store, prefix);
@@ -111,7 +121,9 @@ export async function touchTree(store, client, { paths = [], files = [], now = D
       ...[...asFile].map((path) => check(path, false)),
     ]);
     if (overflow) statements.push(...setStateStatements({ [TREE_STATE.dirty]: 1 }));
-    await client.runAll(statements);
+    // The tables first, as the projection's batch does: a database made before
+    // a table was added has it from the first change after.
+    await client.runAll([...TREE_STATEMENTS.map((sql) => ({ sql, params: [] })), ...statements]);
     return { checked: asFolder.size + asFile.size, dirty: overflow };
   } catch {
     return await markDirty();

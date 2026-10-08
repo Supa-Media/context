@@ -15,6 +15,7 @@
 import { createD1Client } from "../search/d1/client.js";
 import { sendsTreeHint } from "../activity/changes.js";
 import { touchTree } from "./touch.js";
+import { GROUP_SCOPE_PATTERN } from "../privacy/engine.js";
 
 /** Writes that put text in a note, which may be a note that was not there before. */
 const WRITES = new Set([
@@ -30,12 +31,28 @@ const WRITES = new Set([
   "approve_proposal",
 ]);
 
-/** What to re-check for this change, or null for nothing. */
+/** Moves of one note, whose source's visibility before the move the tool records. */
+const ONE_NOTE_MOVES = new Set(["move_note", "archive_note"]);
+
+/**
+ * What to re-check for this change, or null for nothing.
+ *
+ * A one-note move also says who could see the note where it was, from the
+ * tool's own `source_visibility` — read from the manifest before the move,
+ * which then carried any exception along with the note. A device catching up
+ * is told the old path left only by that (`table.js`, "What changed since").
+ */
 export function treeTouchOf(action, paths, details) {
   if (!Array.isArray(paths) || paths.length === 0) return null;
   const named = paths.filter((path) => typeof path === "string");
   if (named.length === 0) return null;
-  if (sendsTreeHint(action, details)) return { paths: named };
+  if (sendsTreeHint(action, details)) {
+    const visibility = details?.source_visibility;
+    if (!ONE_NOTE_MOVES.has(action) || named.length !== 2 || typeof visibility !== "string") return { paths: named };
+    const audiences = ["private"];
+    if (visibility === "team" || GROUP_SCOPE_PATTERN.test(visibility)) audiences.push(visibility);
+    return { paths: named, left: [{ path: named[0], audiences }] };
+  }
   if (WRITES.has(action)) return { files: named };
   return null;
 }

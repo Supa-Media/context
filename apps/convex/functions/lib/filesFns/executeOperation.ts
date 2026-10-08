@@ -585,7 +585,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "sweepTree": case "touchTree": case "treeState": // run by the barrier (`meaningPass.ts`, `treeTableOps.ts`)
+      case "projectMeaning": case "sweepTree": case "touchTree": case "treeState": case "treeChanges": // run by the barrier (`meaningPass.ts`, `treeTableOps.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building

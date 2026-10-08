@@ -25,6 +25,7 @@ import {
   refreshMetadata,
   syncAll,
   type BatchRead,
+  type ChangesPage,
   type ManifestPage,
   type MirrorRun,
   type MirrorSyncDeps,
@@ -82,6 +83,13 @@ export interface MirrorActions {
     source?: "tree";
   }) => Promise<ManifestPage & { source?: "tree" | "bucket" }>;
   readNotes: (args: { workspaceId: string; paths: string[] }) => Promise<{ results: BatchRead[] }>;
+  /** What changed since a cursor; absent, every sync walks the whole tree. */
+  syncTreeChanges?: (args: {
+    workspaceId: string;
+    since: number;
+    after: string;
+    privacy: string;
+  }) => Promise<ChangesPage>;
 }
 
 /** A promise that rejects after `ms`, so a hung action becomes a failed one. */
@@ -170,6 +178,17 @@ export function useMirrorSync(options: {
             }),
             MANIFEST_TIMEOUT_MS,
           ),
+        // Only what changed since the last walk, while that walk is fresh
+        // (`mirrorListing.ts`): a sync that costs one page, not the tree.
+        ...(actionsRef.current.syncTreeChanges === undefined
+          ? {}
+          : {
+              changes: (workspaceId: string, cursor: { since: number; after: string; privacy: string }) =>
+                withTimeout(
+                  actionsRef.current.syncTreeChanges!({ workspaceId, ...cursor }),
+                  MANIFEST_TIMEOUT_MS,
+                ),
+            }),
         readNotes: async (workspaceId, paths) =>
           (
             await withTimeout(
