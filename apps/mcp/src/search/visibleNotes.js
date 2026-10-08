@@ -5,7 +5,7 @@ import { BUDGET_EXHAUSTED } from "./budget.js";
 import { canSee, effectiveVisibility, isPlumbing } from "../privacy/engine.js";
 import { createSearchBudget } from "./maintain.js";
 import { createSearchTrace, logSearchTrace, reportSearchTiming } from "./trace.js";
-import { DEFERRED_SYNC_FLOOR } from "./pacing.js";
+import { DEFERRED_SYNC_FLOOR, FAST_SEARCH_FLOOR } from "./pacing.js";
 import { fastSearchAnswer, scanVisibleNotes } from "./scan.js";
 import { indexIsBehind, loadIndexManifest } from "./shards.js";
 import { maintainIndexAfter } from "./maintenance.js";
@@ -27,22 +27,65 @@ import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
  * because the alternative is telling somebody their note does not exist.
  */
 export async function searchVisibleNotes(store, scope, rules, overrides, query, prefix) {
+  const seen = { moves: null };
+  try {
+    return await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen);
+  } catch (error) {
+    // Only after the move list is known: without it a moved note could be
+    // shown at a path whose privacy was never asked about.
+    if (!error?.[BUDGET_EXHAUSTED] || seen.moves === null) throw error;
+    if (typeof store.setExtraOperationCharge === "function") store.setExtraOperationCharge(null);
+    return await rescueFromProjection(store, scope, rules, overrides, query, prefix, seen.moves);
+  }
+}
+
+/**
+ * A search that ran out of budget still answers: from the projection when it
+ * is ready, else with nothing and the "still catching up" floor, never as an
+ * error. An error here took the whole answer with it, meaning matches
+ * included, and a texted question with it (@seyi, 2026-10-08).
+ */
+async function rescueFromProjection(store, scope, rules, overrides, query, prefix, moves) {
+  const related = moves.some(
+    (job) =>
+      noteUnderPrefix(job.source, prefix) ||
+      noteUnderPrefix(prefix, job.source) ||
+      noteUnderPrefix(job.destination, prefix) ||
+      noteUnderPrefix(prefix, job.destination)
+  );
+  // A folder search mid-move cannot be answered from the projection: notes
+  // moving INTO the folder are not under it there (see below).
+  const answer =
+    related && prefix
+      ? null
+      : await fastSearchAnswer(
+          store,
+          scope,
+          rules,
+          overrides,
+          query,
+          prefix,
+          createSearchBudget(FAST_SEARCH_FLOOR),
+          createSearchTrace()
+        );
+  const fast =
+    answer && related ? showAtMovedPaths(answer, moves, (path) => canSee(path, scope, rules, overrides)) : answer;
+  return {
+    hits: fast?.hits ?? [],
+    matchCount: fast?.matchCount ?? 0,
+    matchCountIsFloor: Boolean(fast?.matchCountIsFloor),
+    indexIncomplete: !fast,
+    reducedRecall: false,
+    reducedRecallNotes: [],
+    degraded: false,
+  };
+}
+
+async function searchWithinBudget(store, scope, rules, overrides, query, prefix, seen) {
   // Request-scoped metadata on the per-request store, same as `store.actor`:
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
   const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
-  // Logical-delete stores may need a raw read before a conditional write, or
-  // extra marker/prefix probes while filtering a list. Their public operation
-  // is already prepaid by the search budget; charge only those additional
-  // physical calls so the hard Worker ceiling measures what the provider sees.
-  if (typeof store.setExtraOperationCharge === "function") {
-    store.setExtraOperationCharge(() => {
-      if (budget.take(0)) return;
-      const error = new Error("search budget exhausted");
-      error[BUDGET_EXHAUSTED] = true;
-      throw error;
-    });
-  }
   /*
     `activity.md` is not indexed, and that is not an oversight.
 
@@ -81,6 +124,25 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
   trace.set("budget", budget.remaining);
   trace.set("prefixed", Boolean(prefix));
   const activeLogicalMoves = await searchMoveJobs(store, prefix, budget);
+  seen.moves = activeLogicalMoves;
+  // Installed only after the move list is read. Every finished move leaves
+  // its job file behind as a logical-delete tombstone, and each tombstone is
+  // one more GET to hide; charged here, a context with many past moves spent
+  // the whole budget listing them and every search died "search budget
+  // exhausted" before it asked the projection anything (@seyi, 2026-10-08).
+  //
+  // Logical-delete stores may need a raw read before a conditional write, or
+  // extra marker/prefix probes while filtering a list. Their public operation
+  // is already prepaid by the search budget; charge only those additional
+  // physical calls so the hard Worker ceiling measures what the provider sees.
+  if (typeof store.setExtraOperationCharge === "function") {
+    store.setExtraOperationCharge(() => {
+      if (budget.take(0)) return;
+      const error = new Error("search budget exhausted");
+      error[BUDGET_EXHAUSTED] = true;
+      throw error;
+    });
+  }
   const hasActiveLogicalMoves = activeLogicalMoves.some(
     (job) =>
       noteUnderPrefix(job.source, prefix) ||
