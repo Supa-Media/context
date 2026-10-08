@@ -258,6 +258,21 @@ export function parseLinks(text) {
   return found.sort((a, b) => a.start - b.start);
 }
 
+/** True when only parsed link targets changed, with every other byte intact. */
+export function onlyLinkTargetsChanged(before, after) {
+  if (before === after) return false;
+  const stripped = (text) => {
+    let result = "";
+    let cursor = 0;
+    for (const link of parseLinks(text)) {
+      result += text.slice(cursor, link.start) + "\u0000";
+      cursor = link.end;
+    }
+    return result + text.slice(cursor);
+  };
+  return stripped(before) === stripped(after);
+}
+
 /**
  * The wikilinks in `text`, in order, as `/(!?)\[\[([^\]\n]+)\]\]/g`
  * matched them.

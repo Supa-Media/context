@@ -33,6 +33,7 @@ import {
 } from "../../moves/jobs.js";
 import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
+import { onlyLinkTargetsChanged } from "../../links.js";
 import { rewriteReferences } from "./references.js";
 import { toolError, toolText } from "../results.js";
 
@@ -108,6 +109,17 @@ export async function materializeMoveInBackground(store, scope, id) {
   }
 }
 
+async function destinationMatchesOriginalOrRetargetedLinks(store, pair) {
+  if (await destinationMatchesMoveSource(store, pair)) return true;
+  if (!pair.source.endsWith(".md") || await collaborationHead(store, pair.source)) return false;
+  const [source, destination] = await Promise.all([
+    getWithLegacyFallback(store, pair.source),
+    getWithLegacyFallback(store, pair.destination),
+  ]);
+  if (!source || !destination || !objectMatchesMoveItem(source, pair)) return false;
+  return onlyLinkTargetsChanged(await source.text(), await destination.text());
+}
+
 export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   const key = moveJobKey(idArg);
   if (!key) return toolError("invalid move id");
@@ -166,7 +178,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       // Copy the raw body first. At retirement, a headed note is handed to the
       // collaboration lifecycle, which moves its identity and retained edits.
       // A head created between these steps is handled there too.
-      if (await destinationMatchesMoveSource(store, pair)) {
+      if (await destinationMatchesOriginalOrRetargetedLinks(store, pair)) {
         copied.add(pair.source);
         continue;
       }
@@ -174,7 +186,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
         throw new Error(`destination changed during materialization: ${pair.destination}`);
       }
       await copyObjectForMove(store, pair);
-      if (!(await destinationMatchesMoveSource(store, pair))) {
+      if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
         throw new Error(`destination verification failed: ${pair.destination}`);
       }
       copied.add(pair.source);
@@ -205,7 +217,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed before cleanup: ${pair.source}`);
       }
-      if (!(await destinationMatchesMoveSource(store, pair))) {
+      if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
         throw new Error(`destination changed before source cleanup: ${pair.destination}`);
       }
       const head = collaborationSupported(store) && pair.source.endsWith(".md")
