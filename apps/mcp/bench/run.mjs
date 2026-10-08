@@ -116,7 +116,7 @@ async function run(options) {
     for (const question of questions) {
       const as = question.as ?? test.front.run_as;
       for (let n = 1; n <= runs; n += 1) {
-        const world = await createWorld(bench, as, setup.raw, models);
+        const world = await createWorld(bench, as, setup.raw, models, test.front.today ?? null);
         try {
           const result = await converse(world, question, person);
           records.push({
@@ -145,6 +145,7 @@ async function run(options) {
     test: testName,
     testVersion: version(test.raw),
     date,
+    today: test.front.today,
     commit: commit(),
     playedBy: options.fake ? null : test.front.played_by ?? null,
     setups: setups.map(({ name, version: v, model }) => ({ name, version: v, model })),

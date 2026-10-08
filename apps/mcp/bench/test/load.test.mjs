@@ -153,6 +153,43 @@ test("parseTest rejects a non-integer runs value", () => {
   assert.throws(() => parseTest("---\nruns: many\n---\n## 1. Q\n"), /runs/);
 });
 
+// ---- today ----
+
+test("parseTest reads today as an ISO date", () => {
+  const parsed = parseTest("---\ntoday: 2026-10-08\nruns: 2\n---\n\n## 1. Q\n");
+  assert.equal(parsed.front.today, "2026-10-08");
+  assert.equal(parsed.front.runs, 2);
+});
+
+test("parseTest reads a quoted today", () => {
+  assert.equal(parseTest('---\ntoday: "2026-10-08"\n---\n## 1. Q\n').front.today, "2026-10-08");
+});
+
+test("parseTest leaves today unset when the front matter has none", () => {
+  assert.equal(parseTest("---\nruns: 1\n---\n## 1. Q\n").front.today, undefined);
+  assert.equal(parseTest("## 1. Q\n").front.today, undefined);
+});
+
+test("parseTest refuses a today that is not an ISO date, and says what it got", () => {
+  assert.throws(() => parseTest("---\ntoday: not-a-date\n---\n## 1. Q\n"), (err) => {
+    assert.match(err.message, /today/);
+    assert.match(err.message, /not-a-date/);
+    return true;
+  });
+});
+
+test("parseTest refuses an empty or impossible today", () => {
+  for (const value of ["", "2026/10/08", "10-08-2026", "2026-10-08T12:00", "2026-02-30", "2026-13-01", "2026-00-10", "2026-10-00"]) {
+    assert.throws(() => parseTest(`---\ntoday: ${value}\n---\n## 1. Q\n`), /today/, `today: "${value}" should be refused`);
+  }
+});
+
+test("parseTest accepts a leap day only in a leap year", () => {
+  assert.equal(parseTest("---\ntoday: 2028-02-29\n---\n## 1. Q\n").front.today, "2028-02-29");
+  assert.throws(() => parseTest("---\ntoday: 2026-02-29\n---\n## 1. Q\n"), /today/);
+  assert.throws(() => parseTest("---\ntoday: 2100-02-29\n---\n## 1. Q\n"), /today/);
+});
+
 // ---- whole folder ----
 
 test("readBenchFolder on the real folder", { skip: skipReal }, async () => {
