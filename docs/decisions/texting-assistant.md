@@ -399,3 +399,38 @@ with no identity at all. The tests that fail are in
 `apps/mcp/test/agentInstructions.test.mjs` ("a note privacy.md holds back from
 members is not sent to their model", "with no pinned workspace the built-in
 words say what Context is").
+
+### The texting assistant's setup is one production note in `ai/`
+
+Decided by the owner, 2026-10-08: the texting assistant's model and its prompt
+come from one plain Markdown note, `ai/production/texting-assistant.md` in the
+pinned `@context-lc` workspace, so promoting a setup is editing that file and
+the gateway does not ship (`apps/mcp/src/agent/production.js`).
+
+- The front matter names the built-in model (`models.main`, an `@cf/` model or
+  an `anthropic/claude-` one), the tools the setup was proved with, and
+  `max_steps` (1 to 12). The body is the whole prompt, at most 1,000 lines and
+  40,000 characters. Front matter is a small YAML subset; anything outside it
+  is refused rather than guessed at.
+- It is read exactly as `assistant/` is: through the caller's own reach and that
+  workspace's `privacy.md`. Its prompt replaces both the pinned notes and the
+  built-in words on texting turns, and nothing else is said in their place
+  except what the code decides (that the agent proposes, and that this is a
+  text).
+- A file that is missing, does not validate, or is held back falls back to
+  `assistant/instructions.md` and `assistant/texting.md`, then to the built-in
+  words. Never an error.
+- Its model is used for a built-in turn only, and only when this deployment can
+  call it (`canRunBuiltin`). A person's own connected account keeps their model:
+  their bill, their model. The gateway call is filed under the file's version,
+  and the meter reports the model that answered.
+
+**What a simplification would cost:** letting the setup's model reach a person's
+own key would spend their account on a model they did not choose; using it
+without checking the deployment can call it turns every texted answer into an
+error on a self-hosted or gateway-less deployment; reading it with the gateway's
+own authority would hand members text `privacy.md` holds back from them. The
+tests that fail are in `apps/mcp/test/agentProduction.test.mjs` ("a person's own
+key never takes the production model", "a production model this deployment
+cannot call falls back to the Workers AI default", "a production file privacy.md
+holds back from members falls back, and its owner still reads it").

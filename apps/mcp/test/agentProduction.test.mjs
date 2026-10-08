@@ -217,6 +217,7 @@ before(async () => {
   controlPlane.addWorkspace("ws_free", "free", binding("prod-free", "CC"));
   controlPlane.addWorkspace("ws_pinned", "context-lc", binding("prod-pinned", "BB"), { kind: "shared" });
   controlPlane.connectProvider("ws_mine", "anthropic", API_KEY);
+  controlPlane.connectProvider("ws_pinned", "anthropic", API_KEY);
   controlPlane.setBuiltinVerdict("ws_free", { allowed: true, remaining: 10 });
 
   for (const bucket of ["prod-mine", "prod-free"]) {
@@ -336,7 +337,7 @@ test("a built-in turn runs a production gateway model on the gateway when the de
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile({ model: "anthropic/claude-sonnet-5-5" }), etag: "s3" });
   const ai = fakeAi();
   await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
-  assert.equal(gatewayCalls.at(-1)?.body?.model, "anthropic/claude-sonnet-5-5");
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-sonnet-5-5", "the gateway's name for it");
   assert.equal(ai.calls.length, 0, "Workers AI is not asked");
 });
 
@@ -352,7 +353,7 @@ test("a Workers AI production model on a gateway-only deployment falls back to t
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile({ model: "@cf/acme/texting-model" }), etag: "s5" });
   const response = await ask({ ...base, ...gatewayVars }, TOKEN_FREE);
   assert.equal(response.status, 200);
-  assert.equal(gatewayCalls.at(-1)?.body?.model, DEFAULT_GATEWAY_MODEL);
+  assert.equal(gatewayCalls.at(-1)?.body?.model, DEFAULT_GATEWAY_MODEL.replace("anthropic/", ""));
 });
 
 test("the gateway call is filed under the setup's version", async () => {

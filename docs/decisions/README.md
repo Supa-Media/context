@@ -596,3 +596,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The agent opens only addresses it was given
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
+- The texting assistant's setup is one production note in `ai/`
