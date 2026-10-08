@@ -403,9 +403,7 @@ measured:
 ## The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
 
 `/agent` runs a model against the caller's own connection: `toolsForSession`
-builds the list, `agentTools` narrows it to the read tools plus `propose_note`
-(a texting turn swaps `propose_note` for narrowed edits, see
-[texting-assistant](./texting-assistant.md)),
+builds the list, `agentTools` narrows it to the read tools plus `propose_note`,
 and `callToolForSession` — the client's dispatcher, not a copy — runs each call.
 Two things were wrong with that and both were the same mistake, which is
 believing a list is a control when the *model* picks from it.
