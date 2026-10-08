@@ -151,6 +151,37 @@ async function preserveGeneratedConflict(store, job, pair, sourceObject) {
   return true;
 }
 
+async function ensureCleanupDestination(store, pair, sourceObject) {
+  let destination = await getWithLegacyFallback(store, pair.destination);
+  if (!destination && collaborationSupported(store) && pair.source.endsWith(".md")) {
+    const sourceHead = await collaborationHead(store, pair.source);
+    const destinationHead = await collaborationHead(store, pair.destination);
+    const recoveryPath = sourceHead?.status === "moving" ? pair.source :
+      destinationHead?.status === "prepared" ? pair.destination : null;
+    if (recoveryPath) {
+      try {
+        await readCollaborationDocument(store, recoveryPath);
+      } catch (error) {
+        if (error?.code !== "MOVED") throw error;
+      }
+      sourceObject = await getWithLegacyFallback(store, pair.source);
+      destination = await getWithLegacyFallback(store, pair.destination);
+    }
+  }
+  if (!destination && sourceObject) {
+    if (!objectMatchesMoveItem(sourceObject, pair)) {
+      throw new Error(`source changed before destination recovery: ${pair.source}`);
+    }
+    await copyObjectForMove(store, pair);
+    destination = await getWithLegacyFallback(store, pair.destination);
+    if (!destination || !await destinationMatchesMoveSource(store, pair)) {
+      throw new Error(`destination recovery failed: ${pair.destination}`);
+    }
+  }
+  if (!destination) throw new Error(`source and destination missing during cleanup: ${pair.source}`);
+  return sourceObject;
+}
+
 export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   const key = moveJobKey(idArg);
   if (!key) return toolError("invalid move id");
@@ -246,7 +277,8 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     const deleted = new Set(Array.isArray(job.deleted) ? job.deleted : []);
     for (const pair of sources) {
       if (deleted.has(pair.source)) continue;
-      const sourceObject = await getWithLegacyFallback(store, pair.source);
+      let sourceObject = await getWithLegacyFallback(store, pair.source);
+      sourceObject = await ensureCleanupDestination(store, pair, sourceObject);
       if (sourceObject === null) {
         deleted.add(pair.source);
         continue;
