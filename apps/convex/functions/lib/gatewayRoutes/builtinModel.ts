@@ -35,7 +35,8 @@ export async function gatewayBuiltinUsageHandler(ctx: ActionCtx, body: Record<st
     decisionTokens: count("decisionTokens"),
     cacheReadTokens: count("cacheReadTokens"),
     cacheWriteTokens: count("cacheWriteTokens"),
-    model: typeof body.model === "string" ? body.model : undefined,
+    // Absent means GLM; present but not a string is malformed, sent as "" so it is ignored rather than read as absent.
+    model: body.model === undefined ? undefined : typeof body.model === "string" ? body.model : "",
     failed: body.failed === true,
     ms: count("ms"),
   });

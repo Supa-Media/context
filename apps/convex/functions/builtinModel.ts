@@ -26,7 +26,8 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
-import { addUsage, gate, writingCostMicroUsd } from "./lib/jev/meter";
+import { addModelUsage, addUsage, costMicroUsd, gate, MODEL_NAME, writingCostMicroUsd } from "./lib/jev/meter";
+import { CLEF_MODEL, GLM_MODEL } from "./lib/jev/models";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { ROUTINES_CLIENT_ID } from "./lib/routines/model";
 
@@ -38,9 +39,6 @@ export const BUILTIN_FEATURE = "assistant" as const;
 
 /** Largest token count one report may carry; a turn is at most eight model calls. */
 const MAX_REPORTED_TOKENS = 2_000_000;
-
-/** The model name shape the gateway reports, e.g. "anthropic/claude-haiku-5-5". Anything else is ignored. */
-const MODEL_NAME = /^[\w@./:-]{1,128}$/;
 
 /** The model a report names, when it names a well-formed one; undefined otherwise, so it is priced as GLM. */
 export function reportedModel(raw: unknown): string | undefined {
@@ -140,7 +138,10 @@ export const recordBuiltinUsage = internalMutation({
     // Cache tokens are written tokens too: priced above at their own rates, so
     // they must not be priced again at Clef's rate for `decisionTokens`.
     const written = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-    const tokens = written + clamp(args.decisionTokens ?? 0);
+    const decision = clamp(args.decisionTokens ?? 0);
+    const tokens = written + decision;
+    const now = Date.now();
+    const writtenMicroUsd = writingCostMicroUsd(usage);
     await addUsage(
       ctx,
       BUILTIN_FEATURE,
@@ -154,10 +155,37 @@ export const recordBuiltinUsage = internalMutation({
         tokens,
         ms: Number.isFinite(args.ms) ? Math.max(0, Math.floor(args.ms)) : 0,
         writtenTokens: written,
-        writtenMicroUsd: writingCostMicroUsd(usage),
+        writtenMicroUsd,
       },
-      Date.now(),
+      now,
     );
+    // The same figures, split by model. A missing model is GLM; a malformed one is passed
+    // on as it is, and `addModelUsage` ignores it, so it has no row (its cost stays in `jevUsage`).
+    await addModelUsage(
+      ctx,
+      BUILTIN_FEATURE,
+      charged.workspaceId,
+      args.model ?? GLM_MODEL,
+      {
+        calls: args.failed ? 0 : 1,
+        input: usage.input,
+        output: usage.output,
+        cacheRead: usage.cacheRead,
+        cacheWrite: usage.cacheWrite,
+        costMicroUsd: writtenMicroUsd,
+      },
+      now,
+    );
+    if (decision > 0) {
+      await addModelUsage(
+        ctx,
+        BUILTIN_FEATURE,
+        charged.workspaceId,
+        CLEF_MODEL,
+        { calls: 0, input: decision, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: costMicroUsd(decision) },
+        now,
+      );
+    }
     return true;
   },
 });

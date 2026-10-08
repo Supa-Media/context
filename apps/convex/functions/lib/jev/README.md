@@ -58,6 +58,10 @@ folder and the Worker. `__tests__/jev.test.ts` fails if you do.
 - `jevUsage` has one row per UTC day, feature and workspace: calls, failed,
   refused, questions, tokens (estimated as characters ÷ 4), `costMicroUsd`
   and ms.
+- `aiModelUsage` splits the same spend by model (one row per UTC day,
+  feature, model and workspace), written by `addModelUsage` next to
+  `addUsage`. Its costs sum to the `jevUsage` cost for the same report; spend
+  from before the table existed has no model rows.
 - Staff read `api.functions.admin.jevUsageReport({ days })`, which gives
   totals and daily series per feature, with each switch's state.
 - The staff roster (`admin.censusReport`) shows each account's cost over the
