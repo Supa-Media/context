@@ -918,6 +918,22 @@ export async function runServeChecks(check) {
       hidden.hits.length === 0 && hidden.matchCount === 0,
     );
 
+    // -- a filling projection behind an empty, catching-up answer ------------
+    /*
+     * @seyi, 2026-10-08: mid-backfill the projection held 9,129 notes while
+     * every search answered "(no matches)" with the catching-up note. When
+     * the ordinary answer is empty AND says it is behind, the part already
+     * copied is asked, and the answer keeps saying it may be incomplete.
+     */
+    ready("backfilling");
+    bucket.delete(".context/search/v2/manifest.json");
+    const behind = await search("numbat", SERVE_TOKEN_OWNER, 15);
+    ready("ready");
+    check(
+      "an empty answer that is behind asks the projection copied so far",
+      behind.text.includes("1-projects/") && /still catching up/.test(behind.text),
+    );
+
     // -- the credential, on the read path ----------------------------------
     check(
       "no read-path response carries the write token",

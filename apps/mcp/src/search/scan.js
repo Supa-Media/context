@@ -162,9 +162,11 @@ export async function scanVisibleNotes(store, scope, rules, overrides, query, pr
  * @returns {Promise<object|null>} an answer in `searchIndexedNotes`' shape, or
  *   `null` to mean "not answered — ask the index".
  */
-export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace) {
+export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace, { filling = false } = {}) {
   const descriptor = store.searchIndex;
-  if (!descriptor || descriptor.state !== "ready") return null;
+  // `filling`: the caller already has an empty, "still catching up" answer
+  // and asks what the part copied so far holds (`searchVisibleNotes`).
+  if (!descriptor || (descriptor.state !== "ready" && !filling)) return null;
   if (budget.remaining < FAST_SEARCH_FLOOR) return null;
 
   let answer;
