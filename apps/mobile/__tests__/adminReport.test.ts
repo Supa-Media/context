@@ -419,6 +419,7 @@ describe("the tabs", () => {
       "estate",
       "activity",
       "agent",
+      "aiCosts",
       "search",
       "credentials",
       "waitlist",

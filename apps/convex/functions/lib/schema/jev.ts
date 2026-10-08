@@ -35,6 +35,33 @@ export const jevTables = {
     .index("by_workspace_day", ["workspaceId", "day"]),
 
   /**
+   * The same spend split by model, for the AI costs tab: one row per (day,
+   * feature, model, workspace). Written next to `jevUsage` by `addModelUsage`
+   * (`lib/jev/meter.ts`) whenever the model is known, so the two agree from the
+   * day this table started; spend before that is in `jevUsage` only, and the
+   * tab says so rather than guessing which model it was. Numbers only.
+   */
+  aiModelUsage: defineTable({
+    day: v.string(),
+    feature: v.string(),
+    /** The model id as priced in `MODEL_USD_PER_MTOK` (ids in `lib/jev/models.ts`). */
+    model: v.string(),
+    workspaceId: v.id("workspaces"),
+    /** Requests to this model that came back answered. */
+    calls: v.number(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    cacheReadTokens: v.number(),
+    cacheWriteTokens: v.number(),
+    /** Millionths of a US dollar, at list price. */
+    costMicroUsd: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_day_feature_model_workspace", ["day", "feature", "model", "workspaceId"])
+    .index("by_day", ["day"])
+    .index("by_workspace_day", ["workspaceId", "day"]),
+
+  /**
    * Kill switches. `feature: "*"` is every feature at once. A missing row is
    * the feature's registry default (`lib/jev/features.ts`).
    */

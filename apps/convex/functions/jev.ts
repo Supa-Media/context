@@ -9,7 +9,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { JEV_FEATURES, type JevFeatureName } from "./lib/jev/features";
-import { addUsage, gate as gateFor } from "./lib/jev/meter";
+import { addModelUsage, addUsage, gate as gateFor } from "./lib/jev/meter";
 
 const featureValidator = v.union(
   ...(Object.keys(JEV_FEATURES) as JevFeatureName[]).map((name) => v.literal(name)),
@@ -39,10 +39,28 @@ export const recordUsage = internalMutation({
     ms: v.number(),
     writtenMicroUsd: v.optional(v.number()),
     writtenTokens: v.optional(v.number()),
+    /** The same answered requests, split by model, for `aiModelUsage`. Absent from older callers. */
+    models: v.optional(
+      v.array(
+        v.object({
+          model: v.string(),
+          calls: v.number(),
+          input: v.number(),
+          output: v.number(),
+          cacheRead: v.number(),
+          cacheWrite: v.number(),
+          costMicroUsd: v.number(),
+        }),
+      ),
+    ),
   },
   returns: v.null(),
-  handler: async (ctx, { feature, workspaceId, ...delta }) => {
-    await addUsage(ctx, feature, workspaceId, delta, Date.now());
+  handler: async (ctx, { feature, workspaceId, models = [], ...delta }) => {
+    const now = Date.now();
+    await addUsage(ctx, feature, workspaceId, delta, now);
+    for (const { model, ...usage } of models) {
+      await addModelUsage(ctx, feature, workspaceId, model, usage, now);
+    }
     return null;
   },
 });

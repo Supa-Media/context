@@ -58,6 +58,7 @@ import { ScreenScroll } from "../app/Screen";
 import { space, useColors, useThemedStyles, type Colors } from "../design";
 import { ActivitySection } from "./ActivitySection";
 import { AgentSection } from "./AgentSection";
+import { AiCostsSection } from "./AiCostsSection";
 import { useCompact } from "./AdminKit";
 import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
@@ -157,6 +158,7 @@ function Console() {
         {tab === "estate" ? <EstateSection days={days} /> : null}
         {tab === "activity" ? <ActivitySection days={days} /> : null}
         {tab === "agent" ? <AgentSection /> : null}
+        {tab === "aiCosts" ? <AiCostsSection days={days} /> : null}
         {tab === "search" ? <SearchSection /> : null}
         {tab === "credentials" ? <SecretsSection secrets={secrets} unset={unset} /> : null}
         {tab === "waitlist" ? <WaitlistSection /> : null}

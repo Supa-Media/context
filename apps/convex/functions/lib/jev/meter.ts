@@ -158,6 +158,70 @@ export interface UsageDelta {
   writtenTokens?: number;
 }
 
+/** A model name as the gateway reports it, e.g. "anthropic/claude-haiku-5-5". Anything else is never stored. */
+export const MODEL_NAME = /^[\w@./:-]{1,128}$/;
+
+/** One model's spend in one report, numbers only. */
+export interface ModelUsage {
+  calls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  costMicroUsd: number;
+}
+
+/**
+ * Add one model's share of a report to `aiModelUsage`, for today's UTC day.
+ * A name that fails `MODEL_NAME` is ignored, and so is an all-zero report, so
+ * a caller can pass what it has without checking. Costs must be the same
+ * figures `addUsage` was given for the same report, so the two tables agree.
+ */
+export async function addModelUsage(
+  ctx: MutationCtx,
+  feature: string,
+  workspaceId: Id<"workspaces">,
+  model: string,
+  usage: ModelUsage,
+  now: number,
+): Promise<void> {
+  if (!MODEL_NAME.test(model)) return;
+  const counts = [usage.calls, usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.costMicroUsd];
+  if (counts.every((n) => n === 0)) return;
+  const day = utcDay(now);
+  const row = await ctx.db
+    .query("aiModelUsage")
+    .withIndex("by_day_feature_model_workspace", (q) =>
+      q.eq("day", day).eq("feature", feature).eq("model", model).eq("workspaceId", workspaceId),
+    )
+    .unique();
+  if (row) {
+    await ctx.db.patch(row._id, {
+      calls: row.calls + usage.calls,
+      inputTokens: row.inputTokens + usage.input,
+      outputTokens: row.outputTokens + usage.output,
+      cacheReadTokens: row.cacheReadTokens + usage.cacheRead,
+      cacheWriteTokens: row.cacheWriteTokens + usage.cacheWrite,
+      costMicroUsd: row.costMicroUsd + usage.costMicroUsd,
+      updatedAt: now,
+    });
+    return;
+  }
+  await ctx.db.insert("aiModelUsage", {
+    day,
+    feature,
+    model,
+    workspaceId,
+    calls: usage.calls,
+    inputTokens: usage.input,
+    outputTokens: usage.output,
+    cacheReadTokens: usage.cacheRead,
+    cacheWriteTokens: usage.cacheWrite,
+    costMicroUsd: usage.costMicroUsd,
+    updatedAt: now,
+  });
+}
+
 export async function addUsage(
   ctx: MutationCtx,
   feature: JevFeatureName,
