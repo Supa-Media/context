@@ -471,7 +471,7 @@ export async function runMovesAndBatchChecks() {
     firstProgressReport?.body?.result?.status === "queued" &&
       firstProgressReport?.body?.result?.progress?.phase === "copying" &&
       Number.isInteger(firstProgressReport?.body?.result?.progress?.completed) &&
-      firstProgressReport.body.result.progress.completed > 0 &&
+      firstProgressReport.body.result.progress.completed === 20 &&
       firstProgressReport?.body?.result?.progress?.total === 501 &&
       !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
   );
