@@ -91,7 +91,10 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
   const state = await loadPrivacyState(store);
   if (state.error || state.legacy) return toolError(`move ${job.id} reference rewrite paused: privacy state unavailable`);
   const renames = new Map(job.objects.map((item) => [item.source, item.destination]));
-  const referenceBatchSize = Math.max(batchSize, 50);
+  // A large floor made even a one-object recovery call scan 50 notes. One
+  // expensive collaboration document could then outlive the gateway timeout
+  // without committing the cursor. Keep the worker's requested bound.
+  const referenceBatchSize = Math.max(1, batchSize);
   const pending = Array.isArray(job.reference_failed_paths) ? job.reference_failed_paths : [];
   const retrying = job.reference_scan_complete === true && pending.length > 0;
   const selected = retrying ? pending.slice(0, referenceBatchSize) : null;

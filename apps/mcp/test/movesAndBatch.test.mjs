@@ -515,7 +515,7 @@ export async function runMovesAndBatchChecks() {
       firstProgressReport?.body?.result?.progress?.total === 501 &&
       !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
   );
-  for (let i = 0; i < 180 &&
+  for (let i = 0; i < 400 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
     const message = queuedGatewayMessages.shift();
     if (!message) break;
