@@ -18,7 +18,7 @@ import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { type JevCtx, withJev } from "../functions/lib/jev/client";
 import { JEV_FEATURES } from "../functions/lib/jev/features";
-import { DEFAULT_USD_PER_MTOK, costMicroUsd, disabledByEnv, utcDay } from "../functions/lib/jev/meter";
+import { DEFAULT_USD_PER_MTOK, costMicroUsd, disabledByEnv, utcDay, writingCostMicroUsd } from "../functions/lib/jev/meter";
 import type { JevTransport } from "../functions/lib/jev/worker";
 import { type TestConvex, addMember, asUser, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
 
@@ -359,5 +359,26 @@ describe("auto-organize rides the switch", () => {
     await asUser(t, owner).mutation(api.functions.organizer.setAutopilot, { workspaceId, kind: "archive", on: true });
     const row = await t.run((ctx) => ctx.db.query("organizerSettings").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique());
     expect(JSON.stringify(row)).not.toMatch(/\.md|\/|projects|inbox/);
+  });
+});
+
+describe("the writing model's price table", () => {
+  test("each known model has its own input, output and cache rates", () => {
+    expect(writingCostMicroUsd({ input: 1_000_000, output: 0, model: "anthropic/claude-haiku-5-5" })).toBe(100_000);
+    expect(writingCostMicroUsd({ input: 0, output: 1_000_000, model: "anthropic/claude-haiku-5-5" })).toBe(500_000);
+    expect(writingCostMicroUsd({ input: 0, output: 0, cacheRead: 1_000_000, cacheWrite: 0, model: "anthropic/claude-haiku-5-5" })).toBe(10_000);
+    expect(writingCostMicroUsd({ input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000, model: "anthropic/claude-haiku-5-5" })).toBe(125_000);
+  });
+
+  test("GLM and unknown or missing models share GLM's rates", () => {
+    const usage = { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000 };
+    expect(writingCostMicroUsd({ ...usage, model: "@cf/zai-org/glm-4.7-flash" })).toBe(60_000 + 400_000 + 60_000 + 60_000);
+    expect(writingCostMicroUsd({ ...usage, model: "nope/unknown" })).toBe(writingCostMicroUsd({ ...usage }));
+    expect(writingCostMicroUsd({ input: 1_000_000, output: 0 })).toBe(60_000);
+  });
+
+  test("a prototype key is not mistaken for a priced model", () => {
+    expect(writingCostMicroUsd({ input: 1_000_000, output: 0, model: "constructor" })).toBe(60_000);
+    expect(writingCostMicroUsd({ input: 1_000_000, output: 0, model: "__proto__" })).toBe(60_000);
   });
 });

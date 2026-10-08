@@ -193,6 +193,81 @@ describe("the meter", () => {
   });
 });
 
+describe("the meter prices by model", () => {
+  test("Haiku 5.5 is priced per model, with cache reads and writes at their own rates", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    await ask(t, accessToken);
+    expect(
+      await report(t, accessToken, {
+        model: "anthropic/claude-haiku-5-5",
+        inputTokens: 1_000_000,
+        outputTokens: 100_000,
+        cacheReadTokens: 1_000_000,
+        cacheWriteTokens: 200_000,
+        ms: 900,
+      }),
+    ).toBe(true);
+    const row = await usage(t, workspaceId);
+    // $0.10 in, $0.50 out, $0.01 cache read, $0.125 cache write, per million.
+    expect(row?.costMicroUsd).toBe(100_000 + 50_000 + 10_000 + 25_000);
+    // Cache tokens are real tokens, and already priced above, so not at Clef's rate.
+    expect(row?.tokens).toBe(2_300_000);
+  });
+
+  test("cache tokens on GLM are priced at GLM's cache rate, not Clef's", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    await ask(t, accessToken);
+    expect(
+      await report(t, accessToken, {
+        model: "@cf/zai-org/glm-4.7-flash",
+        inputTokens: 1_000_000,
+        outputTokens: 100_000,
+        cacheReadTokens: 1_000_000,
+        cacheWriteTokens: 1_000_000,
+        ms: 5,
+      }),
+    ).toBe(true);
+    // $0.06 in, $0.40 out, $0.06 cache read, $0.06 cache write.
+    expect((await usage(t, workspaceId))?.costMicroUsd).toBe(60_000 + 40_000 + 60_000 + 60_000);
+  });
+
+  test("an unknown model is priced at GLM's rates, as before", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    await ask(t, accessToken);
+    expect(await report(t, accessToken, { model: "some/other-model", inputTokens: 1_000_000, outputTokens: 0, ms: 5 })).toBe(true);
+    expect((await usage(t, workspaceId))?.costMicroUsd).toBe(60_000);
+  });
+
+  test("an old caller that sends no cache or model fields is still accepted and priced as GLM", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    await ask(t, accessToken);
+    expect(await report(t, accessToken, { inputTokens: 1_000_000, outputTokens: 100_000, decisionTokens: 1_000_000, ms: 9 })).toBe(true);
+    const row = await usage(t, workspaceId);
+    expect(row).toMatchObject({ tokens: 2_100_000, costMicroUsd: 60_000 + 40_000 + 240_000 });
+  });
+
+  test("a malformed model string is ignored and the turn is priced as GLM", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    await ask(t, accessToken);
+    expect(await report(t, accessToken, { model: "bad model name; drop", inputTokens: 1_000_000, outputTokens: 0, ms: 5 })).toBe(true);
+    expect(await report(t, accessToken, { model: 42, inputTokens: 1_000_000, outputTokens: 0, ms: 5 })).toBe(true);
+    expect((await usage(t, workspaceId))?.costMicroUsd).toBe(120_000);
+  });
+
+  test("a model string over 128 characters is ignored", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    await ask(t, accessToken);
+    await report(t, accessToken, { model: "a".repeat(129), inputTokens: 1_000_000, outputTokens: 0, ms: 5 });
+    expect((await usage(t, workspaceId))?.costMicroUsd).toBe(60_000);
+  });
+});
+
 describe("a routine", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

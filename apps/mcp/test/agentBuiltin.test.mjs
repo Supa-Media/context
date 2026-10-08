@@ -66,6 +66,18 @@ function chat(text, toolCalls = [], usage = { prompt_tokens: 100, completion_tok
   };
 }
 
+/** An Anthropic Messages answer, as the gateway returns it. */
+function answerShape(text, { toolUses = [], input, output, cacheRead = 0, cacheWrite = 0 }) {
+  const content = [];
+  if (text) content.push({ type: "text", text });
+  for (const tool of toolUses) content.push({ type: "tool_use", id: tool.id, name: tool.name, input: tool.input });
+  return {
+    content,
+    stop_reason: toolUses.length > 0 ? "tool_use" : "end_turn",
+    usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite },
+  };
+}
+
 async function ask(env, token, body) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
@@ -95,9 +107,19 @@ export async function runAgentBuiltinChecks(check) {
   const controlPlane = createControlPlaneStub();
   const restoreControlPlane = controlPlane.install();
   const keyedModelCalls = [];
+  // The gateway's road (`aiGateway.js`): every request, and the scripted
+  // Anthropic-shaped answers it gets back, in order.
+  const gatewayCalls = [];
+  let gatewayReplies = [];
   const withStubs = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://gateway.ai.cloudflare.com/")) {
+      gatewayCalls.push({ url, headers: { ...init?.headers }, body: JSON.parse(init.body) });
+      const next = gatewayReplies.shift();
+      if (!next) throw new Error("fixture: the gateway script ran out");
+      return new Response(JSON.stringify(next), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (url.startsWith("https://api.anthropic.com")) {
       keyedModelCalls.push(url);
       return new Response(JSON.stringify({ content: [{ type: "text", text: "from your key" }] }), {
@@ -165,7 +187,7 @@ export async function runAgentBuiltinChecks(check) {
     controlPlane.setBuiltinVerdict("ws_texter", { allowed: true, remaining: 10 });
     const unbound = await ask({ ...env, AI: undefined }, TOKEN, { question: "When is the launch?" });
     check(
-      "a gateway with no Workers AI binding has no built-in model",
+      "with neither a gateway nor a Workers AI binding there is no built-in model",
       unbound.status === 409 && unbound.body?.error === "no_provider",
     );
 
@@ -220,6 +242,12 @@ export async function runAgentBuiltinChecks(check) {
         !JSON.stringify(report).includes("launch") &&
         !JSON.stringify(report).includes("Friday"),
     );
+    check(
+      "the report names the model that answered, and its cache counts (zero here), so the meter can price it",
+      report?.model === "@cf/zai-org/glm-4.7-flash" &&
+        report?.cacheReadTokens === 0 &&
+        report?.cacheWriteTokens === 0,
+    );
 
     ai.install([{ throws: true }]);
     const broken = await ask(env, TOKEN, { question: "When is the launch?" });
@@ -246,6 +274,96 @@ export async function runAgentBuiltinChecks(check) {
         keyed.body?.provider === "anthropic" &&
         keyedModelCalls.length === 1 &&
         ai.calls.length === before,
+    );
+
+    /* ---------------- through our AI gateway, when one is configured ---------------- */
+
+    // Same texting grant and verdict as above; now the deployment has a gateway,
+    // so the built-in model is Haiku on the gateway's road and Workers AI is
+    // not asked for the writing model at all.
+    const gatewayUrl = "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/context-gw/anthropic/v1/messages";
+    const gatewayAi = fakeAi();
+    const gatewayEnv = {
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      GATEWAY_SECRET,
+      AI: gatewayAi,
+      AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+      AI_GATEWAY_ID: "context-gw",
+      AI_GATEWAY_TOKEN: "gateway-token-fixture-0000000000",
+      ANTHROPIC_CREDIT_KEY: "sk-ant-credit-fixture-0000000000",
+    };
+    gatewayReplies = [
+      answerShape("", {
+        toolUses: [{ id: "toolu_1", name: "read_note", input: { path: "1-projects/launch.md" } }],
+        input: 300,
+        output: 20,
+        cacheWrite: 40,
+      }),
+      answerShape("The launch is on Friday.", { input: 400, output: 12, cacheRead: 250 }),
+    ];
+    const viaGateway = await ask(gatewayEnv, TOKEN, { question: "When is the launch?" });
+    check(
+      "with a gateway configured, a texted turn is answered through it, tools and all",
+      viaGateway.status === 200 &&
+        viaGateway.body?.answer === "The launch is on Friday." &&
+        viaGateway.body?.provider === "builtin" &&
+        gatewayCalls.length === 2,
+    );
+    check(
+      "every round goes to the gateway's Anthropic route, with the plan's key and collect-log off",
+      gatewayCalls.every((call) => call.url === gatewayUrl && call.headers["cf-aig-collect-log"] === "false") &&
+        gatewayCalls[0].headers["x-api-key"] === "sk-ant-credit-fixture-0000000000" &&
+        gatewayCalls.every((call) => call.body.model === "claude-haiku-5-5"),
+    );
+    check(
+      "the gateway call is labelled with ids only: the workspace and the feature",
+      JSON.parse(gatewayCalls[0].headers["cf-aig-metadata"] ?? "{}").workspace === "ws_texter" &&
+        JSON.parse(gatewayCalls[0].headers["cf-aig-metadata"] ?? "{}").feature === "assistant",
+    );
+    check(
+      "Workers AI is never called for the writing model on a gateway turn",
+      gatewayAi.calls.length === 0,
+    );
+    const gatewayTurnLog = controlPlane.turnReports.at(-1);
+    check(
+      "the turn log names the gateway model that answered",
+      gatewayTurnLog?.outcome === "answered" && gatewayTurnLog?.model === "anthropic/claude-haiku-5-5",
+    );
+    const gatewayReport = controlPlane.builtinReports.at(-1);
+    // The rounds' counts are summed: 300+400 in, 20+12 out, 0+250 cache reads
+    // and 40+0 cache writes. `session.js` forwards the model and both cache
+    // counts with them, so the meter can price the turn.
+    check(
+      "the meter gets the gateway turn's input and output counts, and nothing that is text",
+      gatewayReport?.inputTokens === 700 &&
+        gatewayReport?.outputTokens === 32 &&
+        gatewayReport?.failed === false &&
+        !JSON.stringify(gatewayReport).includes("launch") &&
+        !JSON.stringify(gatewayReport).includes("Friday"),
+    );
+    check(
+      "the gateway report names anthropic/claude-haiku-5-5 and carries the rounds' cache counts",
+      gatewayReport?.model === "anthropic/claude-haiku-5-5" &&
+        gatewayReport?.cacheReadTokens === 250 &&
+        gatewayReport?.cacheWriteTokens === 40,
+    );
+
+    // A deployment with the gateway but no Workers AI binding: the built-in
+    // model is still Haiku on the gateway, so the turn is answered rather than
+    // refused as no_provider.
+    gatewayReplies = [
+      answerShape("", { toolUses: [{ id: "toolu_2", name: "read_note", input: { path: "1-projects/launch.md" } }], input: 300, output: 20 }),
+      answerShape("The launch is on Friday.", { input: 400, output: 12 }),
+    ];
+    const callsBeforeNoBinding = gatewayCalls.length;
+    const noBinding = await ask({ ...gatewayEnv, AI: undefined }, TOKEN, { question: "When is the launch?" });
+    check(
+      "a gateway with no Workers AI binding answers a texted turn through the gateway, not as no_provider",
+      noBinding.status === 200 &&
+        noBinding.body?.answer === "The launch is on Friday." &&
+        noBinding.body?.provider === "builtin" &&
+        gatewayCalls.length - callsBeforeNoBinding === 2 &&
+        gatewayCalls.slice(callsBeforeNoBinding).every((call) => call.body.model === "claude-haiku-5-5"),
     );
 
     /* ---------------- the adapter, directly ---------------- */

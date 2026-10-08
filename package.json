@@ -10,7 +10,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "setup:secrets": "op inject -i .env.example -o .env.local",
-    "architecture": "supa-architecture-check"
+    "architecture": "supa-architecture-check",
+    "ai": "node apps/mcp/bench/run.mjs"
   },
   "devDependencies": {
     "@supa-media/scripts": "^1.2.1",

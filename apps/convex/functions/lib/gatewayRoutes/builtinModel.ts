@@ -33,6 +33,9 @@ export async function gatewayBuiltinUsageHandler(ctx: ActionCtx, body: Record<st
     inputTokens: count("inputTokens"),
     outputTokens: count("outputTokens"),
     decisionTokens: count("decisionTokens"),
+    cacheReadTokens: count("cacheReadTokens"),
+    cacheWriteTokens: count("cacheWriteTokens"),
+    model: typeof body.model === "string" ? body.model : undefined,
     failed: body.failed === true,
     ms: count("ms"),
   });

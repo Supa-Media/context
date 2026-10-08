@@ -154,7 +154,7 @@ async function post(url, headers, body, fetchImpl) {
 /* Anthropic                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function anthropicMessages(messages) {
+export function anthropicMessages(messages) {
   /*
     Tool answers are a *user* turn on this API, and consecutive tool answers
     must ride in one turn's content array — sending them as separate messages

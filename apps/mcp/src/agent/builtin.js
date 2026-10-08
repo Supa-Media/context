@@ -19,6 +19,7 @@
  */
 
 import { ProviderError, openAiMessages, openAiTools, readChatCompletion, parseArguments } from "./providers.js";
+import { aiGatewayConfig, isGatewayModel, requestViaGateway } from "./aiGateway.js";
 
 /** The provider name a built-in turn carries through the loop and the response. */
 export const BUILTIN_PROVIDER = "builtin";
@@ -26,23 +27,47 @@ export const BUILTIN_PROVIDER = "builtin";
 /** GLM-4.7 Flash: tool calls, a long window, $0.06/$0.40 per million tokens. */
 export const DEFAULT_BUILTIN_MODEL = "@cf/zai-org/glm-4.7-flash";
 
+/**
+ * Claude Haiku 5.5 through our AI gateway (`aiGateway.js`): the default once a
+ * deployment has a gateway, because the owner found GLM too weak for texting
+ * (2026-10-08) and Haiku costs about the same per question with caching on.
+ */
+export const DEFAULT_GATEWAY_MODEL = "anthropic/claude-haiku-5-5";
+
 /** How much of the model's answer one round may produce. */
 const MAX_OUTPUT_TOKENS = 2048;
 
 /** How long one round may take before it is abandoned. */
 const ROUND_TIMEOUT_MS = 60_000;
 
-/** The model this deployment's built-in turns use. */
+/**
+ * The model this deployment's built-in turns use: `AGENT_BUILTIN_MODEL` when
+ * it names one this deployment can call, else Haiku when there is a gateway,
+ * else GLM on Workers AI. A gateway model named on a deployment without a
+ * gateway falls back rather than failing every turn.
+ */
 export function builtinModel(env) {
   const configured = env?.AGENT_BUILTIN_MODEL;
-  return typeof configured === "string" && configured.startsWith("@cf/") && configured.length <= 128
-    ? configured
-    : DEFAULT_BUILTIN_MODEL;
+  const gateway = aiGatewayConfig(env) !== null;
+  if (typeof configured === "string" && configured.startsWith("@cf/") && configured.length <= 128) return configured;
+  if (gateway && isGatewayModel(configured)) return configured;
+  return gateway ? DEFAULT_GATEWAY_MODEL : DEFAULT_BUILTIN_MODEL;
 }
 
-/** Whether this deployment can run built-in turns at all. */
+/** Whether this deployment can run built-in turns at all: Workers AI, or a gateway. */
 export function hasBuiltinModel(env) {
-  return typeof env?.AI?.run === "function";
+  return typeof env?.AI?.run === "function" || aiGatewayConfig(env) !== null;
+}
+
+/**
+ * Whether this deployment can call `model` as a built-in turn: a `@cf/` model
+ * needs the Workers AI binding, an `anthropic/` one needs the gateway. Anything
+ * else is `false`, so a named model this build cannot reach falls back.
+ */
+export function canRunBuiltin(model, env) {
+  if (typeof model !== "string") return false;
+  if (model.startsWith("@cf/")) return typeof env?.AI?.run === "function";
+  return isGatewayModel(model) && aiGatewayConfig(env) !== null;
 }
 
 function count(value) {
@@ -60,8 +85,14 @@ function count(value) {
  *
  * @param {{model: string, system: string, messages: Array, tools: Array}} call
  * @param {{run: Function}} ai the Workers AI binding
+ * @param {{gateway?: object, metadata?: object, fetchImpl?: Function}} [options]
+ *   for a gateway model: the gateway (`aiGatewayConfig`) and the labels its
+ *   cost is filed under
  */
-export async function requestBuiltin({ model, system, messages, tools }, ai) {
+export async function requestBuiltin({ model, system, messages, tools }, ai, options = {}) {
+  if (isGatewayModel(model)) {
+    return await requestViaGateway({ model, system, messages, tools }, options.gateway ?? null, options);
+  }
   if (typeof ai?.run !== "function") throw new ProviderError("built-in model not configured");
   let timer;
   let raw;

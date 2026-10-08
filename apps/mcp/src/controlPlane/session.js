@@ -163,13 +163,23 @@ export function createSessionMethods({ post, required }) {
       await post("/gateway/agent-turn", { accessToken, expectedWorkspaceId, ...turn });
     },
 
-    /** What a finished built-in turn spent: token counts and a duration, never text. */
-    async recordBuiltinUsage(accessToken, expectedWorkspaceId, { input, output, decision = 0, failed, ms }) {
+    /**
+     * What a finished built-in turn spent: token counts, the model that answered
+     * (for its price) and a duration, never text. Cache counts default to zero.
+     */
+    async recordBuiltinUsage(
+      accessToken,
+      expectedWorkspaceId,
+      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms },
+    ) {
       await post("/gateway/builtin-model/usage", {
         accessToken,
         expectedWorkspaceId,
         inputTokens: input,
         outputTokens: output,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        model,
         decisionTokens: decision,
         failed,
         ms,

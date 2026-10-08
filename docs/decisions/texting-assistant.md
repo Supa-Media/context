@@ -204,8 +204,9 @@ value.
 
 Decided by the owner, 2026-10-06 ("Premium, capped"). When a texter has
 connected no Anthropic or OpenAI account of their own, a Premium workspace's
-texts are answered by a cheap open model on Workers AI (GLM-4.7 Flash by
-default, `AGENT_BUILTIN_MODEL` to swap it), up to 100 questions a day. Anyone
+texts are answered by a model we pay for (GLM-4.7 Flash on Workers AI, or
+Claude Haiku 5.5 once a gateway is configured, see below; `AGENT_BUILTIN_MODEL`
+to swap it), up to 100 questions a day. Anyone
 else is told to connect an account.
 
 - A connected key always wins: the built-in model is asked for only after
@@ -233,6 +234,42 @@ expensive model on the account. The tests that fail are
 `apps/convex/__tests__/builtinModel.test.ts` and
 `apps/mcp/test/agentBuiltin.test.mjs` ("the caller cannot choose the model we
 pay for").
+
+### Claude models are reached through one AI gateway, plan credit first
+
+Decided by the owner, 2026-10-08: GLM-4.7 Flash is too weak for texting, the
+built-in model becomes Claude Haiku 5.5, and every model call on our bill goes
+through one Cloudflare AI Gateway (`apps/mcp/src/agent/aiGateway.js`) rather
+than one account per provider. The owner's Claude plan includes a monthly API
+credit, and nothing that costs money is spent while it lasts:
+
+- A call carries the plan's key (`ANTHROPIC_CREDIT_KEY`) first. When Anthropic
+  says the credit balance is too low, the same round is sent again without it,
+  and the gateway serves it on Cloudflare's Unified Billing. A spent credit is
+  skipped for 15 minutes rather than tried on every round. A key the gateway
+  refuses for another reason is retried without it once, so a broken key costs
+  a slower answer, never no answer.
+- With no gateway configured (`AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`,
+  `AI_GATEWAY_TOKEN`, all optional Worker secrets), the built-in model stays
+  GLM on Workers AI, exactly as before. Self-hosting needs none of this.
+- Every call says `cf-aig-collect-log: false`. The gateway's log is an account
+  of ours, and a turn's messages carry the person's notes, so keeping them
+  there would put customer content outside their bucket. Spend is counted from
+  the answer's token counts in our own meter, priced per model
+  (`lib/jev/meter.ts`), at list price even when the plan's credit paid.
+- Each call is labelled with ids only (feature, workspace, client), never
+  text. The address is built from two ids checked against a strict shape, so
+  nothing a caller sends can point the gateway's token at another host.
+- Prompt caching is on for the tool list, the system prompt and the
+  conversation so far, because a turn is several rounds over a growing
+  transcript.
+
+**What a simplification would cost:** dropping `cf-aig-collect-log` would
+quietly copy every texted question and the notes it read into a log outside
+the customer's bucket; retrying without the key on every error would spend
+money while free credit remained; taking the gateway address from config text
+without the shape check would let a misconfiguration send our token anywhere.
+The test that fails is `apps/mcp/test/agentGateway.test.mjs`.
 
 ### The agent opens only addresses it was given
 
@@ -362,3 +399,64 @@ with no identity at all. The tests that fail are in
 `apps/mcp/test/agentInstructions.test.mjs` ("a note privacy.md holds back from
 members is not sent to their model", "with no pinned workspace the built-in
 words say what Context is").
+
+### The texting assistant's setup is one production note in `assistant/production/`
+
+Decided by the owner, 2026-10-08: the texting assistant's model and its prompt
+come from one plain Markdown note, `assistant/production/texting-assistant.md` in the
+pinned `@context-lc` workspace, so promoting a setup is editing that file and
+the gateway does not ship (`apps/mcp/src/agent/production.js`).
+It lives under `assistant/` because that is the folder of `@context-lc` agents
+can write and every member can read; the benchmarks that decide what goes in
+it (invented workspaces, tests, results) are internal and live in `@supa`, so
+no customer ever reads them.
+
+- The front matter names the built-in model (`models.main`, an `@cf/` model or
+  an `anthropic/claude-` one), the tools the setup was proved with, and
+  `max_steps` (1 to 12). The body is the whole prompt, at most 1,000 lines and
+  40,000 characters. Front matter is a small YAML subset; anything outside it
+  is refused rather than guessed at.
+- It is read exactly as `assistant/` is: through the caller's own reach and that
+  workspace's `privacy.md`. Its prompt replaces both the pinned notes and the
+  built-in words on texting turns, and nothing else is said in their place
+  except what the code decides (that the agent proposes, and that this is a
+  text).
+- A file that is missing, does not validate, or is held back falls back to
+  `assistant/instructions.md` and `assistant/texting.md`, then to the built-in
+  words. Never an error.
+- Its model is used for a built-in turn only, and only when this deployment can
+  call it (`canRunBuiltin`). A person's own connected account keeps their model:
+  their bill, their model. The gateway call is filed under the file's version,
+  and the meter reports the model that answered.
+
+**What a simplification would cost:** letting the setup's model reach a person's
+own key would spend their account on a model they did not choose; using it
+without checking the deployment can call it turns every texted answer into an
+error on a self-hosted or gateway-less deployment; reading it with the gateway's
+own authority would hand members text `privacy.md` holds back from them. The
+tests that fail are in `apps/mcp/test/agentProduction.test.mjs` ("a person's own
+key never takes the production model", "a production model this deployment
+cannot call falls back to the Workers AI default", "a production file privacy.md
+holds back from members falls back, and its owner still reads it").
+
+### Setups are benchmarked in a throwaway world, on invented workspaces
+
+Decided by the owner, 2026-10-08: a setup earns its way into the production
+note by answering a test, and the test never sees a customer's notes. The
+benchmark data (invented people, workspaces, questions, results) is plain
+Markdown in `@supa` `4-resources/ai-benchmarks/`; its README is the process.
+`pnpm ai run <job> --dir <folder>` (`apps/mcp/bench/`) runs the real gateway
+in process over the in-memory control plane and store the tests use: each
+invented workspace is its own bucket with a real `privacy.md`, each invented
+person a texting grant covering exactly the workspaces `people.md` gives them,
+and the setup is written where the product reads it. Writes are read back as a
+list of changes and never applied; the only traffic that leaves is the model
+call, with the runner's own keys. Judging is a separate step any agent can do,
+recorded under the judge's name.
+
+**What a simplification would cost:** a runner that called the model with the
+notes pasted in would score a setup that leaks a held-back note as one that
+answers well; a world that could reach the network could text a real person.
+The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
+never reads a note the workspace holds back", "the world lets no request out
+except the model's").

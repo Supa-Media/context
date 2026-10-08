@@ -592,6 +592,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every agent turn is logged by name and duration, never by text
 - The autofill vault lives sealed in the person's bucket
 - The built-in model is for Premium, capped, and metered like Jev
+- Claude models are reached through one AI gateway, plan credit first
 - The agent opens only addresses it was given
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
+- The texting assistant's setup is one production note in `assistant/production/`
+- Setups are benchmarked in a throwaway world, on invented workspaces
