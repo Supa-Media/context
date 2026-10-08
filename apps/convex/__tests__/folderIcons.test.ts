@@ -75,7 +75,7 @@ describe("setting a folder icon", () => {
     expect(stored(store)).toEqual({});
   });
 
-  test.each(["recipes", "🍳🍳", "a", "‮🍳", ""])("refuses %j, which is not one emoji", async (icon) => {
+  test.each(["recipes", "🍳🍳", "a", "\u202e🍳", ""])("refuses %j, which is not one emoji", async (icon) => {
     const store = bucket();
     const error = await refusal(() => setFolderIcon(store, { path: "recipes", icon, clearance: OWNER }));
     expect(error.code).toBe("PATH_INVALID");

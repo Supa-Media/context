@@ -48,7 +48,7 @@ function plainPath(path) {
 function plainIcon(icon) {
   // The setter validates with `isSingleEmoji`; reading is lenient on shape but
   // never lets anything long or control-character-bearing through to a row.
-  return typeof icon === "string" && icon.length > 0 && icon.length <= MAX_ICON_LENGTH && !/[\u0000-\u001f‪-‮⁦-⁩]/.test(icon);
+  return typeof icon === "string" && icon.length > 0 && icon.length <= MAX_ICON_LENGTH && !/[\u0000-\u001f\u202a-\u202e\u2066-\u2069]/.test(icon);
 }
 
 /**

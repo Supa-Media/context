@@ -38,7 +38,7 @@ test("parse keeps well-formed entries and drops everything else", () => {
   assert.deepEqual(
     parseFolderIcons(JSON.stringify({
       version: 1,
-      icons: { a: "🍳", "../b": "🍳", ".context/x": "🍳", "c/": "🍳", d: "", e: 5, f: "‮🍳", g: "x".repeat(33) },
+      icons: { a: "🍳", "../b": "🍳", ".context/x": "🍳", "c/": "🍳", d: "", e: 5, f: "\u202e🍳", g: "x".repeat(33) },
     })),
     { a: "🍳" },
   );
