@@ -15,6 +15,30 @@ export async function runMovesAndBatchChecks() {
       !safeDetail.includes("another-value") && !safeDetail.includes("path.md") &&
       !safeDetail.includes("secret.md"));
 
+  /*
+    THE ONE CREDENTIAL SHAPE THE SHAPE RULES CANNOT SEE.
+
+    An access key id is ~20 unlabelled alphanumerics: no scheme, no `/`, no
+    `token=` beside it, and under the 32-character run the catch-all looks for.
+    `InvalidAccessKeyId` is also the provider error most likely to carry one,
+    and `bindingView` masks that same value on every other surface it reaches.
+    So it is redacted by exact match against the value the store holds, the way
+    `scrubProviderError` already argues in the control plane — a value we hold
+    is detectable, and a shape rule broad enough to catch it would also eat
+    real all-caps provider codes like REQUESTTIMETOOSKEWED.
+  */
+  const authFailure = Object.assign(new Error("collaboration storage write failed", {
+    cause: new Error("The AWS Access Key Id you provided does not exist in our records: AKIAIOSFODNN7EXAMPLE"),
+  }), { code: "STORAGE_WRITE_FAILED" });
+  const authDetail = safeMoveStorageDetail(authFailure, { accessKeyId: "AKIAIOSFODNN7EXAMPLE" });
+  check("...and the binding's own access key id, which a provider auth error echoes",
+    !authDetail.includes("AKIAIOSFODNN7EXAMPLE") && authDetail.includes("[credential]"));
+  check("POSITIVE CONTROL: the provider's own words still reach the owner",
+    authDetail.includes("does not exist in our records"));
+  check("a store without a key id neither throws nor blanks the detail",
+    safeMoveStorageDetail(authFailure, {}).includes("does not exist in our records") &&
+      safeMoveStorageDetail(authFailure).includes("does not exist in our records"));
+
   // -- batch move plan and apply
   // Raw legacy notes deliberately have no collaboration head. This case pins
   // resumable copy/delete behavior rather than the CRDT lifecycle, whose
