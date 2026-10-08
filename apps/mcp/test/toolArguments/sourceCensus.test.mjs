@@ -62,7 +62,7 @@ export async function runToolArgumentSourceCensusChecks(check, harness) {
     "the dispatch-table parser finds the switch it is aimed at",
     dispatched.length >= 25 &&
       dispatched.includes("orient") &&
-      dispatched.includes("export_encryption_keys") &&
+      dispatched.includes("rotate_encryption_keys") &&
       !dispatched.includes("no_such_tool_anywhere")
   );
 

@@ -13,8 +13,8 @@
  *
  * The one exception is a texting turn, which edits notes directly (the owner,
  * 2026-10-08, "Edit directly"): `textingWrites.js` adds the connection's own
- * MCP write tools and fields, minus only the key export. Everywhere
- * else, what follows holds.
+ * MCP write tools and fields, all of them. Everywhere else, what follows
+ * holds.
  *
  * The agent is offered the read tools and `propose_note`, and never
  * `write_note`, `move_note`, `set_visibility` or anything else that changes the
@@ -73,25 +73,14 @@ const PROPOSAL_TOOL = "propose_note";
 /**
  * Tools a model is never offered, whatever their annotations say.
  *
- * `readOnlyHint` answers "does this change anything?" — and
- * `export_encryption_keys` truthfully answers no. It returns this context's
- * workspace data key(s) in the clear, and its own description says there is no
- * un-export. Reading that flag as "safe to hand a model" is reading an answer
- * to a different question, so the answer to this one is written down here
- * instead of inferred.
- *
- * What makes it worth a named list rather than a judgement call: the agent is
- * also offered `propose_note`, which puts its content in the bucket. Export
- * then propose and the key that opens every encrypted note in this context is
- * sitting in plaintext beside the notes it opens — the one place the encryption
- * exists to survive, and the thing non-negotiable #1 says never happens. The
- * turn never needs either tool to answer a question about somebody's notes.
- *
- * `rotate_encryption_keys` is named too although `readOnlyHint: false` already
- * keeps it out: a list of "the key material tools" that named one of the two
- * would read as a ruling that the other is fine to automate.
+ * `readOnlyHint` answers "does this change anything?", which is not the same
+ * question as "is this safe to hand a model". The gateway no longer has a key
+ * export (the owner removed it on 2026-10-08), so the one name left is
+ * `rotate_encryption_keys`: `readOnlyHint: false` already keeps it out of the
+ * read tools, and naming it says that automating the key material is a ruling
+ * made here, not an accident of a flag.
  */
-const WITHHELD_FROM_AGENT = new Set(["export_encryption_keys", "rotate_encryption_keys"]);
+const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys"]);
 
 /** The longest question this route accepts. */
 export const MAX_QUESTION_LENGTH = 8000;

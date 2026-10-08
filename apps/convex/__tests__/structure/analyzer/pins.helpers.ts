@@ -44,8 +44,8 @@
  *
  * `functions.encryptionKeys.exportWorkspaceDataKeys` decrypts every generation
  * of a workspace's data key and returns the plaintext material — the console's
- * `exportEncryptionKeys` and the gateway's `export_encryption_keys` are both
- * `docs/decisions/encryption.md`'s "Revocation and export": the customer must
+ * `exportEncryptionKeys` is `docs/decisions/encryption.md`'s "Revocation and
+ * export" (the gateway's `export_encryption_keys` was removed on 2026-10-08): the customer must
  * be able to get the key itself, not only decrypt with it through us, or the
  * first non-negotiable is false the moment they leave — by revoking our
  * credential on their own bucket, or by exporting off managed storage. That is

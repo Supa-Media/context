@@ -286,7 +286,8 @@ export const openWorkspaceDataKey = internalAction({
 
 /**
  * THE ACTUAL DISCLOSURE. Every generation's key material, in the clear, for
- * `export_encryption_keys` and the console's export action.
+ * the console's export action. (The gateway's `export_encryption_keys` tool
+ * was removed on 2026-10-08; there is no key export over MCP.)
  *
  * CREDENTIAL BARRIER — see `CREDENTIAL_BARRIERS` in `__tests__/structure.test.ts`
  * before changing this function's shape. It is public code's *only* path to a

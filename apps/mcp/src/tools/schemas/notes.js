@@ -248,14 +248,6 @@ export function noteWriteToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
-      name: "export_encryption_keys",
-      title: "Export encryption keys",
-      description:
-        "Personal connection only, owner tier. Export this context's workspace data key(s) in the clear — every generation that opens an encrypted note in this bucket — in a versioned, language-neutral format documented in docs/decisions/encryption.md and readable by the offline decryptor in packages/encryption-decryptor. Exporting widens the blast radius: there is no un-export. Rate limited.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-    },
-    {
       name: "rotate_encryption_keys",
       title: "Rotate encryption keys",
       description:

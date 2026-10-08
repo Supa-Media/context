@@ -102,8 +102,8 @@ which is which is a decision.**
   the bucket's own sort order, has been examined during the current pass — a
   `confirmedThrough` timestamp, a small `stuckKeys` list, the `wrote` keys the
   last call itself moved, and an authentication tag over all of it. It lives beside
-  the notes it describes rather than in `workspaceKeyRotations`, for the same
-  reason `EXPORT_RATE_LIMIT_PATH` does: the control plane holds the one fact
+  the notes it describes rather than in `workspaceKeyRotations`, because the
+  control plane holds the one fact
   that has to be authoritative everywhere — whether a rotation may be
   *started* — and the walk's own bookkeeping over the customer's content lives
   beside that content, disposable and best-effort, never the source of truth
