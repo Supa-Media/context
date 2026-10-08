@@ -2,6 +2,7 @@ import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { recordForwarding } from "../src/forwarding.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
+import { checkSettledConcurrentFailure, finishMoveWithBoundedCleanup } from "./moveCleanupChecks.mjs";
 
 export async function runMovesAndBatchChecks() {
   // -- batch move plan and apply
@@ -421,14 +422,7 @@ export async function runMovesAndBatchChecks() {
     destination: "2-areas/deep/big-complete-moved",
   });
   const completeMoveId = completeMove.content[0].text.match(/move_id: (\S+)/)?.[1];
-  let completeMaterialize = completeMove;
-  for (let i = 0; i < 80 &&
-    !isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)); i += 1) {
-    completeMaterialize = await call("priv-token", "materialize_move", {
-      id: completeMoveId,
-      batch_size: 100,
-    });
-  }
+  const completeMaterialize = await finishMoveWithBoundedCleanup(completeMoveId, completeMove);
   check(
     "materialize_move completes a logical move and removes the source objects",
     !completeMaterialize.isError &&
@@ -443,6 +437,7 @@ export async function runMovesAndBatchChecks() {
       storedText("2-areas/deep/big-complete-moved/note-001.md") ===
         "[[../../../1-projects/big-complete-link]]"
   );
+  await checkSettledConcurrentFailure();
   const queuedGatewayMessages = [];
   env.GATEWAY_JOBS = {
     async send(message) {
