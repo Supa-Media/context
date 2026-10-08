@@ -29,7 +29,7 @@ import { toolListMeetings, toolReadMeeting } from "./meetings.js";
 import { toolListNotes, toolReadNote } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolListProposals, toolReadProposal } from "./proposals.js";
-import { toolMaterializeMove } from "./moves/materialize.js";
+import { toolMaterializeMove, toolProfileMoveReferences } from "./moves/materialize.js";
 import { toolMigrateStorageLayout } from "../notes/storage.js";
 import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
@@ -177,6 +177,9 @@ export async function callTool(name, args, store, scope) {
         // those clients inspect the marker through the existing string field.
         if (typeof args.id === "string" && args.id.endsWith(":inspect")) {
           return toolMaterializeMove(store, scope, args.id.slice(0, -8), 0);
+        }
+        if (typeof args.id === "string" && args.id.endsWith(":profile")) {
+          return toolProfileMoveReferences(store, args.id.slice(0, -8));
         }
         if (args.batch_size === 0) return toolMaterializeMove(store, scope, args.id, 0);
         // Check before this pass refreshes updated_at. Old clients do not know
