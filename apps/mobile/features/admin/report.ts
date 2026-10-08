@@ -251,6 +251,7 @@ export const ADMIN_TABS = [
   { key: "estate", label: "Estate" },
   { key: "activity", label: "Activity" },
   { key: "agent", label: "Agent" },
+  { key: "aiCosts", label: "AI costs" },
   { key: "search", label: "Search" },
   { key: "credentials", label: "Credentials" },
   { key: "waitlist", label: "Waitlist" },
