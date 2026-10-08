@@ -182,6 +182,24 @@ async function ensureCleanupDestination(store, pair, sourceObject) {
   return sourceObject;
 }
 
+async function preserveCollaborativeGeneratedConflict(store, job, pair, sourceObject) {
+  if (!generatedCommunicationSource(pair.source, await sourceObject.text())) return false;
+  const backup = `4-archive/${pair.source.slice(0, -3)}.move-collaboration-conflict-${job.id}.md`;
+  const privacy = await loadPrivacyState(store);
+  if (privacy.error || privacy.legacy ||
+      effectiveVisibility(pair.source, privacy.rules, privacy.overrides) !==
+        effectiveVisibility(backup, privacy.rules, privacy.overrides)) return false;
+  const source = await readCollaborationDocument(store, pair.source);
+  if (await getWithLegacyFallback(store, backup) || await collaborationHead(store, backup)) return false;
+  await moveCollaborationDocument(store, pair.source, backup, { expectedEtag: source.etag });
+  if (await getWithLegacyFallback(store, pair.source) || !await getWithLegacyFallback(store, backup)) {
+    throw new Error(`collaboration conflict backup did not retire source: ${pair.source}`);
+  }
+  job.conflicts ||= {};
+  job.conflicts[pair.source] = backup;
+  return true;
+}
+
 export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   const key = moveJobKey(idArg);
   if (!key) return toolError("invalid move id");
@@ -286,6 +304,36 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed before cleanup: ${pair.source}`);
       }
+      const sourceHead = collaborationSupported(store) && pair.source.endsWith(".md")
+        ? await collaborationHead(store, pair.source) : null;
+      const destinationHead = sourceHead ? await collaborationHead(store, pair.destination) : null;
+      if (sourceHead && destinationHead) {
+        // An earlier structural move may only need its journal replayed.
+        if (sourceHead.status === "moving") {
+          try {
+            await readCollaborationDocument(store, pair.source);
+          } catch (error) {
+            if (error?.code !== "MOVED") throw error;
+          }
+          if (!await getWithLegacyFallback(store, pair.source) &&
+              await getWithLegacyFallback(store, pair.destination)) {
+            deleted.add(pair.source);
+            deletedThisPass += 1;
+            if (deletedThisPass >= batchSize) break;
+            continue;
+          }
+        }
+        // A destination with its own collaboration identity cannot receive
+        // the source identity. Keep the generated source and its history in
+        // the private archive, leaving the destination untouched.
+        if (!await preserveCollaborativeGeneratedConflict(store, job, pair, sourceObject)) {
+          throw new Error(`destination collaboration generation exists: ${pair.destination}`);
+        }
+        deleted.add(pair.source);
+        deletedThisPass += 1;
+        if (deletedThisPass >= batchSize) break;
+        continue;
+      }
       if (job.conflicts?.[pair.source]) {
         const backup = await getWithLegacyFallback(store, job.conflicts[pair.source]);
         const destination = await getWithLegacyFallback(store, pair.destination);
@@ -297,8 +345,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
           throw new Error(`destination changed before source cleanup: ${pair.destination}`);
         }
       }
-      const head = collaborationSupported(store) && pair.source.endsWith(".md")
-        ? await collaborationHead(store, pair.source) : null;
+      const head = sourceHead;
       if (head && !["active", "moving"].includes(head.status)) {
         throw new Error(`source collaboration generation changed before cleanup: ${pair.source}`);
       }

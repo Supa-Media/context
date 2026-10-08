@@ -1,6 +1,7 @@
 import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText } from "./harness.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { recordForwarding } from "../src/forwarding.js";
+import { readDocument as readCollaborationDocument } from "@context/collaboration";
 
 export async function runMovesAndBatchChecks() {
   // -- batch move plan and apply
@@ -349,6 +350,37 @@ export async function runMovesAndBatchChecks() {
       storedText("4-archive/2-areas/communications/generated-conflict/note-0.md")?.includes("Updated message 0") &&
       isLogicalDeleteMarker(storedText("2-areas/communications/generated-conflict/note-0.md")));
   await contextStore.delete(`.context/moves/${conflictId}.json`);
+  for (let i = 0; i < 101; i += 1) {
+    await contextStore.put(`2-areas/communications/headed-conflict/note-${i}.md`,
+      `---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nOriginal message ${i}`);
+  }
+  await call("priv-token", "read_note", {
+    path: "2-areas/communications/headed-conflict/note-0.md",
+  });
+  const headedConflictMove = await call("priv-token", "move_folder", {
+    source: "2-areas/communications/headed-conflict",
+    destination: "4-archive/2-areas/communications/headed-conflict",
+  });
+  const headedConflictId = headedConflictMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  await call("priv-token", "materialize_move", { id: headedConflictId, batch_size: 1 });
+  await readCollaborationDocument(contextStore,
+    "4-archive/2-areas/communications/headed-conflict/note-0.md");
+  let headedConflictResult;
+  for (let i = 0; i < 10 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${headedConflictId}.json`)); i += 1) {
+    headedConflictResult = await call("priv-token", "materialize_move", {
+      id: headedConflictId, batch_size: 100,
+    });
+    if (headedConflictResult.isError) break;
+  }
+  const headedBackup =
+    `4-archive/2-areas/communications/headed-conflict/note-0.move-collaboration-conflict-${headedConflictId}.md`;
+  check("a generated note with distinct collaboration identities keeps both histories",
+    !headedConflictResult?.isError &&
+      storedText(headedBackup)?.includes("Original message 0") &&
+      storedText("4-archive/2-areas/communications/headed-conflict/note-0.md")?.includes("Original message 0") &&
+      isLogicalDeleteMarker(storedText("2-areas/communications/headed-conflict/note-0.md")));
+  await contextStore.delete(`.context/moves/${headedConflictId}.json`);
   for (let i = 0; i < 501; i += 1) {
     const suffix = String(i).padStart(3, "0");
     await contextStore.put(`1-projects/big-complete/note-${suffix}.md`, `complete ${suffix}`);
