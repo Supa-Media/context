@@ -13,7 +13,7 @@
  *
  * The one exception is a texting turn, which edits notes directly (the owner,
  * 2026-10-08, "Edit directly"): `textingWrites.js` adds the connection's own
- * MCP write tools and fields, minus public links and key material. Everywhere
+ * MCP write tools and fields, minus only the key export. Everywhere
  * else, what follows holds.
  *
  * The agent is offered the read tools and `propose_note`, and never
