@@ -188,6 +188,9 @@ export async function fastSearchAnswer(store, scope, rules, overrides, query, pr
         trace.set("fastCandidates", candidates);
         trace.set("fastVisible", visible);
       },
+      // Only a `ready` projection reaches here, and its miss is the answer:
+      // it never falls through to the bucket index (`answerFromProjection`).
+      missIsAnswer: true,
     });
   } catch {
     // Every D1 failure is one of `client.js`'s closed-set codes and none of

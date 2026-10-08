@@ -433,11 +433,15 @@ export async function runServeChecks(check) {
     const teamReads = d1.requests
       .slice(beforeTeamSearch)
       .filter((request) => PROJECTION_READ.test(request.sql));
+    // Two reads, because nothing matched strictly and the relaxed second try
+    // asked again (`toRelaxedMatchExpression`); each names the team table
+    // alone.
     check(
-      "asking exactly one table, the team one",
-      teamReads.length === 1 &&
-        teamReads[0].sql.includes("notes_team_fts") &&
-        !teamReads[0].sql.includes("notes_private_fts"),
+      "asking only the team table, strictly and then relaxed",
+      teamReads.length === 2 &&
+        teamReads.every(
+          (read) => read.sql.includes("notes_team_fts") && !read.sql.includes("notes_private_fts"),
+        ),
     );
     const owner = await search("wombat");
     check(
@@ -652,11 +656,13 @@ export async function runServeChecks(check) {
       refused.text.includes("1-projects/") && refused.answerReads > 0,
     );
 
-    // -- 6. a miss falls through rather than answering "none" --------------
+    // -- 6. a ready projection's miss is the answer, never the bucket index ---
     //
-    // A note that exists in the bucket and in the R2 index and is deliberately
-    // NOT in the projection: the row is deleted underneath it, which is what a
-    // projection that is behind, was rebuilt, or lost a row looks like.
+    // Dev2, 2026-10-08: the bucket index is the slow path and searches must
+    // not fall through to it. A note deliberately NOT in the projection (the
+    // row deleted underneath it) is therefore not found by words — search by
+    // meaning, merged by the tool layer, is what covers a projection behind —
+    // and the search read nothing out of the bucket to say so.
     seed("1-projects/bilby.md", "# Bilby\n\nA bilby sighting.\n", "s6");
     ready("backfilling");
     for (let round = 0; round < 3; round += 1) await search("bilby");
@@ -664,8 +670,15 @@ export async function runServeChecks(check) {
     d1.db.exec(`DELETE FROM notes_team_fts WHERE path = '1-projects/bilby.md'`);
     const missed = await search("bilby");
     check(
-      "a projection that has lost a row does not report the note as missing",
-      missed.text.includes("1-projects/bilby.md"),
+      "a ready projection's miss answers no matches rather than asking the bucket index",
+      !missed.text.includes("1-projects/bilby.md") && missed.answerReads === 0,
+    );
+    // The relaxed second try: not every word is in the note, and one is only
+    // the start of a word in it. Strict AND finds nothing; the retry does.
+    const relaxed = await search("pademel sighting nowhere");
+    check(
+      "a query whose words are not all present still finds the note holding some of them",
+      relaxed.text.includes("1-projects/stub.md") && relaxed.answerReads === 0,
     );
 
     // -- the one thing the fast path is worse at ---------------------------

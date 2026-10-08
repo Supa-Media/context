@@ -230,11 +230,12 @@ describe("the console's search, out of the projection", () => {
     expect(owner.some((sql) => sql.includes("notes_team_fts"))).toBe(true);
   });
 
-  test("a miss falls through to the R2 index rather than reporting absence", async () => {
+  test("a ready projection's miss is the answer, never the bucket index", async () => {
+    // Dev2, 2026-10-08: the bucket index is the slow path, and a search must
+    // not fall through to it. A row gone from the projection is not found by
+    // words; search by meaning, merged above this, covers a projection behind.
     const store = bucket();
     const stub = await projected(store);
-    // A note that exists and is indexed in R2 but whose row is gone from the
-    // projection — a projection that is behind, was rebuilt, or lost a row.
     await stub.client.query("DELETE FROM notes_private_fts WHERE path = ?", [
       "2-areas/health.md",
     ]);
@@ -247,11 +248,8 @@ describe("the console's search, out of the projection", () => {
       { query: "quokkaplan", clearance: clearanceOf("private") },
       stub.client,
     );
-    expect(found.indexMissing).toBe(false);
-    expect(found.hits.map((hit) => hit.path).sort()).toEqual([
-      "1-projects/shared-plan.md",
-      "2-areas/health.md",
-    ]);
+    expect(found.answeredBy).toBe("fast");
+    expect(found.hits).toEqual([]);
   });
 
   test("a refused projection leaves a working search", async () => {

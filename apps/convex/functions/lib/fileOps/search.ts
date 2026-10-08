@@ -312,6 +312,9 @@ export async function searchNotes(
         tier: options.clearance.scope,
         isVisible,
         limit,
+        // The projection is only handed over `ready`, and its miss is the
+        // answer, never a fall-through to the bucket index.
+        missIsAnswer: true,
       });
       if (fast) {
         return await merged({
