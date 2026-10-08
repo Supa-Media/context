@@ -84,7 +84,7 @@ export function adoptMirroredTree(
  */
 export function stampLiveFolders(
   adopted: Listings,
-  tree: Pick<MirroredTree, "value" | "listedAt" | "live">,
+  tree: Pick<MirroredTree, "value" | "listedAt"> & { live?: boolean },
   listedAt: Map<string, number>,
 ): void {
   if (tree.live !== true) return;

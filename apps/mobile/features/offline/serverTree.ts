@@ -24,9 +24,16 @@ import type { ContextListing } from "./mirrorSync";
  * the session epoch, so nothing walked before a sign-out is served after it.
  */
 
+/**
+ * The server's own answer, walked this session and held in memory, rather
+ * than a copy kept on the device: the tree may treat each folder in it as
+ * listed by the server (`stampLiveFolders`).
+ */
+export type LiveTree = MirroredTree & { live: true };
+
 interface Held {
   epoch: number;
-  tree: MirroredTree;
+  tree: LiveTree;
 }
 
 const held = new Map<string, Held>();
@@ -34,7 +41,7 @@ const held = new Map<string, Held>();
 const keyOf = (scope: CacheScope, workspaceId: string) => `${scope}:${workspaceId}`;
 
 /** The tree last walked for this clearance this session, or `null`. */
-export function serverTree(scope: CacheScope, workspaceId: string, epoch: number): MirroredTree | null {
+export function serverTree(scope: CacheScope, workspaceId: string, epoch: number): LiveTree | null {
   const found = held.get(keyOf(scope, workspaceId));
   if (found === undefined) return null;
   if (found.epoch !== epoch) {
@@ -71,7 +78,7 @@ export function forgetServerTrees(): void {
 }
 
 /** A listing drawn as the mirror would draw the same listing, through `treeOf`. */
-export function treeOfListing(listing: ContextListing, now: number): MirroredTree {
+export function treeOfListing(listing: ContextListing, now: number): LiveTree {
   const entries = new Map<string, MirrorEntry>();
   for (const entry of listing.listed.values()) {
     entries.set(entry.path, {

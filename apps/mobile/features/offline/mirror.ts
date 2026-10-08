@@ -772,12 +772,6 @@ export interface MirroredTree extends Cached<Map<string, FolderListing>> {
   complete: boolean;
   /** When that walk started — what the tree is at least as new as. */
   listedAt: number;
-  /**
-   * The server's own answer, walked this session and held in memory
-   * (`serverTree.ts`), rather than a copy kept on the device. The tree may
-   * treat each folder in it as listed by the server.
-   */
-  live?: boolean;
 }
 
 /** The whole tree this clearance is served, or `null` when nothing is mirrored for it. */
