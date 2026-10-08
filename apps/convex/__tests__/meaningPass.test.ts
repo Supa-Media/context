@@ -197,6 +197,35 @@ describe("the pass itself", () => {
   });
 });
 
+describe("the census is a listing, not the bucket's search index", () => {
+  // A large workspace's bucket index can fall behind or fail to build at all;
+  // search by meaning must fill regardless, because it is what replaces it.
+  test("a bucket whose search index cannot be written still fills completely", async () => {
+    const store = memoryStore({ refuseWrite: (key) => key.startsWith(".context/search/v2/") }) as MemoryStore & FileStore;
+    seedNotes((key, body) => store.seed(key, body), 60);
+    const upserted = new Set<string>();
+    const client = {
+      upsert: async (vectors: unknown[]) => {
+        for (const vector of vectors as { metadata: { path: string } }[]) upserted.add(vector.metadata.path);
+        return vectors.length;
+      },
+      deleteByIds: async (ids: string[]) => ids.length,
+    };
+    const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
+
+    let last = await projectMeaningIndex(store, { client, embed, generation: "g1" });
+    for (let links = 1; last.moved && !last.ready && links < 10; links += 1) {
+      last = await projectMeaningIndex(store, { client, embed, generation: "g1" });
+    }
+    expect(last.failure).toBeNull();
+    expect(last.ready).toBe(true);
+    // 60 notes, index.md and the folder README; privacy.md is plumbing.
+    expect(last.notesIndexed).toBe(62);
+    expect(upserted.size).toBe(62);
+    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/v2/"))).toBe(false);
+  });
+});
+
 describe("through the barrier", () => {
   test("a pass fills the index and the row reaches ready", async () => {
     const { t, workspaceId, cf, bucket } = await workspace({ notes: 3 });
@@ -330,6 +359,12 @@ describe("a console search", () => {
     const { t, workspaceId, bucket, cf } = await workspace({ status: "ready", notes: 2 });
     bucket.seed("2-areas/garden.md", "# Garden\n\nTomatoes by the fence.\n");
     await pass(t, workspaceId, 5);
+    // The words half has its own index; the meaning pass no longer builds it.
+    await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "maintainIndex" },
+    });
     cf.matches = ["2-areas/garden.md"];
     const result = (await search(t, workspaceId, "hiring")) as {
       hits: { path: string; meaningOnly?: boolean }[];

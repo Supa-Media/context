@@ -10,8 +10,9 @@
  *
  * ## The diff, and why it lives in the bucket
  *
- * The census is the R2 index's own docmap, `[path, version]` for every note
- * (`d1/backfill.js`'s `loadCensus`). This pass keeps a second map beside it,
+ * The census is `[path, version]` for every note, from a listing of the
+ * bucket (the control plane's `meaningProjection.ts`; never the R2 shard
+ * index, which a large workspace can leave behind). This pass keeps a second map beside it,
  * at `MEANING_STATE_KEY`, of the version it last embedded for each path. A
  * note whose census version differs, or that the state has never seen, is
  * embedded; a path the state holds and the census does not is deleted.
@@ -42,8 +43,13 @@ import { meaningChangeFor, meaningIdsFor } from "./project.js";
 
 export const MEANING_STATE_KEY = `${SEARCH_PREFIX}meaning/v1/state.json`;
 
-/** Notes one pass may embed. Twelve passages each at most, 32 to a model call. */
-export const MEANING_PASS_NOTE_CAP = 40;
+/**
+ * Notes one pass may embed. Twelve passages each at most, 32 to a model call.
+ * Each pass also lists the bucket for its census, so a pass does enough
+ * embedding to make that listing worth it: a 9,000-note workspace is about
+ * ninety passes, inside one chain of `MEANING_PASS_CHAIN`.
+ */
+export const MEANING_PASS_NOTE_CAP = 100;
 
 /** Vectors held before an upsert is sent. Under the client's own batch. */
 const MEANING_HELD_VECTORS = 240;
@@ -92,7 +98,7 @@ async function writeMeaningState(store, generation, notes) {
  * What the census and the map disagree about: paths to embed (new or changed,
  * in path order so a long walk resumes where it stopped) and paths to delete.
  */
-export function meaningDiff(census, notes) {
+export function meaningDiff(census, notes, regionComplete = () => true) {
   const changed = [];
   for (const [path, version] of census) {
     if (notes.get(path) !== version) changed.push(path);
@@ -100,7 +106,8 @@ export function meaningDiff(census, notes) {
   changed.sort();
   const removed = [];
   for (const path of notes.keys()) {
-    if (!census.has(path)) removed.push(path);
+    // Absent from a listing that never reached its folder is not gone.
+    if (!census.has(path) && regionComplete(path)) removed.push(path);
   }
   removed.sort();
   return { changed, removed };
@@ -117,17 +124,29 @@ export function meaningDiff(census, notes) {
  * @param {(path: string) => string} options.visibilityOf `privacy.md`'s answer
  * @param {string} options.generation this life of the index
  * @param {number} [options.noteCap]
- * @param {number} [options.indexPending] notes the R2 index itself has not reached
+ * @param {number} [options.indexPending] notes the census itself has not reached
+ * @param {(path: string) => boolean} [options.regionComplete] whether the
+ *   listing behind the census reached the part of the bucket `path` is in;
+ *   a path the census lacks is deleted only where it did
  * @returns {Promise<{embedded: number, deleted: number, notesIndexed: number,
  *   notesPending: number, ready: boolean, moved: boolean, failure: string|null,
  *   failureCause: string|null}>} counts only: no path, no title, no text.
  */
 export async function meaningPass(
   store,
-  { client, embed, census, visibilityOf, generation, noteCap = MEANING_PASS_NOTE_CAP, indexPending = 0 },
+  {
+    client,
+    embed,
+    census,
+    visibilityOf,
+    generation,
+    noteCap = MEANING_PASS_NOTE_CAP,
+    indexPending = 0,
+    regionComplete = () => true,
+  },
 ) {
   const notes = await readMeaningState(store, generation);
-  const { changed, removed } = meaningDiff(census, notes);
+  const { changed, removed } = meaningDiff(census, notes, regionComplete);
   const result = { embedded: 0, deleted: 0, failure: null, failureCause: null };
   let dirty = false;
 
@@ -144,7 +163,7 @@ export async function meaningPass(
         }
       }
     }
-    const left = meaningDiff(census, notes);
+    const left = meaningDiff(census, notes, regionComplete);
     const notesPending = left.changed.length + left.removed.length;
     let notesIndexed = 0;
     for (const path of census.keys()) if (notes.has(path)) notesIndexed += 1;

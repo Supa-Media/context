@@ -67,7 +67,7 @@ the product, and edits made in the live editor, which skips the write path
 because it commits every typing pause and re-embedding twelve passages per
 pause buys nothing.
 
-The pass diffs the R2 index's own census (`[path, version]`) against a map of
+The pass diffs a census (`[path, version]` for every note) against a map of
 what it last embedded, kept at `.context/search/meaning/v1/state.json`. That
 is a **new file in the on-bucket layout**, and it is allowed for the reason
 the R2 index is: Context-owned plumbing under `.context/search/`, a
@@ -77,6 +77,19 @@ plane because the control plane holds metadata and never a list of somebody's
 note paths; it does not live in Vectorize because an index has nowhere to keep
 one. It carries a `generation` (when the index was turned on), so an index
 recreated after an off and an on is not mistaken for the old one.
+
+**The census is a listing of the bucket, never the R2 shard index**
+(2026-10-08). It was the shard index's docmap, reached by running a pass of
+that index first, and on Dev2's 9,129-note @seyi that index never converged:
+every catch-up pass spent itself there and the meaning index stopped at its
+first 40 notes for a day while smaller workspaces finished. Search by meaning
+is what replaces the bucket index, so it must not depend on it. The listing is
+`listNoteObjects` (the shard index's own walk, which steps over `.context/`),
+with the same version tokens the docmap held. A listing cut short deletes
+nothing outside the folders it finished and never reports `ready`. A pass
+embeds up to 100 notes so its listing pays for itself. Reverting to the docmap
+fails "a bucket whose search index cannot be written still fills completely"
+in `apps/convex/__tests__/meaningPass.test.ts`.
 
 The pass is scheduled when the index is set up and chains while it moves. A
 sweep every fifteen minutes restarts a stalled chain, catches each `ready`
