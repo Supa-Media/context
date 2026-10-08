@@ -644,6 +644,13 @@ export async function runMovesAndBatchChecks() {
   check("an owner move schedules reference repair beyond the scan cap",
     !queuedLinks.isError && Boolean(linkJobId) &&
       queuedLinks.content[0].text.includes("references: updating in background"));
+  const profileMarker = storedText(`.context/moves/${linkJobId}.json`);
+  const profile = await call("priv-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 });
+  check("owner can profile without changing the marker; other scopes are masked",
+    !profile.isError && profile.content[0].text.includes("note inventory:") &&
+    profile.content[0].text.includes("active move markers:") &&
+    storedText(`.context/moves/${linkJobId}.json`) === profileMarker &&
+    (await call("pub-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 })).isError);
   const restarted = await call("priv-token", "materialize_move", {
     id: linkJobId,
     batch_size: 1,

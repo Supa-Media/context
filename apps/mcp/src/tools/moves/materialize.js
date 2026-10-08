@@ -37,6 +37,10 @@ import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
 import { onlyLinkTargetsChanged } from "../../links.js";
 import { rewriteReferences } from "./references.js";
+import { listAllNoteKeys } from "../../notes/visibleKeys.js";
+import { loadMoveJobs } from "../../moves/jobs.js";
+import { readForwarding } from "../../forwarding.js";
+import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { toolError, toolText } from "../results.js";
 
 // Owner-only diagnostics for a wrapped storage failure. Provider exceptions
@@ -496,4 +500,52 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     await persistMoveJob(store, job).catch(() => {});
     return toolError(`move ${job.id} materialization paused: ${job.error}${safeMoveStorageDetail(error, store)}`);
   }
+}
+
+/** Owner-only, read-only timings for a stalled reference sweep. The bounded
+ * probe avoids refreshing the job lease or starting a second materializer. */
+export async function toolProfileMoveReferences(store, idArg) {
+  const key = moveJobKey(idArg);
+  if (!key) return toolError("invalid move id");
+  const marker = await getWithLegacyFallback(store, key);
+  if (!marker) return toolError("not found");
+  let job;
+  try { job = JSON.parse(await marker.text()); } catch { return toolError("move marker is invalid"); }
+  if (!moveJobActive(job) || job.status !== "rewriting") return toolError("move is not rewriting references");
+  const rows = [];
+  async function measure(name, operation) {
+    const start = Date.now();
+    let timer;
+    try {
+      const value = await Promise.race([
+        operation(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), 15000); }),
+      ]);
+      rows.push(`${name}: ${Date.now() - start}ms`);
+      return value;
+    } catch (error) {
+      rows.push(`${name}: ${error.message === "timeout" ? "over 15000ms" : "failed"}`);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const keys = await measure("note inventory", () => listAllNoteKeys(store));
+  if (!keys) return toolText(rows.join("\n"));
+  const jobs = await measure("active move markers", () => loadMoveJobs(store));
+  if (!jobs) return toolText(rows.join("\n"));
+  await measure("forwarding ledger", () => readForwarding(store));
+  const unavailable = new Set();
+  for (const active of jobs) for (const item of active.objects) {
+    unavailable.add(item.source);
+    if (active.id !== job.id) unavailable.add(item.destination);
+  }
+  const next = keys.map(({ key: path }) => path).filter((path) => path.endsWith(".md") &&
+    !unavailable.has(path) && (!job.reference_after || path > job.reference_after)).sort()[0];
+  if (next) await measure("next note and collaboration base", async () => {
+    const object = await getWithLegacyFallback(store, next);
+    if (object) await generatedCollaborationBase(store, next, await object.text());
+  });
+  rows.push(`inventory count: ${keys.length}`);
+  return toolText(rows.join("\n"));
 }
