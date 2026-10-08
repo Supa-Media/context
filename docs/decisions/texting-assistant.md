@@ -271,6 +271,35 @@ money while free credit remained; taking the gateway address from config text
 without the shape check would let a misconfiguration send our token anywhere.
 The test that fails is `apps/mcp/test/agentGateway.test.mjs`.
 
+### Other providers' models and routes go through the same gateway, Unified Billing only
+
+Decided by the owner, 2026-10-08 ("cost first, then providers"): a setup may
+name a model from Cloudflare's catalog (`openai/…`, `google/…`, `xai/…`,
+`groq/…`, `mistral/…`, `deepseek/…`, `cerebras/…`, `perplexity/…`) or one of
+the gateway's dynamic routes (`dynamic/<name>`), which pick among models by
+rules, budgets and percentages set in the Cloudflare dashboard. Both run on
+the Workers AI binding with our gateway named, so they are paid by Unified
+Billing and no provider key exists anywhere in the deployment. Claude stays on
+its own road above, because only it has a plan credit to spend first.
+
+- Only those provider prefixes and lowercase route names are accepted, in the
+  production file and in `AGENT_BUILTIN_MODEL`
+  (`isCatalogModel`, `apps/mcp/src/agent/builtin.js`).
+- A catalog call always passes `collectLog: false` and id-only labels, for the
+  same reason as above, and is refused before anything is sent when the
+  deployment has no gateway.
+- Cached prompt tokens are split out of `prompt_tokens`, so the meter prices
+  them as cache reads.
+- The meter prices a model it has no list price for at GLM's rate. Before a
+  catalog model goes to production, add its price to `MODEL_USD_PER_MTOK`; the
+  AI costs tab's Cloudflare check shows the real bill either way.
+
+**What a simplification would cost:** accepting any `provider/model` string
+would let a production file point people's texts at an arbitrary endpoint the
+gateway forwards to; calling a catalog model without our gateway would fail on
+every turn instead of falling back. The test that fails is
+`apps/mcp/test/agentCatalog.test.mjs`.
+
 ### The agent opens only addresses it was given
 
 Decided by the owner, 2026-10-06 ("build with a swappable interface in mind,

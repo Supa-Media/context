@@ -108,7 +108,7 @@ async function run(options) {
   if (!options.fake) process.stderr.write(`Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
   const models = options.fake
     ? { gatewayFetch: fakeGateway(), ai: fakeAi() }
-    : { gatewayFetch: anthropicGateway(send), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN) };
+    : { gatewayFetch: anthropicGateway(send), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null) };
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   const records = [];

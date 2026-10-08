@@ -2,7 +2,7 @@
 // ids and tokens are invented fixtures.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claudeTransport } from "../models.mjs";
+import { claudeTransport, workersAi } from "../models.mjs";
 
 const GATEWAY = {
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
@@ -80,4 +80,23 @@ test("a half-set gateway is not a gateway, and with nothing set every call says 
   assert.equal(response.status, 401);
   assert.match((await response.json()).error.message, /AI_GATEWAY_ACCOUNT_ID/);
   assert.equal(calls.length, 0);
+});
+
+test("a catalog model goes through Cloudflare's chat API on the runner's own gateway", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200 });
+  };
+  const ai = workersAi(GATEWAY.AI_GATEWAY_ACCOUNT_ID, "fixture-workers-ai-token", "context", fetchImpl);
+  await ai.run("openai/gpt-5-mini", { messages: [] }, { gateway: { id: "bench", collectLog: false } });
+  assert.equal(calls[0].url, "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions");
+  assert.equal(calls[0].headers["cf-aig-gateway-id"], "context");
+  assert.equal(calls[0].body.model, "openai/gpt-5-mini");
+
+  await ai.run("@cf/zai-org/glm-4.7-flash", { messages: [] }).catch(() => {});
+  assert.equal(calls[1].url.endsWith("/ai/run/@cf/zai-org/glm-4.7-flash"), true);
+  assert.equal(calls[1].headers["cf-aig-gateway-id"], undefined);
+
+  await assert.rejects(() => workersAi(GATEWAY.AI_GATEWAY_ACCOUNT_ID, "t", null, fetchImpl).run("dynamic/texts", {}, { gateway: {} }), /AI_GATEWAY_ID/);
 });

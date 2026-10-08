@@ -17,7 +17,8 @@
  *
  * The file is YAML front matter and a body:
  *
- *   models.main    the built-in model (`@cf/…` or `anthropic/claude-…`)
+ *   models.main    the built-in model (`@cf/…`, `anthropic/claude-…`, a catalog
+ *                  model like `openai/gpt-…`, or a gateway route `dynamic/<name>`)
  *   tools          names the setup was proved with (recorded; not yet offered)
  *   max_steps      1-12, the most rounds a turn may take
  *   body           the whole prompt a texted turn is given
@@ -32,6 +33,7 @@
 
 import { loadPrivacyState } from "../privacy/state.js";
 import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
+import { isBuiltinModelName } from "./builtin.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -39,7 +41,6 @@ export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
 const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
 const MAX_STEPS = 12;
-const MODEL = /^(@cf\/[\w./-]{1,120}|anthropic\/claude-[a-z0-9.-]{1,64})$/;
 const TOOL = /^[a-z][a-z0-9_]{0,63}$/;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 const TOP_KEY = /^([a-z][a-z0-9_]*):(?: +(.*))?$/;
@@ -68,7 +69,7 @@ async function parse(raw) {
   if (front === null) return null;
 
   const models = front.models;
-  if (!isMap(models) || typeof models.main !== "string" || !MODEL.test(models.main)) return null;
+  if (!isMap(models) || typeof models.main !== "string" || !isBuiltinModelName(models.main)) return null;
 
   const tools = front.tools === undefined ? [] : front.tools;
   if (!Array.isArray(tools) || !tools.every((tool) => typeof tool === "string" && TOOL.test(tool))) return null;

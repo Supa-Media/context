@@ -93,17 +93,42 @@ export function anthropicGateway(send) {
   return async (_url, init) => send(init.body);
 }
 
-/** A Workers AI binding over the REST API. */
-export function workersAi(accountId, token) {
+/**
+ * A Workers AI binding over the REST API. A `@cf/` model runs as itself; a
+ * catalog model or `dynamic/` route (third argument naming a gateway) goes
+ * through Cloudflare's chat-completions API on our real gateway, paid by
+ * Unified Billing, as the product's binding call is. The world's own fake
+ * gateway id is ignored: `gatewayId` here is the runner's `AI_GATEWAY_ID`.
+ */
+export function workersAi(accountId, token, gatewayId = null, fetchImpl = realFetch) {
   return {
-    async run(model, input) {
+    async run(model, input, options) {
       if (!accountId || !token) throw new Error("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN are not set");
-      const response = await realFetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
+      const viaGateway = options?.gateway !== undefined;
+      if (viaGateway && !gatewayId) throw new Error("AI_GATEWAY_ID is not set");
+      const url = viaGateway
+        ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`
+        : `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+      const response = await fetchImpl(url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...(viaGateway
+            ? {
+                "cf-aig-gateway-id": gatewayId,
+                "cf-aig-collect-log": "false",
+                "cf-aig-metadata": JSON.stringify({ feature: "benchmark" }),
+              }
+            : {}),
+        },
+        body: JSON.stringify(viaGateway ? { model, ...input } : input),
       });
       const body = await response.json().catch(() => null);
+      if (viaGateway) {
+        if (!response.ok || !Array.isArray(body?.choices)) throw new Error(`catalog model status ${response.status}`);
+        return body;
+      }
       if (!response.ok || !body?.success) throw new Error(`workers ai status ${response.status}`);
       return body.result;
     },

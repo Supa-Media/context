@@ -621,7 +621,7 @@ export async function runAgentGatewayChecks(check) {
   );
   check(
     "a gateway with a model it cannot call falls back to Haiku",
-    builtinModel({ ...gatewayOnly, AGENT_BUILTIN_MODEL: "openai/gpt" }) === "anthropic/claude-haiku-5-5",
+    builtinModel({ ...gatewayOnly, AGENT_BUILTIN_MODEL: "evil/model" }) === "anthropic/claude-haiku-5-5",
   );
   check(
     "a gateway whose token is too short is no gateway, so GLM stays the default",
