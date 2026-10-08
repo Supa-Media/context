@@ -16,19 +16,14 @@ import { listAllKeys, listImmediateLayout, mapInBatches } from "./storage.js";
 
 /** List note objects without traversing dot-prefixed history/audit/ACL plumbing. */
 export async function listAllNoteKeys(store) {
-  // One flat walk under 4-archive can now span thousands of source and
-  // destination keys during a move. Its sequential pages outlive a gateway
-  // request. Delimit a few levels first, then walk smaller branches in
-  // parallel; the result is still the complete key set needed for bare links.
-  async function branch(prefix, depth) {
-    const first = await store.list({ prefix, limit: 1000 });
-    if (!first.truncated) return first.objects || [];
-    if (depth >= 4) return listAllKeys(store, prefix);
-    const layout = await listImmediateLayout(store, prefix);
-    const nested = await mapInBatches(layout.prefixes, 12, (child) => branch(child, depth + 1));
-    return [...layout.objects, ...nested.flat()];
-  }
-  return (await branch("", 0)).filter(
+  // A recursive delimiter walk made one or more list requests for every
+  // contact/conversation directory. Large communication trees have thousands
+  // of those directories, so a reference rewrite timed out before its first
+  // note. Partition at the workspace root, then page each root in parallel:
+  // the number of requests follows object pages rather than folder count.
+  const layout = await listImmediateLayout(store);
+  const branches = await mapInBatches(layout.prefixes, 8, (prefix) => listAllKeys(store, prefix));
+  return [...layout.objects, ...branches.flat()].filter(
     ({ key }) => key.endsWith(".md") && !isPlumbing(key)
   );
 }
