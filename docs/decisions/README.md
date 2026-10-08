@@ -275,6 +275,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The backfill percentage is derived, and inherits the census's owner-only gate
 - The switch lives in a context's settings, and the server owns who may throw it
 - Corpus statistics are per tenant, which is why it is a database each
+- The control plane's copy walks a listing of the bucket, and deletes rows for notes it lacks
 - The gateway copies the notes, and a search is what starts it
 - …and the control plane runs the same pass for a person who is not there
 - …and a search reads it, which for a year it did not
