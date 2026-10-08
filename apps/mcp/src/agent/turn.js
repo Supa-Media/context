@@ -12,9 +12,9 @@
  * ## Writes are proposals, except from a text
  *
  * The one exception is a texting turn, which edits notes directly (the owner,
- * 2026-10-08, "Edit directly"): `textingWrites.js` adds narrowed `write_note`,
- * `archive_note` and `move_note` that can change what a note says but never
- * who can see it. Everywhere else, what follows holds.
+ * 2026-10-08, "Edit directly"): `textingWrites.js` adds the connection's own
+ * MCP write tools and fields, minus public links and key material. Everywhere
+ * else, what follows holds.
  *
  * The agent is offered the read tools and `propose_note`, and never
  * `write_note`, `move_note`, `set_visibility` or anything else that changes the

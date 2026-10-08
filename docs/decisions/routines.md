@@ -147,16 +147,16 @@ texting grant alone".
 
 The owner decided on 2026-10-07 that texting "every morning tell me..." makes
 the routine file and says where it is. Since 2026-10-08 a text edits any note
-directly ([texting-assistant](./texting-assistant.md), "A text edits notes
-directly"), so routines are no longer the only write; what stays from this
+directly ([texting-assistant](./texting-assistant.md), "A text has the MCP's
+write tools"), so routines are no longer the only write; what stays from this
 decision is that a path under `routines/` must be exactly
 `routines/<schedule>/<name>.md`, in the person's own context (no `context`
 argument), checked in `src/agent/textingWrites.js`. The routine's own run is
 never offered a write, so a routine cannot rewrite itself or another one. A
 routine whose `until:` came true is archived, recoverably, and paused in place
 where the layout has no archive. Tests (`agentRoutine.test.mjs`): "a text
-never touches access, plumbing or another workspace, whatever the model
-named", "a routine's own run is never offered a write", "and stops itself,
+never publishes, touches plumbing or writes a malformed routine, whatever the
+model named", "a routine's own run is never offered a write", "and stops itself,
 recoverably".
 
 ### A routine note shows its schedule and its recent runs, and Pause is a line in the file
