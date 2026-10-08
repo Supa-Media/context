@@ -9,9 +9,9 @@ import { addFoldersLabel, mainFolderLines, rootFolderNames } from "../../files/m
 import { makeStyles } from "./styles";
 
 /**
- * "Add the five main folders?": the band for an editor whose workspace is
+ * "Add the five main folders?": the band for the owner of a workspace that is
  * missing one of the main folders. Each main folder is either named as found,
- * or said to be about to be added; "Add N folders" makes the missing ones in
+ * or listed as "+ Add <folder>"; "Add N folders" makes the missing ones in
  * order, and "Not now" is final (the answer is kept on the account).
  *
  * A failed add stays on screen with the server's sentence, and the band is not
@@ -56,8 +56,8 @@ export function MainFoldersNotice({
         {lines.map((line) => (
           <Text key={line.role} variant="meta" testID={`main-folder-line-${line.role}`}>
             {line.found === null
-              ? `+ ${line.label} will add`
-              : `✓ ${line.label} found: ${line.found}`}
+              ? `+ Add ${line.label}`
+              : `✓ ${line.label} (${line.found})`}
           </Text>
         ))}
       </View>
