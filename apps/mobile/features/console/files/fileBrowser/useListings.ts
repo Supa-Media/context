@@ -23,7 +23,7 @@ import { onMirrorListed, requestMirrorRefresh } from "../../../offline/mirrorEve
 import type { MirroredTree } from "../../../offline/mirror";
 import type { FolderListing } from "../types";
 import type { Listings } from "./types";
-import { adoptMirroredTree, wantsLiveListing } from "./liveListing";
+import { adoptMirroredTree, trustCompleteWalk, wantsLiveListing } from "./liveListing";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
@@ -241,7 +241,11 @@ export function useListings(deps: ListingsDeps) {
   const adoptTree = useCallback(
     (tree: MirroredTree, options: { fromDevice: boolean }) => {
       const listedAt = listedAtRef.current;
-      setListings((current) => adoptMirroredTree(current, tree, listedAt, options.fromDevice));
+      setListings((current) => {
+        const next = adoptMirroredTree(current, tree, listedAt, options.fromDevice);
+        trustCompleteWalk(next, tree, listedAt);
+        return next;
+      });
     },
     [],
   );
