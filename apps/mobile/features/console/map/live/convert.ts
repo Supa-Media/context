@@ -79,13 +79,36 @@ export type GraphAnswer = {
   linksCut?: boolean;
   behind?: boolean;
   indexMissing?: boolean;
+  /**
+   * The compact answer (`compact: true`): every path in chunks, and the links
+   * as flat index pairs in chunks. When present, `nodes` and `edges` are empty.
+   */
+  pathChunks?: ReadonlyArray<ReadonlyArray<string>>;
+  linkChunks?: ReadonlyArray<ReadonlyArray<number>>;
 };
+
+/** `1-projects/launch.md` → `launch`, as the server titles a note. */
+export function titleOfPath(path: string): string {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  return name.endsWith(".md") ? name.slice(0, -3) : name;
+}
+
+/** The compact answer as nodes and edges; any other answer as it is. */
+export function expandAnswer(answer: GraphAnswer): GraphAnswer {
+  if (answer.pathChunks === undefined) return answer;
+  const nodes = answer.pathChunks.flat().map((path) => ({ path, title: titleOfPath(path) }));
+  const flat = (answer.linkChunks ?? []).flat();
+  const edges: number[][] = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) edges.push([flat[i]!, flat[i + 1]!]);
+  return { ...answer, nodes, edges, pathChunks: undefined, linkChunks: undefined };
+}
 
 /** A workspace's graph, keeping only edges that join two nodes it holds. */
 export function graphFromAnswer(
-  answer: GraphAnswer,
+  compactOrNot: GraphAnswer,
   workspace: { id: string; slug: string; name: string; kind: string },
 ): WorkspaceGraph {
+  const answer = expandAnswer(compactOrNot);
   const nodes: MapNode[] = answer.nodes.map((n) => ({ path: n.path, title: n.title }));
   const seen = new Set<string>();
   const edges: [number, number][] = [];

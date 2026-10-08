@@ -63,11 +63,25 @@ export function historyPaths(events: readonly MapEvent[], graphs: readonly Works
   return out;
 }
 
+const everyNoteOf = new WeakMap<readonly WorkspaceGraph[], Set<string>>();
+
+function everyNote(graphs: readonly WorkspaceGraph[]): Set<string> {
+  const found = everyNoteOf.get(graphs);
+  if (found) return found;
+  const all = new Set<string>();
+  for (const g of graphs) for (const n of g.nodes) all.add(noteKey(g.workspaceId, n.path));
+  everyNoteOf.set(graphs, all);
+  return all;
+}
+
 /** Note keys that exist at `t`. */
 export function presentAt(graphs: readonly WorkspaceGraph[], events: readonly MapEvent[], t: number): Set<string> {
-  const present = new Set<string>();
-  for (const g of graphs) for (const n of g.nodes) present.add(noteKey(g.workspaceId, n.path));
   const later = events.filter((e) => e.at > t).sort(byTime).reverse();
+  // Most frames have nothing still to come, and then every note in the
+  // graphs is present: one set per graphs, not one per frame. Callers treat
+  // the answer as read-only.
+  if (later.length === 0 || !later.some((e) => e.kind === "create" || e.kind === "move")) return everyNote(graphs);
+  const present = new Set(everyNote(graphs));
   for (const e of later) {
     if (e.kind === "create") {
       present.delete(noteKey(e.workspaceId, e.path));

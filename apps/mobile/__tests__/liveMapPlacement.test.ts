@@ -205,11 +205,13 @@ describe("note names", () => {
     engine.renderAt(T);
     const calls = canvas.ctx.calls;
     const dots: Array<{ x: number; y: number; r: number }> = [];
-    for (let i = 0; i < calls.length; i += 1) {
-      const c = calls[i]!;
-      if (c.op !== "arc") continue;
-      const next = calls.slice(i + 1, i + 3).find((d) => d.op === "fill" || d.op === "stroke");
-      if (next?.op === "fill" && next.fillStyle === palette.dot) dots.push({ x: Number(c.args[0]), y: Number(c.args[1]), r: Number(c.args[2]) });
+    // Resting dots share one path and one fill, so every arc in a path that
+    // is filled in the dot colour is a dot.
+    let path: Array<{ x: number; y: number; r: number }> = [];
+    for (const c of calls) {
+      if (c.op === "beginPath") path = [];
+      else if (c.op === "arc") path.push({ x: Number(c.args[0]), y: Number(c.args[1]), r: Number(c.args[2]) });
+      else if (c.op === "fill" && c.fillStyle === palette.dot) dots.push(...path);
     }
     const names = texts(calls).filter((t) => t.text.startsWith("note "));
     expect(dots.length).toBeGreaterThan(20);

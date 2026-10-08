@@ -410,7 +410,7 @@ export const notePaths = action({
 
 /** See `workspaceGraphHandler` in `lib/filesFns/search.ts`. */
 export const workspaceGraph = action({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: v.id("workspaces"), compact: v.optional(v.boolean()) },
   returns: workspaceGraphValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "workspaceGraph" }>> =>
     await workspaceGraphHandler(ctx, args),
