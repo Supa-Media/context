@@ -303,7 +303,10 @@ export async function runMovesAndBatchChecks() {
   const retargetedId = retargetedMove.content[0].text.match(/move_id: (\S+)/)?.[1];
   await contextStore.put("4-archive/1-projects/retargeted/note-0.md",
     "Contact [site](https://new.example)");
-  let retargetedResult;
+  let retargetedResult = await call("priv-token", "materialize_move", {
+    id: retargetedId, batch_size: 1,
+  });
+  await contextStore.delete("4-archive/1-projects/retargeted/note-1.md");
   for (let i = 0; i < 10 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${retargetedId}.json`)); i += 1) {
     retargetedResult = await call("priv-token", "materialize_move", {
@@ -315,7 +318,9 @@ export async function runMovesAndBatchChecks() {
     !retargetedResult?.isError &&
       storedText("4-archive/1-projects/retargeted/note-0.md") ===
         "Contact [site](https://new.example)" &&
-      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-0.md")));
+      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-0.md")) &&
+      storedText("4-archive/1-projects/retargeted/note-1.md") === "record 1" &&
+      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-1.md")));
   await contextStore.delete(`.context/moves/${retargetedId}.json`);
   for (let i = 0; i < 101; i += 1) {
     await contextStore.put(`2-areas/communications/generated-conflict/note-${i}.md`,
