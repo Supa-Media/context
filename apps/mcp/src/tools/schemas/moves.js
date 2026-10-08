@@ -135,16 +135,16 @@ export function searchAndMoveToolDefinitions() {
       name: "materialize_move",
       title: "Finish folder move",
       description:
-        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set resume_background to restart a stalled queued worker.",
+        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set batch_size to 0 to inspect progress and the next pending source without changing anything. Set resume_background to restart a stalled queued worker.",
       inputSchema: {
         type: "object",
         properties: {
           id: { type: "string", description: "Logical move id returned by move_folder" },
           batch_size: {
             type: "integer",
-            minimum: 1,
+            minimum: 0,
             maximum: MOVE_MATERIALIZE_BATCH,
-            description: `Maximum objects to copy or delete this pass; default ${MOVE_MATERIALIZE_BATCH}`,
+            description: `Maximum objects to copy or delete this pass; default ${MOVE_MATERIALIZE_BATCH}. Use 0 for a read-only status check.`,
           },
           resume_background: {
             type: "boolean",
