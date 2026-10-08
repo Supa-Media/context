@@ -225,3 +225,72 @@ test("the queue consumer sanitises a move failure before the control plane sees 
     .filter((rhs) => /\btext\b/.test(rhs) && !/\bmoveErrorForControlPlane\(/.test(rhs));
   assert.deepEqual(unsanitised, []);
 });
+
+/*
+  V1'S WHOLE-INDEX QUERY DOES NOT NARROW THE CORPUS, SO WIRING IT WITHOUT THE
+  NARROWING IS THE LEAK, NOT A STYLE SLIP.
+
+  `searchIndex(index, query)` in `search/query.js` takes no visibility
+  predicate. It reads `N`, every term's `df`, `avglen` and each doc's `rank`
+  over whatever index it is handed, and `visibleIndex`'s doc comment enumerates
+  the three things a team caller then learns about notes it cannot read — which
+  term expands, and the result order twice over. The narrowing is a SEPARATE
+  function the caller is trusted to apply first.
+
+  Today nothing under `src/` calls either one: the live paths narrow elsewhere
+  (`shardQuery.js`'s `collectShardCandidates` gathers over visible docs only
+  and omits PageRank; `d1/query.js` queries one tier's table), and v1's query
+  half is reached from tests alone. So the hazard is a second caller, and it
+  arrives looking harmless — `searchIndex(index, query)` is the obvious call to
+  make and reads as complete.
+
+  The rule is therefore the pairing rather than the absence: a module that
+  queries the v1 index must also narrow it. A module that does neither is not
+  the subject. Wiring v1 back in correctly keeps this green; wiring it in bare
+  reddens it.
+
+  Two bounds, stated because an overclaimed guard is worse than a narrow one:
+  the pairing is per FILE, so a module that narrows one index and queries
+  another bare would pass, and a call made through an alias (`const q =
+  searchIndex`) is invisible to a text scan. Both are the shape guard 1 in this
+  file already accepts. What this does catch is the direct call, which is the
+  one somebody writes.
+
+  Comment lines are dropped before scanning, in both directions and for
+  opposite reasons. This very comment names `searchIndex(` with its parenthesis
+  — scanning prose would redden `query.js` for describing itself — and, the way
+  that actually matters, a file could otherwise satisfy the NARROWING half with
+  a doc comment that merely mentions `visibleIndex(...)` while its code calls
+  the query bare. The second is the hole; the first is how it was noticed.
+*/
+test("a gateway module that queries the v1 index also narrows it first", () => {
+  // Non-vacuity anchor. The pairing below is an empty-set assertion over a
+  // scan that matches nothing today, so a rename or deletion of either
+  // function would make it true for the wrong reason, permanently and
+  // silently. These two lines are what notice.
+  const queryModule = FILES.find((file) => file.path === "search/query.js");
+  assert.ok(queryModule, "search/query.js not found");
+  assert.match(queryModule.text, /^export function searchIndex\(/m);
+  assert.match(queryModule.text, /^export function visibleIndex\(/m);
+
+  // Code only: a line whose first non-space character opens or continues a
+  // comment is not a call site. Dropping whole lines rather than stripping
+  // `/* */` spans keeps a real call on a line that merely contains a `//`
+  // inside a string from being thrown away with it.
+  const code = (text) =>
+    text
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\/?\*)/.test(line))
+      .join("\n");
+
+  // `store.searchIndex` is a different thing entirely — the control plane's
+  // descriptor for the per-context search database — and appears across the
+  // gateway. Only a CALL counts, so the property access is excluded by the
+  // lookbehind, as is the definition itself.
+  const CALLS_QUERY = /(?<![.\w])(?<!function\s)searchIndex\(/;
+  const CALLS_NARROWING = /(?<![.\w])(?<!function\s)visibleIndex\(/;
+  const unnarrowed = FILES.map((file) => ({ path: file.path, text: code(file.text) }))
+    .filter((file) => CALLS_QUERY.test(file.text) && !CALLS_NARROWING.test(file.text))
+    .map((file) => file.path);
+  assert.deepEqual(unnarrowed, []);
+});
