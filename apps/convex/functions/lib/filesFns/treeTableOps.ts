@@ -35,18 +35,27 @@ import { readTreeState } from "../../../../mcp/src/tree/table.js";
 import { sweepDue, sweepTreePass } from "../../../../mcp/src/tree/sweep.js";
 import { touchTree } from "../../../../mcp/src/tree/touch.js";
 import { treeListingStore } from "../../../../mcp/src/tree/source.js";
+import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
+import { clearanceOf } from "../clearance";
+import { treeChanges } from "./treeChanges";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../d1";
 import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionClient } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
+import { treeAudiences } from "../treeAudiences";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
 /** Sweep passes one chain may run: a bound on a loop, not on any context. */
 export const TREE_SWEEP_CHAIN = 50;
 
-export type TreeOperation = Extract<FileOperation, { kind: "sweepTree" | "touchTree" | "treeState" }>;
+export type TreeOperation = Extract<FileOperation, { kind: "sweepTree" | "touchTree" | "treeState" | "treeChanges" }>;
 
 export function isTreeOperation(operation: { kind: string }): operation is TreeOperation {
-  return operation.kind === "sweepTree" || operation.kind === "touchTree" || operation.kind === "treeState";
+  return (
+    operation.kind === "sweepTree" ||
+    operation.kind === "touchTree" ||
+    operation.kind === "treeState" ||
+    operation.kind === "treeChanges"
+  );
 }
 
 /** What a tree operation answers for a context with no table to ask. */
@@ -54,7 +63,20 @@ export function noTreeTable(operation: TreeOperation): OperationResult {
   if (operation.kind === "treeState") {
     return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false, error: null };
   }
-  return { kind: "treeKept", complete: false };
+  if (operation.kind !== "treeChanges") return { kind: "treeKept", complete: false };
+  return {
+    kind: "treeChanges",
+    full: true,
+    entries: [],
+    folders: [],
+    gone: [],
+    goneFolders: [],
+    since: operation.since,
+    after: operation.after ?? "",
+    more: false,
+    privacy: null,
+    manifestUsable: true,
+  };
 }
 
 /**
@@ -157,9 +179,13 @@ async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scop
  */
 export async function manifestSource(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; scope: "private" | "team"; operation: { kind: string; source?: string; cursor?: string } },
+  args: {
+    workspaceId: Id<"workspaces">;
+    scope: "private" | "team";
+    operation: { kind: string; source?: string; cursor?: string };
+  },
   store: FileStore,
-): Promise<{ store: FileStore; source: "tree" | "bucket" }> {
+): Promise<{ store: FileStore; source: "tree" | "bucket"; since?: number; privacy?: string | null }> {
   if (args.operation.kind !== "manifest") return { store, source: "bucket" };
   if (args.operation.source !== "tree") {
     // An app that walks the bucket still starts the table filling, so it is
@@ -173,7 +199,13 @@ export async function manifestSource(
     const state = await readTreeState(client);
     if (sweepDue(state, Date.now())) await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
     if (!state.ready || state.unsupported) return { store, source: "bucket" };
-    return { store: treeListingStore(store, client) as FileStore, source: "tree" };
+    const table = { store: treeListingStore(store, client) as FileStore, source: "tree" as const };
+    if (args.operation.cursor !== undefined || state.now === null) return table;
+    // A walk's first page says where a catch-up after it starts: the table's
+    // clock and the `privacy.md` version, both read before the walk, so
+    // anything that lands during it is read again rather than missed.
+    const privacy = await loadPrivacyState(store);
+    return { ...table, since: state.now - CHANGE_OVERLAP_MS, privacy: privacy.etag };
   } catch {
     // A database that cannot be read is no table: the walk goes to the bucket.
     return { store, source: "bucket" };
@@ -194,14 +226,17 @@ async function startSweepIfDue(
 /** Run a `sweepTree` or `touchTree` with the bucket the barrier opened. */
 export async function runTreeOperation(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; scope: "private" | "team"; operation: TreeOperation },
+  args: { workspaceId: Id<"workspaces">; scope: "private" | "team"; grantedNames?: string[]; operation: TreeOperation },
   store: FileStore,
   client: ProjectionClient,
 ): Promise<OperationResult> {
   const operation = args.operation;
+  if (operation.kind === "treeChanges") {
+    return await treeChanges(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+  }
   if (operation.kind === "touchTree") {
     try {
-      await touchTree(store, client, { paths: operation.paths, files: operation.files });
+      await touchTree(store, client, { paths: operation.paths, files: operation.files, left: operation.left ?? [] });
     } finally {
       await markChanged(ctx, args.workspaceId, operation.audiences);
     }
@@ -253,7 +288,7 @@ async function markChanged(ctx: ActionCtx, workspaceId: Id<"workspaces">, audien
 export async function keepTreeAndAnnounce(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces">; scope: "private" | "team" },
-  change: { paths: string[]; files: string[]; audiences: string[] },
+  change: { paths: string[]; files: string[]; audiences: string[]; left?: { path: string; audiences: string[] }[] },
 ): Promise<void> {
   const touches = change.paths.length + change.files.length > 0;
   if (touches && (await hasTreeDatabase(ctx, args.workspaceId))) {
@@ -261,7 +296,13 @@ export async function keepTreeAndAnnounce(
       .runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
         scope: args.scope,
-        operation: { kind: "touchTree", paths: change.paths, files: change.files, audiences: change.audiences },
+        operation: {
+          kind: "touchTree",
+          paths: change.paths,
+          files: change.files,
+          audiences: change.audiences,
+          ...(change.left === undefined || change.left.length === 0 ? {} : { left: change.left }),
+        },
       })
       .then(() => true)
       .catch(() => false);
@@ -313,7 +354,13 @@ export async function announceTreeChange(
     }
     const after = await loadPrivacyState(store);
     const audiences = audiencesForChange({ change, paths, gone, before, after });
-    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files, audiences });
+    // Who could see each key this took away, by the manifest from before it:
+    // what a device catching up is told by (`treeChanges.ts`). Unknown
+    // without that manifest, and then only the owner is told.
+    const left = before === null
+      ? []
+      : [...gone].map((path) => ({ path, audiences: treeAudiences([path], before.rules, before.overrides) }));
+    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files, audiences, left });
   } catch {
     // See above: a hint is never a failed change.
   }

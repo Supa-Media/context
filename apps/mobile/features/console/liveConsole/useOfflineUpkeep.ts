@@ -78,9 +78,10 @@ export function useOfflineUpkeep({
     The two actions are bound in `mirrorActions.ts`, which says why every
     argument must be passed on.
   */
+  const syncTreeChangesAction = useAction(api.functions.treeChanges.syncTreeChanges);
   const mirrorActions = useMemo(
-    () => mirrorActionsFor({ syncManifestAction, readNotesAction }),
-    [readNotesAction, syncManifestAction],
+    () => mirrorActionsFor({ syncManifestAction, readNotesAction, syncTreeChangesAction }),
+    [readNotesAction, syncManifestAction, syncTreeChangesAction],
   );
   useMirrorSync({
     contexts: liveWorkspaces?.map((workspace) => ({

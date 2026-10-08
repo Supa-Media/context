@@ -71,3 +71,24 @@ a fixed, path-free reason. Raw errors remain in the workspace database and
 never reach staff: filenames with spaces cannot be reliably scrubbed from
 arbitrary errors. Before this, a fill that failed at the
 same key on every pass only looked slow (2026-10-08).
+
+### Apps catch up from a change log, and a deletion is told only to those who could see it
+
+*Decided 2026-10-08, owner's plan (b).* The tree table keeps `tree_log`: one
+row per key whose version changed or which left, stamped with the database's
+own clock, kept 30 days. An app's copy that walked the whole tree in the last
+hour asks `syncTreeChanges` for what changed since its cursor instead of
+walking again; a walk's first page hands out that cursor.
+
+A deletion forgets the `privacy.md` overrides that named the note, so judging
+a "gone" row by today's rules would tell a teammate the name of a note that was
+private. The row records who could see the key *before* it left, and a reader
+hears about it only when their audiences meet that set (an owner always does).
+A key that left in a way nobody recorded the audience of is told to no one, and
+the hourly walk clears it. Any change to `privacy.md`, a cursor older than the
+log, or a log that does not reach back answers `full: true`, and the app walks.
+
+What fails if reversed: `apps/mcp/test/treeChanges.test.mjs` (gone rows,
+audiences, overlap), `apps/convex/__tests__/treeChanges.test.ts` (privacy
+version and `full`), and `apps/mobile/__tests__/offlineMirrorChanges.test.ts`
+(a catch-up never prunes what it did not hear about).

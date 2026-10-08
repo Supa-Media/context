@@ -120,6 +120,23 @@ describe("which store a sidebar walk reads", () => {
     expect(scheduled.map((args) => args.operation)).toEqual([{ kind: "sweepTree", passes: 0 }]);
   });
 
+  test("a table walk's first page says where a catch-up after it starts", async () => {
+    const store = bucket();
+    store.seed("privacy.md", "# Privacy\n");
+    await sweepTreePass(store, database);
+    const { ctx } = fakeCtx({ target: true });
+    const first = await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest", source: "tree" } }, store);
+    expect(first.privacy).toBe((await store.get("privacy.md"))!.etag);
+    expect(first.since).toBeLessThan(Date.now());
+    const later = await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest", source: "tree", cursor: "a" } }, store);
+    expect(later.since).toBeUndefined();
+  });
+
+  test("a catch-up for a context with no table walks instead", () => {
+    expect(ops.noTreeTable({ kind: "treeChanges", since: 5 })).toMatchObject({ kind: "treeChanges", full: true, since: 5 });
+    expect(ops.noTreeTable({ kind: "sweepTree" })).toEqual({ kind: "treeKept", complete: false });
+  });
+
   test("a swept table is read, and a fresh one starts nothing", async () => {
     const store = bucket();
     await sweepTreePass(store, database);
@@ -190,6 +207,30 @@ describe("a console change", () => {
       database,
     );
     expect(after.scheduled).toEqual([]);
+  });
+
+  test("a deleted note carries who could see it before, not who could after", async () => {
+    const { ctx, scheduled } = fakeCtx({ target: true });
+    const store = bucket();
+    const before = {
+      rules: [{ prefix: "1-projects/", vis: "team" as const }],
+      overrides: new Map([["1-projects/a.md", "private" as const]]),
+      text: "",
+      etag: "p",
+      invalid: false,
+    };
+    await ops.announceTreeChange(
+      ctx,
+      store,
+      ARGS,
+      { paths: ["1-projects/a.md"], narrows: true, gone: ["1-projects/a.md"] },
+      { kind: "deleted", paths: ["1-projects/a.md"] } as never,
+      before as never,
+    );
+    const touch = scheduled.map((args) => args.operation).find((operation) => operation.kind === "touchTree") as
+      | { left?: { path: string; audiences: string[] }[] }
+      | undefined;
+    expect(touch?.left).toEqual([{ path: "1-projects/a.md", audiences: ["private"] }]);
   });
 
   test("a sweep that finished schedules no further pass", async () => {

@@ -45,10 +45,30 @@
  *  - a completed sweep deletes every row nobody has observed since the sweep
  *    began, which is how a key deleted outside the product leaves.
  *
+ * ## What changed since: the log
+ *
+ * `at` is "last observed", and a sweep observes every row, so it cannot say
+ * what *changed*. `tree_log` can: one row per key whose version changed, that
+ * appeared, or that left, stamped with the database's own clock (`LOG_NOW_SQL`),
+ * so a device that asks "what changed since my last sync" compares one clock
+ * with itself, never a phone's with a server's. A row that left keeps, when
+ * the writer knew them, the tree-hint audiences that could see it before it
+ * left (`audiences`): that, and not today's `privacy.md`, is what decides who
+ * may hear of it, because a delete forgets the exception that held a note
+ * back (`changes.js`).
+ *
  * Every value reaches SQL through a placeholder. Batches travel as one JSON
  * parameter read back with `json_each`, because D1 binds at most a hundred
  * parameters to a statement.
  */
+
+/**
+ * The database's clock in epoch ms. `julianday` rather than `unixepoch`
+ * because it is in every SQLite D1 has ever run, and this statement rides in
+ * the search projection's own batch, where an unknown function would fail
+ * the save it travels with.
+ */
+export const LOG_NOW_SQL = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
 
 /** The tables. Created by the first sweep, so an existing database needs no migration step. */
 export const TREE_STATEMENTS = Object.freeze([
@@ -70,6 +90,16 @@ export const TREE_STATEMENTS = Object.freeze([
      key   TEXT PRIMARY KEY,
      value TEXT NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS tree_log (
+     path      TEXT PRIMARY KEY,
+     at        INTEGER NOT NULL,
+     gone      INTEGER NOT NULL,
+     audiences TEXT
+   ) WITHOUT ROWID`,
+  "CREATE INDEX IF NOT EXISTS tree_log_by_at ON tree_log (at, path)",
+  // When the log began: a device last synced before it reads the whole table.
+  `INSERT INTO index_state (key, value) VALUES ('tree_log_start', CAST(${LOG_NOW_SQL} AS TEXT))
+   ON CONFLICT(key) DO NOTHING`,
 ]);
 
 /** `index_state` keys, all prefixed so they cannot collide with the search backfill's. */
@@ -92,6 +122,8 @@ export const TREE_STATE = Object.freeze({
   error: "tree_error",
   /** When it failed, epoch ms. */
   errorAt: "tree_error_at",
+  /** When `tree_log` began, epoch ms by the database's clock. */
+  logFrom: "tree_log_start",
 });
 
 /** Rows one read returns. Small enough that a page of long paths stays far under a 1MB response. */
@@ -156,8 +188,23 @@ export function rowOf(object) {
  * would tell a device's copy that a changed note is unchanged.
  */
 export function observeStatements(rows, at) {
-  return chunks(rows, TREE_WRITE_ROWS).map((group) => ({
-    sql: `INSERT INTO tree (path, etag, size, uploaded, at)
+  return chunks(rows, TREE_WRITE_ROWS).flatMap((group) => [
+    // Logged first, against the row as it was: new, or a version that changes.
+    {
+      sql: `INSERT INTO tree_log (path, at, gone, audiences)
+            SELECT json_extract(j.value, '$[0]'), ${LOG_NOW_SQL}, 0, NULL
+            FROM json_each(?2) AS j
+            WHERE NOT EXISTS (
+              SELECT 1 FROM tree_gone AS g WHERE g.path = json_extract(j.value, '$[0]') AND g.at > ?1
+            ) AND NOT EXISTS (
+              SELECT 1 FROM tree AS t WHERE t.path = json_extract(j.value, '$[0]')
+                AND (t.at > ?1 OR t.etag IS json_extract(j.value, '$[1]'))
+            )
+            ON CONFLICT(path) DO UPDATE SET at = excluded.at, gone = 0, audiences = NULL`,
+      params: [at, JSON.stringify(group)],
+    },
+    {
+      sql: `INSERT INTO tree (path, etag, size, uploaded, at)
           SELECT json_extract(j.value, '$[0]'), json_extract(j.value, '$[1]'),
                  json_extract(j.value, '$[2]'), json_extract(j.value, '$[3]'), ?1
           FROM json_each(?2) AS j
@@ -169,22 +216,37 @@ export function observeStatements(rows, at) {
             size = CASE WHEN excluded.at >= tree.at THEN coalesce(excluded.size, tree.size) ELSE tree.size END,
             uploaded = CASE WHEN excluded.at >= tree.at THEN coalesce(excluded.uploaded, tree.uploaded) ELSE tree.uploaded END,
             at = max(tree.at, excluded.at)`,
-    params: [at, JSON.stringify(group)],
-  }));
+      params: [at, JSON.stringify(group)],
+    },
+  ]);
 }
 
-/** Keys observed absent at `at`: tombstoned, and their rows removed unless observed since. */
-export function goneStatements(paths, at) {
-  return chunks(paths, TREE_WRITE_ROWS).flatMap((group) => {
+/**
+ * Keys observed absent at `at`: tombstoned, logged as left, and their rows
+ * removed unless observed since. `audiences` maps a key to the tree-hint
+ * audiences that could see it before it left, where the writer knew them; a
+ * key it does not name is logged with none, which only the owner is told of.
+ */
+export function goneStatements(paths, at, audiences = new Map()) {
+  const items = paths.map((path) => [path, audiences.get(path) ?? null]);
+  return chunks(items, TREE_WRITE_ROWS).flatMap((group) => {
     const json = JSON.stringify(group);
     return [
       {
-        sql: `INSERT INTO tree_gone (path, at) SELECT j.value, ?1 FROM json_each(?2) AS j WHERE true
+        sql: `INSERT INTO tree_log (path, at, gone, audiences)
+              SELECT json_extract(j.value, '$[0]'), ${LOG_NOW_SQL}, 1, json_extract(j.value, '$[1]')
+              FROM json_each(?2) AS j
+              WHERE EXISTS (SELECT 1 FROM tree AS t WHERE t.path = json_extract(j.value, '$[0]') AND t.at <= ?1)
+              ON CONFLICT(path) DO UPDATE SET at = excluded.at, gone = 1, audiences = excluded.audiences`,
+        params: [at, json],
+      },
+      {
+        sql: `INSERT INTO tree_gone (path, at) SELECT json_extract(j.value, '$[0]'), ?1 FROM json_each(?2) AS j WHERE true
               ON CONFLICT(path) DO UPDATE SET at = max(tree_gone.at, excluded.at)`,
         params: [at, json],
       },
       {
-        sql: `DELETE FROM tree WHERE path IN (SELECT j.value FROM json_each(?2) AS j) AND at <= ?1`,
+        sql: `DELETE FROM tree WHERE path IN (SELECT json_extract(j.value, '$[0]') FROM json_each(?2) AS j) AND at <= ?1`,
         params: [at, json],
       },
     ];
@@ -202,6 +264,12 @@ export function vanishedStatements(prefix, since) {
   const params = end === null ? [since, prefix] : [since, prefix, end];
   return [
     {
+      sql: `INSERT INTO tree_log (path, at, gone, audiences)
+            SELECT path, ${LOG_NOW_SQL}, 1, NULL FROM tree WHERE ${range} AND at < ?1 AND true
+            ON CONFLICT(path) DO UPDATE SET at = excluded.at, gone = 1, audiences = NULL`,
+      params,
+    },
+    {
       sql: `INSERT INTO tree_gone (path, at) SELECT path, ?1 FROM tree WHERE ${range} AND at < ?1 AND true
             ON CONFLICT(path) DO UPDATE SET at = max(tree_gone.at, excluded.at)`,
       params,
@@ -210,9 +278,12 @@ export function vanishedStatements(prefix, since) {
   ];
 }
 
-/** Tombstones old enough that no pass still running could be racing them. */
+/** Tombstones and log rows old enough that no pass, and no device's catch-up, still needs them. */
 export function pruneStatements(now) {
-  return [{ sql: "DELETE FROM tree_gone WHERE at < ?1", params: [now - TOMBSTONE_MS] }];
+  return [
+    { sql: "DELETE FROM tree_gone WHERE at < ?1", params: [now - TOMBSTONE_MS] },
+    { sql: `DELETE FROM tree_log WHERE at < ${LOG_NOW_SQL} - ?1`, params: [TOMBSTONE_MS] },
+  ];
 }
 
 export function setStateStatements(entries) {
@@ -238,7 +309,10 @@ export async function ensureTreeTables(client) {
 export async function readTreeState(client) {
   let rows;
   try {
-    rows = await client.query("SELECT key, value FROM index_state WHERE key LIKE 'tree_%'");
+    rows = await client.query(
+      `SELECT key, value FROM index_state WHERE key LIKE 'tree_%'
+       UNION ALL SELECT 'now', CAST(${LOG_NOW_SQL} AS TEXT)`,
+    );
   } catch (error) {
     if (/no such table/i.test(String(error?.message ?? ""))) rows = [];
     else throw error;
@@ -258,6 +332,9 @@ export async function readTreeState(client) {
     unsupported: values.get(TREE_STATE.unsupported) === "1",
     error: values.get(TREE_STATE.error) ?? null,
     errorAt: number(TREE_STATE.errorAt),
+    logFrom: number(TREE_STATE.logFrom),
+    /** The database's clock as of this read, or null where there is no table to ask. */
+    now: number("now"),
   };
 }
 

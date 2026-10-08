@@ -15,11 +15,13 @@ describe("mirrorActionsFor", () => {
       cursor: null,
     }));
     const readNotesAction = jest.fn(async () => ({ results: [] }));
+    const syncTreeChangesAction = jest.fn(async () => ({ full: true }));
     const actions = mirrorActionsFor({
       syncManifestAction: syncManifestAction as never,
       readNotesAction: readNotesAction as never,
+      syncTreeChangesAction: syncTreeChangesAction as never,
     });
-    return { actions, syncManifestAction, readNotesAction };
+    return { actions, syncManifestAction, readNotesAction, syncTreeChangesAction };
   }
 
   it("passes source and cursor through to the manifest", async () => {
@@ -49,5 +51,11 @@ describe("mirrorActionsFor", () => {
       workspaceId: "ws1",
       paths: ["a.md"],
     });
+  });
+
+  it("passes the whole change cursor through", async () => {
+    const { actions, syncTreeChangesAction } = bind();
+    await actions.syncTreeChanges!({ workspaceId: "ws1", since: 5, after: "a.md", privacy: "e1" });
+    expect(syncTreeChangesAction).toHaveBeenCalledWith({ workspaceId: "ws1", since: 5, after: "a.md", privacy: "e1" });
   });
 });

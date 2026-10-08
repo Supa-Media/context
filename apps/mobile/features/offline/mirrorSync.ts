@@ -12,6 +12,9 @@ import {
 import type { MirrorStore } from "./mirrorStoreCore";
 import type { OpenNote, Visibility } from "../console/files/types";
 import type { VisibilityTier } from "../console/visibility";
+import { listForSync, type ContextListing } from "./mirrorListing";
+
+export { MAX_MANIFEST_PAGES, listContext, listForSync, type ContextListing } from "./mirrorListing";
 
 /**
  * Keeping the mirror in step with the bucket: list, compare, fetch, prune.
@@ -84,6 +87,24 @@ export interface ManifestPage {
   cursor: string | null;
   truncated: boolean;
   manifestUsable: boolean;
+  /** First page of a tree table walk: where a catch-up after it starts. */
+  since?: number;
+  /** First page of a tree table walk: the `privacy.md` version it was judged by. */
+  privacy?: string | null;
+}
+
+/** One page of the server's change log. Mirrors `TreeChangesResult` on the server. */
+export interface ChangesPage {
+  full: boolean;
+  entries: ManifestEntry[];
+  folders: ManifestFolder[];
+  gone: string[];
+  goneFolders: string[];
+  since: number;
+  after: string;
+  more: boolean;
+  privacy: string | null;
+  manifestUsable: boolean;
 }
 
 /** One `readNotes` result. Mirrors `BatchRead` in `lib/fileOps.ts`. */
@@ -103,6 +124,8 @@ export interface MirrorSyncDeps {
   store: MirrorStore;
   /** Must reject rather than hang — the caller wraps the Convex action in a timeout. */
   manifest: (workspaceId: string, cursor: string | undefined) => Promise<ManifestPage>;
+  /** What changed since a cursor (`syncTreeChanges`). Absent: every run walks. Must reject rather than hang. */
+  changes?: (workspaceId: string, cursor: { since: number; after: string; privacy: string }) => Promise<ChangesPage>;
   readNotes: (workspaceId: string, paths: string[]) => Promise<BatchRead[]>;
   /** Which versions local work is based on, asked before every write-back. */
   needed: (workspaceId: string) => Promise<Needed>;
@@ -141,121 +164,7 @@ export const COMMIT_NOTES = 250;
 export const COMMIT_BYTES = 4 * 1024 * 1024;
 /** Batches in flight within one context. */
 export const MIRROR_CONCURRENCY = 2;
-/**
- * Manifest pages one run will follow. Ten thousand entries a page, so this is
- * a million notes — a bound on a loop, not on a context anybody has.
- */
-export const MAX_MANIFEST_PAGES = 100;
 
-/**
- * What one walk of a context's manifest found: the metadata, before a single
- * body is read. The console's tree is drawn from this; the bodies follow.
- */
-export interface ContextListing {
-  workspaceId: string;
-  scope: CacheScope;
-  listed: Map<string, ManifestEntry>;
-  /**
-   * The folders, exactly, when the server said them on every page; `null` for
-   * a server older than the field, where a folder is whatever paths imply.
-   */
-  folders: Map<string, Visibility> | null;
-  complete: boolean;
-  incomplete?: IncompleteReason;
-  manifestUsable: boolean;
-  /** When the walk started — what the listing is at least as new as. */
-  listedAt: number;
-}
-
-/**
- * Walk a context's manifest. `null` when there is nothing this run may do for
- * it, `"aborted"` when the session ended part-way, and an empty `listed` with
- * `incomplete` when not one page arrived.
- */
-export async function listContext(
-  deps: Pick<MirrorSyncDeps, "manifest" | "mine" | "now" | "maxPages">,
-  target: { workspaceId: string; tier: VisibilityTier },
-): Promise<(ContextListing & { pagesListed: number }) | "aborted" | null> {
-  /*
-    `unknown` downloads nothing and deletes nothing. It is the moment before a
-    role has landed, or a role a newer control plane invented, and there is no
-    honest clearance to file a copy under — `keys.ts` argues it for the cache
-    and it is the same argument here. It is also not a reason to *prune*: an
-    unknown clearance is not a smaller one.
-  */
-  if (target.tier === "unknown") return null;
-  const scope: CacheScope = target.tier;
-  const { workspaceId } = target;
-  if (!deps.mine()) return null;
-  const listedAt = deps.now();
-
-  const listed = new Map<string, ManifestEntry>();
-  let folders: Map<string, Visibility> | null = new Map();
-  let complete = true;
-  let incomplete: IncompleteReason | undefined;
-  let manifestUsable = true;
-  let cursor: string | undefined;
-  const seenCursors = new Set<string>();
-  const maxPages = deps.maxPages ?? MAX_MANIFEST_PAGES;
-  let pagesListed = 0;
-
-  for (let page = 0; ; page += 1) {
-    if (page >= maxPages) {
-      complete = false;
-      incomplete = "manifest-truncated";
-      break;
-    }
-    let result: ManifestPage;
-    try {
-      result = await deps.manifest(workspaceId, cursor);
-    } catch {
-      // Offline, timed out, refused — a listing that stopped is a floor.
-      complete = false;
-      incomplete = "interrupted";
-      break;
-    }
-    if (!deps.mine()) return "aborted";
-    pagesListed += 1;
-    manifestUsable = result.manifestUsable;
-    for (const entry of result.entries) {
-      if (entry.path.endsWith("/")) continue;
-      listed.set(entry.path, entry);
-    }
-    // One page without the field and the set is not exact: a folder another
-    // page would have named is missing, and "missing" must not read as "gone".
-    if (Array.isArray(result.folders) && folders !== null) {
-      for (const folder of result.folders) folders.set(folder.path, folder.visibility);
-    } else {
-      folders = null;
-    }
-    if (result.truncated) {
-      complete = false;
-      incomplete = "manifest-truncated";
-      break;
-    }
-    if (result.cursor === null) break;
-    if (result.cursor === cursor || seenCursors.has(result.cursor)) {
-      // A cursor that does not move would loop forever; the server already
-      // refuses to hand one out, and this refuses to trust that it did.
-      complete = false;
-      incomplete = "manifest-truncated";
-      break;
-    }
-    seenCursors.add(result.cursor);
-    cursor = result.cursor;
-  }
-  return {
-    workspaceId,
-    scope,
-    listed,
-    folders,
-    complete,
-    ...(incomplete === undefined ? {} : { incomplete }),
-    manifestUsable,
-    listedAt,
-    pagesListed,
-  };
-}
 
 /**
  * Commit a listing's metadata to the index, before any body is fetched.
@@ -302,25 +211,32 @@ export async function commitListing(
         ...(!isNotePath(entry.path) ? { etag: entry.etag ?? "" } : {}),
       });
     }
-    if (complete) {
-      for (const path of [...index.entries.keys()]) {
-        if (listed.has(path)) continue;
-        await store.removeBody(scope, workspaceId, "current", path);
-        await store.removeBody(scope, workspaceId, "base", path);
-        index.entries.delete(path);
-        pruned += 1;
-      }
+    const delta = listing.delta;
+    // A catch-up prunes exactly what it names; a complete walk, what it did not.
+    const leaving = delta ? [...delta.gone] : complete ? [...index.entries.keys()].filter((path) => !listed.has(path)) : [];
+    for (const path of leaving) {
+      if (!index.entries.has(path)) continue;
+      await store.removeBody(scope, workspaceId, "current", path);
+      await store.removeBody(scope, workspaceId, "base", path);
+      index.entries.delete(path);
+      pruned += 1;
     }
-    if (listing.folders !== null && complete) {
+    if (delta) {
+      for (const folder of delta.goneFolders) index.folders.delete(folder);
+      for (const [folder, visibility] of listing.folders ?? []) index.folders.set(folder, visibility);
+    } else if (listing.folders !== null && complete) {
       index.folders = new Map(listing.folders);
     } else if (listing.folders !== null) {
       for (const [folder, visibility] of listing.folders) index.folders.set(folder, visibility);
     } else if (complete) {
       pruneUnoccupiedFolders(index);
     }
-    index.listedComplete = complete;
+    // A catch-up from a whole listing leaves it whole.
+    if (!delta) index.listedComplete = complete;
     index.listedAt = listing.listedAt;
     index.manifestUsable = listing.manifestUsable;
+    if (listing.changes) index.changes = listing.changes;
+    else if (listing.changes === null || !delta) delete index.changes;
     return true;
   });
   return committed ? { pruned } : null;
@@ -335,7 +251,7 @@ export async function refreshMetadata(
   deps: MirrorSyncDeps,
   target: { workspaceId: string; tier: VisibilityTier },
 ): Promise<boolean> {
-  const listing = await listContext(deps, target);
+  const listing = await listForSync(deps, target);
   if (listing === null || listing === "aborted" || listing.pagesListed === 0) return false;
   const committed = await commitListing(deps, listing);
   if (committed !== null && deps.mine()) deps.onListed?.(listing.workspaceId);
@@ -347,7 +263,7 @@ export async function syncContext(
   deps: MirrorSyncDeps,
   target: { workspaceId: string; tier: VisibilityTier },
 ): Promise<MirrorRun | null> {
-  const listing = await listContext(deps, target);
+  const listing = await listForSync(deps, target);
   if (listing === null) return null;
   if (listing === "aborted") return abortedRun(target);
   return fetchContext(deps, listing, { committed: false });
@@ -557,7 +473,7 @@ async function fetchContext(
     // not the listing around it finished.
     for (const path of gone) if (index.entries.has(path)) await drop(path);
 
-    if (complete && !superseded) {
+    if (complete && !superseded && listing.delta === undefined) {
       for (const path of [...index.entries.keys()]) {
         if (!listed.has(path)) await drop(path);
       }
@@ -688,7 +604,7 @@ export async function syncAll(
   const runs: MirrorRun[] = [];
   for (const target of targets) {
     if (!deps.mine()) return runs;
-    const listing = await listContext(deps, target);
+    const listing = await listForSync(deps, target);
     if (listing === null) continue;
     if (listing === "aborted") {
       runs.push(abortedRun(target));

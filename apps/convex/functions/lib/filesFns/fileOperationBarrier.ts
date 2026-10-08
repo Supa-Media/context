@@ -423,7 +423,7 @@ export async function runFileOperationHandler(
     ? asRelocation(store, operate)
     : operate()
   ).catch(rethrowUnreadable);
-  if (result.kind === "manifest") result.source = listing.source;
+  if (result.kind === "manifest") Object.assign(result, { source: listing.source }, listing.since === undefined ? {} : { since: listing.since, privacy: listing.privacy ?? null });
 
   // Website rows are a derivative of bucket bytes. Mark a complete snapshot
   // stale after the canonical write lands; failure here never rewrites the
