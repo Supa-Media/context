@@ -101,7 +101,7 @@ export function ManagedConfirm({
   const styles = useThemedStyles(makeStyles);
   const free = status.stagingFreeStorage === true;
   const price = formatPrice(status);
-  const chosen = status.selected.managedStorage || status.selected.fastSearch;
+  const chosen = status.selected.managedStorage;
 
   return (
     <View>
@@ -187,7 +187,7 @@ export function ManagedConfirm({
       {chosen ? null : (
         <Hint style={styles.gap}>
           <Text variant="rowSub">
-            Tick managed storage, fast search, or both to continue.
+            Tick managed storage to continue.
           </Text>
         </Hint>
       )}

@@ -319,6 +319,14 @@ export function noteworthySources(answer: BlendedAnswer | null): {
 /*                        the upsell, beside a working search                 */
 /* -------------------------------------------------------------------------- */
 
+/*
+  Fast search is not part of Premium. Since 2026-10-08 it is on for every
+  workspace, free or paid, and its owner switches it under Storage & search. So
+  nothing in this section sells it: the only offer is "turn it on" for an owner
+  whose switch is off, and a context whose hosted index is unavailable is said
+  to be searched from its own bucket, with no press at all.
+*/
+
 /**
  * A row of the upsell: one context that answered the slow way, what to say
  * about it, and — only where there is something to press — where that press
@@ -346,28 +354,22 @@ export interface UpsellRow {
 /**
  * Where an upsell row's press goes, by what is actually in the way.
  *
- * Two destinations, because `lib/fastSearch.ts` keeps two conditions apart and
- * this is the surface where that separation earns itself: "you are not paying
- * for this" and "you have not asked for this" are different sentences with
- * different next steps, and one of them must never be answered by the other's
- * screen. An owner who has not paid is sent to Premium; an owner who has is
- * sent to the switch — which is a block on Storage now rather than a section
- * called Search, so the target names the screen that holds it. The separation
- * these two keep is the point and is unchanged; only one of the destinations
- * was renamed under it.
+ * One destination: the switch under Storage & search, which is where an owner
+ * turns fast search on or off. A context whose hosted index is `unavailable`
+ * has no switch to offer, so it gets no press.
  */
-export type UpsellTarget = "premium" | "storage";
+export type UpsellTarget = "storage";
 
 export function upsellTarget(context: SearchableContext): UpsellTarget | null {
   if (!context.owner) return null;
   switch (context.fastSearch) {
-    case "unavailable":
-      return "premium";
     case "off":
     case "failed":
       return "storage";
     // Nothing to press. A backfill in progress is not sped up by opening its
-    // settings, and a context already serving is not in this list at all.
+    // settings, a context whose index is unavailable has no switch to open, and
+    // a context already serving is not in this list at all.
+    case "unavailable":
     case "preparing":
     case "on":
       return null;
@@ -392,9 +394,7 @@ export function upsellTarget(context: SearchableContext): UpsellTarget | null {
 export function upsellMessage(context: SearchableContext): string {
   switch (context.fastSearch) {
     case "unavailable":
-      return context.owner
-        ? `@${context.slug} was searched from your own bucket, which is slower. Fast search is part of Premium.`
-        : `@${context.slug} was searched from its own bucket, which is slower.`;
+      return `@${context.slug} was searched from its own bucket, which is slower.`;
     case "off":
       return context.owner
         ? `@${context.slug} was searched from your own bucket, which is slower. Fast search makes it instant.`
@@ -416,8 +416,6 @@ export function upsellMessage(context: SearchableContext): string {
 /** The press's own label, or `null` where there is nothing to press. */
 export function upsellAction(context: SearchableContext): string | null {
   switch (upsellTarget(context)) {
-    case "premium":
-      return "See Premium";
     case "storage":
       return "Turn it on";
     case null:

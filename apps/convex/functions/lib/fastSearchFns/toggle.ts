@@ -8,7 +8,7 @@
 
 import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
-import type { Id } from "../../../_generated/dataModel";
+import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { requireWorkspaceRole } from "../workspaceAuth";
@@ -18,7 +18,7 @@ import {
   fastSearchState,
   type FastSearchState,
 } from "../fastSearch";
-import { bindingFor, planFor, requireUserId } from "./helpers";
+import { bindingFor, requireUserId } from "./helpers";
 
 export async function enableHandler(
   ctx: MutationCtx,
@@ -32,8 +32,7 @@ export async function enableHandler(
     "owner",
   );
 
-  const plan = await planFor(ctx, args.workspaceId);
-  if (!fastSearchEntitled(workspace, plan)) {
+  if (!fastSearchEntitled(workspace)) {
     throw new ConvexError({
       code: "NOT_ENTITLED",
       message: "Fast search is not available for this context.",
@@ -41,35 +40,71 @@ export async function enableHandler(
   }
 
   const existing = await bindingFor(ctx, args.workspaceId);
-  const now = Date.now();
-
-  if (existing !== null && existing.optedIn && existing.status !== "failed") {
+  if (
+    existing !== null &&
+    existing.generation === FAST_SEARCH_GENERATION &&
+    existing.optedIn &&
+    existing.status !== "failed"
+  ) {
     // Already on or on its way. Not an error, and not a second database.
     //
     // `failed` is excluded, and that exclusion is the whole point of the
-    // condition rather than a refinement of it. A failed row keeps
-    // `optedIn: true` — nobody opted out, the provision fell over — so
-    // without this clause every retry landed here and returned the failure
-    // it was called to clear: no patch, no schedule, no write of any kind.
-    // The card's "Try again" was inert for the one state that renders it,
-    // and the branch immediately below, whose comment already said "a failed
-    // one being retried", was unreachable from the moment it was written.
-    // Shipped that way, and found only by reading `updatedAt` on a row a
-    // person had pressed the button on repeatedly: it still held the
-    // timestamp of the original failure, hours earlier.
-    return { state: fastSearchState(workspace, plan, existing) };
+    // condition rather than a refinement of it: a failed row keeps
+    // `optedIn: true`, so without this clause "Try again" returned the
+    // failure it was called to clear and wrote nothing.
+    return { state: fastSearchState(workspace, existing) };
   }
 
+  await turnOn(ctx, args.workspaceId, existing, userId);
+  await recordAudit(ctx, {
+    workspaceId: args.workspaceId,
+    actorUserId: userId,
+    action: "search.fast_enabled",
+  });
+  return { state: "preparing" };
+}
+
+/**
+ * "On for everyone" asking for one workspace (decided by the owner,
+ * 2026-10-08). It only ever creates a row: any row at all, an owner's `off`
+ * above all, means somebody already decided, and Context does not decide over
+ * them. Returns whether it scheduled a provision.
+ */
+export async function autoEnableHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<{ scheduled: boolean }> {
+  const workspace = await ctx.db.get(args.workspaceId);
+  if (workspace === null || !fastSearchEntitled(workspace)) return { scheduled: false };
+  const existing = await bindingFor(ctx, args.workspaceId);
+  // A row from the retired generation never serves and is nobody's decision
+  // under this one, unless it records an owner's off.
+  const legacy = existing !== null && existing.generation !== FAST_SEARCH_GENERATION;
+  if (existing !== null && !(legacy && existing.optedOut !== true)) return { scheduled: false };
+  await turnOn(ctx, args.workspaceId, existing, undefined);
+  return { scheduled: true };
+}
+
+/**
+ * Switch a row on and schedule the provisioner. An existing row (`releasing`,
+ * `failed` or `off`) is reused rather than racing a second one against the
+ * unique lookup, and keeps `databaseId` if a release had not finished, so the
+ * sweep still knows what to delete if this fails again.
+ */
+async function turnOn(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  existing: Doc<"searchIndexes"> | null,
+  by: Id<"users"> | undefined,
+): Promise<void> {
+  const now = Date.now();
   if (existing !== null) {
-    // A row that is `releasing`, or a failed one being retried. Re-opting in
-    // reuses the row rather than racing a second one against the unique
-    // lookup — and deliberately keeps `databaseId` if the release had not
-    // finished, so the sweep still knows what to delete if this fails again.
     await ctx.db.patch(existing._id, {
       generation: FAST_SEARCH_GENERATION,
       optedIn: true,
-      optedInBy: userId,
+      optedInBy: by,
       optedInAt: now,
+      optedOut: undefined,
       status: "provisioning",
       errorCode: undefined,
       error: undefined,
@@ -86,30 +121,21 @@ export async function enableHandler(
     });
   } else {
     await ctx.db.insert("searchIndexes", {
-      workspaceId: args.workspaceId,
+      workspaceId,
       generation: FAST_SEARCH_GENERATION,
       optedIn: true,
-      optedInBy: userId,
+      ...(by ? { optedInBy: by } : {}),
       optedInAt: now,
       status: "provisioning",
       createdAt: now,
       updatedAt: now,
     });
   }
-
-  await recordAudit(ctx, {
-    workspaceId: args.workspaceId,
-    actorUserId: userId,
-    action: "search.fast_enabled",
-  });
-
   await ctx.scheduler.runAfter(
     0,
     internal.functions.fastSearchProvision.provisionIndex,
-    { workspaceId: args.workspaceId, generation: FAST_SEARCH_GENERATION },
+    { workspaceId, generation: FAST_SEARCH_GENERATION },
   );
-
-  return { state: "preparing" };
 }
 
 /**
@@ -135,14 +161,14 @@ export async function enableHandler(
  * a repair onto the same bucket keeps what it has, or rotating an access key
  * would cost a re-provision every time.
  *
- * ## It opts out, and that is deliberate rather than incidental
+ * ## It switches off, and the rollout switches it back on
  *
  * `releaseIndex` refuses a row that is still `optedIn`, correctly: a release in
  * flight must not delete a database the provisioner is rebuilding. So a release
- * means opting out, and somebody reconnecting storage turns fast search back on
- * themselves. Keeping the switch on through a disconnect would mean either
- * re-provisioning against a bucket that is not there, or teaching the release
- * path to ignore the flag that protects it.
+ * means switching off, and the row goes when the database does, so "on for
+ * everyone" picks the workspace up again once it reconnects storage. An
+ * owner's `off` is the exception: it is their decision, not the bucket's, and
+ * it stays.
  *
  * Internal, and no role check of its own: both callers are owner-gated
  * mutations that have already established who is asking. The audit line is
@@ -161,9 +187,9 @@ export async function releaseForStorageHandler(
     existing.generation !== FAST_SEARCH_GENERATION ||
     existing.databaseId === undefined
   ) {
-    // Nothing was ever created, so there is nothing to delete and the row is
-    // a tombstone rather than a pointer. Same branch `disable` takes.
-    await ctx.db.delete(existing._id);
+    // Nothing was ever created, so there is nothing to delete. The row goes,
+    // unless it is the owner's `off`, which outlives a disconnect.
+    if (existing.optedOut !== true) await ctx.db.delete(existing._id);
     return { releasing: false };
   }
 
@@ -180,35 +206,56 @@ export async function releaseForStorageHandler(
   return { releasing: true };
 }
 
+/**
+ * The owner's off. The database is deleted and the row stays, ending at `off`,
+ * so "on for everyone" never turns it back on; only the owner can. Off before
+ * the rollout reached this workspace is recorded the same way.
+ */
 export async function disableHandler(
   ctx: MutationCtx,
   args: { workspaceId: Id<"workspaces"> },
 ): Promise<{ state: FastSearchState }> {
   const userId = await requireUserId(ctx);
-  const { workspace } = await requireWorkspaceRole(
-    ctx,
-    args.workspaceId,
-    userId,
-    "owner",
-  );
+  await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
   const existing = await bindingFor(ctx, args.workspaceId);
-  const plan = await planFor(ctx, args.workspaceId);
-  if (existing === null) return { state: fastSearchState(workspace, plan, null) };
-
   const now = Date.now();
 
-  if (
+  if (existing === null) {
+    await ctx.db.insert("searchIndexes", {
+      workspaceId: args.workspaceId,
+      generation: FAST_SEARCH_GENERATION,
+      optedIn: false,
+      optedOut: true,
+      optedInAt: now,
+      status: "off",
+      createdAt: now,
+      updatedAt: now,
+    });
+  } else if (
     existing.generation !== FAST_SEARCH_GENERATION ||
     existing.databaseId === undefined
   ) {
-    // Nothing was ever created — a failed provision, or an opt-in that was
-    // reversed before it got that far. There is nothing to delete, so the
-    // row goes now and the context is back to "never asked".
-    await ctx.db.delete(existing._id);
+    // Nothing was ever created: a failed provision, or one reversed before it
+    // got that far. There is nothing to delete, so the row is `off` now.
+    await ctx.db.patch(existing._id, {
+      generation: FAST_SEARCH_GENERATION,
+      optedIn: false,
+      optedOut: true,
+      status: "off",
+      databaseId: undefined,
+      databaseName: undefined,
+      schemaVersion: undefined,
+      errorCode: undefined,
+      error: undefined,
+      notesIndexed: undefined,
+      notesPending: undefined,
+      updatedAt: now,
+    });
   } else {
     await ctx.db.patch(existing._id, {
       optedIn: false,
+      optedOut: true,
       status: "releasing",
       updatedAt: now,
     });

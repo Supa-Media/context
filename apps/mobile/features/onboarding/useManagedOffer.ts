@@ -167,9 +167,11 @@ export function useManagedOffer(options: {
     /*
       Pressing the card *is* choosing managed storage, so the selection is
       written on the way in rather than left to a tick box the person has
-      already ticked by pressing. Fast search is theirs to add and is not
-      assumed: the price is the same either way, and choosing it for them
-      would be choosing where a copy of their notes lives.
+      already ticked by pressing.
+
+      Fast search is not part of Premium any more (on for every workspace since
+      2026-10-08), so nothing is chosen for it here. The plan's flag is sent off,
+      as it always was for this press, and it no longer changes what is included.
     */
     if (workspaceId === null) return;
     void convex
@@ -194,7 +196,6 @@ export function useManagedOffer(options: {
       if (wouldEmptyRequiredSelection(status, value, next)) return;
       const chosen: PremiumEntitlements = { ...status.selected };
       if (value === "managedStorage") chosen.managedStorage = next;
-      if (value === "fastSearch") chosen.fastSearch = next;
       void convex
         .mutation(api.functions.billing.setEntitlements, {
           workspaceId,

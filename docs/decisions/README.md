@@ -267,6 +267,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - …and it opens the shards that can answer it, not all of them
 - The manifest is the query surface, and the diff moved out from under it
 - The console searches through the gateway's search, not a copy of it
+- Fast search is on for every workspace, free and Premium, and an owner can turn it off
 - A database we own holds a copy of somebody's notes only where they asked
 - A name already taken in our own account is this context's database
 - The gateway writes the projection, so the credential rides on the binding

@@ -34,9 +34,8 @@ import { useFieldFont } from "../../design/fieldFont";
  * context that is merely `preparing`), and a row that is not a control must
  * not look like one.
  *
- * The label comes off the row rather than being fixed here, because the two
- * destinations are different offers — "See Premium" and "Turn it on" — and a
- * single "Open settings" over both is how a paywall gets mistaken for a switch.
+ * The label comes off the row rather than being fixed here, so the press says
+ * what it does ("Turn it on") rather than a generic "Open settings".
  */
 function UpsellRowView({ row, onOpen }: { row: UpsellRow; onOpen: (href: string) => void }) {
   const styles = useThemedStyles(makeStyles);
@@ -149,11 +148,9 @@ export function SearchPane({
   /*
     The upsell's rows, built once from the contexts that answered the slow way.
 
-    `settingsHref` with the section the offer is actually about — Premium where
-    there is no entitlement, Search where there is and the switch is off. Two
-    destinations rather than one, because `lib/fastSearch.ts` keeps entitlement
-    and opt-in apart and this is the surface where sending "you have not paid"
-    to a switch they cannot throw would waste the one press they give us.
+    `settingsHref` to the Storage & search section, where the owner's switch is.
+    Fast search is on for every workspace unless its owner turned it off, so
+    there is no other place this offer could send somebody.
   */
   const upsell = useMemo(
     () => upsellRows(contexts, (slug, target: UpsellTarget) => settingsHref(slug, target)),

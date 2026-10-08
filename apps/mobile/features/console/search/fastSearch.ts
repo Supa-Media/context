@@ -198,9 +198,9 @@ export function describeFastSearch(state: FastSearchState): {
   switch (state) {
     case "off":
       return {
-        title: "Fast search",
+        title: "Fast search is off",
         blurb:
-          "Turning this on keeps a searchable copy of every note's text, private notes included, in a database Supa Media runs, and answers your searches from it so results come back instantly. Turn it off and the copy is deleted. Your notes stay in your own bucket either way.",
+          "Searches read your own bucket, which is slower. Turn it on for instant results: that keeps a searchable copy of every note's text, private notes included, in a database Supa Media runs, and answers your searches from it. Turn it off and the copy is deleted. Your notes stay in your own bucket either way.",
       };
     case "preparing":
       return {

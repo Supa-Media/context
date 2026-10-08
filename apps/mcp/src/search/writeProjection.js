@@ -4,7 +4,7 @@
  * Two derivatives. The R2 index in the customer's bucket is every context's,
  * free or paid, and a write re-indexes its own note there with a pass that
  * lists nothing (`syncShardedIndex`'s `only`, reached through `recordChange`).
- * The D1 projection is Premium's, and only once it is `ready`.
+ * The D1 projection is every workspace's (since 2026-10-08), and only once it is `ready`.
  *
  * Before the R2 half existed, a written note reached search only when a later
  * search found the index's last listing a minute old — and a search that had

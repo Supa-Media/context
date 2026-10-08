@@ -89,17 +89,15 @@ export const platformTables = {
    * Whether a context's search is served from a database Supa Media owns, and
    * which one.
    *
-   * ## A row exists only because somebody asked for one
+   * ## On for everyone, and an owner's off sticks
    *
-   * **There is no row for a context that has not opted in.** Not a row with
-   * `optedIn: false` — no row. That is the difference between a table of
-   * every customer's preference and a table of the customers who said yes,
-   * and it is the shape that makes "we hold a derived copy of your notes only
-   * where you asked us to" checkable by counting rows.
-   *
-   * A row appears when an owner turns the switch on and is **deleted**, along
-   * with the database it names, when they turn it off. A switch labelled off
-   * that leaves the derived copy in place is the switch not working.
+   * Decided by the owner on 2026-10-08 ("lets do fast search for all"),
+   * reversing the opt-in this table was first built around. The 15-minute
+   * sweep adds a row for every workspace with storage and none yet
+   * (`fastSearchFns/rollout.ts`). The owner's off deletes the database and
+   * keeps the row at `off`, so the rollout never turns it back on. A switch
+   * labelled off that leaves the derived copy in place is the switch not
+   * working.
    *
    * ## What this is not
    *
@@ -110,7 +108,7 @@ export const platformTables = {
    * nothing (CLAUDE.md, "Plain files stay canonical"). Deleting a storage
    * binding disconnects somebody's workspace.
    *
-   * The reasoning for the two-condition gate is in `functions/lib/fastSearch.ts`.
+   * The reasoning for the gate is in `functions/lib/fastSearch.ts`.
    */
   searchIndexes: defineTable({
     workspaceId: v.id("workspaces"),
@@ -132,15 +130,25 @@ export const platformTables = {
      * it knows to.
      */
     optedIn: v.boolean(),
-    /** Who turned it on, and when. Recorded because it is a consent decision. */
-    optedInBy: v.id("users"),
+    /**
+     * Who turned it on, and when. Absent when Context turned it on for
+     * everyone (decided by the owner, 2026-10-08).
+     */
+    optedInBy: v.optional(v.id("users")),
     optedInAt: v.number(),
+    /**
+     * The owner switched it off. Kept through the release, so the row ends at
+     * `off` rather than being deleted, and "on for everyone" never turns it
+     * back on; only the owner can.
+     */
+    optedOut: v.optional(v.boolean()),
     /**
      * `provisioning` → creating the remote database and applying the schema.
      * `backfilling` → schema applied, notes still being projected.
      * `ready`       → serving.
      * `failed`      → provisioning did not complete; `error` says why.
      * `releasing`   → opted out, database not yet deleted. Serves nothing.
+     * `off`         → the owner turned it off and the database is gone.
      */
     status: v.union(
       v.literal("provisioning"),
@@ -148,6 +156,7 @@ export const platformTables = {
       v.literal("ready"),
       v.literal("failed"),
       v.literal("releasing"),
+      v.literal("off"),
     ),
     /**
      * Cloudflare's uuid for the database, once it exists.
@@ -199,6 +208,17 @@ export const platformTables = {
     .index("by_workspace", ["workspaceId"])
     /** For the sweep that finishes releases and retries failures. */
     .index("by_status", ["status"]),
+
+  /**
+   * Where "on for everyone" has walked to in `storageBindings`: one row, the
+   * page cursor of the 15-minute sweep, as `meaningRollout` is for search by
+   * meaning. Holds no workspace id and no path.
+   */
+  fastSearchRollout: defineTable({
+    cursor: v.union(v.string(), v.null()),
+    laps: v.number(),
+    updatedAt: v.number(),
+  }),
 
   /**
    * What staff did on the platform, as opposed to what a member did in a

@@ -30,13 +30,3 @@ export async function bindingFor(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
 }
-
-export async function planFor(
-  ctx: QueryCtx,
-  workspaceId: Id<"workspaces">,
-): Promise<Doc<"workspacePlans"> | null> {
-  return await ctx.db
-    .query("workspacePlans")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-}

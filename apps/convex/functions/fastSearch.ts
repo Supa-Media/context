@@ -3,8 +3,7 @@
  *
  * The gate itself — what "on" means and why it is two conditions — is
  * `lib/fastSearch.ts`. This file is the surface: one query the settings screen
- * reads, two owner mutations, and the internal sync that applies a paid
- * Premium selection.
+ * reads, two owner mutations, and the internal enable "on for everyone" uses.
  *
  * ## Owner-only, and why that is not the same as write access
  *
@@ -14,13 +13,14 @@
  * exists so those can be different (CLAUDE.md, "Membership carries an explicit
  * role. Write access to someone else's context is never implied by read.").
  *
- * ## Opting out deletes, and the row survives the delete
+ * ## Off deletes, and the row survives the delete
  *
  * `disable` does not remove the row. It marks it `releasing` and schedules the
  * remote delete, because a row deleted before its database is a database
  * nothing will ever clean up — a derived copy of somebody's private notes,
- * orphaned on our infrastructure, that no code path can now find. The row is
- * removed by the release once Cloudflare confirms the database is gone.
+ * orphaned on our infrastructure, that no code path can now find. Once
+ * Cloudflare confirms the database is gone the row ends at `off`, which is
+ * what keeps "on for everyone" from turning it back on.
  *
  * A `releasing` row serves nothing: `fastSearchOptedIn` reads `optedIn`, which
  * is already false. So the moment somebody switches off, search returns to the
@@ -32,10 +32,15 @@
 
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { rolloutFastSearchStep } from "./lib/fastSearchFns/rollout";
 import { statusHandler } from "./lib/fastSearchFns/status";
 import { disableMeaningHandler } from "./lib/meaningFns/rows";
-import { disableHandler, enableHandler, releaseForStorageHandler } from "./lib/fastSearchFns/toggle";
-import { syncPremiumSelectionHandler } from "./lib/fastSearchFns/premium";
+import {
+  autoEnableHandler,
+  disableHandler,
+  enableHandler,
+  releaseForStorageHandler,
+} from "./lib/fastSearchFns/toggle";
 import { searchableContextsForHandler, searchableContextsHandler } from "./lib/fastSearchFns/scope";
 import {
   bindingForWorkspaceHandler,
@@ -67,10 +72,9 @@ export type { FastSearchStatus, SearchableContext } from "./lib/fastSearchFns/va
  *
  * Gated on `role === "owner"` and deliberately NOT on `canChange`, which is
  * ownership AND entitlement: an owner whose context is not entitled still owns
- * the notes and still gets their own progress figures. Today the two cannot
- * come apart — `fastSearchEntitled` is true for both workspace kinds and the
- * schema refuses a third — so that choice is unpinnable by any test, which
- * `fastSearch.test.ts` records rather than pretending otherwise.
+ * the notes and still gets their own progress figures. The two cannot come
+ * apart — `fastSearchEntitled` is true for both workspace kinds and the schema
+ * refuses a third.
  *
  * `error` is served to every member and that is fine, though the schema calls
  * it owner-facing: it is always `messageFor(code)` from a closed set of our own
@@ -176,20 +180,15 @@ export const disable = mutation({
 });
 
 /**
- * Apply the paid selection after Stripe activates it, or immediately when an
- * owner changes an already-active plan.
- *
- * This is deliberately a mutation rather than an action: it never opens the
- * D1 credential. It records the consent-backed generation and schedules the
- * existing provisioner, preserving the credential boundary.
+ * "On for everyone" turning it on for one workspace (decided by the owner,
+ * 2026-10-08). Creates a row only where none exists, so an owner's `off`
+ * stays off. A mutation, never opening the D1 credential: it schedules the
+ * provisioner, as `enable` does.
  */
-export const syncPremiumSelection = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorUserId: v.id("users"),
-  },
-  returns: v.object({ state: stateValidator }),
-  handler: (ctx, args) => syncPremiumSelectionHandler(ctx, args),
+export const autoEnable = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ scheduled: v.boolean() }),
+  handler: (ctx, args) => autoEnableHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -407,5 +406,9 @@ export const forgetIndex = internalMutation({
 export const sweepStalledBackfills = internalMutation({
   args: {},
   returns: v.object({ started: v.number() }),
-  handler: (ctx) => sweepStalledBackfillsHandler(ctx),
+  handler: async (ctx) => {
+    const { started } = await sweepStalledBackfillsHandler(ctx);
+    // Then one step of "on for everyone" (`fastSearchFns/rollout.ts`).
+    return { started: started + (await rolloutFastSearchStep(ctx)) };
+  },
 });

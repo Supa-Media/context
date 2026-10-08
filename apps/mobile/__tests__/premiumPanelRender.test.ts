@@ -353,8 +353,9 @@ describe("what each screen offers", () => {
     );
     expect(host.textContent ?? "").not.toContain("Tick managed storage");
     expect(host.querySelector('[data-testid="premium-entitlement-fastSearch"]')).toBeNull();
-    // Everything the plan buys is named, the domain included.
-    expect(host.textContent ?? "").toContain("Fast search");
+    // Everything the plan buys is named, the domain included. Fast search is not
+    // part of it: it is on for every workspace since 2026-10-08.
+    expect(host.textContent ?? "").not.toContain("Fast search");
     expect(host.textContent ?? "").toContain("Your own domain");
   });
 
