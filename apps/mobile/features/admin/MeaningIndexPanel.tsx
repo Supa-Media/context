@@ -81,7 +81,7 @@ export function MeaningIndexPanel() {
       <View style={styles.head}>
         <Text variant="meta" style={styles.grow}>
           Restart picks up where indexing stopped. It never turns on a workspace whose owner turned it off. Indexing
-          goes in priority order: P1 everything else, P2 the Inbox, P3 the Archive.
+          goes in priority order: T0 everything else, T1 the Inbox, T2 the Archive.
         </Text>
         <Button
           label={busy === "all" ? "Restarting…" : `Restart everything stuck (${stuck})`}
