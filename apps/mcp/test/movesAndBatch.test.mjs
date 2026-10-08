@@ -475,12 +475,24 @@ export async function runMovesAndBatchChecks() {
       firstProgressReport?.body?.result?.progress?.total === 501 &&
       !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
   );
-  for (let i = 0; i < 400 &&
+  let observedReferenceBatch = false;
+  for (let i = 0; i < 1200 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
     const message = queuedGatewayMessages.shift();
     if (!message) break;
+    const beforeText = storedText(`.context/moves/${queuedMoveId}.json`);
     await worker.queue({ messages: [{ body: message }] }, env);
+    const afterText = storedText(`.context/moves/${queuedMoveId}.json`);
+    if (!isLogicalDeleteMarker(beforeText) && !isLogicalDeleteMarker(afterText)) {
+      const before = JSON.parse(beforeText);
+      const after = JSON.parse(afterText);
+      if (before.status === "rewriting" && after.reference_scanned > (before.reference_scanned || 0)) {
+        observedReferenceBatch = after.reference_scanned - (before.reference_scanned || 0) <= 5;
+      }
+    }
   }
+  check("queue link sweeps use a smaller bounded batch while copies still use twenty",
+    observedReferenceBatch);
   check(
     "queue consumer materializes a large logical move across bounded passes",
     isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)) &&

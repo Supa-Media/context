@@ -26,7 +26,7 @@ import {
   replacePrivacyRulesBlock,
 } from "../../privacy/engine.js";
 import { loadPrivacyState } from "../../privacy/state.js";
-import { MOVE_AUTOMATIC_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
+import { MOVE_AUTOMATIC_BATCH, MOVE_AUTOMATIC_REFERENCE_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
 import {
   moveJobActive,
   moveJobKey,
@@ -191,7 +191,7 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
 
 export async function materializeMoveInBackground(store, scope, id) {
   for (let pass = 0; pass < 20; pass += 1) {
-    const result = await toolMaterializeMove(store, scope, id, MOVE_AUTOMATIC_BATCH);
+    const result = await toolMaterializeMove(store, scope, id, MOVE_AUTOMATIC_BATCH, { automatic: true });
     const text = result?.content?.[0]?.text || "";
     if (result?.isError || text.includes("complete") || text.includes("no active work")) return;
   }
@@ -372,7 +372,7 @@ async function retireMovePair(store, job, pair) {
   }
 }
 
-export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
+export async function toolMaterializeMove(store, scope, idArg, batchSizeArg, options = {}) {
   const key = moveJobKey(idArg);
   if (!key) return toolError("invalid move id");
   const marker = await getWithLegacyFallback(store, key);
@@ -418,6 +418,8 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     Number.isInteger(batchSizeArg) && batchSizeArg > 0
       ? Math.min(batchSizeArg, MOVE_MATERIALIZE_BATCH)
       : MOVE_MATERIALIZE_BATCH;
+  const referenceBatchSize = options.automatic === true
+    ? Math.min(batchSize, MOVE_AUTOMATIC_REFERENCE_BATCH) : batchSize;
   const sourcePrefix = `${job.source}/`;
   const sources = job.objects.filter(
     (item) =>
@@ -431,7 +433,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
 
   if (job.status === "rewriting") {
     try {
-      return await rewriteMoveReferences(store, scope, job, key, batchSize);
+      return await rewriteMoveReferences(store, scope, job, key, referenceBatchSize);
     } catch (error) {
       return toolError(`move ${job.id} reference rewrite paused: ${error.message}`);
     }
@@ -556,7 +558,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       { roots: [job.source], keep: [job.destination] }
     );
     await cleanupPrivacySourceAfterMove(store, job).catch(() => {});
-    return await rewriteMoveReferences(store, scope, job, key, batchSize);
+    return await rewriteMoveReferences(store, scope, job, key, referenceBatchSize);
   } catch (error) {
     job.status = job.status === "deleting" ? "needs_cleanup" :
       job.status === "rewriting" ? "rewriting" : "copying";

@@ -26,4 +26,8 @@ export const MOVE_MATERIALIZE_BATCH = 100;
 // collaboration). Cleanup now retires three independent objects concurrently,
 // so a 20-object queue pass advances large moves faster while remaining bounded.
 export const MOVE_AUTOMATIC_BATCH = 20;
+// Link sweeps parse note bodies and may replay collaboration history. Keep
+// each Queue pass below the Worker's CPU budget while copy/cleanup retain the
+// larger batch that makes physical moves efficient.
+export const MOVE_AUTOMATIC_REFERENCE_BATCH = 5;
 export const BATCH_MOVE_CAP = 100;
