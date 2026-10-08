@@ -44,7 +44,7 @@ export const jevTables = {
   aiModelUsage: defineTable({
     day: v.string(),
     feature: v.string(),
-    /** The model id as priced in `MODEL_USD_PER_MTOK`, e.g. `@cf/cloudflare/clef`. */
+    /** The model id as priced in `MODEL_USD_PER_MTOK` (ids in `lib/jev/models.ts`). */
     model: v.string(),
     workspaceId: v.id("workspaces"),
     /** Requests to this model that came back answered. */

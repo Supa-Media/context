@@ -13,6 +13,9 @@
  */
 
 import { v, type Infer } from "convex/values";
+import { CLEF_MODEL, GEMMA_MODEL, GLM_MODEL } from "../jev/models";
+
+export { CLEF_MODEL, GEMMA_MODEL, GLM_MODEL };
 
 /** The console's 7 / 30 / 90 day picker. */
 export const AI_COSTS_WINDOWS = [7, 30, 90] as const;
@@ -22,15 +25,6 @@ export const AI_COSTS_TOP_ACCOUNTS = 6;
 
 /** Rows the report may read in one go before it says `truncated`. */
 export const AI_COSTS_READ_BUDGET = 16_000;
-
-/**
- * Model ids a feature runs on, as `aiModelUsage.model` and the price table
- * name them. Jev's `decide` is Clef; its `write` is GLM unless a request picks
- * Gemma.
- */
-export const CLEF_MODEL = "@cf/cloudflare/clef";
-export const GLM_MODEL = "@cf/zai-org/glm-4.7-flash";
-export const GEMMA_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
 /** Display names for model ids; an id not listed is shown as itself. */
 export const MODEL_LABELS: Readonly<Record<string, string>> = {
