@@ -17,6 +17,7 @@ import { OrganizerNotices } from "../../../organizer/Notices";
 import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
 import { DROPBOX_ENDING } from "../../storage/handoff/copy";
+import { MainFoldersNotice } from "./MainFoldersNotice";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
@@ -40,6 +41,7 @@ export function BrowseNotices({
   setDismissedMoves,
   storageMigration,
   dropboxEnding,
+  missingFolders,
 }: {
   data: ConsoleData;
   files: FileBrowser;
@@ -58,6 +60,7 @@ export function BrowseNotices({
   setDismissedMoves: BrowseNoticeState["setDismissedMoves"];
   storageMigration: BrowseNoticeState["storageMigration"];
   dropboxEnding: BrowseNoticeState["dropboxEnding"];
+  missingFolders: BrowseNoticeState["missingFolders"];
 }) {
   const styles = useThemedStyles(makeStyles);
   // The intro, drawn as B2-02's welcome where it can be — see `sharedWelcome`.
@@ -325,6 +328,8 @@ export function BrowseNotices({
           </View>
         </View>
       ) : null}
+
+      {missingFolders.visible ? <MainFoldersNotice files={files} dismiss={missingFolders.dismiss} /> : null}
 
       {storageMigration.visible && files.updateStorageLayout !== undefined ? (
         <View style={styles.notice} testID="browse-storage-migration">

@@ -20,6 +20,10 @@ export type ExplorerProps = {
    * column then ends at the counts line exactly as it did before.
    */
   workspaces?: ReactNode;
+  /** The selected context is a personal workspace. Asked by "Add a folder" (`AddFolderSheet`). */
+  personal?: boolean;
+  /** Opens the new-workspace flow from the business question. See `ExplorerDialogs`. */
+  onStartBusiness?: () => void;
   /** Handed straight to the share dialog. See `ExplorerDialogs`. */
   access?: {
     members: readonly AccessMember[];

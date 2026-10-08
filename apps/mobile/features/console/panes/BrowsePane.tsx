@@ -12,6 +12,7 @@ import { useDeclaredView } from "../files/viewMode";
 import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext } from "../types";
+import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import { classifyCommsPath } from "../communications/paths";
 import { BrowseDocument } from "./browsePane/BrowseDocument";
 import { BrowseNoteHead } from "./browsePane/BrowseNoteHead";
@@ -227,6 +228,7 @@ export function BrowsePane({
     layingOut,
     storageMigration,
     dropboxEnding,
+    missingFolders,
     intro,
     introAnswer,
     introVisible,
@@ -265,6 +267,7 @@ export function BrowsePane({
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}
       dropboxEnding={dropboxEnding}
+      missingFolders={missingFolders}
     />
     )}
     </Reveal>
@@ -486,6 +489,8 @@ export function BrowsePane({
         places={{
           folders: homeSource.folders,
           rootLabel: current?.displayName ?? contextLabel,
+          personal: current?.kind === "personal",
+          onStartBusiness: onNavigate === undefined ? undefined : () => onNavigate(NEW_WORKSPACE_ROUTE),
           notes: homeSource.notes,
           ...(saveTags === undefined ? {} : { saveTags }),
         }}

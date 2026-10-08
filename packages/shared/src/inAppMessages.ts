@@ -83,6 +83,18 @@ export const IN_APP_MESSAGES = {
   "storage-layout-offer": { kind: "tip", priority: 20, scope: "workspace", store: "messageReads" },
   /** "Track these folders by status?" */
   "track-by-status": { kind: "tip", priority: 10, scope: "workspace", store: "messageReads" },
+  /**
+   * "Add the five main folders?": an editor whose workspace lacks one of the
+   * main folders is offered them. Answered once, either way: the folders
+   * can always be added from "Add a folder".
+   */
+  "missing-folders": { kind: "tip", priority: 15, scope: "workspace", store: "messageReads" },
+  /**
+   * "Is this for a business?": asked once, when a personal workspace is about
+   * to get a Clients or Teams folder, since a business usually gets a workspace
+   * of its own. Answered once, either way.
+   */
+  "business-workspace": { kind: "tip", priority: 12, scope: "workspace", store: "messageReads" },
 } as const satisfies Record<string, InAppMessageSpec>;
 
 export type InAppMessageId = keyof typeof IN_APP_MESSAGES;
