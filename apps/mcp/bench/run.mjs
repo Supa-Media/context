@@ -26,6 +26,7 @@ import { parseSetup } from "../src/agent/production.js";
 import { readBenchFolder } from "./load.mjs";
 import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { judgeCommand } from "./judge.mjs";
+import { scoreCommand } from "./score.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 
@@ -164,11 +165,13 @@ async function run(options) {
 const USAGE = [
   "usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]",
   "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--fake]",
+  "       pnpm ai score <result file> --dir <benchmarks folder>",
 ].join("\n");
 
 const COMMANDS = new Map([
   ["run", run],
   ["judge", judgeCommand],
+  ["score", scoreCommand],
 ]);
 
 const options = parseArgs(process.argv.slice(2));

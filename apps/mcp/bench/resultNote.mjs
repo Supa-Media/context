@@ -178,6 +178,21 @@ export function judgedSection({ model, date, blocks }) {
   return out.join("\n");
 }
 
+/** The key file's rows: which setup, question and run wrote each answer id. */
+export function parseKey(raw) {
+  const rows = [];
+  for (const line of normalize(raw).split("\n")) {
+    if (!line.startsWith("| ")) continue;
+    const cells = splitRow(line);
+    if (cells.length !== 4 || cells[0] === "id" || /^-+$/.test(cells[0])) continue;
+    const question = Number(cells[2]);
+    const run = Number(cells[3]);
+    if (!Number.isInteger(question) || !Number.isInteger(run)) throw new Error(`key row ${cells[0]} has no question and run numbers`);
+    rows.push({ id: cells[0], setup: cells[1], question, run });
+  }
+  return rows;
+}
+
 /** Every "## Judged by" section in a note, in the order they were appended. */
 export function parseJudgedSections(raw) {
   const sections = [];
