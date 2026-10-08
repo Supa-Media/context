@@ -12,7 +12,7 @@
  * Anything with a status is a task; anything without is a plain note, drawn
  * below the tasks with "Make it a task" (`listLayout.ts`). A note's status
  * goes in its own frontmatter, a folder's in its front note, and a folder
- * with none gets an `overview.md` holding just that. The page itself is one
+ * with none gets an `about.md` holding just that. The page itself is one
  * too — a project folder is titled by its front note and says its status,
  * owner and first paragraph under the title (`Head.tsx`). Above the List,
  * the filter bar narrows it, per viewer (`ShowBar.tsx`). Somebody who
@@ -45,8 +45,8 @@ import { filterMatch, NO_FILTER, tasksWithSubtasks, type ShowFilter } from "./sh
 import { useTaskOwners } from "./useTaskOwners";
 import { estimateOf } from "./taskProps";
 import { FolderHead, PropertyLine, ViewSwitch } from "./Head";
-import { Lede, type LedeEditing } from "./LedeEditor";
-import { ledeSource } from "./lede";
+import type { LedeEditing } from "./LedeEditor";
+import { AboutBlock } from "./AboutBlock";
 import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./items";
 import { localOwnerSearch, ownersInUse } from "../owners";
 import { useOwnerLabels } from "./useOwnerLabels";
@@ -94,6 +94,7 @@ const NO_NOTES: readonly ListNote[] = [];
 export function FolderPage({
   folder,
   rows,
+  aboutPath = null,
   host,
   fallbackTitle,
   icon = null,
@@ -107,6 +108,8 @@ export function FolderPage({
   folder: string;
   /** The listing as `FolderView` draws it: placeholder dropped, in the tree's order. */
   rows: readonly FileEntry[];
+  /** The folder's about note as the listing names it (`aboutNoteOf`), which `rows` leaves out. */
+  aboutPath?: string | null;
   host: FolderPageHost | undefined;
   /** The folder's own name, for a folder no note names. */
   fallbackTitle: string;
@@ -337,19 +340,18 @@ export function FolderPage({
   };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
   const parked = parkedOnBoard(parkedIn, notes ?? [], tasks.controls, writer);
+  // The about note drawn atop the page: the listing's, else the device copy's front note. A
+  // listed README may be the untouched placeholder New folder used to write, which the device
+  // copy can tell (`frontNoteOf`) and a listing cannot, so a README waits for the copy's word.
+  const fromCopy = summary !== null && !summary.creates ? summary.target : null;
+  const about = aboutPath !== null && !aboutPath.endsWith("/README.md") ? aboutPath : fromCopy;
+  // With none, a writer's first sentence creates one: `about.md`, or at the top of the workspace its front page.
   const setLede = host.source.setLede;
-  const readBody = host.source.readBody;
-  const ledeEditing: LedeEditing | null =
-    summary === null || setLede === undefined || !loaded.canEdit
+  const createTarget = folder === "" ? "index.md" : summary?.creates === true ? summary.target : null;
+  const createAbout: LedeEditing | null =
+    createTarget === null || setLede === undefined || !loaded.canEdit
       ? null
-      : {
-          read: async () => {
-            if (summary.creates || readBody === undefined) return summary.lede ?? "";
-            const body = await readBody(summary.target);
-            return body === null || body.encrypted ? summary.lede ?? "" : ledeSource(body.text);
-          },
-          save: (text) => setLede(summary.target, text, summary.creates ? { create: true } : undefined),
-        };
+      : { read: async () => "", save: (text) => setLede(createTarget, text, { create: true }) };
   const problem = loaded.problem ?? tidyProblem ?? tasks.controls?.problem ?? null;
   const peeking = panel.path;
   // Drawn at the width the peek gives it (`PanelBeside`).
@@ -402,7 +404,14 @@ export function FolderPage({
             onChoose={edit === null ? null : (key, value) => void edit(summary.target, key, value, summary.creates)}
           />
         ) : null}
-        {isProject && summary !== null ? <Lede text={summary.lede} editing={ledeEditing} /> : null}
+        <AboutBlock
+          path={about}
+          title={summary?.title ?? fallbackTitle}
+          source={host.source}
+          create={createAbout}
+          onOpenNote={(path) => onSelect(path)}
+          {...(host.editing === undefined ? {} : { editing: host.editing })}
+        />
         {isProject ? null : rule}
       </FolderHead>
       {problem !== null ? (

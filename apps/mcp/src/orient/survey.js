@@ -6,6 +6,7 @@
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { classifyCaptureKind } from "../communications/paths.js";
 import { listBoundedKeys, listImmediateLayout, mapInBatches } from "../notes/storage.js";
+import { frontNotesAmong } from "./folderAbout.js";
 import {
   mostRecent,
   ORIENT_FOLDER_PAGE_CAP,
@@ -66,11 +67,21 @@ export async function surveyContext(store, scope, rules, overrides) {
     }
   });
 
+  // The front notes a folder's description may come from. Read from the
+  // complete one-level listing where there is one, because the bounded walk can
+  // stop before it reaches a folder's own `about.md`; the walk still counts as
+  // proof of a key it did see. `describeFolders` reads only these names.
+  const isVisible = (key) => isVisibleNote(key, scope, rules, overrides);
   const visibleFolders = folders
     .map((folder) => ({
       prefix: folder.prefix,
       count: folder.notes.length,
       truncated: folder.truncated,
+      front: frontNotesAmong(
+        folder.prefix,
+        new Set([...(folder.layout?.objects || []), ...folder.notes].map(({ key }) => key)),
+        isVisible
+      ),
       children: mergeChildren(folder, scope, rules, overrides),
     }))
     .filter((folder) => folder.count > 0 || folder.children.length > 0);
@@ -130,7 +141,15 @@ function mergeChildren(folder, scope, rules, overrides) {
   const named = (folder.layout?.prefixes || []).filter((childPrefix) =>
     canSee(childPrefix.replace(/\/$/, ""), scope, rules, overrides)
   );
+  // A child's own front note can only be one the walk reached, so the walk's
+  // keys are the whole evidence there is. Visible keys only, as everywhere here.
+  const keys = new Set(folder.notes.map(({ key }) => key));
+  const isVisible = (key) => isVisibleNote(key, scope, rules, overrides);
   return [...new Set([...named, ...counts.keys()])]
-    .map((childPrefix) => ({ prefix: childPrefix, count: counts.get(childPrefix) ?? null }))
+    .map((childPrefix) => ({
+      prefix: childPrefix,
+      count: counts.get(childPrefix) ?? null,
+      front: frontNotesAmong(childPrefix, keys, isVisible),
+    }))
     .sort((a, b) => a.prefix.localeCompare(b.prefix));
 }

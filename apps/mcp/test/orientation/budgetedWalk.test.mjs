@@ -42,11 +42,11 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
 
   check(
     "orient reports a folder past its budget as a floor",
-    /^- 1-projects\/ — 5000\+ notes$/m.test(owner)
+    /^- 1-projects\/ \(5000\+ notes\)$/m.test(owner)
   );
   check(
     "a floor travels down to the child folders drawn from the same walk",
-    /^ {2}- 1-projects\/bulk\/ — \d+\+$/m.test(owner)
+    /^ {2}- 1-projects\/bulk\/ \(\d+\+ notes\)$/m.test(owner)
   );
   check("orient's total is a floor when any folder was truncated", /^5\d{3}\+ notes visible/m.test(owner));
   check("orient explains the floor markers when it prints one", owner.includes("are floors"));
@@ -56,7 +56,7 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
   );
   check(
     "one unlistable folder does not suppress the rest of the survey",
-    owner.includes("- 2-areas/ — 2 notes") && owner.includes("1-projects/gateway/")
+    owner.includes("- 2-areas/ (2 notes)") && owner.includes("1-projects/gateway/")
   );
   // Asserted as presence *and* order. The first version of this compared two
   // `indexOf` results, and passed for the wrong reason the moment the newer
@@ -95,7 +95,7 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
   const stalled = await orientText({ ...env, LARGE_BUCKET: stalling }, OWNER_TOKEN);
   check(
     "a folder whose walk the store would not finish is a floor, not a total",
-    /^- 2-areas\/ — \d+\+ notes$/m.test(stalled) && !/^- 2-areas\/ — \d+ notes$/m.test(stalled)
+    /^- 2-areas\/ \(\d+\+ notes\)$/m.test(stalled) && !/^- 2-areas\/ \(\d+ notes\)$/m.test(stalled)
   );
   // NOT asserted on `stalled`: the LARGE_BUCKET fixture already seeds 5001
   // keys under `1-projects/bulk/`, so its total is a floor in the honest run
@@ -131,7 +131,7 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
   check("a team connection is not shown a private folder's notes", !member.includes("old-secret"));
   check(
     "a team connection's folder count excludes the private subfolder",
-    /^- 2-areas\/ — 1 note$/m.test(member)
+    /^- 2-areas\/ \(1 note\)$/m.test(member)
   );
   // "0 notes" is a claim about the folder; all we know is that nothing in it
   // reached this connection. The folder is still named — it is somewhere a
@@ -140,5 +140,5 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
     "a folder with nothing visible in it is named without a count",
     /^- 3-resources\/$/m.test(member) && !member.includes("3-resources/ — 0")
   );
-  check("the owner sees the same folder counted", /^- 3-resources\/ — 1 note$/m.test(owner));
+  check("the owner sees the same folder counted", /^- 3-resources\/ \(1 note\)$/m.test(owner));
 }

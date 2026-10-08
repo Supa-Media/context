@@ -16,7 +16,7 @@ import {
   FAKE_BUCKET,
   FAKE_S3,
   seedLiveWorkspace,
-  PARA_READMES,
+  PARA_FOLDER_NOTES,
 } from "./fixtures.helpers";
 
 
@@ -53,14 +53,14 @@ describe("essentials are guaranteed; folders and READMEs are best effort", () =>
 
   test("folders that will not write are a caveat, not a failure", async () => {
     const store = memoryStore({
-      refuseWrite: (key) => key.endsWith("/README.md"),
+      refuseWrite: (key) => key.endsWith("/about.md"),
     });
 
     const result = await scaffoldContext(store, { structureTemplate: "para" });
 
     expect(result).toMatchObject({ scaffolded: true, reason: "partial" });
     expect(result.written.sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
-    expect(result.missing.sort()).toEqual([...PARA_READMES].sort());
+    expect(result.missing.sort()).toEqual([...PARA_FOLDER_NOTES].sort());
     // The claim behind calling this a success: the manifest the gateway
     // enforces visibility with is there, and it parses.
     const { parsePrivacyManifest } = gatewayInternals();
@@ -102,7 +102,7 @@ describe("a half-written scaffold can be finished", () => {
   async function halfWritten() {
     const refuse = { readmes: true };
     const store = memoryStore({
-      refuseWrite: (key) => refuse.readmes && key.endsWith("/README.md"),
+      refuseWrite: (key) => refuse.readmes && key.endsWith("/about.md"),
     });
     const first = await scaffoldContext(store, { structureTemplate: "para" });
     expect(first.reason).toBe("partial");
@@ -133,14 +133,14 @@ describe("a half-written scaffold can be finished", () => {
 
     expect(second).toMatchObject({ scaffolded: true, reason: "created" });
     expect(second.missing).toEqual([]);
-    expect(second.written.sort()).toEqual([...PARA_READMES].sort());
+    expect(second.written.sort()).toEqual([...PARA_FOLDER_NOTES].sort());
     expect(second.skipped.sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
     // The files the first attempt landed were skipped, not rewritten: same
     // etag, same bytes. A resume that re-`put` privacy.md would reset any
     // visibility the owner had already changed.
     expect(store.objects.get(PRIVACY_KEY)).toBe(privacyBefore);
     expect([...store.objects.keys()].sort()).toEqual(
-      [...PARA_READMES, INDEX_KEY, PRIVACY_KEY].sort(),
+      [...PARA_FOLDER_NOTES, INDEX_KEY, PRIVACY_KEY].sort(),
     );
   });
 
@@ -247,7 +247,7 @@ describe("a half-written scaffold can be finished", () => {
     });
     expect(second).toMatchObject({ scaffolded: true, reason: "created" });
     expect(second.written.sort()).toEqual(
-      [...PARA_READMES, INDEX_KEY, PRIVACY_KEY].sort(),
+      [...PARA_FOLDER_NOTES, INDEX_KEY, PRIVACY_KEY].sort(),
     );
   });
 });
@@ -362,8 +362,8 @@ describe("a shared workspace's starting manifest", () => {
     expect([...overrides.entries()]).toEqual([["index.md", "team"]]);
 
     for (const key of [
-      "0-inbox/README.md",
-      "1-projects/README.md",
+      "0-inbox/about.md",
+      "1-projects/about.md",
       "1-projects/anything.md",
       "9-archive/deep/nested/note.md",
     ]) {

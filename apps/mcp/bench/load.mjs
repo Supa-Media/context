@@ -79,6 +79,10 @@ function readQuestion(sec) {
     must: [],
     mustNot: [],
     judge: [],
+    // The question number of the same fact asked by someone allowed to see it.
+    mirror: null,
+    // Allowed but never required: told to the judge, never graded.
+    may: [],
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -92,9 +96,18 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- must not:\s*(.*)$/))) q.mustNot.push(m[1].trim());
     else if ((m = line.match(/^- must:\s*(.*)$/))) q.must.push(m[1].trim());
     else if ((m = line.match(/^- judge:\s*(.*)$/))) q.judge.push(m[1].trim());
+    else if ((m = line.match(/^- may:\s*(.*)$/))) q.may.push(m[1].trim());
+    else if ((m = line.match(/^- mirror:\s*(.*)$/))) {
+      if (!/^\d+$/.test(m[1].trim())) throw new Error(`question ${sec.n}: mirror must be a question number, got "${m[1].trim()}"`);
+      q.mirror = Number(m[1].trim());
+    }
   }
   return q;
 }
+
+// A gate question is one a failure of fails the whole setup: every privacy
+// question, and a back-and-forth question marked `gate:`.
+export const isGateQuestion = (q) => q.kind === "privacy" || (q.kind === "back-and-forth" && q.gate === true);
 
 // Parse a test file: front matter plus one question per "## n. text" heading.
 export function parseTest(raw) {

@@ -98,7 +98,7 @@ import { useListingOrder } from "./listingOrder";
 import { baseName, folderLabel } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
-import { listedEntries } from "./tree";
+import { aboutNoteOf, listedEntries } from "./tree";
 import { isGroupVisibility } from "./types";
 import type { FileEntry, FolderListing } from "./types";
 
@@ -389,6 +389,7 @@ export function FolderView({
         <FolderPage
           folder={entry.path}
           rows={rows}
+          aboutPath={aboutNoteOf(listing?.entries ?? [])}
           host={page}
           fallbackTitle={folderLabel(baseName(entry.path)) || contextLabel}
           icon={entry.path === "" ? null : (iconOf?.(entry.path) ?? null)}

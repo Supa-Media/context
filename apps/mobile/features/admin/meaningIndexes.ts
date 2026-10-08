@@ -1,5 +1,5 @@
 /**
- * The words for the Search tab's indexing panel (`./MeaningIndexPanel`), over
+ * The words for the Search tab's Indexes view (`./IndexesView`, through `./searchIndexes`), over
  * `meaningIndexReport` (`apps/convex/functions/lib/adminFns/meaningIndexes.ts`).
  * Pure, so the copy is pinned by `adminMeaningIndexes.test.ts`.
  */

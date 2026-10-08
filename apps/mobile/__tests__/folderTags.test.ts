@@ -36,15 +36,15 @@ const note = (path: string, tags: string[] = [], lede: string | null = null) => 
 describe("a folder's tags", () => {
   test("a folder's tags live on its front note", () => {
     expect(folderTagTarget("", [])).toBeNull();
-    // No front note: overview.md, made on the first save.
+    // No front note: about.md, made on the first save.
     expect(folderTagTarget("clients", [note("clients/acme.md", ["x"])])).toEqual({
-      path: "clients/overview.md",
+      path: "clients/about.md",
       creates: true,
       tags: [],
     });
     // The untouched placeholder New folder wrote is not a front note anyone chose.
     expect(folderTagTarget("clients", [note("clients/README.md", [], "Folder placeholder.")])).toMatchObject({
-      path: "clients/overview.md",
+      path: "clients/about.md",
       creates: true,
     });
     // A README someone wrote in is.
@@ -99,7 +99,7 @@ describe("nothing is guessed", () => {
     expect(
       folderTagTarget("clients", [note("clients/README.md", ["x"], "Ours.")], ["clients/README.md"]),
     ).toMatchObject({ path: "clients/README.md", tags: ["x"] });
-    // Nothing listed as a front note: overview.md is safe to make.
+    // Nothing listed as a front note: about.md is safe to make.
     expect(folderTagTarget("clients", [], ["clients/acme.md"])).toMatchObject({ creates: true });
     // A picked note not read yet is left out rather than written over.
     expect(bulkTagTargets(["clients/unread.md"], [], ["", "clients"])).toEqual([]);
