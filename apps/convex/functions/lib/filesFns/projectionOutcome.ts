@@ -97,6 +97,7 @@ export async function recordProjectionOutcome(
       workspaceId: args.workspaceId,
       notesIndexed: result.notesIndexed,
       notesPending: result.notesPending,
+      ...(result.priorities ? { priorities: result.priorities } : {}),
       ready: result.ready,
     });
   }

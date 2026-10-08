@@ -142,7 +142,7 @@ export async function runMeaningPass(
         error: meaningMessageFor(pass.failure),
       });
     }
-    const { failure, failureCause: _cause, ...counts } = pass;
+    const { failure, failureCause: _cause, priorities: _priorities, ...counts } = pass;
     return { kind: "meaningProjected", ...counts, failure };
   }
 
@@ -151,11 +151,12 @@ export async function runMeaningPass(
       workspaceId: args.workspaceId,
       notesIndexed: pass.notesIndexed,
       notesPending: pass.notesPending,
+      ...(pass.priorities ? { priorities: pass.priorities } : {}),
       ready: pass.ready,
     });
   }
   if (pass.moved && !pass.ready && passes > 0) await next(0);
-  const { failure: _none, failureCause: _noCause, ...counts } = pass;
+  const { failure: _none, failureCause: _noCause, priorities: _byPriority, ...counts } = pass;
   return { kind: "meaningProjected", ...counts };
 }
 

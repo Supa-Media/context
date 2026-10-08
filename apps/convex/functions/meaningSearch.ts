@@ -14,6 +14,7 @@
 
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { indexingPrioritiesValidator } from "./lib/indexingPriorities";
 import { rolloutMeaningStep } from "./lib/meaningFns/rollout";
 import { meaningStatusHandler, setMeaningSearchHandler } from "./lib/meaningFns/settings";
 import {
@@ -144,6 +145,7 @@ export const recordProgress = internalMutation({
     workspaceId: v.id("workspaces"),
     notesIndexed: v.number(),
     notesPending: v.number(),
+    priorities: v.optional(indexingPrioritiesValidator),
     ready: v.boolean(),
   },
   returns: v.null(),

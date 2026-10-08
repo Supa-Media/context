@@ -11,12 +11,14 @@
  *   the restart patching `enabledAt` (a new generation)       → "a failed row goes back through the provisioner…" fails
  *   `restartStuckMeaningIndexes` reading statuses one by one  → "restart everything stuck…" fails (provisioner twice)
  *   `requireAdmin` dropped from `meaningIndexReport`          → "only staff…" fails
+ *   `cleanPriorities` returning its input                     → "counts per indexing priority…" fails
  */
 
 import { afterEach, describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
+import { FAST_SEARCH_GENERATION } from "../functions/lib/fastSearch";
 import { asUser, createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
 
 const ADMIN = "staff@example.invalid";
@@ -114,8 +116,59 @@ describe("the indexing panel", () => {
     });
     // Our words only: the operator sentence and the index name stay on the row.
     expect(Object.keys(report.rows[0]).sort()).toEqual(
-      ["enabled", "errorCause", "errorCode", "kind", "notesIndexed", "notesPending", "slug", "status", "updatedAt", "workspaceId"].sort(),
+      ["enabled", "errorCause", "errorCode", "fastSearch", "kind", "notesIndexed", "notesPending", "priorities", "slug", "status", "updatedAt", "workspaceId"].sort(),
     );
+  });
+
+  test("counts per indexing priority, for search by meaning and the fast index, as the passes report them", async () => {
+    const { t, staff, adaWs } = await world();
+    await seedRow(t, adaWs, { status: "backfilling", errorCode: undefined, errorCause: undefined });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("searchIndexes", {
+        workspaceId: adaWs,
+        generation: FAST_SEARCH_GENERATION,
+        optedIn: true,
+        optedInAt: 1,
+        status: "backfilling",
+        databaseId: "db-ada",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const priorities = [
+      { priority: 1, indexed: 300, pending: 0 },
+      { priority: 2, indexed: 12, pending: 30 },
+      { priority: 3, indexed: 0, pending: 900 },
+    ];
+    await t.mutation(internal.functions.meaningSearch.recordProgress, {
+      workspaceId: adaWs,
+      notesIndexed: 312,
+      notesPending: 930,
+      priorities,
+      ready: false,
+    });
+    // A fractional or duplicated entry is cleaned on the way in.
+    await t.mutation(internal.functions.fastSearch.recordProjectionProgress, {
+      workspaceId: adaWs,
+      notesIndexed: 312,
+      notesPending: 930,
+      priorities: [...priorities, { priority: 1, indexed: 5, pending: 5 }, { priority: 7, indexed: 1, pending: 1 }].map(
+        (entry) => ({ ...entry, pending: entry.pending + 0.4 }),
+      ),
+      ready: false,
+    });
+    const [row] = (await asUser(t, staff).query(api.functions.meaningAdmin.meaningIndexReport, {})).rows;
+    expect(row.priorities).toEqual(priorities);
+    expect(row.fastSearch).toEqual({ status: "backfilling", notesIndexed: 312, notesPending: 930, priorities });
+
+    // A report without them (the gateway's) keeps the last ones.
+    await t.mutation(internal.functions.meaningSearch.recordProgress, {
+      workspaceId: adaWs,
+      notesIndexed: 320,
+      notesPending: 922,
+      ready: false,
+    });
+    expect((await rowOf(t, adaWs))?.priorities).toEqual(priorities);
   });
 });
 

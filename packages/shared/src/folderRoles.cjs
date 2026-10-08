@@ -182,6 +182,49 @@ function missingMainRoles(names) {
   return MAIN_ROLES.filter((role) => roles[role] === null);
 }
 
+/**
+ * Which notes a search index fills first (decided by the owner, 2026-10-08):
+ * everything else is 1, the Inbox 2 because it changes so much, the Archive 3,
+ * "whenever we can get to it". Read from the note's TOP-LEVEL folder, so
+ * `0-inbox/a.md` is 2 and `1-projects/inbox/a.md` is 1; a note at the root is 1.
+ * It decides order and the per-priority counts the admin console shows, never
+ * whether a note is indexed at all.
+ */
+const INDEXING_PRIORITIES = Object.freeze([1, 2, 3]);
+
+function indexingPriority(path) {
+  if (typeof path !== "string") return 1;
+  const slash = path.indexOf("/");
+  if (slash <= 0) return 1;
+  const role = folderRole(path.slice(0, slash));
+  if (role === "inbox") return 2;
+  if (role === "archive") return 3;
+  return 1;
+}
+
+/** Indexing order: priority, then path, so a walk resumes where it stopped. */
+function compareIndexingOrder(a, b) {
+  const rank = indexingPriority(a) - indexingPriority(b);
+  if (rank !== 0) return rank;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Notes counted per priority: `[{priority, indexed, pending}]`, one entry for
+ * each priority in order. `isIndexed(path)` decides a census path's column;
+ * `extraPending` (removals not yet applied, say) are counted by their own path.
+ */
+function countByIndexingPriority(paths, isIndexed, extraPending = []) {
+  const counts = INDEXING_PRIORITIES.map((priority) => ({ priority, indexed: 0, pending: 0 }));
+  for (const path of paths) {
+    const entry = counts[indexingPriority(path) - 1];
+    if (isIndexed(path)) entry.indexed += 1;
+    else entry.pending += 1;
+  }
+  for (const path of extraPending) counts[indexingPriority(path) - 1].pending += 1;
+  return counts;
+}
+
 module.exports = {
   MAIN_ROLES,
   EXTRA_ROLES,
@@ -198,4 +241,8 @@ module.exports = {
   compareListingEntries,
   rolesIn,
   missingMainRoles,
+  INDEXING_PRIORITIES,
+  indexingPriority,
+  compareIndexingOrder,
+  countByIndexingPriority,
 };

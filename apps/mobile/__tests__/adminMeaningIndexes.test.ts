@@ -1,9 +1,11 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   canRestartMeaning,
+  fastSearchLine,
   meaningFailureLine,
   meaningProgressLine,
   meaningStatePill,
+  priorityLine,
   restartedLine,
   stuckMeaningCount,
 } from "../features/admin/meaningIndexes";
@@ -52,5 +54,26 @@ describe("the indexing panel's words", () => {
     expect(restartedLine(3)).toBe("Restarted 3 workspaces.");
     expect(restartedLine(0, "turnedOff")).toBe("Not restarted: the owner turned search by meaning off.");
     expect(meaningStatePill(row()).tone).toBe("crit");
+  });
+
+  test("indexing priorities read as P1, P2, P3 with what each holds", () => {
+    expect(
+      priorityLine([
+        { priority: 1, indexed: 300, pending: 0 },
+        { priority: 2, indexed: 12, pending: 30 },
+        { priority: 3, indexed: 0, pending: 1200 },
+      ]),
+    ).toBe("P1 Everything else 300/300 · P2 Inbox 12/42 · P3 Archive 0/1,200");
+    expect(priorityLine(null)).toBeNull();
+  });
+
+  test("the fast index beside it says how far it got", () => {
+    expect(fastSearchLine(null)).toBe("—");
+    expect(
+      fastSearchLine({ status: "backfilling", notesIndexed: 312, notesPending: 930, priorities: null }),
+    ).toBe("312 of 1,242 notes, indexing");
+    expect(fastSearchLine({ status: "provisioning", notesIndexed: null, notesPending: null, priorities: null })).toBe(
+      "provisioning",
+    );
   });
 });

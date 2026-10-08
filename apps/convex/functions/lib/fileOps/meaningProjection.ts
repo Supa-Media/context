@@ -30,6 +30,7 @@ import { meaningPass } from "../../../../mcp/src/search/meaning/catchup.js";
 import { listNoteObjects } from "../../../../mcp/src/search/shards/listing.js";
 import { loadPrivacyState } from "./privacyState";
 import type { FileStore } from "./store";
+import type { IndexingPriorities } from "../indexingPriorities";
 
 /**
  * List pages one census may spend: a million objects at a thousand a page,
@@ -48,6 +49,8 @@ export interface MeaningPassResult {
   deleted: number;
   notesIndexed: number;
   notesPending: number;
+  /** Per indexing priority; absent when the bucket could not be listed. */
+  priorities?: IndexingPriorities;
   ready: boolean;
   moved: boolean;
   /** One of our closed codes, never a provider's words. */

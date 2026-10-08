@@ -38,6 +38,33 @@ export function meaningProgressLine(row: Pick<MeaningIndexRow, "notesIndexed" | 
   return `${format(row.notesIndexed)} of ${format(row.notesIndexed + row.notesPending)} notes`;
 }
 
+const PRIORITY_NAMES: Record<number, string> = { 1: "Everything else", 2: "Inbox", 3: "Archive" };
+
+/**
+ * Indexing priorities in one line (decided by the owner, 2026-10-08: everything
+ * but the Inbox and Archive first, then the Inbox, then the Archive):
+ * `P1 Everything else 300/300 · P2 Inbox 12/42 · P3 Archive 0/900`, or null
+ * before a pass has counted them.
+ */
+export function priorityLine(priorities: MeaningIndexRow["priorities"]): string | null {
+  if (priorities === null || priorities.length === 0) return null;
+  const format = (n: number) => n.toLocaleString("en-US");
+  return priorities
+    .map(
+      ({ priority, indexed, pending }) =>
+        `P${priority} ${PRIORITY_NAMES[priority] ?? ""} ${format(indexed)}/${format(indexed + pending)}`.replace("  ", " "),
+    )
+    .join(" · ");
+}
+
+/** The fast index beside it: `312 of 1,242 notes, indexing`, or a dash with none. */
+export function fastSearchLine(fast: MeaningIndexRow["fastSearch"]): string {
+  if (fast === null) return "—";
+  const progress = meaningProgressLine(fast);
+  const state = fast.status === "ready" ? "ready" : fast.status === "backfilling" ? "indexing" : fast.status;
+  return progress === "—" ? state : `${progress}, ${state}`;
+}
+
 const CODE_WORDS: Record<string, string> = {
   NOT_CONFIGURED: "No Cloudflare credential set",
   UNAUTHORIZED: "Cloudflare refused the token",

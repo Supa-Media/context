@@ -20,6 +20,7 @@ import {
 } from "../../../../mcp/src/search/d1/backfill.js";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
+import type { IndexingPriorities } from "../indexingPriorities";
 import { runIndexPass, type ProjectionClient } from "./search";
 
 /* -------------------------------------------------------------------------- */
@@ -68,6 +69,8 @@ export interface ProjectionPass {
   deleted: number;
   notesIndexed: number;
   notesPending: number;
+  /** Per indexing priority, when this pass counted; the row keeps its last otherwise. */
+  priorities?: IndexingPriorities;
   /** The projection holds every note the index holds, and the index is current. */
   ready: boolean;
   /** A `D1Error` code, or `null`. Ours, from a closed set — never a provider's. */
@@ -262,6 +265,7 @@ export async function projectSearchIndex(
     deleted: result.deleted,
     notesIndexed: progress.notesIndexed,
     notesPending: progress.notesPending,
+    ...(progress.priorities ? { priorities: progress.priorities as IndexingPriorities } : {}),
     ready: progress.state === "ready",
     failure,
     failureDetail: result.failureDetail ?? null,
