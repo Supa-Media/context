@@ -239,6 +239,29 @@ test('move on conditional-write-only storage survives every interrupted mutation
   }
 });
 
+test('move restores its journaled Markdown when a competing pass removes both raw paths',async()=>{
+  const store=new WriteGuardedBucket();await store.put('from.md','Keep this message.');
+  const original=await readDocument(store,'from.md');
+  const remove=store.delete.bind(store);let interrupted=false;
+  store.delete=async(key,options={})=>{
+    const result=await remove(key,options);
+    if(!interrupted&&key==='from.md'){
+      interrupted=true;
+      await remove('to.md');
+      throw new Error('simulated competing materialization');
+    }
+    return result;
+  };
+  await assert.rejects(moveDocument(store,'from.md','to.md'),/simulated competing materialization/);
+  store.delete=remove;
+  assert.equal(await store.get('from.md'),null);
+  assert.equal(await store.get('to.md'),null);
+  const restored=await readDocument(store,'to.md');
+  assert.equal(restored.documentId,original.documentId);
+  assert.equal(restored.text,'Keep this message.');
+  assert.equal(await (await store.get('to.md')).text(),'Keep this message.');
+});
+
 test('conditional-write-only move abort preserves a source edit',async()=>{
   const store=new WriteGuardedBucket();await store.put('from.md','Original source.');
   const put=store.put.bind(store);let injected=false;
