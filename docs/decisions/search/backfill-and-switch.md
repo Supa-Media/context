@@ -145,3 +145,17 @@ That split is for *statistics*, not for access. The visibility stored in the
 projection is `privacy.md` as it was at index time and can go stale, so the live
 `canSee` still filters every result before it leaves — exactly as it does for
 the R2 index. The split buys correct ranking; the filter buys correctness.
+
+### The control plane's copy walks a listing of the bucket, and deletes rows for notes it lacks
+
+Since 2026-10-08 the scheduled copy (`projectSearchIndex`) takes its census
+from `listNoteObjects`, as search by meaning does, not from the R2 index's
+docmap. The docmap fell behind on Dev2's @seyi and kept the old Areas paths of
+texts a move had taken to the Inbox, so /admin showed about 10,000 notes in T0
+where there were under a thousand, and the copy could never finish. A row the
+census lacks was also never revisited, so those old paths kept answering
+searches with notes that open nothing. Each pass now deletes rows for paths
+the listing does not hold, only in folders the listing finished. The R2 index
+pass still runs in front of it, for the recent edits it reports and for the
+searches that fall back to it. Reverting either half fails
+`apps/convex/__tests__/searchBackfillCensus.test.ts`.

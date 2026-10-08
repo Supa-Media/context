@@ -161,6 +161,7 @@ export function stubD1(): StubD1 {
     // `SCHEMA_STATEMENTS` through the same endpoint, and a stub that refused
     // them would record a provision failure instead of `backfilling`.
     if (sql.startsWith("CREATE ")) return [];
+    if (sql === "SELECT path FROM notes") return [...notes.keys()].map((path) => ({ path }));
     if (sql.includes("SELECT path, version FROM notes")) {
       return params
         .filter((path) => notes.has(String(path)))
