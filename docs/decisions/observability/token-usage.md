@@ -33,7 +33,7 @@ nothing to startup or to the time a tool call takes.
 
 Bounds, measured on a laptop:
 
-- **Size:** about 1.1 MB gzipped added to the Worker.
+- **Size:** the Worker bundle went from 407 KiB to 1,529 KiB gzipped (`wrangler deploy --dry-run`); the ranks are wrapped in a lazy initializer, so they are not evaluated at startup.
 - **Startup:** about 300 ms of CPU to build the encoder, once per isolate, on
   first use.
 - **Large payloads:** text over 64 KB is estimated at 4 UTF-8 bytes per token and

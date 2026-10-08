@@ -140,3 +140,16 @@ test("every turn is told which model answers it, and the ground rules, even with
   assert.match(app, /Never fill a gap with a guess/);
   assert.doesNotMatch(systemPrompt(null), /AI model/, "no model, no line");
 });
+
+test("the turn names its model before any tool call, for the usage breakdown", async () => {
+  const ai = scripted([chat("", ["search_notes"]), chat("done")]);
+  const seen = [];
+  await turn(ai, {
+    onModel: (model) => seen.push(["model", model]),
+    callTool: async () => {
+      seen.push(["tool"]);
+      return { content: [{ type: "text", text: "nothing" }] };
+    },
+  });
+  assert.deepEqual(seen, [["model", MODEL], ["tool"]]);
+});

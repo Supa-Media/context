@@ -40,6 +40,8 @@
  *   `reportUsage` awaited in the request path instead of deferred       1
  *   the `.catch()` removed from the deferred report                     0
  *   the workspace-id guard removed                                      0
+ *   breakdown attributed to `session` instead of the routed target      1
+ *   zero-count breakdown events sent rather than filtered               1
  *
  * **The last two are redundant defenses this harness cannot observe**, and
  * they are kept anyway, on the same reasoning `visible.js` gives for
