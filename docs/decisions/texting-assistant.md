@@ -204,8 +204,9 @@ value.
 
 Decided by the owner, 2026-10-06 ("Premium, capped"). When a texter has
 connected no Anthropic or OpenAI account of their own, a Premium workspace's
-texts are answered by a cheap open model on Workers AI (GLM-4.7 Flash by
-default, `AGENT_BUILTIN_MODEL` to swap it), up to 100 questions a day. Anyone
+texts are answered by a model we pay for (GLM-4.7 Flash on Workers AI, or
+Claude Haiku 5.5 once a gateway is configured, see below; `AGENT_BUILTIN_MODEL`
+to swap it), up to 100 questions a day. Anyone
 else is told to connect an account.
 
 - A connected key always wins: the built-in model is asked for only after
@@ -233,6 +234,42 @@ expensive model on the account. The tests that fail are
 `apps/convex/__tests__/builtinModel.test.ts` and
 `apps/mcp/test/agentBuiltin.test.mjs` ("the caller cannot choose the model we
 pay for").
+
+### Claude models are reached through one AI gateway, plan credit first
+
+Decided by the owner, 2026-10-08: GLM-4.7 Flash is too weak for texting, the
+built-in model becomes Claude Haiku 5.5, and every model call on our bill goes
+through one Cloudflare AI Gateway (`apps/mcp/src/agent/aiGateway.js`) rather
+than one account per provider. The owner's Claude plan includes a monthly API
+credit, and nothing that costs money is spent while it lasts:
+
+- A call carries the plan's key (`ANTHROPIC_CREDIT_KEY`) first. When Anthropic
+  says the credit balance is too low, the same round is sent again without it,
+  and the gateway serves it on Cloudflare's Unified Billing. A spent credit is
+  skipped for 15 minutes rather than tried on every round. A key the gateway
+  refuses for another reason is retried without it once, so a broken key costs
+  a slower answer, never no answer.
+- With no gateway configured (`AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`,
+  `AI_GATEWAY_TOKEN`, all optional Worker secrets), the built-in model stays
+  GLM on Workers AI, exactly as before. Self-hosting needs none of this.
+- Every call says `cf-aig-collect-log: false`. The gateway's log is an account
+  of ours, and a turn's messages carry the person's notes, so keeping them
+  there would put customer content outside their bucket. Spend is counted from
+  the answer's token counts in our own meter, priced per model
+  (`lib/jev/meter.ts`), at list price even when the plan's credit paid.
+- Each call is labelled with ids only (feature, workspace, client), never
+  text. The address is built from two ids checked against a strict shape, so
+  nothing a caller sends can point the gateway's token at another host.
+- Prompt caching is on for the tool list, the system prompt and the
+  conversation so far, because a turn is several rounds over a growing
+  transcript.
+
+**What a simplification would cost:** dropping `cf-aig-collect-log` would
+quietly copy every texted question and the notes it read into a log outside
+the customer's bucket; retrying without the key on every error would spend
+money while free credit remained; taking the gateway address from config text
+without the shape check would let a misconfiguration send our token anywhere.
+The test that fails is `apps/mcp/test/agentGateway.test.mjs`.
 
 ### The agent opens only addresses it was given
 

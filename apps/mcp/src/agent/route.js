@@ -15,7 +15,8 @@ import { callToolForSession } from "../tools/session.js";
 import { readAssistantInstructions } from "./instructions.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
-import { BUILTIN_PROVIDER } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel } from "./builtin.js";
+import { aiGatewayConfig } from "./aiGateway.js";
 import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
@@ -233,6 +234,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
         input: usage?.input ?? 0,
         output: usage?.output ?? 0,
+        cacheRead: usage?.cacheRead ?? 0,
+        cacheWrite: usage?.cacheWrite ?? 0,
+        model: builtinModel(env),
         decision: web?.usage.decision ?? 0,
         failed,
         ms: Date.now() - started,
@@ -314,7 +318,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       ),
       env,
       model: typeof body.model === "string" ? body.model : undefined,
-      providerOptions: builtin ? { ai: env.AI } : undefined,
+      providerOptions: builtin
+        ? {
+            ai: env.AI,
+            gateway: aiGatewayConfig(env),
+            // Ids only: what the AI costs tab files this call's spend under.
+            metadata: { feature: "assistant", workspace: String(session.workspaceId), client: texting ? "texts" : "app" },
+          }
+        : undefined,
       web,
       history,
       texting,

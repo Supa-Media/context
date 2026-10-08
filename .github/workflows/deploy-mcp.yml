@@ -279,6 +279,10 @@ jobs:
           TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
           TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
           BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+          AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+          ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
         run: |
           set -euo pipefail
           printf '%s' "$GATEWAY_SECRET" | pnpm exec wrangler secret put GATEWAY_SECRET --config "$MCP_WRANGLER_CONFIG"
@@ -314,6 +318,18 @@ jobs:
           else
             echo "OK — no web search key; the texting assistant searches nothing."
           fi
+
+          # Model routing through Cloudflare AI Gateway (src/agent/aiGateway.js):
+          # optional. The account id, gateway id and token are all needed to
+          # route; with any missing the gateway keeps using Workers AI.
+          for name in AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID AI_GATEWAY_TOKEN ANTHROPIC_CREDIT_KEY; do
+            if [ -n "${!name:-}" ]; then
+              printf '%s' "${!name}" | pnpm exec wrangler secret put "$name" --config "$MCP_WRANGLER_CONFIG"
+              echo "OK — $name is set for this gateway."
+            else
+              echo "OK — $name is not set; the gateway keeps its current model route."
+            fi
+          done
           echo "OK — the Worker's secrets match this repository's."
 
       # A deploy that reports success without the endpoint answering is exactly

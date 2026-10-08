@@ -235,7 +235,7 @@ export async function runTurn(options) {
   const builtin = provider === BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
   const model = builtin ? builtinModel(env) : modelFor(provider, env, requestedModel);
-  const usage = { input: 0, output: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const system =
     systemPrompt(place, { texting, notes }) +
     webPrompt(webNames);
@@ -288,7 +288,7 @@ export async function runTurn(options) {
     let answer;
     try {
       answer = builtin
-        ? await requestBuiltin({ model, system, messages, tools }, providerOptions.ai)
+        ? await requestBuiltin({ model, system, messages, tools }, providerOptions.ai, providerOptions)
         : await requestCompletion(
             provider,
             { model, system, messages, tools, apiKey: credential.apiKey },
@@ -316,6 +316,8 @@ export async function runTurn(options) {
     if (answer.usage) {
       usage.input += answer.usage.input;
       usage.output += answer.usage.output;
+      usage.cacheRead += answer.usage.cacheRead ?? 0;
+      usage.cacheWrite += answer.usage.cacheWrite ?? 0;
     }
 
     if (answer.toolCalls.length === 0) {
