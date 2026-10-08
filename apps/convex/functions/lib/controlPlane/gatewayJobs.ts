@@ -66,7 +66,7 @@ export const createGatewayJobArgs = {
   moveId: v.optional(v.string()),
 };
 
-export const createGatewayJobReturns = v.boolean();
+export const createGatewayJobReturns = v.union(v.boolean(), v.literal("already_active"));
 
 export async function createGatewayJobHandler(
   ctx: MutationCtx,
@@ -89,6 +89,30 @@ export async function createGatewayJobHandler(
   if (workspaceId === null) return false;
 
   const now = Date.now();
+  const existing = await ctx.db.query("gatewayJobs")
+    .withIndex("by_workspace_kind_move", (q) => q
+      .eq("workspaceId", workspaceId)
+      .eq("kind", args.kind)
+      .eq("moveId", args.moveId))
+    .collect();
+  // A manual retry must not mint a second worker for a move whose queue job
+  // is still leased or has recently reported progress. A stale queued ticket
+  // can have been lost between row creation and Queue.send, so allow a fresh
+  // ticket after five minutes. Running passes keep their full lease.
+  if (existing.some((job) => job.expiresAt > now && (
+    (job.status === "running" && typeof job.leasedAt === "number" &&
+      job.leasedAt + GATEWAY_JOB_LEASE_MS > now) ||
+    (job.status === "queued" && job.updatedAt + 5 * 60 * 1000 > now)
+  ))) return "already_active";
+  for (const job of existing) {
+    if (job.expiresAt > now && (job.status === "queued" || job.status === "running")) {
+      await ctx.db.patch(job._id, {
+        status: "failed",
+        updatedAt: now,
+        lastError: "superseded by a fresh move worker",
+      });
+    }
+  }
   await ctx.db.insert("gatewayJobs", {
     hashedTicket: args.hashedTicket,
     workspaceId,

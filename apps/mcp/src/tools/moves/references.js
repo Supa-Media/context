@@ -276,18 +276,23 @@ export async function rewriteReferencesOrQueue(store, scope, rules, overrides, r
   };
   await persistMoveJob(store, job);
   await writeMoveSentinel(store);
+  let queued = false;
   try {
-    await store.enqueueGatewayJob?.({ kind: "materialize_move", moveId: id });
+    if (typeof store.enqueueGatewayJob === "function") {
+      queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id }) !== false;
+    }
   } catch {
     // The marker remains resumable if queueing is temporarily unavailable.
   }
-  try {
-    store.defer?.(async () => {
-      const { materializeMoveInBackground } = await import("./materialize.js");
-      await materializeMoveInBackground(store, scope, id);
-    });
-  } catch {
-    // The durable job is the source of truth, not this request's lifetime.
+  if (!queued) {
+    try {
+      store.defer?.(async () => {
+        const { materializeMoveInBackground } = await import("./materialize.js");
+        await materializeMoveInBackground(store, scope, id);
+      });
+    } catch {
+      // The durable job is the source of truth, not this request's lifetime.
+    }
   }
   return { notes: 0, links: 0, capped: false, pending: true, moveId: id };
 }

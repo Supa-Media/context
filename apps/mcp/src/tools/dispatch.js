@@ -185,7 +185,8 @@ export async function callTool(name, args, store, scope) {
             return toolText(`${text}\nbackground worker unavailable; continue with materialize_move`);
           }
           try {
-            await store.enqueueGatewayJob({ kind: "materialize_move", moveId: args.id });
+            const queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: args.id });
+            if (queued === false) return toolText(`${text}\nbackground worker already active`);
           } catch {
             return toolText(`${text}\nbackground restart failed; retry resume_background`);
           }

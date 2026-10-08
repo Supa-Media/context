@@ -77,7 +77,9 @@ export function attachGatewayJobQueue(store, session, controlPlane, env) {
   Object.defineProperty(store, "enqueueGatewayJob", {
     value: async (job) => {
       const ticket = await controlPlane.createGatewayJob(session.accessToken, session.workspaceId, job);
+      if (ticket === null) return false;
       await queue.send({ ticket, kind: job.kind, moveId: job.moveId });
+      return true;
     },
     enumerable: false,
     writable: false,

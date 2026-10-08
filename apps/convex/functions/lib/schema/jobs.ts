@@ -126,6 +126,7 @@ export const jobTables = {
     progressTotal: v.optional(v.number()),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
+    .index("by_workspace_kind_move", ["workspaceId", "kind", "moveId"])
     .index("by_workspace_status", ["workspaceId", "status"])
     .index("by_workspace_updatedAt", ["workspaceId", "updatedAt"])
     .index("by_expiresAt", ["expiresAt"]),
