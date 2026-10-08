@@ -394,6 +394,7 @@ export function browser(
     resetPrivacy: noop,
     iconOf: () => null,
     setIcon: async () => {},
+    addBuiltInFolder: async () => "",
     canResetPrivacy: false,
     // Both are `canEdit && isOwner` in the real hook, so an owner is the only
     // shape in which they can differ from `canEdit` — and moving them

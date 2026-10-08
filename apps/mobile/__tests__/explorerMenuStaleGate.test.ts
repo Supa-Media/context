@@ -161,6 +161,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     resetPrivacy: noop,
     iconOf: () => null,
     setIcon: async () => {},
+    addBuiltInFolder: async () => "",
     canResetPrivacy: false,
     canSetVisibility,
     canShare: false,

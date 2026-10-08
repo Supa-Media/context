@@ -645,6 +645,14 @@ export interface FileBrowser extends BesideEditing {
    */
   setIcon: (path: string, icon: string | null) => Promise<void>;
   /**
+   * Make one of the workspace's built-in folders (`builtInFolders.add`): an
+   * extra the workspace lacks, or a main folder an older one does not have.
+   * Resolves with its path. Rejects with the server's own refusal, which the
+   * "Add a folder" sheet shows, so it is not reported on the notice line.
+   * Editor only.
+   */
+  addBuiltInFolder: (role: string) => Promise<string>;
+  /**
    * Re-home Context's reserved bucket objects under `.context/`.
    *
    * Optional because this is an owner maintenance control, not an editing

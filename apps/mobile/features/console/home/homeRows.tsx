@@ -199,6 +199,32 @@ export function FolderLine({
   );
 }
 
+/**
+ * "Add a folder", as the last line of All folders: a FolderLine's shape with
+ * the folder-plus glyph and muted words, because it is an action on the
+ * workspace rather than one of its folders.
+ */
+export function AddFolderLine({ onPress }: { onPress: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Add a folder"
+      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+      testID="phone-home-add-folder"
+    >
+      <Icon name="folderPlus" size={20} color={colors.muted} />
+      <View style={styles.folderName}>
+        <Text style={styles.addLabel} numberOfLines={1}>
+          Add a folder
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     pressed: { opacity: 0.6 },
@@ -235,6 +261,7 @@ const makeStyles = (colors: Colors) =>
     rowTitle: { flexShrink: 1, flexGrow: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text },
     folderName: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.x1 + 2 },
     /** Where the 20pt folder icon sits, so a row with an emoji lines up with one without. */
+    addLabel: { color: colors.muted, fontFamily: fonts.body, fontSize: touchType.ui, lineHeight: 22 },
     folderEmoji: { width: 20, textAlign: "center", fontSize: touchType.h3, lineHeight: 24 },
     counts: { flexShrink: 0 },
   });

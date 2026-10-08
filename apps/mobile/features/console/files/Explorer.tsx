@@ -171,6 +171,7 @@ export function Explorer({
         markedPaths={markedPaths}
         agentMarks={agentMarks}
         background={background}
+        onAddFolder={files.canEdit ? () => setDialog({ kind: "addFolder" }) : undefined}
       />
 
       <ExplorerFoot

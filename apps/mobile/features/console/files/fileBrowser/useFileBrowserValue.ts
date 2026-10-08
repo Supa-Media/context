@@ -15,6 +15,7 @@ import { canResetPrivacy, canSetVisibility } from "../../capabilities";
 import { describeOp } from "../pendingMarks";
 import type { FileBrowserOptions } from "./types";
 import type { FolderIconsValues } from "./useFolderIcons";
+import type { BuiltInFoldersValues } from "./useBuiltInFolders";
 import type { BatchValues } from "./useBatch";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { ConflictsAndDraftsValues } from "./useConflictsAndDrafts";
@@ -128,7 +129,8 @@ type FileBrowserValueDeps =
   >
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
   & Pick<PendingOpsValues, "answerOp" | "pending">
-  & Pick<FolderIconsValues, "iconOf" | "setIcon">;
+  & Pick<FolderIconsValues, "iconOf" | "setIcon">
+  & Pick<BuiltInFoldersValues, "addBuiltInFolder">;
 
 export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
   const {
@@ -146,6 +148,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
     toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon,
+    addBuiltInFolder,
   } = deps;
 
   return useMemo(
@@ -153,6 +156,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       canEdit: options.canEdit,
       iconOf,
       setIcon,
+      addBuiltInFolder,
       submitForm,
       loadImage,
       storeImage,
@@ -388,6 +392,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       readRaw,
       iconOf,
       setIcon,
+      addBuiltInFolder,
     ],
   );
 }

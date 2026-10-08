@@ -14,7 +14,7 @@ import {
 } from "./homeModel";
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
-import { Card, FolderLine, MapPlace, NoteRow, Section, Tile } from "./homeRows";
+import { AddFolderLine, Card, FolderLine, MapPlace, NoteRow, Section, Tile } from "./homeRows";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
@@ -48,6 +48,7 @@ export function PhoneHome({
   onActions,
   onTogglePin,
   iconOf,
+  onAddFolder,
   foot,
   onOpenMap,
 }: {
@@ -68,6 +69,8 @@ export function PhoneHome({
   onTogglePin: ((path: string, kind: "note" | "folder") => void) | null;
   /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
   iconOf?: (path: string) => string | null;
+  /** "Add a folder", the last line of All folders. Absent for who may not make one. */
+  onAddFolder?: () => void;
   /** The workspace's storage line, as the root listing had it. */
   foot?: string;
   /** The live map, a place of its own on Home. `undefined` where there is none (a visitor, the demo). */
@@ -208,7 +211,8 @@ export function PhoneHome({
       )}
 
       <Section label="All folders">
-        {home.folders.length === 0 ? (
+        {/* Under a tag, the list is a filter, so making a folder is not offered there. */}
+        {(onAddFolder === undefined || activeTag !== null) && home.folders.length === 0 ? (
           <Text variant="meta" style={styles.empty}>
             {activeTag === null ? "No folders yet." : `No folders hold a note tagged ${activeTag}.`}
           </Text>
@@ -223,6 +227,7 @@ export function PhoneHome({
                 onLongPress={hold(folder.path, "folder")}
               />
             ))}
+            {onAddFolder === undefined || activeTag !== null ? null : <AddFolderLine onPress={onAddFolder} />}
           </Card>
         )}
       </Section>

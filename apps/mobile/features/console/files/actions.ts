@@ -66,6 +66,8 @@ export type Dialog =
   | { kind: "tags"; folder: string }
   /** A folder's emoji icon, from a grid (`FolderIconDialog`). */
   | { kind: "folderIcon"; path: string }
+  /** "Add a folder" at the top of the workspace: its built-in folders, or one of the person's own. */
+  | { kind: "addFolder" }
   /** Several picked rows' tags, from a phone's select bar (board 16). */
   | { kind: "tagsMany"; paths: readonly string[] }
   | null;

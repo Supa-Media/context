@@ -24,6 +24,7 @@ import { isDirty } from "./editor";
 import type { FileBrowserOptions } from "./fileBrowser/types";
 import { useFileActions } from "./fileBrowser/useFileActions";
 import { useFolderIcons } from "./fileBrowser/useFolderIcons";
+import { useBuiltInFolders } from "./fileBrowser/useBuiltInFolders";
 import { useBrowserState } from "./fileBrowser/useBrowserState";
 import { useWritesAndImages } from "./fileBrowser/useWritesAndImages";
 import { useOfflineQueue } from "./fileBrowser/useOfflineQueue";
@@ -76,7 +77,9 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   const withOfflineQueue = { ...withWritesAndImages, ...useOfflineQueue(withWritesAndImages) };
   const withNoteReads = { ...withOfflineQueue, ...useNoteReads(withOfflineQueue) };
   const withListings = { ...withNoteReads, ...useListings(withNoteReads) };
-  const withOpenNote = { ...withListings, ...useOpenNote(withListings) };
+  // "Add a folder" needs the listings to refresh the root, and nothing after it.
+  const withBuiltInFolders = { ...withListings, ...useBuiltInFolders(withListings) };
+  const withOpenNote = { ...withBuiltInFolders, ...useOpenNote(withBuiltInFolders) };
   // The peek's loan of the editor; its `select` and `deselect` replace the ones above for every part after.
   const withBeside = { ...withOpenNote, ...useBesideNote(withOpenNote) };
   const withRunOperation = { ...withBeside, ...useRunOperation(withBeside) };

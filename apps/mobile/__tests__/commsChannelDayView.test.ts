@@ -114,6 +114,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     resetPrivacy: noop,
     iconOf: () => null,
     setIcon: async () => {},
+    addBuiltInFolder: async () => "",
     canResetPrivacy: false,
     canSetVisibility: false,
     canShare: false,
