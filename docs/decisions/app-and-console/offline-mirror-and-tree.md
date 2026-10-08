@@ -41,6 +41,19 @@ read "Empty" again. Tests: `serverTree.test.ts`, `serverTreeSync.test.ts`
 (sabotage: dropping the tab's walk fails "a refresh request walks the server
 and redraws the tree").
 
+**The walk draws as it goes, and the tab keeps its last whole tree.** Still
+slow in @seyi (9,129 notes, so three or more 4,000-entry manifest calls one
+after another): nothing came from the walk until its last page, and every
+reload began at "Reading your bucket…". The manifest is in key order, so after
+each page every folder whose keys all sort before the cursor is whole and is
+drawn then (`finishedBefore`); a walk that stops part-way keeps those. The last
+complete tree is kept in `sessionStorage` — names and versions, never note
+text, never `localStorage` (whose quota the unsent-edit queue needs) — and a
+reload draws it at once as the device's copy (rows first, server still asked,
+#1345's rule). It dies with the tab and is cleared at sign-out and on leaving a
+context. A tab re-walks a context at most once per 15 seconds however often the
+tree signal fires.
+
 Search was already server-first online (`useDeviceSearch`). The phone app's
 Home still counts from its copy, which is the app's offline copy by design.
 
