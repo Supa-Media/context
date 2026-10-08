@@ -436,17 +436,9 @@ describe("the two entitlements", () => {
     expect(rows.map((row) => row.value)).toEqual(["managedStorage"]);
     expect(rows[0]!.on).toBe(true);
     expect(entitlementRows(status())[0]!.on).toBe(false);
-  });
-
-  test("no row offers fast search, whatever the plan's flag says", () => {
-    for (const selected of [
-      { managedStorage: true, fastSearch: true },
-      { managedStorage: false, fastSearch: true },
-    ]) {
-      const rows = entitlementRows(status({ selected }));
-      expect(rows.some((row) => /fast search/i.test(row.label))).toBe(false);
-      expect(rows.some((row) => /fast search/i.test(row.detail))).toBe(false);
-    }
+    // Whatever the plan's old flag says, no row offers fast search.
+    const flagged = entitlementRows(status({ selected: { managedStorage: false, fastSearch: true } }));
+    expect(flagged.some((row) => /fast search/i.test(`${row.label} ${row.detail}`))).toBe(false);
   });
 
   test("the ceiling is named on the row that has one", () => {

@@ -216,4 +216,37 @@ describe("the owner's switch", () => {
     await forget(t, workspaceId);
     expect(await row(t, workspaceId)).toBeNull();
   });
+
+  test("an opted-in legacy row is replaced by the owner's switch and by the rollout", async () => {
+    // A legacy row that says `optedIn: true` never serves, so it reads "off".
+    // Neither the owner's switch nor "on for everyone" may treat it as on.
+    for (const via of ["owner", "rollout"] as const) {
+      const t = setupTest();
+      const { owner, workspaceId } = await workspace(t, `legacy-on-${via}`);
+      await t.run((ctx) =>
+        ctx.db.insert("searchIndexes", {
+          workspaceId,
+          optedIn: true,
+          optedInBy: owner,
+          optedInAt: 1,
+          status: "ready",
+          databaseId: "legacy-database-must-not-serve",
+          createdAt: 1,
+          updatedAt: 1,
+        }),
+      );
+      if (via === "owner") {
+        const result = await asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId });
+        expect(result.state).toBe("preparing");
+      } else {
+        expect(
+          (await t.mutation(internal.functions.fastSearch.autoEnable, { workspaceId })).scheduled,
+        ).toBe(true);
+      }
+      const legacyRow = await row(t, workspaceId);
+      expect(legacyRow?.generation).toBe(FAST_SEARCH_GENERATION);
+      expect(legacyRow?.status).toBe("provisioning");
+      expect(legacyRow?.databaseId).toBeUndefined();
+    }
+  });
 });
