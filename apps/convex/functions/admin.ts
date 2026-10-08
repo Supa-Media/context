@@ -57,7 +57,9 @@ import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { normalizeSecretName } from "./lib/appSecrets";
 import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } from "./lib/admin";
 import { agentReportHandler, agentReportValidator } from "./lib/adminFns/agentReport";
-import { aiCostsAccountValidator, aiCostsReportValidator } from "./lib/adminFns/aiCostsShape";
+import { aiCostsAccountValidator, aiCostsCloudflareValidator, aiCostsReportValidator, type AiCostsCloudflare } from "./lib/adminFns/aiCostsShape";
+import { cloudflareCheck } from "./lib/adminFns/aiCostsCloudflare";
+import { clampAiCostsDays } from "./lib/adminFns/aiCostsRead";
 import { aiCostsAccountHandler, aiCostsReportHandler } from "./lib/adminFns/aiCostsReport";
 import { searchReportHandler, searchReportValidator } from "./lib/adminFns/searchReport";
 import { toConvexError } from "./lib/adminFns/errors";
@@ -171,6 +173,30 @@ export const aiCostsAccount = query({
       throw toConvexError(error);
     });
     return await aiCostsAccountHandler(ctx, args);
+  },
+});
+
+/**
+ * The AI costs tab's check against Cloudflare's own usage count. An action,
+ * because it asks Cloudflare; the staff check is the internal query every
+ * admin action uses. See `lib/adminFns/aiCostsCloudflare.ts`.
+ */
+export const aiCostsCloudflare = action({
+  args: { days: v.optional(v.number()) },
+  returns: aiCostsCloudflareValidator,
+  handler: async (ctx, args): Promise<AiCostsCloudflare> => {
+    try {
+      await ctx.runQuery(internal.functions.admin.requireAdminActor, {});
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await cloudflareCheck(
+      {
+        CLOUDFLARE_ANALYTICS_TOKEN: process.env.CLOUDFLARE_ANALYTICS_TOKEN,
+        CLOUDFLARE_ANALYTICS_ACCOUNT_ID: process.env.CLOUDFLARE_ANALYTICS_ACCOUNT_ID,
+      },
+      clampAiCostsDays(args.days),
+    );
   },
 });
 
