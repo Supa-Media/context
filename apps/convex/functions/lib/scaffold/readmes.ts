@@ -143,8 +143,8 @@ export function renderFolderReadme(folder: string): string {
     "Examples:",
     ...purpose.examples.map((example) => `- ${example}`),
     "",
-    "This folder is a suggestion. Rename it, nest inside it, or delete it — the",
-    "tools address paths, not a fixed taxonomy.",
+    "This folder is built in: every Context workspace has it, so it can't be",
+    "renamed, moved or deleted. Everything inside it is yours to move.",
     "",
   ].join("\n");
 }

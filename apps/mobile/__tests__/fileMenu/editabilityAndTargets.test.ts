@@ -175,6 +175,7 @@ describe("a folder", () => {
       "rename",
       "duplicate",
       "moveTo",
+      "setIcon",
       "copy",
       "cut",
       "copyPath",

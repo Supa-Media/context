@@ -1,8 +1,9 @@
 import { ScrollView, View } from "react-native";
 import { PressRow } from "../../../design/components/Button";
+import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
-import { useThemedStyles } from "../../../design/theme";
+import { useColors, useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
 import { relabelled } from "../linkedTitle";
 import { FileTree } from "../FileTree";
@@ -31,6 +32,7 @@ export function ExplorerTree({
   markedPaths,
   agentMarks,
   background,
+  onAddFolder,
 }: {
   files: FileBrowser;
   query: string;
@@ -46,8 +48,11 @@ export function ExplorerTree({
   markedPaths: ExplorerState["markedPaths"];
   agentMarks: ExplorerState["agentMarks"];
   background: ExplorerState["background"];
+  /** "Add a folder", after the last root row. Absent where nobody may make one. */
+  onAddFolder?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   return (
     <ScrollView
       style={styles.scroll}
@@ -108,7 +113,33 @@ export function ExplorerTree({
           markedPaths={markedPaths}
           agentMarks={agentMarks}
           workspaceId={files.contextId}
+          iconOf={files.iconOf}
         />
+      )}
+
+      {/*
+        After the last root row, not inside the tree: it is an action on the
+        workspace's top level rather than a row of it, so it is not in the
+        keyboard list or the row model. Not drawn while a filter has taken the
+        tree's place, or while the root is still loading.
+      */}
+      {onAddFolder === undefined || files.loading || matches !== null ? null : (
+        <PressRow
+          accessibilityLabel="Add a folder"
+          onPress={onAddFolder}
+          radius={radii.sm}
+          style={styles.addFolder}
+          hoverStyle={styles.addFolderHover}
+          testID="explorer-add-folder"
+        >
+          <View style={styles.addFolderSlot} />
+          <View style={styles.addFolderGlyph}>
+            <Icon name="folderPlus" size={14} color={colors.muted} />
+          </View>
+          <Text variant="tree" style={styles.addFolderLabel}>
+            Add a folder
+          </Text>
+        </PressRow>
       )}
 
       {/*

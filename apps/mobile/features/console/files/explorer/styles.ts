@@ -90,6 +90,25 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     borderRadius: radii.sm,
   },
   matchHover: { backgroundColor: colors.surface3 },
+  /**
+   * "Add a folder", after the last root row. Laid out on the tree's own columns
+   * (8pt margin, a 10pt chevron box, a 16pt glyph box, then the name), so its
+   * label starts on the line the root folders' names do.
+   */
+  addFolder: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "stretch",
+    paddingVertical: 5,
+    paddingLeft: 8,
+    paddingRight: 8,
+    borderRadius: radii.sm,
+  },
+  addFolderHover: { backgroundColor: colors.surface3 },
+  addFolderSlot: { width: 10 },
+  addFolderGlyph: { width: 16, marginRight: 4, alignItems: "center", justifyContent: "center" },
+  addFolderLabel: { color: colors.muted },
   matchOn: { backgroundColor: colors.accentDim },
   matchDetail: { opacity: 0.85 },
 

@@ -39,7 +39,7 @@
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
 import { builtInLockedItems, isBuiltInRow } from "./menuBuiltIn";
-import { makeItem } from "./menuMake";
+import { iconGroup, makeItem } from "./menuMake";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
 import type { TreeRow } from "./tree";
@@ -106,6 +106,11 @@ export type MenuActionId =
   | "unpin"
   /** A folder's tags, on its front note (`TagsSheet`, board 14). */
   | "tags"
+  /**
+   * An emoji for a folder, from a grid (`FolderIconDialog`). Editor only, and
+   * offered for folders alone: a note has no icon of its own.
+   */
+  | "setIcon"
   /** Pick several rows of the folder page (board 16). */
   | "selectNotes"
   | "archive"
@@ -385,6 +390,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...(builtIn ? [] : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
       ...pinGroup(context, row),
       ...tagsGroup(context, row),
+      ...iconGroup(context, row),
     ],
     /*
       Board 15: "the same Share the app already has, as a full sheet" —
@@ -591,6 +597,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
         ? []
         : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
     ],
+
+    iconGroup(context, single),
 
     // `copyEntry` and the clipboard both take folders, so a folder is copied
     // and cut exactly like a note is. A selection gets neither: the clipboard

@@ -8,16 +8,18 @@
  * earlier one arrives in `deps`, and is the same value the code closed over
  * before.
  */
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowserOptions } from "./types";
+import type { FolderIconsValues } from "./useFolderIcons";
 
-type FileActionsDeps = { options: FileBrowserOptions };
+type FileActionsDeps = { options: FileBrowserOptions; folderIcons: FolderIconsValues };
 
 export function useFileActions(deps: FileActionsDeps) {
-  const { options } = deps;
+  const { options, folderIcons } = deps;
+  const { moved } = folderIcons;
 
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const slug = options.slug ?? null;
@@ -47,15 +49,56 @@ export function useFileActions(deps: FileActionsDeps) {
   const retractSubmissionAction = useAction(api.functions.forms.retractSubmission);
   const createDirectory = useAction(api.functions.files.createDirectory);
   const undoNewFolder = useAction(api.functions.folders.undoNewFolder);
-  const moveEntry = useAction(api.functions.files.moveEntry);
+  /*
+    The four actions that put a folder somewhere else are wrapped here, once,
+    so the icon follows the folder on screen whichever caller moved it: rename,
+    move, undo, a batch, and an offline replay all come through these. The
+    server remaps the icon in the bucket (`folderIcons.cjs`), and this keeps the
+    screen in step without a second read. A failed call moves nothing and
+    rethrows, as the bare action does.
+  */
+  const moveEntryAction = useAction(api.functions.files.moveEntry);
+  const moveEntry = useCallback<typeof moveEntryAction>(
+    async (args) => {
+      const result = await moveEntryAction(args);
+      moved(args.from, args.to);
+      return result;
+    },
+    [moveEntryAction, moved],
+  );
   const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
   const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
   const dismissContextMoveMutation = useMutation(api.functions.contextMoves.dismissContextMove);
   const copyEntry = useAction(api.functions.files.copyEntry);
   const duplicateEntry = useAction(api.functions.files.duplicateEntry);
-  const archiveEntry = useAction(api.functions.files.archiveEntry);
-  const trashEntry = useAction(api.functions.files.trashEntry);
-  const restoreTrashEntry = useAction(api.functions.files.restoreTrashEntry);
+  // Archive, trash and restore are moves too: the answer says where the folder went.
+  const archiveEntryAction = useAction(api.functions.files.archiveEntry);
+  const archiveEntry = useCallback<typeof archiveEntryAction>(
+    async (args) => {
+      const result = await archiveEntryAction(args);
+      moved(args.path, result.to);
+      return result;
+    },
+    [archiveEntryAction, moved],
+  );
+  const trashEntryAction = useAction(api.functions.files.trashEntry);
+  const trashEntry = useCallback<typeof trashEntryAction>(
+    async (args) => {
+      const result = await trashEntryAction(args);
+      moved(args.path, result.to);
+      return result;
+    },
+    [moved, trashEntryAction],
+  );
+  const restoreTrashEntryAction = useAction(api.functions.files.restoreTrashEntry);
+  const restoreTrashEntry = useCallback<typeof restoreTrashEntryAction>(
+    async (args) => {
+      const result = await restoreTrashEntryAction(args);
+      moved(args.from, args.to);
+      return result;
+    },
+    [moved, restoreTrashEntryAction],
+  );
   const setNoteVisibility = useAction(api.functions.files.setNoteVisibility);
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
   const setFolderGroupAction = useAction(api.functions.files.setFolderGroup);

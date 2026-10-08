@@ -194,6 +194,7 @@ export function FolderView({
   phoneHead,
   phoneButtons,
   phoneRows,
+  iconOf,
   askSelect = false,
   onAskTaken,
 }: {
@@ -252,6 +253,8 @@ export function FolderView({
   phoneButtons?: ReactNode;
   /** What a phone row says beside its name; with it, Folders and Notes are drawn apart. */
   phoneRows?: PhoneRows;
+  /** A folder's own emoji, from "Set icon…". Absent draws every folder with the plain icon. */
+  iconOf?: (path: string) => string | null;
   /** "Select notes" was chosen from this folder's ••• (board 16): enter select mode, then say so. */
   askSelect?: boolean;
   onAskTaken?: () => void;
@@ -494,6 +497,7 @@ export function FolderView({
                               : selection.start
                         }
                         phone={compact ? phoneRows?.(row) : undefined}
+                        folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
                       />
                     </Fragment>
                   ))}

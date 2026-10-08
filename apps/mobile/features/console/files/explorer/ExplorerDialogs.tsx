@@ -6,6 +6,8 @@ import {
   MovePicker,
   NamePrompt,
 } from "../Dialogs";
+import { AddFolderSheet } from "../AddFolderSheet";
+import { FolderIconDialog } from "../FolderIconDialog";
 import { NewFolderForm } from "../NewFolderForm";
 import { NewNoteWhere } from "../NewNoteWhere";
 import { TagsSheet } from "../TagsSheet";
@@ -226,6 +228,32 @@ export function ExplorerDialogs({
         />
       );
     }
+    case "addFolder": {
+      // The top of the workspace's own folders, as the listing has them now.
+      const names = (files.listings[""]?.entries ?? []).filter((entry) => entry.kind === "folder").map((entry) => entry.name);
+      return (
+        <AddFolderSheet
+          files={files}
+          names={names}
+          folders={pickable}
+          rootLabel={rootLabel}
+          compact={compact}
+          onAdded={(path) => {
+            if (compact) files.select(path);
+          }}
+          onClose={onClose}
+        />
+      );
+    }
+    case "folderIcon":
+      return (
+        <FolderIconDialog
+          path={dialog.path}
+          current={files.iconOf(dialog.path)}
+          onSet={(icon) => files.setIcon(dialog.path, icon)}
+          onClose={onClose}
+        />
+      );
     case "rename":
       return (
         <NamePrompt

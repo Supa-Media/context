@@ -228,6 +228,8 @@ export function BrowseDocument({
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
       onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
       onTogglePin={places.togglePin}
+      iconOf={files.iconOf}
+      onAddFolder={files.canEdit ? () => setFolderDialog({ kind: "addFolder" }) : undefined}
       foot={contextFoot}
       onOpenMap={mapRoute?.openMap}
     />
@@ -413,6 +415,7 @@ export function BrowseDocument({
           ) : undefined
         }
         phoneRows={phoneRowsFor}
+        iconOf={files.iconOf}
         askSelect={selectAsked === selected.path}
         onAskTaken={takeSelect}
       />

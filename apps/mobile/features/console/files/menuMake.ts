@@ -1,5 +1,6 @@
 import { describeBinding, type Command } from "../../design/keymap";
 import type { MenuActionId, MenuContext } from "./menu";
+import type { TreeRow } from "./tree";
 import type { MenuItem } from "./menuItem";
 
 /**
@@ -72,4 +73,16 @@ export function makeItem(
     ...(extra.disabled === true ? { disabled: true } : {}),
     ...(extra.items === undefined ? {} : { items: extra.items }),
   };
+}
+
+/**
+ * "Set icon…" on one folder, where its icon can be changed from here.
+ *
+ * Editor only, and absent rather than disabled like every other write. Built-in
+ * folders are offered it too: an icon is decoration on a folder, not a move of
+ * one, so `menuBuiltIn.ts`'s locks do not apply.
+ */
+export function iconGroup(context: MenuContext, row: TreeRow | null): MenuItem[] {
+  if (!context.canEdit || row === null || row.kind !== "folder") return [];
+  return [makeItem(context, "setIcon", "Set icon…")];
 }

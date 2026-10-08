@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as functions_builtInFolders from "../functions/builtInFolders.js";
 import type * as functions_stagingPersonas from "../functions/stagingPersonas.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
@@ -38,6 +39,7 @@ import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
 import type * as functions_fastSearch from "../functions/fastSearch.js";
 import type * as functions_fastSearchProvision from "../functions/fastSearchProvision.js";
 import type * as functions_files from "../functions/files.js";
+import type * as functions_folderIcons from "../functions/folderIcons.js";
 import type * as functions_folders from "../functions/folders.js";
 import type * as functions_forms from "../functions/forms.js";
 import type * as functions_formNotify from "../functions/formNotify.js";
@@ -131,6 +133,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "functions/builtInFolders": typeof functions_builtInFolders;
   "functions/stagingPersonas": typeof functions_stagingPersonas;
   auth: typeof auth;
   crons: typeof crons;
@@ -169,6 +172,7 @@ declare const fullApi: ApiFromModules<{
   "functions/fastSearch": typeof functions_fastSearch;
   "functions/fastSearchProvision": typeof functions_fastSearchProvision;
   "functions/files": typeof functions_files;
+  "functions/folderIcons": typeof functions_folderIcons;
   "functions/folders": typeof functions_folders;
   "functions/forms": typeof functions_forms;
   "functions/formNotify": typeof functions_formNotify;
