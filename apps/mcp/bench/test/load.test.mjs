@@ -293,6 +293,19 @@ test("a fluff file naming a missing template folder is refused, and says where",
   }
 });
 
+test("a template folder name is looked up as a folder, not as an object property", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": FLUFF.replace("from: meetings", "from: constructor"),
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    await assert.rejects(readBenchFolder(dir), /_bank\/constructor\/ does not exist/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("a malformed fluff file is refused with its path and line", async () => {
   const dir = await benchTree({
     "workspaces/people.md": PEOPLE_HEADER + WS_ROW,

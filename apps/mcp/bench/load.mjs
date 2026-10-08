@@ -178,7 +178,7 @@ export async function readBenchFolder(dir) {
         // A fluff file describes notes; it is never one.
         const label = `workspaces/${entry.name}/${rel}`;
         const parsed = parseFluff(text, label);
-        if (!bank[parsed.from]) {
+        if (!Object.hasOwn(bank, parsed.from)) {
           throw new Error(`${label}: from names template folder "${parsed.from}", but workspaces/${BANK}/${parsed.from}/ does not exist`);
         }
         fluff.push({ dir: folderOf(rel), fluff: parsed });
