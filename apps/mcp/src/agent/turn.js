@@ -101,6 +101,52 @@ export const MAX_QUESTION_LENGTH = 8000;
  */
 const MAX_TOOL_RESULT_CHARS = 60_000;
 
+/**
+ * How long one tool call may take before the model is told it failed.
+ *
+ * The texting Worker gives the whole turn two minutes (`apps/agent`), and a
+ * person's slow search used to spend all of it: the turn died, and the text
+ * that went back was "Something went wrong" instead of an answer (the owner,
+ * 2026-10-08: "the assistant is literally useless right now"). A call that
+ * runs past this is answered in band like any failed call, so the model can
+ * say what it could not check rather than the turn saying nothing.
+ */
+export const TOOL_TIMEOUT_MS = 20_000;
+
+/**
+ * How long a turn may keep calling tools. Past it, a tool call is refused in
+ * band with "answer now", so the next round is the answer. Leaves the last
+ * tool call and two model rounds inside the texting Worker's two minutes.
+ */
+export const TURN_TOOL_BUDGET_MS = 70_000;
+
+/** What the model reads when a call ran past `TOOL_TIMEOUT_MS`. */
+const TOOL_TIMED_OUT =
+  "That call took too long and was stopped. Don't retry it. Answer with what you already have, " +
+  "and say plainly what you could not check.";
+
+/** What the model reads for a call asked for after `TURN_TOOL_BUDGET_MS`. */
+const OUT_OF_TIME =
+  "Out of time: no more tool calls this turn. Answer now with what you already have, " +
+  "and say plainly what you could not check.";
+
+/** Settle `work` within `ms`, or throw `ToolTimeout`. */
+async function withinTime(work, ms) {
+  let timer;
+  try {
+    return await Promise.race([
+      work,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new ToolTimeout()), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+class ToolTimeout extends Error {}
+
 export class AgentRefusal extends Error {
   constructor(code, message) {
     super(message);
@@ -240,7 +286,10 @@ export async function runTurn(options) {
     builtinModelOverride = null,
     maxRounds = MAX_ROUNDS,
     clock = Date.now,
+    toolTimeoutMs = TOOL_TIMEOUT_MS,
+    toolBudgetMs = TURN_TOOL_BUDGET_MS,
   } = options;
+  const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
   // dispatched to their own session, which carries the address guard.
   const webNames = new Set((web?.tools ?? []).map((tool) => tool.name));
@@ -253,7 +302,7 @@ export async function runTurn(options) {
   const rounds = roundsFor(maxRounds);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const system =
-    systemPrompt(place, { texting, notes }) +
+    systemPrompt(place, { texting, notes, model }) +
     webPrompt(webNames);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -360,12 +409,20 @@ export async function runTurn(options) {
         });
         continue;
       }
+      if (clock() - began >= toolBudgetMs) {
+        // Answered in band, like an unknown tool: the model's next round is
+        // the answer, written from what the calls so far returned.
+        trace.push({ kind: "tool", tool: call.name, ok: false, ms: 0 });
+        messages.push({ role: "tool", id: call.id, name: call.name, text: OUT_OF_TIME, isError: true });
+        continue;
+      }
       let result;
       const called = clock();
       try {
-        result = webNames.has(call.name)
-          ? await web.call(call.name, call.args)
-          : await callTool(call.name, call.args);
+        result = await withinTime(
+          webNames.has(call.name) ? web.call(call.name, call.args) : callTool(call.name, call.args),
+          toolTimeoutMs,
+        );
       } catch (error) {
         /*
           A tool that threw is the model's problem to work around, not the
@@ -376,7 +433,9 @@ export async function runTurn(options) {
           string goes to a third-party model.
         */
         if (error instanceof ProviderError) throw error;
-        result = { content: [{ type: "text", text: "That call failed." }], isError: true };
+        const text =
+          error instanceof ToolTimeout ? TOOL_TIMED_OUT : "That call failed. Don't guess what it would have said.";
+        result = { content: [{ type: "text", text }], isError: true };
       }
       const toolMs = clock() - called;
       timing.toolMs += toolMs;
