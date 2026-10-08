@@ -69,7 +69,8 @@ export async function handleGatewayJobMessage(message, env) {
     let nextMessage = body;
     let nextDelaySeconds;
     if (job.kind === "materialize_move" && typeof job.moveId === "string") {
-      const result = await toolMaterializeMove(store, "private", job.moveId, MOVE_AUTOMATIC_BATCH);
+      const result = await toolMaterializeMove(store, "private", job.moveId, MOVE_AUTOMATIC_BATCH,
+        { automatic: true });
       const text = result?.content?.[0]?.text || "";
       if (result?.isError) {
         error = moveErrorForControlPlane(text);
