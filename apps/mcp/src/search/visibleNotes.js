@@ -28,15 +28,28 @@ import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
  */
 export async function searchVisibleNotes(store, scope, rules, overrides, query, prefix) {
   const seen = { moves: null };
+  let found;
   try {
-    return await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen);
+    found = await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen);
   } catch (error) {
     // Only after the move list is known: without it a moved note could be
     // shown at a path whose privacy was never asked about.
     if (!error?.[BUDGET_EXHAUSTED] || seen.moves === null) throw error;
     if (typeof store.setExtraOperationCharge === "function") store.setExtraOperationCharge(null);
-    return await rescueFromProjection(store, scope, rules, overrides, query, prefix, seen.moves);
+    found = await rescueFromProjection(store, scope, rules, overrides, query, prefix, seen.moves);
   }
+  /*
+   * Nothing found over an index that says it is behind, while the projection
+   * is still filling: what it has copied so far is asked, and the answer keeps
+   * its "still catching up" floor, so a partial answer is never read as the
+   * whole context. @seyi's projection held 9,129 notes mid-backfill while every
+   * search answered nothing (2026-10-08).
+   */
+  if (found.hits.length === 0 && (found.indexIncomplete || found.degraded) && seen.moves !== null && store.searchIndex?.state !== "ready") {
+    const partial = await rescueFromProjection(store, scope, rules, overrides, query, prefix, seen.moves, { filling: true });
+    if (partial.hits.length > 0) return { ...partial, indexIncomplete: true, matchCountIsFloor: true };
+  }
+  return found;
 }
 
 /**
@@ -45,7 +58,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
  * error. An error here took the whole answer with it, meaning matches
  * included, and a texted question with it (@seyi, 2026-10-08).
  */
-async function rescueFromProjection(store, scope, rules, overrides, query, prefix, moves) {
+async function rescueFromProjection(store, scope, rules, overrides, query, prefix, moves, { filling = false } = {}) {
   const related = moves.some(
     (job) =>
       noteUnderPrefix(job.source, prefix) ||
@@ -66,7 +79,8 @@ async function rescueFromProjection(store, scope, rules, overrides, query, prefi
           query,
           prefix,
           createSearchBudget(FAST_SEARCH_FLOOR),
-          createSearchTrace()
+          createSearchTrace(),
+          { filling }
         );
   const fast =
     answer && related ? showAtMovedPaths(answer, moves, (path) => canSee(path, scope, rules, overrides)) : answer;
