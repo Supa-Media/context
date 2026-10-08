@@ -15,7 +15,7 @@ import {
 } from "./forms/tools.js";
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
-import { toolError } from "./results.js";
+import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolExportEncryptionKeys, toolSetEncryption } from "./encryption/setEncryption.js";
 import { toolListChanges } from "../activity/changes.js";
@@ -153,7 +153,23 @@ export async function callTool(name, args, store, scope) {
     case "materialize_move":
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       if (scope !== "private") return toolError("permission denied: move materialization requires owner access.");
-      return toolMaterializeMove(store, scope, args.id, args.batch_size);
+      {
+        const result = await toolMaterializeMove(store, scope, args.id, args.batch_size);
+        const text = result?.content?.[0]?.text || "";
+        if (args.resume_background === true && !result?.isError &&
+            !text.includes("complete") && !text.includes("no active work")) {
+          if (typeof store.enqueueGatewayJob !== "function") {
+            return toolText(`${text}\nbackground worker unavailable; continue with materialize_move`);
+          }
+          try {
+            await store.enqueueGatewayJob({ kind: "materialize_move", moveId: args.id });
+          } catch {
+            return toolText(`${text}\nbackground restart failed; retry resume_background`);
+          }
+          return toolText(`${text}\nbackground worker queued`);
+        }
+        return result;
+      }
     // `archive_chat` is the name this tool shipped under, and a client holding
     // a cached tool list is still calling it. It is no longer *listed* — the
     // rename is the point — but refusing it would drop sessions on the floor

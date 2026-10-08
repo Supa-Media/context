@@ -55,7 +55,7 @@ export function moveJobActive(job) {
     typeof job.source === "string" &&
     typeof job.destination === "string" &&
     Array.isArray(job.objects) &&
-    ["logical_active", "copying", "deleting", "needs_cleanup"].includes(job.status)
+    ["logical_active", "copying", "deleting", "needs_cleanup", "rewriting"].includes(job.status)
   );
 }
 

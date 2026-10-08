@@ -22,4 +22,7 @@ export const MOVE_SENTINEL_KEY = ".context/moves/active";
 export const TRASH_PREFIX = ".context/trash/";
 export const MOVE_JOB_VERSION = 1;
 export const MOVE_MATERIALIZE_BATCH = 100;
+// One object may require several remote calls (copy, verify, privacy and
+// collaboration). Keep automatic queue passes inside the gateway time budget.
+export const MOVE_AUTOMATIC_BATCH = 10;
 export const BATCH_MOVE_CAP = 100;
