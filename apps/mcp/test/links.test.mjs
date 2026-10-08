@@ -56,6 +56,7 @@ import {
   expressLink,
   indexByName,
   normalizeSegments,
+  onlyLinkTargetsChanged,
   parseLinks,
   relativePath,
   resolveLink,
@@ -85,6 +86,12 @@ function rewrite(text, { from = NOTE, to = NOTE, renames = new Map(), names = []
 
 export async function runLinkChecks(check) {
   /* -- (1) what is a link ------------------------------------------------- */
+
+  check("retargeted links can be distinguished from changed note content",
+    onlyLinkTargetsChanged("hello [[old|same]] and [day](../old.md)",
+      "hello [[new|same]] and [day](../../new.md)") &&
+    !onlyLinkTargetsChanged("hello [[old]]", "changed [[new]]") &&
+    !onlyLinkTargetsChanged("hello [[old]]", "hello [[old]]"));
 
   {
     const text =

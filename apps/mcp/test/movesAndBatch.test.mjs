@@ -292,6 +292,31 @@ export async function runMovesAndBatchChecks() {
       !objects.has("1-projects/big-missing-moved/note-000.md")
   );
   await contextStore.delete(`.context/moves/${missingMoveId}.json`);
+  for (let i = 0; i < 101; i += 1) {
+    await contextStore.put(`1-projects/retargeted/note-${i}.md`,
+      i === 0 ? "Contact [site](https://old.example)" : `record ${i}`);
+  }
+  const retargetedMove = await call("priv-token", "move_folder", {
+    source: "1-projects/retargeted",
+    destination: "4-archive/1-projects/retargeted",
+  });
+  const retargetedId = retargetedMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  await contextStore.put("4-archive/1-projects/retargeted/note-0.md",
+    "Contact [site](https://new.example)");
+  let retargetedResult;
+  for (let i = 0; i < 10 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${retargetedId}.json`)); i += 1) {
+    retargetedResult = await call("priv-token", "materialize_move", {
+      id: retargetedId, batch_size: 100,
+    });
+    if (retargetedResult.isError) break;
+  }
+  check("materialization preserves a destination whose link targets alone changed",
+    !retargetedResult?.isError &&
+      storedText("4-archive/1-projects/retargeted/note-0.md") ===
+        "Contact [site](https://new.example)" &&
+      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-0.md")));
+  await contextStore.delete(`.context/moves/${retargetedId}.json`);
   for (let i = 0; i < 501; i += 1) {
     const suffix = String(i).padStart(3, "0");
     await contextStore.put(`1-projects/big-complete/note-${suffix}.md`, `complete ${suffix}`);
