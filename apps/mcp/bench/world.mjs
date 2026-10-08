@@ -13,6 +13,10 @@
  * Nothing leaves the world except the model calls: writes land in the
  * throwaway buckets and are read back as a list of changes, never applied
  * anywhere.
+ *
+ * A test may pin the day it is on (`today`, see clock.mjs): the world's clock
+ * then reads that day, and each note's modified time comes from its own front
+ * matter, so "untouched for a month" means the same on every run.
  */
 
 import worker from "../src/index.js";
@@ -20,6 +24,7 @@ import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
+import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 
 const S3_ENDPOINT = "https://s3.bench.invalid";
 const PINNED = "context-lc";
@@ -76,15 +81,24 @@ function snapshot(bucket) {
  * @param {string} person e.g. "Maya"
  * @param {string} setupRaw the setup file's text, written as the production note
  * @param {{ ai?: object, gatewayFetch: Function }} models where model calls go
+ * @param {string | null} [today] the day the world is on, as YYYY-MM-DD; null
+ *   keeps the real clock. The clock reads noon UTC that day and runs on from there.
  */
-export async function createWorld(bench, person, setupRaw, models) {
+export async function createWorld(bench, person, setupRaw, models, today = null) {
+  if (today !== null) assertIsoDate(today);
   const rows = bench.people.filter((row) => row.person === person);
   const own = rows.find((row) => row.personal);
   if (!own) throw new Error(`${person} has no personal workspace in people.md`);
 
-  const s3 = createS3Backend(S3_ENDPOINT);
+  // Notes are dated from the pinned day, or from the real clock when there is none.
+  const baseMs = today === null ? realNow() : noonUtcMs(today);
+  const modified = (ms) => new Date(ms).toISOString();
+
+  // A write a turn makes is stamped on the world's clock, so it reads as just written.
+  const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() });
   const controlPlane = createControlPlaneStub();
   const restore = [s3.install(), controlPlane.install()];
+  if (today !== null) restore.push(installClock(today));
 
   // Model calls are the only traffic that leaves the world.
   const below = globalThis.fetch;
@@ -106,16 +120,22 @@ export async function createWorld(bench, person, setupRaw, models) {
     const shared = !bench.people.some((row) => row.workspace === name && row.personal);
     controlPlane.addWorkspace(id, name, binding(`bench-${name}`, ++n), shared ? { kind: "shared" } : {});
     const bucket = s3.bucketFor(`bench-${name}`);
-    bucket.set("privacy.md", { body: manifest({ shared, files: Object.keys(workspace.files), heldBack: workspace.heldBack }), etag: "p0" });
-    for (const [path, text] of Object.entries(workspace.files)) bucket.set(path, { body: text, etag: "e0" });
+    bucket.set("privacy.md", {
+      body: manifest({ shared, files: Object.keys(workspace.files), heldBack: workspace.heldBack }),
+      etag: "p0",
+      lastModified: modified(baseMs),
+    });
+    for (const [path, text] of Object.entries(workspace.files)) {
+      bucket.set(path, { body: text, etag: "e0", lastModified: modified(noteModifiedAt(text, baseMs)) });
+    }
     controlPlane.setBuiltinVerdict(id, { allowed: true, remaining: 1000 });
     ids.set(name, id);
   }
 
   controlPlane.addWorkspace("ws_pinned", PINNED, binding("bench-pinned", ++n), { kind: "shared" });
   const pinned = s3.bucketFor("bench-pinned");
-  pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0" });
-  pinned.set(PRODUCTION_TEXTING_PATH, { body: setupRaw, etag: "s0" });
+  pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0", lastModified: modified(baseMs) });
+  pinned.set(PRODUCTION_TEXTING_PATH, { body: setupRaw, etag: "s0", lastModified: modified(noteModifiedAt(setupRaw, baseMs)) });
 
   const token = `cat_bench_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
   await controlPlane.addGrant({
@@ -145,7 +165,8 @@ export async function createWorld(bench, person, setupRaw, models) {
     /** One texted message, answered with the conversation so far. */
     async text(message) {
       const { ctx, settle } = createWorkerCtx();
-      const started = Date.now();
+      // The real clock, not the world's: a turn's recorded time is how long it took.
+      const started = realNow();
       const response = await worker.fetch(
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
@@ -155,7 +176,7 @@ export async function createWorld(bench, person, setupRaw, models) {
         env,
         ctx,
       );
-      const ms = Date.now() - started;
+      const ms = realNow() - started;
       const body = await response.json().catch(() => null);
       await settle();
       const turn = controlPlane.turnReports.at(-1) ?? {};

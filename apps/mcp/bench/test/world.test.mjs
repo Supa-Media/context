@@ -104,3 +104,130 @@ test("a shared workspace shares its folders and root notes, and holds back the n
   assert.match(text, /note_overrides:\n {2}todo\.md: team\n {2}people\/john\.md: private\n/);
   assert.doesNotMatch(manifest({ shared: false, files: ["todo.md", "a/b.md"] }), /: team/);
 });
+
+// ---- the pinned day, and the dates on each note ----
+
+/** A model that answers at once, with no tool call. */
+function replies(text) {
+  return async () =>
+    new Response(JSON.stringify({ content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+}
+
+async function askWith(folder, person, args, name, today) {
+  const world = await createWorld(folder, person, SETUP, { gatewayFetch: readsOnce(args, name) }, today);
+  try {
+    return await world.text("go");
+  } finally {
+    world.close();
+  }
+}
+
+// Maya's notes, dated four ways and once with no dates at all.
+const dated = {
+  ...bench,
+  workspaces: {
+    ...bench.workspaces,
+    maya: {
+      files: {
+        "dated.md": "---\nupdated: 2026-10-01\n---\n\nDATED-MARK last touched a week ago\n",
+        "undated.md": "UNDATED-MARK a note with no dates at all\n",
+        "both.md": "---\nupdated: 2026-10-02\ndate: 2026-09-01\n---\n\nBOTH-MARK updated wins over date\n",
+        "stamped.md": "---\ndate: 2026-09-15\n---\n\nSTAMPED-MARK only a date\n",
+        "ranged.md": "---\ndates: 2026-09-20 to 2026-09-25\n---\n\nRANGED-MARK starts on the first day\n",
+        "unreadable.md": "---\nupdated: sometime\ndate: 2026-09-15\n---\n\nFALLBACK-MARK an unreadable updated falls through\n",
+      },
+      heldBack: [],
+    },
+  },
+};
+
+test("with today pinned, orient ages a note by its updated date, and an undated note as two months old", async () => {
+  const turn = await askWith(dated, "Maya", {}, "orient", "2026-10-08");
+  assert.ok(turn.ok, turn.error);
+  assert.ok(turn.answer.includes("dated.md — 7d ago"), turn.answer);
+  assert.ok(turn.answer.includes("undated.md — 2mo ago"), turn.answer);
+});
+
+test("inside a turn, Date.now() and new Date() are on the pinned day, at noon UTC", async () => {
+  const seen = [];
+  const answer = replies("ok");
+  const gatewayFetch = async (url, init) => {
+    seen.push(Date.now(), new Date().getTime());
+    return answer(url, init);
+  };
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch }, "2026-10-08");
+  try {
+    await world.text("what day is it?");
+  } finally {
+    world.close();
+  }
+  const noon = Date.UTC(2026, 9, 8, 12);
+  assert.ok(seen.length >= 2, "the model was asked");
+  for (const ms of seen) assert.ok(ms >= noon && ms < noon + 60_000, `read ${new Date(ms).toISOString()}`);
+});
+
+test("without today the world keeps the real clock", async () => {
+  const RealDate = globalThis.Date;
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: replies("ok") });
+  try {
+    assert.equal(globalThis.Date, RealDate);
+  } finally {
+    world.close();
+  }
+});
+
+test("close() gives the real Date back", async () => {
+  const RealDate = globalThis.Date;
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: replies("ok") }, "2020-01-01");
+  assert.notEqual(globalThis.Date, RealDate, "the pinned clock is in place while the world is open");
+  world.close();
+  assert.equal(globalThis.Date, RealDate);
+  assert.ok(Date.now() > Date.UTC(2025, 0, 1), "the real clock is back");
+  assert.ok(new Date() instanceof RealDate);
+});
+
+test("a today that is not an ISO date is refused before anything is built", async () => {
+  const RealDate = globalThis.Date;
+  const fetchBefore = globalThis.fetch;
+  await assert.rejects(createWorld(bench, "Maya", SETUP, { gatewayFetch: replies("ok") }, "not-a-date"), /today/);
+  assert.equal(globalThis.Date, RealDate);
+  assert.equal(globalThis.fetch, fetchBefore);
+});
+
+test("each note's last-modified time comes from its front matter, and privacy.md is dated today", async () => {
+  const world = await createWorld(dated, "Maya", SETUP, { gatewayFetch: replies("ok") }, "2026-10-08");
+  const seen = {};
+  try {
+    for (const path of ["dated.md", "undated.md", "both.md", "stamped.md", "ranged.md", "unreadable.md", "privacy.md"]) {
+      const response = await fetch(`https://s3.bench.invalid/bench-maya/${path}`, { method: "HEAD" });
+      seen[path] = response.headers.get("last-modified");
+    }
+  } finally {
+    world.close();
+  }
+  const utc = (iso) => new Date(iso).toUTCString();
+  assert.equal(seen["dated.md"], utc("2026-10-01T12:00:00Z"));
+  assert.equal(seen["both.md"], utc("2026-10-02T12:00:00Z"));
+  assert.equal(seen["stamped.md"], utc("2026-09-15T12:00:00Z"));
+  assert.equal(seen["ranged.md"], utc("2026-09-20T12:00:00Z"));
+  assert.equal(seen["unreadable.md"], utc("2026-09-15T12:00:00Z"));
+  assert.equal(seen["undated.md"], utc("2026-08-09T12:00:00Z"), "no dates is sixty days before today");
+  assert.equal(seen["privacy.md"], utc("2026-10-08T12:00:00Z"));
+});
+
+test("a note a turn writes is stamped with the pinned clock, so it reads as just written", async () => {
+  const write = readsOnce({ path: "orders.md", content: "- order more twill\n", context: "@brand" }, "write_note");
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: write }, "2026-10-08");
+  let modified = null;
+  try {
+    await world.text("order more twill");
+    const response = await fetch("https://s3.bench.invalid/bench-brand/orders.md", { method: "HEAD" });
+    modified = new Date(response.headers.get("last-modified")).toISOString();
+  } finally {
+    world.close();
+  }
+  assert.ok(modified && modified.startsWith("2026-10-08T12:00:"), `stamped ${modified}`);
+});

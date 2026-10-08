@@ -8,6 +8,7 @@ const fixture = {
   test: "texting-assistant",
   testVersion: "a1b2c3d4e5f6",
   date: "2026-10-08",
+  today: "2026-10-08",
   commit: "55db45c",
   playedBy: "claude-sonnet-5-5",
   setups: [
@@ -118,6 +119,7 @@ const SNAPSHOT = [
   "test: texting-assistant",
   "test_version: a1b2c3d4e5f6",
   "date: 2026-10-08",
+  "today: 2026-10-08",
   "code_commit: 55db45c",
   "played_by: claude-sonnet-5-5",
   "setups: [production@de6c72003282, glm-trial@0123456789ab]",
@@ -287,6 +289,13 @@ test("front matter carries the run values", () => {
   assert.ok(head.includes("setups: [production@de6c72003282, glm-trial@0123456789ab]"));
   assert.ok(head.includes("runs_per_question: 2"));
   assert.ok(head.includes("status: not judged"));
+});
+
+test("front matter records the pinned day, or says the run used the real one", () => {
+  assert.ok(resultMarkdown(fixture).includes("\ntoday: 2026-10-08\n"));
+  const real = resultMarkdown({ ...fixture, today: undefined });
+  assert.ok(real.includes("\ntoday: real\n"));
+  assert.ok(!real.includes("today: 2026-10-08"));
 });
 
 test("played_by is omitted when null", () => {
