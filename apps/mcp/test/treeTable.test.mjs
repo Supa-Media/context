@@ -311,3 +311,25 @@ test("a listing that says there is more but returns nothing new is recorded as s
   assert.equal(result.complete, false);
   assert.match((await readTreeState(client)).error, /returned nothing new/);
 });
+
+test("a page that was all deleted notes is passed, not asked for again", async () => {
+  // Logical deletes leave markers the store hides: a page of them lists
+  // nothing, and says where it got to with `resumeAfter`.
+  const hidden = new Set(["1-projects/plan.md", "1-projects/plan/attachment.png"]);
+  const store = bucket(NOTES, { pageSize: 2 });
+  const list = store.list;
+  store.list = async (options) => {
+    const page = await list(options);
+    const last = page.objects.at(-1)?.key;
+    return {
+      ...page,
+      objects: page.objects.filter((object) => !hidden.has(object.key)),
+      ...(last === undefined ? {} : { resumeAfter: last }),
+    };
+  };
+  const client = sqliteClient();
+  const result = await sweepTreePass(store, client, { now: clock() });
+  assert.equal(result.complete, true);
+  assert.deepEqual(await paths(client), NOTES.filter((key) => !hidden.has(key)).sort(compareKeys));
+  assert.equal((await readTreeState(client)).error, null);
+});
