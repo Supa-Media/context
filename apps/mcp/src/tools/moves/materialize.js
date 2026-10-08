@@ -151,14 +151,16 @@ async function preserveGeneratedConflict(store, job, pair, sourceObject) {
   return true;
 }
 
-async function ensureCleanupDestination(store, pair, sourceObject) {
+async function ensureCleanupDestination(store, pair, sourceObject, setStage = () => {}) {
   let destination = await getWithLegacyFallback(store, pair.destination);
   if (!destination && collaborationSupported(store) && pair.source.endsWith(".md")) {
+    setStage("checking interrupted collaboration move");
     const sourceHead = await collaborationHead(store, pair.source);
     const destinationHead = await collaborationHead(store, pair.destination);
     const recoveryPath = sourceHead?.status === "moving" ? pair.source :
       destinationHead?.status === "prepared" ? pair.destination : null;
     if (recoveryPath) {
+      setStage("recovering interrupted collaboration move");
       try {
         await readCollaborationDocument(store, recoveryPath);
       } catch (error) {
@@ -169,6 +171,7 @@ async function ensureCleanupDestination(store, pair, sourceObject) {
     }
   }
   if (!destination && sourceObject) {
+    setStage("recreating cleanup destination");
     if (!objectMatchesMoveItem(sourceObject, pair)) {
       throw new Error(`source changed before destination recovery: ${pair.source}`);
     }
@@ -299,7 +302,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       if (deleted.has(pair.source)) continue;
       stage = "checking cleanup destination";
       let sourceObject = await getWithLegacyFallback(store, pair.source);
-      sourceObject = await ensureCleanupDestination(store, pair, sourceObject);
+      sourceObject = await ensureCleanupDestination(store, pair, sourceObject, (value) => { stage = value; });
       if (sourceObject === null) {
         deleted.add(pair.source);
         continue;
