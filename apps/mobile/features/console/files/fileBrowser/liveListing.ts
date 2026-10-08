@@ -71,3 +71,25 @@ export function adoptMirroredTree(
   return next;
 }
 
+
+/**
+ * A tree the server walked this session (`serverTree.ts`, a browser tab's
+ * memory) **is** the server's answer for every folder it drew, so opening one
+ * of those folders asks nothing more: it is stamped as listed, at the time the
+ * walk started. A tree off the device's copy is not, and stamps nothing.
+ *
+ * Only folders the walk actually drew are stamped — one a newer listing kept
+ * is that listing's — and never later than an existing stamp, so a page asked
+ * for after the walk started still lands.
+ */
+export function stampLiveFolders(
+  adopted: Listings,
+  tree: Pick<MirroredTree, "value" | "listedAt"> & { live?: boolean },
+  listedAt: Map<string, number>,
+): void {
+  if (tree.live !== true) return;
+  for (const [folder, listing] of tree.value) {
+    if (adopted[folder] !== listing) continue;
+    if ((listedAt.get(folder) ?? -Infinity) < tree.listedAt) listedAt.set(folder, tree.listedAt);
+  }
+}

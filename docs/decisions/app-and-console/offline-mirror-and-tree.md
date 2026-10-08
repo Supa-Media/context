@@ -27,6 +27,20 @@ panel's note body follows the same order. Tests: `serverLists.test.ts`
 device's older copy") and `offlineMirrorIdb.test.ts` ("a plain browser tab: no
 mirror, and the old database is deleted").
 
+**A browser tab's side panel draws the server's whole tree, held in memory.**
+With no mirror, every folder opened was its own `listFiles` ("Loading…"), and
+the tree signal's "walk again" reached nothing, so another writer's changes
+never appeared (reported by the owner the same day: "back to really slow
+loading"). Since then a tab answers a refresh request — opening a context, or
+the tree signal — by walking `syncManifest` (metadata only, the same `canSee`)
+and keeping the tree in memory (`serverTree.ts`), keyed by clearance and
+session epoch, never written to the device. Every folder of that walk is
+stamped as listed by the server, so opening it asks nothing more; only a
+**complete** walk is kept, because a folder a partial walk never reached would
+read "Empty" again. Tests: `serverTree.test.ts`, `serverTreeSync.test.ts`
+(sabotage: dropping the tab's walk fails "a refresh request walks the server
+and redraws the tree").
+
 Search was already server-first online (`useDeviceSearch`). The phone app's
 Home still counts from its copy, which is the app's offline copy by design.
 

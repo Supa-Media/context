@@ -47,6 +47,26 @@ const BUILTIN_IDENTITY = [
 ];
 
 /**
+ * What every turn is told whatever its setup says, because each is a fact
+ * about this build or a rule the owner set, not a matter of voice (the owner,
+ * 2026-10-08, after the texting assistant invented a phone number and links,
+ * said it had not checked notes it claimed to know, and could not say which
+ * model it was).
+ */
+const GROUND_RULES = [
+  "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation or that they told you. Never fill a gap with a guess; say you don't know.",
+  "If a tool call fails or takes too long, tell them you couldn't check their notes just now, in one sentence, and answer only what you did read.",
+  "To list the workspaces they can reach, call scope_info with workspaces set to true.",
+];
+
+/** The model line: which model is answering, so "what model are you" has an answer. */
+export function modelLine(model) {
+  return typeof model === "string" && model.length > 0 && model.length <= 160
+    ? `This answer is written by the AI model ${model}. If they ask which model you run on, tell them that.`
+    : "";
+}
+
+/**
  * The system prompt.
  *
  * Deliberately short. A long one competes with the tool descriptions, which are
@@ -58,7 +78,7 @@ const BUILTIN_IDENTITY = [
  * rather than edits, and where the person is — is said here either way, so a
  * note can add to the agent's understanding but never misdescribe its reach.
  */
-export function systemPrompt(place, { texting = false, notes = null } = {}) {
+export function systemPrompt(place, { texting = false, notes = null, model = null } = {}) {
   // A production setup's prompt (`production.js`) is the whole of who the
   // assistant is and how it writes: it stands in for the identity and the
   // texting style alike, so it is said once and nothing else follows it.
@@ -69,13 +89,17 @@ export function systemPrompt(place, { texting = false, notes = null } = {}) {
         ...identity,
         "This turn is a text message they sent you from their phone.",
         "You cannot edit their notes. To suggest a change, use propose_note; they review and decide.",
+        ...GROUND_RULES,
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [
         ...identity,
         "Be brief. Cite the note path you took something from.",
         "You cannot edit their notes. To suggest a change, use propose_note; they review and decide.",
+        ...GROUND_RULES,
       ];
+  const which = modelLine(model);
+  if (which) lines.push(which);
 
   const where = describePlace(place);
   if (where) lines.push("", where);
