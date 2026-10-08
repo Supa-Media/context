@@ -12,13 +12,23 @@ import {
 } from "../moves/jobs.js";
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
-import { listAllKeys, listImmediateLayout } from "./storage.js";
+import { listAllKeys, listImmediateLayout, mapInBatches } from "./storage.js";
 
 /** List note objects without traversing dot-prefixed history/audit/ACL plumbing. */
 export async function listAllNoteKeys(store) {
-  const root = await listImmediateLayout(store);
-  const nested = await Promise.all(root.prefixes.map((prefix) => listAllKeys(store, prefix)));
-  return [...root.objects, ...nested.flat()].filter(
+  // One flat walk under 4-archive can now span thousands of source and
+  // destination keys during a move. Its sequential pages outlive a gateway
+  // request. Delimit a few levels first, then walk smaller branches in
+  // parallel; the result is still the complete key set needed for bare links.
+  async function branch(prefix, depth) {
+    const first = await store.list({ prefix, limit: 1000 });
+    if (!first.truncated) return first.objects || [];
+    if (depth >= 4) return listAllKeys(store, prefix);
+    const layout = await listImmediateLayout(store, prefix);
+    const nested = await mapInBatches(layout.prefixes, 12, (child) => branch(child, depth + 1));
+    return [...layout.objects, ...nested.flat()];
+  }
+  return (await branch("", 0)).filter(
     ({ key }) => key.endsWith(".md") && !isPlumbing(key)
   );
 }
