@@ -39,6 +39,14 @@ export const BUILTIN_FEATURE = "assistant" as const;
 /** Largest token count one report may carry; a turn is at most eight model calls. */
 const MAX_REPORTED_TOKENS = 2_000_000;
 
+/** The model name shape the gateway reports, e.g. "anthropic/claude-haiku-5-5". Anything else is ignored. */
+const MODEL_NAME = /^[\w@./:-]{1,128}$/;
+
+/** The model a report names, when it names a well-formed one; undefined otherwise, so it is priced as GLM. */
+export function reportedModel(raw: unknown): string | undefined {
+  return typeof raw === "string" && MODEL_NAME.test(raw) ? raw : undefined;
+}
+
 const refusalValidator = v.union(
   v.literal("disabled"),
   v.literal("switched_off"),
@@ -94,8 +102,9 @@ export const startBuiltinTurn = internalMutation({
 });
 
 /**
- * What a finished turn spent, priced from the model's own counts. Best effort
- * from the gateway's side: the turn was already counted against the cap.
+ * What a finished turn spent, priced from the model's own counts, at the rate
+ * of the model that answered. Best effort from the gateway's side: the turn was
+ * already counted against the cap.
  * `decisionTokens` is what the turn read through Clef, which picks the next
  * page to open (apps/mcp/src/agent/computer.js); it is priced at Clef's rate
  * by `addUsage`, not the writing model's.
@@ -107,6 +116,12 @@ export const recordBuiltinUsage = internalMutation({
     inputTokens: v.number(),
     outputTokens: v.number(),
     decisionTokens: v.optional(v.number()),
+    /** Prompt tokens read from the provider's cache, priced at its cache-read rate. Absent from older callers. */
+    cacheReadTokens: v.optional(v.number()),
+    /** Prompt tokens written to the provider's cache, priced at its cache-write rate. Absent from older callers. */
+    cacheWriteTokens: v.optional(v.number()),
+    /** The model that answered, priced from the table in `lib/jev/meter.ts`. Unknown or malformed: GLM's rates. */
+    model: v.optional(v.string()),
     failed: v.boolean(),
     ms: v.number(),
   },
@@ -115,8 +130,16 @@ export const recordBuiltinUsage = internalMutation({
     const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId);
     if (charged === null || "refused" in charged) return false;
     const clamp = (n: number) => (Number.isFinite(n) ? Math.min(MAX_REPORTED_TOKENS, Math.max(0, Math.floor(n))) : 0);
-    const usage = { input: clamp(args.inputTokens), output: clamp(args.outputTokens) };
-    const written = usage.input + usage.output;
+    const usage = {
+      input: clamp(args.inputTokens),
+      output: clamp(args.outputTokens),
+      cacheRead: clamp(args.cacheReadTokens ?? 0),
+      cacheWrite: clamp(args.cacheWriteTokens ?? 0),
+      model: reportedModel(args.model),
+    };
+    // Cache tokens are written tokens too: priced above at their own rates, so
+    // they must not be priced again at Clef's rate for `decisionTokens`.
+    const written = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
     const tokens = written + clamp(args.decisionTokens ?? 0);
     await addUsage(
       ctx,

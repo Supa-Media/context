@@ -16,16 +16,55 @@ export const DEFAULT_USD_PER_MTOK = 0.24;
 /** Four characters a token is the usual English estimate; the Worker does not pass on the model's count. */
 export const CHARS_PER_TOKEN = 4;
 
-/**
- * The writing model's published prices, input then output, in US dollars per
- * million tokens (GLM-4.7 Flash, the default writing model, on Cloudflare's Workers AI pricing page,
- * 2026-10-05). The Worker passes on the model's own counts, so a written
- * answer is priced exactly rather than estimated.
- */
-export const WRITING_USD_PER_MTOK = { input: 0.06, output: 0.4 } as const;
+/** US dollars per million tokens, for each token kind a written answer can spend. */
+export interface ModelUsdPerMtok {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
 
-export function writingCostMicroUsd(usage: { input: number; output: number }): number {
-  return Math.round(usage.input * WRITING_USD_PER_MTOK.input + usage.output * WRITING_USD_PER_MTOK.output);
+/**
+ * The writing models' list prices, in US dollars per million tokens, keyed by
+ * the exact model name the gateway reports. Source: Anthropic's and
+ * Cloudflare's published price pages, 2026-10-08. These are our list prices:
+ * a plan's free credit may pay the bill, but the meter still prices each turn
+ * at list so the cap and the usage page mean the same thing on every plan.
+ *
+ * Cache reads and writes are separate rates, so a cached prompt is priced as
+ * the provider bills it, not at the input rate.
+ */
+export const MODEL_USD_PER_MTOK: ReadonlyMap<string, ModelUsdPerMtok> = new Map([
+  ["@cf/zai-org/glm-4.7-flash", { input: 0.06, output: 0.4, cacheRead: 0.06, cacheWrite: 0.06 }],
+  ["anthropic/claude-haiku-5-5", { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
+]);
+
+/** The row a model we do not price falls back to: GLM-4.7 Flash, today's built-in model. */
+export const WRITING_USD_PER_MTOK: ModelUsdPerMtok = MODEL_USD_PER_MTOK.get("@cf/zai-org/glm-4.7-flash")!;
+
+export function writingPriceFor(model: string | null | undefined): ModelUsdPerMtok {
+  return (model && MODEL_USD_PER_MTOK.get(model)) || WRITING_USD_PER_MTOK;
+}
+
+/**
+ * Micro-US-dollars for one written answer's tokens. Dollars per million tokens
+ * is the same number as micro-dollars per token, so each count multiplies its
+ * rate directly.
+ */
+export function writingCostMicroUsd(usage: {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  model?: string | null;
+}): number {
+  const price = writingPriceFor(usage.model);
+  return Math.round(
+    usage.input * price.input +
+      usage.output * price.output +
+      (usage.cacheRead ?? 0) * price.cacheRead +
+      (usage.cacheWrite ?? 0) * price.cacheWrite,
+  );
 }
 
 export type JevRefusal = "disabled" | "switched_off" | "not_premium" | "daily_cap";
