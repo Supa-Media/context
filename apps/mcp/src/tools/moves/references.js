@@ -59,13 +59,13 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   limit,
   paths,
   currentJobId,
+  inventoryKeys,
 } = {}) {
   if (renames.size === 0) return { notes: 0, links: 0, capped: false };
 
   let keys;
   try {
-    keys = (await listAllNoteKeys(store))
-      .map(({ key }) => key)
+    keys = (inventoryKeys || (await listAllNoteKeys(store)).map(({ key }) => key))
       .filter((key) => canSee(key, scope, rules, overrides));
   } catch {
     // `listAllKeys` throws rather than truncate. A walk that could not be
