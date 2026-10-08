@@ -4,9 +4,9 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { forgetDepartedContexts } from "../../offline/forget";
 import { useBackgroundDrain } from "../../offline/useBackgroundDrain";
-import { useMirrorSync, type MirrorActions } from "../../offline/useMirrorSync";
+import { useMirrorSync } from "../../offline/useMirrorSync";
 import { useMirrorStatuses } from "../../offline/mirrorStatus";
-import type { BatchRead, ManifestPage } from "../../offline/mirrorSync";
+import { mirrorActionsFor } from "./mirrorActions";
 import { queuedOpSender, queuedWriteSender } from "../files/queuedWrite";
 import type { WorkspaceSummary } from "./summaries";
 
@@ -75,24 +75,11 @@ export function useOfflineUpkeep({
     context out would delete that context's notes at the one moment they are
     earning their keep.
 
-    The two actions are cast at this boundary and nowhere else: the validators
-    type `visibility` as a string where the console's `Visibility` is the
-    narrower template type, which is the same widening every other read in
-    `useFileBrowser` accepts.
+    The two actions are bound in `mirrorActions.ts`, which says why every
+    argument must be passed on.
   */
-  const mirrorActions = useMemo<MirrorActions>(
-    () => ({
-      syncManifest: async ({ workspaceId, cursor }) =>
-        (await syncManifestAction({
-          workspaceId: workspaceId as Id<"workspaces">,
-          ...(cursor === undefined ? {} : { cursor }),
-        })) as unknown as ManifestPage,
-      readNotes: async ({ workspaceId, paths }) =>
-        (await readNotesAction({
-          workspaceId: workspaceId as Id<"workspaces">,
-          paths,
-        })) as unknown as { results: BatchRead[] },
-    }),
+  const mirrorActions = useMemo(
+    () => mirrorActionsFor({ syncManifestAction, readNotesAction }),
     [readNotesAction, syncManifestAction],
   );
   useMirrorSync({
