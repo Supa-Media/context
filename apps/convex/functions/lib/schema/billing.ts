@@ -47,6 +47,42 @@ export const billingTables = {
     .index("by_metric_day", ["metric", "day"]),
 
   /**
+   * Premium usage analytics: what crossed the MCP boundary, by hour, agent and
+   * model (`docs/decisions/observability/token-usage.md`).
+   *
+   * Still counters, still no content. The hour is the one thing finer than
+   * `usageDaily`'s day, and it is taken from this deployment's clock, never
+   * from the caller. The agent is the grant's own ids, which the control plane
+   * already holds; the model is a normalized string from `lib/usage.ts`.
+   *
+   * Written only for a workspace whose plan is paying, because this breakdown
+   * is a Premium feature: a free workspace keeps the daily counters above and
+   * nothing here.
+   */
+  usageHourly: defineTable({
+    day: v.string(),
+    /** 0 to 23, UTC. */
+    hour: v.number(),
+    workspaceId: v.id("workspaces"),
+    /** The person behind the grant, for the personal view. */
+    userId: v.optional(v.id("users")),
+    /** The OAuth client of the grant: which agent. */
+    clientId: v.string(),
+    /** `normalizeModel` output: a known shape, "unknown" or "other". */
+    model: v.string(),
+    /** A `HOURLY_METRICS` name from `lib/usage.ts`. */
+    metric: v.string(),
+    /** "exact" (o200k_base) or "estimated" (bytes / 4); "count" for non-token metrics. */
+    method: v.string(),
+    count: v.number(),
+  })
+    .index("by_key", ["workspaceId", "day", "hour", "metric", "clientId", "model", "method", "userId"])
+    .index("by_workspace_day", ["workspaceId", "day"])
+    .index("by_workspace_day_model", ["workspaceId", "day", "model"])
+    .index("by_user_day", ["userId", "day"])
+    .index("by_day", ["day"]),
+
+  /**
    * One row per workspace per day that did anything, so "active" is countable.
    *
    * Kept apart from `usageDaily` because an active-user count is a

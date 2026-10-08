@@ -326,6 +326,100 @@ export async function runUsageReportingChecks(check) {
     );
   }
 
+  // -- the Premium breakdown: tokens across the boundary -------------------
+
+  const hourlyEvents = () => usageBodies(controlPlane).flatMap((body) => body.hourly ?? []);
+  const hourlyOf = (metric) => hourlyEvents().filter((event) => event.metric === metric);
+
+  controlPlane.calls.length = 0;
+  {
+    const response = await call("read_note", { path: "index.md" });
+    const answer = (await response.json()).result;
+    const sent = hourlyOf("mcp.request_tokens");
+    const returned = hourlyOf("mcp.response_tokens");
+    check("a call reports tokens in, once", sent.length === 1 && sent[0].count > 0);
+    check("and tokens out, once", returned.length === 1 && returned[0].count > 0);
+    check(
+      "counted exactly with o200k_base for a small payload",
+      sent[0].method === "exact" && returned[0].method === "exact",
+    );
+    // The answer the client read is what was measured, not the note's size.
+    const { countTokens, responseParts } = await import("../src/mcp/tokens.js");
+    const expected = await countTokens(responseParts(answer).text);
+    check("the response count is the answer's text, measured", returned[0].count === expected.count);
+    check("one successful call", hourlyOf("mcp.calls").length === 1 && hourlyOf("mcp.failed_calls").length === 0);
+    check(
+      "attributed to the grant's agent and person, in the context it ran in",
+      sent[0].clientId === "mcp_client_usage" && sent[0].userId === "user_usage" && sent[0].workspaceId === WS,
+    );
+    check("no model is claimed for an MCP client that named none", !("model" in sent[0]));
+    check("zero counts are not sent", hourlyOf("mcp.images").length === 0);
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    await call("search_notes", { query: "my private diagnosis hunter2", prefix: "2-areas/health" });
+    const serialized = JSON.stringify(usageBodies(controlPlane));
+    check(
+      "the breakdown carries no argument, path or tool name",
+      !serialized.includes("hunter2") && !serialized.includes("2-areas/health") && !serialized.includes("search_notes"),
+    );
+    const keys = new Set(hourlyEvents().flatMap((event) => Object.keys(event)));
+    check(
+      "a breakdown event has exactly the agreed fields",
+      [...keys].sort().join(",") === "clientId,count,method,metric,userId,workspaceId",
+    );
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    // Refused before any handler runs: still costs the agent the refusal.
+    await call("read_note", { context: 123 });
+    check("a refused call is counted as failed", hourlyOf("mcp.failed_calls").length === 1);
+    check("and its tokens are counted", hourlyOf("mcp.response_tokens").length === 1);
+    check("against the connection's own context", hourlyOf("mcp.failed_calls")[0].workspaceId === WS);
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    await call("read_note", { path: "index.md", context: "@nobody-here" });
+    check(
+      "a context the caller cannot reach is never attributed",
+      hourlyEvents().every((event) => event.workspaceId === WS),
+    );
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    await call("list_notes", { context: "@other" });
+    const sent = hourlyOf("mcp.request_tokens");
+    check(
+      "cross-context tokens land once, in the context reached",
+      sent.length === 1 && sent[0].workspaceId === "ws_other",
+    );
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    await call("write_note", { path: "0-inbox/hourly-write.md", content: "# Hourly\n\nbody\n" });
+    check("a write is counted for the heatmap", hourlyOf("note.write").length === 1);
+  }
+
+  controlPlane.calls.length = 0;
+  {
+    const harness = createWorkerCtx();
+    const request = mcpRequest({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "list_notes", arguments: {} },
+    });
+    request.headers.set("X-Context-Model", "claude-opus-5-5");
+    await worker.fetch(request, env(), harness.ctx);
+    await harness.settle();
+    check("a declared model is carried", hourlyOf("mcp.calls")[0]?.model === "claude-opus-5-5");
+  }
+
   // -- a counter cannot break a call --------------------------------------
 
   controlPlane.calls.length = 0;

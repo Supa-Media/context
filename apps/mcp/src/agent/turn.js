@@ -299,6 +299,8 @@ export async function runTurn(options) {
   const builtin = provider === BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
   const model = builtin ? builtinModelOverride ?? builtinModel(env) : modelFor(provider, env, requestedModel);
+  // Which model is making this turn's tool calls, for the usage breakdown.
+  options.onModel?.(model);
   const rounds = roundsFor(maxRounds);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const system =

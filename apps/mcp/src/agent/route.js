@@ -324,6 +324,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         scope refusal. An agent that reached past it would be a second authority
         decision with no tests behind it.
       */
+      onModel: (model) => {
+        store.usageModel = model;
+      },
       callTool: routineAwareCallTool(
         (name, args) => callToolForSession({ name, arguments: args }, store, session),
         routineWriting.map((tool) => tool.name),

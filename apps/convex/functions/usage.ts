@@ -41,8 +41,19 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "../_generated/api";
+import { planIsPaying } from "./lib/premium";
 import {
+  clientFamily,
   dayKey,
+  HOURLY_RETENTION_DAYS,
+  hourOf,
+  isHourlyMetric,
+  isTokenMethod,
+  MAX_MODELS_PER_WORKSPACE_DAY,
+  MAX_TOKEN_EVENT_COUNT,
+  normalizeModel,
+  type ClientFamily,
   isUsageMetric,
   isUsageSurface,
   PER_WORKSPACE_METRICS,
@@ -232,5 +243,198 @@ export const reportAppSession = mutation({
       await markActive(ctx, day, workspaceId, "app");
     }
     return { recorded: true };
+  },
+});
+
+/** How much one hourly report may add at once, for the same reason as `MAX_BATCH_EVENTS`. */
+export const MAX_HOURLY_BATCH_EVENTS = 50;
+
+/**
+ * Apply a batch of Premium usage analytics (`usageHourly`).
+ *
+ * Internal, like `record`, and with the same rule for bad input: dropped, not
+ * rejected, so version skew between gateway and control plane costs a figure,
+ * never a tool call.
+ *
+ * **Premium only.** A workspace whose plan is not paying writes nothing here.
+ * Checked once per workspace per batch, from `workspacePlans`, the same row
+ * `lib/premium.ts` reads.
+ *
+ * Token events also bump a platform-wide `usageDaily` total for the agent's
+ * client family, which is all the admin dashboard sees of them.
+ */
+export const recordHourly = internalMutation({
+  args: {
+    events: v.array(
+      v.object({
+        metric: v.string(),
+        workspaceId: v.id("workspaces"),
+        userId: v.optional(v.id("users")),
+        clientId: v.string(),
+        model: v.optional(v.string()),
+        method: v.string(),
+        count: v.number(),
+      }),
+    ),
+    /** Test seam. Absent means now; never supplied by a remote caller. */
+    at: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.at ?? Date.now();
+    const day = dayKey(now);
+    const hour = hourOf(now);
+    const premium = new Map<string, boolean>();
+    const families = new Map<string, ClientFamily>();
+
+    let applied = 0;
+    for (const event of args.events.slice(0, MAX_HOURLY_BATCH_EVENTS)) {
+      if (!isHourlyMetric(event.metric) || !isTokenMethod(event.method)) continue;
+      if (event.clientId.length === 0 || event.clientId.length > 128) continue;
+      // Zero is nothing to record, unlike `record`, where it means one.
+      if (!Number.isFinite(event.count) || event.count < 1) continue;
+      const count = Math.min(Math.floor(event.count), MAX_TOKEN_EVENT_COUNT);
+
+      if (!premium.has(event.workspaceId)) {
+        premium.set(event.workspaceId, await workspaceIsPaying(ctx, event.workspaceId));
+      }
+      if (!premium.get(event.workspaceId)) continue;
+
+      const model = await boundedModel(ctx, event.workspaceId, day, normalizeModel(event.model));
+      await bumpHourly(ctx, {
+        day,
+        hour,
+        workspaceId: event.workspaceId,
+        userId: event.userId,
+        clientId: event.clientId,
+        model,
+        metric: event.metric,
+        method: event.method,
+      }, count);
+
+      if (event.metric === "mcp.request_tokens" || event.metric === "mcp.response_tokens") {
+        if (!families.has(event.clientId)) {
+          const client = await ctx.db
+            .query("oauthClients")
+            .withIndex("by_clientId", (q) => q.eq("clientId", event.clientId))
+            .first();
+          families.set(event.clientId, clientFamily(client?.clientName));
+        }
+        const total = `${event.metric}.${families.get(event.clientId)}` as UsageMetric;
+        await bump(ctx, day, total, undefined, count);
+      }
+      applied += 1;
+    }
+    return { applied };
+  },
+});
+
+async function workspaceIsPaying(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  const plans = await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return plans.some((plan) => planIsPaying(plan.status));
+}
+
+/**
+ * `model`, unless this workspace already has `MAX_MODELS_PER_WORKSPACE_DAY`
+ * others today, in which case "other".
+ */
+async function boundedModel(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  day: string,
+  model: string,
+): Promise<string> {
+  if (model === "other" || model === "unknown") return model;
+  // The common case, one indexed read: this model already has a row today.
+  const known = await ctx.db
+    .query("usageHourly")
+    .withIndex("by_workspace_day_model", (q) =>
+      q.eq("workspaceId", workspaceId).eq("day", day).eq("model", model),
+    )
+    .first();
+  if (known !== null) return model;
+  // lean: a model new today scans the day's rows to count distinct models,
+  // rare by nature; a per-day model list would make it one read.
+  const rows = await ctx.db
+    .query("usageHourly")
+    .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId).eq("day", day))
+    .collect();
+  const seen = new Set(rows.map((row) => row.model));
+  if (seen.has(model) || seen.size < MAX_MODELS_PER_WORKSPACE_DAY) return model;
+  return "other";
+}
+
+interface HourlyKey {
+  day: string;
+  hour: number;
+  workspaceId: Id<"workspaces">;
+  userId: Id<"users"> | undefined;
+  clientId: string;
+  model: string;
+  metric: string;
+  method: string;
+}
+
+async function bumpHourly(ctx: MutationCtx, key: HourlyKey, count: number): Promise<void> {
+  const existing = await ctx.db
+    .query("usageHourly")
+    .withIndex("by_key", (q) =>
+      q
+        .eq("workspaceId", key.workspaceId)
+        .eq("day", key.day)
+        .eq("hour", key.hour)
+        .eq("metric", key.metric)
+        .eq("clientId", key.clientId)
+        .eq("model", key.model)
+        .eq("method", key.method)
+        .eq("userId", key.userId),
+    )
+    .unique();
+  if (existing === null) {
+    await ctx.db.insert("usageHourly", { ...key, count });
+    return;
+  }
+  await ctx.db.patch(existing._id, { count: existing.count + count });
+}
+
+/** How many old hourly rows one prune pass deletes; the cron runs again tomorrow. */
+const PRUNE_BATCH = 4_000;
+
+/** Delete `usageHourly` rows older than `HOURLY_RETENTION_DAYS`. Daily cron. */
+export const pruneHourly = internalMutation({
+  args: { at: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const cutoff = dayKey((args.at ?? Date.now()) - HOURLY_RETENTION_DAYS * 86_400_000);
+    const old = await ctx.db
+      .query("usageHourly")
+      .withIndex("by_day", (q) => q.lt("day", cutoff))
+      .take(PRUNE_BATCH);
+    for (const row of old) await ctx.db.delete(row._id);
+    return { deleted: old.length };
+  },
+});
+
+/**
+ * Delete a deleted workspace's `usageHourly` rows, a batch at a time.
+ *
+ * Unlike `usageDaily`, these go with the workspace: they name the agents and
+ * models a customer used, hour by hour, which is theirs to take with them, not
+ * ours to keep. Scheduled from `deleteWorkspaceCascade` and rescheduling
+ * itself, because a year of rows can outgrow one mutation.
+ */
+export const purgeWorkspaceHourly = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("usageHourly")
+      .withIndex("by_workspace_day", (q) => q.eq("workspaceId", args.workspaceId))
+      .take(PRUNE_BATCH);
+    for (const row of rows) await ctx.db.delete(row._id);
+    if (rows.length === PRUNE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.functions.usage.purgeWorkspaceHourly, args);
+    }
+    return { deleted: rows.length };
   },
 });

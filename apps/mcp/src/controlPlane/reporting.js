@@ -26,9 +26,16 @@ export function createReportingMethods({ post }) {
      *
      * @param {{metric: string, workspaceId?: string, count?: number}[]} events
      */
-    async reportUsage(events) {
-      if (!Array.isArray(events) || events.length === 0) return { applied: 0 };
-      return await post("/gateway/usage", { events });
+    async reportUsage(events, hourly = []) {
+      const counted = Array.isArray(events) ? events : [];
+      const breakdown = Array.isArray(hourly) ? hourly : [];
+      if (counted.length === 0 && breakdown.length === 0) return { applied: 0 };
+      // `hourly` is the Premium breakdown (`reportBoundaryUsage`): ids, a model
+      // string, a method word and counts, under the same rule as `events`.
+      return await post("/gateway/usage", {
+        events: counted,
+        ...(breakdown.length > 0 ? { hourly: breakdown } : {}),
+      });
     },
 
     /**

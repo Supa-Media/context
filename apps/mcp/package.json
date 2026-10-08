@@ -7,7 +7,7 @@
   "main": "src/index.js",
   "scripts": {
     "test": "node test/run.mjs",
-    "test:unit": "node --test test/moveQueueRecovery.test.mjs test/logicalDelete.test.mjs test/noteCap.test.mjs test/managedEncryption.test.mjs test/storeHead.test.mjs test/encryptedGenerationFooter.test.mjs test/liveGrantAccess.test.js test/gatewaySourceGuards.test.mjs test/toolTitles.test.mjs test/scopeInfoWorkspaces.test.mjs test/appOriginMetadata.test.mjs test/reportProblem.test.mjs test/remember.test.mjs test/openaiAppsChallenge.test.mjs test/globalOrientNote.test.mjs test/agentInstructions.test.mjs test/agentTurnLimits.test.mjs test/agentProduction.test.mjs test/linkScanCost.test.mjs test/agentConversation.test.mjs test/routines.test.mjs test/folderRoles.test.mjs test/folderIcons.test.mjs test/routineSignal.test.mjs test/meaningSearch.test.mjs test/meaningWrite.test.mjs test/meaningCatchup.test.mjs test/meaningServe.test.mjs bench/test/world.test.mjs bench/test/load.test.mjs bench/test/report.test.mjs bench/test/models.test.mjs test/agentCatalog.test.mjs test/visibleKeysBranches.test.mjs test/moveOverlayIndex.test.mjs",
+    "test:unit": "node --test test/moveQueueRecovery.test.mjs test/logicalDelete.test.mjs test/noteCap.test.mjs test/managedEncryption.test.mjs test/storeHead.test.mjs test/encryptedGenerationFooter.test.mjs test/liveGrantAccess.test.js test/gatewaySourceGuards.test.mjs test/toolTitles.test.mjs test/scopeInfoWorkspaces.test.mjs test/appOriginMetadata.test.mjs test/reportProblem.test.mjs test/remember.test.mjs test/openaiAppsChallenge.test.mjs test/globalOrientNote.test.mjs test/agentInstructions.test.mjs test/agentTurnLimits.test.mjs test/agentProduction.test.mjs test/linkScanCost.test.mjs test/agentConversation.test.mjs test/routines.test.mjs test/folderRoles.test.mjs test/folderIcons.test.mjs test/routineSignal.test.mjs test/meaningSearch.test.mjs test/meaningWrite.test.mjs test/meaningCatchup.test.mjs test/meaningServe.test.mjs bench/test/world.test.mjs bench/test/load.test.mjs bench/test/report.test.mjs bench/test/models.test.mjs test/agentCatalog.test.mjs test/visibleKeysBranches.test.mjs test/moveOverlayIndex.test.mjs test/tokens.test.mjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "typecheck": "echo \"no typecheck (plain JS worker)\" && exit 0",
@@ -17,6 +17,7 @@
     "wrangler": "^4.124.0"
   },
   "dependencies": {
-    "@context/collaboration": "workspace:*"
+    "@context/collaboration": "workspace:*",
+    "js-tiktoken": "1.0.21"
   }
 }

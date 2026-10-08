@@ -27,7 +27,7 @@ import {
 import { isPlumbing } from "../privacy/engine.js";
 import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
-import { reportToolUsage } from "../mcp/usage.js";
+import { reportBoundaryUsage, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
@@ -62,6 +62,25 @@ async function answeringNoteCap(run) {
 
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */
 export async function callToolForSession(params, store, session) {
+  /*
+    What crossed the boundary, measured around the whole dispatch so a refusal
+    and a throw are counted as well as an answer: an error still costs the
+    agent the tokens it reads. Attributed to the context the call was routed
+    to, once, even for a move that touches two.
+  */
+  const routed = { workspaceId: session?.workspaceId };
+  let result;
+  try {
+    result = await routeToolCall(params, store, session, routed);
+  } catch (error) {
+    reportBoundaryUsage(store, session, routed.workspaceId, params, null);
+    throw error;
+  }
+  reportBoundaryUsage(store, session, routed.workspaceId, params, result);
+  return result;
+}
+
+async function routeToolCall(params, store, session, routed) {
   const supplied = params?.arguments;
   const args =
     supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
@@ -106,6 +125,7 @@ export async function callToolForSession(params, store, session) {
     }
     try {
       ({ session: target, store: targetStore } = await store.openContext(requested));
+      routed.workspaceId = target.workspaceId;
     } catch (error) {
       // One answer for a name that is not covered, a name that is not a name,
       // and a name nobody has ever registered — the refusal `selectWorkspace`
@@ -161,6 +181,7 @@ export async function callToolForSession(params, store, session) {
     try {
       sourceTarget = await openNamedContext(args.source_context);
       destinationTarget = await openNamedContext(args.destination_context);
+      routed.workspaceId = destinationTarget.session.workspaceId;
     } catch (error) {
       if (error instanceof SessionRefusal) {
         return toolError("this connection has no access to that context");

@@ -288,6 +288,15 @@ export async function route(request, env, ctx) {
       */
       store.presenceRooms = env.PRESENCE_ROOM ?? null;
 
+      /*
+        The model behind this connection, where the client says: the desktop
+        app names the one it launched Claude Code with. A label for the usage
+        breakdown and nothing else, normalized to a closed shape by the control
+        plane; no MCP client is required to send it.
+      */
+      const declaredModel = request.headers.get("X-Context-Model");
+      if (declaredModel) store.usageModel = declaredModel.slice(0, 128);
+
       /**
        * Count a thing that happened, behind the response and never in front of
        * it.
@@ -311,7 +320,10 @@ export async function route(request, env, ctx) {
        *    own bucket already holds and we deliberately do not.
        */
       store.reportUsage = (events) => {
-        if (!Array.isArray(events) || events.length === 0) return;
+        // A function is a report to build later (`reportBoundaryUsage`): it
+        // tokenizes, so it runs a macrotask after the response, never before.
+        const lazy = typeof events === "function";
+        if (!lazy && (!Array.isArray(events) || events.length === 0)) return;
         // **The deferral is checked before the request is built, not after.**
         // A host with no `waitUntil` has nothing keeping the invocation alive
         // past the response, so a `fetch` started here is one the runtime may
@@ -323,8 +335,15 @@ export async function route(request, env, ctx) {
         // nobody counts is a slightly emptier dashboard.
         if (typeof store.defer !== "function") return;
         try {
+          const sent = lazy
+            ? new Promise((resolve) => setTimeout(resolve, 0))
+                .then(events)
+                .then(({ events: counted = [], hourly = [] } = {}) =>
+                  controlPlane.reportUsage(counted, hourly),
+                )
+            : controlPlane.reportUsage(events);
           store.defer(
-            controlPlane.reportUsage(events).catch(() => {
+            sent.catch(() => {
               // A counter that could not be written changes nothing about the
               // answer that has already gone out.
             }),

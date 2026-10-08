@@ -295,6 +295,10 @@ already read. The gateway maps a tool name to a metric through a lookup table
 and sends the metric — never the name, which is the difference between counting
 traffic and recording behaviour.
 
+One exception, decided on 2026-10-08: Premium usage analytics keep an hourly
+breakdown by agent and model in `usageHourly`, still counters, still no
+content. See [Token usage at the MCP boundary](../observability/token-usage.md).
+
 Two shapes to keep: a cross-context call is counted against the context it was
 **routed to**, not the connection's default, or one tenant's figures silently
 include another's; and a counter may never fail the thing it counts, so the
