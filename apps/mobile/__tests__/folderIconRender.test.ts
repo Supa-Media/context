@@ -26,6 +26,8 @@ import type { TreeRow } from "../features/console/files/tree";
 import type { FileEntry } from "../features/console/files/types";
 import { FolderLine } from "../features/console/home/homeRows";
 import type { HomeFolder } from "../features/console/home/homeModel";
+import { FolderHead } from "../features/console/files/folderPage/Head";
+import { CustomEmojiContext, type CustomEmojiValue } from "../features/console/emoji/context";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -221,5 +223,131 @@ describe("the icon picker", () => {
       "Only an editor can change a folder icon.",
     );
     expect(closed).toBe(0);
+  });
+});
+
+describe("any emoji, and the workspace's own", () => {
+  const PARROT = "party-parrot";
+  const host = {
+    generation: 1,
+    names: [PARROT],
+    canEdit: true,
+    custom: () => [PARROT],
+    load: async (name: string) => (name === PARROT ? "data:image/png;base64,AAAA" : null),
+    rename: async () => null,
+    remove: async () => null,
+  } as unknown as CustomEmojiValue;
+
+  function withHost(element: ReactElement, value: CustomEmojiValue | null = host): ReactElement {
+    return createElement(CustomEmojiContext.Provider, { value }, element);
+  }
+  async function picker(onSet: (icon: string | null) => Promise<void> = async () => {}) {
+    mount(withHost(createElement(FolderIconDialog, { path: "2-areas/cooking", current: null, onSet, onClose: () => {} })));
+    // The workspace emoji's picture arrives a tick later.
+    await act(async () => {});
+  }
+  const cell = (emoji: string) => document.body.querySelector<HTMLElement>(`[data-testid='folder-icon-emoji-${emoji}']`);
+  const type = async (text: string) => {
+    const input = document.body.querySelector<HTMLInputElement>("[data-testid='folder-icon-search']")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  test("with nothing typed, the workspace's emoji come first and every emoji is a scroll away", async () => {
+    await picker();
+    expect(cell(`:${PARROT}:`)).not.toBeNull();
+    // Far outside the thirty-six suggested.
+    expect(cell("🦩")).toBeNull();
+    expect(document.body.querySelectorAll("[data-testid^='folder-icon-emoji-']").length).toBeGreaterThan(200);
+  });
+
+  test("a search finds any emoji by name, not only the suggested ones", async () => {
+    await picker();
+    await type("flamingo");
+    expect(cell("🦩")).not.toBeNull();
+    await type("parrot");
+    expect(cell(`:${PARROT}:`)).not.toBeNull();
+    await type("nothing-is-called-this");
+    expect(document.body.querySelector("[data-testid='folder-icon-none']")).not.toBeNull();
+  });
+
+  test("an emoji pasted into the search is offered as it is", async () => {
+    await picker();
+    await type("🫶🏽");
+    expect(cell("🫶🏽")).not.toBeNull();
+  });
+
+  test("choosing a workspace emoji sets it as :name:", async () => {
+    const calls: (string | null)[] = [];
+    await picker(async (icon) => void calls.push(icon));
+    await act(async () => {
+      cell(`:${PARROT}:`)!.click();
+    });
+    expect(calls).toEqual([`:${PARROT}:`]);
+  });
+
+  test("Add emoji… opens the workspace's Add dialog and uses what was added", async () => {
+    const calls: (string | null)[] = [];
+    const adding = { ...host, openAdd: async () => "new-one" } as CustomEmojiValue;
+    mount(
+      withHost(
+        createElement(FolderIconDialog, {
+          path: "2-areas/cooking",
+          current: null,
+          onSet: async (icon: string | null) => void calls.push(icon),
+          onClose: () => {},
+        }),
+        adding,
+      ),
+    );
+    await act(async () => {
+      document.body.querySelector<HTMLElement>("[data-testid='folder-icon-add']")!.click();
+    });
+    expect(calls).toEqual([":new-one:"]);
+  });
+
+  test("a workspace emoji draws as its picture in the tree", async () => {
+    const container = mount(withHost(tree((path) => (path === "2-areas/cooking" ? `:${PARROT}:` : null))));
+    await act(async () => {});
+    const glyph = container.querySelector("[aria-label^='cooking, folder'] [data-testid='tree-folder-emoji']");
+    expect(glyph?.outerHTML).toContain("data:image/png");
+    expect(glyph?.textContent).toBe("");
+  });
+
+  test("one the workspace no longer has falls back to the plain folder", async () => {
+    const container = mount(withHost(tree((path) => (path === "2-areas/cooking" ? ":gone:" : null))));
+    await act(async () => {});
+    expect(container.querySelector("[aria-label^='cooking, folder'] [data-testid='tree-folder-emoji']")).toBeNull();
+  });
+});
+
+describe("the main folder view shows the icon too", () => {
+  const entry: FileEntry = {
+    kind: "folder",
+    path: "2-areas/cooking",
+    name: "cooking",
+    visibility: "private",
+    inherited: "private",
+    exception: false,
+    readOnly: false,
+  };
+
+  test("a desktop listing row draws the icon in its chevron's place", () => {
+    const container = mount(createElement(FolderRow, { row: entry, onSelect: () => {}, folderIcon: ICON }));
+    expect(container.querySelector("[data-testid='folder-row-emoji']")?.textContent).toBe(ICON);
+  });
+
+  test("and without one keeps the chevron", () => {
+    const container = mount(createElement(FolderRow, { row: entry, onSelect: () => {} }));
+    expect(container.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
+  });
+
+  test("the folder's own page draws it before its title", () => {
+    const withIcon = mount(createElement(FolderHead, { title: "cooking", icon: ICON, switcher: null }));
+    expect(withIcon.querySelector("[data-testid='folder-head-icon']")?.textContent).toBe(ICON);
+    const plain = mount(createElement(FolderHead, { title: "cooking", switcher: null }));
+    expect(plain.querySelector("[data-testid='folder-head-icon']")).toBeNull();
   });
 });

@@ -12,7 +12,7 @@
  * caller cannot see answers "does not exist", the same as every other write.
  */
 
-import { isSingleEmoji } from "@context/shared";
+import { customEmojiShortcode, isSingleEmoji } from "@context/shared";
 import {
   type FolderIcons,
   readFolderIcons,
@@ -26,6 +26,7 @@ import { requireFolderPath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { isFolder } from "./walk";
+import { hasCustomEmoji } from "./emoji";
 
 /** Every icon on a folder this caller can see. */
 export async function listFolderIcons(
@@ -53,8 +54,14 @@ export async function setFolderIcon(
 ): Promise<FolderIcons> {
   const path = requireFolderPath(options.path);
   if (path === "" || isPlumbing(path)) throw new FileOpError("PATH_INVALID", "Only a folder can have an icon.");
-  if (options.icon !== null && !isSingleEmoji(options.icon)) {
+  // One emoji: a character, or one of this workspace's own as `:name:`, which
+  // must exist, so an icon never names a picture nobody can draw.
+  const custom = options.icon === null ? null : customEmojiShortcode(options.icon);
+  if (options.icon !== null && custom === null && !isSingleEmoji(options.icon)) {
     throw new FileOpError("PATH_INVALID", "A folder icon is one emoji.");
+  }
+  if (custom !== null && !(await hasCustomEmoji(store, custom))) {
+    throw new FileOpError("PATH_INVALID", `This workspace has no :${custom}: emoji.`);
   }
   const state = await loadPrivacyState(store);
   if (!folderVisibleAtScope(path, options.clearance, state.rules, state.overrides)) throw notFound();

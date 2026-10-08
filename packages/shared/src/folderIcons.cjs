@@ -7,7 +7,11 @@
  *
  * One small file in the workspace's own bucket, `.context/folder-icons.json`:
  *
- *     { "version": 1, "icons": { "2-areas/cooking": "🍳" } }
+ *     { "version": 1, "icons": { "2-areas/cooking": "🍳", "1-projects/launch": ":party-parrot:" } }
+ *
+ * An icon is any single emoji, written as the character, or one of the
+ * workspace's own emoji, written `:name:` the way a note writes it (its
+ * picture is the `emoji-<name>` object in the image store, `customEmoji.ts`).
  *
  * The proposal said the folder's own note, and that was the first idea. It
  * would mean opening every folder's front note to draw one folder listing,
@@ -31,6 +35,12 @@ const FOLDER_ICONS_KEY = ".context/folder-icons.json";
 const FOLDER_ICONS_VERSION = 1;
 /** Longer than any single emoji (ZWJ families, flags with tags); see `workspaceIcon.ts`. */
 const MAX_ICON_LENGTH = 32;
+/**
+ * One of the workspace's own emoji, as `:name:`: the name rule is
+ * `customEmoji.ts`'s `CUSTOM_EMOJI_NAME`, so a name can run to 64 characters,
+ * which is past `MAX_ICON_LENGTH` once the colons are on.
+ */
+const CUSTOM_ICON = /^:[a-z0-9][a-z0-9_-]{0,63}:$/;
 /** A workspace with more icons than this has a file somebody wrote by hand. */
 const MAX_ICONS = 2000;
 
@@ -48,6 +58,7 @@ function plainPath(path) {
 function plainIcon(icon) {
   // The setter validates with `isSingleEmoji`; reading is lenient on shape but
   // never lets anything long or control-character-bearing through to a row.
+  if (typeof icon === "string" && CUSTOM_ICON.test(icon)) return true;
   return typeof icon === "string" && icon.length > 0 && icon.length <= MAX_ICON_LENGTH && !/[\u0000-\u001f\u202a-\u202e\u2066-\u2069]/.test(icon);
 }
 

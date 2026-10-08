@@ -72,6 +72,16 @@ export function parseCustomEmojiLeaf(leaf: string): { name: string; extension: s
 }
 
 /**
+ * The workspace emoji `value` is, when it is exactly one `:name:` and nothing
+ * else, or `null`. A folder icon is stored this way when it is one of the
+ * workspace's own emoji, the same spelling a note uses.
+ */
+export function customEmojiShortcode(value: string): string | null {
+  const match = /^:([^:]+):$/.exec(value);
+  return match !== null && CUSTOM_EMOJI_NAME.test(match[1]!) ? match[1]! : null;
+}
+
+/**
  * A name made from whatever somebody typed or a file was called:
  * `Party Parrot.gif` → `party-parrot`. Empty when nothing usable is left.
  */

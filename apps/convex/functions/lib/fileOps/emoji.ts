@@ -66,6 +66,11 @@ async function leavesFor(store: FileStore, name: string): Promise<string[]> {
   return all.sort();
 }
 
+/** Whether this workspace has an emoji called `name`. */
+export async function hasCustomEmoji(store: FileStore, name: string): Promise<boolean> {
+  return CUSTOM_EMOJI_NAME.test(name) && (await leavesFor(store, name)).length > 0;
+}
+
 function assertName(name: string): void {
   if (!CUSTOM_EMOJI_NAME.test(name)) {
     throw new FileOpError(

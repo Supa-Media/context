@@ -59,3 +59,25 @@ pixel, and dropping the host lock turns preview and import into an open fetcher.
 The checks are `apps/convex/__tests__/customEmoji.test.ts`,
 `apps/convex/__tests__/files/customEmoji.test.ts` and
 `apps/mobile/__tests__/customEmojiEditor.test.ts`.
+
+## A folder icon is any emoji, a workspace's own included
+
+Decided by the owner, 2026-10-08: the thirty-six emoji "Set icon…" first
+offered (the workspace icon's list) were too few. A folder icon is any single
+emoji, found by the same search the editor's `:` menu runs, pasted from the
+keyboard's own picker, or one of the workspace's own, which is stored the way
+a note writes it, `:name:`, and drawn from the same pictures. "Add emoji…" in
+the picker is the provider's own Add dialog, so a new emoji becomes the icon in
+one step.
+
+The icons stay in one bucket file, `.context/folder-icons.json`
+(`packages/shared/src/folderIcons.cjs`), not in each folder's front note: one
+read draws every row of a listing. Setting `:name:` is refused unless that
+emoji exists, so an icon never names a picture nobody can draw; one removed
+later shows the plain folder glyph. Every place that draws a folder icon (tree,
+listing rows, Home, the folder page's title) draws it through `EmojiGlyph`.
+
+**Reversing it** ("only a curated list") costs the owner's ask; storing a
+workspace emoji's picture rather than its name would copy bytes the image store
+already holds. `folderIcons.test.ts` (Convex) and `folderIconRender.test.ts`
+(app) fail if either the `:name:` rule or the drawing goes.

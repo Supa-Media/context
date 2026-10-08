@@ -391,6 +391,7 @@ export function FolderView({
           rows={rows}
           host={page}
           fallbackTitle={folderLabel(baseName(entry.path)) || contextLabel}
+          icon={entry.path === "" ? null : (iconOf?.(entry.path) ?? null)}
           compact={compact}
           pageWidth={pageWidth}
           onSelect={onSelect}

@@ -5,6 +5,7 @@ import { Icon } from "../../design/components/Icon";
 import { Reveal } from "../../design/components/Reveal";
 import { useArrivals } from "../../design/useArrivals";
 import { Text } from "../../design/components/Text";
+import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
@@ -345,9 +346,13 @@ function FileRow({
           {row.kind !== "folder" ? null : folderIcon === null ? (
             <Icon name="folder" size={14} color={colors.chromeMuted} />
           ) : (
-            <Text style={styles.glyphEmoji} testID="tree-folder-emoji">
-              {folderIcon}
-            </Text>
+            <EmojiGlyph
+              emoji={folderIcon}
+              size={14}
+              textStyle={styles.glyphEmoji}
+              fallback={<Icon name="folder" size={14} color={colors.chromeMuted} />}
+              testID="tree-folder-emoji"
+            />
           )}
         </View>
         <Text

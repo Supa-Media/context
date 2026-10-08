@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
+import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { fonts, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { countLabel, type HomeFolder, type HomeNoteTile } from "./homeModel";
@@ -181,9 +182,13 @@ export function FolderLine({
       {icon === null ? (
         <Icon name="folder" size={20} color={colors.text2} />
       ) : (
-        <Text style={styles.folderEmoji} testID="phone-home-folder-emoji">
-          {icon}
-        </Text>
+        <EmojiGlyph
+          emoji={icon}
+          size={20}
+          textStyle={styles.folderEmoji}
+          fallback={<Icon name="folder" size={20} color={colors.text2} />}
+          testID="phone-home-folder-emoji"
+        />
       )}
       <View style={styles.folderName}>
         <Text style={styles.rowTitle} numberOfLines={1}>
