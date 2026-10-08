@@ -1,6 +1,7 @@
 // Loads the AI benchmark folder: people, workspaces, held-back rules and test questions.
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { assertIsoDate } from "./clock.mjs";
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
@@ -79,6 +80,8 @@ function parseFront(lines) {
   // runs is the only non-string value; it defaults to 3.
   const runs = front.runs === undefined ? 3 : Number.parseInt(front.runs, 10);
   if (!Number.isInteger(runs)) throw new Error(`front matter: runs must be a whole number, got "${front.runs}"`);
+  // today pins the benchmark's day; absent, the run uses the real one.
+  if (front.today !== undefined) assertIsoDate(front.today);
   return { ...front, runs };
 }
 

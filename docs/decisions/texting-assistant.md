@@ -494,6 +494,16 @@ note names each tool call that failed and counts them per setup, so a run that
 is broken reads as broken rather than as a bad model. Test: `world.test.mjs`,
 "after a search, reads, listing and orient in the same turn still work".
 
+**The benchmark pins its day.** Decided by the owner, 2026-10-08: a test names
+`today`, the world's clock reads that day at noon UTC and runs on from there,
+and every fixture note's modified time comes from its own front matter
+(`updated`, else `date`, else the start of `dates`, else two months before
+today), so "untouched for a month" and "this weekend" mean the same thing on
+every run and a stale-project rule can be graded. Without a pin the run uses
+the real clock and the result note says `today: real`. Tests: `world.test.mjs`
+(the clock and the note ages), `load.test.mjs` (a bad `today` is refused by
+name).
+
 ### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced

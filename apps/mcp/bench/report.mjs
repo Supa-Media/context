@@ -124,6 +124,8 @@ export function resultMarkdown(result) {
     `test: ${result.test}`,
     `test_version: ${result.testVersion}`,
     `date: ${result.date}`,
+    // The day the world was on: a pinned one, or "real" when the run used the clock.
+    `today: ${result.today ?? "real"}`,
     `code_commit: ${result.commit}`,
     ...(result.playedBy ? [`played_by: ${result.playedBy}`] : []),
     `setups: [${setups.map((s) => `${s.name}@${s.version}`).join(", ")}]`,
