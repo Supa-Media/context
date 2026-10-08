@@ -604,8 +604,16 @@ export async function toolProfileMoveReferences(store, idArg) {
       clearTimeout(timer);
     }
   }
-  const keys = await measure("note inventory", () => listAllNoteKeys(store));
+  // The materializer already checkpointed this inventory. Re-listing the
+  // entire bucket here made the diagnostic time out before reaching the
+  // expensive stage that actually blocks the worker.
+  const checkpointed = job.reference_inventory_complete === true &&
+    Array.isArray(job.reference_inventory_keys);
+  const keys = checkpointed
+    ? job.reference_inventory_keys.map((key) => ({ key }))
+    : await measure("note inventory", () => listAllNoteKeys(store));
   if (!keys) return toolText(rows.join("\n"));
+  if (checkpointed) rows.push(`checkpointed inventory: ${keys.length} keys`);
   const jobs = await measure("active move markers", () => loadMoveJobs(store));
   if (!jobs) return toolText(rows.join("\n"));
   await measure("forwarding ledger", () => readForwarding(store));

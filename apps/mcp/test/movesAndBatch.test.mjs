@@ -643,11 +643,24 @@ export async function runMovesAndBatchChecks() {
     !stalePass.isError && stalePass.content[0].text.includes("background worker queued") &&
       referenceMessages.length === queuedBeforeFreshPass + 1);
   delete env.GATEWAY_JOBS;
+  let profiledCheckpoint = false;
   for (let i = 0; i < 100 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)); i += 1) {
     const progress = await call("priv-token", "materialize_move", { id: linkJobId, batch_size: 100 });
     if (progress?.isError) break;
+    const markerText = storedText(`.context/moves/${linkJobId}.json`);
+    if (!profiledCheckpoint && !isLogicalDeleteMarker(markerText) &&
+        JSON.parse(markerText).reference_inventory_complete === true) {
+      const checkpointProfile = await call("priv-token", "materialize_move", {
+        id: `${linkJobId}:profile`, batch_size: 1,
+      });
+      profiledCheckpoint = !checkpointProfile.isError &&
+        checkpointProfile.content[0].text.includes("checkpointed inventory:") &&
+        !checkpointProfile.content[0].text.includes("note inventory:");
+    }
   }
+  check("owner profiles the checkpointed reference inventory without a fresh bucket walk",
+    profiledCheckpoint);
   check("queued reference repair updates inbound and moved-note relative links",
     isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)) &&
       storedText("1-projects/portable-link-ref.md") === "[[1-projects/deep/portable-link-moved/note]]" &&
