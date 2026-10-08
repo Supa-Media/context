@@ -197,3 +197,31 @@ test("every call to rewriteLinks passes the predicate that stops it publishing a
   const unguarded = calls.filter((call) => !/\ballowTarget\b/.test(call.args)).map((call) => call.path);
   assert.deepEqual(unguarded, []);
 });
+
+/*
+  The queue consumer has two channels out to the control plane and both must
+  stay path-free.
+
+  The progress channel is kept honest by `moveProgressFromText`'s integer
+  regex. The failure channel forwarded the tool's whole text, which a dozen of
+  `materialize.js`'s throws interpolate a source or destination path into, so a
+  customer's note path left the bucket and was stored where the control plane
+  only truncates it. `moveErrorForControlPlane` takes the paths out.
+
+  Asserted over the source because the unit test for that function calls it
+  directly: dropping it at the call site redacts nothing and reddens nothing.
+  That has now been the shape of four separate guards in this file.
+*/
+test("the queue consumer sanitises a move failure before the control plane sees it", () => {
+  const consumer = FILES.find((file) => file.path === "moves/queueConsumer.js");
+  assert.ok(consumer, "moves/queueConsumer.js not found");
+  assert.match(consumer.text, /\berror = moveErrorForControlPlane\(/);
+  // Only assignments that carry the TOOL'S TEXT are the hazard. A fixed string
+  // of our own (`error = "unsupported gateway job"`) names no path, and a first
+  // draft of this guard flagged it — caught because the clean tree went red,
+  // which is the reason to sabotage a new guard in both directions.
+  const unsanitised = [...consumer.text.matchAll(/^\s*error = ([^;]+);/gm)]
+    .map((match) => match[1].trim())
+    .filter((rhs) => /\btext\b/.test(rhs) && !/\bmoveErrorForControlPlane\(/.test(rhs));
+  assert.deepEqual(unsanitised, []);
+});
