@@ -38,6 +38,7 @@
 
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
+import { builtInLockedItems, isBuiltInRow } from "./menuBuiltIn";
 import { makeItem } from "./menuMake";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
@@ -373,6 +374,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
   if (row.readOnly) return entryItems(context, [row]);
   if (!context.canEdit) return joinGroups([pinGroup(context, row), downloadGroup(context, row)]);
   const archived = restoreTargetFor(row.path) !== null;
+  const builtIn = isBuiltInRow(row);
   return joinGroups([
     [
       makeItem(context, "newNote", "New note"),
@@ -380,8 +382,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...pasteGroup(context, row.path),
     ],
     [
-      makeItem(context, "rename", "Rename…"),
-      makeItem(context, "moveTo", "Move to…"),
+      ...(builtIn ? [] : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
       ...pinGroup(context, row),
       ...tagsGroup(context, row),
     ],
@@ -399,11 +400,13 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
         : [],
     context.selectable === true ? [makeItem(context, "selectNotes", "Select notes")] : [],
     downloadGroup(context, row),
-    [
-      archived
-        ? makeItem(context, "restore", "Restore folder")
-        : makeItem(context, "archive", "Archive folder"),
-    ],
+    builtIn
+      ? builtInLockedItems(context)
+      : [
+          archived
+            ? makeItem(context, "restore", "Restore folder")
+            : makeItem(context, "archive", "Archive folder"),
+        ],
   ]);
 }
 
@@ -531,6 +534,9 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
    * where it came from.
    */
   const archived = rows.every((row) => restoreTargetFor(row.path) !== null);
+  // A built-in folder stays where it is (`menuBuiltIn.ts`). In a selection it
+  // poisons the moving verbs for the whole lot, like a read-only row does.
+  const builtIn = rows.some(isBuiltInRow);
 
   return joinGroups([
     /*
@@ -574,13 +580,15 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // naming scheme nobody has chosen. They are omitted rather than offered
     // for the first row of the selection.
     [
-      ...(single === null
+      ...(single === null || builtIn
         ? []
         : [
             makeItem(context, "rename", "Rename…"),
             makeItem(context, "duplicate", "Duplicate"),
           ]),
-      makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…"),
+      ...(builtIn
+        ? []
+        : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
     ],
 
     // `copyEntry` and the clipboard both take folders, so a folder is copied
@@ -590,7 +598,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // Dragging with ⌥ held is how several are copied at once.
     single === null
       ? []
-      : [makeItem(context, "copy", "Copy"), makeItem(context, "cut", "Cut")],
+      : [makeItem(context, "copy", "Copy"), ...(builtIn ? [] : [makeItem(context, "cut", "Cut")])],
 
     // The `@name/1-projects/foo.md` form addresses one path in somebody else's
     // sentence or an agent's prompt; a newline-separated list of three is not
@@ -639,19 +647,23 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       ? visibilityGroup(context, isFolder, count, single)
       : [],
 
-    [
-      archived
-        ? makeItem(context, "restore", single === null ? `Restore ${items(count)}` : "Restore")
-        : makeItem(context, "archive", single === null ? `Archive ${items(count)}` : "Archive"),
-      // Deleting is an immediate move into the archive-backed trash. The toast
-      // offers Undo, so there is no confirmation dialog or ellipsis.
-      makeItem(
-        context,
-        "delete",
-        single === null ? `Move ${items(count)} to trash` : "Move to trash",
-        { danger: true },
-      ),
-    ],
+    builtIn
+      ? single === null
+        ? []
+        : builtInLockedItems(context)
+      : [
+          archived
+            ? makeItem(context, "restore", single === null ? `Restore ${items(count)}` : "Restore")
+            : makeItem(context, "archive", single === null ? `Archive ${items(count)}` : "Archive"),
+          // Deleting is an immediate move into the archive-backed trash. The toast
+          // offers Undo, so there is no confirmation dialog or ellipsis.
+          makeItem(
+            context,
+            "delete",
+            single === null ? `Move ${items(count)} to trash` : "Move to trash",
+            { danger: true },
+          ),
+        ],
   ]);
 }
 

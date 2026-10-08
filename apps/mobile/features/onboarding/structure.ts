@@ -55,7 +55,7 @@ const PARA_LINES: Record<string, string> = {
   "1-projects": "Work with a finish line. When it is done, it moves to the archive.",
   "2-areas": "Responsibilities that never finish — a team, your health, the finances.",
   "3-resources": "Reference you want to find again, not tied to one project.",
-  "4-archive": "Finished or dormant. Nothing is deleted, it just moves out of the way.",
+  "9-archive": "Finished or dormant. Nothing is deleted, it just moves out of the way.",
 };
 
 export interface ParaFolderLine {

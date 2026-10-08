@@ -116,6 +116,14 @@ const PRESET_FOLDERS = [
   "4-practice",
   "4-reference",
   "5-archive",
+  // The current presets' extras (`presets.ts`: business, product). The
+  // archive every new workspace gets is `9-archive`, which PARA lists.
+  "4-clients",
+  "5-teams",
+  "6-products",
+  // The archive PARA wrote before `9-archive`. Workspaces made then still have
+  // it, so it stays guarded here exactly as it was.
+  "4-archive",
 ] as const;
 
 /**

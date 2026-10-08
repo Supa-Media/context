@@ -124,8 +124,42 @@ describe("a note", () => {
   });
 });
 
-describe("a folder", () => {
+describe("a built-in folder stays where it is", () => {
   const list = menu({ kind: "row", row: dir("1-projects") });
+
+  test("cannot be moved, cut or archived, so those are absent", () => {
+    for (const id of ["moveTo", "cut", "archive", "duplicate"] as const) expect(find(list, id)).toBeUndefined();
+  });
+
+  /** The one place the file menu dims rather than hides: see `menuBuiltIn.ts`. */
+  test("rename and trash are shown dimmed, trash saying why", () => {
+    expect(find(list, "rename")?.disabled).toBe(true);
+    const trash = find(list, "delete");
+    expect(trash?.disabled).toBe(true);
+    expect(trash?.detail).toMatch(/Built in/);
+  });
+
+  test("still creates inside itself, copies and shares like any folder", () => {
+    for (const id of ["newNote", "newFolder", "copy", "copyPath", "download", "visibility"] as const) {
+      expect(find(list, id)).toBeDefined();
+    }
+  });
+
+  test("an older 4-archive and a capitalised Inbox are built in too; an extra is not", () => {
+    expect(find(menu({ kind: "row", row: dir("4-archive") }), "rename")?.disabled).toBe(true);
+    expect(find(menu({ kind: "row", row: dir("Inbox") }), "rename")?.disabled).toBe(true);
+    expect(find(menu({ kind: "row", row: dir("4-clients") }), "rename")?.disabled).toBeUndefined();
+    expect(find(menu({ kind: "row", row: dir("1-projects/archive") }), "moveTo")).toBeDefined();
+  });
+
+  test("a selection holding one cannot be moved, archived or trashed as a whole", () => {
+    const both = menu({ kind: "selection", rows: [dir("1-projects"), dir("recipes")] });
+    for (const id of ["moveTo", "archive", "delete"] as const) expect(find(both, id)).toBeUndefined();
+  });
+});
+
+describe("a folder", () => {
+  const list = menu({ kind: "row", row: dir("1-projects/launch") });
 
   /**
    * `copyEntry` and the clipboard both take folders, so a folder is copied and

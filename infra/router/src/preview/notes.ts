@@ -117,6 +117,7 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   // presets'. An archive a customer named is theirs and is not on this list.
   "4-archive/chat-history",
   "5-archive/chat-history",
+  "9-archive/chat-history",
   "0-inbox/sessions",
   // Where `remember` files a fact given no note.
   "0-inbox/memories",
@@ -140,11 +141,13 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   "2-areas",
   "3-resources",
   "4-archive",
+  "9-archive",
   "0-inbox/README.md",
   "1-projects/README.md",
   "2-areas/README.md",
   "3-resources/README.md",
   "4-archive/README.md",
+  "9-archive/README.md",
   // The workspace presets. `apps/mobile/features/workspace/presets.ts` ships
   // fixed layouts through the `custom` template path, and `business` is what
   // a shared context gets when nobody chooses — so these are names this product
@@ -165,6 +168,9 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   "4-practice",
   "4-reference",
   "5-archive",
+  "4-clients",
+  "5-teams",
+  "6-products",
   "1-clients/README.md",
   "1-plan/README.md",
   "2-pipeline/README.md",
@@ -180,6 +186,9 @@ export const PRODUCT_MANDATED_PATHS = new Set([
   "4-practice/README.md",
   "4-reference/README.md",
   "5-archive/README.md",
+  "4-clients/README.md",
+  "5-teams/README.md",
+  "6-products/README.md",
 ]);
 
 /**

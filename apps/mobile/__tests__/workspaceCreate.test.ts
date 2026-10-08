@@ -18,12 +18,14 @@ import {
   WORKSPACE_DISPLAY_NAME_MAX,
   type PendingInvite,
 } from "../features/workspace/create";
+import { PARA_FOLDERS } from "@context/convex/functions/lib/scaffold";
 import {
   DEFAULT_PRESET,
   WORKSPACE_PRESETS,
   presetFor,
   presetRows,
   templateFor,
+  type WorkspacePresetKey,
 } from "../features/workspace/presets";
 import {
   MAX_CUSTOM_FOLDERS,
@@ -234,7 +236,7 @@ describe("the presets are things the control plane will accept", () => {
   test("only PARA takes the para path; our own presets travel as custom", () => {
     expect(templateFor("para")).toBe("para");
     expect(templateFor("business")).toBe("custom");
-    expect(templateFor("agency")).toBe("custom");
+    expect(templateFor("product")).toBe("custom");
     expect(templateFor("project")).toBe("custom");
     expect(templateFor("custom")).toBe("custom");
   });
@@ -257,6 +259,51 @@ describe("the presets are things the control plane will accept", () => {
     const names = presetRows("business").map((row) => row.name);
     expect(names.some((name) => /clients$/.test(name))).toBe(true);
     expect(names.some((name) => /teams$/.test(name))).toBe(true);
+  });
+
+  test("every kind starts with the five built-in folders, and the kind only adds extras", () => {
+    // The five are the same in every workspace (`folderRoles.cjs`), so a kind
+    // can add to them and never take one away. PARA is the scaffold's list, and
+    // the five must be exactly that list.
+    const five = ["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"];
+    expect([...PARA_FOLDERS].sort()).toEqual([...five].sort());
+    for (const key of ["business", "product", "project"] as const) {
+      const names = presetRows(key).map((row) => row.name);
+      for (const folder of five) expect(names, `${key} is missing ${folder}`).toContain(folder);
+    }
+  });
+
+  test("each kind lists its extras in number order, with the archive last", () => {
+    expect(presetRows("business").map((row) => row.name)).toEqual([
+      "0-inbox",
+      "1-projects",
+      "2-areas",
+      "3-resources",
+      "4-clients",
+      "5-teams",
+      "9-archive",
+    ]);
+    expect(presetRows("product").map((row) => row.name)).toEqual([
+      "0-inbox",
+      "1-projects",
+      "2-areas",
+      "3-resources",
+      "5-teams",
+      "6-products",
+      "9-archive",
+    ]);
+    expect(presetRows("project").map((row) => row.name)).toEqual([
+      "0-inbox",
+      "1-projects",
+      "2-areas",
+      "3-resources",
+      "9-archive",
+    ]);
+  });
+
+  test("the agency kind is gone; its presets are business", () => {
+    expect(WORKSPACE_PRESETS.map((preset) => preset.key)).not.toContain("agency");
+    expect(() => presetFor("agency" as WorkspacePresetKey)).toThrow();
   });
 
   test("an unknown preset throws rather than falling back to somebody else's folders", () => {

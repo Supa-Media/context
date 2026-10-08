@@ -18,6 +18,7 @@ import {
 } from "../../moves/objects.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../../storageLayout.js";
 import {
+  archiveRoot,
   effectiveVisibility,
   isPlumbing,
   PRIVACY_KEY,
@@ -131,12 +132,21 @@ function generatedCommunicationSource(path, text) {
       path.startsWith("2-areas/communications/daily/"));
 }
 
+/**
+ * The folder a move conflict is backed up into: this context's own archive, so
+ * a backup lands where archiving lands. A context that declares none keeps
+ * `4-archive`, the folder these backups have always used.
+ */
+function conflictArchiveRoot(privacy) {
+  return archiveRoot(privacy.rules) || "4-archive";
+}
+
 async function preserveGeneratedConflict(store, job, pair, sourceObject) {
   const sourceText = await sourceObject.text();
   if (!generatedCommunicationSource(pair.source, sourceText) ||
       await collaborationHead(store, pair.source)) return false;
-  const backup = `4-archive/${pair.source.slice(0, -3)}.move-conflict-${job.id}.md`;
   const privacy = await loadPrivacyState(store);
+  const backup = `${conflictArchiveRoot(privacy)}/${pair.source.slice(0, -3)}.move-conflict-${job.id}.md`;
   if (privacy.error || privacy.legacy ||
       effectiveVisibility(pair.source, privacy.rules, privacy.overrides) !==
         effectiveVisibility(backup, privacy.rules, privacy.overrides)) return false;
@@ -184,8 +194,8 @@ async function ensureCleanupDestination(store, pair, sourceObject) {
 
 async function preserveCollaborativeGeneratedConflict(store, job, pair, sourceObject) {
   if (!generatedCommunicationSource(pair.source, await sourceObject.text())) return false;
-  const backup = `4-archive/${pair.source.slice(0, -3)}.move-collaboration-conflict-${job.id}.md`;
   const privacy = await loadPrivacyState(store);
+  const backup = `${conflictArchiveRoot(privacy)}/${pair.source.slice(0, -3)}.move-collaboration-conflict-${job.id}.md`;
   if (privacy.error || privacy.legacy ||
       effectiveVisibility(pair.source, privacy.rules, privacy.overrides) !==
         effectiveVisibility(backup, privacy.rules, privacy.overrides)) return false;

@@ -16,7 +16,7 @@ import {
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, FOLDER_OPERATION_CAP, TRASH_ROOT, type FileStore } from "./store";
 import { FileOpError, notFound } from "./errors";
-import { requirePath, timestampSlug } from "./paths";
+import { assertNotMainFolder, requirePath, timestampSlug } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
 import { keysUnder, namesExtending, historyKeysFor, isFolder } from "./walk";
@@ -57,6 +57,7 @@ export async function archivePath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
+  assertNotMainFolder(path);
   // Ahead of the destination rather than after it: which folder this context
   // archives into is a fact about its manifest, so the manifest is read first
   // and the same state answers the visibility check below.
@@ -137,6 +138,7 @@ export async function trashPath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
+  assertNotMainFolder(path);
   assertWritablePath(path);
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
@@ -406,6 +408,7 @@ export async function deletePath(
     );
   }
   const path = requirePath(options.path);
+  assertNotMainFolder(path);
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);

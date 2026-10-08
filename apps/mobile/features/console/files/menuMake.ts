@@ -53,7 +53,7 @@ export function makeItem(
   context: MenuContext,
   id: MenuActionId,
   label: string,
-  extra: { danger?: boolean; items?: MenuItem[]; detail?: string; checked?: boolean } = {},
+  extra: { danger?: boolean; items?: MenuItem[]; detail?: string; checked?: boolean; disabled?: boolean } = {},
 ): MenuItem {
   const command = COMMANDS[id];
   const shortcut =
@@ -69,6 +69,7 @@ export function makeItem(
     // two mean different things to the renderer. See `MenuItem.checked`.
     ...(extra.checked === undefined ? {} : { checked: extra.checked }),
     ...(extra.danger === true ? { danger: true } : {}),
+    ...(extra.disabled === true ? { disabled: true } : {}),
     ...(extra.items === undefined ? {} : { items: extra.items }),
   };
 }

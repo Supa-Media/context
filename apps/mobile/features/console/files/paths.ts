@@ -15,6 +15,7 @@
 
 import { isDrawingPath } from "@context/drawings";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { folderRole } from "@context/shared/src/folderRoles.cjs";
 
 /** The folder a path sits in. `""` is the root. */
 export function parentPath(path: string): string {
@@ -376,6 +377,9 @@ export function formatBytes(bytes: number | undefined): string {
 
 /**
  * `4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md` → `1-projects/foo.md`.
+ * `9-archive/…` and `5-archive/…` restore the same way: the first segment only
+ * has to play the archive role (`folderRole`), so an older workspace's archive
+ * name works without renaming anything.
  *
  * What "restore" puts back. The archive keeps the original path inside the
  * timestamped folder precisely so this is a string operation rather than a
@@ -384,8 +388,9 @@ export function formatBytes(bytes: number | undefined): string {
  * somewhere arbitrary.
  */
 export function restoreTargetFor(archivedPath: string): string | null {
-  const match = archivedPath.match(/^4-archive\/[^/]+\/(.+)$/);
-  return match ? match[1] : null;
+  const match = archivedPath.match(/^([^/]+)\/[^/]+\/(.+)$/);
+  if (!match || folderRole(match[1]) !== "archive") return null;
+  return match[2];
 }
 
 /**

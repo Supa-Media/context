@@ -24,7 +24,7 @@ import {
 } from "@context/collaboration";
 import type { FileStore } from "./store";
 import { FileOpError, notFound } from "./errors";
-import { requirePath } from "./paths";
+import { assertNotMainFolder, requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
@@ -90,6 +90,7 @@ export async function movePath(
   assertWritablePath(from);
   assertWritablePath(to);
   if (from === to) return { from, to, paths: [] };
+  assertNotMainFolder(from);
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
   }

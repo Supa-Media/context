@@ -23,6 +23,7 @@ import {
   referencesLine,
   retireMovedSource,
 } from "../../moves/objects.js";
+import { ROLE_LABEL, isMainFolder, topLevelRole } from "../../../../../packages/shared/src/folderRoles.cjs";
 import {
   eligible as collaborationEligible,
   supported as collaborationSupported,
@@ -204,6 +205,14 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     destination.startsWith(source + "/")
   ) {
     return toolError("source and destination folders must be separate, non-reserved trees");
+  }
+  // The five built-in folders stay where every client expects them
+  // (folderRoles.cjs). Decided by name alone, before anything is listed, so
+  // the refusal says nothing about whether the folder exists or is visible.
+  if (isMainFolder(source)) {
+    return toolError(
+      `${ROLE_LABEL[topLevelRole(source)]} is a built-in folder, so it can't be renamed or moved. Move what's inside it instead.`
+    );
   }
 
   const sourcePrefix = `${source}/`;

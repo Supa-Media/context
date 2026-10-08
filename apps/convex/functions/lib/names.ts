@@ -360,6 +360,13 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   "2-areas",
   "3-resources",
   "4-archive",
+  // The archive every new workspace gets, and the fixed-number extras a
+  // workspace can add (see `packages/shared/src/folderRoles.cjs`). Retiring a
+  // word does not free its name, and these are as guessable as `4-archive`.
+  "9-archive",
+  "4-clients",
+  "5-teams",
+  "6-products",
   "inbox",
   "projects",
   "areas",

@@ -18,6 +18,7 @@ import {
 import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import { requireFolderPath, parentOf, baseName } from "./paths";
+import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
 import { loadPrivacyState } from "./privacyState";
 
 /* -------------------------------------------------------------------------- */
@@ -234,7 +235,7 @@ export async function listFolder(
     if (page === LIST_PAGE_CAP - 1) truncated = true;
   }
 
-  entries.sort(compareEntries);
+  entries.sort((a, b) => compareListingEntries(folder, a, b));
 
   return {
     path: folder,
@@ -317,8 +318,3 @@ function nearestVisibleAncestor(
   return at;
 }
 
-/** Folders first, then files, each alphabetically — the order Obsidian uses. */
-function compareEntries(a: FileEntry, b: FileEntry): number {
-  if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-  return a.name.localeCompare(b.name);
-}
