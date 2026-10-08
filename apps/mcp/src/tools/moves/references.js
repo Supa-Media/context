@@ -9,8 +9,9 @@ import { isEncryptedNote } from "../../encryption.js";
 import { LINK_SCAN_CAP } from "../../moves/objects.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { mapInBatches } from "../../notes/storage.js";
+import { forwardPath, readForwarding } from "../../forwarding.js";
 import { MOVE_JOB_VERSION } from "../../moves/limits.js";
-import { persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
+import { loadMoveJobs, persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
 
 /**
@@ -57,6 +58,7 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   after,
   limit,
   paths,
+  currentJobId,
 } = {}) {
   if (renames.size === 0) return { notes: 0, links: 0, capped: false };
 
@@ -72,12 +74,22 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     // this.
     return { notes: 0, links: 0, capped: true };
   }
+  keys.sort();
+  const allVisibleKeys = keys;
+  const activeJobs = await loadMoveJobs(store);
+  const unavailable = new Set();
+  for (const job of activeJobs) {
+    for (const item of job.objects) {
+      unavailable.add(item.source);
+      if (job.id !== currentJobId) unavailable.add(item.destination);
+    }
+  }
+  keys = keys.filter((key) => !unavailable.has(key));
   const paged = Number.isInteger(limit) && limit > 0;
   if (!paged && !paths && keys.length > LINK_SCAN_CAP) {
     return { notes: 0, links: 0, capped: true };
   }
 
-  keys.sort();
   const visibleKeys = keys;
   if (paths) {
     const selected = new Set(paths);
@@ -88,7 +100,12 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
 
   const wasAt = new Map();
   for (const [from, to] of renames) wasAt.set(to, from);
-  const byName = indexByName(visibleKeys.map((key) => wasAt.get(key) ?? key));
+  const byName = indexByName(allVisibleKeys.map((key) => wasAt.get(key) ?? key));
+  // The forwarding ledger includes earlier moves whose link sweeps could not
+  // run in a large workspace. Owner sweeps can repair those stale references
+  // while preserving the relative style of each link.
+  const forwarding = scope === "private" ? await readForwarding(store) : null;
+  const forwardTarget = forwarding ? (path) => forwardPath(forwarding, path) : undefined;
 
   const results = await mapInBatches(keys, REFERENCE_READ_CONCURRENCY, async (key) => {
     try {
@@ -117,7 +134,7 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
         ciphertext".
       */
       if (isEncryptedNote(text)) return { notes: 0, links: 0, written: null, failed: false };
-      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName });
+      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName, forwardTarget });
       if (rewritten === null) return { notes: 0, links: 0, written: null, failed: false };
       if (!write) return { notes: 1, links: rewritten.changed, written: null, failed: false };
       /*

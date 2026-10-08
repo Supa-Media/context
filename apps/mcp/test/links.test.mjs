@@ -284,6 +284,19 @@ export async function runLinkChecks(check) {
         "see [[../../../../1-projects/2-areas/practice]] and [[../../../../1-projects/a/sibling]]"
     );
 
+    const contactPath = "0-inbox/contacts/imessage/alex.md";
+    const archivedThread = "4-archive/2-areas/communications/sources/person.md";
+    const followedEarlierMove = rewriteLinks("[thread](../sources/person.md)", {
+      fromPath: "2-areas/communications/contacts/alex.md",
+      toPath: contactPath,
+      renames: new Map(),
+      byName: indexByName([]),
+      forwardTarget: (path) => path === "2-areas/communications/sources/person.md" ? archivedThread : path,
+    });
+    check("a moved note follows an earlier move while keeping its link relative",
+      followedEarlierMove !== null &&
+        resolveLink(parseLinks(followedEarlierMove.text)[0], contactPath, indexByName([])) === archivedThread);
+
     check(
       "a rooted link in a note that moved is left byte-identical",
       rewriteLinks("see [[2-areas/practice]]", {

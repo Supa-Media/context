@@ -1,5 +1,6 @@
 import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText } from "./harness.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
+import { recordForwarding } from "../src/forwarding.js";
 
 export async function runMovesAndBatchChecks() {
   // -- batch move plan and apply
@@ -460,6 +461,26 @@ export async function runMovesAndBatchChecks() {
   await contextStore.put("1-projects/portable-link-target/note.md", "[outside](../portable-link-ref.md)");
   await contextStore.put("1-projects/portable-link-ref.md", "[[1-projects/portable-link-target/note]]");
   await contextStore.put("1-projects/secret-thing/private-link.md", "[[1-projects/portable-link-target/note]]");
+  await contextStore.put("4-archive/1-projects/earlier-thread.md", "archived thread");
+  await contextStore.put("1-projects/earlier-ref.md", "[[1-projects/earlier-thread]]");
+  await recordForwarding(contextStore, [{
+    from: "1-projects/earlier-thread.md",
+    to: "4-archive/1-projects/earlier-thread.md",
+    kind: "note",
+  }]);
+  await contextStore.put("1-projects/other-active/note.md", "[[1-projects/portable-link-target/note]]");
+  const otherMoveId = "move-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  await contextStore.put(`.context/moves/${otherMoveId}.json`, JSON.stringify({
+    version: 1,
+    id: otherMoveId,
+    status: "copying",
+    source: "1-projects/other-active",
+    destination: "1-projects/other-moved",
+    objects: [{
+      source: "1-projects/other-active/note.md",
+      destination: "1-projects/other-moved/note.md",
+    }],
+  }));
   const referenceMessages = [];
   env.GATEWAY_JOBS = { async send(message) { referenceMessages.push(message); } };
   const queuedLinks = await call("priv-token", "move_folder", {
@@ -490,13 +511,21 @@ export async function runMovesAndBatchChecks() {
       storedText("1-projects/deep/portable-link-moved/note.md") === "[outside](../../portable-link-ref.md)");
   check("owner reference repair also updates private notes",
     storedText("1-projects/secret-thing/private-link.md") === "[[1-projects/deep/portable-link-moved/note]]");
+  check("reference repair follows an earlier move in the forwarding ledger",
+    storedText("1-projects/earlier-ref.md") === "[[4-archive/1-projects/earlier-thread]]");
+  check("reference repair leaves another active move's source untouched",
+    storedText("1-projects/other-active/note.md") === "[[1-projects/portable-link-target/note]]");
   for (const key of [...objects.keys()]) {
     if (key.startsWith("3-resources/link-fixture/") ||
         key.startsWith("1-projects/portable-link-") ||
         key.startsWith("1-projects/deep/portable-link-") ||
+        key.startsWith("1-projects/other-active/") ||
+        key === "1-projects/earlier-ref.md" ||
+        key === "4-archive/1-projects/earlier-thread.md" ||
         key === "1-projects/secret-thing/private-link.md") objects.delete(key);
   }
   objects.delete(`.context/moves/${linkJobId}.json`);
+  objects.delete(`.context/moves/${otherMoveId}.json`);
 
 
 }
