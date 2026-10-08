@@ -488,12 +488,9 @@ describe("deleting is the permanent one", () => {
     expect(survivors).toEqual([]);
   });
 
-  // An own folder: the built-in ones (`1-projects`) cannot be deleted at all.
   test("deleting a folder takes everything under it", async () => {
-    const store = bucket();
-    store.seed("work/README.md", "# Work\n");
-    store.seed("work/plan.md", "# Plan\n");
-    store.seed("work/deep/notes.md", "# Notes\n");
+    const store = bucket(); // An own folder: built-in ones cannot be deleted.
+    for (const key of ["work/README.md", "work/plan.md", "work/deep/notes.md"]) store.seed(key, "# Note\n");
     await deletePath(store, {
       path: "work",
       confirmation: DELETE_CONFIRMATION,
@@ -588,17 +585,14 @@ describe("deleting is the permanent one", () => {
     test("deleting a folder purges the whole history subtree beneath it", async () => {
       const store = bucket();
       store.seed("work/pay.md", "# Pay\n\nsalaries\n");
-      store.seed(".history/work/pay.md.2026-07-01T09-00-00-000Z.md", "# Pay\n\nsalaries\n");
-      store.seed(".history/work/deep/old.md.2026-07-01T09-00-00-000Z.md", "# older\n");
+      for (const key of ["pay.md", "deep/old.md"]) store.seed(`.history/work/${key}.2026-07-01T09-00-00-000Z.md`, "# old\n");
       expect(historyKeys(store).filter((key) => key.startsWith(".history/work/")).length).toBe(2);
       await deletePath(store, {
         path: "work",
         confirmation: DELETE_CONFIRMATION,
         clearance: clearanceOf("private"),
       });
-      expect(historyKeys(store).filter((key) => key.startsWith(".history/work/"))).toEqual(
-        [],
-      );
+      expect(historyKeys(store).filter((key) => key.startsWith(".history/work/"))).toEqual([]);
     });
 
     /**
