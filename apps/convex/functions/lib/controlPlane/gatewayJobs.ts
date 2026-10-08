@@ -42,6 +42,11 @@ export interface ClaimedGatewayJob {
   moveId?: string;
 }
 
+/** A redelivered Queue message must wait for the running pass's lease. */
+export interface LeasedGatewayJob {
+  retryAfterMs: number;
+}
+
 export interface OpenedGatewayJob {
   job: ClaimedGatewayJob;
   binding: GatewayBinding;
@@ -134,6 +139,7 @@ export const claimGatewayJobArgs = { hashedTicket: v.string() };
 
 export const claimGatewayJobReturns = v.union(
   v.null(),
+  v.object({ retryAfterMs: v.number() }),
   v.object({
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
@@ -156,10 +162,11 @@ export async function claimGatewayJobHandler(
   if (job === null) return null;
   if (job.expiresAt <= Date.now()) return null;
   const now = Date.now();
-  const staleLease =
-    job.status === "running" &&
-    typeof job.leasedAt === "number" &&
-    job.leasedAt + GATEWAY_JOB_LEASE_MS <= now;
+  const leasedUntil = typeof job.leasedAt === "number" ? job.leasedAt + GATEWAY_JOB_LEASE_MS : 0;
+  const staleLease = job.status === "running" && leasedUntil <= now;
+  if (job.status === "running" && !staleLease) {
+    return { retryAfterMs: Math.max(1_000, leasedUntil - now) };
+  }
   if (job.status !== "queued" && !staleLease) return null;
   const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
   if (membership === null || membership.role !== "owner") return null;

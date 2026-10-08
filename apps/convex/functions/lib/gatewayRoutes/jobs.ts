@@ -96,8 +96,9 @@ export async function gatewayJobsReportHandler(
         },
       });
     } catch {
-      // Reporting is not a read path and not a credential path; every refusal
-      // answers the same way so the ticket cannot be probed from the outside.
+      // A transport/database failure must reach the Queue consumer so it can
+      // retry after the live lease. The response carries no ticket state.
+      return json({ ok: false }, 503);
     }
   }
   return json({ ok: true });
