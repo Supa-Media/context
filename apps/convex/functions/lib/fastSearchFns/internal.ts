@@ -22,6 +22,7 @@ import {
   type SearchProjectionState,
 } from "../fastSearch";
 import { bindingFor } from "./helpers";
+import { cleanPriorities, type IndexingPriorities } from "../indexingPriorities";
 
 /** Contexts one sweep may restart. See `sweepStalledBackfillsHandler`. */
 const SWEEP_BATCH = 50;
@@ -113,6 +114,7 @@ export async function recordProjectionProgressHandler(
     workspaceId: Id<"workspaces">;
     notesIndexed: number;
     notesPending: number;
+    priorities?: IndexingPriorities;
     /** The gateway saying the backfill is finished. */
     ready: boolean;
   },
@@ -141,6 +143,7 @@ export async function recordProjectionProgressHandler(
   await ctx.db.patch(binding!._id, {
     notesIndexed: args.notesIndexed,
     notesPending: args.notesPending,
+    ...(args.priorities ? { priorities: cleanPriorities(args.priorities) } : {}),
     // Only `backfilling` → `ready`. `state` is one of two values here, so a
     // report of `ready` against an already-ready row keeps it ready and a
     // report without `ready` never demotes one — a gateway that reports
@@ -173,6 +176,7 @@ export async function forgetIndexHandler(
       schemaVersion: undefined,
       notesIndexed: undefined,
       notesPending: undefined,
+      priorities: undefined,
       updatedAt: Date.now(),
     });
     return { forgotten: true };

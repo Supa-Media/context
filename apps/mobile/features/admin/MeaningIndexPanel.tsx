@@ -21,9 +21,11 @@ import { messageFor } from "./SecretDialogs";
 import { whenLabel } from "./agent";
 import {
   canRestartMeaning,
+  fastSearchLine,
   meaningFailureLine,
   meaningProgressLine,
   meaningStatePill,
+  priorityLine,
   restartedLine,
   stuckMeaningCount,
   type MeaningIndexRow,
@@ -32,7 +34,8 @@ import {
 const COLUMNS: readonly Column[] = [
   { label: "Workspace", flex: 1.4 },
   { label: "State", flex: 1.1 },
-  { label: "Notes", flex: 1.2 },
+  { label: "Notes", flex: 1.6 },
+  { label: "Fast search", flex: 1.6 },
   { label: "What went wrong", flex: 2 },
   { label: "Changed", flex: 0.9 },
   { label: "", flex: 0.9, align: "right" },
@@ -77,7 +80,8 @@ export function MeaningIndexPanel() {
     <Panel flush title="Search by meaning" meta={`${report.rows.length} workspaces`} testID="admin-meaning">
       <View style={styles.head}>
         <Text variant="meta" style={styles.grow}>
-          Restart picks up where indexing stopped. It never turns on a workspace whose owner turned it off.
+          Restart picks up where indexing stopped. It never turns on a workspace whose owner turned it off. Indexing
+          goes in priority order: P1 everything else, P2 the Inbox, P3 the Archive.
         </Text>
         <Button
           label={busy === "all" ? "Restarting…" : `Restart everything stuck (${stuck})`}
@@ -111,7 +115,15 @@ export function MeaningIndexPanel() {
               key={row.workspaceId}
               first={index === 0}
               title={row.slug ? `@${row.slug}` : "a deleted workspace"}
-              sub={[meaningProgressLine(row), failure].filter(Boolean).join(" · ")}
+              sub={[
+                meaningProgressLine(row),
+                priorityLine(row.priorities),
+                `Fast search ${fastSearchLine(row.fastSearch)}`,
+                priorityLine(row.fastSearch?.priorities ?? null),
+                failure,
+              ]
+                .filter(Boolean)
+                .join("\n")}
               trailing={
                 <View style={styles.trailing}>
                   <Pill tone={pill.tone}>{pill.label}</Pill>
@@ -140,9 +152,26 @@ export function MeaningIndexPanel() {
                   <Pill key="state" tone={pill.tone}>
                     {pill.label}
                   </Pill>,
-                  <Text key="notes" variant="rowSub" style={styles.num}>
-                    {meaningProgressLine(row)}
-                  </Text>,
+                  <View key="notes">
+                    <Text variant="rowSub" style={styles.num}>
+                      {meaningProgressLine(row)}
+                    </Text>
+                    {priorityLine(row.priorities) ? (
+                      <Text variant="meta" style={styles.num}>
+                        {priorityLine(row.priorities)}
+                      </Text>
+                    ) : null}
+                  </View>,
+                  <View key="fast">
+                    <Text variant="rowSub" style={styles.num}>
+                      {fastSearchLine(row.fastSearch)}
+                    </Text>
+                    {priorityLine(row.fastSearch?.priorities ?? null) ? (
+                      <Text variant="meta" style={styles.num}>
+                        {priorityLine(row.fastSearch?.priorities ?? null)}
+                      </Text>
+                    ) : null}
+                  </View>,
                   <Text key="why" variant="rowSub" numberOfLines={2}>
                     {meaningFailureLine(row) ?? "—"}
                   </Text>,

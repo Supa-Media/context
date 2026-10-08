@@ -11,6 +11,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
 import { isRetryableMeaningError } from "../vectorize";
+import { cleanPriorities, type IndexingPriorities } from "../indexingPriorities";
 
 export type MeaningRowStatus = "provisioning" | "backfilling" | "ready" | "failed" | "releasing";
 
@@ -186,6 +187,7 @@ export async function forgetMeaningIndexHandler(
       indexName: undefined,
       notesIndexed: undefined,
       notesPending: undefined,
+      priorities: undefined,
       errorCode: undefined,
       error: undefined,
       updatedAt: Date.now(),
@@ -203,7 +205,13 @@ export async function forgetMeaningIndexHandler(
  */
 export async function recordMeaningProgressHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces">; notesIndexed: number; notesPending: number; ready: boolean },
+  args: {
+    workspaceId: Id<"workspaces">;
+    notesIndexed: number;
+    notesPending: number;
+    priorities?: IndexingPriorities;
+    ready: boolean;
+  },
 ): Promise<void> {
   const row = await meaningRowFor(ctx, args.workspaceId);
   if (row === null || !row.enabled) return;
@@ -212,6 +220,7 @@ export async function recordMeaningProgressHandler(
     status: args.ready ? "ready" : row.status,
     notesIndexed: Math.max(0, Math.floor(args.notesIndexed)),
     notesPending: Math.max(0, Math.floor(args.notesPending)),
+    ...(args.priorities ? { priorities: cleanPriorities(args.priorities) } : {}),
     updatedAt: Date.now(),
   });
 }

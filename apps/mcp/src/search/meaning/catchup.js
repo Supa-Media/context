@@ -38,6 +38,7 @@
  */
 
 import { SEARCH_PREFIX } from "../../../../../packages/shared/src/storageLayout.cjs";
+import { compareIndexingOrder, countByIndexingPriority } from "../../../../../packages/shared/src/folderRoles.cjs";
 import { MeaningError } from "./errors.js";
 import { meaningChangeFor, meaningIdsFor } from "./project.js";
 
@@ -95,15 +96,18 @@ async function writeMeaningState(store, generation, notes) {
 }
 
 /**
- * What the census and the map disagree about: paths to embed (new or changed,
- * in path order so a long walk resumes where it stopped) and paths to delete.
+ * What the census and the map disagree about: paths to embed (new or changed)
+ * and paths to delete. Embeds go in indexing order (`compareIndexingOrder`):
+ * everything but the Inbox and Archive first, then the Inbox, then the
+ * Archive (decided by the owner, 2026-10-08), by path within each, so a long
+ * walk resumes where it stopped.
  */
 export function meaningDiff(census, notes, regionComplete = () => true) {
   const changed = [];
   for (const [path, version] of census) {
     if (notes.get(path) !== version) changed.push(path);
   }
-  changed.sort();
+  changed.sort(compareIndexingOrder);
   const removed = [];
   for (const path of notes.keys()) {
     // Absent from a listing that never reached its folder is not gone.
@@ -129,7 +133,8 @@ export function meaningDiff(census, notes, regionComplete = () => true) {
  *   listing behind the census reached the part of the bucket `path` is in;
  *   a path the census lacks is deleted only where it did
  * @returns {Promise<{embedded: number, deleted: number, notesIndexed: number,
- *   notesPending: number, ready: boolean, moved: boolean, failure: string|null,
+ *   notesPending: number, priorities: Array<{priority: number, indexed: number,
+ *   pending: number}>, ready: boolean, moved: boolean, failure: string|null,
  *   failureCause: string|null}>} counts only: no path, no title, no text.
  */
 export async function meaningPass(
@@ -167,11 +172,19 @@ export async function meaningPass(
     const notesPending = left.changed.length + left.removed.length;
     let notesIndexed = 0;
     for (const path of census.keys()) if (notes.has(path)) notesIndexed += 1;
+    // Per priority: a census path is indexed when the map holds its current
+    // version, as `meaningDiff` decides; a delete still owed is pending.
+    const priorities = countByIndexingPriority(
+      census.keys(),
+      (path) => notes.get(path) === census.get(path),
+      left.removed,
+    );
     return {
       embedded: result.embedded,
       deleted: result.deleted,
       notesIndexed,
       notesPending,
+      priorities,
       ready: result.failure === null && notesPending === 0 && indexPending === 0,
       moved: result.embedded > 0 || result.deleted > 0,
       failure: result.failure,

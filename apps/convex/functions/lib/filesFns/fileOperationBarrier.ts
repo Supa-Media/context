@@ -601,7 +601,7 @@ export async function runFileOperationHandler(
     await recordProjectionOutcome(ctx, args, result);
     // The detail was for the log line; the scheduler keeps return values, and
     // the validator holds them to the shape every caller already reads.
-    const { failureDetail: _logged, ...answer } = result;
+    const { failureDetail: _logged, priorities: _recorded, ...answer } = result;
     return answer;
   }
 

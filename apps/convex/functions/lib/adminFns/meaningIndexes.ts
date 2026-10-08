@@ -7,7 +7,9 @@
  * nobody could read ("make sure I can restart indexing from admin tab").
  *
  * What staff see is what the row holds: a slug, a status, our own error code
- * and cause, and counts. Never a path, a title or a note's text.
+ * and cause, and counts, in all and per indexing priority (1 everything but
+ * the Inbox and Archive, 2 the Inbox, 3 the Archive), beside the same counts
+ * for the workspace's fast index. Never a path, a title or a note's text.
  *
  * ## What a restart does, and what it never does
  *
@@ -24,6 +26,7 @@ import { v } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
+import { indexingPrioritiesValidator } from "../indexingPriorities";
 import { meaningStatusValidator } from "../schema/meaning";
 import { MEANING_PASS_CHAIN, enableMeaningHandler, meaningRowFor } from "../meaningFns/rows";
 
@@ -40,6 +43,18 @@ export const meaningIndexRowValidator = v.object({
   errorCause: v.union(v.string(), v.null()),
   notesIndexed: v.union(v.number(), v.null()),
   notesPending: v.union(v.number(), v.null()),
+  /** Per indexing priority (1 everything else, 2 Inbox, 3 Archive); null before a pass reported it. */
+  priorities: v.union(indexingPrioritiesValidator, v.null()),
+  /** The same workspace's fast index, so one panel shows both kinds of indexing. */
+  fastSearch: v.union(
+    v.object({
+      status: v.string(),
+      notesIndexed: v.union(v.number(), v.null()),
+      notesPending: v.union(v.number(), v.null()),
+      priorities: v.union(indexingPrioritiesValidator, v.null()),
+    }),
+    v.null(),
+  ),
   updatedAt: v.number(),
 });
 
@@ -66,6 +81,10 @@ export async function meaningIndexReportHandler(ctx: QueryCtx): Promise<MeaningI
   const rows = await Promise.all(
     found.slice(0, REPORT_ROWS).map(async (row) => {
       const workspace = await ctx.db.get(row.workspaceId);
+      const fast = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", row.workspaceId))
+        .unique();
       return {
         workspaceId: row.workspaceId,
         slug: workspace?.slug ?? null,
@@ -76,6 +95,16 @@ export async function meaningIndexReportHandler(ctx: QueryCtx): Promise<MeaningI
         errorCause: row.errorCause ?? null,
         notesIndexed: row.notesIndexed ?? null,
         notesPending: row.notesPending ?? null,
+        priorities: row.priorities ?? null,
+        fastSearch:
+          fast === null
+            ? null
+            : {
+                status: fast.status,
+                notesIndexed: fast.notesIndexed ?? null,
+                notesPending: fast.notesPending ?? null,
+                priorities: fast.priorities ?? null,
+              },
         updatedAt: row.updatedAt,
       };
     }),

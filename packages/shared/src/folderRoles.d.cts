@@ -24,3 +24,18 @@ export declare function compareListingEntries(
 ): number;
 export declare function rolesIn(names: Iterable<string>): Record<FolderRole, string | null>;
 export declare function missingMainRoles(names: Iterable<string>): MainRole[];
+
+export type IndexingPriority = 1 | 2 | 3;
+export interface IndexingPriorityCount {
+  priority: IndexingPriority;
+  indexed: number;
+  pending: number;
+}
+export declare const INDEXING_PRIORITIES: readonly IndexingPriority[];
+export declare function indexingPriority(path: string): IndexingPriority;
+export declare function compareIndexingOrder(a: string, b: string): number;
+export declare function countByIndexingPriority(
+  paths: Iterable<string>,
+  isIndexed: (path: string) => boolean,
+  extraPending?: Iterable<string>,
+): IndexingPriorityCount[];

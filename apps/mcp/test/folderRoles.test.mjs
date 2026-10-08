@@ -15,6 +15,9 @@ const {
   compareTopLevelFolders,
   rolesIn,
   missingMainRoles,
+  indexingPriority,
+  compareIndexingOrder,
+  countByIndexingPriority,
 } = require("../../../packages/shared/src/folderRoles.cjs");
 
 test("the word decides the role, the number only sorts", () => {
@@ -71,4 +74,27 @@ test("rolesIn picks one folder per role regardless of listing order", () => {
 test("missingMainRoles names what an older workspace lacks", () => {
   assert.deepEqual(missingMainRoles(["1-projects", "4-archive", "recipes"]), ["inbox", "areas", "resources"]);
   assert.deepEqual(missingMainRoles(MAIN_FOLDERS), []);
+});
+
+test("indexing priority: everything else first, then the inbox, then the archive", () => {
+  assert.equal(indexingPriority("1-projects/a.md"), 1);
+  assert.equal(indexingPriority("todo.md"), 1);
+  assert.equal(indexingPriority("website/index.md"), 1);
+  assert.equal(indexingPriority("1-projects/inbox/a.md"), 1, "only the top-level folder decides");
+  assert.equal(indexingPriority("0-inbox/a.md"), 2);
+  assert.equal(indexingPriority("Inbox/deep/a.md"), 2);
+  assert.equal(indexingPriority("4-archive/a.md"), 3);
+  assert.equal(indexingPriority("9-archive/x/y.md"), 3);
+  assert.equal(indexingPriority("old-archive/a.md"), 1);
+  assert.equal(indexingPriority("archive.md"), 1, "a note named archive is not the folder");
+
+  const order = ["9-archive/a.md", "0-inbox/b.md", "1-projects/z.md", "0-inbox/a.md", "a.md"].sort(compareIndexingOrder);
+  assert.deepEqual(order, ["1-projects/z.md", "a.md", "0-inbox/a.md", "0-inbox/b.md", "9-archive/a.md"]);
+
+  const done = new Set(["1-projects/z.md", "0-inbox/a.md"]);
+  assert.deepEqual(countByIndexingPriority(order, (p) => done.has(p), ["4-archive/gone.md"]), [
+    { priority: 1, indexed: 1, pending: 1 },
+    { priority: 2, indexed: 1, pending: 1 },
+    { priority: 3, indexed: 0, pending: 2 },
+  ]);
 });

@@ -101,6 +101,11 @@ import { deleteStatements, projectNote, upsertStatements } from "./project.js";
 import { indexableText } from "../../encryption.js";
 import { D1Error, failureDetailOf } from "./client.js";
 import {
+  INDEXING_PRIORITIES,
+  compareIndexingOrder,
+  indexingPriority,
+} from "../../../../../packages/shared/src/folderRoles.cjs";
+import {
   DOCMAP_KEY,
   MANIFEST_PARSE_BYTE_CAP,
   loadIndexManifest,
@@ -234,6 +239,49 @@ export async function loadCensus(store, budget, reserve = 0) {
   return { census: censusFromManifest(manifest), manifest };
 }
 
+/**
+ * The cursor is a note's place in indexing order (`compareIndexingOrder`:
+ * everything but the Inbox and Archive, then the Inbox, then the Archive,
+ * decided by the owner, 2026-10-08), written as `<priority>\t<path>` so plain
+ * string order is that order. A cursor in the older form (a bare path, from
+ * before priorities) reads as the start: the next sweep re-verifies from the
+ * top, which costs version probes and copies nothing already current.
+ */
+export function cursorKeyOf(path) {
+  return `${indexingPriority(path)}\t${path}`;
+}
+
+function cursorPosition(cursor) {
+  return /^[1-3]\t/.test(cursor) ? cursor : "";
+}
+
+/**
+ * How many notes the projection holds, per indexing priority and in all, in
+ * one query grouped by top-level folder (the only part of a path a priority
+ * reads). Counted, never inferred from a cursor.
+ *
+ * @returns {Promise<{total: number, byPriority: number[]}>} `byPriority[0]` is
+ *   priority 1.
+ */
+export async function countProjectedByPriority(client) {
+  const rows = await client.query(
+    `SELECT CASE WHEN instr(path, '/') > 0 THEN substr(path, 1, instr(path, '/') - 1) ELSE '' END AS top,
+            COUNT(*) AS n
+       FROM notes GROUP BY top`,
+    []
+  );
+  const byPriority = INDEXING_PRIORITIES.map(() => 0);
+  let total = 0;
+  for (const row of rows) {
+    const n = row ? Number(row.n) : NaN;
+    if (!Number.isFinite(n)) continue;
+    const top = typeof row.top === "string" ? row.top : "";
+    byPriority[indexingPriority(top === "" ? "" : `${top}/`) - 1] += n;
+    total += n;
+  }
+  return { total, byPriority };
+}
+
 /** How many notes the projection holds. Counted, never inferred from a cursor. */
 export async function countProjected(client) {
   const rows = await client.query(`SELECT COUNT(*) AS n FROM notes`, []);
@@ -325,10 +373,11 @@ export async function projectPass(
     // "the sweep reached the end of the census" is a condition that is never
     // true, `state: "ready"` is never sent, and a fully projected context
     // reports itself as still backfilling forever.
-    const sorted = [...paths.keys()].sort();
+    const sorted = [...paths.keys()].sort(compareIndexingOrder);
+    const from = cursorPosition(cursor);
     const remaining = [];
     for (const path of sorted) {
-      if (path <= cursor) continue;
+      if (cursorKeyOf(path) <= from) continue;
       remaining.push(path);
       if (remaining.length > VERSION_PROBE_CAP) break;
     }
@@ -480,7 +529,7 @@ export async function projectPass(
       settled = -1;
     }
 
-    let nextCursor = settled >= 0 ? window[settled] : cursor;
+    let nextCursor = settled >= 0 ? cursorKeyOf(window[settled]) : cursor;
 
     // A sweep ends when the window ran to the end of the census and every
     // entry in it was settled. The cursor goes back to the start, so the next
@@ -536,6 +585,8 @@ export function progressFrom(result) {
   return {
     notesIndexed: result.notesIndexed,
     notesPending: result.notesPending,
+    // Absent on a pass that counted nothing; the row keeps its last.
+    ...(result.priorities ? { priorities: result.priorities } : {}),
     // `ready` only when this projection holds every note the R2 index holds
     // *and* the R2 index itself is not still catching up. A projection that
     // calls itself ready over a half-listed bucket tells somebody their note
@@ -571,7 +622,18 @@ async function finish(result, paths, indexPending, budget, reserve, client, repo
     try {
       if (budget.remaining > reserve) {
         budget.take(reserve);
-        result.notesIndexed = await countProjected(client);
+        const counted = await countProjectedByPriority(client);
+        result.notesIndexed = counted.total;
+        // Per priority: what the census holds against what the projection
+        // holds. A note the R2 index has not reached belongs to no priority
+        // yet, so it is pending in the total only.
+        const census = INDEXING_PRIORITIES.map(() => 0);
+        for (const path of paths.keys()) census[indexingPriority(path) - 1] += 1;
+        result.priorities = INDEXING_PRIORITIES.map((priority, index) => ({
+          priority,
+          indexed: counted.byPriority[index],
+          pending: Math.max(0, census[index] - counted.byPriority[index]),
+        }));
       }
     } catch (error) {
       if (!(error instanceof D1Error)) throw error;

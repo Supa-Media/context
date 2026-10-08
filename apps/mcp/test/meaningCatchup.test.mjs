@@ -10,6 +10,7 @@
  *   deletes skipped                               → "a note gone from the bucket leaves the index and the map" fails
  *   the cap ignored                               → "a long walk stops at its cap and resumes where it stopped" fails
  *   `DELETE_BATCH` back at 500                    → "a full pass fits Vectorize's 20-id cap on a delete" fails
+ *   `changed.sort()` back to plain path order     → "the Inbox waits for everything else…" fails
  */
 
 import test from "node:test";
@@ -198,6 +199,32 @@ test("the diff is in path order, so a resumed walk is deterministic", () => {
   );
   assert.deepEqual(changed, ["a.md", "b.md", "c.md"]);
   assert.deepEqual(removed, ["z.md"]);
+});
+
+test("the Inbox waits for everything else, and the Archive for the Inbox; each priority is counted", async () => {
+  const files = {
+    "0-inbox/a.md": "# In",
+    "1-projects/p.md": "# P",
+    "9-archive/old.md": "# Old",
+    "todo.md": "# Todo",
+  };
+  const store = memoryStore(files);
+  const census = new Map(Object.keys(files).map((path) => [path, "v1"]));
+  const index = fakeIndex();
+  const pass = await meaningPass(store, {
+    client: index,
+    embed,
+    census,
+    visibilityOf: team,
+    generation: "g1",
+    noteCap: 3,
+  });
+  assert.deepEqual(store.reads.filter((key) => key !== MEANING_STATE_KEY), ["1-projects/p.md", "todo.md", "0-inbox/a.md"]);
+  assert.deepEqual(pass.priorities, [
+    { priority: 1, indexed: 2, pending: 0 },
+    { priority: 2, indexed: 1, pending: 0 },
+    { priority: 3, indexed: 0, pending: 1 },
+  ]);
 });
 
 /**

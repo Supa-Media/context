@@ -33,6 +33,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { rolloutFastSearchStep } from "./lib/fastSearchFns/rollout";
+import { indexingPrioritiesValidator } from "./lib/indexingPriorities";
 import { statusHandler } from "./lib/fastSearchFns/status";
 import { disableMeaningHandler } from "./lib/meaningFns/rows";
 import {
@@ -352,6 +353,8 @@ export const recordProjectionProgress = internalMutation({
     workspaceId: v.id("workspaces"),
     notesIndexed: v.number(),
     notesPending: v.number(),
+    /** Per indexing priority; only the control plane's own backfill sends it. */
+    priorities: v.optional(indexingPrioritiesValidator),
     /** The gateway saying the backfill is finished. */
     ready: v.boolean(),
   },

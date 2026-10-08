@@ -90,6 +90,7 @@ import { runSyncReportChecks } from "./searchProjection/syncReport.test.mjs";
 import { runEndToEndChecks } from "./searchProjection/endToEnd.test.mjs";
 import { runServeChecks } from "./searchProjection/serve.test.mjs";
 import { runBatchingChecks } from "./searchProjection/batching.test.mjs";
+import { runIndexingPriorityChecks } from "./searchProjection/priority.test.mjs";
 
 /**
  * This file used to hold every one of these checks directly, in one
@@ -115,4 +116,5 @@ export async function runSearchProjectionChecks(check) {
   await runEndToEndChecks(check);
   await runServeChecks(check);
   await runBatchingChecks(check);
+  await runIndexingPriorityChecks(check);
 }

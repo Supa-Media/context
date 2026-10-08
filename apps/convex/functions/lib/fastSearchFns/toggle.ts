@@ -116,6 +116,7 @@ async function turnOn(
             schemaVersion: undefined,
             notesIndexed: undefined,
             notesPending: undefined,
+            priorities: undefined,
           }),
       updatedAt: now,
     });
@@ -250,6 +251,7 @@ export async function disableHandler(
       error: undefined,
       notesIndexed: undefined,
       notesPending: undefined,
+      priorities: undefined,
       updatedAt: now,
     });
   } else {

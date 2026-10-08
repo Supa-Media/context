@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { indexingPrioritiesValidator } from "../indexingPriorities";
 
 /**
  * What the platform itself holds: render assets, tree signals, the audit
@@ -178,6 +179,8 @@ export const platformTables = {
     /** Backfill progress, so the settings screen can be honest about it. */
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
+    /** The same, per indexing priority (`lib/indexingPriorities.ts`). */
+    priorities: v.optional(indexingPrioritiesValidator),
     /**
      * Where provisioning the managed bucket has got to, for the one context
      * this plan is for.
