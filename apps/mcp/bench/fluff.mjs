@@ -57,23 +57,26 @@ export function resolveRel(dir, rel) {
   return path;
 }
 
-/** Read a fluff.md. Throws with the file line that is wrong. */
-export function parseFluff(raw) {
+/**
+ * Read a fluff.md. Throws with the file line that is wrong. `label` names the file in
+ * those messages, e.g. "workspaces/ws/meetings/fluff.md".
+ */
+export function parseFluff(raw, label = "fluff.md") {
   const lines = normalize(raw).split("\n");
-  if (lines[0] !== "---") throw new Error("fluff.md line 1: the file must open with a --- front matter fence");
+  if (lines[0] !== "---") throw new Error(`${label} line 1: the file must open with a --- front matter fence`);
   const end = lines.indexOf("---", 1);
-  if (end < 0) throw new Error("fluff.md: the front matter is not closed by a --- line");
+  if (end < 0) throw new Error(`${label}: the front matter is not closed by a --- line`);
 
   const front = parseFront(lines.slice(1, end), 2);
   for (const key of Object.keys(front)) {
-    if (!KEYS.has(key)) throw new Error(`fluff.md: unknown key "${key}" (use count, seed, from, name, dates or updated)`);
+    if (!KEYS.has(key)) throw new Error(`${label}: unknown key "${key}" (use count, seed, from, name, dates or updated)`);
   }
   const at = (key) => {
     const i = lines.findIndex((line, j) => j > 0 && j < end && line.startsWith(`${key}:`));
-    return i < 0 ? "fluff.md" : `fluff.md line ${i + 1}`;
+    return i < 0 ? label : `${label} line ${i + 1}`;
   };
   const required = (key) => {
-    if (typeof front[key] !== "string" || front[key] === "") throw new Error(`fluff.md: ${key} is required`);
+    if (typeof front[key] !== "string" || front[key] === "") throw new Error(`${label}: ${key} is required`);
     return front[key];
   };
 
@@ -125,7 +128,7 @@ export function parseFluff(raw) {
       continue;
     }
     if (!inSection || !/^-\s/.test(line)) continue;
-    const where = `fluff.md line ${i + 1}`;
+    const where = `${label} line ${i + 1}`;
     const m = line.match(DISTRACTOR);
     if (!m) throw new Error(`${where}: a distractor must read "- older copy of <path> as <name> dated <date>"`);
     const [, path, as, date] = m;

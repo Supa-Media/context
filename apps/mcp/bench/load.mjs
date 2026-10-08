@@ -2,11 +2,16 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import { expandFluff, parseFluff, resolveRel } from "./fluff.mjs";
 import { normalize, parseFront, unquote } from "./frontMatter.mjs";
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
 const PRIVACY_FILES = new Set(["privacy.md", "privacy-rules.md"]);
+// Template folders live here. It is not a workspace.
+const BANK = "_bank";
+// A folder's fluff file says how many filler notes to write there.
+const FLUFF_FILE = "fluff.md";
 
 // Read the people table: "| Maya | maya (personal) | owner |" rows.
 export function parsePeople(raw) {
@@ -130,28 +135,67 @@ async function listMarkdown(base, rel = "") {
   return out.sort();
 }
 
+// The folder a file sits in, relative to its workspace: "" at the root.
+const folderOf = (rel) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
+
+// Read the template folders under workspaces/_bank/: folder name -> { path -> text }.
+async function readBank(wsRoot) {
+  const bank = {};
+  let entries;
+  try {
+    entries = await readdir(join(wsRoot, BANK), { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return bank;
+    throw error;
+  }
+  for (const entry of entries.filter((d) => d.isDirectory())) {
+    const base = join(wsRoot, BANK, entry.name);
+    const files = {};
+    for (const rel of await listMarkdown(base)) files[rel] = await readFile(join(base, rel), "utf8");
+    bank[entry.name] = files;
+  }
+  return bank;
+}
+
 // Read the whole benchmark folder into one object.
 export async function readBenchFolder(dir) {
   const readme = await readFile(join(dir, "README.md"), "utf8");
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
 
   const wsRoot = join(dir, "workspaces");
+  const bank = await readBank(wsRoot);
   const workspaces = {};
   const dirents = await readdir(wsRoot, { withFileTypes: true });
-  for (const entry of dirents.filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+  const folders = dirents.filter((d) => d.isDirectory() && d.name !== BANK).sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of folders) {
     const base = join(wsRoot, entry.name);
     const files = {};
     const held = [];
+    const fluff = [];
     for (const rel of await listMarkdown(base)) {
       const text = await readFile(join(base, rel), "utf8");
-      // Only a root-level privacy file is a rule file; others are ordinary notes.
-      if (PRIVACY_FILES.has(rel)) held.push(...heldBack(text));
-      else files[rel] = text;
+      if (rel === FLUFF_FILE || rel.endsWith(`/${FLUFF_FILE}`)) {
+        // A fluff file describes notes; it is never one.
+        const label = `workspaces/${entry.name}/${rel}`;
+        const parsed = parseFluff(text, label);
+        if (!bank[parsed.from]) {
+          throw new Error(`${label}: from names template folder "${parsed.from}", but workspaces/${BANK}/${parsed.from}/ does not exist`);
+        }
+        fluff.push({ dir: folderOf(rel), fluff: parsed });
+      } else if (PRIVACY_FILES.has(rel)) {
+        // Only a root-level privacy file is a rule file; others are ordinary notes.
+        held.push(...heldBack(text));
+      } else {
+        files[rel] = text;
+      }
     }
-    workspaces[entry.name] = { files, heldBack: held };
+    workspaces[entry.name] = { files, heldBack: held, fluff };
   }
 
   for (const p of people) {
+    if (p.workspace === BANK) {
+      throw new Error(`people.md: ${p.person} is listed in workspace "${BANK}", which holds fluff templates, not a workspace`);
+    }
     if (!workspaces[p.workspace]) {
       throw new Error(`people.md: ${p.person} is listed in workspace "${p.workspace}", but workspaces/${p.workspace}/ does not exist`);
     }
@@ -165,5 +209,31 @@ export async function readBenchFolder(dir) {
     tests[name.slice(0, -3)] = { raw, ...parseTest(raw) };
   }
 
-  return { dir, readme, people, workspaces, tests };
+  return { dir, readme, people, workspaces, tests, bank };
+}
+
+/**
+ * The bench with every fluff file written out: each workspace's files gain its generated
+ * notes, listed in `generated`. The bench passed in is not changed.
+ */
+export function expandWorkspaces(bench) {
+  const workspaces = {};
+  for (const [name, ws] of Object.entries(bench.workspaces)) {
+    const files = { ...ws.files };
+    const held = [...ws.heldBack];
+    const generated = [];
+    for (const { dir, fluff } of ws.fluff) {
+      const made = expandFluff({ dir, fluff, templates: bench.bank[fluff.from], files });
+      for (const [path, text] of Object.entries(made)) {
+        files[path] = text;
+        generated.push(path);
+      }
+      // A copy of a held-back note is the same secret under a new name, so it stays held back.
+      for (const d of fluff.distractors) {
+        if (ws.heldBack.includes(resolveRel(dir, d.from))) held.push(resolveRel(dir, d.as));
+      }
+    }
+    workspaces[name] = { files, heldBack: held, fluff: ws.fluff, generated };
+  }
+  return { ...bench, workspaces };
 }
