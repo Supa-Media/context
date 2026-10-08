@@ -303,7 +303,7 @@ export async function runMovesAndBatchChecks() {
   });
   const completeMoveId = completeMove.content[0].text.match(/move_id: (\S+)/)?.[1];
   let completeMaterialize = completeMove;
-  for (let i = 0; i < 20 &&
+  for (let i = 0; i < 80 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)); i += 1) {
     completeMaterialize = await call("priv-token", "materialize_move", {
       id: completeMoveId,
@@ -361,7 +361,7 @@ export async function runMovesAndBatchChecks() {
       firstProgressReport?.body?.result?.progress?.total === 501 &&
       !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
   );
-  for (let i = 0; i < 20 &&
+  for (let i = 0; i < 180 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
     const message = queuedGatewayMessages.shift();
     if (!message) break;
@@ -451,6 +451,52 @@ export async function runMovesAndBatchChecks() {
   );
   const listAfterAudit = (await call("priv-token", "list_notes"))?.content?.[0]?.text;
   check("audit plumbing is hidden from note listings", lacks(listAfterAudit, ".context/audit/"));
+
+  // A workspace beyond the synchronous link-scan cap still repairs both
+  // inbound and moved-note relative links, including an owner's private note.
+  for (let i = 0; i < 4001; i += 1) {
+    await contextStore.put(`3-resources/link-fixture/note-${String(i).padStart(4, "0")}.md`, `fixture ${i}`);
+  }
+  await contextStore.put("1-projects/portable-link-target/note.md", "[outside](../portable-link-ref.md)");
+  await contextStore.put("1-projects/portable-link-ref.md", "[[1-projects/portable-link-target/note]]");
+  await contextStore.put("1-projects/secret-thing/private-link.md", "[[1-projects/portable-link-target/note]]");
+  const referenceMessages = [];
+  env.GATEWAY_JOBS = { async send(message) { referenceMessages.push(message); } };
+  const queuedLinks = await call("priv-token", "move_folder", {
+    source: "1-projects/portable-link-target",
+    destination: "1-projects/deep/portable-link-moved",
+  });
+  const linkJobId = /move_id: ([a-z0-9-]+)/i.exec(queuedLinks?.content?.[0]?.text || "")?.[1];
+  check("an owner move schedules reference repair beyond the scan cap",
+    !queuedLinks.isError && Boolean(linkJobId) &&
+      queuedLinks.content[0].text.includes("references: updating in background"));
+  const restarted = await call("priv-token", "materialize_move", {
+    id: linkJobId,
+    batch_size: 1,
+    resume_background: true,
+  });
+  check("an owner can restart a stalled reference worker",
+    !restarted.isError && restarted.content[0].text.includes("background worker queued") &&
+      referenceMessages.length >= 2);
+  delete env.GATEWAY_JOBS;
+  for (let i = 0; i < 100 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)); i += 1) {
+    const progress = await call("priv-token", "materialize_move", { id: linkJobId, batch_size: 100 });
+    if (progress?.isError) break;
+  }
+  check("queued reference repair updates inbound and moved-note relative links",
+    isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)) &&
+      storedText("1-projects/portable-link-ref.md") === "[[1-projects/deep/portable-link-moved/note]]" &&
+      storedText("1-projects/deep/portable-link-moved/note.md") === "[outside](../../portable-link-ref.md)");
+  check("owner reference repair also updates private notes",
+    storedText("1-projects/secret-thing/private-link.md") === "[[1-projects/deep/portable-link-moved/note]]");
+  for (const key of [...objects.keys()]) {
+    if (key.startsWith("3-resources/link-fixture/") ||
+        key.startsWith("1-projects/portable-link-") ||
+        key.startsWith("1-projects/deep/portable-link-") ||
+        key === "1-projects/secret-thing/private-link.md") objects.delete(key);
+  }
+  objects.delete(`.context/moves/${linkJobId}.json`);
 
 
 }

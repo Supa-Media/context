@@ -41,7 +41,7 @@ import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
 import { recordPartialMove } from "./notes.js";
-import { rewriteReferences } from "./references.js";
+import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 async function persistPrivacyFolderMove(store, source, destination) {
@@ -407,7 +407,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     { roots: [source], keep: [destination] }
   );
   await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
-  const references = await rewriteReferences(
+  const references = await rewriteReferencesOrQueue(
     store,
     scope,
     rules,
@@ -418,7 +418,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     count: moves.length,
     visibilities: moves.map((move) => ({ path: move.destination, visibility: move.visibility })),
     team_visible: moves.every((move) => move.visibility === "team"),
-    references: references.capped ? "not-rewritten" : references.links,
+    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `moved folder: ${source}/ → ${destination}/ (${moves.length} objects)` +

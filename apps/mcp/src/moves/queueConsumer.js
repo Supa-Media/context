@@ -5,7 +5,7 @@
  */
 
 import { createControlPlane } from "../controlPlane.js";
-import { MOVE_MATERIALIZE_BATCH } from "./limits.js";
+import { MOVE_AUTOMATIC_BATCH } from "./limits.js";
 import { moveProgressFromText } from "./jobs.js";
 import { searchBudgetFor } from "../search/budget.js";
 import { storeForOpenedBinding } from "../session.js";
@@ -38,7 +38,7 @@ export async function handleGatewayJobMessage(message, env) {
   let error;
   let progress;
   if (job.kind === "materialize_move" && typeof job.moveId === "string") {
-    const result = await toolMaterializeMove(store, "private", job.moveId, MOVE_MATERIALIZE_BATCH);
+    const result = await toolMaterializeMove(store, "private", job.moveId, MOVE_AUTOMATIC_BATCH);
     const text = result?.content?.[0]?.text || "";
     if (result?.isError) {
       error = text;

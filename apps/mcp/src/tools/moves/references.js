@@ -9,6 +9,8 @@ import { isEncryptedNote } from "../../encryption.js";
 import { LINK_SCAN_CAP } from "../../moves/objects.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { mapInBatches } from "../../notes/storage.js";
+import { MOVE_JOB_VERSION } from "../../moves/limits.js";
+import { persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
 
 /**
@@ -50,7 +52,12 @@ const RECORDED_PATH_CAP = 200;
  */
 const REFERENCE_READ_CONCURRENCY = 8;
 
-export async function rewriteReferences(store, scope, rules, overrides, renames, { write = true } = {}) {
+export async function rewriteReferences(store, scope, rules, overrides, renames, {
+  write = true,
+  after,
+  limit,
+  paths,
+} = {}) {
   if (renames.size === 0) return { notes: 0, links: 0, capped: false };
 
   let keys;
@@ -65,11 +72,23 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     // this.
     return { notes: 0, links: 0, capped: true };
   }
-  if (keys.length > LINK_SCAN_CAP) return { notes: 0, links: 0, capped: true };
+  const paged = Number.isInteger(limit) && limit > 0;
+  if (!paged && !paths && keys.length > LINK_SCAN_CAP) {
+    return { notes: 0, links: 0, capped: true };
+  }
+
+  keys.sort();
+  const visibleKeys = keys;
+  if (paths) {
+    const selected = new Set(paths);
+    keys = keys.filter((key) => selected.has(key));
+  } else if (paged) {
+    keys = keys.filter((key) => !after || key > after).slice(0, limit);
+  }
 
   const wasAt = new Map();
   for (const [from, to] of renames) wasAt.set(to, from);
-  const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
+  const byName = indexByName(visibleKeys.map((key) => wasAt.get(key) ?? key));
 
   const results = await mapInBatches(keys, REFERENCE_READ_CONCURRENCY, async (key) => {
     try {
@@ -140,7 +159,8 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   });
   const notes = results.reduce((sum, result) => sum + result.notes, 0);
   const links = results.reduce((sum, result) => sum + result.links, 0);
-  const failed = results.reduce((sum, result) => sum + (result.failed ? 1 : 0), 0);
+  const failedPaths = results.flatMap((result, index) => result.failed ? [keys[index]] : []);
+  const failed = failedPaths.length;
   const written = results.flatMap((result) => result.written === null ? [] : [result.written]);
 
   /*
@@ -171,5 +191,60 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
       truncated: written.length > RECORDED_PATH_CAP,
     });
   }
-  return { notes, links, capped: failed > 0, failed };
+  return {
+    notes,
+    links,
+    capped: failed > 0,
+    failed,
+    failedPaths,
+    ...(paged && !paths ? {
+      after: keys.at(-1) ?? after ?? null,
+      done: keys.length === 0 || !visibleKeys.some((key) => key > keys.at(-1)),
+      scanned: keys.length,
+      total: visibleKeys.length,
+    } : {}),
+  };
+}
+
+/** A large workspace needs a durable background reference sweep, even for a
+ * one-note move. The move has already committed; keeping its rename map in a
+ * job lets the same materializer finish the link work after the request ends.
+ */
+export async function rewriteReferencesOrQueue(store, scope, rules, overrides, renames) {
+  const result = await rewriteReferences(store, scope, rules, overrides, renames);
+  // Gateway jobs currently require owner clearance. A team caller must not
+  // create a job that the queue will later run with owner permissions.
+  if (!result.capped || result.failed > 0 || scope !== "private") return result;
+  const entries = [...renames];
+  const id = `move-${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  const job = {
+    version: MOVE_JOB_VERSION,
+    id,
+    status: "rewriting",
+    source: entries[0][0],
+    destination: entries[0][1],
+    reference_scope: scope,
+    created_at: now,
+    updated_at: now,
+    total_objects: entries.length,
+    objects: entries.map(([source, destination]) => ({ source, destination })),
+    reference_failed_paths: [],
+  };
+  await persistMoveJob(store, job);
+  await writeMoveSentinel(store);
+  try {
+    await store.enqueueGatewayJob?.({ kind: "materialize_move", moveId: id });
+  } catch {
+    // The marker remains resumable if queueing is temporarily unavailable.
+  }
+  try {
+    store.defer?.(async () => {
+      const { materializeMoveInBackground } = await import("./materialize.js");
+      await materializeMoveInBackground(store, scope, id);
+    });
+  } catch {
+    // The durable job is the source of truth, not this request's lifetime.
+  }
+  return { notes: 0, links: 0, capped: false, pending: true, moveId: id };
 }

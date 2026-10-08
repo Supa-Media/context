@@ -15,7 +15,6 @@ import {
   deleteObjectForMove,
   destinationMatchesMoveSource,
   objectMatchesMoveItem,
-  referencesLine,
 } from "../../moves/objects.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../../storageLayout.js";
 import {
@@ -25,7 +24,7 @@ import {
   replacePrivacyRulesBlock,
 } from "../../privacy/engine.js";
 import { loadPrivacyState } from "../../privacy/state.js";
-import { MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
+import { MOVE_AUTOMATIC_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
 import {
   moveJobActive,
   moveJobKey,
@@ -53,9 +52,56 @@ async function cleanupPrivacySourceAfterMove(store, job) {
   }
 }
 
+async function rewriteMoveReferences(store, scope, job, key, batchSize) {
+  const state = await loadPrivacyState(store);
+  if (state.error || state.legacy) return toolError(`move ${job.id} reference rewrite paused: privacy state unavailable`);
+  const renames = new Map(job.objects.map((item) => [item.source, item.destination]));
+  const referenceBatchSize = Math.max(batchSize, 50);
+  const pending = Array.isArray(job.reference_failed_paths) ? job.reference_failed_paths : [];
+  const retrying = job.reference_scan_complete === true && pending.length > 0;
+  const selected = retrying ? pending.slice(0, referenceBatchSize) : null;
+  const result = await rewriteReferences(store, job.reference_scope || scope, state.rules, state.overrides, renames,
+    retrying ? { paths: selected } : { after: job.reference_after, limit: referenceBatchSize });
+  if (!Array.isArray(result.failedPaths)) {
+    return toolError(`move ${job.id} reference rewrite paused: note listing did not finish`);
+  }
+
+  job.reference_notes = (job.reference_notes || 0) + result.notes;
+  job.reference_links = (job.reference_links || 0) + result.links;
+  if (retrying) {
+    job.reference_failed_paths = [...pending.slice(selected.length), ...result.failedPaths];
+    if (result.failedPaths.length === selected.length && selected.length > 0) {
+      await persistMoveJob(store, job);
+      return toolError(`move ${job.id} reference rewrite paused: ${pending.length} notes could not be updated`);
+    }
+  } else {
+    job.reference_after = result.after;
+    job.reference_scanned = (job.reference_scanned || 0) + result.scanned;
+    job.reference_total = result.total;
+    job.reference_scan_complete = result.done;
+    job.reference_failed_paths = [...pending, ...result.failedPaths];
+  }
+  if (!job.reference_scan_complete || job.reference_failed_paths.length > 0) {
+    await persistMoveJob(store, job);
+    return toolText(`move ${job.id}: rewriting\nreferences: ${job.reference_scanned || 0}/${job.reference_total || 0}`);
+  }
+
+  job.status = "complete";
+  await persistMoveJob(store, job);
+  await deleteWithLegacyFallback(store, key);
+  await refreshMoveSentinel(store);
+  await recordChange(store, "materialize_move", scope, [job.source, job.destination], {
+    logical_move: job.id,
+    status: "complete",
+    count: job.total_objects,
+    references: job.reference_links || 0,
+  }).catch(() => {});
+  return toolText(`move ${job.id}: complete\nphysical storage sync: complete\nreferences rewritten: ${job.reference_links || 0}`);
+}
+
 export async function materializeMoveInBackground(store, scope, id) {
   for (let pass = 0; pass < 20; pass += 1) {
-    const result = await toolMaterializeMove(store, scope, id, MOVE_MATERIALIZE_BATCH);
+    const result = await toolMaterializeMove(store, scope, id, MOVE_AUTOMATIC_BATCH);
     const text = result?.content?.[0]?.text || "";
     if (result?.isError || text.includes("complete") || text.includes("no active work")) return;
   }
@@ -96,6 +142,14 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       !isPlumbing(item.source) &&
       !isPlumbing(item.destination)
   );
+
+  if (job.status === "rewriting") {
+    try {
+      return await rewriteMoveReferences(store, scope, job, key, batchSize);
+    } catch (error) {
+      return toolError(`move ${job.id} reference rewrite paused: ${error.message}`);
+    }
+  }
 
   let copiedThisPass = 0;
   try {
@@ -183,7 +237,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       );
     }
 
-    job.status = "complete";
+    job.status = "rewriting";
     job.deleted_objects = sources.length;
     await persistMoveJob(store, job);
     // The folder itself, where the backend has one. Same reason as the direct
@@ -195,33 +249,10 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       { roots: [job.source], keep: [job.destination] }
     );
     await cleanupPrivacySourceAfterMove(store, job).catch(() => {});
-    let references = { links: 0, capped: true };
-    try {
-      const state = await loadPrivacyState(store);
-      if (!state.error && !state.legacy) {
-        references = await rewriteReferences(
-          store,
-          scope,
-          state.rules,
-          state.overrides,
-          new Map(sources.map((item) => [item.source, item.destination]))
-        );
-      }
-    } catch {
-      // The storage move has completed. Reference rewrite failures are surfaced
-      // in the response instead of keeping a completed move marker alive.
-    }
-    await deleteWithLegacyFallback(store, key);
-    await refreshMoveSentinel(store);
-    await recordChange(store, "materialize_move", scope, [job.source, job.destination], {
-      logical_move: job.id,
-      status: "complete",
-      count: sources.length,
-      references: references.capped ? "not-rewritten" : references.links,
-    });
-    return toolText(`move ${job.id}: complete\nphysical storage sync: complete` + referencesLine(references));
+    return await rewriteMoveReferences(store, scope, job, key, batchSize);
   } catch (error) {
-    job.status = job.status === "deleting" ? "needs_cleanup" : "copying";
+    job.status = job.status === "deleting" ? "needs_cleanup" :
+      job.status === "rewriting" ? "rewriting" : "copying";
     job.error = error.message;
     await persistMoveJob(store, job).catch(() => {});
     return toolError(`move ${job.id} materialization paused: ${error.message}`);

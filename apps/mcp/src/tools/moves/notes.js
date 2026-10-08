@@ -32,7 +32,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
-import { rewriteReferences } from "./references.js";
+import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
@@ -268,7 +268,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     store,
     preflight.map((move) => ({ from: move.source, to: move.destination, kind: "note" }))
   );
-  const references = await rewriteReferences(
+  const references = await rewriteReferencesOrQueue(
     store,
     scope,
     rules,
@@ -284,7 +284,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       count: preflight.length,
       visibilities: preflight.map((move) => ({ path: move.destination, visibility: move.visibility })),
       team_visible: preflight.every((move) => move.visibility === "team"),
-      references: references.capped ? "not-rewritten" : references.links,
+    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
     }
   );
   return withActivityHint(
