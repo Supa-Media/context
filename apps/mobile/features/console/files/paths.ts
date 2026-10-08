@@ -274,7 +274,8 @@ export function isPrivacyManifest(path: string): boolean {
  * The folder page draws this note's words above everything in the folder,
  * with its filename in the corner, so the listing does not draw it again as a
  * row. Search, links, agents and Obsidian still see it as the ordinary note
- * it is. See "A folder's about note" in `docs/decisions/folder-lists.md`.
+ * it is. See "A folder's about note is its description" in
+ * `docs/decisions/app-and-console/mobile-navigation-shell.md`.
  */
 export function aboutNoteName(folder: string, names: readonly string[]): string | null {
   if (folder === "") return names.includes("index.md") ? "index.md" : null;

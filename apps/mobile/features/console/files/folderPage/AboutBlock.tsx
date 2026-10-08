@@ -94,7 +94,7 @@ export function AboutBlock({
           style={styles.chip}
           testID="folder-about-file"
         >
-          <Text variant="treeMeta" style={styles.file}>
+          <Text variant="meta" style={styles.file}>
             {baseName(path)}
           </Text>
         </Pressable>
@@ -140,7 +140,7 @@ const makeStyles = (colors: Colors) =>
     box: { marginTop: space.x2 },
     corner: { position: "absolute", right: 0, top: -space.x6, flexDirection: "row", gap: space.x1, zIndex: 1 },
     chip: { paddingHorizontal: space.x2, paddingVertical: 2, borderRadius: radii.sm, backgroundColor: colors.chipFill },
-    file: { fontFamily: fonts.mono, color: colors.muted, fontSize: 12 },
+    file: { fontFamily: fonts.mono, color: colors.muted },
     done: { color: colors.accent, fontWeight: "600" },
     words: { borderRadius: radii.sm },
     folded: { maxHeight: FOLD, overflow: "hidden" },

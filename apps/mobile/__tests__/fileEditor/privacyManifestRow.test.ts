@@ -37,17 +37,17 @@ describe("the privacy manifest", () => {
   test("the tree draws every other root row and not this one", () => {
     const rows = buildTreeRows({
       listings: {
-        "": listing("", [folder("1-projects"), file("index.md"), manifest, file("todo.md")]),
+        "": listing("", [folder("1-projects"), file("plan.md"), manifest, file("todo.md")]),
       },
       expanded: new Set(),
       selectedPath: null,
     });
-    expect(rows.map((row) => row.path)).toEqual(["1-projects", "index.md", "todo.md"]);
+    expect(rows.map((row) => row.path)).toEqual(["1-projects", "plan.md", "todo.md"]);
   });
 
   test("it is drawn while it is the note you are looking at", () => {
     const rows = buildTreeRows({
-      listings: { "": listing("", [file("index.md"), manifest]) },
+      listings: { "": listing("", [file("plan.md"), manifest]) },
       expanded: new Set(),
       selectedPath: "privacy.md",
     });
@@ -58,8 +58,8 @@ describe("the privacy manifest", () => {
   });
 
   test("the folder page drops it too, because it reads the same filter", () => {
-    expect(listedEntries([file("index.md"), manifest]).map((entry) => entry.path)).toEqual([
-      "index.md",
+    expect(listedEntries([file("plan.md"), manifest]).map((entry) => entry.path)).toEqual([
+      "plan.md",
     ]);
   });
 
@@ -69,7 +69,7 @@ describe("the privacy manifest", () => {
   });
 
   test("the counts line does not count it", () => {
-    expect(loadedCounts({ "": listing("", [file("index.md"), manifest]) })).toBe(
+    expect(loadedCounts({ "": listing("", [file("plan.md"), manifest]) })).toBe(
       "1 note, 0 folders",
     );
   });

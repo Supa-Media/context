@@ -12,7 +12,7 @@
  * Anything with a status is a task; anything without is a plain note, drawn
  * below the tasks with "Make it a task" (`listLayout.ts`). A note's status
  * goes in its own frontmatter, a folder's in its front note, and a folder
- * with none gets an `overview.md` holding just that. The page itself is one
+ * with none gets an `about.md` holding just that. The page itself is one
  * too — a project folder is titled by its front note and says its status,
  * owner and first paragraph under the title (`Head.tsx`). Above the List,
  * the filter bar narrows it, per viewer (`ShowBar.tsx`). Somebody who

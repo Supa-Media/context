@@ -71,7 +71,7 @@ export type ContextKind = "personal" | "shared";
 
 /**
  * One root folder the owner named, with the one-line description that becomes
- * its `README.md`.
+ * its `about.md`.
  *
  * `folder` is **a single path segment that becomes a bucket key prefix**, typed
  * by a person. Everything about how it is validated below follows from that;
@@ -115,7 +115,7 @@ export const PARA_FOLDERS = [
  * the same *shape* as the one-line description a `custom` layout asks its owner
  * for, so a PARA manifest and a custom manifest read identically. `title`,
  * `blurb` and `examples` are the longer form, which only the folder's own
- * `README.md` uses.
+ * `about.md` uses.
  */
 export const FOLDER_PURPOSE: Record<
   string,

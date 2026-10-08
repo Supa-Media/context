@@ -6,8 +6,10 @@ import {
   MAX_CUSTOM_FOLDERS,
   MAX_FOLDER_DESCRIPTION_LENGTH,
   MAX_FOLDER_NAME_LENGTH,
+  hasForeignContent,
   renderPrivacyManifest,
   scaffoldContext,
+  scaffoldFiles,
   validateCustomFolders,
 } from "../../functions/lib/scaffold";
 import { gatewayInternals } from "../gatewayFormat.helpers";
@@ -21,11 +23,11 @@ describe("a fresh bucket", () => {
     expect(result).toMatchObject({ scaffolded: true, reason: "created" });
     expect(result.written.sort()).toEqual(
       [
-        "0-inbox/README.md",
-        "1-projects/README.md",
-        "2-areas/README.md",
-        "3-resources/README.md",
-        "9-archive/README.md",
+        "0-inbox/about.md",
+        "1-projects/about.md",
+        "2-areas/about.md",
+        "3-resources/about.md",
+        "9-archive/about.md",
         INDEX_KEY,
         PRIVACY_KEY,
       ].sort(),
@@ -46,12 +48,12 @@ describe("a fresh bucket", () => {
     }
   });
 
-  test("every README explains what belongs in its folder", async () => {
+  test("every about.md explains what belongs in its folder", async () => {
     const store = memoryStore();
     await scaffoldContext(store, { structureTemplate: "para" });
 
     for (const folder of PARA_FOLDERS) {
-      const body = store.objects.get(`${folder}/README.md`)!.body;
+      const body = store.objects.get(`${folder}/about.md`)!.body;
       expect(body.length).toBeGreaterThan(80);
       expect(body).toMatch(/^# /);
     }
@@ -111,8 +113,8 @@ describe("the privacy manifest the gateway will read", () => {
     );
 
     for (const key of [
-      "0-inbox/README.md",
-      "1-projects/README.md",
+      "0-inbox/about.md",
+      "1-projects/about.md",
       "1-projects/anything.md",
       INDEX_KEY,
       PRIVACY_KEY,
@@ -145,7 +147,7 @@ describe('structureTemplate "custom"', () => {
     expect(result.written.sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
     expect([...store.objects.keys()].sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
     for (const folder of PARA_FOLDERS) {
-      expect(store.objects.has(`${folder}/README.md`)).toBe(false);
+      expect(store.objects.has(`${folder}/about.md`)).toBe(false);
     }
   });
 
@@ -277,7 +279,7 @@ describe("a caller-supplied layout is validated before it becomes a key", () => 
 
   /**
    * The property that actually protects the bucket: whatever the validator
-   * lets through, every key it produces is one clean segment plus `README.md`.
+   * lets through, every key it produces is one clean segment plus `about.md`.
    */
   test("nothing that passes can produce a key outside its own folder", async () => {
     const validation = validateCustomFolders([
@@ -302,3 +304,56 @@ describe("a caller-supplied layout is validated before it becomes a key", () => 
   });
 });
 
+
+describe("folder notes: about.md now, README.md in workspaces scaffolded before", () => {
+  test("a fresh layout writes every folder note as about.md, and no README.md", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para" });
+    for (const folder of PARA_FOLDERS) {
+      expect(store.objects.has(`${folder}/about.md`), `${folder}/about.md`).toBe(true);
+      expect(store.objects.has(`${folder}/README.md`), `${folder}/README.md`).toBe(false);
+    }
+    expect(store.objects.has(INDEX_KEY)).toBe(true);
+  });
+
+  /**
+   * An old workspace's folder notes are `README.md`, with the same bytes the
+   * scaffold writes today. Detection must still recognise them as ours, or a
+   * half-finished old layout could never be resumed.
+   */
+  test("old README.md folder notes are still recognised as ours, so a resume finishes the layout", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para" });
+    // Make it an old-style layout: the folder notes sit under their old name.
+    for (const folder of PARA_FOLDERS) {
+      const body = store.objects.get(`${folder}/about.md`)!.body;
+      store.objects.delete(`${folder}/about.md`);
+      store.seed(`${folder}/README.md`, body);
+    }
+    // ...and the layout was cut short: the last two folders never landed.
+    store.objects.delete("2-areas/README.md");
+    store.objects.delete("9-archive/README.md");
+
+    expect(await hasForeignContent(store, scaffoldFiles("para"))).toBe(false);
+    const resumed = await scaffoldContext(store, { structureTemplate: "para", resume: true });
+    expect(resumed.reason).toBe("created");
+    // The folders that already had their note under the old name are not
+    // given a second one beside it.
+    expect(store.objects.has("0-inbox/about.md")).toBe(false);
+    expect(store.objects.has("1-projects/about.md")).toBe(false);
+    expect(resumed.skipped).toEqual(
+      expect.arrayContaining(["0-inbox/about.md", "1-projects/about.md"]),
+    );
+  });
+
+  test("a README.md in a scaffolded folder that is not ours still makes a resume refuse", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para" });
+    store.objects.delete("1-projects/about.md");
+    store.seed("1-projects/README.md", "my own words, not yours\n");
+
+    expect(await hasForeignContent(store, scaffoldFiles("para"))).toBe(true);
+    const resumed = await scaffoldContext(store, { structureTemplate: "para", resume: true });
+    expect(resumed).toMatchObject({ scaffolded: false, reason: "existing-context" });
+  });
+});

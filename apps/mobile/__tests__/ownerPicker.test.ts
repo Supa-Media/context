@@ -290,7 +290,7 @@ describe("an agent owner", () => {
     await type("Cursor");
     await press(one("owner-picker-add"));
     await act(async () => {});
-    expect(writes).toEqual([["1-projects/overview.md", "agents", "Claude, Codex, Cursor"]]);
+    expect(writes).toEqual([["1-projects/about.md", "agents", "Claude, Codex, Cursor"]]);
     expect(strip(one("owner-picker-step").textContent)).toBe("Whose Cursor?");
     await settle();
     await press(all("owner-picker-option")[0]);

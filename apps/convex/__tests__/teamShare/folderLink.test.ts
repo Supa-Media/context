@@ -154,7 +154,7 @@ describe("a folder gets a link too", () => {
    * check: that a note FILENAME is not guessable.
    *
    * For a fresh workspace that is false, and by more than one file. `scaffoldFiles`
-   * writes `privacy.md`, `index.md`, and a `README.md` into every one of the
+   * writes `privacy.md`, `index.md`, and an `about.md` into every one of the
    * five PARA folders — six guessable note names before the owner has written
    * anything — and the connected-client house rules put a `todo.md` at the
    * root. That is the same exhaustible space the five folder names are, so it
@@ -361,7 +361,11 @@ describe("a folder gets a link too", () => {
       ).toContain(folder);
       expect(
         PRODUCT_MANDATED_PATHS,
-        `${folder}/README.md is written by the scaffold and must not unfurl`,
+        `${folder}/about.md is written by the scaffold and must not unfurl`,
+      ).toContain(`${folder}/about.md`);
+      expect(
+        PRODUCT_MANDATED_PATHS,
+        `${folder}/README.md is an old scaffold's folder note and must not unfurl`,
       ).toContain(`${folder}/README.md`);
     }
   });

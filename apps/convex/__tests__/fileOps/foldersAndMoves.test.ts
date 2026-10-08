@@ -10,7 +10,7 @@ import {
   listFolder,
   movePath,
   readFile,
-  renderFolderPlaceholder,
+  renderNewFolderAbout,
   restoreTrashedPath,
   setFolderVisibility,
   setVisibility,
@@ -42,46 +42,35 @@ import {
 /* -------------------------------------------------------------------------- */
 
 describe("creating a folder", () => {
-  test("writes a README so the folder is real for every other tool", async () => {
+  test("writes an about.md so the folder is real for every other tool", async () => {
     const store = bucket();
     const created = await createFolder(store, {
       path: "1-projects/new-thing",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    expect(created.readme).toBe("1-projects/new-thing/README.md");
+    expect(created.readme).toBe("1-projects/new-thing/about.md");
+    expect(store.snapshot()["1-projects/new-thing/about.md"]).toBeDefined();
+    expect(store.snapshot()["1-projects/new-thing/README.md"]).toBeUndefined();
     const listing = await listFolder(store, { path: "1-projects", clearance: clearanceOf("private") });
     expect(names(listing.entries)).toContain("new-thing");
   });
 
   /**
-   * What is in it, and why it is not `# new-thing`.
-   *
-   * That was the old body: the opening line of a note somebody had started, on a
-   * file nobody wrote, at the top of every folder they made. The console hides
-   * it now (`isFolderPlaceholder`), so the only readers left are Obsidian and
-   * whatever else opens the bucket — and to them an empty overview page reads
-   * like a task. It says what it is instead.
-   *
-   * SABOTAGE: putting the heading back fails this; dropping the folder's name
-   * from the sentence fails the second assertion and leaves a reader in Obsidian
-   * with no way to tell which prefix the file is holding open.
+   * A new folder's one key is its about note, written empty: a heading would
+   * title the folder page and go stale when the folder is renamed.
    */
-  test("the README says it is a placeholder rather than starting a note nobody wrote", async () => {
+  test("the about.md is written empty", async () => {
     const store = bucket();
     const created = await createFolder(store, {
       path: "1-projects/new-thing",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const body = store.snapshot()[created.readme];
-    expect(body).toContain("Folder placeholder.");
-    // It names the prefix it is holding open, so a reader in Obsidian knows
-    // which folder they are looking at the mechanics of.
-    expect(body).toContain("1-projects/new-thing/");
-    // No heading: a `#` line is what made it look like an unfinished note.
-    expect(body.startsWith("#")).toBe(false);
-    expect(renderFolderPlaceholder("1-projects/new-thing")).toBe(body);
+    expect(created.readme).toBe("1-projects/new-thing/about.md");
+    expect(store.snapshot()[created.readme]).toBe("");
+    expect(Object.keys(store.snapshot()).filter((key) => key.startsWith("1-projects/new-thing/"))).toEqual(["1-projects/new-thing/about.md"]);
+    expect(renderNewFolderAbout("1-projects/new-thing")).toBe("");
   });
 
   test("creating one twice is refused rather than silently reused", async () => {
@@ -132,7 +121,7 @@ describe("creating a folder", () => {
       clearance: clearanceOf("team"),
       now: NOW,
     });
-    expect(allowed.readme).toBe("1-projects/new-thing/README.md");
+    expect(allowed.readme).toBe("1-projects/new-thing/about.md");
   });
 });
 
