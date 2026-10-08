@@ -182,10 +182,6 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       if (copiedThisPass >= batchSize) break;
     }
 
-    for (const pair of sources) {
-      if (copied.has(pair.source)) continue;
-      if (await destinationMatchesMoveSource(store, pair)) copied.add(pair.source);
-    }
     job.copied = [...copied].sort();
     job.copied_objects = copied.size;
     job.total_objects = sources.length;
@@ -198,9 +194,14 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
 
     job.status = "deleting";
     let deletedThisPass = 0;
+    const deleted = new Set(Array.isArray(job.deleted) ? job.deleted : []);
     for (const pair of sources) {
+      if (deleted.has(pair.source)) continue;
       const sourceObject = await getWithLegacyFallback(store, pair.source);
-      if (sourceObject === null) continue;
+      if (sourceObject === null) {
+        deleted.add(pair.source);
+        continue;
+      }
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed before cleanup: ${pair.source}`);
       }
@@ -222,15 +223,15 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       } else {
         await deleteObjectForMove(store, pair);
       }
+      if ((await getWithLegacyFallback(store, pair.source)) === null) {
+        deleted.add(pair.source);
+      }
       deletedThisPass += 1;
       if (deletedThisPass >= batchSize) break;
     }
-    const remainingSources = [];
-    for (const pair of sources) {
-      if ((await getWithLegacyFallback(store, pair.source)) !== null) remainingSources.push(pair.source);
-    }
-    job.deleted_objects = sources.length - remainingSources.length;
-    if (remainingSources.length > 0) {
+    job.deleted = [...deleted].sort();
+    job.deleted_objects = deleted.size;
+    if (deleted.size < sources.length) {
       job.status = "needs_cleanup";
       await persistMoveJob(store, job);
       return toolText(
