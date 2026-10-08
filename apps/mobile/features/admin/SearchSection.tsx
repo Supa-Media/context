@@ -8,8 +8,11 @@
  * whose chart it shares: its own window, a workspace filter, a tile per view
  * that also picks what the rest of the tab shows.
  *
- * Above them, the search-by-meaning indexing panel (`./MeaningIndexPanel`):
- * every workspace's index and a Restart button (the owner, 2026-10-07).
+ * Two views (the owner, 2026-10-08, from the approved mockup): Indexes, is
+ * every workspace indexed (`./IndexesView`), and Speed, how fast searches are
+ * (this file). Indexes is the default and carries a count of the workspaces
+ * that need attention, so Speed still says when something is wrong. The view
+ * is a prop so the console's router can keep it in the address.
  *
  * The figures are `searchReport` (`apps/convex/functions/lib/adminFns/
  * searchReport.ts`); the words for them are `./search`.
@@ -24,8 +27,7 @@ import { pointerType } from "../design/tokens";
 import { EmptyNote, NoticeLine, Panel, Skeleton, TwoUp, useCompact } from "./AdminKit";
 import { ListRow, RowValue, TableHead, TableRow, type Column } from "./AdminTable";
 import { AgentChart } from "./AgentChart";
-import { MeaningIndexPanel } from "./MeaningIndexPanel";
-import { TreeIndexPanel } from "./TreeIndexPanel";
+import { IndexesView, useIndexesAttention } from "./IndexesView";
 import { whenLabel } from "./agent";
 import { Segments } from "./Segments";
 import {
@@ -43,7 +45,38 @@ import {
 } from "./search";
 import { formatCount } from "./report";
 
-export function SearchSection() {
+export type SearchSubview = "indexes" | "speed";
+
+export const SEARCH_SUBVIEWS: readonly { key: SearchSubview; label: string }[] = [
+  { key: "indexes", label: "Indexes" },
+  { key: "speed", label: "Speed" },
+];
+
+/**
+ * `view` and `onView` let the console keep the sub-view in the address; left
+ * out, the tab keeps it itself.
+ */
+export function SearchSection({ view, onView }: { view?: SearchSubview; onView?: (view: SearchSubview) => void } = {}) {
+  const styles = useThemedStyles(makeStyles);
+  const [own, setOwn] = useState<SearchSubview>("indexes");
+  const shown = view ?? own;
+  const attention = useIndexesAttention();
+  return (
+    <View style={styles.section} testID="admin-search">
+      <Segments
+        options={SEARCH_SUBVIEWS}
+        value={shown}
+        onChange={(next) => (onView ? onView(next) : setOwn(next))}
+        counts={(key) => (key === "indexes" && attention ? attention : null)}
+        label="Search"
+        testID="admin-search-subview"
+      />
+      {shown === "indexes" ? <IndexesView /> : <SpeedView />}
+    </View>
+  );
+}
+
+function SpeedView() {
   const styles = useThemedStyles(makeStyles);
   const [view, setView] = useState<SearchView>("screen");
   const [days, setDays] = useState<"1" | "7" | "30">("7");
@@ -56,9 +89,7 @@ export function SearchSection() {
   });
 
   return (
-    <View style={styles.section} testID="admin-search">
-      <TreeIndexPanel />
-      <MeaningIndexPanel />
+    <View style={styles.section} testID="admin-search-speed">
       <View style={styles.filters}>
         <Segments options={SEARCH_WINDOWS} value={days} onChange={setDays} label="Window" testID="admin-search-days" />
         <TextField
