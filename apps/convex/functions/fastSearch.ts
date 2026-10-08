@@ -357,6 +357,8 @@ export const recordProjectionProgress = internalMutation({
     priorities: v.optional(indexingPrioritiesValidator),
     /** The gateway saying the backfill is finished. */
     ready: v.boolean(),
+    /** Only the control plane's chain sends it: the sweep's heartbeat. */
+    fromChain: v.optional(v.boolean()),
   },
   returns: v.object({ applied: v.boolean() }),
   handler: (ctx, args) => recordProjectionProgressHandler(ctx, args),
@@ -386,8 +388,9 @@ export const forgetIndex = internalMutation({
  *
  * ## How it knows not to start a second chain
  *
- * `updatedAt` is a heartbeat: every link that moves anything writes counters
+ * `chainedAt` is a heartbeat: every link that moves anything writes counters
  * onto the row, so a working chain looks recent and a dead one looks stale.
+ * Not `updatedAt`, which the gateway's progress reports move too.
  * Reading the row rather than the scheduler's own table is deliberate — the
  * case this exists for is a context with nothing scheduled *and no record that
  * anything ever was*, which a scheduler-table check cannot see.

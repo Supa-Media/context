@@ -670,7 +670,7 @@ describe("the trigger", () => {
         .query("searchIndexes")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .unique();
-      await ctx.db.patch(existing!._id, { updatedAt: Date.now() - 86_400_000 });
+      await ctx.db.patch(existing!._id, { createdAt: Date.now() - 86_400_000, chainedAt: undefined });
     });
 
     const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});

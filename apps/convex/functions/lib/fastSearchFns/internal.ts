@@ -103,6 +103,7 @@ export async function recordProvisionResultHandler(
     error: args.error,
     notesIndexed: args.notesIndexed ?? existing.notesIndexed,
     notesPending: args.notesPending ?? existing.notesPending,
+    chainedAt: Date.now(),
     updatedAt: Date.now(),
   });
   return { applied: true };
@@ -117,6 +118,8 @@ export async function recordProjectionProgressHandler(
     priorities?: IndexingPriorities;
     /** The gateway saying the backfill is finished. */
     ready: boolean;
+    /** Sent by the control plane's chain, never by the gateway's route. */
+    fromChain?: boolean;
   },
 ): Promise<{ applied: boolean }> {
   // Re-checked here and not only at the door. The door is one caller; this is
@@ -149,6 +152,7 @@ export async function recordProjectionProgressHandler(
     // report without `ready` never demotes one — a gateway that reports
     // progress after finishing must not restart the spinner.
     status: args.ready ? "ready" : binding!.status,
+    ...(args.fromChain ? { chainedAt: Date.now() } : {}),
     updatedAt: Date.now(),
   });
   return { applied: true };
@@ -202,7 +206,9 @@ export async function sweepStalledBackfillsHandler(
     // moves it to `releasing` — but a status index is a poor place to trust
     // an invariant that lives on another field.
     if (!row.optedIn) continue;
-    if (now - row.updatedAt < BACKFILL_STALL_MS) continue;
+    // The chain's own heartbeat, never `updatedAt`: see `chainedAt`.
+    if (now - (row.chainedAt ?? row.createdAt) < BACKFILL_STALL_MS) continue;
+    await ctx.db.patch(row._id, { chainedAt: now });
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId: row.workspaceId,
       scope: "private",
@@ -247,6 +253,7 @@ export async function sweepStalledBackfillsHandler(
       status: provisioned ? "backfilling" : "provisioning",
       errorCode: undefined,
       error: undefined,
+      chainedAt: now,
       updatedAt: now,
     });
     if (provisioned) {

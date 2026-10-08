@@ -182,6 +182,15 @@ export const platformTables = {
     /** The same, per indexing priority (`lib/indexingPriorities.ts`). */
     priorities: v.optional(indexingPrioritiesValidator),
     /**
+     * When the control plane's own work last touched this row: the
+     * provisioner, a link of the copy chain, or the sweep restarting one.
+     * What the sweep reads to tell a dead chain from a live one. Not
+     * `updatedAt`, which a gateway progress report also moves: on a workspace
+     * searched all day (@seyi's texts) those reports kept a dead chain looking
+     * alive, and nothing restarted it (2026-10-08). Absent on rows from before.
+     */
+    chainedAt: v.optional(v.number()),
+    /**
      * Where provisioning the managed bucket has got to, for the one context
      * this plan is for.
      *
