@@ -10,6 +10,7 @@ import {
   scopeLabel,
   slowContexts,
   toggleScope,
+  upsellAction,
   upsellMessage,
   upsellRows,
   upsellTarget,
@@ -289,7 +290,7 @@ describe("the scope", () => {
 });
 
 describe("the upsell, beside a search that worked", () => {
-  const href = (slug: string, target: "premium" | "storage") =>
+  const href = (slug: string, target: "storage") =>
     `/console/@${slug}/settings?settings=${target}`;
 
   test("every sentence says the context WAS searched", () => {
@@ -315,16 +316,16 @@ describe("the upsell, beside a search that worked", () => {
     expect(shared).toContain("Its owner can turn fast search on");
   });
 
-  test("not paying and not asking are different offers, with different destinations", () => {
-    // `lib/fastSearch.ts` keeps entitlement and opt-in apart precisely so these
-    // two can read differently. Sending "you have not paid" to a switch they
-    // cannot throw wastes the one press they give us.
-    expect(upsellTarget(context({ owner: true, fastSearch: "unavailable" }))).toBe("premium");
+  test("an unavailable index is not an offer: no press, and no Premium anywhere", () => {
+    // Fast search is on for every workspace and is not part of Premium, so the
+    // only press left is the owner's switch under Storage & search.
+    expect(upsellTarget(context({ owner: true, fastSearch: "unavailable" }))).toBeNull();
     expect(upsellTarget(context({ owner: true, fastSearch: "off" }))).toBe("storage");
     expect(upsellTarget(context({ owner: true, fastSearch: "failed" }))).toBe("storage");
-    expect(upsellMessage(context({ owner: true, fastSearch: "unavailable" }))).toContain(
-      "Premium",
-    );
+    const message = upsellMessage(context({ owner: true, fastSearch: "unavailable" }));
+    expect(message).toContain("searched from its own bucket, which is slower");
+    expect(message).not.toContain("Premium");
+    expect(upsellAction(context({ owner: true, fastSearch: "unavailable" }))).toBeNull();
   });
 
   test("still indexing is never read as nothing there, for owner or member alike", () => {
@@ -345,7 +346,7 @@ describe("the upsell, beside a search that worked", () => {
     );
   });
 
-  test("only an owner staring at off, failed or unpaid gets a press — never a member, never mid-backfill", () => {
+  test("only an owner staring at off or failed gets a press — never a member, never mid-backfill, never unavailable", () => {
     const rows = upsellRows(
       [
         context({ workspaceId: "w1", slug: "mine-off", owner: true, fastSearch: "off" }),
@@ -360,7 +361,7 @@ describe("the upsell, beside a search that worked", () => {
     const hrefFor = (slug: string) => rows.find((row) => row.slug === slug)?.href;
     expect(hrefFor("mine-off")).toBe("/console/@mine-off/settings?settings=storage");
     expect(hrefFor("mine-failed")).toBe("/console/@mine-failed/settings?settings=storage");
-    expect(hrefFor("mine-unpaid")).toBe("/console/@mine-unpaid/settings?settings=premium");
+    expect(hrefFor("mine-unpaid")).toBeNull();
     expect(hrefFor("mine-preparing")).toBeNull();
     expect(hrefFor("theirs-off")).toBeNull();
     // A row with no press still says its sentence — "this one was slow, and it

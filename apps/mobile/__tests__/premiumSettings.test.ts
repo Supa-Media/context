@@ -427,28 +427,36 @@ describe("moving an existing context into managed storage", () => {
 });
 
 describe("the two entitlements", () => {
-  test("independent, and the price says so", () => {
+  test("managed storage is the only box, and it shows what was chosen", () => {
+    // Fast search is on for every workspace since 2026-10-08, so it is not a
+    // Premium choice and has no box.
     const rows = entitlementRows(
       status({ selected: { managedStorage: true, fastSearch: false } }),
     );
-    expect(rows.map((row) => row.value)).toEqual([
-      "managedStorage",
-      "fastSearch",
-    ]);
+    expect(rows.map((row) => row.value)).toEqual(["managedStorage"]);
     expect(rows[0]!.on).toBe(true);
-    expect(rows[1]!.on).toBe(false);
+    expect(entitlementRows(status())[0]!.on).toBe(false);
+  });
+
+  test("no row offers fast search, whatever the plan's flag says", () => {
+    for (const selected of [
+      { managedStorage: true, fastSearch: true },
+      { managedStorage: false, fastSearch: true },
+    ]) {
+      const rows = entitlementRows(status({ selected }));
+      expect(rows.some((row) => /fast search/i.test(row.label))).toBe(false);
+      expect(rows.some((row) => /fast search/i.test(row.detail))).toBe(false);
+    }
   });
 
   test("the ceiling is named on the row that has one", () => {
     const rows = entitlementRows(status());
     expect(rows[0]!.detail).toContain("50 GB");
-    // Fast search has no storage ceiling and must not borrow one.
-    expect(rows[1]!.detail).not.toContain("50 GB");
   });
 
   test("the price does not move, and the group says so", () => {
     expect(entitlementsHint(status())).toContain(
-      "$5 a month whichever you choose",
+      "$5 a month and does not change with what you choose",
     );
   });
 

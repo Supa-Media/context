@@ -51,7 +51,39 @@ the bug this whole feature exists to remove** — a console that reports absence
 for a bucket nothing has read yet is worse than the message it replaced, and the
 palette carries the same rule for a search that is still running or that failed.
 
+### Fast search is on for every workspace, free and Premium, and an owner can turn it off
+
+Decided by the owner on 2026-10-08: "lets do fast search for all". It reverses
+the section below for fast search, as search by meaning already had
+([meaning-search.md](./meaning-search.md)), after the R2 index measured 7.2
+seconds on average and 75 at worst in admin › Search. Search by meaning does not
+replace it: words find exact names, handles, numbers and quoted phrases, count
+every match and read the whole of a long note, and meaning only adds a few notes
+the words missed.
+
+- **Entitled** is now every known workspace kind. The plan is not consulted and
+  Premium's `fastSearch` selection no longer does anything; billing schedules
+  nothing for search.
+- **On by default.** The 15-minute sweep walks `storageBindings` and adds a row
+  for each workspace with storage and none yet
+  (`lib/fastSearchFns/rollout.ts`), at most four being built or failed in the
+  last day at once, because each copy spends the account's shared Cloudflare
+  request budget and a broken credential must fail a handful rather than
+  everyone. `FAST_SEARCH_ROLLOUT=disabled` on the deployment stops it.
+- **The owner's off sticks.** Off still deletes the database, and the row now
+  ends at `off` (`optedOut`) instead of being deleted, so the rollout never
+  turns it back on; only the owner can. A storage disconnect keeps an owner's
+  off and otherwise removes the row, so a reconnected workspace is picked up
+  again. Deleting the workspace keeps nothing.
+
+What survives from below: owner-only, off deletes, the row outlives the delete,
+and the handle is never cleared but by a generation change. Tests:
+`apps/convex/__tests__/fastSearchRollout.test.ts`.
+
 ### A database we own holds a copy of somebody's notes only where they asked
+
+_Superseded for fast search on 2026-10-08 by the section above; kept for the
+reasoning that still holds._
 
 The R2 index is a derived copy of a context's notes **inside that context's own
 bucket** — beside the notes it derives from, under the customer's own

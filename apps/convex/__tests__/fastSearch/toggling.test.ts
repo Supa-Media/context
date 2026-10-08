@@ -15,7 +15,6 @@ import {
   context,
   bindingRow,
   workspaceDoc,
-  planDoc,
 } from "./fixtures.helpers";
 
 describe("turning it on", () => {
@@ -303,9 +302,10 @@ describe("turning it off", () => {
     expect(row?.databaseId).toBe("db-9");
   });
 
-  test("with no database, the row goes immediately", async () => {
-    // Nothing was ever created, so there is nothing to clean up and the
-    // context returns to "never asked" rather than keeping a tombstone.
+  test("with no database, the row is off immediately", async () => {
+    // Nothing was ever created, so there is nothing to delete. The row stays
+    // at `off` rather than going away, so "on for everyone" does not turn it
+    // back on.
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "off-early");
     await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
@@ -314,7 +314,12 @@ describe("turning it off", () => {
     await asUser(t, owner).mutation(api.functions.fastSearch.disable, {
       workspaceId,
     });
-    expect(await bindingRow(t, workspaceId)).toBeNull();
+    expect(await bindingRow(t, workspaceId)).toMatchObject({
+      optedIn: false,
+      optedOut: true,
+      status: "off",
+    });
+    expect((await bindingRow(t, workspaceId))?.databaseId).toBeUndefined();
   });
 
   test("a releasing context serves nothing, immediately", async () => {
@@ -337,10 +342,12 @@ describe("turning it off", () => {
     // The delete finishing is bookkeeping; the switch is already off.
     const row = await bindingRow(t, workspaceId);
     expect(fastSearchOptedIn(row)).toBe(false);
-    expect(fastSearchActive(workspaceDoc(), planDoc(), row)).toBe(false);
+    expect(fastSearchActive(workspaceDoc(), row)).toBe(false);
   });
 
-  test("disabling a context that was never on is a no-op", async () => {
+  test("disabling a context that was never on records the owner's off", async () => {
+    // The row is written even though nothing was ever on: the owner's off is
+    // a decision the rollout must not undo.
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "never-on");
     const result = await asUser(t, owner).mutation(
@@ -348,7 +355,11 @@ describe("turning it off", () => {
       { workspaceId },
     );
     expect(result.state).toBe("off");
-    expect(await bindingRow(t, workspaceId)).toBeNull();
+    expect(await bindingRow(t, workspaceId)).toMatchObject({
+      optedIn: false,
+      optedOut: true,
+      status: "off",
+    });
   });
 });
 
@@ -431,7 +442,7 @@ describe("storage going away takes the projection with it", () => {
     });
     const row = await bindingRow(t, workspaceId);
     expect(fastSearchOptedIn(row)).toBe(false);
-    expect(fastSearchActive(workspaceDoc(), planDoc(), row)).toBe(false);
+    expect(fastSearchActive(workspaceDoc(), row)).toBe(false);
   });
 
   test("rebinding onto a different bucket releases it too", async () => {

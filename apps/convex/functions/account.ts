@@ -507,12 +507,15 @@ async function deleteWorkspaceCascade(
     .unique();
   if (searchIndex !== null) {
     if (searchIndex.databaseId === undefined) {
-      // Nothing was ever created — a failed provision, or an opt-in reversed
-      // before it got that far. Same branch `disable` takes: the row goes now.
+      // Nothing was ever created, or an owner's off already deleted it: the
+      // row goes now.
       await ctx.db.delete(searchIndex._id);
     } else {
+      // `optedOut` cleared so `forgetIndex` deletes the row rather than
+      // keeping an owner's `off` for a workspace that no longer exists.
       await ctx.db.patch(searchIndex._id, {
         optedIn: false,
+        optedOut: undefined,
         status: "releasing",
         updatedAt: Date.now(),
       });

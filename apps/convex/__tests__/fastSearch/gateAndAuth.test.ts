@@ -24,7 +24,6 @@ import {
   bindingRow,
   workspaceDoc,
   bindingDoc,
-  planDoc,
 } from "./fixtures.helpers";
 
 describe("the two conditions", () => {
@@ -32,11 +31,11 @@ describe("the two conditions", () => {
     const workspace = workspaceDoc();
 
     // Opted in and entitled.
-    expect(fastSearchActive(workspace, planDoc(), bindingDoc({}))).toBe(true);
+    expect(fastSearchActive(workspace, bindingDoc({}))).toBe(true);
     // Entitled, never asked. The default for every context.
-    expect(fastSearchActive(workspace, planDoc(), null)).toBe(false);
+    expect(fastSearchActive(workspace, null)).toBe(false);
     // Entitled, asked and then withdrawn.
-    expect(fastSearchActive(workspace, planDoc(), bindingDoc({ optedIn: false }))).toBe(
+    expect(fastSearchActive(workspace, bindingDoc({ optedIn: false }))).toBe(
       false,
     );
   });
@@ -50,41 +49,38 @@ describe("the two conditions", () => {
   });
 
   test("an unrecognized workspace kind is NOT entitled, which is how the seam is testable", () => {
-    // `fastSearchEntitled` returns true for every kind that exists, so while
-    // it stays that way `fastSearchActive` cannot be observed to consult it —
-    // a sabotage that deleted the entitlement half of the composition passed
-    // the whole suite. That is the entitlement gate being a guard nobody has
-    // checked, months before a paid tier makes it load-bearing.
+    // `fastSearchEntitled` is true for every kind the schema permits, so
+    // `fastSearchActive` cannot be observed to consult it on a real workspace.
+    // An unrecognized kind is the only handle on that half of the composition.
     //
     // It fails closed on a kind it does not recognize, so this is both a real
     // property (a future `kind` does not get a copy of somebody's notes put in
     // our database by default) and the handle these tests need.
     const unknown = { kind: "some-future-kind" } as unknown as Doc<"workspaces">;
-    expect(fastSearchEntitled(unknown, planDoc())).toBe(false);
-    expect(fastSearchState(unknown, planDoc(), bindingDoc({}))).toBe("unavailable");
+    expect(fastSearchEntitled(unknown)).toBe(false);
+    expect(fastSearchState(unknown, bindingDoc({}))).toBe("unavailable");
   });
 
   test("entitlement is required even when opted in", () => {
-    // The composition, with the half that is invisible today. Removing
+    // The composition, with the half no real kind can reach. Removing
     // `fastSearchEntitled` from `fastSearchActive` fails here and nowhere else.
     const unknown = { kind: "some-future-kind" } as unknown as Doc<"workspaces">;
     expect(fastSearchOptedIn(bindingDoc({}))).toBe(true);
-    expect(fastSearchActive(unknown, planDoc(), bindingDoc({}))).toBe(false);
+    expect(fastSearchActive(unknown, bindingDoc({}))).toBe(false);
   });
 
-  test("only a paying plan that selected fast search is entitled", () => {
-    expect(fastSearchEntitled(workspaceDoc("personal"), planDoc())).toBe(true);
-    expect(fastSearchEntitled(workspaceDoc("shared"), planDoc())).toBe(true);
-    expect(fastSearchEntitled(workspaceDoc(), null)).toBe(false);
-    expect(fastSearchEntitled(workspaceDoc(), planDoc({ status: "canceled" }))).toBe(false);
-    expect(fastSearchEntitled(workspaceDoc(), planDoc({ fastSearch: false }))).toBe(false);
+  test("every personal and shared workspace is entitled, whatever its plan", () => {
+    // Fast search is on for everyone (owner decision, 2026-10-08). The plan
+    // is not an input, so there is no plan to vary here.
+    expect(fastSearchEntitled(workspaceDoc("personal"))).toBe(true);
+    expect(fastSearchEntitled(workspaceDoc("shared"))).toBe(true);
   });
 
   test("legacy D1 rows are ignored even when their old database says ready", () => {
     const legacy = bindingDoc({ generation: undefined, databaseId: "legacy-db" });
     expect(fastSearchOptedIn(legacy)).toBe(false);
-    expect(fastSearchActive(workspaceDoc(), planDoc(), legacy)).toBe(false);
-    expect(searchProjectionState(workspaceDoc(), planDoc(), legacy)).toBeNull();
+    expect(fastSearchActive(workspaceDoc(), legacy)).toBe(false);
+    expect(searchProjectionState(workspaceDoc(), legacy)).toBeNull();
   });
 
   /**
@@ -189,76 +185,72 @@ describe("the two conditions", () => {
     const workspace = workspaceDoc();
     const provisioned = { status: "ready" as const, databaseId: "db-1" };
 
-    expect(searchProjectionState(workspace, planDoc(), bindingDoc(provisioned))).toBe("ready");
+    expect(searchProjectionState(workspace, bindingDoc(provisioned))).toBe("ready");
     expect(
       searchProjectionState(
         workspace,
-        planDoc(),
         bindingDoc({ status: "backfilling", databaseId: "db-1" }),
       ),
     ).toBe("backfilling");
 
     // 1. Never asked. The default for every context, and the reason almost
     //    every binding response carries no `searchIndex` at all.
-    expect(searchProjectionState(workspace, planDoc(), null)).toBeNull();
+    expect(searchProjectionState(workspace, null)).toBeNull();
 
     // 2. Asked, then withdrawn. The one shape `disable` cannot leave behind —
     //    it sets `releasing` too — so this is the gate on its own, and without
     //    it a re-opened row would serve a key to a database somebody asked us
     //    to delete.
     expect(
-      searchProjectionState(workspace, planDoc(), bindingDoc({ ...provisioned, optedIn: false })),
+      searchProjectionState(workspace, bindingDoc({ ...provisioned, optedIn: false })),
     ).toBeNull();
     // And the shape it does leave behind, which two conditions refuse.
     expect(
       searchProjectionState(
         workspace,
-        planDoc(),
         bindingDoc({ optedIn: false, status: "releasing", databaseId: "db-1" }),
       ),
     ).toBeNull();
 
-    // 3. Not entitled. Invisible today for the reason this file already
-    //    records: `fastSearchEntitled` is true for every kind that exists, and
-    //    an unrecognized one is the only handle on the half a paid tier makes
-    //    load-bearing.
+    // 3. Not entitled. Only an unrecognized kind reaches this, for the reason
+    //    this file already records: every kind the schema permits is entitled.
     const unknown = { kind: "some-future-kind" } as unknown as Doc<"workspaces">;
-    expect(searchProjectionState(unknown, planDoc(), bindingDoc(provisioned))).toBeNull();
+    expect(searchProjectionState(unknown, bindingDoc(provisioned))).toBeNull();
 
     // 4. No database recorded. Nothing to write into — and the difference
     //    between naming no database and naming none of them is a projection
     //    that lands somewhere nobody chose.
-    expect(searchProjectionState(workspace, planDoc(), bindingDoc({ status: "ready" }))).toBeNull();
+    expect(searchProjectionState(workspace, bindingDoc({ status: "ready" }))).toBeNull();
     expect(
-      searchProjectionState(workspace, planDoc(), bindingDoc({ status: "ready", databaseId: "" })),
+      searchProjectionState(workspace, bindingDoc({ status: "ready", databaseId: "" })),
     ).toBeNull();
 
     // The two half-built statuses. `provisioning` may have no schema on it yet
     // and `failed` is how a failure becomes data.
     for (const status of ["provisioning", "failed"] as const) {
       expect(
-        searchProjectionState(workspace, planDoc(), bindingDoc({ status, databaseId: "db-1" })),
+        searchProjectionState(workspace, bindingDoc({ status, databaseId: "db-1" })),
       ).toBeNull();
     }
   });
 
   test("the state distinguishes the kinds of off", () => {
     const workspace = workspaceDoc();
-    expect(fastSearchState(workspace, planDoc(), null)).toBe("off");
-    expect(fastSearchState(workspace, planDoc(), bindingDoc({ status: "provisioning" }))).toBe(
+    expect(fastSearchState(workspace, null)).toBe("off");
+    expect(fastSearchState(workspace, bindingDoc({ status: "provisioning" }))).toBe(
       "preparing",
     );
-    expect(fastSearchState(workspace, planDoc(), bindingDoc({ status: "backfilling" }))).toBe(
+    expect(fastSearchState(workspace, bindingDoc({ status: "backfilling" }))).toBe(
       "preparing",
     );
-    expect(fastSearchState(workspace, planDoc(), bindingDoc({ status: "ready" }))).toBe("on");
-    expect(fastSearchState(workspace, planDoc(), bindingDoc({ status: "failed" }))).toBe(
+    expect(fastSearchState(workspace, bindingDoc({ status: "ready" }))).toBe("on");
+    expect(fastSearchState(workspace, bindingDoc({ status: "failed" }))).toBe(
       "failed",
     );
     // Opted out and still releasing reads as off, not as "preparing" — the
     // person turned it off and the screen must say so while the delete runs.
     expect(
-      fastSearchState(workspace, planDoc(), bindingDoc({ optedIn: false, status: "releasing" })),
+      fastSearchState(workspace, bindingDoc({ optedIn: false, status: "releasing" })),
     ).toBe("off");
   });
 });
@@ -292,31 +284,32 @@ describe("a context nobody asked about", () => {
     expect(rows).toEqual([]);
   });
 
-  test("a free context cannot turn Fast Search on through the old endpoint", async () => {
+  test("a free context is entitled, and turns on like any other", async () => {
     const t = setupTest();
     const owner = await createUser(t, "free-owner@example.com");
     const workspaceId = await createWorkspace(t, owner, "free-search");
 
+    // No plan row at all: the plan no longer decides anything.
     const view = await asUser(t, owner).query(api.functions.fastSearch.status, {
       workspaceId,
     });
-    expect(view.state).toBe("unavailable");
-    expect(view.canChange).toBe(false);
+    expect(view.state).toBe("off");
+    expect(view.canChange).toBe(true);
 
-    const error = await captureError(() =>
-      asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId }),
-    );
-    expect(errorCode(error)).toBe("NOT_ENTITLED");
-    expect(await bindingRow(t, workspaceId)).toBeNull();
+    const result = await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+    expect(result.state).toBe("preparing");
+    expect((await bindingRow(t, workspaceId))?.optedIn).toBe(true);
   });
 
-  test("a paid opt-in discards legacy coordinates and schedules a fresh index", async () => {
+  test("a legacy row is replaced by a fresh index when the owner turns it back on", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "fresh-generation");
     await t.run((ctx) =>
       ctx.db.insert("searchIndexes", {
         workspaceId,
-        optedIn: true,
+        optedIn: false,
         optedInBy: owner,
         optedInAt: 1,
         status: "ready",
@@ -330,10 +323,12 @@ describe("a context nobody asked about", () => {
       }),
     );
 
-    const result = await t.mutation(
-      internal.functions.fastSearch.syncPremiumSelection,
-      { workspaceId, actorUserId: owner },
-    );
+    // Legacy coordinates are not served, and the row is not on.
+    expect(fastSearchOptedIn(await bindingRow(t, workspaceId))).toBe(false);
+
+    const result = await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
     expect(result.state).toBe("preparing");
     const row = await bindingRow(t, workspaceId);
     expect(row?.generation).toBe(FAST_SEARCH_GENERATION);
@@ -346,6 +341,39 @@ describe("a context nobody asked about", () => {
       ctx.db.system.query("_scheduled_functions").collect(),
     );
     expect(scheduled.filter((job) => job.name.includes("provisionIndex"))).toHaveLength(1);
+  });
+
+  test("an opted-in legacy row is replaced by the owner's switch and by the rollout", async () => {
+    // A legacy row that says `optedIn: true` never serves, so it reads "off".
+    // Neither the owner's switch nor "on for everyone" may treat it as on.
+    for (const via of ["owner", "rollout"] as const) {
+      const t = setupTest();
+      const { owner, workspaceId } = await context(t, `legacy-on-${via}`);
+      await t.run((ctx) =>
+        ctx.db.insert("searchIndexes", {
+          workspaceId,
+          optedIn: true,
+          optedInBy: owner,
+          optedInAt: 1,
+          status: "ready",
+          databaseId: "legacy-database-must-not-serve",
+          createdAt: 1,
+          updatedAt: 1,
+        }),
+      );
+      if (via === "owner") {
+        const result = await asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId });
+        expect(result.state).toBe("preparing");
+      } else {
+        expect(
+          (await t.mutation(internal.functions.fastSearch.autoEnable, { workspaceId })).scheduled,
+        ).toBe(true);
+      }
+      const row = await bindingRow(t, workspaceId);
+      expect(row?.generation).toBe(FAST_SEARCH_GENERATION);
+      expect(row?.status).toBe("provisioning");
+      expect(row?.databaseId).toBeUndefined();
+    }
   });
 });
 
@@ -426,11 +454,11 @@ describe("only an owner decides", () => {
    * `canChange === isOwner` for every workspace reachable through the
    * database, and the swap is behaviour-preserving. Nothing can catch it.
    *
-   * It is still written as `isOwner`, because the two come apart the day a
-   * paid tier makes entitlement real, and on that day an owner whose tier
-   * lapsed would lose the progress figures for notes they still own. When
-   * `fastSearchEntitled` gains a handle that is not `kind`, the test that
-   * belongs here is: unentitled owner, `canChange` false, counters present.
+   * It is still written as `isOwner`, because the two come apart the day
+   * entitlement depends on something other than `kind`, and then an owner who
+   * is not entitled would lose the progress figures for notes they still own.
+   * When `fastSearchEntitled` gains a second input, the test that belongs here
+   * is: unentitled owner, `canChange` false, counters present.
    */
   test("a member cannot count the notes they cannot read", async () => {
     const t = setupTest();

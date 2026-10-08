@@ -1,8 +1,9 @@
 /**
- * The two things Premium can include, drawn as switches in Settings › Premium
- * and the onboarding confirm step. Split from `premium.ts`, which draws the
- * rest of the section, when the switches grew a lock for the last ticked box
- * (CONTEXT-LC-MOBILE-F).
+ * What Premium can include, drawn as a tick box in Settings › Premium and the
+ * onboarding confirm step. Split from `premium.ts`, which draws the rest of the
+ * section, when the switches grew a lock for the last ticked box
+ * (CONTEXT-LC-MOBILE-F). Managed storage is the only box since fast search went
+ * on for every workspace on 2026-10-08.
  */
 import {
   formatBytes,
@@ -12,7 +13,7 @@ import {
 } from "./premium";
 
 export interface EntitlementRow {
-  value: "managedStorage" | "fastSearch";
+  value: "managedStorage";
   label: string;
   /**
    * The line under the label, and the field is called `detail` because that is
@@ -36,13 +37,13 @@ export interface EntitlementRow {
 }
 
 /**
- * The two things Premium can include, as independent tick boxes.
+ * What Premium can include as a tick box. Managed storage is the only one.
  *
- * Independent because they genuinely are: somebody running their own bucket
- * may still want the index, and somebody who wants us to hold the bucket may
- * not want a copy of their notes in a database we run. **The price does not
- * move**, and each row says so rather than leaving a person hunting for a
- * total that changes.
+ * Fast search used to be the second box here. Since 2026-10-08 it is on for
+ * every workspace, free or paid, and is switched under Storage & search, so it
+ * is not a Premium choice and has no box. The plan's `selected.fastSearch` flag
+ * is still read below, because the control plane still refuses an empty
+ * selection by counting it.
  *
  * They show what is *selected*, not what is active, so a lapsed subscription
  * still shows the choice and resuming is a payment rather than a set-up. The
@@ -56,20 +57,20 @@ export function entitlementRows(status: PremiumStatus): EntitlementRow[] {
       detail: `A bucket we create and pay for, up to ${formatBytes(status.ceilingBytes)}. Yours to take away at any time.`,
       on: status.selected.managedStorage,
     },
-    {
-      value: "fastSearch",
-      label: "Fast search",
-      detail:
-        "An index of this context's notes, kept in a database we run, so search " +
-        "answers in milliseconds. Your Markdown never moves.",
-      on: status.selected.fastSearch,
-    },
   ];
-  const ticked = rows.filter((row) => row.on);
-  if (status.keepOneSelected === true && ticked.length === 1) {
-    ticked[0]!.locked = true;
+  // Locked when it is the last thing the plan keeps on: the server refuses an
+  // empty selection, so the box is drawn locked rather than offered and refused.
+  if (status.keepOneSelected === true && onlyOneSelected(status)) {
+    for (const row of rows) if (row.on) row.locked = true;
   }
   return rows;
+}
+
+/** Exactly one of the plan's flags is set, counting the one with no box. */
+function onlyOneSelected(status: PremiumStatus): boolean {
+  return (
+    (status.selected.managedStorage ? 1 : 0) + (status.selected.fastSearch ? 1 : 0) === 1
+  );
 }
 
 /**
@@ -84,14 +85,15 @@ export function wouldEmptyRequiredSelection(
   next: boolean,
 ): boolean {
   if (status.keepOneSelected !== true || next) return false;
-  const after = { ...status.selected };
-  if (value === "managedStorage") after.managedStorage = false;
-  if (value === "fastSearch") after.fastSearch = false;
-  return !after.managedStorage && !after.fastSearch;
+  // Mirrors the control plane's `hasAnyEntitlement` over the plan's flags. The
+  // fast search flag is not a box any more, so it is only ever read here, never
+  // changed from this screen.
+  if (value !== "managedStorage") return false;
+  return !status.selected.fastSearch;
 }
 
 /**
- * The line above the two tick boxes.
+ * The line above the tick box.
  *
  * It says the price does not move — the à-la-carte question people actually
  * have. It grows a second sentence in exactly one situation, and that sentence
@@ -101,18 +103,14 @@ export function wouldEmptyRequiredSelection(
  * off, side by side, with nothing saying which is which. So the group says it.
  */
 export function entitlementsHint(status: PremiumStatus): string {
-  const price = `Pick either or both — the price is ${formatPrice(status)} whichever you choose.`;
+  const price = `The price is ${formatPrice(status)} and does not change with what you choose.`;
   const chosenNotActive =
     !planIsPayingStatus(status.status) &&
     (status.selected.managedStorage || status.selected.fastSearch);
   const withChosen = chosenNotActive
     ? `${price} What is ticked is what you have chosen; it turns on when the subscription is active.`
     : price;
-  const onlyOne =
-    (status.selected.managedStorage ? 1 : 0) +
-      (status.selected.fastSearch ? 1 : 0) ===
-    1;
-  if (status.keepOneSelected !== true || !onlyOne) return withChosen;
+  if (status.keepOneSelected !== true || !onlyOneSelected(status)) return withChosen;
   // Mid-checkout there is no subscription yet, so no Manage billing to name.
   return planIsPayingStatus(status.status)
     ? `${withChosen} Premium keeps at least one on. To stop paying, use Manage billing.`

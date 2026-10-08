@@ -389,17 +389,7 @@ export function PremiumBody({
       )}
 
       {status === null ? null : (
-        <PremiumIncludes
-          status={status}
-          onOpenSearch={onOpenStorage}
-          onIncludeSearch={
-            view.choose === undefined || status === null
-              ? undefined
-              : () => run(() => view.choose!({ ...status.selected, fastSearch: true }))
-          }
-          disabled={working}
-          extra={autoOrganize?.included}
-        />
+        <PremiumIncludes status={status} extra={autoOrganize?.included} />
       )}
 
       {autoOrganize?.afterIncludes ?? null}

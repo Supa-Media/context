@@ -21,7 +21,7 @@ import {
   searchProjectionState,
   type SearchProjectionState,
 } from "../fastSearch";
-import { bindingFor, planFor } from "./helpers";
+import { bindingFor } from "./helpers";
 
 /** Contexts one sweep may restart. See `sweepStalledBackfillsHandler`. */
 const SWEEP_BATCH = 50;
@@ -40,8 +40,7 @@ export async function projectionTargetForWorkspaceHandler(
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return null;
   const binding = await bindingFor(ctx, args.workspaceId);
-  const plan = await planFor(ctx, args.workspaceId);
-  const state = searchProjectionState(workspace, plan, binding);
+  const state = searchProjectionState(workspace, binding);
   if (state === null) return null;
   return { databaseId: binding!.databaseId as string, state };
 }
@@ -70,15 +69,26 @@ export async function recordProvisionResultHandler(
     return { applied: false };
   }
   if (!existing.optedIn) {
-    // Opted out while this was in flight. The database id is still recorded
-    // if the provisioner learned one, because the release needs it — but the
-    // status stays `releasing` and nothing starts serving.
+    // Switched off while this was in flight. The database id is still
+    // recorded if the provisioner learned one, because the release needs it,
+    // and nothing starts serving. A row already at `off` was switched off
+    // before any database existed, so nothing is deleting this one yet: it
+    // goes back to `releasing` with the delete scheduled.
     if (args.databaseId !== undefined && existing.databaseId === undefined) {
+      const orphaned = existing.status === "off";
       await ctx.db.patch(existing._id, {
         databaseId: args.databaseId,
         databaseName: args.databaseName,
+        ...(orphaned ? { status: "releasing" as const } : {}),
         updatedAt: Date.now(),
       });
+      if (orphaned) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.functions.fastSearchProvision.releaseIndex,
+          { workspaceId: args.workspaceId },
+        );
+      }
     }
     return { applied: false };
   }
@@ -122,11 +132,10 @@ export async function recordProjectionProgressHandler(
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return { applied: false };
   const binding = await bindingFor(ctx, args.workspaceId);
-  const plan = await planFor(ctx, args.workspaceId);
   // The same gate that decided the credential could be handed over. A row
   // that is `releasing`, `failed`, `provisioning`, opted out or unentitled is
   // refused here, by the one function that knows what "serving" means.
-  const state = searchProjectionState(workspace, plan, binding);
+  const state = searchProjectionState(workspace, binding);
   if (state === null) return { applied: false };
 
   await ctx.db.patch(binding!._id, {
@@ -153,6 +162,20 @@ export async function forgetIndexHandler(
   // new database, and forgetting it here would strand that one instead.
   if (existing.optedIn || existing.status !== "releasing") {
     return { forgotten: false };
+  }
+  if (existing.optedOut === true) {
+    // The owner's off: the database is gone and the row stays, so "on for
+    // everyone" never turns it back on.
+    await ctx.db.patch(existing._id, {
+      status: "off",
+      databaseId: undefined,
+      databaseName: undefined,
+      schemaVersion: undefined,
+      notesIndexed: undefined,
+      notesPending: undefined,
+      updatedAt: Date.now(),
+    });
+    return { forgotten: true };
   }
   await ctx.db.delete(existing._id);
   return { forgotten: true };
@@ -206,7 +229,7 @@ export async function sweepStalledBackfillsHandler(
     if (now - row.updatedAt < BACKFILL_STALL_MS) continue;
     const workspace = await ctx.db.get(row.workspaceId);
     if (workspace === null) continue;
-    if (!fastSearchEntitled(workspace, await planFor(ctx, row.workspaceId))) continue;
+    if (!fastSearchEntitled(workspace)) continue;
 
     // A database with the current schema failed while copying: resume the
     // copy where its cursor stopped, counters kept. Anything short of that

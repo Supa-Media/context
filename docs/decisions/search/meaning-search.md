@@ -10,9 +10,9 @@ switch it off).
 
 That second answer deliberately reverses, for this one derivative, the rule in
 [A database we own holds a copy of somebody's notes only where they asked](./gateway-search-and-projection.md#a-database-we-own-holds-a-copy-of-somebodys-notes-only-where-they-asked).
-Fast search stays opt-in and Premium. Search by meaning is the owner's call to
-make differently, and it is recorded here so nobody "fixes" it back to opt-in,
-or extends it to fast search because the two look alike.
+Search by meaning is the owner's call to make differently, and it is recorded
+here so nobody "fixes" it back to opt-in. Fast search followed on 2026-10-08
+([its own section](./gateway-search-and-projection.md#fast-search-is-on-for-every-workspace-free-and-premium-and-an-owner-can-turn-it-off)).
 
 **What is kept, and where.** One Cloudflare Vectorize index per workspace,
 named `context-meaning-<workspaceId>` from the immutable id, in the same account

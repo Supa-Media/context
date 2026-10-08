@@ -1,78 +1,37 @@
 /**
  * Whether a context's search is served from a database we own.
  *
- * ## Two independent conditions, and they are deliberately not one flag
+ * ## On for everyone, and the owner can turn it off
  *
- * A context gets the fast index only when **both** are true:
+ * Decided by the owner on 2026-10-08 ("lets do fast search for all"), after
+ * the bucket's own index measured 7 seconds on average and 75 at worst:
+ * every workspace with storage gets a fast index, on the free plan and
+ * Premium, without asking. It reverses the opt-in and the Premium gate this
+ * module was first built around, the same way search by meaning was decided
+ * on 2026-10-07 (`docs/decisions/search/meaning-search.md`).
  *
- *  1. **Entitled** — may this context turn it on? Derived from the active
- *     workspace plan, never stored on the index row. The plan must be paying
- *     and must select Fast Search.
- *  2. **Opted in** — has an owner turned it on? Stored per workspace, and
- *     **off by default**.
+ * What it adds is a **derived copy of that context's note text, including
+ * private notes, in a database Supa Media owns.** That is why the owner keeps
+ * a switch, and why off still means the copy is deleted: not "stops reading
+ * it". The rollout (`fastSearchFns/rollout.ts`) adds a row for every bound
+ * workspace without one; the owner's off keeps the row at `off`, so the
+ * rollout never undoes it.
  *
- * Folding these into one boolean is the obvious simplification and it loses
- * the distinction that matters: "you are not paying for this" and "you have
- * not asked for this" are different sentences, they need different copy, and
- * one of them must never be answered by a billing state. A customer who
- * stops paying has not consented to anything being deleted or retained
- * differently; a customer who opts out has.
- *
- * ## Why opting in is a decision and not a preference
- *
- * Canonical Markdown stays in the customer's bucket either way — that is the
- * first non-negotiable and nothing here touches it. What turning this on adds
- * is a **derived copy of that context's note text, including private notes, in
- * a database Supa Media owns.** The earlier design put that copy there for
- * everyone by default, which is a choice about somebody else's private notes
- * made on their behalf. Off by default means the copy exists only where
- * somebody asked for it.
- *
- * Three consequences follow, and each is load-bearing rather than tidy:
- *
- *  - **Provisioning happens at the toggle, never at signup.** A context that
- *    never opts in has no database, so there is nothing to secure, nothing to
- *    bill for, and nothing to delete when the account closes.
- *  - **Turning it off deletes the database.** Not "stops reading it" — a
- *    switch labelled off that leaves the derived copy in place is the switch
- *    not working. See `docs/decisions/search.md`.
- *  - **Owner-only.** An editor may write every note in a context; that is not
- *    the same authority as deciding where a copy of them all is kept.
- *
- * ## Off is a working state, not a degraded one
- *
- * Either condition false means the existing R2 shard index serves the search,
- * exactly as it does today. That is what makes "off by default" shippable:
- * the fast path is an upgrade, and its absence is the product as it already
- * is, rather than a broken search waiting for a toggle.
+ * Owner-only, still: an editor may write every note in a context; that is not
+ * the same authority as deciding where a copy of them all is kept.
  */
 
 import type { Doc } from "../../_generated/dataModel";
-import { activeEntitlements } from "./premium";
 
-/** The first paid generation. A row without it is legacy and fails closed. */
+/** The current generation. A row without it is legacy and fails closed. */
 export const FAST_SEARCH_GENERATION = "premium-v1" as const;
 
-/**
- * May this context turn the fast index on?
- *
- * Both the known workspace kind and the active paid selection are required.
- * Passing the row rather than an already-flattened boolean keeps the AND in
- * the same pure function every caller and test uses.
- */
-export function fastSearchEntitled(
-  workspace: Doc<"workspaces">,
-  plan: Doc<"workspacePlans"> | null,
-): boolean {
-  const knownKind = workspace.kind === "personal" || workspace.kind === "shared";
-  if (!knownKind || plan === null) return false;
-  return activeEntitlements(
-    { managedStorage: plan.managedStorage, fastSearch: plan.fastSearch },
-    plan.status,
-  ).fastSearch;
+/** May this context have the fast index? Every known kind of workspace may. */
+export function fastSearchEntitled(workspace: Doc<"workspaces">): boolean {
+  return workspace.kind === "personal" || workspace.kind === "shared";
 }
 
-/** The stored half: has an owner asked for it? Absent means no. */
+/** The stored half: is it on for this context? Absent means no. */
 export function fastSearchOptedIn(
   binding: Doc<"searchIndexes"> | null,
 ): boolean {
@@ -83,48 +42,38 @@ export function fastSearchOptedIn(
   );
 }
 
-/**
- * Both halves. The only function anything outside this module should ask.
- *
- * A caller that checks one half and not the other is the bug this exists to
- * prevent: checking only `optedIn` serves a context that is no longer
- * entitled, and checking only entitlement serves one that never asked.
- */
+/** Both halves. The only function anything outside this module should ask. */
 export function fastSearchActive(
   workspace: Doc<"workspaces">,
-  plan: Doc<"workspacePlans"> | null,
   binding: Doc<"searchIndexes"> | null,
 ): boolean {
-  return fastSearchEntitled(workspace, plan) && fastSearchOptedIn(binding);
+  return fastSearchEntitled(workspace) && fastSearchOptedIn(binding);
 }
 
 /**
  * Why the fast index is not serving this context, for the settings screen.
  *
- * Four states rather than a boolean, because the copy differs and because a
- * person looking at a switch that is off deserves to know which kind of off
- * it is — "you have not turned this on" and "this is still building" are
- * different sentences, and "we cannot provision one right now" is a third that
- * is nobody's fault and should not read like a refusal.
+ * Four states rather than a boolean, because the copy differs: "it is off",
+ * "this is still building" and "we cannot provision one right now" are
+ * different sentences, and the third is nobody's fault.
  */
 export type FastSearchState =
-  /** Entitled, not asked for. The default for every context. */
+  /** Not on: the owner turned it off, or the rollout has not reached it yet. */
   | "off"
-  /** Asked for, and the database is being created or backfilled. */
+  /** On, and the database is being created or backfilled. */
   | "preparing"
-  /** Asked for, provisioned, serving. */
+  /** On, provisioned, serving. */
   | "on"
-  /** Asked for, and provisioning failed. Recoverable; the reason is stored. */
+  /** On, and provisioning failed. Recoverable; the reason is stored. */
   | "failed"
-  /** Not entitled: free, lapsed, deselected, or an unknown workspace kind. */
+  /** An unknown workspace kind. */
   | "unavailable";
 
 export function fastSearchState(
   workspace: Doc<"workspaces">,
-  plan: Doc<"workspacePlans"> | null,
   binding: Doc<"searchIndexes"> | null,
 ): FastSearchState {
-  if (!fastSearchEntitled(workspace, plan)) return "unavailable";
+  if (!fastSearchEntitled(workspace)) return "unavailable";
   if (!fastSearchOptedIn(binding)) return "off";
   // `optedIn` is true from here, so `binding` is non-null.
   switch (binding!.status) {
@@ -224,7 +173,7 @@ export function backfillPercent(
  * what it should be told the state is.
  *
  * `null` is every reason not to, and the caller cannot tell them apart —
- * unentitled, never opted in, opted out and releasing, still provisioning,
+ * an unknown kind, never turned on, turned off and releasing, still provisioning,
  * failed, or provisioned with no database id recorded yet. That is the same
  * "every negative is the same negative" the binding route already holds, and
  * it matters more here than usual: the answer decides whether a D1 write
@@ -239,10 +188,9 @@ export type SearchProjectionState = "backfilling" | "ready";
 
 export function searchProjectionState(
   workspace: Doc<"workspaces">,
-  plan: Doc<"workspacePlans"> | null,
   binding: Doc<"searchIndexes"> | null,
 ): SearchProjectionState | null {
-  if (!fastSearchActive(workspace, plan, binding)) return null;
+  if (!fastSearchActive(workspace, binding)) return null;
   // `fastSearchActive` is true, so `binding` is non-null and `optedIn`.
   if (typeof binding!.databaseId !== "string" || binding!.databaseId.length === 0) {
     return null;

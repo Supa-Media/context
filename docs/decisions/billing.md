@@ -313,6 +313,12 @@ not fit, which is how an enumeration stops meaning anything.
 
 ## Fast Search is a paid, fresh derivative
 
+_Superseded on 2026-10-08: fast search is on for every workspace, free and
+Premium, and billing no longer schedules anything for it (see
+[search](./search/gateway-search-and-projection.md#fast-search-is-on-for-every-workspace-free-and-premium-and-an-owner-can-turn-it-off)).
+A lapse releases nothing. The `fastSearch` selection is still stored and does
+nothing. Kept for the generation rule below, which still holds._
+
 Fast Search is consumed from the plan: a workspace must be paying and its
 owner must have selected `fastSearch`. The paid selection is also the opt-in to
 keep derived note text in a database we operate; the old standalone endpoint
@@ -470,8 +476,8 @@ how a context started: any context on storage we run that is not paying —
 free from the start, `past_due`, `canceled`, or a status this build does not
 know — is on the 1,000-note cap (`noteCapFor`). Everybody in it keeps reading,
 editing, moving and exporting; a context already past the cap simply cannot
-add notes until someone pays or moves it to their own bucket. Fast Search is
-still released on a lapse. This replaced the earlier rule, "cancelling makes a
+add notes until someone pays or moves it to their own bucket. (Fast Search was
+released on a lapse until 2026-10-08; it is now on for everyone.) This replaced the earlier rule, "cancelling makes a
 context read-only", which only form answers ever enforced; one rule for every
 workspace was simpler to explain, and kinder. A managed binding with no plan
 row is not something the product creates and stays uncapped rather than

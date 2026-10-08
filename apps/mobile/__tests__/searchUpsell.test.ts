@@ -213,13 +213,18 @@ describe("a context with no hosted index is searched, not apologised for", () =>
     expect(onOpen).toHaveBeenCalledWith("/console/@my-workspace?settings=storage");
   });
 
-  test("an owner who is not paying is sent to Premium, not to a switch they cannot throw", async () => {
-    const { text, onOpen } = mount(
+  test("a context whose hosted index is unavailable is searched from its bucket, with no press and no Premium", () => {
+    // Fast search is not part of Premium, so an unavailable index is not an
+    // upsell: it says the search read the bucket, and offers nothing to press.
+    const { text } = mount(
       baseView({ contexts: [context({ fastSearch: "unavailable" })] }),
     );
-    expect(text()).toContain("Premium");
-    await press("search-upsell-open-my-workspace");
-    expect(onOpen).toHaveBeenCalledWith("/console/@my-workspace?settings=premium");
+    expect(text()).toContain("was searched from its own bucket, which is slower.");
+    expect(text()).not.toContain("Premium");
+    expect(text()).not.toContain("Fast search");
+    expect(
+      document.body.querySelector('[data-testid="search-upsell-open-my-workspace"]'),
+    ).toBeNull();
   });
 
   test("somebody else's context says whose decision it is, with nothing to press", () => {

@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import { Button } from "../../../design/components/Button";
 import { Card } from "../../../design/components/Card";
 import { Pill } from "../../../design/components/Pill";
-import { TextLink } from "../../../design/components/TextLink";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
 import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
@@ -15,9 +13,11 @@ import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
  * There is nothing to tick before paying: the Upgrade button buys all of it,
  * and the control plane fills in the selection (`selectionAtUpgrade`). So this
  * is a list, read the same way by an owner, a member and the demo. It has no
- * switches: the search index used to have one here as well as the one under
- * Storage & search, two controls for one question, so a paying owner is now
- * pointed at that one instead.
+ * switches.
+ *
+ * Fast search is no longer part of Premium. Since 2026-10-08 it is on for every
+ * workspace, free or paid, and the owner can still switch it off under Storage
+ * & search, so it is not listed here at all.
  *
  * Auto-organize is not a row here: its own line (`IncludedLine`) is handed in
  * as `extra`, because only the organizer knows whether it is switched on for
@@ -25,7 +25,7 @@ import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
  * selling something that does not arrive.
  */
 export interface IncludeRow {
-  key: "notes" | "fastSearch" | "domain";
+  key: "notes" | "domain";
   label: string;
   detail: string;
 }
@@ -41,42 +41,19 @@ export function premiumIncludeRows(status: PremiumStatus): IncludeRow[] {
       detail: `Room for ${formatBytes(status.ceilingBytes)}, far more than most people ever write.`,
     });
   }
-  rows.push(
-    {
-      key: "fastSearch",
-      label: "Fast search",
-      detail: "Results as you type, across every note.",
-    },
-    {
-      key: "domain",
-      label: "Your own domain",
-      detail: "Links and your website open at an address like docs.acme.com.",
-    },
-  );
+  rows.push({
+    key: "domain",
+    label: "Your own domain",
+    detail: "Links and your website open at an address like docs.acme.com.",
+  });
   return rows;
 }
 
-export const SEARCH_INDEX_COPY =
-  "Fast search keeps a searchable copy of your notes' text on our servers. " +
-  "Turn it on or off under Storage & search.";
-
 export function PremiumIncludes({
   status,
-  onOpenSearch,
-  onIncludeSearch,
-  disabled = false,
   extra,
 }: {
   status: PremiumStatus;
-  /** Opens Storage & search, where the index's one switch lives. */
-  onOpenSearch?: () => void;
-  /**
-   * Puts fast search back into the plan. Only for a paying owner whose plan
-   * left it out, which the old switch here could do: without this, Storage &
-   * search reads "unavailable" for them and nothing anywhere turns it back on.
-   */
-  onIncludeSearch?: () => void;
-  disabled?: boolean;
   /** Auto-organize's line, where the organizer offers it. */
   extra?: ReactNode;
 }) {
@@ -90,9 +67,7 @@ export function PremiumIncludes({
         <View key={row.key} style={styles.row}>
           <View style={styles.head}>
             <Text variant="rowTitle">{row.label}</Text>
-            {paying && (row.key !== "fastSearch" || status.selected.fastSearch) ? (
-              <Pill tone="ok">Included</Pill>
-            ) : null}
+            {paying ? <Pill tone="ok">Included</Pill> : null}
           </View>
           <Text variant="rowSub" style={styles.blurb}>
             {row.detail}
@@ -100,33 +75,6 @@ export function PremiumIncludes({
         </View>
       ))}
       {extra ?? null}
-      {paying && status.canManage && !status.selected.fastSearch && onIncludeSearch !== undefined ? (
-        <View style={[styles.row, styles.divided]} testID="premium-search-index">
-          <Text variant="rowSub">
-            Fast search is left out of this workspace&apos;s plan, so search reads your own
-            storage.
-          </Text>
-          <Button
-            label="Include fast search"
-            variant="mini"
-            disabled={disabled}
-            onPress={onIncludeSearch}
-            style={styles.include}
-            testID="premium-include-search"
-          />
-        </View>
-      ) : paying && status.canManage ? (
-        <View style={[styles.row, styles.divided]} testID="premium-search-index">
-          <Text variant="rowSub">{SEARCH_INDEX_COPY}</Text>
-          {onOpenSearch === undefined ? null : (
-            <TextLink
-              label="Open Storage & search"
-              onPress={onOpenSearch}
-              testID="premium-open-search"
-            />
-          )}
-        </View>
-      ) : null}
     </Card>
   );
 }
@@ -135,7 +83,6 @@ const makeStyles = () =>
   StyleSheet.create({
     card: { marginTop: 12 },
     row: { marginTop: 14 },
-    divided: { paddingTop: 14 },
     head: {
       flexDirection: "row",
       alignItems: "center",
@@ -143,5 +90,4 @@ const makeStyles = () =>
       gap: 12,
     },
     blurb: { marginTop: 4 },
-    include: { marginTop: 10, alignSelf: "flex-start" },
   });

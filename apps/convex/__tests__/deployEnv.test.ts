@@ -66,6 +66,9 @@ const SET_ELSEWHERE: Record<string, string> = {
   MEANING_SEARCH_ROLLOUT:
     "an emergency brake set by hand to exactly `disabled`; search by meaning reaches every " +
     "workspace by default, and a deploy must not silently stop that rollout",
+  FAST_SEARCH_ROLLOUT:
+    "an emergency brake set by hand to exactly `disabled`; fast search reaches every " +
+    "workspace by default, and a deploy must not silently stop that rollout",
   FEEDBACK_INTAKE:
     "an emergency brake set by hand to exactly `disabled`; intake is on whenever " +
     "FEEDBACK_SENTRY_DSN is set, and a deploy must not silently stop reports",
