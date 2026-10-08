@@ -20,12 +20,37 @@ export function rootFolderNames(root: FolderListing | undefined): string[] {
 }
 
 /**
- * Whether the main-folders band may be asked for: somebody who can edit, the
- * root listing has loaded (so "missing" is an answer and not a guess), and at
- * least one main folder is missing.
+ * Whether the main-folders band may be asked for: the signed-in owner of a
+ * real workspace, the root listing has loaded (so "missing" is an answer and
+ * not a guess), and at least one main folder is missing.
+ *
+ * Never on the homepage or the landing page's demo: both draw the console
+ * shell over somebody else's notes (the homepage is @context-lc's `website/`
+ * folder, which a visitor can edit in their tab, so `canEdit` alone let it
+ * through). And never while a page of a website is open: a site's folder is
+ * not where a workspace's filing system is decided.
  */
-export function missingFoldersEligible(input: { canEdit: boolean; root: FolderListing | undefined }): boolean {
-  return input.canEdit && input.root !== undefined && missingMainRoles(rootFolderNames(input.root)).length > 0;
+export function missingFoldersEligible(input: {
+  canEdit: boolean;
+  root: FolderListing | undefined;
+  role: string | undefined;
+  visitor: boolean;
+  demo: boolean;
+  selectedPath: string | null;
+}): boolean {
+  return (
+    input.canEdit &&
+    input.role === "owner" &&
+    !input.visitor &&
+    !input.demo &&
+    !inWebsiteFolder(input.selectedPath) &&
+    input.root !== undefined &&
+    missingMainRoles(rootFolderNames(input.root)).length > 0
+  );
+}
+
+function inWebsiteFolder(path: string | null): boolean {
+  return path !== null && (path === "website" || path.startsWith("website/"));
 }
 
 /** One line per main folder: the folder found under its role, or none. */

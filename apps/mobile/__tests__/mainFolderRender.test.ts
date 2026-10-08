@@ -122,9 +122,9 @@ describe("the main-folders band", () => {
     const { files } = fakeFiles({ names: ["0-inbox", "1-projects", "2-areas"] });
     mount(createElement(MainFoldersNotice, { files, dismiss: () => {} }));
     expect(at("browse-main-folders")?.textContent).toContain("Add the five main folders?");
-    expect(at("main-folder-line-projects")?.textContent).toBe("✓ Projects found: 1-projects");
-    expect(at("main-folder-line-resources")?.textContent).toBe("+ Resources will add");
-    expect(at("main-folder-line-archive")?.textContent).toBe("+ Archive will add");
+    expect(at("main-folder-line-projects")?.textContent).toBe("✓ Projects (1-projects)");
+    expect(at("main-folder-line-resources")?.textContent).toBe("+ Add Resources");
+    expect(at("main-folder-line-archive")?.textContent).toBe("+ Add Archive");
   });
 
   test("the button counts the missing folders, singular for one", () => {

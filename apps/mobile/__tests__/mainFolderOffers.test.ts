@@ -56,20 +56,44 @@ describe("the registry", () => {
 });
 
 describe("the main-folders band", () => {
-  test("eligible for an editor whose root lacks a main folder", () => {
-    expect(missingFoldersEligible({ canEdit: true, root: root(ALL_MAIN.slice(1)) })).toBe(true);
+  const OWNER = { canEdit: true, role: "owner", visitor: false, demo: false, selectedPath: null };
+
+  test("eligible for the owner of a workspace whose root lacks a main folder", () => {
+    expect(missingFoldersEligible({ ...OWNER, root: root(ALL_MAIN.slice(1)) })).toBe(true);
   });
 
   test("not for somebody who cannot edit", () => {
-    expect(missingFoldersEligible({ canEdit: false, root: root([]) })).toBe(false);
+    expect(missingFoldersEligible({ ...OWNER, canEdit: false, root: root([]) })).toBe(false);
+  });
+
+  test("not for an editor or member: only the owner decides a workspace's folders", () => {
+    for (const role of ["editor", "member", undefined]) {
+      expect(missingFoldersEligible({ ...OWNER, role, root: root([]) })).toBe(false);
+    }
+  });
+
+  test("never on the homepage: its visitor can edit @context-lc's website/ in their tab", () => {
+    // The homepage's root is the website folder, with no main folders at all.
+    expect(missingFoldersEligible({ ...OWNER, visitor: true, root: root(["Legal"]) })).toBe(false);
+  });
+
+  test("never in the landing page's demo", () => {
+    expect(missingFoldersEligible({ ...OWNER, demo: true, root: root([]) })).toBe(false);
+  });
+
+  test("never while a website page is open, even in a workspace the person owns", () => {
+    for (const selectedPath of ["website", "website/index.md", "website/Legal/terms.md"]) {
+      expect(missingFoldersEligible({ ...OWNER, selectedPath, root: root(["website"]) })).toBe(false);
+    }
+    expect(missingFoldersEligible({ ...OWNER, selectedPath: "websites-notes.md", root: root(["website"]) })).toBe(true);
   });
 
   test("not while the root has not loaded: missing is only an answer once it has", () => {
-    expect(missingFoldersEligible({ canEdit: true, root: undefined })).toBe(false);
+    expect(missingFoldersEligible({ ...OWNER, root: undefined })).toBe(false);
   });
 
   test("not when every main folder is there, under any of the names an older workspace used", () => {
-    expect(missingFoldersEligible({ canEdit: true, root: root(["Inbox", "1-Projects", "2-areas", "3-resources", "old-archive", "4-archive"]) })).toBe(false);
+    expect(missingFoldersEligible({ ...OWNER, root: root(["Inbox", "1-Projects", "2-areas", "3-resources", "old-archive", "4-archive"]) })).toBe(false);
   });
 
   test("the lines name the folder found, and say what is about to be added", () => {

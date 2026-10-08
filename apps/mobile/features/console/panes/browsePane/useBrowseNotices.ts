@@ -165,14 +165,24 @@ export function useBrowseNotices({
     deviceKey: null,
   });
   /*
-    "Add the five main folders?": an editor whose root lacks one of the main
-    folders. Answered once, either way, on the account (`missing-folders`).
+    "Add the five main folders?": the owner of a real workspace whose root
+    lacks one of the main folders; never the homepage's visitor, the demo,
+    or a website page. Answered once, either way, on the account
+    (`missing-folders`).
     The band itself is `MainFoldersNotice`, drawn by `BrowseNotices`.
   */
   const missingFolders = useInAppMessage({
     id: "missing-folders",
     workspaceId: files.contextId,
-    eligible: missingFoldersEligible({ canEdit: files.canEdit, root: files.listings[""] }) && files.contextId !== null,
+    eligible:
+      missingFoldersEligible({
+        canEdit: files.canEdit,
+        root: files.listings[""],
+        role: current?.role,
+        visitor: data.visitor !== undefined,
+        demo: data.demo === true,
+        selectedPath: files.selectedPath,
+      }) && files.contextId !== null,
     deviceKey: null,
   });
   const storageMigration = useStorageMigrationOffer(
