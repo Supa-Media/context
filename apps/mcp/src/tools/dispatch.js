@@ -173,6 +173,7 @@ export async function callTool(name, args, store, scope) {
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       if (scope !== "private") return toolError("permission denied: move materialization requires owner access.");
       {
+        if (args.batch_size === 0) return toolMaterializeMove(store, scope, args.id, 0);
         // Check before this pass refreshes updated_at. Old clients do not know
         // resume_background, so an ordinary call must revive a stalled worker.
         const restartWorker = args.resume_background === true ||

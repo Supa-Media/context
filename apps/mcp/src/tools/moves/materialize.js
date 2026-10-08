@@ -260,6 +260,23 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   } catch {
     return toolError("move marker is invalid");
   }
+  // A zero batch is an owner-only, read-only diagnostic. In particular it must
+  // not refresh the marker or start another worker while one may be running.
+  if (batchSizeArg === 0) {
+    const objects = Array.isArray(job.objects) ? job.objects : [];
+    const completed = new Set(job.status === "copying" || job.status === "logical_active"
+      ? job.copied : job.deleted);
+    const next = objects.find((item) => typeof item?.source === "string" && !completed.has(item.source));
+    return toolText([
+      `move ${job.id || idArg}: ${job.status || "unknown"}`,
+      `copied: ${job.copied_objects || 0}/${objects.length}`,
+      `deleted: ${job.deleted_objects || 0}/${objects.length}`,
+      `updated_at: ${job.updated_at || "unknown"}`,
+      `next_source: ${next?.source || "none"}`,
+      `next_destination: ${next?.destination || "none"}`,
+      `next_size: ${Number.isSafeInteger(next?.size) ? next.size : "unknown"}`,
+    ].join("\n"));
+  }
   if (!moveJobActive(job)) {
     await refreshMoveSentinel(store);
     return toolText(
