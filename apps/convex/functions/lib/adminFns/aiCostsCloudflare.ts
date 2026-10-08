@@ -8,7 +8,8 @@
  * search by meaning (bge-m3).
  *
  * It needs a read-only analytics token, `CLOUDFLARE_ANALYTICS_TOKEN`, and the
- * account it reads, `CLOUDFLARE_ANALYTICS_ACCOUNT_ID`, in the Convex
+ * account it reads, `CLOUDFLARE_ANALYTICS_ACCOUNT_ID` (the AI gateway's account, set by
+ * `deploy-convex.yml`), in the Convex
  * environment. Without them the answer is `{ configured: false }` and the tab
  * says the check isn't connected. The token can read usage numbers and nothing
  * else; it never leaves this file, and an error is reported in our words, never

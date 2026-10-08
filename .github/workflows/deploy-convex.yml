@@ -178,6 +178,12 @@ jobs:
           # Meta's Conversions API token (`functions/metaConversions.ts`), from
           # Meta Events Manager. Absent is a working state: nothing goes to Meta.
           META_CAPI_TOKEN: ${{ secrets.META_CAPI_TOKEN }}
+          # The staff AI costs tab's check against Cloudflare's own usage count
+          # (`functions/lib/adminFns/aiCostsCloudflare.ts`): a read-only
+          # Analytics token, and the account it reads, which is the AI gateway's.
+          # Absent is a working state: the tab says the check isn't connected.
+          CLOUDFLARE_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_ANALYTICS_TOKEN }}
+          CLOUDFLARE_ANALYTICS_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
           # The deployment the batched call goes to; checked against the key.
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
         # One request for every variable (scripts/convex-env-sync.mjs) rather
@@ -203,7 +209,7 @@ jobs:
             TURNSTILE_SECRET_KEY \
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
             REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
-            META_CAPI_TOKEN
+            META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID
 
       # A deployed control plane that cannot decrypt a storage credential, or
       # cannot recognize its own gateway, is broken in a way no test catches and
