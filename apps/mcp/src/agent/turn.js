@@ -9,7 +9,12 @@
  * `index.js` built for the request — so there is no second answer anywhere to
  * "may this caller do that", which is the property that matters most here.
  *
- * ## Writes are proposals
+ * ## Writes are proposals, except from a text
+ *
+ * The one exception is a texting turn, which edits notes directly (the owner,
+ * 2026-10-08, "Edit directly"): `textingWrites.js` adds narrowed `write_note`,
+ * `archive_note` and `move_note` that can change what a note says but never
+ * who can see it. Everywhere else, what follows holds.
  *
  * The agent is offered the read tools and `propose_note`, and never
  * `write_note`, `move_note`, `set_visibility` or anything else that changes the
@@ -302,7 +307,7 @@ export async function runTurn(options) {
   const rounds = roundsFor(maxRounds);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const system =
-    systemPrompt(place, { texting, notes, model }) +
+    systemPrompt(place, { texting, notes, model, edits: tools.some((tool) => tool.name === "write_note") }) +
     webPrompt(webNames);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),

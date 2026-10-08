@@ -267,7 +267,7 @@ test("a texted turn is told the texting production prompt, and not the app one",
   assert.equal(system.split(PROMPT).length, 2, "the production prompt, exactly once");
   assert.ok(!system.includes(WHO), "the app file is not sent");
   assert.ok(!system.includes("No Markdown at all"), "the built-in texting style is not sent");
-  assert.ok(system.includes("propose_note"), "what the code decides is still said");
+  assert.ok(system.includes("You can edit their notes directly"), "what the code decides is still said");
 });
 
 test("an app turn reads the app file, not the texting one", async () => {

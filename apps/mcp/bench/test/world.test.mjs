@@ -75,16 +75,17 @@ test("nobody reaches a workspace people.md does not give them", async () => {
   assert.ok(!turn.answer.includes("DENTIST-MARK"));
 });
 
-test("a proposed change is recorded with its path, and never applied", async () => {
+test("a change from a text is written straight to the note, and recorded with its path", async () => {
   const { changes } = await ask(
     "Maya",
-    { path: "todo.md", content: "- call the dentist\n", reason: "asked to", context: "@brand" },
-    "propose_note",
+    { path: "orders.md", content: "- order more twill\n", context: "@brand" },
+    "write_note",
   );
-  assert.deepEqual(
-    changes.map(({ workspace, path, kind }) => ({ workspace, path, kind })),
-    [{ workspace: "brand", path: "todo.md", kind: "proposed" }],
-  );
+  // The gateway's own bookkeeping for a new note (privacy.md, activity) is
+  // recorded too; what matters is that the note itself was written, not proposed.
+  const listed = changes.map(({ workspace, path, kind }) => ({ workspace, path, kind }));
+  assert.ok(listed.some((c) => c.workspace === "brand" && c.path === "orders.md" && c.kind === "written"));
+  assert.ok(!listed.some((c) => c.kind === "proposed"));
 });
 
 test("the world lets no request out except the model's", async () => {
