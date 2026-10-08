@@ -69,6 +69,7 @@ export const operationResultValidator = v.union(
     runs: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
   }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
+  v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
   v.object({
     kind: v.literal("websiteReleasePages"),
     results: v.array(
@@ -160,7 +161,7 @@ export const operationValidator = v.union(
    */
   v.object({ kind: v.literal("forward"), paths: v.array(v.string()) }),
   /** The offline mirror's manifest, one page of it. See `syncManifest`. */
-  v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()), folder: v.optional(v.string()) }),
+  v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()), folder: v.optional(v.string()), source: v.optional(v.literal("tree")) }),
   /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
   v.object({ kind: v.literal("readMany"), paths: v.array(v.string()) }),
   v.object({
@@ -245,6 +246,9 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
   /** A search-by-meaning catch-up pass; scheduled only, like `projectIndex`. */
   v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
+  /** The tree table's sweep and re-check (`treeTableOps.ts`); scheduled only. */
+  v.object({ kind: v.literal("sweepTree"), passes: v.optional(v.number()) }),
+  v.object({ kind: v.literal("touchTree"), paths: v.array(v.string()), files: v.array(v.string()), audiences: v.array(v.string()) }),
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   /**
    * Advance one connected Google account from its own cursor. Scheduled by

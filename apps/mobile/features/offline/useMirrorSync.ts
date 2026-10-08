@@ -67,11 +67,20 @@ export const MIRROR_INTERVAL_MS = 5 * 60 * 1000;
 export const MANIFEST_TIMEOUT_MS = 60_000;
 /** The least time between two walks of one context's tree in a browser tab. */
 export const SERVER_TREE_FLOOR_MS = 15_000;
+/**
+ * The same, when the last walk was answered by the tree table rather than the
+ * bucket: a query or two, so the tree can follow every change.
+ */
+export const TABLE_TREE_FLOOR_MS = 1_000;
 /** Fifty notes, up to four megabytes. */
 export const READ_TIMEOUT_MS = 60_000;
 
 export interface MirrorActions {
-  syncManifest: (args: { workspaceId: string; cursor?: string }) => Promise<ManifestPage>;
+  syncManifest: (args: {
+    workspaceId: string;
+    cursor?: string;
+    source?: "tree";
+  }) => Promise<ManifestPage & { source?: "tree" | "bucket" }>;
   readNotes: (args: { workspaceId: string; paths: string[] }) => Promise<{ results: BatchRead[] }>;
 }
 
@@ -292,6 +301,7 @@ export function useMirrorSync(options: {
   */
   const refreshing = useRef(new Map<string, boolean>());
   const walkedAt = useRef(new Map<string, number>());
+  const fromTable = useRef(new Map<string, boolean>());
   const runRefresh = useCallback((workspaceId: string, walk: () => Promise<void>) => {
     const inFlight = refreshing.current;
     if (inFlight.has(workspaceId)) {
@@ -316,14 +326,20 @@ export function useMirrorSync(options: {
         epoch,
         mine: () => epoch === currentEpoch(),
         now: () => Date.now(),
-        manifest: (workspaceId, cursor) =>
-          withTimeout(
+        // The tree table where the context has one (`treeTableOps.ts`); the
+        // answer says which it was, and that sets how soon to walk again.
+        manifest: async (workspaceId, cursor) => {
+          const page = await withTimeout(
             actionsRef.current.syncManifest({
               workspaceId,
+              source: "tree",
               ...(cursor === undefined ? {} : { cursor }),
             }),
             MANIFEST_TIMEOUT_MS,
-          ),
+          );
+          fromTable.current.set(workspaceId, page.source === "tree");
+          return page;
+        },
       };
     },
     [],
@@ -346,9 +362,10 @@ export function useMirrorSync(options: {
           if (target.tier === "unknown") return;
           const scope = target.tier;
           runRefresh(workspaceId, async () => {
-            // A busy workspace signals every few seconds; one walk per
-            // `SERVER_TREE_FLOOR_MS` is live enough and spares its bucket.
-            const wait = (walkedAt.current.get(workspaceId) ?? -Infinity) + SERVER_TREE_FLOOR_MS - Date.now();
+            // A busy workspace signals every few seconds; one walk of its
+            // bucket per `SERVER_TREE_FLOOR_MS` is live enough and spares it.
+            const floor = fromTable.current.get(workspaceId) === true ? TABLE_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
+            const wait = (walkedAt.current.get(workspaceId) ?? -Infinity) + floor - Date.now();
             if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
             walkedAt.current.set(workspaceId, Date.now());
             const deps = serverDeps();

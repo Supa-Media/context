@@ -22,6 +22,7 @@ import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
 import { sendsTreeHint, treeHintOf } from "./changes.js";
 import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
+import { keepTreeTable, treeTouchOf } from "../tree/record.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
   const at = new Date().toISOString();
@@ -125,10 +126,16 @@ function treeAudiencesOf(paths, known, rules, overrides) {
  * Tell the consoles showing this context that its tree changed — deferred,
  * best-effort, and never able to fail the change, exactly as `reportActivity`
  * is. Only a session-bound store has a reporter; see `reportTreeChange`.
+ * The tree table is re-checked first (`tree/record.js`), on any store.
  */
 function announceTreeChange(store, action, paths, details) {
-  if (!sendsTreeHint(action, details) || typeof store.reportTreeChange !== "function") return;
+  // The tree table first, so a console told to look again reads the change.
+  const touch = treeTouchOf(action, paths, details);
+  const reports = sendsTreeHint(action, details) && typeof store.reportTreeChange === "function";
+  if (touch === null && !reports) return;
   const work = (async () => {
+    await keepTreeTable(store, touch);
+    if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
     const state = await loadPrivacyState(store);
     if (state.error) return;

@@ -181,6 +181,8 @@ export const manifestValidator = v.object({
   /** The walk could not finish: the pages so far are a floor, not a total. */
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
+  /** Where the keys came from: the tree table, or a walk of the bucket. */
+  source: v.optional(v.union(v.literal("tree"), v.literal("bucket"))),
 });
 
 /**

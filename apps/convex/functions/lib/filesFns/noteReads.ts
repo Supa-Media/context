@@ -86,6 +86,8 @@ export async function syncManifestHandler(
     workspaceId: Id<"workspaces">;
     cursor?: string;
     folder?: string;
+    /** `"tree"`: read the tree table where it can answer (`treeTableOps.ts`). */
+    source?: "tree";
   },
 ): Promise<Extract<OperationResult, { kind: "manifest" }>> {
   const actorUserId = await callerId(ctx);
@@ -102,6 +104,7 @@ export async function syncManifestHandler(
       kind: "manifest",
       ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
       ...(args.folder === undefined ? {} : { folder: args.folder }),
+      ...(args.source === undefined ? {} : { source: args.source }),
     },
   });
   return result as Extract<OperationResult, { kind: "manifest" }>;
