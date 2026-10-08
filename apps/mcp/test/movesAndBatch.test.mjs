@@ -293,13 +293,9 @@ export async function runMovesAndBatchChecks() {
   );
   const markerBeforeInspection = storedText(`.context/moves/${bigMoveId}.json`);
   const inspection = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 0 });
-  check(
-    "a zero-sized materialization pass reports the next source without changing the move",
-    !inspection.isError &&
-      inspection.content[0].text.includes("next_source: 1-projects/big-move/note-000.md") &&
-      storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection &&
-      !objects.has("1-projects/big-moved/note-000.md")
-  );
+  check("zero batch inspects without moving", !inspection.isError && inspection.content[0].text.includes("next_source: 1-projects/big-move/note-000.md") &&
+    storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection &&
+    !objects.has("1-projects/big-moved/note-000.md"));
   await contextStore.put("1-projects/big-moved/note-000.md", "user edit during pending move");
   let materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
   check(
