@@ -20,12 +20,12 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
 import { readBenchFolder } from "./load.mjs";
 import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
-import { resultMarkdown } from "./report.mjs";
+import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 
 /** The most texts the played person may send in one conversation. */
@@ -140,7 +140,9 @@ async function run(options) {
   }
 
   const date = new Date().toISOString().slice(0, 10);
-  const markdown = resultMarkdown({
+  const out = options.out ?? join(dir, "results", `${date} ${testName}${options.fake ? " (fake)" : ""}.md`);
+  const keyOut = keyPathFor(out);
+  const result = {
     job: options.job,
     test: testName,
     testVersion: version(test.raw),
@@ -149,11 +151,13 @@ async function run(options) {
     playedBy: options.fake ? null : test.front.played_by ?? null,
     setups: setups.map(({ name, version: v, model }) => ({ name, version: v, model })),
     runs: records,
-  });
-  const out = options.out ?? join(dir, "results", `${date} ${testName}${options.fake ? " (fake)" : ""}.md`);
+    resultFile: basename(out),
+    keyFile: basename(keyOut),
+  };
   await mkdir(join(out, ".."), { recursive: true });
-  await writeFile(out, markdown);
-  process.stderr.write(`wrote ${out}\n`);
+  await writeFile(out, resultMarkdown(result));
+  await writeFile(keyOut, keyMarkdown(result));
+  process.stderr.write(`wrote ${out}\nwrote ${keyOut}\n`);
 }
 
 const options = parseArgs(process.argv.slice(2));
