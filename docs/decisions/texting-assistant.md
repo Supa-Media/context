@@ -438,3 +438,25 @@ tests that fail are in `apps/mcp/test/agentProduction.test.mjs` ("a person's own
 key never takes the production model", "a production model this deployment
 cannot call falls back to the Workers AI default", "a production file privacy.md
 holds back from members falls back, and its owner still reads it").
+
+### Setups are benchmarked in a throwaway world, on invented workspaces
+
+Decided by the owner, 2026-10-08: a setup earns its way into the production
+note by answering a test, and the test never sees a customer's notes. The
+benchmark data (invented people, workspaces, questions, results) is plain
+Markdown in `@supa` `4-resources/ai-benchmarks/`; its README is the process.
+`pnpm ai run <job> --dir <folder>` (`apps/mcp/bench/`) runs the real gateway
+in process over the in-memory control plane and store the tests use: each
+invented workspace is its own bucket with a real `privacy.md`, each invented
+person a texting grant covering exactly the workspaces `people.md` gives them,
+and the setup is written where the product reads it. Writes are read back as a
+list of changes and never applied; the only traffic that leaves is the model
+call, with the runner's own keys. Judging is a separate step any agent can do,
+recorded under the judge's name.
+
+**What a simplification would cost:** a runner that called the model with the
+notes pasted in would score a setup that leaks a held-back note as one that
+answers well; a world that could reach the network could text a real person.
+The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
+never reads a note the workspace holds back", "the world lets no request out
+except the model's").
