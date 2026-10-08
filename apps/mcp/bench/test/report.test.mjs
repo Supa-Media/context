@@ -335,3 +335,17 @@ test("the judging section is present and the note says it is not judged", () => 
   const md = resultMarkdown(fixture);
   assert.ok(md.endsWith("## Judging\n\nNot judged yet. Add a `## Judged by <model>, <date>` section; never edit an earlier one.\n"));
 });
+
+test("front matter records whether fluff was on and how many notes it wrote", () => {
+  const on = resultMarkdown({ ...fixture, fluff: { on: true, notes: 41 } }).split("\n---\n")[0].split("\n");
+  assert.ok(on.includes("fluff: on"));
+  assert.ok(on.includes("fluff_notes: 41"));
+  const off = resultMarkdown({ ...fixture, fluff: { on: false, notes: 0 } }).split("\n---\n")[0].split("\n");
+  assert.ok(off.includes("fluff: off"));
+  assert.ok(off.includes("fluff_notes: 0"));
+});
+
+test("fluff lines are omitted when the run did not say", () => {
+  const md = resultMarkdown(fixture);
+  assert.ok(!md.includes("fluff"));
+});

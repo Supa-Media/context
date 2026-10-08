@@ -11,6 +11,7 @@
  *   --runs <n>          runs per question (default: the test's `runs`)
  *   --out <file>        where the result goes (default: results/<date> <test>.md)
  *   --fake              a scripted model: checks the plumbing, spends nothing
+ *   --no-fluff          leave out the fluff files' generated notes (a quick check)
  *   --verbose           keep the gateway's own log lines
  *
  * Runs one conversation at a time: each world swaps the global fetch, so two at
@@ -23,7 +24,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
-import { readBenchFolder } from "./load.mjs";
+import { expandWorkspaces, readBenchFolder } from "./load.mjs";
 import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
@@ -36,7 +37,7 @@ function parseArgs(argv) {
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
-    if (flag === "--fake" || flag === "--verbose") options[flag.slice(2)] = true;
+    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff") options[flag.slice(2)] = true;
     else if (flag.startsWith("--")) options[flag.slice(2)] = rest[++i];
   }
   return options;
@@ -95,7 +96,11 @@ async function converse(world, question, person) {
 async function run(options) {
   const dir = options.dir ?? process.env.AI_BENCH_DIR;
   if (!options.job || !dir) throw new Error("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]");
-  const bench = await readBenchFolder(dir);
+  const loaded = await readBenchFolder(dir);
+  // Fluff files are written out unless --no-fluff asks for the hand-written notes alone.
+  const fluffOn = options["no-fluff"] !== true;
+  const bench = fluffOn ? expandWorkspaces(loaded) : loaded;
+  const fluffNotes = fluffOn ? Object.values(bench.workspaces).reduce((total, ws) => total + ws.generated.length, 0) : 0;
   const testName = options.test ?? options.job;
   const test = bench.tests[testName];
   if (!test) throw new Error(`no tests/${testName}.md`);
@@ -144,6 +149,7 @@ async function run(options) {
     job: options.job,
     test: testName,
     testVersion: version(test.raw),
+    fluff: { on: fluffOn, notes: fluffNotes },
     date,
     commit: commit(),
     playedBy: options.fake ? null : test.front.played_by ?? null,
