@@ -241,3 +241,54 @@ test("a full pass fits Vectorize's 20-id cap on a delete", async () => {
   // Each one-passage note clears the eleven passages a longer version could have had.
   assert.equal(deletes.length, 40 * 11);
 });
+
+test("a pass that fails part-way keeps the notes that already landed", async () => {
+  // Twelve passages a note, so twenty notes fill one held batch and the
+  // second batch's upsert is the one that is refused.
+  const long = "word ".repeat(4_000);
+  const files = {};
+  const census = new Map();
+  for (let i = 0; i < 30; i += 1) {
+    const path = `n${String(i).padStart(2, "0")}.md`;
+    files[path] = `# Note ${i}\n\n${long}`;
+    census.set(path, "v1");
+  }
+  const store = memoryStore(files);
+  let upserts = 0;
+  const client = {
+    async upsert(vectors) {
+      upserts += 1;
+      if (upserts > 1) throw new MeaningError("UNAVAILABLE");
+      return vectors.length;
+    },
+    async deleteByIds(ids) {
+      return ids.length;
+    },
+  };
+  const pass = await meaningPass(store, { client, embed, census, visibilityOf: team, generation: "g1" });
+  assert.equal(pass.failure, "UNAVAILABLE");
+  assert.equal(pass.embedded, 20);
+  assert.equal(Object.keys(stateOf(store).notes).length, 20);
+  assert.equal(pass.notesPending, 10);
+});
+
+test("a listing cut short removes nothing from the part it did not reach", async () => {
+  const store = memoryStore({ "a/one.md": "one" });
+  store.objects.set(
+    MEANING_STATE_KEY,
+    JSON.stringify({ v: 1, generation: "g1", notes: { "a/one.md": "v1", "a/gone.md": "v1", "b/unlisted.md": "v1" } }),
+  );
+  const index = fakeIndex();
+  const pass = await meaningPass(store, {
+    client: index,
+    embed,
+    census: new Map([["a/one.md", "v1"]]),
+    visibilityOf: team,
+    generation: "g1",
+    regionComplete: (path) => path.startsWith("a/"),
+    indexPending: 1,
+  });
+  assert.deepEqual(Object.keys(stateOf(store).notes).sort(), ["a/one.md", "b/unlisted.md"]);
+  assert.equal(pass.deleted, 1);
+  assert.equal(pass.ready, false);
+});
