@@ -82,6 +82,7 @@ export const operationResultValidator = v.union(
     rows: v.union(v.number(), v.null()),
     sweptAt: v.union(v.number(), v.null()),
     dirty: v.boolean(),
+    error: v.union(v.string(), v.null()),
   }),
   v.object({
     kind: v.literal("websiteReleasePages"),

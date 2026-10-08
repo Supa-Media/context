@@ -73,6 +73,23 @@ describe("the tree index panel", () => {
     expect(JSON.stringify(report)).not.toContain("1-projects");
   });
 
+  test("a sweep that keeps failing reads as stuck, with why, and never with the key", async () => {
+    const stuck = sqliteClient();
+    const store = memoryStore();
+    store.seed("2-areas/codes/secret plan.md", "# S\n");
+    const failing = {
+      ...store,
+      list: async () => {
+        throw new Error('S3 LIST failed for "2-areas/codes/secret plan.md" at 2-areas/codes/secret plan.md: 403 AccessDenied');
+      },
+    };
+    await expect(sweepTreePass(failing, stuck)).rejects.toThrow(/AccessDenied/);
+    databases.set("stuck", stuck);
+    const report = await treeIndexReport(ctx as never, { targets: [target("stuck")], truncated: false });
+    expect(report.rows[0]?.error).toMatch(/403 AccessDenied/);
+    expect(JSON.stringify(report)).not.toMatch(/2-areas|codes|secret/);
+  });
+
   test("Fill starts a sweep for every workspace asked about", async () => {
     ctx.scheduler.runAfter.mockClear();
     expect(await fillTreeIndexes(ctx as never, [target("a"), target("b")])).toBe(2);

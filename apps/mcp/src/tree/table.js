@@ -88,6 +88,10 @@ export const TREE_STATE = Object.freeze({
   dirty: "tree_dirty",
   /** This store cannot resume a listing in key order, so the table is never served. */
   unsupported: "tree_unsupported",
+  /** Why the last sweep pass failed, cleared by the next one that moves on. */
+  error: "tree_error",
+  /** When it failed, epoch ms. */
+  errorAt: "tree_error_at",
 });
 
 /** Rows one read returns. Small enough that a page of long paths stays far under a 1MB response. */
@@ -252,6 +256,8 @@ export async function readTreeState(client) {
     leaseAt: number(TREE_STATE.leaseAt),
     dirty: values.get(TREE_STATE.dirty) === "1",
     unsupported: values.get(TREE_STATE.unsupported) === "1",
+    error: values.get(TREE_STATE.error) ?? null,
+    errorAt: number(TREE_STATE.errorAt),
   };
 }
 

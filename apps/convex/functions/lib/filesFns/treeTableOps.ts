@@ -51,7 +51,9 @@ export function isTreeOperation(operation: { kind: string }): operation is TreeO
 
 /** What a tree operation answers for a context with no table to ask. */
 export function noTreeTable(operation: TreeOperation): OperationResult {
-  if (operation.kind === "treeState") return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false };
+  if (operation.kind === "treeState") {
+    return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false, error: null };
+  }
   return { kind: "treeKept", complete: false };
 }
 
@@ -70,10 +72,23 @@ export async function treeStateOf(client: ProjectionClient): Promise<OperationRe
       // No table yet.
     }
     const status = state.unsupported ? "unsupported" : state.cursor !== null ? "filling" : state.ready ? "ready" : "empty";
-    return { kind: "treeState", status, rows, sweptAt: state.sweptAt, dirty: state.dirty };
+    return { kind: "treeState", status, rows, sweptAt: state.sweptAt, dirty: state.dirty, error: withoutKeys(state.error) };
   } catch {
-    return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false };
+    return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false, error: null };
   }
+}
+
+/**
+ * A sweep's failure as staff may read it: anything quoted or shaped like a
+ * key, a file name or a URL taken out, since the panel never shows a path.
+ * The whole message stays in the context's own database.
+ */
+export function withoutKeys(message: string | null): string | null {
+  if (message === null) return null;
+  return message
+    .replace(/"[^"]*"|'[^']*'|`[^`]*`/g, "…")
+    .replace(/\S*[/\\]\S*|\S+\.[A-Za-z0-9]{1,8}\b/g, "…")
+    .slice(0, 200);
 }
 
 /**

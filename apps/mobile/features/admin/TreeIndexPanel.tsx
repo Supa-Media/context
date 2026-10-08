@@ -27,6 +27,7 @@ type Row = {
   rows: number | null;
   sweptAt: number | null;
   dirty: boolean;
+  error: string | null;
 };
 
 const PILLS: Record<Row["status"], { label: string; tone: "ok" | "warn" | "crit" | "neutral" }> = {
@@ -44,6 +45,15 @@ const COLUMNS: readonly Column[] = [
   { label: "Last filled", flex: 1 },
   { label: "", flex: 0.9, align: "right" },
 ];
+
+/** The pill: a sweep whose last pass failed reads as stuck, whatever its state. */
+function pillOf(row: Row): { label: string; tone: "ok" | "warn" | "crit" | "neutral" } {
+  return row.error !== null && row.status !== "unreachable" ? { label: "Stuck", tone: "crit" } : PILLS[row.status];
+}
+
+function stuckLine(row: Row): string | null {
+  return row.error === null ? null : `Last pass failed: ${row.error}`;
+}
 
 function countLine(row: Row): string {
   if (row.rows === null) return "—";
@@ -133,10 +143,12 @@ export function TreeIndexPanel() {
             key={row.workspaceId}
             first={index === 0}
             title={name(row)}
-            sub={[countLine(row), row.sweptAt ? `Filled ${whenLabel(row.sweptAt, now)}` : null].filter(Boolean).join("\n")}
+            sub={[countLine(row), row.sweptAt ? `Filled ${whenLabel(row.sweptAt, now)}` : null, stuckLine(row)]
+              .filter(Boolean)
+              .join("\n")}
             trailing={
               <View style={styles.trailing}>
-                <Pill tone={PILLS[row.status].tone}>{PILLS[row.status].label}</Pill>
+                <Pill tone={pillOf(row).tone}>{pillOf(row).label}</Pill>
                 {fillButton(row)}
               </View>
             }
@@ -156,12 +168,19 @@ export function TreeIndexPanel() {
                 <Text key="ws" variant="rowTitle" numberOfLines={1}>
                   {name(row)}
                 </Text>,
-                <Pill key="state" tone={PILLS[row.status].tone}>
-                  {PILLS[row.status].label}
+                <Pill key="state" tone={pillOf(row).tone}>
+                  {pillOf(row).label}
                 </Pill>,
-                <Text key="rows" variant="rowSub" style={styles.num}>
-                  {countLine(row)}
-                </Text>,
+                <View key="rows">
+                  <Text variant="rowSub" style={styles.num}>
+                    {countLine(row)}
+                  </Text>
+                  {row.error === null ? null : (
+                    <Text variant="rowSub" numberOfLines={2}>
+                      {stuckLine(row)}
+                    </Text>
+                  )}
+                </View>,
                 <Text key="when" variant="rowSub">
                   {row.sweptAt ? whenLabel(row.sweptAt, now) : "—"}
                 </Text>,
