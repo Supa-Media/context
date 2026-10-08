@@ -53,21 +53,28 @@ const BUILTIN_IDENTITY = [
  * written for exactly this reader and are already the product's best statement
  * of what each call is for.
  *
- * `notes` are the editable words from `@context-lc` (`instructions.js`):
- * `instructions` stands in for the built-in identity, `texting` for the
- * built-in texting style. What the code decides — that the agent proposes
+ * `notes` are the editable words from `@context-lc`: `instructions.js` gives
+ * `instructions` (for the built-in identity) and `texting` (for the built-in
+ * texting style); `production.js` gives `prompt`, which replaces both. What the code decides — that the agent proposes
  * rather than edits, and where the person is — is said here either way, so a
  * note can add to the agent's understanding but never misdescribe its reach.
  */
 export function systemPrompt(place, { texting = false, notes = null } = {}) {
-  const identity = notes?.instructions ? [notes.instructions] : BUILTIN_IDENTITY;
+  // A production setup's prompt (`production.js`) is the whole of who the
+  // assistant is and how it writes: it stands in for the identity and the
+  // texting style alike, so it is said once and nothing else follows it.
+  const production = typeof notes?.prompt === "string" && notes.prompt.length > 0 ? notes.prompt : null;
+  const identity = production
+    ? [production]
+    : notes?.instructions
+      ? [notes.instructions]
+      : BUILTIN_IDENTITY;
   const lines = texting
     ? [
         ...identity,
         "This turn is a text message they sent you from their phone.",
         "You cannot edit their notes. To suggest a change, use propose_note; they review and decide.",
-        "",
-        ...(notes?.texting ? [notes.texting] : TEXTING_STYLE),
+        ...(production ? [] : ["", ...(notes?.texting ? [notes.texting] : TEXTING_STYLE)]),
       ]
     : [
         ...identity,

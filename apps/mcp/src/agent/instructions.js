@@ -38,6 +38,21 @@ export function capInstructions(raw) {
 }
 
 /**
+ * The reach every note in `@context-lc` is read with, for this caller: its own
+ * store and clearance when the turn runs inside the pinned workspace, otherwise
+ * the hop `openPinnedContext` makes. Shared with `production.js`.
+ */
+export async function pinnedReach(store, session) {
+  const current = (store.contexts || []).find((entry) => entry.current);
+  let here = null;
+  if (current?.name === PINNED_CONTEXT_NAME) {
+    const privacy = await loadPrivacyState(store);
+    if (!privacy.error) here = { store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides };
+  }
+  return { contexts: store.contexts, openPinned: store.openPinnedContext, here };
+}
+
+/**
  * `{ instructions, texting }`, each the note's text or `null`. Never throws.
  *
  * @param {object} store the session's store, carrying `contexts` and
@@ -48,13 +63,7 @@ export function capInstructions(raw) {
  */
 export async function readAssistantInstructions(store, session, { texting }) {
   try {
-    const current = (store.contexts || []).find((entry) => entry.current);
-    let here = null;
-    if (current?.name === PINNED_CONTEXT_NAME) {
-      const privacy = await loadPrivacyState(store);
-      if (!privacy.error) here = { store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides };
-    }
-    const reach = { contexts: store.contexts, openPinned: store.openPinnedContext, here };
+    const reach = await pinnedReach(store, session);
     const [instructions, textingNote] = await Promise.all([
       readPinnedNote(reach, ASSISTANT_INSTRUCTIONS_PATH, capInstructions),
       texting ? readPinnedNote(reach, ASSISTANT_TEXTING_PATH, capInstructions) : Promise.resolve(null),

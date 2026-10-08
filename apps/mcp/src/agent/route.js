@@ -13,9 +13,10 @@ import {
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
 import { readAssistantInstructions } from "./instructions.js";
+import { readProductionSetup } from "./production.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
-import { BUILTIN_PROVIDER, builtinModel } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
@@ -222,6 +223,20 @@ export async function handleAgent(request, env, store, session, controlPlane) {
           addresses: vouched,
         });
 
+  /*
+    THE PRODUCTION SETUP (`production.js`), on texting turns. Its prompt replaces
+    the pinned notes and the built-in words, and its model is used for a
+    built-in turn only, and only when this deployment can call it: a person's
+    own connected account keeps their model, and an uncallable one falls back.
+  */
+  const [production, assistantNotes] = await Promise.all([
+    texting ? readProductionSetup(store, session) : null,
+    readAssistantInstructions(store, session, { texting }),
+  ]);
+  const productionModel =
+    builtin && production !== null && canRunBuiltin(production.model, env) ? production.model : null;
+  const builtinUsed = productionModel ?? builtinModel(env);
+
   const started = Date.now();
   /*
     The built-in turn was counted when it was allowed; this adds what it spent.
@@ -236,7 +251,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         output: usage?.output ?? 0,
         cacheRead: usage?.cacheRead ?? 0,
         cacheWrite: usage?.cacheWrite ?? 0,
-        model: builtinModel(env),
+        model: builtinUsed,
         decision: web?.usage.decision ?? 0,
         failed,
         ms: Date.now() - started,
@@ -323,13 +338,21 @@ export async function handleAgent(request, env, store, session, controlPlane) {
             ai: env.AI,
             gateway: aiGatewayConfig(env),
             // Ids only: what the AI costs tab files this call's spend under.
-            metadata: { feature: "assistant", workspace: String(session.workspaceId), client: texting ? "texts" : "app" },
+            metadata: {
+              feature: "assistant",
+              workspace: String(session.workspaceId),
+              client: texting ? "texts" : "app",
+              // The setup that answered, when one did: which note a cost is for.
+              ...(production !== null ? { setup: production.version } : {}),
+            },
           }
         : undefined,
       web,
       history,
       texting,
-      notes: await readAssistantInstructions(store, session, { texting }),
+      notes: production !== null ? { prompt: production.prompt } : assistantNotes,
+      builtinModelOverride: productionModel ?? undefined,
+      maxRounds: production?.maxSteps ?? undefined,
     });
     await afterAnswer(meter(turn.usage, false));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));

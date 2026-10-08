@@ -54,6 +54,14 @@ export { describePlace, systemPrompt } from "./prompt.js";
  */
 const MAX_ROUNDS = 8;
 
+/**
+ * The round bound for one turn: a production setup's `max_steps` (`production.js`)
+ * when it names one, clamped to 1..MAX_ROUNDS so a setup can only tighten it.
+ */
+function roundsFor(maxRounds) {
+  return Number.isInteger(maxRounds) ? Math.min(MAX_ROUNDS, Math.max(1, maxRounds)) : MAX_ROUNDS;
+}
+
 /** The one write the agent may make, and it is not a write to the bucket. */
 const PROPOSAL_TOOL = "propose_note";
 
@@ -206,8 +214,13 @@ async function openBuiltin(controlPlane, session, env) {
  *   a tool's result (see `conversation.js`)
  * @param {{fetchImpl?: Function}} [options.providerOptions]
  * @param {boolean} [options.texting] the answer goes out as a text message
- * @param {{instructions: ?string, texting: ?string}} [options.notes] the
- *   editable prompt from `@context-lc` (`instructions.js`), or built-in words
+ * @param {{instructions: ?string, texting: ?string, prompt: ?string}} [options.notes]
+ *   the editable prompt from `@context-lc` (`instructions.js`, or the production
+ *   setup's `prompt` in `production.js`), or built-in words
+ * @param {string} [options.builtinModelOverride] the built-in model to run
+ *   instead of `builtinModel(env)`; `route.js` checks it can be called
+ * @param {number} [options.maxRounds] the most model rounds this turn may take,
+ *   clamped to 1..MAX_ROUNDS
  * @param {() => number} [options.clock] milliseconds, for `timing`
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
@@ -224,6 +237,8 @@ export async function runTurn(options) {
     web = null,
     texting = false,
     notes = null,
+    builtinModelOverride = null,
+    maxRounds = MAX_ROUNDS,
     clock = Date.now,
   } = options;
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -234,7 +249,8 @@ export async function runTurn(options) {
   const provider = credential.provider;
   const builtin = provider === BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
-  const model = builtin ? builtinModel(env) : modelFor(provider, env, requestedModel);
+  const model = builtin ? builtinModelOverride ?? builtinModel(env) : modelFor(provider, env, requestedModel);
+  const rounds = roundsFor(maxRounds);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const system =
     systemPrompt(place, { texting, notes }) +
@@ -283,7 +299,7 @@ export async function runTurn(options) {
   */
   const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
 
-  for (let round = 0; round < MAX_ROUNDS; round += 1) {
+  for (let round = 0; round < rounds; round += 1) {
     const asked = clock();
     let answer;
     try {

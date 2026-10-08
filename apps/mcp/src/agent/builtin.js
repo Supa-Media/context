@@ -59,6 +59,17 @@ export function hasBuiltinModel(env) {
   return typeof env?.AI?.run === "function" || aiGatewayConfig(env) !== null;
 }
 
+/**
+ * Whether this deployment can call `model` as a built-in turn: a `@cf/` model
+ * needs the Workers AI binding, an `anthropic/` one needs the gateway. Anything
+ * else is `false`, so a named model this build cannot reach falls back.
+ */
+export function canRunBuiltin(model, env) {
+  if (typeof model !== "string") return false;
+  if (model.startsWith("@cf/")) return typeof env?.AI?.run === "function";
+  return isGatewayModel(model) && aiGatewayConfig(env) !== null;
+}
+
 function count(value) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
