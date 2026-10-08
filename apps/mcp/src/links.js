@@ -516,7 +516,7 @@ function encodeTarget(file) {
  * is what a move reports back and deriving it by diffing afterwards would be a
  * second, disagreeing implementation of "what changed".
  */
-export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardTarget }) {
+export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardTarget = undefined }) {
   const links = parseLinks(text);
   if (links.length === 0) return null;
 
