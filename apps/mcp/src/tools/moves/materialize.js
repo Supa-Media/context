@@ -36,7 +36,7 @@ import {
 import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
 import { onlyLinkTargetsChanged } from "../../links.js";
-import { rewriteReferences } from "./references.js";
+import { referenceCandidates, rewriteReferences } from "./references.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { listImmediateLayout } from "../../notes/storage.js";
 import { loadMoveJobs } from "../../moves/jobs.js";
@@ -103,6 +103,16 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
       return toolError(`move ${job.id} reference inventory paused: exceeded 100 pages`);
     }
     if (!Array.isArray(job.reference_inventory_prefixes)) {
+      // The tree's link table answers the whole inventory in one pass, and
+      // names the few notes worth reading (`tree/links.js`).
+      const fromTable = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
+      if (fromTable !== null) {
+        job.reference_inventory_keys = fromTable.inventoryKeys;
+        job.reference_candidates = [...fromTable.candidates];
+        job.reference_inventory_complete = true;
+        await persistMoveJob(store, job);
+        return toolText(`move ${job.id}: reference inventory complete`);
+      }
       const layout = await listImmediateLayout(store);
       job.reference_inventory_prefixes = layout.prefixes;
       job.reference_inventory_index = 0;
@@ -147,10 +157,11 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
   const pending = Array.isArray(job.reference_failed_paths) ? job.reference_failed_paths : [];
   const retrying = job.reference_scan_complete === true && pending.length > 0;
   const selected = retrying ? pending.slice(0, referenceBatchSize) : null;
+  const candidates = Array.isArray(job.reference_candidates) ? new Set(job.reference_candidates) : undefined;
   const result = await rewriteReferences(store, job.reference_scope || scope, state.rules, state.overrides, renames,
-    retrying ? { paths: selected, currentJobId: job.id, inventoryKeys: job.reference_inventory_keys } :
+    retrying ? { paths: selected, currentJobId: job.id, inventoryKeys: job.reference_inventory_keys, candidates } :
       { after: job.reference_after, limit: referenceBatchSize, currentJobId: job.id,
-        inventoryKeys: job.reference_inventory_keys });
+        inventoryKeys: job.reference_inventory_keys, candidates });
   if (!Array.isArray(result.failedPaths)) {
     return toolError(`move ${job.id} reference rewrite paused: note listing did not finish`);
   }

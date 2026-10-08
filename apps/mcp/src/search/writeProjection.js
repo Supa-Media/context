@@ -22,6 +22,8 @@ import { createD1Client } from "./d1/client.js";
 import { projectNote, upsertStatements } from "./d1/project.js";
 import { TREE_STATEMENTS } from "../tree/table.js";
 import { writtenStatements } from "../tree/touch.js";
+import { LINK_STATEMENTS, linkWriteStatements } from "../tree/links.js";
+import { indexableText } from "../encryption/format.js";
 import { createSearchBudget } from "./maintain.js";
 import { syncShardedIndex } from "./shards.js";
 import { meaningWritable, removeMeaningNotes, writeMeaningNote } from "./meaning/store.js";
@@ -127,13 +129,16 @@ export async function projectWrittenNoteAfterResponse(
           visibility,
           content,
         });
-        // The tree table's row for the note rides the same request, with the
-        // table's own `CREATE ... IF NOT EXISTS` in front of it so a database
-        // no sweep has reached yet cannot fail the projection.
+        // The tree table's row for the note, and its links, ride the same
+        // request, with the tables' own `CREATE ... IF NOT EXISTS` in front
+        // so a database no sweep has reached yet cannot fail the projection.
+        // The links are recorded at the version the tree row is, so the note
+        // is parsed as of this save and no fill pass reads it again.
         await client.runAll([
           ...upsertStatements(path, projected),
-          ...TREE_STATEMENTS.map((sql) => ({ sql, params: [] })),
+          ...[...TREE_STATEMENTS, ...LINK_STATEMENTS].map((sql) => ({ sql, params: [] })),
           ...writtenStatements([{ path, etag: version }], Date.now()),
+          ...linkWriteStatements(path, version, indexableText(content)),
         ]);
         if (typeof store.reportSearchIndexProgress === "function") {
           const notesIndexed = await countProjected(client);

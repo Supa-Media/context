@@ -2,6 +2,11 @@
 
 ### The map's graph is read per shard at request time, and stored nowhere
 
+> **Superseded in part (decided by the owner, 2026-10-08):** once a context's
+> tree table has read every note's links, the map draws from it instead of the
+> shards, and the links are stored there. The serve-time privacy rules below
+> are unchanged. See [Links live beside the tree](../app-and-console/tree-table.md#links-live-beside-the-tree-and-who-links-here-is-one-query).
+
 The console's map draws every note a person can see as a dot and every link
 between two of them as a line. Both come from `files.workspaceGraph`
 (`apps/convex/functions/lib/fileOps/graph.ts`), and the shape of that function

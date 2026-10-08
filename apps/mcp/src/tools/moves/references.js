@@ -13,6 +13,8 @@ import { forwardPath, readForwarding } from "../../forwarding.js";
 import { MOVE_JOB_VERSION } from "../../moves/limits.js";
 import { loadMoveJobs, persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
+import { linkCandidates } from "../../tree/links.js";
+import { treeClientOf } from "../../tree/record.js";
 
 /**
  * Point every link at where its note went.
@@ -60,6 +62,7 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   paths,
   currentJobId,
   inventoryKeys,
+  candidates,
 } = {}) {
   if (renames.size === 0) return { notes: 0, links: 0, capped: false };
 
@@ -85,6 +88,10 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     }
   }
   keys = keys.filter((key) => !unavailable.has(key));
+  // The tree's link table named the notes that can hold a link to what moved
+  // (`tree/links.js`): only those are read. Every visible note still feeds
+  // `byName` below, because a bare link is unambiguous only across them all.
+  if (candidates) keys = keys.filter((key) => candidates.has(key));
   const paged = Number.isInteger(limit) && limit > 0;
   if (!paged && !paths && keys.length > LINK_SCAN_CAP) {
     return { notes: 0, links: 0, capped: true };
@@ -254,7 +261,8 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
  * job lets the same materializer finish the link work after the request ends.
  */
 export async function rewriteReferencesOrQueue(store, scope, rules, overrides, renames) {
-  const result = await rewriteReferences(store, scope, rules, overrides, renames);
+  const fromTable = await referenceCandidates(store, renames);
+  const result = await rewriteReferences(store, scope, rules, overrides, renames, fromTable ?? {});
   // Gateway jobs currently require owner clearance. A team caller must not
   // create a job that the queue will later run with owner permissions.
   if (!result.capped || result.failed > 0 || scope !== "private") return result;
@@ -295,4 +303,16 @@ export async function rewriteReferencesOrQueue(store, scope, rules, overrides, r
     }
   }
   return { notes: 0, links: 0, capped: false, pending: true, moveId: id };
+}
+
+/**
+ * The notes that can hold a link to what moved, from the tree's link table,
+ * as `rewriteReferences` options; `null` where this context has no table or
+ * it cannot be trusted yet, and the rewrite walks every note as before.
+ */
+export async function referenceCandidates(store, renames) {
+  const client = treeClientOf(store);
+  if (client === null || renames.size === 0) return null;
+  const found = await linkCandidates(client, renames);
+  return found === null ? null : { inventoryKeys: found.inventory, candidates: found.candidates };
 }
