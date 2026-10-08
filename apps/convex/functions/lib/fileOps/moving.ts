@@ -32,6 +32,7 @@ import { keysUnder, isFolder } from "./walk";
 import { assertMoveDestinationsVisible } from "./moveRules";
 import { type ReferenceRewrite, rewriteReferences } from "./references";
 import { mutateManifest, remapPrivacy } from "./privacyRewrite";
+import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
 
 export interface MoveResult {
   from: string;
@@ -423,6 +424,8 @@ export async function movePath(
     folderMove,
     survivors: walk.withheld,
   });
+  // Its icon, and the icons of the folders inside it, go where it went.
+  if (folderMove !== null) await remapFolderIcons(store, from, to);
 
   /*
     A FORWARDING ADDRESS, FOR THE REFERENCES A REWRITE CANNOT REACH.

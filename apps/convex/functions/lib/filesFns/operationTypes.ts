@@ -142,6 +142,8 @@ export type FileOperation =
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "emojiList" }
+  | { kind: "folderIconsRead" }
+  | { kind: "folderIconSet"; path: string; icon: string | null }
   | { kind: "emojiRead"; name: string }
   | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; replace: boolean }
   | { kind: "emojiRemove"; name: string }
@@ -394,4 +396,5 @@ export type OperationResult =
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
   | { kind: "emojiStored"; name: string; leaf: string }
   | { kind: "emojiRemoved" }
+  | { kind: "folderIcons"; icons: Array<{ path: string; icon: string }> }
   | { kind: "organizerResult"; output: string };

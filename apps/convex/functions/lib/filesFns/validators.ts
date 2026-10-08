@@ -90,6 +90,12 @@ export const emojiStoredValidator = v.object({
 
 export const emojiRemovedValidator = v.object({ kind: v.literal("emojiRemoved") });
 
+/** Pairs rather than a record: a Convex record key cannot be every folder name. */
+export const folderIconsValidator = v.object({
+  kind: v.literal("folderIcons"),
+  icons: v.array(v.object({ path: v.string(), icon: v.string() })),
+});
+
 export const vaultImportResultValidator = v.object({
   kind: v.literal("vaultImported"),
   created: v.array(v.string()),

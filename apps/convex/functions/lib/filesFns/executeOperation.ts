@@ -54,6 +54,7 @@ import {
 import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
+import { listFolderIcons, setFolderIcon } from "../fileOps/folderIcons";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -927,6 +928,13 @@ export async function executeOperation(
       }
       case "emojiList":
         return { kind: "emojiList", emoji: await listCustomEmoji(store) };
+      case "folderIconsRead":
+      case "folderIconSet": {
+        const icons = operation.kind === "folderIconsRead"
+          ? await listFolderIcons(store, { clearance })
+          : await setFolderIcon(store, { path: operation.path, icon: operation.icon, clearance });
+        return { kind: "folderIcons", icons: Object.entries(icons).map(([path, icon]) => ({ path, icon })) };
+      }
       case "emojiRead":
         return { kind: "emojiImage", ...(await readCustomEmoji(store, operation.name)) };
       case "emojiStore": {
