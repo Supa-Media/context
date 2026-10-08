@@ -90,8 +90,8 @@ export async function readGlobalOrientNote({ contexts, openPinned, here }) {
 /**
  * Any one note from the pinned workspace, read exactly as the global note is:
  * through the caller's own reach and that context's `privacy.md`, shaped by
- * `shape`, and `null` for every way it can be missing. The texting assistant's
- * instructions (`agent/instructions.js`) are read this way too.
+ * `shape`, and `null` for every way it can be missing. The assistant's
+ * production setups (`agent/production.js`) are read this way too.
  */
 export async function readPinnedNote({ contexts, openPinned, here }, path, shape) {
   try {

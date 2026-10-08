@@ -1,13 +1,13 @@
 /**
  * The texting assistant's production setup: one plain Markdown note,
- * `assistant/production/texting-assistant.md` in the pinned `@context-lc` workspace
+ * `ai/production/texting-assistant.md` in the pinned `@context-lc` workspace
  * (decided by the owner, 2026-10-08). Its front matter picks the built-in
  * model and the step cap; its body is the one prompt a texted turn is given.
  *
  * Asserted on the wire, like `agentInstructions.test.mjs`: the system prompt
  * and the model the fake provider was actually sent. Read through the caller's
  * own reach and `privacy.md`, and missing, malformed or held-back means the
- * pinned notes in `assistant/`, then the built-in words, never an error.
+ * built-in words, never an error.
  */
 
 import assert from "node:assert/strict";
@@ -15,9 +15,8 @@ import { createHash } from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { ASSISTANT_INSTRUCTIONS_PATH, ASSISTANT_TEXTING_PATH } from "../src/agent/instructions.js";
 import { DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL } from "../src/agent/builtin.js";
-import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
+import { PRODUCTION_APP_PATH, PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 
@@ -29,8 +28,7 @@ const TOKEN_STAFF = `cat_prod_staff_${"0".repeat(24)}`;
 const API_KEY = "zarquon-production-setup-not-a-real-key";
 const GATEWAY_ACCOUNT = "0123456789abcdef0123456789abcdef";
 
-const WHO = "WHO-NOTE-MARK: You are Context, as the pinned notes describe.";
-const STYLE = "STYLE-NOTE-MARK: Text like a friend, one short line.";
+const WHO = "WHO-NOTE-MARK: You are Context, as the app file describes.";
 const PROMPT = "PRODUCTION-MARK: You are Context, the assistant people text. Ask before you text someone.";
 
 /** A setup file. The example from the owner's note, with the body overridable. */
@@ -56,7 +54,7 @@ function manifest(extra = "", productionShared = true) {
   return (
     "---\nrole: privacy-manifest\n---\n\n" +
     "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-    `folder_defaults:\n  assistant: team\n  1-projects: team\n${productionShared ? "" : "  assistant/production: private\n"}\n` +
+    `folder_defaults:\n  ai: team\n  1-projects: team\n${productionShared ? "" : "  ai/production: private\n"}\n` +
     `note_overrides:\n${extra || "  # none\n"}` +
     "```\n\n<!-- END BRAIN PRIVACY RULES -->\n"
   );
@@ -253,8 +251,7 @@ beforeEach(() => {
   anthropicCalls.length = 0;
   gatewayCalls.length = 0;
   pinnedBucket.set("privacy.md", { body: manifest(), etag: "p1" });
-  pinnedBucket.set(ASSISTANT_INSTRUCTIONS_PATH, { body: `${WHO}\n`, etag: "a0" });
-  pinnedBucket.set(ASSISTANT_TEXTING_PATH, { body: `${STYLE}\n`, etag: "t0" });
+  pinnedBucket.set(PRODUCTION_APP_PATH, { body: setupFile({ prompt: WHO }), etag: "a0" });
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile(), etag: "s0" });
 });
 
@@ -263,18 +260,17 @@ function anthropicSystem() {
   return String(anthropicCalls.at(-1)?.body?.system ?? "");
 }
 
-test("a texted turn is told the production prompt, and nothing the pinned notes say", async () => {
+test("a texted turn is told the texting production prompt, and not the app one", async () => {
   const response = await ask(base, TOKEN_TEXTS);
   assert.equal(response.status, 200);
   const system = anthropicSystem();
   assert.equal(system.split(PROMPT).length, 2, "the production prompt, exactly once");
-  assert.ok(!system.includes(WHO), "assistant/instructions.md is not sent");
-  assert.ok(!system.includes(STYLE), "assistant/texting.md is not sent");
+  assert.ok(!system.includes(WHO), "the app file is not sent");
   assert.ok(!system.includes("No Markdown at all"), "the built-in texting style is not sent");
   assert.ok(system.includes("propose_note"), "what the code decides is still said");
 });
 
-test("an app turn ignores the production file and keeps the instructions note", async () => {
+test("an app turn reads the app file, not the texting one", async () => {
   await ask(base, TOKEN_APP);
   const system = anthropicSystem();
   assert.ok(system.includes(WHO));
@@ -282,19 +278,21 @@ test("an app turn ignores the production file and keeps the instructions note", 
   assert.ok(system.includes("Cite the note path"));
 });
 
-test("a missing production file falls back to the pinned notes", async () => {
+const BUILTIN = "You are Context, the assistant built into";
+
+test("a missing production file falls back to the built-in words", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
   await ask(base, TOKEN_TEXTS);
   const system = anthropicSystem();
-  assert.ok(system.includes(WHO) && system.includes(STYLE));
+  assert.ok(system.includes(BUILTIN) && system.includes("No Markdown at all"));
   assert.ok(!system.includes(PROMPT));
 });
 
-test("a malformed production file falls back to the pinned notes", async () => {
+test("a malformed production file falls back to the built-in words", async () => {
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile({ model: "openai/gpt-5" }), etag: "s1" });
   await ask(base, TOKEN_TEXTS);
   const system = anthropicSystem();
-  assert.ok(system.includes(WHO) && system.includes(STYLE));
+  assert.ok(system.includes(BUILTIN));
   assert.ok(!system.includes(PROMPT));
 });
 
@@ -302,7 +300,7 @@ test("a production file privacy.md holds back from members falls back, and its o
   pinnedBucket.set("privacy.md", { body: manifest(`  ${PRODUCTION_TEXTING_PATH}: private\n`), etag: "p2" });
   await ask(base, TOKEN_TEXTS);
   const member = anthropicSystem();
-  assert.ok(member.includes(WHO), "the member gets the pinned notes");
+  assert.ok(member.includes(BUILTIN), "the member gets the built-in words");
   assert.ok(!member.includes(PROMPT), "the member is not sent the held-back prompt");
   await ask(base, TOKEN_STAFF);
   assert.ok(anthropicSystem().includes(PROMPT), "staff inside @context-lc still read it");
@@ -312,16 +310,16 @@ test("a production folder privacy.md keeps private inside a shared folder is not
   pinnedBucket.set("privacy.md", { body: manifest("", false), etag: "p3" });
   await ask(base, TOKEN_TEXTS);
   const system = anthropicSystem();
-  assert.ok(system.includes(WHO));
-  assert.ok(!system.includes(PROMPT), "a private subfolder of assistant/ stays private");
+  assert.ok(system.includes(BUILTIN));
+  assert.ok(!system.includes(PROMPT), "a private subfolder of ai/ stays private");
 });
 
-test("a built-in turn is given the production prompt once, and the pinned notes not at all", async () => {
+test("a built-in turn is given the production prompt once, and the app file not at all", async () => {
   const ai = fakeAi();
   await ask({ ...base, AI: ai }, TOKEN_FREE);
   const system = builtinSystem(ai);
   assert.equal(system.split(PROMPT).length, 2, "one prompt per setup");
-  assert.ok(!system.includes(WHO) && !system.includes(STYLE));
+  assert.ok(!system.includes(WHO));
 });
 
 test("a built-in turn runs the production model when this deployment can call a Workers AI one", async () => {

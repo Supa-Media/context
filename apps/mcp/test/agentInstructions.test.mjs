@@ -1,24 +1,23 @@
 /**
- * The assistant's own instructions, kept where staff can edit them:
- * `assistant/instructions.md` and `assistant/texting.md` in the pinned
- * `@context-lc` workspace (decided by the owner, 2026-10-07).
+ * The assistant's own words, kept where staff can edit them: one production
+ * file per job in the pinned `@context-lc` workspace,
+ * `ai/production/texting-assistant.md` for texts and
+ * `ai/production/app-assistant.md` for the app (decided by the owner,
+ * 2026-10-08; this replaced `assistant/instructions.md` and `texting.md`).
  *
  * Asserted on the wire — the system prompt the fake model was actually sent —
  * so a turn that read the note and then dropped it would still fail. Read
  * through the caller's own reach and `privacy.md`, exactly like the global
  * orient note (`globalOrientNote.test.mjs`), and the built-in words whenever
- * the note is missing, held back, or there is no pinned workspace at all.
+ * the file is missing, invalid, held back, or there is no pinned workspace.
+ * The file's grammar and its model are `agentProduction.test.mjs`.
  */
 
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import {
-  ASSISTANT_CHAR_CAP,
-  ASSISTANT_INSTRUCTIONS_PATH,
-  ASSISTANT_TEXTING_PATH,
-} from "../src/agent/instructions.js";
+import { PRODUCTION_APP_PATH, PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 
@@ -32,11 +31,16 @@ const API_KEY = "zarquon-assistant-notes-not-a-real-key";
 const WHO = "You are Context. Context is a notes app at context.lc, never Obsidian.";
 const STYLE = "Text like a friend: one short line, no lists.";
 
+/** A production file: front matter naming a model, and the whole prompt. */
+function setupFile(job, body) {
+  return `---\njob: ${job}\nupdated: 2026-10-08\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\n${body}\n`;
+}
+
 function manifest(extra = "") {
   return (
     "---\nrole: privacy-manifest\n---\n\n" +
     "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-    `folder_defaults:\n  assistant: team\n  1-projects: team\n\nnote_overrides:\n${extra || "  # none\n"}` +
+    `folder_defaults:\n  ai: team\n  1-projects: team\n\nnote_overrides:\n${extra || "  # none\n"}` +
     "```\n\n<!-- END BRAIN PRIVACY RULES -->\n"
   );
 }
@@ -108,9 +112,9 @@ before(async () => {
   for (const bucket of ["assist-mine", "assist-pinned"]) {
     s3.bucketFor(bucket).set("privacy.md", { body: manifest(), etag: "p0" });
   }
-  // The person's own context has an assistant/ folder too; only the pinned
-  // one's is the assistant's instructions.
-  s3.bucketFor("assist-mine").set(ASSISTANT_INSTRUCTIONS_PATH, { body: "NOT-THE-PINNED-ONE", etag: "m0" });
+  // The person's own context has an ai/production/ folder too; only the
+  // pinned one's is the assistant's setup.
+  s3.bucketFor("assist-mine").set(PRODUCTION_TEXTING_PATH, { body: setupFile("texting-assistant", "NOT-THE-PINNED-ONE"), etag: "m0" });
   pinnedBucket = s3.bucketFor("assist-pinned");
 
   const member = [{ workspaceId: "ws_pinned", role: "member" }];
@@ -141,29 +145,28 @@ after(() => {
 
 beforeEach(() => {
   pinnedBucket.set("privacy.md", { body: manifest(), etag: "p1" });
-  pinnedBucket.set(ASSISTANT_INSTRUCTIONS_PATH, { body: `---\nupdated: 2026-10-07\n---\n\n${WHO}\n`, etag: "a0" });
-  pinnedBucket.set(ASSISTANT_TEXTING_PATH, { body: `${STYLE}\n`, etag: "t0" });
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile("texting-assistant", `${WHO}\n\n${STYLE}`), etag: "a0" });
+  pinnedBucket.set(PRODUCTION_APP_PATH, { body: setupFile("app-assistant", WHO), etag: "t0" });
 });
 
-test("a texted turn is told what the pinned notes say, in place of the built-in words", async () => {
+test("a texted turn is told the texting file's words, in place of the built-in ones", async () => {
   const system = await systemFor(TOKEN_TEXTS);
-  assert.ok(system.includes(WHO), "the instructions note");
-  assert.ok(system.includes(STYLE), "the texting note");
-  assert.ok(!system.includes("updated: 2026-10-07"), "front matter is not sent");
+  assert.ok(system.includes(WHO) && system.includes(STYLE), "the texting file's prompt");
+  assert.ok(!system.includes("updated: 2026-10-08"), "front matter is not sent");
   assert.ok(!system.includes("You are Context, the assistant built into"), "built-in identity replaced");
   assert.ok(!system.includes("No Markdown at all"), "built-in texting style replaced");
-  assert.ok(!system.includes("NOT-THE-PINNED-ONE"), "only the pinned workspace's note counts");
+  assert.ok(!system.includes("NOT-THE-PINNED-ONE"), "only the pinned workspace's file counts");
   assert.ok(system.includes("propose_note"), "what the code decides is still said");
 });
 
-test("an app turn gets the instructions but not the texting style", async () => {
+test("an app turn gets the app file, not the texting one", async () => {
   const system = await systemFor(TOKEN_APP);
   assert.ok(system.includes(WHO));
   assert.ok(!system.includes(STYLE));
   assert.ok(system.includes("Cite the note path"));
 });
 
-test("staff working inside @context-lc get the notes too", async () => {
+test("staff working inside @context-lc get the files too", async () => {
   const system = await systemFor(TOKEN_STAFF);
   assert.ok(system.includes(WHO) && system.includes(STYLE));
 });
@@ -176,15 +179,24 @@ test("with no pinned workspace the built-in words say what Context is", async ()
   assert.ok(system.includes("No Markdown at all"), "built-in texting style");
 });
 
-test("a missing note falls back to the built-in words, one note at a time", async () => {
-  pinnedBucket.delete(ASSISTANT_TEXTING_PATH);
-  const system = await systemFor(TOKEN_TEXTS);
-  assert.ok(system.includes(WHO), "the instructions note still applies");
-  assert.ok(system.includes("No Markdown at all"), "the built-in texting style fills in");
+test("a missing file means the built-in words for that job only", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const texted = await systemFor(TOKEN_TEXTS);
+  assert.ok(!texted.includes(WHO));
+  assert.ok(texted.includes("You are Context, the assistant built into"), "built-in identity");
+  assert.ok(texted.includes("No Markdown at all"), "built-in texting style");
+  assert.ok((await systemFor(TOKEN_APP)).includes(WHO), "the app job still reads its own file");
 });
 
-test("a note privacy.md holds back from members is not sent to their model", async () => {
-  pinnedBucket.set("privacy.md", { body: manifest(`  ${ASSISTANT_INSTRUCTIONS_PATH}: private\n`), etag: "p2" });
+test("the retired assistant/ notes are never read", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  pinnedBucket.set("assistant/instructions.md", { body: "RETIRED-MARK\n", etag: "r0" });
+  pinnedBucket.set("assistant/texting.md", { body: "RETIRED-MARK\n", etag: "r1" });
+  assert.ok(!(await systemFor(TOKEN_TEXTS)).includes("RETIRED-MARK"));
+});
+
+test("a file privacy.md holds back from members is not sent to their model", async () => {
+  pinnedBucket.set("privacy.md", { body: manifest(`  ${PRODUCTION_TEXTING_PATH}: private\n`), etag: "p2" });
   const member = await systemFor(TOKEN_TEXTS);
   assert.ok(!member.includes(WHO));
   assert.ok(member.includes("You are Context, the assistant built into"));
@@ -192,10 +204,9 @@ test("a note privacy.md holds back from members is not sent to their model", asy
   assert.ok((await systemFor(TOKEN_STAFF)).includes(WHO));
 });
 
-test("the note is capped, so an overgrown one cannot crowd out the question", async () => {
-  const long = `${WHO}\n${"x".repeat(ASSISTANT_CHAR_CAP * 2)}`;
-  pinnedBucket.set(ASSISTANT_INSTRUCTIONS_PATH, { body: long, etag: "a1" });
+test("an overgrown file is refused, so it cannot crowd out the question", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile("texting-assistant", `${WHO}\n${"x".repeat(40_001)}`), etag: "a1" });
   const system = await systemFor(TOKEN_TEXTS);
-  assert.ok(system.includes(WHO));
-  assert.ok(system.length < ASSISTANT_CHAR_CAP + 3_000, `system was ${system.length} characters`);
+  assert.ok(!system.includes(WHO));
+  assert.ok(system.length < 5_000, `system was ${system.length} characters`);
 });

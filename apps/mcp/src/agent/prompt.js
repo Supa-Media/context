@@ -1,7 +1,7 @@
 /**
  * WHAT THE MODEL IS TOLD BEFORE THE QUESTION.
  *
- * The built-in words live here; `instructions.js` reads the editable ones from
+ * The built-in words live here; `production.js` reads the editable ones from
  * the pinned `@context-lc` workspace, which take their place when present.
  */
 
@@ -37,7 +37,7 @@ const TEXTING_STYLE = [
  * What Context is, said first and in so many words. Without it a model fills
  * the gap from the folder names it sees, and a context imported from another
  * notes app had the assistant introducing itself as that app (the owner,
- * 2026-10-07). The editable `assistant/instructions.md` replaces this.
+ * 2026-10-07). The editable `ai/production/` setup replaces this.
  */
 const BUILTIN_IDENTITY = [
   "You are Context, the assistant built into Context (context.lc).",
@@ -53,9 +53,8 @@ const BUILTIN_IDENTITY = [
  * written for exactly this reader and are already the product's best statement
  * of what each call is for.
  *
- * `notes` are the editable words from `@context-lc`: `instructions.js` gives
- * `instructions` (for the built-in identity) and `texting` (for the built-in
- * texting style); `production.js` gives `prompt`, which replaces both. What the code decides — that the agent proposes
+ * `notes.prompt` is the editable words from `@context-lc` (`production.js`),
+ * which replace the built-in identity and texting style. What the code decides — that the agent proposes
  * rather than edits, and where the person is — is said here either way, so a
  * note can add to the agent's understanding but never misdescribe its reach.
  */
@@ -64,17 +63,13 @@ export function systemPrompt(place, { texting = false, notes = null } = {}) {
   // assistant is and how it writes: it stands in for the identity and the
   // texting style alike, so it is said once and nothing else follows it.
   const production = typeof notes?.prompt === "string" && notes.prompt.length > 0 ? notes.prompt : null;
-  const identity = production
-    ? [production]
-    : notes?.instructions
-      ? [notes.instructions]
-      : BUILTIN_IDENTITY;
+  const identity = production ? [production] : BUILTIN_IDENTITY;
   const lines = texting
     ? [
         ...identity,
         "This turn is a text message they sent you from their phone.",
         "You cannot edit their notes. To suggest a change, use propose_note; they review and decide.",
-        ...(production ? [] : ["", ...(notes?.texting ? [notes.texting] : TEXTING_STYLE)]),
+        ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [
         ...identity,

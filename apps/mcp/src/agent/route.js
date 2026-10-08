@@ -12,7 +12,6 @@ import {
   runTurn,
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
-import { readAssistantInstructions } from "./instructions.js";
 import { readProductionSetup } from "./production.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
@@ -224,15 +223,13 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         });
 
   /*
-    THE PRODUCTION SETUP (`production.js`), on texting turns. Its prompt replaces
-    the pinned notes and the built-in words, and its model is used for a
+    THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
+    turn, the app job's otherwise. Its prompt replaces the built-in words, and
+    its model is used for a
     built-in turn only, and only when this deployment can call it: a person's
     own connected account keeps their model, and an uncallable one falls back.
   */
-  const [production, assistantNotes] = await Promise.all([
-    texting ? readProductionSetup(store, session) : null,
-    readAssistantInstructions(store, session, { texting }),
-  ]);
+  const production = await readProductionSetup(store, session, { texting });
   const productionModel =
     builtin && production !== null && canRunBuiltin(production.model, env) ? production.model : null;
   const builtinUsed = productionModel ?? builtinModel(env);
@@ -350,7 +347,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       web,
       history,
       texting,
-      notes: production !== null ? { prompt: production.prompt } : assistantNotes,
+      notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
       maxRounds: production?.maxSteps ?? undefined,
     });
