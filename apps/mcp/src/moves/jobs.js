@@ -39,22 +39,19 @@ export function moveProgressFromText(text) {
  * immediate tool response; never persist it in the move marker, activity or
  * gateway job status."
  *
- * The stage, the move id and our own words survive, because they are what an
- * operator reads a failed job for and none of them contains a slash. The same
- * path shape `safeMoveStorageDetail` uses, so there is one spelling of "that
- * looks like a key" in the move code rather than two.
+ * Only a validated move id and a known stage survive. Redacting path-like
+ * substrings from arbitrary provider text leaves filename fragments when a
+ * path contains spaces or non-ASCII characters.
  */
-/** What the control plane stores of a failed job; it truncates past this itself. */
-const GATEWAY_JOB_ERROR_CAP = 300;
-
 export function moveErrorForControlPlane(text) {
   if (typeof text !== "string" || text.length === 0) return undefined;
-  const cleaned = text
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/\b[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+\b/g, "[path]")
-    .slice(0, GATEWAY_JOB_ERROR_CAP)
-    .trim();
-  return cleaned.length > 0 ? cleaned : undefined;
+  const id = /^move (move-[a-z0-9-]{8,80}):/i.exec(text)?.[1];
+  if (!id) return "move job failed";
+  const materialization = /^move move-[a-z0-9-]{8,80}: materialization paused: (copying|deleting|rewriting|inventorying)\b/i.exec(text);
+  const reference = /^move move-[a-z0-9-]{8,80}: reference (rewrite|inventory) paused:/i.exec(text);
+  const stage = materialization?.[1]?.toLowerCase() ||
+    (reference?.[1] === "rewrite" ? "rewriting" : reference?.[1] === "inventory" ? "inventorying" : null);
+  return `move job failed: ${id}${stage ? ` (${stage})` : ""}`;
 }
 
 const LOGICAL_MOVE_WORKSPACES = new Set();

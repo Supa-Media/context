@@ -44,10 +44,24 @@ export function runMoveDiagnosticsRedactionChecks() {
     "source changed during materialization: 2-areas/private/secret-plan.md";
   const forwarded = moveErrorForControlPlane(failureText);
   check("a move failure forwarded to the control plane carries no note path",
-    !forwarded.includes("2-areas/private/secret-plan.md") && !forwarded.includes("secret-plan") &&
-      forwarded.includes("[path]"));
+    !forwarded.includes("2-areas/private/secret-plan.md") && !forwarded.includes("secret-plan"));
   check("POSITIVE CONTROL: the move id and the stage still reach an operator",
     forwarded.includes("move-9f3a2b7c1d4e") && forwarded.includes("copying"));
+  for (const filename of ["secret plan.md", "café.md", "secret/plan.md", "secret\nplan.md"]) {
+    const privatePath = `2-areas/private/${filename}`;
+    const failure = `move move-9f3a2b7c1d4e: materialization paused: copying: source changed: ${privatePath}`;
+    const safe = moveErrorForControlPlane(failure);
+    check(`a move failure does not leak a fragment of ${JSON.stringify(filename)}`,
+      safe === "move job failed: move-9f3a2b7c1d4e (copying)");
+  }
+  check("provider text without a known move id or stage cannot enter the control plane",
+    moveErrorForControlPlane("storage failed: 2-areas/private/secret plan.md") === "move job failed");
+  check("a filename that names a stage cannot masquerade as the worker stage",
+    moveErrorForControlPlane("move move-9f3a2b7c1d4e: materialization paused: 2-areas/private/copying.md") ===
+      "move job failed: move-9f3a2b7c1d4e");
+  check("reference failures report a fixed stage without forwarding their note path",
+    moveErrorForControlPlane("move move-9f3a2b7c1d4e: reference rewrite paused: 2-areas/private/café.md") ===
+      "move job failed: move-9f3a2b7c1d4e (rewriting)");
   check("an empty or absent failure forwards nothing rather than an empty string",
     moveErrorForControlPlane("") === undefined && moveErrorForControlPlane(undefined) === undefined);
 
