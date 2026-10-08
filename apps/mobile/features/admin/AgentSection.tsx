@@ -42,13 +42,19 @@ import {
   type AgentReport,
 } from "./agent";
 import { formatCount } from "./report";
+import { useOwnedOr } from "./useOwnedOr";
 
-export function AgentSection() {
+/**
+ * `openId`/`onOpen` are the answer opened step by step, which the route keeps
+ * in the address (`/admin/agent/<id>`) so Back closes it; without them the tab
+ * keeps its own.
+ */
+export function AgentSection(props: { openId?: string | null; onOpen?: (id: string | null) => void } = {}) {
   const styles = useThemedStyles(makeStyles);
   const [client, setClient] = useState<AgentClient>("all");
   const [days, setDays] = useState<"1" | "7" | "30">("7");
   const [workspace, setWorkspace] = useState("");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useOwnedOr<string | null>(props.openId, props.onOpen, null);
   const asked = workspace.trim();
   const report = useQuery(api.functions.admin.agentReport, {
     days: Number(days),

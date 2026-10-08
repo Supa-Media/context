@@ -21,6 +21,16 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     marker: "Reached by typing the address",
   },
   {
+    route: "/admin/[...section]",
+    file: "app/(app)/admin/[...section].tsx",
+    reachable: false,
+    reason:
+      "The staff console at one of its tabs (`/admin/search/speed`). The same " +
+      "page as `/admin`, which redirects here, and reached the same way: by the " +
+      "address, or by the console's own tabs once there.",
+    marker: "Reached by typing the address",
+  },
+  {
     route: "/authorize",
     file: "app/authorize.tsx",
     reachable: false,
