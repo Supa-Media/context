@@ -25,6 +25,7 @@ import { basename, join } from "node:path";
 import { parseSetup } from "../src/agent/production.js";
 import { readBenchFolder } from "./load.mjs";
 import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
+import { judgeCommand } from "./judge.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 
@@ -160,14 +161,25 @@ async function run(options) {
   process.stderr.write(`wrote ${out}\nwrote ${keyOut}\n`);
 }
 
+const USAGE = [
+  "usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]",
+  "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--fake]",
+].join("\n");
+
+const COMMANDS = new Map([
+  ["run", run],
+  ["judge", judgeCommand],
+]);
+
 const options = parseArgs(process.argv.slice(2));
 // The gateway logs a line per search and turn; a run's output is the result note.
 if (!options.verbose) console.log = () => {};
-if (options.command !== "run") {
-  process.stderr.write("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]\n");
+const command = COMMANDS.get(options.command);
+if (!command) {
+  process.stderr.write(`${USAGE}\n`);
   process.exit(2);
 }
-run(options).catch((error) => {
+command(options).catch((error) => {
   process.stderr.write(`${error.message}\n`);
   process.exit(1);
 });
