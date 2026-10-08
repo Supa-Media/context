@@ -2,7 +2,7 @@
  * THE TEXTING ASSISTANT'S SETUP, IN ONE NOTE.
  *
  * Decided by the owner, 2026-10-08: the texting assistant's model and its
- * prompt come from one plain Markdown note, `ai/production/texting-assistant.md`
+ * prompt come from one plain Markdown note, `assistant/production/texting-assistant.md`
  * in the pinned `@context-lc` workspace. Promoting a new setup is editing that
  * file; the gateway does not ship. The file is read the way `instructions.js`
  * reads `assistant/`: through the caller's own reach and `privacy.md`.
@@ -26,7 +26,7 @@
 import { pinnedReach } from "./instructions.js";
 import { readPinnedNote } from "../orient/globalNote.js";
 
-export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
+export const PRODUCTION_TEXTING_PATH = "assistant/production/texting-assistant.md";
 
 const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;

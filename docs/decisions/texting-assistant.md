@@ -400,12 +400,16 @@ with no identity at all. The tests that fail are in
 members is not sent to their model", "with no pinned workspace the built-in
 words say what Context is").
 
-### The texting assistant's setup is one production note in `ai/`
+### The texting assistant's setup is one production note in `assistant/production/`
 
 Decided by the owner, 2026-10-08: the texting assistant's model and its prompt
-come from one plain Markdown note, `ai/production/texting-assistant.md` in the
+come from one plain Markdown note, `assistant/production/texting-assistant.md` in the
 pinned `@context-lc` workspace, so promoting a setup is editing that file and
 the gateway does not ship (`apps/mcp/src/agent/production.js`).
+It lives under `assistant/` because that is the folder of `@context-lc` agents
+can write and every member can read; the benchmarks that decide what goes in
+it (invented workspaces, tests, results) are internal and live in `@supa`, so
+no customer ever reads them.
 
 - The front matter names the built-in model (`models.main`, an `@cf/` model or
   an `anthropic/claude-` one), the tools the setup was proved with, and

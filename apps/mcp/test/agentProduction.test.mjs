@@ -1,6 +1,6 @@
 /**
  * The texting assistant's production setup: one plain Markdown note,
- * `ai/production/texting-assistant.md` in the pinned `@context-lc` workspace
+ * `assistant/production/texting-assistant.md` in the pinned `@context-lc` workspace
  * (decided by the owner, 2026-10-08). Its front matter picks the built-in
  * model and the step cap; its body is the one prompt a texted turn is given.
  *
@@ -52,11 +52,11 @@ function file(front, body = PROMPT) {
 
 const OK_FRONT = "models:\n  main: anthropic/claude-haiku-5-5";
 
-function manifest(extra = "", aiShared = true) {
+function manifest(extra = "", productionShared = true) {
   return (
     "---\nrole: privacy-manifest\n---\n\n" +
     "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-    `folder_defaults:\n  assistant: team\n  1-projects: team\n${aiShared ? "  ai: team\n" : ""}\n` +
+    `folder_defaults:\n  assistant: team\n  1-projects: team\n${productionShared ? "" : "  assistant/production: private\n"}\n` +
     `note_overrides:\n${extra || "  # none\n"}` +
     "```\n\n<!-- END BRAIN PRIVACY RULES -->\n"
   );
@@ -308,12 +308,12 @@ test("a production file privacy.md holds back from members falls back, and its o
   assert.ok(anthropicSystem().includes(PROMPT), "staff inside @context-lc still read it");
 });
 
-test("a production file in a folder privacy.md does not share with members is not sent", async () => {
+test("a production folder privacy.md keeps private inside a shared folder is not sent", async () => {
   pinnedBucket.set("privacy.md", { body: manifest("", false), etag: "p3" });
   await ask(base, TOKEN_TEXTS);
   const system = anthropicSystem();
   assert.ok(system.includes(WHO));
-  assert.ok(!system.includes(PROMPT), "the default visibility keeps an unshared folder private");
+  assert.ok(!system.includes(PROMPT), "a private subfolder of assistant/ stays private");
 });
 
 test("a built-in turn is given the production prompt once, and the pinned notes not at all", async () => {
