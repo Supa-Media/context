@@ -109,7 +109,7 @@ export function aboutLine(key, text) {
 }
 
 function bodyAfterFrontmatter(text) {
-  const source = text.replace(/^﻿/, "");
+  const source = text.replace(/^\uFEFF/, "");
   if (!source.startsWith("---")) return source;
   const end = source.indexOf("\n---", 3);
   // An unclosed `---` is more likely a rule than a header, so it is left as is.
