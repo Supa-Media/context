@@ -179,7 +179,12 @@ function Console(props: AdminPaneProps) {
         {tab === "aiCosts" ? (
           <AiCostsSection days={days} openId={sub} onOpen={(id) => openOrClose({ tab: "aiCosts", sub: id })} />
         ) : null}
-        {tab === "search" ? <SearchSection /> : null}
+        {tab === "search" ? (
+          <SearchSection
+            view={sub === "speed" ? "speed" : "indexes"}
+            onView={(view) => go({ tab: "search", sub: view === "indexes" ? null : view })}
+          />
+        ) : null}
         {tab === "credentials" ? <SecretsSection secrets={secrets} unset={unset} /> : null}
         {tab === "waitlist" ? (
           <WaitlistSection

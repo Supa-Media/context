@@ -12,6 +12,7 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   DEFAULT_PLACE,
+  SEARCH_PLACES,
   adminPath,
   parseAdminPlace,
   parseWindow,
@@ -19,6 +20,7 @@ import {
   type AdminPlace,
 } from "../features/admin/place";
 import { PlaceRouter, type PlaceState } from "../features/admin/placeRouter";
+import { SEARCH_SUBVIEWS } from "../features/admin/SearchSection";
 import { waitlistPlace, waitlistView } from "../features/admin/WaitlistSection";
 
 describe("every place has one address", () => {
@@ -71,6 +73,10 @@ describe("every place has one address", () => {
     expect(parseWindow("8")).toBe(30);
     expect(parseWindow(undefined)).toBe(30);
     expect(parseWindow("7; drop")).toBe(30);
+  });
+
+  test("every Search view the tab offers has an address", () => {
+    expect(SEARCH_SUBVIEWS.map((entry) => entry.key).sort()).toEqual([...SEARCH_PLACES].sort());
   });
 
   test("waitlist views and their address words are inverses", () => {
