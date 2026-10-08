@@ -373,3 +373,9 @@ test("fluff lines are omitted when the run did not say", () => {
   const md = resultMarkdown(fixture);
   assert.ok(!md.includes("fluff"));
 });
+
+test("front matter says whether the world was warm or cold, when the run said", () => {
+  const warm = resultMarkdown({ ...fixture, world: "warm" }).split("\n---\n")[0].split("\n");
+  assert.ok(warm.includes("world: warm"));
+  assert.ok(!resultMarkdown(fixture).includes("world:"));
+});
