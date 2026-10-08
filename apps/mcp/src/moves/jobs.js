@@ -25,6 +25,38 @@ export function moveProgressFromText(text) {
     total,
   };
 }
+/**
+ * A move's failure text, with the bucket's paths taken out, for the control
+ * plane's `gatewayJobs.lastError`.
+ *
+ * `moveProgressFromText` above states the rule for the other channel out of
+ * the same consumer — counts only, never a marker's paths or provider text —
+ * and keeps it with a strict integer regex. The failure channel forwarded the
+ * tool's whole text, and a dozen of `materialize.js`'s throws interpolate
+ * `pair.source` or `pair.destination`, so a customer's note path left the
+ * bucket and was stored where the control plane only truncates it.
+ * `safeMoveStorageDetail` says the same of its own fragment: "only in the
+ * immediate tool response; never persist it in the move marker, activity or
+ * gateway job status."
+ *
+ * The stage, the move id and our own words survive, because they are what an
+ * operator reads a failed job for and none of them contains a slash. The same
+ * path shape `safeMoveStorageDetail` uses, so there is one spelling of "that
+ * looks like a key" in the move code rather than two.
+ */
+/** What the control plane stores of a failed job; it truncates past this itself. */
+const GATEWAY_JOB_ERROR_CAP = 300;
+
+export function moveErrorForControlPlane(text) {
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  const cleaned = text
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\b[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+\b/g, "[path]")
+    .slice(0, GATEWAY_JOB_ERROR_CAP)
+    .trim();
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
 const LOGICAL_MOVE_WORKSPACES = new Set();
 
 export function moveJobKey(id) {
