@@ -33,6 +33,7 @@ describe("a phone folder page's ••• sheet", () => {
       "rename",
       "moveTo",
       "pin",
+      "setIcon",
       "share",
       "download",
       "archive",

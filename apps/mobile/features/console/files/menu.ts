@@ -39,7 +39,7 @@
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
 import { builtInLockedItems, isBuiltInRow } from "./menuBuiltIn";
-import { makeItem } from "./menuMake";
+import { iconGroup, makeItem } from "./menuMake";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
 import type { TreeRow } from "./tree";
@@ -471,18 +471,6 @@ function tagsGroup(context: MenuContext, row: TreeRow): MenuItem[] {
   if (tags == null) return [];
   const item = makeItem(context, "tags", "Tags");
   return [tags.length === 0 ? item : { ...item, value: tags.join(", ") }];
-}
-
-/**
- * "Set icon…" on one folder, where its icon can be changed from here.
- *
- * Editor only, and absent rather than disabled like every other write. Built-in
- * folders are offered it too: an icon is decoration on a folder, not a move of
- * one, so `menuBuiltIn.ts`'s locks do not apply.
- */
-function iconGroup(context: MenuContext, row: TreeRow | null): MenuItem[] {
-  if (!context.canEdit || row === null || row.kind !== "folder") return [];
-  return [makeItem(context, "setIcon", "Set icon…")];
 }
 
 /** "Paste foo.md", or nothing. The label names the thing so it is not a guess. */
