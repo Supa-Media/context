@@ -83,6 +83,8 @@ export function Explorer({
   workspaces,
   activity,
   agents,
+  personal,
+  onStartBusiness,
 }: ExplorerProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -247,6 +249,7 @@ export function Explorer({
         dialog={dialog}
         onClose={() => setDialog(null)}
         access={access}
+        places={{ personal: personal === true, onStartBusiness }}
       />
     </View>
   );

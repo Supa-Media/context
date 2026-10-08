@@ -510,7 +510,7 @@ export function ConsoleFrame({
         })}
         explorer={consoleExplorer({
           browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
-          switcherProps,
+          switcherProps, router,
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({

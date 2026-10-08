@@ -14,7 +14,8 @@ import { PhoneBack } from "../home/PhoneBack";
 import { phoneBackTarget } from "../home/phoneBack";
 import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
-import type { ConsoleData } from "../types";
+import { selectedContext, type ConsoleData } from "../types";
+import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
 
@@ -163,6 +164,7 @@ export function consoleExplorer({
   tabs,
   setTreeOverlay,
   switcherProps,
+  router,
 }: {
   browsing: boolean;
   data: ConsoleData;
@@ -172,6 +174,7 @@ export function consoleExplorer({
   tabs: ReturnType<typeof useTabs>;
   setTreeOverlay: Dispatch<SetStateAction<boolean>>;
   switcherProps: ComponentProps<typeof SwitcherMenu>;
+  router: ConsoleRouter;
 }) {
   return (
     browsing ? (
@@ -188,6 +191,8 @@ export function consoleExplorer({
         activity={data.activity}
         // The tree's agent squares and the foot's "N agents active".
         agents={data.agents}
+        personal={selectedContext(data)?.kind === "personal"}
+        onStartBusiness={() => router.push(NEW_WORKSPACE_ROUTE)}
         /*
           **No `vault` and no `vaultDetail` any more, and the line they
           composed has not been deleted — it has moved.**

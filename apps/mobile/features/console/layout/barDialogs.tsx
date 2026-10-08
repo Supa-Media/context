@@ -4,6 +4,7 @@ import { removalHandler } from "../files/access";
 import { ExplorerDialogs, type Dialog } from "../files/Explorer";
 import { audienceContextOf } from "../privacy/audience";
 import { atName } from "../format";
+import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import type { ConsoleContext, ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
@@ -43,7 +44,11 @@ export function consoleBarDialogs({
       dialog={barDialog}
       onClose={() => setBarDialog(null)}
       // Move's sheet names the top of the workspace as the folder page's does.
-      places={{ rootLabel: current?.displayName ?? atName(current?.slug ?? "your context") }}
+      places={{
+        rootLabel: current?.displayName ?? atName(current?.slug ?? "your context"),
+        personal: current?.kind === "personal",
+        onStartBusiness: () => router.push(NEW_WORKSPACE_ROUTE),
+      }}
       /*
         The two rows of the phone's create sheet that are not files. The same
         handlers the corner's menu gets, so the two `+`s offer the same

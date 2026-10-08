@@ -11,6 +11,7 @@ import { contextIntro, useContextIntro } from "../../contextIntro";
 import { contextSetupFor, setupPromptVisible } from "../../setup";
 import { useOrganizerHasNotice, type NoticePlace } from "../../../organizer/Notices";
 import { useInAppMessage } from "../../../messages/useInAppMessage";
+import { missingFoldersEligible } from "../../files/mainFolderOffers";
 
 /** The folder card after "Start fresh": being written, then written, then gone. */
 export type LayingOut = "writing" | "done" | null;
@@ -163,6 +164,17 @@ export function useBrowseNotices({
     eligible: dropboxEndingEligible(data),
     deviceKey: null,
   });
+  /*
+    "Add the five main folders?": an editor whose root lacks one of the main
+    folders. Answered once, either way, on the account (`missing-folders`).
+    The band itself is `MainFoldersNotice`, drawn by `BrowseNotices`.
+  */
+  const missingFolders = useInAppMessage({
+    id: "missing-folders",
+    workspaceId: files.contextId,
+    eligible: missingFoldersEligible({ canEdit: files.canEdit, root: files.listings[""] }) && files.contextId !== null,
+    deviceKey: null,
+  });
   const storageMigration = useStorageMigrationOffer(
     files.updateStorageLayout === undefined || !storageMigrationWorthOffering(data.storage)
       ? null
@@ -274,6 +286,7 @@ export function useBrowseNotices({
     files.notice !== null ||
     moveNotices.length > 0 ||
     dropboxEnding.visible ||
+    missingFolders.visible ||
     storageMigration.visible;
 
   return {
@@ -283,6 +296,7 @@ export function useBrowseNotices({
     layingOut,
     storageMigration,
     dropboxEnding,
+    missingFolders,
     intro,
     introAnswer,
     introVisible,

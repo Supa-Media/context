@@ -8,6 +8,8 @@ import { toFileError, type FileBrowser } from "./browser";
 import { addFolderChoices } from "./addFolderChoices";
 import { Shell } from "./DialogShell";
 import { NewFolderForm } from "./NewFolderForm";
+import { businessQuestionEligible, isBusinessChoice } from "./mainFolderOffers";
+import { useInAppMessage } from "../../messages/useInAppMessage";
 
 /**
  * "Add a folder" at the top of the workspace (owner-approved mockup): the
@@ -17,6 +19,13 @@ import { NewFolderForm } from "./NewFolderForm";
  * server's refusal stays in the sheet, so a folder that already exists says so
  * where the person is looking. "A folder of your own…" turns this same sheet
  * into the New folder form, rather than opening a second dialog on top of it.
+ *
+ * In a personal workspace, Clients or Teams first asks "Is this for a business?"
+ * (`business-workspace`, answered once on the account). The question is only
+ * asked when the central arbiter has picked it for this sheet; if it has not,
+ * or it is answered, the folder is added as normal. "Start a business workspace"
+ * needs a router, which the caller holds; where it is not given, that button is
+ * left out and the other one still works.
  */
 export function AddFolderSheet({
   files,
@@ -24,6 +33,8 @@ export function AddFolderSheet({
   folders,
   rootLabel,
   compact,
+  personal,
+  onStartBusiness,
   onAdded,
   onClose,
 }: {
@@ -35,6 +46,10 @@ export function AddFolderSheet({
   rootLabel: string;
   /** A phone opens the folder it has just made; a pointer layout keeps its place. */
   compact: boolean;
+  /** The selected workspace is a personal one. Shared workspaces never ask the business question. */
+  personal: boolean;
+  /** Opens the new-workspace flow. Absent, the business question offers only "Add here". */
+  onStartBusiness?: () => void;
   /** Called with the new folder's path once it exists, before the sheet closes. */
   onAdded?: (path: string) => void;
   onClose: () => void;
@@ -43,6 +58,15 @@ export function AddFolderSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [own, setOwn] = useState(false);
+  // The role the person picked, while the business question is on screen.
+  const [asking, setAsking] = useState<string | null>(null);
+  // Eligible for as long as the choice list is open: see `businessQuestionEligible`.
+  const business = useInAppMessage({
+    id: "business-workspace",
+    workspaceId: files.contextId,
+    eligible: businessQuestionEligible({ personal, contextId: files.contextId, sheetOpen: !own }),
+    deviceKey: null,
+  });
 
   if (own) {
     return (
@@ -61,7 +85,7 @@ export function AddFolderSheet({
 
   const choices = addFolderChoices(names);
 
-  async function choose(role: string) {
+  async function add(role: string) {
     setBusy(true);
     setError(null);
     try {
@@ -72,6 +96,55 @@ export function AddFolderSheet({
       setError(toFileError(failure).message);
       setBusy(false);
     }
+  }
+
+  function choose(role: string) {
+    // Asked only when the arbiter has picked the question for this sheet; see above.
+    if (isBusinessChoice(role) && business.visible) {
+      setAsking(role);
+      return;
+    }
+    void add(role);
+  }
+
+  if (asking !== null && business.visible) {
+    const role = asking;
+    return (
+      <Shell title="Is this for a business?" onClose={onClose}>
+        <Text variant="paneSub" testID="business-body">
+          A business usually gets its own workspace, with its own folders and people. Your personal one stays yours.
+        </Text>
+        <View style={styles.actions}>
+          {onStartBusiness === undefined ? null : (
+            <Button
+              label="Start a business workspace"
+              onPress={() => {
+                business.dismiss();
+                onClose();
+                onStartBusiness();
+              }}
+              disabled={busy}
+              testID="business-start"
+            />
+          )}
+          <Button
+            label={`Add ${role === "teams" ? "Teams" : "Clients"} here`}
+            variant="dialog"
+            onPress={() => {
+              business.dismiss();
+              void add(role);
+            }}
+            disabled={busy}
+            testID="business-add-here"
+          />
+        </View>
+        {error === null ? null : (
+          <Text variant="rowSub" style={styles.error} testID="add-folder-error">
+            {error}
+          </Text>
+        )}
+      </Shell>
+    );
   }
 
   return (
@@ -89,7 +162,7 @@ export function AddFolderSheet({
               accessibilityLabel={`${choice.label}. ${choice.description}`}
               accessibilityState={{ disabled: busy }}
               disabled={busy}
-              onPress={() => void choose(choice.role)}
+              onPress={() => choose(choice.role)}
               style={({ pressed }) => [styles.choice, pressed ? styles.pressed : null]}
               testID={`add-folder-choice-${choice.role}`}
             >

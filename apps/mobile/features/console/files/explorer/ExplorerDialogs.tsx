@@ -53,6 +53,10 @@ export function ExplorerDialogs({
    * of it is called. Absent, it lists what the console has listed.
    */
   places?: {
+    /** The workspace is a personal one (for the business question in "Add a folder"). */
+    personal?: boolean;
+    /** Opens the new-workspace flow, offered by the business question. Absent where there is no router. */
+    onStartBusiness?: () => void;
     folders?: readonly string[];
     rootLabel?: string;
     /** Every note's tags, for a folder's Tags sheet (its own, and the workspace's to suggest). */
@@ -238,6 +242,8 @@ export function ExplorerDialogs({
           folders={pickable}
           rootLabel={rootLabel}
           compact={compact}
+          personal={places?.personal === true}
+          onStartBusiness={places?.onStartBusiness}
           onAdded={(path) => {
             if (compact) files.select(path);
           }}
