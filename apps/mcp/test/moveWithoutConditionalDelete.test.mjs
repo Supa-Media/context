@@ -466,11 +466,11 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   check("...and names the move it can be resumed with", Boolean(moveId));
 
   // Bounded passes, exactly as an owner or the background worker would drive
-  // them. The cap is generous relative to BULK / MOVE_MATERIALIZE_BATCH so a
-  // regression shows up as "never finishes" rather than as a hang.
+  // them. Allow copy, cleanup, checkpointed source verification, and the
+  // reference sweep; a regression still shows up as "never finishes".
   let passes = 0;
   let last = "";
-  while (passes < 60) {
+  while (passes < 90) {
     const pass = await callTool(env, TOKEN_OWNER, "materialize_move", { id: moveId });
     last = textOf(pass);
     passes += 1;

@@ -298,6 +298,80 @@ async function preserveCollaborativeGeneratedConflict(store, job, pair, sourceOb
   return true;
 }
 
+// Each pair has its own storage key and collaboration journal. Await every
+// in-flight pair before checkpointing the marker, including when one fails:
+// persisting while another pair is still retiring its source would make the
+// marker describe a state that has not settled yet.
+async function retireMovePair(store, job, pair) {
+  let stage = "checking cleanup destination";
+  try {
+    let sourceObject = await getWithLegacyFallback(store, pair.source);
+    sourceObject = await ensureCleanupDestination(store, pair, sourceObject, (value) => { stage = value; });
+    if (sourceObject === null) return { deleted: true, processed: false };
+    if (!objectMatchesMoveItem(sourceObject, pair)) {
+      throw new Error(`source changed before cleanup: ${pair.source}`);
+    }
+    stage = "reading collaboration heads";
+    const sourceHead = collaborationSupported(store) && pair.source.endsWith(".md")
+      ? await collaborationHead(store, pair.source) : null;
+    const destinationHead = sourceHead ? await collaborationHead(store, pair.destination) : null;
+    if (sourceHead && destinationHead) {
+      if (sourceHead.status === "moving") {
+        try {
+          await readCollaborationDocument(store, pair.source);
+        } catch (error) {
+          if (error?.code !== "MOVED") throw error;
+        }
+        if (!await getWithLegacyFallback(store, pair.source) &&
+            await getWithLegacyFallback(store, pair.destination)) {
+          return { deleted: true, processed: true };
+        }
+      }
+      stage = "preserving collaboration collision";
+      if (!await preserveCollaborativeGeneratedConflict(store, job, pair, sourceObject)) {
+        throw new Error(`destination collaboration generation exists: ${pair.destination}`);
+      }
+      return { deleted: true, processed: true };
+    }
+    stage = "verifying cleanup copy";
+    if (job.conflicts?.[pair.source]) {
+      stage = "verifying preserved conflict";
+      const backup = await getWithLegacyFallback(store, job.conflicts[pair.source]);
+      const destination = await getWithLegacyFallback(store, pair.destination);
+      if (!backup || !destination || await backup.text() !== await sourceObject.text()) {
+        throw new Error(`preserved conflict changed before source cleanup: ${pair.source}`);
+      }
+    } else if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
+      stage = "preserving changed destination";
+      if (!await preserveGeneratedConflict(store, job, pair, sourceObject)) {
+        throw new Error(`destination changed before source cleanup: ${pair.destination}`);
+      }
+    }
+    stage = "retiring source";
+    if (sourceHead && !["active", "moving"].includes(sourceHead.status)) {
+      throw new Error(`source collaboration generation changed before cleanup: ${pair.source}`);
+    }
+    if (sourceHead && job.conflicts?.[pair.source]) {
+      throw new Error(`source collaboration generation appeared after conflict preservation: ${pair.source}`);
+    }
+    if (sourceHead) {
+      stage = "moving collaboration history";
+      const destination = await getWithLegacyFallback(store, pair.destination);
+      if (!destination || !await deleteCreatedDestination(store, pair.destination, destination.etag)) {
+        throw new Error(`could not prepare collaboration destination: ${pair.destination}`);
+      }
+      const base = await readCollaborationDocument(store, pair.source);
+      await moveCollaborationDocument(store, pair.source, pair.destination, { expectedEtag: base.etag });
+    } else {
+      await deleteObjectForMove(store, pair);
+    }
+    return { deleted: (await getWithLegacyFallback(store, pair.source)) === null, processed: true };
+  } catch (error) {
+    if (error && typeof error === "object") error.moveStage = stage;
+    throw error;
+  }
+}
+
 export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   const key = moveJobKey(idArg);
   if (!key) return toolError("invalid move id");
@@ -414,99 +488,52 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     stage = "cleaning up";
     let deletedThisPass = 0;
     const deleted = new Set(Array.isArray(job.deleted) ? job.deleted : []);
-    for (const pair of sources) {
-      if (deleted.has(pair.source)) continue;
-      stage = "checking cleanup destination";
-      let sourceObject = await getWithLegacyFallback(store, pair.source);
-      sourceObject = await ensureCleanupDestination(store, pair, sourceObject, (value) => { stage = value; });
-      if (sourceObject === null) {
-        deleted.add(pair.source);
-        continue;
-      }
-      if (!objectMatchesMoveItem(sourceObject, pair)) {
-        throw new Error(`source changed before cleanup: ${pair.source}`);
-      }
-      stage = "reading collaboration heads";
-      const sourceHead = collaborationSupported(store) && pair.source.endsWith(".md")
-        ? await collaborationHead(store, pair.source) : null;
-      const destinationHead = sourceHead ? await collaborationHead(store, pair.destination) : null;
-      if (sourceHead && destinationHead) {
-        // An earlier structural move may only need its journal replayed.
-        if (sourceHead.status === "moving") {
-          try {
-            await readCollaborationDocument(store, pair.source);
-          } catch (error) {
-            if (error?.code !== "MOVED") throw error;
-          }
-          if (!await getWithLegacyFallback(store, pair.source) &&
-              await getWithLegacyFallback(store, pair.destination)) {
-            deleted.add(pair.source);
-            deletedThisPass += 1;
-            if (deletedThisPass >= batchSize) break;
-            continue;
-          }
+    const pending = sources.filter((pair) => !deleted.has(pair.source)).slice(0, batchSize);
+    let cleanupError = null;
+    for (let index = 0; index < pending.length; index += 3) {
+      const group = pending.slice(index, index + 3);
+      const results = await Promise.allSettled(group.map((pair) => retireMovePair(store, job, pair)));
+      for (let offset = 0; offset < group.length; offset += 1) {
+        const result = results[offset];
+        if (result.status === "rejected") {
+          cleanupError ||= result.reason;
+          continue;
         }
-        // A destination with its own collaboration identity cannot receive
-        // the source identity. Keep the generated source and its history in
-        // the private archive, leaving the destination untouched.
-        stage = "preserving collaboration collision";
-        if (!await preserveCollaborativeGeneratedConflict(store, job, pair, sourceObject)) {
-          throw new Error(`destination collaboration generation exists: ${pair.destination}`);
-        }
-        deleted.add(pair.source);
-        deletedThisPass += 1;
-        if (deletedThisPass >= batchSize) break;
-        continue;
+        if (result.value.deleted) deleted.add(group[offset].source);
+        if (result.value.processed) deletedThisPass += 1;
       }
-      stage = "verifying cleanup copy";
-      if (job.conflicts?.[pair.source]) {
-        stage = "verifying preserved conflict";
-        const backup = await getWithLegacyFallback(store, job.conflicts[pair.source]);
-        const destination = await getWithLegacyFallback(store, pair.destination);
-        if (!backup || !destination || await backup.text() !== await sourceObject.text()) {
-          throw new Error(`preserved conflict changed before source cleanup: ${pair.source}`);
-        }
-      } else if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
-        stage = "preserving changed destination";
-        if (!await preserveGeneratedConflict(store, job, pair, sourceObject)) {
-          throw new Error(`destination changed before source cleanup: ${pair.destination}`);
-        }
-      }
-      stage = "retiring source";
-      const head = sourceHead;
-      if (head && !["active", "moving"].includes(head.status)) {
-        throw new Error(`source collaboration generation changed before cleanup: ${pair.source}`);
-      }
-      if (head && job.conflicts?.[pair.source]) {
-        throw new Error(`source collaboration generation appeared after conflict preservation: ${pair.source}`);
-      }
-      if (head) {
-        stage = "moving collaboration history";
-        const destination = await getWithLegacyFallback(store, pair.destination);
-        if (!destination || !await deleteCreatedDestination(store, pair.destination, destination.etag)) {
-          throw new Error(`could not prepare collaboration destination: ${pair.destination}`);
-        }
-        const base = await readCollaborationDocument(store, pair.source);
-        await moveCollaborationDocument(store, pair.source, pair.destination, { expectedEtag: base.etag });
-        stage = "cleaning up";
-      } else {
-        await deleteObjectForMove(store, pair);
-      }
-      if ((await getWithLegacyFallback(store, pair.source)) === null) {
-        deleted.add(pair.source);
-      }
-      deletedThisPass += 1;
-      if (deletedThisPass >= batchSize) break;
+      if (cleanupError) break;
     }
-    // Recheck once at the finish line, including entries restored after an
-    // earlier pass. Ordinary passes stay bounded by the work left to do.
+    job.deleted = [...deleted].sort();
+    job.deleted_objects = deleted.size;
+    if (cleanupError) throw cleanupError;
+    // A backend may retain logical delete markers in its listing, so only a
+    // real read can distinguish a retired source from one restored out of
+    // band. Check the finish line in checkpointed, bounded parallel slices:
+    // the old one-request sweep made a large move time out after its last
+    // successful cleanup batch and then repeat that sweep forever.
     if (deleted.size === sources.length) {
-      for (const pair of sources) {
-        if ((await getWithLegacyFallback(store, pair.source)) !== null) {
-          deleted.delete(pair.source);
+      stage = "verifying retired sources";
+      const start = Number.isInteger(job.cleanup_verify_index) && job.cleanup_verify_index >= 0
+        ? job.cleanup_verify_index : 0;
+      const end = Math.min(start + 40, sources.length);
+      for (let index = start; index < end; index += 8) {
+        const group = sources.slice(index, Math.min(index + 8, end));
+        const present = await Promise.all(group.map((pair) => getWithLegacyFallback(store, pair.source)));
+        for (let offset = 0; offset < group.length; offset += 1) {
+          if (present[offset]) deleted.delete(group[offset].source);
         }
       }
+      job.cleanup_verify_index = deleted.size === sources.length ? end : 0;
+      if (deleted.size === sources.length && end < sources.length) {
+        await persistMoveJob(store, job);
+        return toolText(
+          `move ${job.id}: needs_cleanup\ndeleted: ${deleted.size}/${sources.length}` +
+          `\nverified: ${end}/${sources.length}\nthis_pass: ${deletedThisPass}`
+        );
+      }
     }
+    job.cleanup_verify_index = 0;
     job.deleted = [...deleted].sort();
     job.deleted_objects = deleted.size;
     if (deleted.size < sources.length) {
@@ -533,6 +560,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   } catch (error) {
     job.status = job.status === "deleting" ? "needs_cleanup" :
       job.status === "rewriting" ? "rewriting" : "copying";
+    stage = error?.moveStage || stage;
     // Collaboration wraps storage failures to avoid leaking bucket details to
     // ordinary editors. This command is owner-only maintenance, and the
     // provider's error code is needed to distinguish a retryable outage from
