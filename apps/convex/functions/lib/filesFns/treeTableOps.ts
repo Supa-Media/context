@@ -78,17 +78,13 @@ export async function treeStateOf(client: ProjectionClient): Promise<OperationRe
   }
 }
 
-/**
- * A sweep's failure as staff may read it: anything quoted or shaped like a
- * key, a file name or a URL taken out, since the panel never shows a path.
- * The whole message stays in the context's own database.
- */
+/** A staff-safe label; raw storage errors can contain private note paths. */
 export function withoutKeys(message: string | null): string | null {
   if (message === null) return null;
-  return message
-    .replace(/"[^"]*"|'[^']*'|`[^`]*`/g, "…")
-    .replace(/\S*[/\\]\S*|\S+\.[A-Za-z0-9]{1,8}\b/g, "…")
-    .slice(0, 200);
+  if (message === "the storage listing said there was more but returned nothing new") {
+    return "Storage listing returned no new objects";
+  }
+  return "Tree fill failed; inspect service logs";
 }
 
 /**
