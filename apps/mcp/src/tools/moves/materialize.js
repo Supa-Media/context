@@ -18,6 +18,7 @@ import {
 } from "../../moves/objects.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../../storageLayout.js";
 import {
+  effectiveVisibility,
   isPlumbing,
   PRIVACY_KEY,
   PrivacyOverrides,
@@ -97,8 +98,9 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
     status: "complete",
     count: job.total_objects,
     references: job.reference_links || 0,
+    preserved_conflicts: Object.keys(job.conflicts || {}).length,
   }).catch(() => {});
-  return toolText(`move ${job.id}: complete\nphysical storage sync: complete\nreferences rewritten: ${job.reference_links || 0}`);
+  return toolText(`move ${job.id}: complete\nphysical storage sync: complete\nreferences rewritten: ${job.reference_links || 0}\nconflicts preserved: ${Object.keys(job.conflicts || {}).length}`);
 }
 
 export async function materializeMoveInBackground(store, scope, id) {
@@ -118,6 +120,35 @@ async function destinationMatchesOriginalOrRetargetedLinks(store, pair) {
   ]);
   if (!source || !destination || !objectMatchesMoveItem(source, pair)) return false;
   return onlyLinkTargetsChanged(await source.text(), await destination.text());
+}
+
+function generatedCommunicationSource(path, text) {
+  if (!path.startsWith("2-areas/communications/") || !path.endsWith(".md")) return false;
+  const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1] || "";
+  return /^generated:\s/m.test(frontmatter) &&
+    (/^role:\s*communication-contact\s*$/m.test(frontmatter) ||
+      /^source:\s*imessage\s*$/m.test(frontmatter) ||
+      path.startsWith("2-areas/communications/daily/"));
+}
+
+async function preserveGeneratedConflict(store, job, pair, sourceObject) {
+  const sourceText = await sourceObject.text();
+  if (!generatedCommunicationSource(pair.source, sourceText) ||
+      await collaborationHead(store, pair.source)) return false;
+  const backup = `4-archive/${pair.source.slice(0, -3)}.move-conflict-${job.id}.md`;
+  const privacy = await loadPrivacyState(store);
+  if (privacy.error || privacy.legacy ||
+      effectiveVisibility(pair.source, privacy.rules, privacy.overrides) !==
+        effectiveVisibility(backup, privacy.rules, privacy.overrides)) return false;
+  let preserved = await getWithLegacyFallback(store, backup);
+  if (!preserved) {
+    await store.put(backup, sourceText, { onlyIf: { absent: true } });
+    preserved = await getWithLegacyFallback(store, backup);
+  }
+  if (!preserved || await preserved.text() !== sourceText) return false;
+  job.conflicts ||= {};
+  job.conflicts[pair.source] = backup;
+  return true;
 }
 
 export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
@@ -183,6 +214,12 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
         continue;
       }
       if ((await getWithLegacyFallback(store, pair.destination)) !== null) {
+        if (await preserveGeneratedConflict(store, job, pair, sourceObject)) {
+          copied.add(pair.source);
+          copiedThisPass += 1;
+          if (copiedThisPass >= batchSize) break;
+          continue;
+        }
         throw new Error(`destination changed during materialization: ${pair.destination}`);
       }
       await copyObjectForMove(store, pair);
@@ -217,13 +254,24 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed before cleanup: ${pair.source}`);
       }
-      if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
-        throw new Error(`destination changed before source cleanup: ${pair.destination}`);
+      if (job.conflicts?.[pair.source]) {
+        const backup = await getWithLegacyFallback(store, job.conflicts[pair.source]);
+        const destination = await getWithLegacyFallback(store, pair.destination);
+        if (!backup || !destination || await backup.text() !== await sourceObject.text()) {
+          throw new Error(`preserved conflict changed before source cleanup: ${pair.source}`);
+        }
+      } else if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
+        if (!await preserveGeneratedConflict(store, job, pair, sourceObject)) {
+          throw new Error(`destination changed before source cleanup: ${pair.destination}`);
+        }
       }
       const head = collaborationSupported(store) && pair.source.endsWith(".md")
         ? await collaborationHead(store, pair.source) : null;
       if (head && !["active", "moving"].includes(head.status)) {
         throw new Error(`source collaboration generation changed before cleanup: ${pair.source}`);
+      }
+      if (head && job.conflicts?.[pair.source]) {
+        throw new Error(`source collaboration generation appeared after conflict preservation: ${pair.source}`);
       }
       if (head) {
         const destination = await getWithLegacyFallback(store, pair.destination);

@@ -317,6 +317,33 @@ export async function runMovesAndBatchChecks() {
         "Contact [site](https://new.example)" &&
       isLogicalDeleteMarker(storedText("1-projects/retargeted/note-0.md")));
   await contextStore.delete(`.context/moves/${retargetedId}.json`);
+  for (let i = 0; i < 101; i += 1) {
+    await contextStore.put(`2-areas/communications/generated-conflict/note-${i}.md`,
+      `---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nOriginal message ${i}`);
+  }
+  const conflictMove = await call("priv-token", "move_folder", {
+    source: "2-areas/communications/generated-conflict",
+    destination: "4-archive/2-areas/communications/generated-conflict",
+  });
+  const conflictId = conflictMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  await contextStore.put("4-archive/2-areas/communications/generated-conflict/note-0.md",
+    "---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nUpdated message 0");
+  let conflictResult;
+  for (let i = 0; i < 10 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${conflictId}.json`)); i += 1) {
+    conflictResult = await call("priv-token", "materialize_move", {
+      id: conflictId, batch_size: 100,
+    });
+    if (conflictResult.isError) break;
+  }
+  const conflictBackup =
+    `4-archive/2-areas/communications/generated-conflict/note-0.move-conflict-${conflictId}.md`;
+  check("generated communication conflicts preserve both versions",
+    !conflictResult?.isError &&
+      storedText(conflictBackup)?.includes("Original message 0") &&
+      storedText("4-archive/2-areas/communications/generated-conflict/note-0.md")?.includes("Updated message 0") &&
+      isLogicalDeleteMarker(storedText("2-areas/communications/generated-conflict/note-0.md")));
+  await contextStore.delete(`.context/moves/${conflictId}.json`);
   for (let i = 0; i < 501; i += 1) {
     const suffix = String(i).padStart(3, "0");
     await contextStore.put(`1-projects/big-complete/note-${suffix}.md`, `complete ${suffix}`);
