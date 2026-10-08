@@ -363,7 +363,7 @@ test("unsupported Markdown recreation over a marker is refused", async () => {
   await store.delete("note.md", { onlyIf: { etagMatches: before.etag } });
   await assert.rejects(
     store.put("note.md", new Uint8Array([0, 1, 2]), { onlyIf: { absent: true } }),
-    /unsupported/,
+    /non-text or control-character Markdown body/,
   );
 });
 
