@@ -4,6 +4,7 @@ import { canSee, effectiveVisibility } from "../privacy/engine.js";
 import { CHANNEL_FOLDERS, CHANNELS, CONTACTS_FOLDER } from "../../../../packages/communications/src/protocol.js";
 import { CONTACT_ACTIVITY_PREVIEW, CONTACT_PROVENANCE } from "./communicationsSupport.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
+import { getVisibleMovedNote, listVisibleNoteKeysWithMoves } from "../notes/visibleKeys.js";
 import { isContactNote, parseContactView } from "../../../../packages/communications/src/contacts.js";
 import { isContactNotePath, parseChannelDayPath } from "../../../../packages/communications/src/paths.js";
 import { isEncryptedNote } from "../encryption.js";
@@ -11,6 +12,22 @@ import { listAllKeys, mapInBatches, probeWithLegacyFallback } from "../notes/sto
 import { normalizePath } from "../notes/paths.js";
 import { parseChannelDayNote } from "../../../../packages/communications/src/note.js";
 import { toolError, toolText } from "./results.js";
+
+const IMPORTED_IMESSAGE_CONTACTS = `${CONTACTS_FOLDER}/imessage/`;
+
+function isImportedImessageContactPath(path) {
+  return path.startsWith(IMPORTED_IMESSAGE_CONTACTS) &&
+    isContactNotePath(`${CONTACTS_FOLDER}/${path.slice(IMPORTED_IMESSAGE_CONTACTS.length)}`);
+}
+
+function importedImessageContact(text) {
+  const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1];
+  if (!frontmatter || !/^role:\s*["']?communication-contact["']?\s*$/m.test(frontmatter)) return null;
+  const name = /^#\s+(.+)$/m.exec(text)?.[1]?.trim() || "";
+  const identifiers = [...text.matchAll(/^- iMessage:\s*`([^`]+)`\s*$/gm)]
+    .map((match) => ({ kind: "iMessage", value: match[1] }));
+  return { name, identifiers, organization: null, activity: [] };
+}
 
 /* ------------------------------ Communications --------------------------- */
 
@@ -182,7 +199,9 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
   const limit = Number.isInteger(args.limit) ? args.limit : 10;
   if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
 
-  const listed = await listAllKeys(store, `${CONTACTS_FOLDER}/`);
+  const listed = await listVisibleNoteKeysWithMoves(
+    store, scope, rules, overrides, CONTACTS_FOLDER
+  );
   /*
     A store reports `uploaded` as a Date, as a string, or not at all. Anything
     that is not a finite instant sorts as 0 and falls to the key comparison
@@ -195,14 +214,14 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
     return Number.isFinite(instant) ? instant : 0;
   };
   const visible = listed
-    .filter(({ key }) => isContactNotePath(key) && canSee(key, scope, rules, overrides))
+    .filter(({ key }) => isContactNotePath(key) || isImportedImessageContactPath(key))
     .sort((a, b) => touchedAt(b.uploaded) - touchedAt(a.uploaded) || a.key.localeCompare(b.key));
   const page = visible.slice(0, limit);
 
   if (!page.length) return toolText("(no contact pages yet)");
 
   const rows = await mapInBatches(page, 10, async ({ key }) => {
-    const object = await getWithLegacyFallback(store, key);
+    const { object } = await getVisibleMovedNote(store, scope, rules, overrides, key);
     if (!object) return null;
     const text = await object.text();
     /*
@@ -217,8 +236,9 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
       whether to offer to open it.
     */
     if (isEncryptedNote(text)) return `(encrypted)\n  ${key}`;
-    if (!isContactNote(text)) return `(a note of your own)\n  ${key}`;
-    const view = parseContactView(text);
+    const imported = isImportedImessageContactPath(key) ? importedImessageContact(text) : null;
+    if (!isContactNote(text) && !imported) return `(a note of your own)\n  ${key}`;
+    const view = imported || parseContactView(text);
     const parts = [view.name || "(unnamed contact)"];
     if (view.organization) parts.push(view.organization);
     if (view.identifiers.length) {
@@ -260,20 +280,26 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
 export async function toolReadContact(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
-  if (!isContactNotePath(path)) return toolError("not a contact page — read it with read_note");
+  if (!isContactNotePath(path) && !isImportedImessageContactPath(path)) {
+    return toolError("not a contact page — read it with read_note");
+  }
   // Both questions asked, then decided, so the refusal for a note being held
   // back costs what the refusal for an absent one costs; on metadata, so no
   // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
   const seen = canSee(path, scope, rules, overrides);
-  const present = await probeWithLegacyFallback(store, path);
-  if (!seen || !present) return toolError("not found");
-  const object = await getWithLegacyFallback(store, path);
+  const present = await getVisibleMovedNote(
+    store, scope, rules, overrides, path, probeWithLegacyFallback
+  );
+  if (!seen || !present.object) return toolError("not found");
+  const { object } = await getVisibleMovedNote(store, scope, rules, overrides, path);
   if (!object) return toolError("not found");
   const text = await object.text();
   const header =
     `etag: ${object.etag}\npath: ${path}\n` +
     `visibility: ${effectiveVisibility(path, rules, overrides)}`;
 
+  const imported = isImportedImessageContactPath(path) ? importedImessageContact(text) : null;
+  if (imported) return toolText(`${header}\n\n${text}`);
   if (!isContactNote(text)) {
     /*
       Ciphertext reaches this branch too, which is the gateway's own rule
