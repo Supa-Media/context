@@ -605,4 +605,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`
 - Setups are benchmarked in a throwaway world, on invented workspaces
-- A text has the MCP's write tools, minus public links and key material
+- A text has every MCP tool except the key export
