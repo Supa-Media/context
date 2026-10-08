@@ -92,13 +92,21 @@ export { PRIVACY_KEY } from "../privacy";
  * the default starting shape because a blank bucket is a worse first run than
  * five folders you can rename, and `structureTemplate: "custom"` opts out
  * entirely.
+ *
+ * The archive is `9-archive` for every workspace made from here on, so a
+ * number that sorts last in any app. An older workspace's `4-archive` (or
+ * `5-archive`, or a plain `archive`) keeps its name and its role: the word
+ * decides, not the number — see `packages/shared/src/folderRoles.cjs`. That
+ * module is the one place the five names are defined; this literal is kept
+ * equal to its `MAIN_FOLDERS` by hand (the convex package does not import the
+ * `.cjs` directly).
  */
 export const PARA_FOLDERS = [
   "0-inbox",
   "1-projects",
   "2-areas",
   "3-resources",
-  "4-archive",
+  "9-archive",
 ] as const;
 
 /**
@@ -125,7 +133,7 @@ export const FOLDER_PURPOSE: Record<
     line:
       "active work with an end state. One folder per project.",
     blurb:
-      "Active work with an end state. A project has a finish line: when it is reached, the folder moves to 4-archive.",
+      "Active work with an end state. A project has a finish line: when it is reached, the folder moves to the archive.",
     examples: ["ship the new pricing page", "plan the March offsite"],
   },
   "2-areas": {
@@ -143,7 +151,7 @@ export const FOLDER_PURPOSE: Record<
       "Reference material you want to be able to find again, not tied to one project or area.",
     examples: ["how our deploy pipeline works", "notes on a book you read"],
   },
-  "4-archive": {
+  "9-archive": {
     title: "Archive",
     line:
       "anything no longer active. Move, don't delete.",

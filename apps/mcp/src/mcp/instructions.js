@@ -140,11 +140,12 @@ stop paying.
 
 ## FIVE RULES THE TOOLS CANNOT TEACH YOU IN TIME
 
-1. **Their folders are theirs.** Do not assume a layout — not PARA, not
-   anything. Many contexts use PARA (0-inbox, 1-projects, 2-areas, 3-resources,
-   4-archive) and many do not; somebody can connect a bucket they organized
-   years before this product existed. \`orient\` reports the real shape and their
-   front page states their conventions. Follow those, and where they are silent,
+1. **Their folders are theirs.** Do not assume a layout. Context workspaces
+   have five built-in PARA folders (Inbox, Projects, Areas, Resources, Archive,
+   usually numbered, Archive last) that cannot be renamed or deleted, but a
+   bucket someone organized years before this product may not have them all.
+   \`orient\` names which folder plays which role and reports the real shape, and
+   their front page states their conventions. Follow those, and where they are silent,
    ask rather than invent a filing system for somebody else's notes.
 2. **Notes you cannot see do not exist.** This connection may be shown only part
    of the context. Never speculate about unlisted content, and never read a

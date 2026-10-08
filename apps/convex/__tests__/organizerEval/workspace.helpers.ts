@@ -263,7 +263,7 @@ export function messyWorkspace(): { store: MemoryStore & FileStore; savedAt: Map
   const base = memoryStore() as MemoryStore & FileStore;
   base.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   base.seed("index.md", "# Northwind\n");
-  base.seed("4-archive/README.md", "# Archive\n");
+  base.seed("9-archive/README.md", "# Archive\n");
   const savedAt = new Map<string, number>();
   for (const fixture of NOTES) {
     base.seed(fixture.path, fixture.text);
@@ -329,7 +329,7 @@ export function organizationScore(snapshot: Record<string, string>): { score: nu
         ok = now === fixture.path && isDoneStatus(status, list);
         break;
       case "archive":
-        ok = now !== null && now.startsWith("4-archive/");
+        ok = now !== null && now.startsWith("9-archive/");
         break;
       case "keep":
         ok = now === fixture.path && text === fixture.text;

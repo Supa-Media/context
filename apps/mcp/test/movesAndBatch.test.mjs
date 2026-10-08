@@ -89,6 +89,21 @@ export async function runMovesAndBatchChecks() {
       folderDryRun.content[0].text.includes("preflight ok") &&
       objects.has("1-projects/portable-moved/batch-a.md")
   );
+  // The five built-in folders cannot be renamed or moved, by owner or team,
+  // under any number, and the refusal is the same whether the folder exists.
+  for (const [token, source] of [["priv-token", "1-projects"], ["pub-token", "1-projects/"], ["priv-token", "4-archive"], ["priv-token", "9-archive"], ["priv-token", "Inbox"]]) {
+    const refused = await call(token, "move_folder", { source, destination: "renamed-main-folder", dry_run: true });
+    check(
+      `move_folder refuses the built-in folder ${source}`,
+      refused.isError && /is a built-in folder/.test(refused.content[0].text) && !objects.has("renamed-main-folder/batch-a.md")
+    );
+  }
+  const insideMain = await call("pub-token", "move_folder", {
+    source: "1-projects/portable-moved",
+    destination: "1-projects/portable-inside",
+    dry_run: true,
+  });
+  check("...while folders inside a built-in folder still move", !insideMain.isError);
   const forgedMoveId = "move-forged-private-leak";
   await contextStore.put(
     `.context/moves/${forgedMoveId}.json`,

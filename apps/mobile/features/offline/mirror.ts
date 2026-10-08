@@ -1,3 +1,4 @@
+import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
 import type { Cached } from "./cache";
 import { CACHE_SCOPES, readableAt, type CacheScope } from "./keys";
 import { utf8Length } from "./mirrorPath";
@@ -737,7 +738,6 @@ export function treeOf(index: MirrorIndex): Map<string, FolderListing> {
   */
   const badge = (folder: string): Visibility =>
     index.folders.get(folder) ?? direct.get(folder) ?? deeper.get(folder) ?? "private";
-  const byName = (a: FileEntry, b: FileEntry) => a.name.localeCompare(b.name);
   const manifestUsable = index.manifestUsable ?? true;
 
   const tree = new Map<string, FolderListing>();
@@ -754,13 +754,12 @@ export function treeOf(index: MirrorIndex): Map<string, FolderListing> {
         readOnly: false,
       };
     });
-    // Folders first, then files, each by name — `compareEntries` in the
-    // server's `listFolder`, so a tree does not reorder itself when the
-    // signal drops.
+    // The server's order (`compareListingEntries`), so a tree does not
+    // reorder itself when the signal drops.
     tree.set(folder, {
       path: folder,
       folderDefault: badge(folder),
-      entries: [...rows.sort(byName), ...(files.get(folder) ?? []).sort(byName)],
+      entries: [...rows, ...(files.get(folder) ?? [])].sort((a, b) => compareListingEntries(folder, a, b)),
       truncated: false,
       manifestUsable,
     });

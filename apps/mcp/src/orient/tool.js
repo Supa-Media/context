@@ -14,6 +14,7 @@ import {
   ORIENT_SIBLING_LIMIT,
   reducedRecallNotesFor,
   relativeAge,
+  renderBuiltInFolders,
   renderStructure,
 } from "./render.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
@@ -172,6 +173,7 @@ export async function toolOrient(store, scope, rules, overrides) {
 
   parts.push(
     `## Structure\n${renderStructure(survey)}\n\n` +
+      (renderBuiltInFolders(survey) ? `${renderBuiltInFolders(survey)}\n\n` : "") +
       (survey.truncated
         ? "Counts marked `+` are floors: the folder was larger than one orientation walks. "
         : "") +

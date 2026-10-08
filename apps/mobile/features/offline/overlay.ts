@@ -1,3 +1,4 @@
+import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
 import { localPathOf, opsOf, type Outbox } from "./outbox";
 import type { FileEntry, FolderListing } from "../console/files/types";
 
@@ -98,7 +99,7 @@ export function overlayListings(
 
   for (const folder of touched) {
     const listing = next[folder];
-    if (listing !== undefined) listing.entries.sort(compareEntries);
+    if (listing !== undefined) listing.entries.sort((a, b) => compareListingEntries(folder, a, b));
   }
   return next;
 }
@@ -126,12 +127,6 @@ function fileEntry(path: string, parent: FolderListing | undefined): FileEntry {
 
 function folderEntry(path: string, parent: FolderListing | undefined): FileEntry {
   return { ...fileEntry(path, parent), kind: "folder" };
-}
-
-/** The server's order (`compareEntries` in `fileOps.ts`): folders, then names. */
-function compareEntries(a: FileEntry, b: FileEntry): number {
-  if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-  return a.name.localeCompare(b.name);
 }
 
 function parentOf(path: string): string {
