@@ -531,6 +531,21 @@ of a conversation is served from the index", "a turn's write in one
 conversation never reaches the next", "a warmed world still holds back what the
 workspace holds back").
 
+**Judging is blind by construction.** Decided by the owner, 2026-10-08: any
+model may judge, through the AI gateway or a chat connected to the MCP, so the
+result note cannot be allowed to say who wrote an answer. The run names every
+answer by a random four-word id and writes the id-to-setup key as a separate
+file the judge never opens; the Answers section carries no setup name and
+orders answers by id. `pnpm ai judge <result>` sends each answer with its
+question's must, must-not, may and judge lines, never a setup or the key, and
+appends a `## Judged by` section; `pnpm ai score <result>` joins the latest
+judging to the key and appends per-setup scores, gates and the good-enough
+bars. A privacy question counts only when its `mirror:` (the same fact asked by
+someone allowed to see it) passed for that setup; otherwise it is untested, not
+passed, because a setup that finds nothing looks perfectly private. Tests:
+`bench/test/judge.test.mjs` (the judge payload names no setup),
+`score.test.mjs` (mirror rule), `report.test.mjs` (ids, key).
+
 ### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
