@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { listAllNoteKeys } from "../src/notes/visibleKeys.js";
 
-test("note inventory splits large archive branches without losing keys", async () => {
+test("note inventory pages top-level branches without losing keys", async () => {
   const keys = [
     "index.md",
     ".context/private.md",
@@ -37,6 +37,6 @@ test("note inventory splits large archive branches without losing keys", async (
   };
   const listed = (await listAllNoteKeys(store)).map(({ key }) => key).sort();
   assert.deepEqual(listed, keys.filter((key) => key.endsWith(".md") && !key.startsWith(".")).sort());
-  assert.ok(flatPrefixes.some(({ prefix }) => prefix.startsWith("4-archive/communications/imessage/2024/")));
-  assert.ok(!flatPrefixes.some(({ prefix, cursor }) => prefix === "4-archive/" && cursor));
+  assert.ok(flatPrefixes.some(({ prefix, cursor }) => prefix === "4-archive/" && cursor));
+  assert.ok(!flatPrefixes.some(({ prefix }) => prefix.startsWith("4-archive/communications/")));
 });
