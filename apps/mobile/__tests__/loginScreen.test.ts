@@ -80,7 +80,9 @@ function mount(options: { phone?: boolean } = {}) {
   act(() => {
     root.render(createElement(LoginScreen));
   });
-  const byId = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+  // The country list is a modal, drawn outside the container.
+  const byId = (id: string) =>
+    (container.querySelector(`[data-testid="${id}"]`) ?? document.querySelector(`[data-testid="${id}"]`)) as HTMLElement | null;
   if (!options.phone) {
     act(() => {
       byId("login-use-email")!.click();
@@ -277,7 +279,7 @@ describe("signing in with a phone", () => {
     expect(view.text()).toContain("Use email instead");
     await view.type("login-phone", "+1 555 555 0100");
     await view.press("login-phone-send");
-    expect(mockStarted).toEqual([{ phone: "+1 555 555 0100" }]);
+    expect(mockStarted).toEqual([{ phone: "+15555550100" }]);
     expect(view.text()).toContain("Check your texts");
     expect(view.text()).toContain("+15555550100");
     await view.type("login-phone-code", "392 418");
@@ -285,6 +287,30 @@ describe("signing in with a phone", () => {
     expect(mockCalls).toEqual([{ phone: "+15555550100", code: "392418" }]);
     expect(landAfterSignIn).toHaveBeenCalledTimes(1);
     view.unmount();
+  });
+
+  test("the number is typed without a country code: United States unless another is picked", async () => {
+    mockStarted.length = 0;
+    mockStart = { status: "sent", phone: "+12026150407" };
+    const us = mount({ phone: true });
+    expect(us.text()).toContain("+1");
+    await us.type("login-phone", "(202) 615-0407");
+    await us.press("login-phone-send");
+    expect(mockStarted).toEqual([{ phone: "+12026150407" }]);
+    us.unmount();
+
+    mockStarted.length = 0;
+    mockStart = { status: "sent", phone: "+447700900123" };
+    const uk = mount({ phone: true });
+    await uk.press("login-phone-country");
+    await uk.type("login-phone-country-search", "united k");
+    await uk.press("login-phone-country-GB");
+    expect(uk.text()).toContain("+44");
+    // The 0 dialled at home is dropped after the country code.
+    await uk.type("login-phone", "07700 900123");
+    await uk.press("login-phone-send");
+    expect(mockStarted).toEqual([{ phone: "+447700900123" }]);
+    uk.unmount();
   });
 
   test("a refused code says so and signs nobody in", async () => {

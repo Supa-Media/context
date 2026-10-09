@@ -6,7 +6,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
-import { TextField } from "../design/components/Input";
+import { PhoneNumberField } from "./PhoneNumberField";
 import { Text } from "../design/components/Text";
 import { fonts, layout, leading, pointerType as t, space, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
@@ -123,14 +123,9 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
                 {PHONE_CHECK_WHY}
               </Text>
               <View style={styles.field}>
-                <TextField
-                  label="Phone number"
+                <PhoneNumberField
                   value={phone}
                   onChangeText={setPhone}
-                  placeholder="+1 555 555 0100"
-                  keyboardType="phone-pad"
-                  autoComplete="tel"
-                  textContentType="telephoneNumber"
                   editable={!busy}
                   onSubmitEditing={() => void send()}
                   testID="phone-check-number"

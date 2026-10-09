@@ -21,7 +21,7 @@ export function startError(status: StartStatus): string | null {
     case "unavailable":
       return null;
     case "invalid_phone":
-      return "Enter the number with its country code, like +1 555 555 0100.";
+      return "That number doesn't look right. Check it and the country beside it.";
     case "too_many":
       return "Too many tries for now. Wait a bit, or use email instead.";
     case "failed":

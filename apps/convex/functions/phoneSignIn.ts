@@ -1,10 +1,10 @@
-import { sendTwilioVerification } from "@supa-media/convex/auth";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { contextVerifyKeys, normalizePhone } from "./lib/phoneCheck";
+import { normalizePhone } from "./lib/phoneCheck";
+import { canTextCodes, textCode } from "./phoneCodes";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { isPhoneAdmitted } from "./lib/waitlist";
 import { scheduleSignupAlert } from "./signupAlerts";
@@ -164,8 +164,7 @@ export const start = action({
   handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string }> => {
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" };
-    const keys = contextVerifyKeys();
-    if (keys === null) return { status: "unavailable", phone };
+    if (!canTextCodes()) return { status: "unavailable", phone };
     let reserved: "ok" | "joined" | "already" | "too_many";
     try {
       reserved = await ctx.runMutation(internal.functions.phoneSignIn.reserveSend, {
@@ -179,7 +178,7 @@ export const start = action({
       throw error;
     }
     if (reserved !== "ok") return { status: reserved, phone };
-    const sent = await sendTwilioVerification(keys, phone);
+    const sent = await textCode(ctx, phone);
     if (sent.ok) return { status: "sent", phone };
     return { status: sent.reason === "invalid_phone" ? "invalid_phone" : sent.reason, phone };
   },
