@@ -17,7 +17,7 @@ import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { type FileStore, maintainSearchIndex, setFolderVisibility, setVisibility } from "../functions/lib/fileOps";
-import { workspaceGraph } from "../functions/lib/fileOps/graph";
+import { LINKS_BEHIND_MIN, LINKS_BEHIND_SHARE, linksBehind, workspaceGraph } from "../functions/lib/fileOps/graph";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { sweepTreePass } from "../../mcp/src/tree/sweep.js";
@@ -114,10 +114,28 @@ describe("the map from the link table", () => {
     expect(graph.edges).toContain("1-projects/plan.md > 1-projects/sub/pay.md");
   });
 
-  test("notes changed since their links were read make the map say it is catching up", async () => {
+  test("many notes changed since their links were read make the map say it is catching up", async () => {
+    const store = await withTable(await workspace());
+    const table = (store as unknown as { linkTable: { unparsed: number } }).linkTable;
+    table.unparsed = LINKS_BEHIND_MIN;
+    expect((await workspaceGraph(store, OWNER)).behind).toBe(true);
+  });
+
+  test("a few just-saved notes do not: the next refresh brings their links in", async () => {
+    // Every save leaves its note waiting until the next fill pass, so a
+    // notice for these would be on almost whenever anybody is writing.
     const store = await withTable(await workspace());
     const table = (store as unknown as { linkTable: { unparsed: number } }).linkTable;
     table.unparsed = 3;
-    expect((await workspaceGraph(store, OWNER)).behind).toBe(true);
+    expect((await workspaceGraph(store, OWNER)).behind).toBe(false);
+  });
+
+  test("the bar is a share of a big workspace, and never zero", () => {
+    expect(linksBehind(0, 0)).toBe(false);
+    expect(linksBehind(LINKS_BEHIND_MIN - 1, 10)).toBe(false);
+    expect(linksBehind(LINKS_BEHIND_MIN, 10)).toBe(true);
+    // 20,000 notes: 5% is 1,000, so 999 waiting is a normal busy afternoon.
+    expect(linksBehind(999, 20_000)).toBe(false);
+    expect(linksBehind(20_000 * LINKS_BEHIND_SHARE, 20_000)).toBe(true);
   });
 });
