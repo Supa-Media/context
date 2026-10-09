@@ -433,6 +433,15 @@ test("a text the router calls lookup stays on the main model", async () => {
   assert.equal(controlPlane.builtinReports.at(-1)?.model, "anthropic/claude-haiku-5-5");
 });
 
+test("router tells Clef that making an event requires checking commitments", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r2-attendance" });
+  const ai = fakeAi([clefSays("think")]);
+  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
+  const question = ai.calls[0]?.input?.questions?.tier;
+  assert.match(question?.instructions ?? "", /whether.*make an event/i);
+  assert.match(question?.criteria?.think ?? "", /make an event/i);
+});
+
 test("a low-confidence think, a word the router does not know, or a failed router all stay on main", async () => {
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r3" });
   for (const reply of [clefSays("think", 0.2), clefSays("genius"), { nonsense: true }]) {

@@ -51,11 +51,12 @@ const QUESTIONS = {
     type: "choice",
     instructions:
       "The person texted their notes assistant. Which kind of request is this? " +
-      "Pick think only when answering well needs several notes, a judgement, a plan, weighing options, or something that goes wrong if answered carelessly.",
+      "Pick think when answering requires comparing commitments or checking whether the person can make an event, " +
+      "as well as plans, judgements, conflicts, and privacy decisions. A short question can still need several notes.",
     criteria: {
-      lookup: "One fact, date, time or amount from their notes, answerable with a search.",
+      lookup: "One fact, date, time or amount from their notes, answerable with one search. Not attendance or feasibility.",
       change: "Add, change, tick off or move something in one note, or draft a message for them to send.",
-      think: "Needs several notes compared, a judgement or a plan, a clash or conflict worked out, or careful handling of who may see what.",
+      think: "Compare notes, make a judgement or plan, resolve a clash, check whether the person can make an event or commitment, or handle privacy carefully.",
     },
   },
 };
