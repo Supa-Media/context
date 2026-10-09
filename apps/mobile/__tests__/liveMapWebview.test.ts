@@ -60,6 +60,16 @@ describe("what the app accepts from the web view", () => {
     });
   });
 
+  test("where a note was tapped comes across only as two finite numbers", () => {
+    const open = (at: unknown) => parseGuestMessage(msg({ type: "openNote", note: { workspaceId: "ws-a", path: "a.md", at } }));
+    expect(open({ x: 120.5, y: 40, z: 1 })).toEqual({ type: "openNote", note: { workspaceId: "ws-a", path: "a.md", at: { x: 120.5, y: 40 } } });
+    // A bad point loses the point, not the tap: the card still opens, at its corner.
+    for (const bad of [{ x: "1", y: 2 }, { x: Number.MAX_VALUE, y: 2 }, { x: 1 }, [1, 2], "1,2", null]) {
+      expect(open(bad)).toEqual({ type: "openNote", note: { workspaceId: "ws-a", path: "a.md" } });
+    }
+    expect(parseGuestMessage(msg({ type: "tapEmpty", extra: true }))).toEqual({ type: "tapEmpty" });
+  });
+
   test("anything not exactly a message is dropped", () => {
     expect(parseGuestMessage(msg({ type: "openNote", note: { workspaceId: "ws-a" } }))).toBeNull();
     expect(parseGuestMessage(msg({ type: "openNote", note: { workspaceId: "ws-a", path: 7 } }))).toBeNull();
@@ -109,6 +119,36 @@ describe("the host", () => {
     expect(opened).toEqual([{ workspaceId: "ws-a", path: "index.md" }]);
   });
 
+  test("a tap on nothing reaches the page", () => {
+    let taps = 0;
+    const host = createMapHost(() => {}, () => ({ onTapEmpty: () => (taps += 1) }));
+    host.receive(JSON.stringify({ v: 1, type: "tapEmpty" }));
+    expect(taps).toBe(1);
+  });
+
+  test("a camera to put back and a note to highlight wait for the web view, then go after the data", () => {
+    const sent: Record<string, unknown>[] = [];
+    const host = createMapHost((raw) => sent.push(JSON.parse(raw)), () => ({}));
+    host.setData(mapData());
+    host.setProps(PROPS);
+    host.engine.restoreCamera({ x: 1, y: 2, s: 3 });
+    host.engine.select({ workspaceId: "ws-a", path: "index.md" });
+    expect(sent).toEqual([]);
+    host.receive(JSON.stringify({ v: MAP_PROTOCOL_VERSION, type: "ready" }));
+    expect(sent.map((m) => (m.type === "call" ? `call:${(m.call as { name: string }).name}` : m.type))).toEqual([
+      "graphs",
+      "props",
+      "faces",
+      "data",
+      "call:restoreCamera",
+      "call:select",
+    ]);
+    // Sent once: a reload later does not drag the old camera back.
+    sent.length = 0;
+    host.receive(JSON.stringify({ v: MAP_PROTOCOL_VERSION, type: "ready" }));
+    expect(sent.some((m) => m.type === "call")).toBe(false);
+  });
+
   test("names the people whose faces the guest may need", () => {
     const data = { ...mapData(), events: [ev.edit(5, "ws-a", "index.md", WHO.maya), ev.edit(6, "ws-a", "index.md", WHO.claude)] };
     expect(peopleIn(data)).toEqual(["Maya"]);
@@ -124,6 +164,23 @@ describe("the host and the guest together", () => {
     flush();
     expect(guest.engine.getCamera()).not.toBeNull();
     expect(host.engine.getCamera()?.cam).toEqual(guest.engine.getCamera()?.cam);
+  });
+
+  test("coming back to the map, the web view is put back where it was", () => {
+    const first = wired();
+    first.host.setData(mapData());
+    first.host.setProps(PROPS);
+    const before = first.mount();
+    first.host.engine.zoomIn();
+    first.host.engine.zoomIn();
+    const left = before.engine.getCamera()!.cam;
+    // The map unmounts (a note was opened) and mounts again on Back.
+    const again = wired();
+    again.host.setData(mapData());
+    again.host.setProps(PROPS);
+    again.host.engine.restoreCamera(left);
+    const after = again.mount();
+    expect(after.engine.getCamera()!.cam).toEqual(left);
   });
 
   test("zooming on the phone zooms the map in the web view", () => {

@@ -8,6 +8,7 @@ import {
   currentPlace,
   emptyHistory,
   hasSomewhereToGo,
+  mapPlace,
   notePlace,
   placeOf,
   recentPaths,
@@ -463,5 +464,51 @@ describe("reading the place off the screen", () => {
         emptyHistory,
       );
     expect(currentPlace(stepped(state, -1))).toEqual(settingsPlace("storage"));
+  });
+});
+
+/**
+ * THE LIVE MAP IS A PLACE, so `‹` from a note opened off the map goes back to
+ * the map. Reported from the map: tap a dot, the note opens, and back went to
+ * whatever note was open before the map, because `?map=1` was not somewhere
+ * this list knew about.
+ */
+describe("the live map is somewhere you have been", () => {
+  const BROWSE = {
+    settingsSection: null,
+    routeKind: "context",
+    appSection: null,
+    selectedPath: "1-projects/plan.md",
+  } as const;
+
+  test("the map open over Browse is the map, not the note under it", () => {
+    expect(placeOf({ ...BROWSE, mapOpen: true })).toEqual(mapPlace());
+  });
+
+  test("settings still wins over the map", () => {
+    expect(placeOf({ ...BROWSE, mapOpen: true, settingsSection: "storage" })).toEqual(settingsPlace("storage"));
+  });
+
+  test("the map with nothing selected under it is still the map", () => {
+    expect(placeOf({ ...BROWSE, mapOpen: true, selectedPath: null })).toEqual(mapPlace());
+  });
+
+  test("a note, the map, a note from the map: back is the map, and back again the first note", () => {
+    const screens = [
+      BROWSE,
+      { ...BROWSE, mapOpen: true },
+      { ...BROWSE, selectedPath: "1-projects/launch.md" },
+    ];
+    const state = screens
+      .map((screen) => placeOf(screen))
+      .reduce<HistoryState>((acc, place) => (place === null ? acc : visited(acc, place)), emptyHistory);
+    const back = stepped(state, -1);
+    expect(currentPlace(back)).toEqual(mapPlace());
+    expect(currentPlace(stepped(back, -1))).toEqual(notePlace("1-projects/plan.md"));
+  });
+
+  test("the map is not a row in Recent, which lists notes", () => {
+    const state = walkPlaces(notePlace("a.md"), mapPlace(), notePlace("b.md"));
+    expect(recentPaths(state)).toEqual(["b.md", "a.md"]);
   });
 });

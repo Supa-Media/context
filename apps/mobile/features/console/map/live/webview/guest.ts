@@ -37,6 +37,7 @@ export function mountMapGuest(
     onFollow: (state) => send({ type: "follow", state }),
     onHover: (target) => send({ type: "hover", target }),
     onOpenNote: (note) => send({ type: "openNote", note }),
+    onTapEmpty: () => send({ type: "tapEmpty" }),
     onDiveInto: (folder) => send({ type: "diveInto", folder }),
     onTime: (t) => send({ type: "time", t }),
     get minimap() {
@@ -114,5 +115,7 @@ function call(engine: MapEngine, c: Extract<HostMessage, { type: "call" }>["call
       return engine.select(c.note);
     case "follow":
       return engine.follow(c.actorId);
+    case "restoreCamera":
+      return engine.restoreCamera(c.cam);
   }
 }

@@ -121,3 +121,20 @@ and 5% of the workspace are waiting (`linksBehind` in `lib/fileOps/graph.ts`).
 Only that one bit leaves the server, because the count includes notes the
 caller may not see. While the notice is up the map reads again every 20
 seconds instead of every 2 minutes, so it clears by itself.
+
+**A tapped dot opens a card, not the note (2026-10-09).** Dev2: tapping a dot
+left the map for the whole note, and Back did not come back to where they
+were. Now a tap opens a card beside the dot (a sheet on a phone) with the
+note's words, who is writing it and who is reading it, and Expand (Open note
+on a phone) opens the note. Dev2 picked this over a peek in the side column.
+What is being written shows as it is written: the card reads the note again
+every 2.5 seconds while someone is writing it (every 15 otherwise) and marks
+the blocks that changed since the last read, with the writer's name at the
+caret. Reading is shown for the whole note, because the map records which
+notes were read and not which parts; marking the parts being read needs the
+gateway to record them first. Back works because the live map is a place in
+the console's history (`mapPlace` in `files/history.ts`), so `‹` from a note
+opened off the map returns to it. The map also keeps its camera, its open card
+and its scope for the session (`peek/mapMemory.ts`), so it comes back as it
+was left. Dropping the map from history fails `noteHistory.test.ts`, and a
+card that stopped showing live writing fails `liveMapPeekCard.test.ts`.

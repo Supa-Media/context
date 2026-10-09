@@ -89,7 +89,7 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
               testID="map-scope"
               grow={1.25}
               options={[
-                { value: "one", label: "This one" },
+                { value: "one", label: "This workspace" },
                 { value: "all", label: "All" },
               ]}
             />
