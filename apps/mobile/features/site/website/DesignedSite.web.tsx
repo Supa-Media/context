@@ -31,11 +31,13 @@ export function DesignedSite({
   design,
   navigate,
   hrefFor,
+  prefetch,
 }: {
   view: Extract<ResolvedWebsitePage, { kind: "page" }>;
   design: WebsiteDesign;
   navigate: (routePath: string) => void;
   hrefFor: (routePath: string) => string;
+  prefetch?: (routePath: string) => void;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -86,9 +88,23 @@ export function DesignedSite({
       event.preventDefault();
       navigate(route!);
     };
+    // A link the pointer or focus reaches is fetched ahead, so the click that
+    // follows draws at once; the menu's pages are already fetched by then.
+    const onIntent = (event: Event) => {
+      const anchor = (event.target as Element | null)?.closest?.("a[data-ctx-path]");
+      if (anchor === null || anchor === undefined) return;
+      const [route] = anchor.getAttribute("data-ctx-path")!.split("#");
+      if (route !== view.routePath) prefetch?.(route!);
+    };
     root.addEventListener("click", onClick);
-    return () => root.removeEventListener("click", onClick);
-  }, [html, hrefFor, navigate, view.routePath]);
+    root.addEventListener("pointerover", onIntent);
+    root.addEventListener("focusin", onIntent);
+    return () => {
+      root.removeEventListener("click", onClick);
+      root.removeEventListener("pointerover", onIntent);
+      root.removeEventListener("focusin", onIntent);
+    };
+  }, [html, hrefFor, navigate, prefetch, view.routePath]);
 
   // A new page opens at its top, as a page load would.
   useEffect(() => {
