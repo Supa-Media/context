@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Redirect, Stack, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,6 +12,10 @@ import { FeedbackHost } from "../../features/feedback/FeedbackHost";
 import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
 import { OtherEmailScreen } from "../../features/auth/OtherEmailScreen";
 import { asksForOtherEmail } from "../../features/auth/otherEmail";
+import { DomainJoin } from "../../features/auth/DomainJoin";
+import { domainJoinFor, type JoinableWorkspace } from "../../features/auth/domainJoin";
+import { ToastHost } from "../../features/design/components/Toast";
+import { joinedNotice } from "../../features/console/settings/panels/organization";
 import { blocksForPhone } from "../../features/auth/phoneCheck";
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
@@ -194,12 +198,18 @@ export default function AppLayout() {
       messages: { query: api.functions.messages.myMessageReads, args: {} },
       phoneCheck: { query: api.functions.phoneCheck.myPhoneCheck, args: {} },
       otherEmail: { query: api.functions.otherEmail.myOtherEmailQuestion, args: {} },
+      domainWorkspaces: { query: api.functions.workspaceDomains.myDomainWorkspaces, args: {} },
     };
   }, [authed]);
   const results = useQueries(spec);
   // The address handed to another account by "Do you already use Context with
   // another email?", held so its last panel survives the switch of account.
   const [handedOff, setHandedOff] = useState<string | null>(null);
+  // A workspace joined through an email domain on opening its link (board s4):
+  // said once on the page it opened. A refused join is not asked again.
+  const [joined, setJoined] = useState<JoinableWorkspace | null>(null);
+  const [refusedJoin, setRefusedJoin] = useState<string | null>(null);
+  const onJoined = useCallback((workspace: JoinableWorkspace) => setJoined(workspace), []);
   const rows = usable<(WorkspaceStandingRow & ResumeWorkspaceRow)[]>(results.workspaces);
 
   /*
@@ -263,6 +273,16 @@ export default function AppLayout() {
   */
   if (blocksForPhone(usable<{ required: boolean }>(results.phoneCheck))) return <PhoneCheckScreen />;
 
+  /*
+    A link to a workspace this person's email domain opens (board s4): join
+    it, then draw the link's page. Before onboarding, so somebody whose first
+    sign-in came from that link lands on it rather than on setup.
+  */
+  const joining = domainJoinFor(pathname, usable<JoinableWorkspace[]>(results.domainWorkspaces));
+  if (joining !== null && joining.slug !== refusedJoin) {
+    return <DomainJoin workspace={joining} onJoined={onJoined} onRefused={() => setRefusedJoin(joining.slug)} />;
+  }
+
   const onboarding = needsOnboarding({
     standing: standingFrom(rows, usable<unknown[]>(results.invitations)),
     pathname,
@@ -312,6 +332,13 @@ export default function AppLayout() {
           be opened from, and where the early-beta notice is shown once.
         */}
         <FeedbackHost />
+        {joined === null ? null : (
+          <ToastHost
+            toasts={[{ id: `joined-${joined.slug}`, message: joinedNotice(joined.name, joined.domain) }]}
+            onDismiss={() => setJoined(null)}
+            bottomInset={insets.bottom}
+          />
+        )}
       </View>
     </MessagesProvider>
   );

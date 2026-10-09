@@ -54,6 +54,13 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const row of messageReads) await ctx.db.delete(row._id);
 
+  // The email domains it was opened to: a domain name and a role.
+  const domains = await ctx.db
+    .query("workspaceDomains")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of domains) await ctx.db.delete(row._id);
+
   // When its routines run and as whom; the routine notes stay in the bucket.
   await deleteWorkspaceRoutines(ctx, workspaceId);
 

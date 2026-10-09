@@ -127,3 +127,17 @@ The first sign-in with an address no account has asks "Do you already use Contex
 Closing an account frees every address it signs in with. Shares addressed to any of them are revoked, as they are for the main address, so a dead account can never hold an address (`personalRows.ts`).
 
 Every account also confirms a phone once (`functions/phoneCheck.ts`, behind `PHONE_CHECK`). One phone number belongs to one account, so the phone can later tie a new email to the person who already has one.
+
+## A shared workspace opened to an email domain
+
+Decided by the owner, 2026-10-09 (boards s3/s4). An owner of a **shared** workspace can open it to everyone at an email domain, such as `publicworship.org`, from Settings › Sharing › Your organization. Somebody with a confirmed address there joins when they open a link to the workspace, either with their main email or with one added on Account settings. They join with the role the owner picked, which is Can read by default. The invite-only gate lets that address in. When they stop signing in with any address at the domain, they leave (`viaDomain` on the membership).
+
+This is membership, never publication, so non-negotiable #5 holds. Every joiner is a named account whose mailbox was proven by a code, and the owner sees each one in People and can remove them. Three rules keep the set honest:
+- An owner can add only a domain they sign in with themselves.
+- A personal mail service (`gmail.com` and the rest of `lib/emailDomains.ts`) is never a domain, because anybody can get an address there, and opening a workspace to one would publish it.
+- A personal workspace is never opened.
+
+To anybody outside the domain, the join answers exactly as a missing workspace does. The switch stops new joins and leaves the people already in.
+
+Dropping the "owner must sign in with it" rule would let anybody open a workspace to a domain they do not belong to. Allowing personal mail domains would turn a workspace into a public one. `__tests__/workspaceDomains.test.ts` fails on either, on a join that ignores the switch, and on an email removal that does not mean leaving.
+

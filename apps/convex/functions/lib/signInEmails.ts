@@ -77,3 +77,13 @@ export async function userWithSignInEmail(ctx: QueryCtx, email: string): Promise
     .first();
   return row?.userId ?? null;
 }
+
+/**
+ * Every address this person has proved they read: the main one when it was
+ * confirmed, and each added one. Lower case.
+ */
+export async function confirmedEmailsOf(ctx: QueryCtx, userId: Id<"users">): Promise<string[]> {
+  const me = await ctx.db.get(userId);
+  const main = me?.email !== undefined && me.emailVerificationTime !== undefined ? [normalizeEmail(me.email)] : [];
+  return [...new Set([...main, ...(await attachedEmailsOf(ctx, userId))])];
+}
