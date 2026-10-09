@@ -47,6 +47,9 @@ const ANTHROPIC_VERSION = "2023-06-01";
 /** How much of the model's answer one round may produce. */
 const MAX_OUTPUT_TOKENS = 2048;
 
+/** The most a caller may ask for with `maxTokens`. */
+const MAX_CALLER_OUTPUT_TOKENS = 8192;
+
 /** How long one round may take before it is abandoned. */
 const ROUND_TIMEOUT_MS = 60_000;
 
@@ -132,7 +135,7 @@ function metadataHeader(metadata) {
  * rounds over a growing transcript, so each round reads the previous one's
  * prefix from cache at a tenth of the price.
  */
-export function gatewayBody({ model, system, messages, tools }) {
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice }) {
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -148,10 +151,15 @@ export function gatewayBody({ model, system, messages, tools }) {
   }
   return {
     model: model.slice("anthropic/".length),
-    max_tokens: MAX_OUTPUT_TOKENS,
+    // A caller may ask for more room (a meeting summary is one long answer), never unbounded.
+    max_tokens: Number.isInteger(maxTokens) && maxTokens > 0 ? Math.min(maxTokens, MAX_CALLER_OUTPUT_TOKENS) : MAX_OUTPUT_TOKENS,
     messages: wire,
     ...(system ? { system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] } : {}),
     ...(toolList.length > 0 ? { tools: toolList } : {}),
+    // Only ever "call this one tool", and only a tool this request offers.
+    ...(typeof toolChoice === "string" && toolList.some((tool) => tool.name === toolChoice)
+      ? { tool_choice: { type: "tool", name: toolChoice } }
+      : {}),
   };
 }
 

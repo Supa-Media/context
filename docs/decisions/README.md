@@ -437,6 +437,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
   were one build
 - A resumed meeting is a new part spliced into the note it already has
 - A homepage visitor can record a two-minute demo meeting, into their tab
+- A meeting summary is plain Markdown the model never writes ([summaries](./meetings/summaries.md))
+- Same for all plans, under a daily ceiling
+- A summary is started by opening the note, never by a timer
 
 ## [Communications](./communications.md)
 

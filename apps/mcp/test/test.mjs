@@ -62,6 +62,7 @@ import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
 import { runAgentBuiltinChecks } from "./agentBuiltin.test.mjs";
+import { runMeetingSummaryChecks } from "./meetingSummary.test.mjs";
 import { runAgentGatewayChecks } from "./agentGateway.test.mjs";
 import { runAgentComputerChecks } from "./agentComputer.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
@@ -144,6 +145,7 @@ await suite("runProviderCredentialChecks", () => runProviderCredentialChecks(che
 // and restores it.
 await suite("runAgentChecks", () => runAgentChecks(check));
 await suite("runAgentBuiltinChecks", () => runAgentBuiltinChecks(check));
+await suite("runMeetingSummaryChecks", () => runMeetingSummaryChecks(check));
 await suite("runAgentGatewayChecks", () => runAgentGatewayChecks(check));
 await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
 await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
