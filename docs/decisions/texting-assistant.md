@@ -621,6 +621,10 @@ router's word and what it read are recorded in the turn's trace, the meter is
 told the model that answered, and the benchmark's result note shows the pick
 first on each answer's tools line and, under the summary, how many answers
 each routed setup sent to its thinking model and at what price.
+Whether a person can make an event is a `think` request: answering it may need
+several commitments compared, even when the text is short. A plain request for
+one appointment's time remains a lookup. Clef's low-confidence fallback still
+uses `main`.
 
 **Why Clef and not the cheap model, or a gateway route:** a model asked "do you
 need help?" almost never says yes and the asking costs a whole round; a
