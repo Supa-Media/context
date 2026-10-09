@@ -142,6 +142,47 @@ test("a refused REST call becomes one of our codes, with none of the provider's 
   );
 });
 
+test("a 3030 batch refusal isolates the passage and preserves vector order", async () => {
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text.length > 1) return { status: 400, body: { success: false, errors: [{ code: 3030 }] } };
+    return { success: true, result: { data: [vector(text[0] === "first" ? 0.1 : 0.2)] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  const out = await embed(["first", "second"]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0][0], 0.1);
+  assert.equal(out[1][0], 0.2);
+  assert.equal(fetch.requests.length, 3);
+});
+
+test("a 3030 passage refusal retries a shorter clean input without exposing its text", async () => {
+  const secret = "private passage ".repeat(150);
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text[0].length > 1024) {
+      return { status: 400, body: { success: false, errors: [{ code: 3030, message: secret }] } };
+    }
+    return { success: true, result: { data: [vector()] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  assert.equal((await embed([secret])).length, 1);
+  assert.equal(fetch.requests.length, 2);
+  assert.ok(JSON.parse(fetch.requests[1].init.body).text[0].length <= 1024);
+});
+
+test("a persistent 3030 refusal stays closed after bounded retries", async () => {
+  const fetch = fakeFetch(() => ({ status: 400, body: { success: false, errors: [{ code: 3030 }] } }));
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  await assert.rejects(() => embed(["private passage"]), (error) => {
+    assert.equal(error.code, "REFUSED");
+    assert.equal(error.operation, "embed");
+    assert.deepEqual(error.providerCodes, [3030]);
+    return true;
+  });
+  assert.ok(fetch.requests.length <= 3);
+});
+
 test("a refused Vectorize write reports only its operation and numeric provider code", async () => {
   const fetch = fakeFetch(() => ({
     status: 400,
