@@ -119,13 +119,37 @@ function normalizeClientName(value) {
   // The names Context's own clients are registered under are drawn as more
   // than a tool: the app's console as the person whose hand it was, and the
   // texting assistant as its own badge (`map/live/agentKind.ts`). A stranger
-  // registering one would be drawn the same way, so it is marked instead.
-  if (FIRST_PARTY_NAMES.has(name.toLowerCase())) return `Unverified: ${name}`;
+  // registering one would be drawn the same way, so it is marked instead —
+  // and the mark goes on the part that is read, never only at the front.
+  const taken = firstPartyPartOf(name);
+  if (taken >= 0) return `${name.slice(0, taken)}Unverified: ${name.slice(taken)}`;
   return name;
 }
 
 /** Context's own client names (`agentGrant.ts`, `textLinks.ts`), which only Context registers. */
 const FIRST_PARTY_NAMES = new Set(["context (this app)", "texts (imessage)"]);
+
+/**
+ * What the map reads as the tool: the part after the **last** `"'s "`
+ * (`toolNameOf` in `map/live/agentKind.ts`). The app prefixes the owner itself
+ * — `presenceActor` sends `"@seyi's <client name>"` and `historyActor` builds
+ * the same — so a client that registers its own possessive,
+ * `"x's Context (this app)"`, arrives with the console's name as its tool part
+ * and is drawn as a person's hand. Comparing the whole name misses that, and
+ * marking only the front leaves the possessive carrying it.
+ *
+ * Answers where the first-party part starts, or `-1`. The two names are
+ * duplicated here rather than imported because this runs on the Workers
+ * runtime and `agentKind.ts` is the app's; `liveMapAgentKind.test.ts` is what
+ * fails if either copy drifts.
+ */
+const POSSESSIVE = "'s ";
+
+function firstPartyPartOf(name) {
+  const at = name.lastIndexOf(POSSESSIVE);
+  const start = at >= 0 ? at + POSSESSIVE.length : 0;
+  return FIRST_PARTY_NAMES.has(name.slice(start).toLowerCase()) ? start : -1;
+}
 
 /**
  * RFC 7591 dynamic client registration.
