@@ -157,6 +157,23 @@ function routedLines(setups, runs) {
 // to the setup's fallback model after the main one failed. Production does the
 // same, so a run says how often a person would have waited or been answered
 // by the fallback, and the score says what those answers were worth.
+// Where a run's hours went, per setup: answering (the model's time, which the
+// setup owns), playing the person (the run's), and the rest (worlds, reruns).
+// Decided 2026-10-09, after a seven-hour run whose answers summed to two.
+function timeLines(setups, runs) {
+  const lines = [];
+  const minutes = (ms) => `${Math.round(ms / 60000)} min`;
+  for (const setup of setups) {
+    const mine = runs.filter((r) => r.setup === setup.name && typeof r.wallMs === "number");
+    if (!mine.length) continue;
+    const wall = mine.reduce((sum, r) => sum + r.wallMs, 0);
+    const answering = mine.reduce((sum, r) => sum + (r.ms ?? 0), 0);
+    const person = mine.reduce((sum, r) => sum + (r.personMs ?? 0), 0);
+    lines.push(`Time: ${setup.name} took ${minutes(wall)} of wall time, ${minutes(answering)} answering, ${minutes(person)} playing the person, ${minutes(Math.max(0, wall - answering - person))} on worlds and reruns.`, "");
+  }
+  return lines;
+}
+
 function resilienceLines(setups, runs) {
   const lines = [];
   for (const setup of setups) {
@@ -249,6 +266,7 @@ export function resultMarkdown(result) {
     "",
     ...routedLines(setups, runs),
     ...resilienceLines(setups, runs),
+    ...timeLines(setups, runs),
     "## Answers",
     "",
   ];

@@ -79,3 +79,29 @@ test("--no-fluff skips the expansion and the result says so", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("--parallel answers the conversations in child processes and assembles the same result", async () => {
+  const dir = await benchFolder();
+  try {
+    const front = await runFake(dir, ["--parallel", "2", "--runs", "2"]);
+    const out = await readFile(join(dir, "result.md"), "utf8");
+    assert.ok(front.some((line) => line === "runs_per_question: 2"), front.join("\n"));
+    const ids = out.match(/^#### \S+$/gm) ?? [];
+    assert.equal(ids.length, 2 * (out.match(/^### \d+\. /gm) ?? []).length, "every question has both runs");
+    assert.ok(!out.includes("Error:"), out.slice(0, 600));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("shards cover every conversation exactly once, and the shard count has a ceiling", async () => {
+  const { parallelFor, shardJobs } = await import("../run.mjs");
+  const jobs = Array.from({ length: 10 }, (_, k) => ({ k }));
+  const shards = [0, 1, 2].map((index) => shardJobs(jobs, index, 3));
+  assert.deepEqual(shards.map((s) => s.length), [4, 3, 3]);
+  assert.deepEqual(shards.flat().map((j) => j.k).sort((a, b) => a - b), jobs.map((j) => j.k));
+  assert.equal(parallelFor({}, 708), 6, "up to six processes by default");
+  assert.equal(parallelFor({ fake: true }, 708), 1, "a fake run stays in one process unless asked");
+  assert.equal(parallelFor({ parallel: "4" }, 708), 4);
+  assert.equal(parallelFor({ parallel: "12" }, 5), 5, "never more shards than conversations");
+});
