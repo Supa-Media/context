@@ -487,7 +487,7 @@ export async function executeOperation(
         return { kind: "manifest", ...manifest };
       }
       case "readMany": {
-        const results = await readFiles(store, { paths: operation.paths, clearance });
+        const results = await readFiles(store, { paths: operation.paths, clearance, plain: operation.plain === true });
         return {
           kind: "notes",
           results: results.map((result) =>

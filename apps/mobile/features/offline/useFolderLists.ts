@@ -69,11 +69,12 @@ export function useFolderLists(
         readNote: (path) => readNote({ workspaceId: id, path }),
         manifest: (folder, cursor) =>
           withTimeout(
-            syncManifest({ workspaceId: id, folder, ...(cursor === undefined ? {} : { cursor }) }),
+            // The tree table where it can answer, as the sidebar's walk does.
+            syncManifest({ workspaceId: id, folder, source: "tree", ...(cursor === undefined ? {} : { cursor }) }),
             MANIFEST_TIMEOUT_MS,
           ),
         readNotes: async (paths) =>
-          (await withTimeout(readNotes({ workspaceId: id, paths }), READ_TIMEOUT_MS)).results,
+          (await withTimeout(readNotes({ workspaceId: id, paths, plain: true }), READ_TIMEOUT_MS)).results,
         writeNote: async (path, text, expectedEtag) => {
           // No version is a create, which the server refuses over an existing note.
           const written = await writeNote({

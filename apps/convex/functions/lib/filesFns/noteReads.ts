@@ -123,6 +123,8 @@ export async function readNotesHandler(
   args: {
     workspaceId: Id<"workspaces">;
     paths: string[];
+    /** The Markdown as stored, without opening collaboration documents: what a folder List reads. */
+    plain?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "notes" }>> {
   const actorUserId = await callerId(ctx);
@@ -143,7 +145,7 @@ export async function readNotesHandler(
     workspaceId: args.workspaceId,
     scope,
     grantedNames,
-    operation: { kind: "readMany", paths: args.paths },
+    operation: { kind: "readMany", paths: args.paths, ...(args.plain === true ? { plain: true } : {}) },
   });
   return result as Extract<OperationResult, { kind: "notes" }>;
 }
