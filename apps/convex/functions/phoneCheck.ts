@@ -17,6 +17,7 @@ import {
 } from "./lib/phoneCheck";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { attachedEmailsOf } from "./lib/signInEmails";
+import { joinOnPhone, phoneJoinFor } from "./lib/account/phoneJoin";
 
 /**
  * The phone check's three calls: is this person asked, text them a code, and
@@ -45,10 +46,15 @@ type SendResult = {
   status: "sent" | "invalid_phone" | "taken" | "too_many" | "failed" | "not_needed";
   phone?: string;
 };
-type ConfirmResult = { status: "confirmed" | "wrong" | "taken" | "too_many" | "failed" };
+type ConfirmResult = { status: "confirmed" | "joined" | "wrong" | "taken" | "too_many" | "failed" };
 
+/**
+ * "joined": the number was another account's, and this one (owning nothing)
+ * closed into it (`lib/account/phoneJoin.ts`). The person signs in again.
+ */
 const confirmStatus = v.union(
   v.literal("confirmed"),
+  v.literal("joined"),
   v.literal("wrong"),
   v.literal("taken"),
   v.literal("too_many"),
@@ -90,7 +96,7 @@ export const reserveSend = internalMutation({
   handler: async (ctx, { userId, phone }) => {
     const user = await ctx.db.get(userId);
     if (user === null || (await hasConfirmedPhone(ctx, user))) return "not_needed";
-    if (await phoneHeldByAnother(ctx, phone, userId)) return "taken";
+    if ((await phoneJoinFor(ctx, userId, phone)).kind === "blocked") return "taken";
     if (!(await tryConsumeRateLimit(ctx, { key: `phoneCheck.send:${userId}`, limit: SEND_LIMIT, windowMs: WINDOW_MS }))) {
       return "too_many";
     }
@@ -136,14 +142,21 @@ export const spendCheck = internalMutation({
 });
 
 /**
- * Record a phone Twilio approved. The uniqueness check runs again here, in
- * the transaction that writes, because two accounts could each have been
- * texted a code for the same number before either confirmed it.
+ * Record a phone Twilio approved. The holder check runs again here, in the
+ * transaction that writes, because two accounts could each have been texted
+ * a code for the same number before either confirmed it. A number another
+ * account holds joins the two when one of them owns nothing.
  */
 export const recordConfirmedPhone = internalMutation({
   args: { userId: v.id("users"), phone: v.string() },
-  returns: v.union(v.literal("confirmed"), v.literal("taken")),
+  returns: v.union(v.literal("confirmed"), v.literal("joined"), v.literal("taken")),
   handler: async (ctx, { userId, phone }) => {
+    const join = await phoneJoinFor(ctx, userId, phone);
+    if (join.kind === "blocked") return "taken";
+    if (join.kind !== "free") {
+      await joinOnPhone(ctx, userId, phone, join);
+      return join.kind === "into" ? "joined" : "confirmed";
+    }
     if (await phoneHeldByAnother(ctx, phone, userId)) return "taken";
     await ctx.db.patch(userId, { phone, phoneVerificationTime: Date.now() });
     return "confirmed";
@@ -166,7 +179,7 @@ export const confirmPhoneCode = action({
     }
     const checked = await checkTwilioVerification(keys, phone, code);
     if (checked !== "approved") return { status: checked };
-    const recorded: "confirmed" | "taken" = await ctx.runMutation(internal.functions.phoneCheck.recordConfirmedPhone, { userId, phone });
+    const recorded: "confirmed" | "joined" | "taken" = await ctx.runMutation(internal.functions.phoneCheck.recordConfirmedPhone, { userId, phone });
     return { status: recorded };
   },
 });

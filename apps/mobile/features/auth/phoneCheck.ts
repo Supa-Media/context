@@ -7,11 +7,16 @@
  */
 
 export type SendStatus = "sent" | "invalid_phone" | "taken" | "too_many" | "failed" | "not_needed";
-export type ConfirmStatus = "confirmed" | "wrong" | "taken" | "too_many" | "failed";
+export type ConfirmStatus = "confirmed" | "joined" | "wrong" | "taken" | "too_many" | "failed";
 
 export const PHONE_CHECK_TITLE = "Add your phone number";
 export const PHONE_CHECK_WHY =
   "We text you a code once to check it's yours. From then on, your phone is how you sign in.";
+
+/** After "joined": this email went onto the account the number already had. */
+export const JOINED_TITLE = "Welcome back.";
+export const JOINED_BODY =
+  "That number already has a Context account, so this email is on it now. Sign in again with your phone or this email to open it.";
 
 const TAKEN = "That number is already on another Context account. Use a different number, or sign in to that account.";
 const TOO_MANY = "Too many tries for now. Wait a bit, then try again.";
@@ -36,6 +41,7 @@ export function sendError(status: SendStatus): string | null {
 export function confirmError(status: ConfirmStatus): string | null {
   switch (status) {
     case "confirmed":
+    case "joined":
       return null;
     case "wrong":
       return "That code didn't work. Check the text, or send a new code.";

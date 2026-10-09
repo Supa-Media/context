@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { asUser, captureError, createUser, errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
+import { asUser, captureError, createUser, createWorkspace, errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
 import { isExemptEmail, normalizePhone, phoneCheckRequired } from "../functions/lib/phoneCheck";
 import { REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
 import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
@@ -173,11 +173,19 @@ describe("confirming", () => {
   });
 });
 
+/** Two accounts that each own a workspace: these are never joined. */
+async function twoOwners(t: TestConvex) {
+  const ada = await createUser(t, "ada@example.invalid");
+  const bob = await createUser(t, "bob@example.invalid");
+  await createWorkspace(t, ada, "ada-notes");
+  await createWorkspace(t, bob, "bob-notes");
+  return { ada, bob };
+}
+
 describe("one phone, one account", () => {
-  test("a phone another account confirmed is refused at send", async () => {
+  test("a phone another owning account confirmed is refused at send", async () => {
     const t = setupTest();
-    const ada = await createUser(t, "ada@example.invalid");
-    const bob = await createUser(t, "bob@example.invalid");
+    const { ada, bob } = await twoOwners(t);
     await send(t, ada);
     await confirm(t, ada);
     const before = calls.length;
@@ -185,20 +193,18 @@ describe("one phone, one account", () => {
     expect(calls.length).toBe(before);
   });
 
-  test("a phone another account linked for texting is refused too", async () => {
+  test("a phone another owning account linked for texting is refused too", async () => {
     const t = setupTest();
-    const ada = await createUser(t, "ada@example.invalid");
-    const bob = await createUser(t, "bob@example.invalid");
+    const { ada, bob } = await twoOwners(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("phoneLinks", { userId: ada, phone: PHONE, linkedAt: Date.now() });
     });
     expect(await send(t, bob)).toEqual({ status: "taken" });
   });
 
-  test("two accounts racing for one number: the second confirmation is refused", async () => {
+  test("two owning accounts racing for one number: the second confirmation is refused", async () => {
     const t = setupTest();
-    const ada = await createUser(t, "ada@example.invalid");
-    const bob = await createUser(t, "bob@example.invalid");
+    const { ada, bob } = await twoOwners(t);
     expect((await send(t, ada)).status).toBe("sent");
     expect((await send(t, bob)).status).toBe("sent");
     expect(await confirm(t, ada)).toEqual({ status: "confirmed" });
@@ -208,10 +214,68 @@ describe("one phone, one account", () => {
 
   test("an unconfirmed number on another account does not block anybody", async () => {
     const t = setupTest();
-    const ada = await createUser(t, "ada@example.invalid");
-    const bob = await createUser(t, "bob@example.invalid");
+    const { ada, bob } = await twoOwners(t);
     await t.run(async (ctx) => await ctx.db.patch(ada, { phone: PHONE }));
     expect((await send(t, bob)).status).toBe("sent");
+  });
+});
+
+describe("one person, one account: a held number joins the two", () => {
+  test("a new email account typing a number an account holds closes into it, email and all", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@example.invalid");
+    await createWorkspace(t, ada, "ada-notes");
+    await send(t, ada);
+    await confirm(t, ada);
+    const fresh = await createUser(t, "ada@work.example.invalid");
+    expect(await send(t, fresh)).toEqual({ status: "sent", phone: PHONE });
+    expect(await confirm(t, fresh)).toEqual({ status: "joined" });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(fresh)).toBeNull();
+      const emails = await ctx.db
+        .query("signInEmails")
+        .withIndex("by_user", (q) => q.eq("userId", ada))
+        .collect();
+      expect(emails.map((row) => row.email)).toEqual(["ada@work.example.invalid"]);
+    });
+  });
+
+  test("a wrong code joins nothing", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@example.invalid");
+    await send(t, ada);
+    await confirm(t, ada);
+    const fresh = await createUser(t, "ada@work.example.invalid");
+    await send(t, fresh);
+    expect(await confirm(t, fresh, "000000")).toEqual({ status: "wrong" });
+    expect(await t.run(async (ctx) => await ctx.db.get(fresh))).not.toBeNull();
+  });
+
+  test("an email account that owns a workspace takes the phone from an empty phone account", async () => {
+    const t = setupTest();
+    const old = await createUser(t, "ada@example.invalid");
+    await createWorkspace(t, old, "ada-notes");
+    const byPhone = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("users", {
+        phone: PHONE,
+        phoneVerificationTime: Date.now(),
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("phoneLinks", { userId: id, phone: PHONE, linkedAt: Date.now() });
+      return id;
+    });
+    expect((await send(t, old)).status).toBe("sent");
+    expect(await confirm(t, old)).toEqual({ status: "confirmed" });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(byPhone)).toBeNull();
+      expect((await ctx.db.get(old))?.phone).toBe(PHONE);
+      const link = await ctx.db
+        .query("phoneLinks")
+        .withIndex("by_phone", (q) => q.eq("phone", PHONE))
+        .first();
+      expect(link?.userId).toBe(old);
+    });
+    expect((await check(t, old)).confirmed).toBe(true);
   });
 });
 
