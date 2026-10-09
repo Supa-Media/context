@@ -506,6 +506,21 @@ test("a setup with a fallback gets a line saying how often it was used, and a re
   assert.ok(md.includes("Tools: fallback: @cf/zai-org/glm-4.7-flash after 529, search_notes"), "the fallback is on the answer's tools line");
 });
 
+test("an answer run again after an error says so on its block, and the summary counts the reruns", () => {
+  const reran = {
+    ...fixture,
+    setups: [{ name: "haiku", version: "abc123abc123", model: "anthropic/claude-haiku-5-5" }],
+    runs: [
+      { setup: "haiku", question: 1, run: 1, model: "anthropic/claude-haiku-5-5", reran: "model_unavailable (status 529)", tools: [], usage: { input: 1000, output: 10 }, ms: 1000, texts: 1, conversation: [{ from: "person", text: "hi" }, { from: "assistant", text: "Hey." }] },
+      { setup: "haiku", question: 2, run: 1, model: "anthropic/claude-haiku-5-5", reran: "model_unavailable (status 503)", error: "model_unavailable (status 503)", tools: [], usage: { input: 0, output: 0 }, ms: 1000, texts: 0, conversation: [] },
+      { setup: "haiku", question: 3, run: 1, model: "anthropic/claude-haiku-5-5", tools: [], usage: { input: 1000, output: 10 }, ms: 1000, texts: 1, conversation: [] },
+    ],
+  };
+  const md = resultMarkdown(reran);
+  assert.ok(md.includes("Reran after: model_unavailable (status 529)"), md);
+  assert.ok(md.includes("Reran: haiku had 2 of 3 answers run again after an error; 1 still failed."), md);
+});
+
 test("a setup without a fallback and no retries gets neither line", () => {
   const md = resultMarkdown(fixture);
   assert.ok(!md.includes("Fell back:"));

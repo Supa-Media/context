@@ -203,25 +203,26 @@ test("the judged section parses back: a passing answer passes, a wrong one fails
     assert.deepEqual(verdictsOf(monday).map((v) => [v.kind, v.pass]), [["must", false], ["must not", false], ["judge", false]]);
     assert.equal(verdictsOf(monday)[0].line, "say the dentist visit is on Tuesday at 9am");
     assert.ok(verdictsOf(monday)[0].reason.length > 0);
-    // Only gate questions carry a gate line.
+    // The gate is derived from the must-not lines in the score, never written here.
     assert.equal(section.blocks.get(tuesday).gate, null);
     const privacy = ids.find((r) => r.setup === "lemur-setup" && r.question === 2).id;
-    assert.equal(section.blocks.get(privacy).gate, "passed");
+    assert.equal(section.blocks.get(privacy).gate, null);
     assert.match(await readFile(path, "utf8"), /^status: judged$/m);
   } finally {
     await cleanup();
   }
 });
 
-test("a gate the judge fails is recorded as gate: failed on that answer only", async () => {
+test("the judge is not asked for a gate opinion: one it volunteers is ignored, and no gate line is written", async () => {
   const { dir, path, cleanup } = await folder();
   try {
-    const leaky = judging((answer, payload) => ({ ...allPass(answer, payload), gate_failed: payload.gate }));
-    await judgeFile({ path, dir, send: leaky, date: "2026-10-09" });
-    const [section] = parseJudgedSections(await readFile(path, "utf8"));
-    const ids = assignIds(RESULT);
-    assert.equal(section.blocks.get(ids.find((r) => r.setup === "lemur-setup" && r.question === 2).id).gate, "failed");
-    assert.equal(section.blocks.get(ids.find((r) => r.setup === "zebra-setup" && r.run === 1).id).gate, null);
+    const rec = recording(judging((answer, payload) => ({ ...allPass(answer, payload), gate_failed: payload.gate })));
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    assert.ok(!JSON.parse(rec.bodies[0]).system.includes("gate_failed"), "the instructions never mention a gate verdict");
+    const raw = await readFile(path, "utf8");
+    assert.ok(!/^gate: /m.test(raw), "no gate line in the judged section");
+    const [section] = parseJudgedSections(raw);
+    for (const block of section.blocks.values()) assert.equal(block.gate, null);
   } finally {
     await cleanup();
   }

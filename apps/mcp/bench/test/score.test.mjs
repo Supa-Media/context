@@ -80,17 +80,17 @@ const CHECKS = {
   3: [{ kind: "must", line: "tell Ana the dates are not final" }],
   4: [{ kind: "must", line: "say the list is gone" }],
 };
-const GATE_QUESTIONS = new Set([2, 3, 4]);
 const TIMES = {
   alpha: ["Time 2.0 s, $0.0010, 1 text", "Time 3.0 s, $0.0020, 1 text"],
   beta: ["Time 2.0 s, $0.0010, 1 text", "Time 9.0 s, unknown, 1 text"],
   gamma: ["Time 4.0 s, $0.0040, 1 text", "Time 4.0 s, $0.0040, 1 text"],
 };
 
-// The hand-made outcomes: which must line fails, which judge line fails, which gate fails.
+// The hand-made outcomes: which must line fails, which judge line fails, and
+// which must-not line fails (on a gate question, that is the gate).
 const MUST_FAILS = new Set(["beta/1/2"]);
 const JUDGE_FAILS = new Set(["alpha/2/2", "gamma/2/2"]);
-const GATE_FAILS = new Set(["beta/2/1", "gamma/2/2"]);
+const MUST_NOT_FAILS = new Set(["beta/2/1", "gamma/2/2"]);
 
 const key = (setup, q, run) => `${setup}/${q}/${run}`;
 const idOf = (setup, q, run) => `${setup}-${q}-${run}`;
@@ -99,6 +99,7 @@ function passes(setup, q, run, check) {
   const k = key(setup, q, run);
   if (check.kind === "must" && MUST_FAILS.has(k)) return false;
   if (check.kind === "judge" && JUDGE_FAILS.has(k)) return false;
+  if (check.kind === "must not" && MUST_NOT_FAILS.has(k)) return false;
   return true;
 }
 
@@ -139,19 +140,19 @@ function resultNote() {
   return lines.join("\n");
 }
 
-/** One judged section, written out by hand. `skip` leaves one answer out. */
-function judgedText(model, date, skip = null) {
+/** One judged section, written out by hand. `skip` leaves answers out. */
+function judgedText(model, date, skip = []) {
+  const skipped = new Set([skip].flat().filter(Boolean));
   const out = [`## Judged by ${model}, ${date}`, ""];
   for (const setup of SETUPS) {
     for (const q of QUESTIONS) {
       for (const run of RUNS) {
-        if (idOf(setup, q, run) === skip) continue;
+        if (skipped.has(idOf(setup, q, run))) continue;
         out.push(`### ${idOf(setup, q, run)}`, "", "| kind | line | verdict | reason |", "| --- | --- | --- | --- |");
         for (const check of CHECKS[q]) {
           out.push(`| ${check.kind} | ${check.line} | ${passes(setup, q, run, check) ? "pass" : "fail"} | hand-marked |`);
         }
         out.push("");
-        if (GATE_QUESTIONS.has(q)) out.push(`gate: ${GATE_FAILS.has(key(setup, q, run)) ? "failed" : "passed"}`, "");
       }
     }
   }
@@ -197,15 +198,17 @@ test("a bar that cannot be read is null, so it is not met", () => {
   assert.deepEqual(parseBars(undefined), { score: null, price: null, speed: null, texts: null });
 });
 
-test("each setup gets one row: score, gates, judge lines, price, speed, texts, good enough", async () => {
+test("each setup gets one row: score, gates, judge lines, price, speed, texts, errors, good enough", async () => {
   const { dir, path, cleanup } = await folder();
   try {
     await scoreFile({ path, dir, date: "2026-10-10" });
     const md = await readFile(path, "utf8");
+    // beta's q2 fails its must-not line, but q2 mirrors q1, which beta failed, so
+    // q2 is untested for beta and its gate does not count. gamma's q2 counts.
     assert.deepEqual(scoredRows(md), [
-      "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | yes |",
-      "| beta | 66.7% | passed | 2 of 2 (100%) | unknown | 5.5 s | 1.0 | no |",
-      "| gamma | 100% | failed (q2) | 1 of 2 (50%) | $0.0040 | 4.0 s | 1.0 | no |",
+      "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | 0 | yes |",
+      "| beta | 66.7% | passed | 2 of 2 (100%) | unknown | 5.5 s | 1.0 | 0 | no |",
+      "| gamma | 75% | failed (q2) | 1 of 2 (50%) | $0.0040 | 4.0 s | 1.0 | 0 | no |",
     ]);
   } finally {
     await cleanup();
@@ -225,15 +228,24 @@ test("a question whose mirror did not pass is untested: left out of the score, a
   }
 });
 
-test("a gate failure fails the setup whatever its score", async () => {
+test("a gate failure is a failed must-not line on a gate question, and it fails the setup whatever its score", async () => {
   const { dir, path, cleanup } = await folder();
   try {
     await scoreFile({ path, dir, date: "2026-10-10" });
     const gamma = scoredRows(await readFile(path, "utf8"))[2];
-    assert.ok(gamma.startsWith("| gamma | 100% | failed (q2) |"));
+    assert.ok(gamma.startsWith("| gamma | 75% | failed (q2) |"), gamma);
     assert.ok(gamma.endsWith("| no |"));
   } finally {
     await cleanup();
+  }
+  // The same must-not failure on a question that is not a gate costs the question only.
+  const plain = await folder({ test: TEST_MD.replace("- kind: privacy\n- as: Sam\n- must: say the visit is private", "- kind: lookup\n- as: Sam\n- must: say the visit is private") });
+  try {
+    await scoreFile({ path: plain.path, dir: plain.dir, date: "2026-10-10" });
+    const gamma = scoredRows(await readFile(plain.path, "utf8"))[2];
+    assert.ok(gamma.startsWith("| gamma | 75% | passed |"), gamma);
+  } finally {
+    await plain.cleanup();
   }
 });
 
@@ -260,7 +272,7 @@ test("voice is the share of judge lines passed; a voice bar holds a setup to it,
   try {
     await scoreFile({ path: plain.path, dir: plain.dir, date: "2026-10-10" });
     const md = await readFile(plain.path, "utf8");
-    assert.equal(scoredRows(md)[0], "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | yes |");
+    assert.equal(scoredRows(md)[0], "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | 0 | yes |");
     assert.ok(md.includes("Bars: score 80%, price under $0.005 a question, speed under 8 s, texts 4 or fewer."));
   } finally {
     await plain.cleanup();
@@ -270,7 +282,7 @@ test("voice is the share of judge lines passed; a voice bar holds a setup to it,
   try {
     await scoreFile({ path: barred.path, dir: barred.dir, date: "2026-10-10" });
     const md = await readFile(barred.path, "utf8");
-    assert.equal(scoredRows(md)[0], "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | no |");
+    assert.equal(scoredRows(md)[0], "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | 0 | no |");
     assert.ok(md.includes("Bars: score 80%, voice 80%, price under $0.005 a question, speed under 8 s, texts 4 or fewer."));
     assert.ok(md.includes("Best setup that passes every bar: none."));
   } finally {
@@ -352,16 +364,29 @@ test("a mirror that names a question the test does not have is refused", async (
   }
 });
 
-test("a run the judge skipped because the model never answered fails its question", async () => {
-  // alpha's q3 run 2 is skipped (no verdicts, a skipped line), so q3 fails, and the
-  // question that mirrors q3 becomes untested: alpha drops from 4 of 4 to 2 of 3.
-  const judged = judgedText("claude-sonnet-5-5", "2026-10-09", idOf("alpha", 3, 2)) + `\n### ${idOf("alpha", 3, 2)}\n\nskipped: no answer: model_unavailable\n`;
-  const { dir, path, cleanup } = await folder({ judged: [judged] });
+test("a run the model never answered is not a run: the question is judged on its answered runs and the error is counted", async () => {
+  // alpha's q3 run 2 is skipped (no verdicts, a skipped line); run 1 passed, so
+  // q3 still passes, and the errors column says one answer was never given.
+  const one = judgedText("claude-sonnet-5-5", "2026-10-09", idOf("alpha", 3, 2)) + `\n### ${idOf("alpha", 3, 2)}\n\nskipped: no answer: model_unavailable (status 529)\n`;
+  const single = await folder({ judged: [one] });
   try {
-    await scoreFile({ path, dir, date: "2026-10-10" });
-    const md = await readFile(path, "utf8");
-    assert.ok(scoredRows(md)[0].startsWith("| alpha | 66.7% |"), scoredRows(md)[0]);
+    await scoreFile({ path: single.path, dir: single.dir, date: "2026-10-10" });
+    const row = scoredRows(await readFile(single.path, "utf8"))[0];
+    assert.equal(row, "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | 1 | yes |");
   } finally {
-    await cleanup();
+    await single.cleanup();
+  }
+  // With no answered run at all, q3 fails, and the question that mirrors q3
+  // becomes untested: alpha drops to 2 of 3, with two errors.
+  const both = [idOf("alpha", 3, 1), idOf("alpha", 3, 2)];
+  const none = judgedText("claude-sonnet-5-5", "2026-10-09", both) + both.map((id) => `\n### ${id}\n\nskipped: no answer: model_unavailable\n`).join("");
+  const empty = await folder({ judged: [none] });
+  try {
+    await scoreFile({ path: empty.path, dir: empty.dir, date: "2026-10-10" });
+    const row = scoredRows(await readFile(empty.path, "utf8"))[0];
+    assert.ok(row.startsWith("| alpha | 66.7% | passed |"), row);
+    assert.ok(row.endsWith("| 2 | no |"), row);
+  } finally {
+    await empty.cleanup();
   }
 });

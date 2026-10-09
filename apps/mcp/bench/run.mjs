@@ -115,9 +115,19 @@ async function run(options) {
 
   const send = claudeTransport(process.env);
   if (!options.fake) process.stderr.write(`Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
+  // Production's texting assistant has web search, so a run must offer it too
+  // (decided 2026-10-09): without the key the assistant is measured with a
+  // shorter tool list than people get. --fake runs without one.
+  if (!options.fake && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
+    throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
+  }
   const models = options.fake
     ? { gatewayFetch: fakeGateway(), ai: fakeAi() }
-    : { gatewayFetch: anthropicGateway(send), ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null) };
+    : {
+        gatewayFetch: anthropicGateway(send),
+        ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null),
+        searchKey: process.env.BRAVE_SEARCH_API_KEY,
+      };
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
@@ -132,10 +142,23 @@ async function run(options) {
       for (const question of questions) {
         const as = question.as ?? test.front.run_as;
         for (let n = 1; n <= runs; n += 1) {
-          const world = await createWorld(bench, as, setup.raw, models, today, prepared);
+          // An answer the model never gave is run once more in a fresh world
+          // (decided 2026-10-09): the gateway has already retried the round and
+          // the setup's fallback has had its turn, so what is left is a bad
+          // minute, and a result should measure the setup, not the minute. The
+          // rerun is recorded, with the error it replaced, and counted.
+          let world = await createWorld(bench, as, setup.raw, models, today, prepared);
           try {
-            const result = await converse(world, question, person);
+            let result = await converse(world, question, person);
+            let reran = null;
+            if (result.error && !options.fake) {
+              reran = result.error;
+              world.close();
+              world = await createWorld(bench, as, setup.raw, models, today, prepared);
+              result = await converse(world, question, person);
+            }
             records.push({
+              ...(reran === null ? {} : { reran }),
               setup: setup.name,
               question: question.n,
               questionText: question.text,
@@ -150,7 +173,7 @@ async function run(options) {
           } finally {
             world.close();
           }
-          process.stderr.write(`${setup.name} q${question.n} run ${n}: ${records.at(-1)?.error ?? "ok"}\n`);
+          process.stderr.write(`${setup.name} q${question.n} run ${n}: ${records.at(-1)?.error ?? "ok"}${records.at(-1)?.reran ? ` (reran after ${records.at(-1).reran})` : ""}\n`);
         }
       }
     }
