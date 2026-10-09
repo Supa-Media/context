@@ -12,6 +12,7 @@
  *     as where mail goes, their phone, and each workspace with its role.
  *  2. **Add phone saves that person's phone** and says so.
  *  3. **A number somebody else holds is refused on screen**, naming them.
+ *  4. **Archive archives that person**, and Archived lists the archived.
  *
  * Addresses and numbers here are fake and exist only in this file.
  */
@@ -124,6 +125,7 @@ const kayla = {
   phone: null,
   textingPhones: [],
   joinedAt: Date.UTC(2026, 9, 1, 12),
+  archived: false,
   workspaces: [
     { slug: "kayla", name: "Kayla", kind: "personal", role: "owner" },
     { slug: "workteam", name: "Work team", kind: "shared", role: "member" },
@@ -177,5 +179,25 @@ describe("the People tab", () => {
       "+14155550100 already belongs to boss@work.example.",
     );
     expect(find("admin-person-phone-input-u_kayla")).not.toBeNull();
+  });
+
+  test("Archive archives that person", async () => {
+    mockCall = async () => ({ status: "archived" });
+    mount();
+    click("admin-tab-people");
+    click("admin-person-archive-u_kayla");
+    await settle();
+    expect(mockCalls).toEqual([
+      { name: "functions/admin:setPersonArchived", args: { userId: "u_kayla", archived: true } },
+    ]);
+  });
+
+  test("the Archived view offers Unarchive", () => {
+    mockAnswers.set("functions/admin:listPeople", [{ ...kayla, archived: true }]);
+    mount();
+    click("admin-tab-people");
+    click("admin-people-view-archived");
+    expect(find("admin-person-archive-u_kayla")?.textContent).toBe("Unarchive");
+    expect(document.body.textContent).toContain("Nothing was deleted");
   });
 });

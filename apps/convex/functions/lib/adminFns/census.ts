@@ -24,6 +24,7 @@ import {
   tally,
   totalOf,
   type AccountFacts,
+  type Page,
 } from "../census";
 import { aiSpendByWorkspace } from "../jev/spend";
 import { managedBucketName } from "../managedStorage";
@@ -31,6 +32,7 @@ import { activeEntitlements, type PlanStatus } from "../premium";
 import { clampReportDays, dayKey, dayRange } from "../usage";
 import { countedTotalValidator } from "./usage";
 import { admittedWaitlist, letInAtFor, waitlistSummary } from "./censusWaitlist";
+import { archivedUserIds } from "./people";
 import { normalizeEmail } from "@context/shared";
 
 /**
@@ -72,6 +74,25 @@ function keyOf(id: Id<"workspaces"> | Id<"users">): string {
 /** Add one to a counter held in a map, creating it at zero first. */
 function bump(counts: Map<string, number>, key: string): void {
   counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+/** A page with some rows left out; still a floor when the read filled. */
+function without<T>(page: Page<T>, drop: (row: T) => boolean): Page<T> {
+  return { rows: page.rows.filter((row) => !drop(row)), isFloor: page.isFloor };
+}
+
+/** The workspaces an archived account made, by index rather than from a page. */
+async function createdBy(ctx: QueryCtx, userId: Id<"users">): Promise<Id<"workspaces">[]> {
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(100);
+  const made: Id<"workspaces">[] = [];
+  for (const membership of memberships) {
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (workspace?.createdBy === userId) made.push(workspace._id);
+  }
+  return made;
 }
 
 /**
@@ -116,13 +137,32 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
 
   // Newest first, for the reason the doc comment gives: a page that fills
   // should drop the oldest rows, not the ones being asked about.
-  const accountsPage = pageOf(await ctx.db.query("users").order("desc").take(take));
-  const contextsPage = pageOf(
-    await ctx.db.query("workspaces").order("desc").take(take),
+  // Archived accounts (People tab) and the workspaces they made are left out
+  // of every figure here, so test accounts stop cluttering the console.
+  const hidden = await archivedUserIds(ctx);
+  const accountsPage = without(
+    pageOf(await ctx.db.query("users").order("desc").take(take)),
+    (row) => hidden.has(row._id),
   );
-  const membersPage = pageOf(await ctx.db.query("workspaceMembers").take(take));
-  const bindingsPage = pageOf(await ctx.db.query("storageBindings").take(take));
-  const plansPage = pageOf(await ctx.db.query("workspacePlans").take(take));
+  const contextsPage = without(
+    pageOf(await ctx.db.query("workspaces").order("desc").take(take)),
+    (row) => hidden.has(row.createdBy),
+  );
+  const hiddenContexts = new Set(
+    (await Promise.all([...hidden].map((userId) => createdBy(ctx, userId)))).flat(),
+  );
+  const membersPage = without(
+    pageOf(await ctx.db.query("workspaceMembers").take(take)),
+    (row) => hidden.has(row.userId) || hiddenContexts.has(row.workspaceId),
+  );
+  const bindingsPage = without(
+    pageOf(await ctx.db.query("storageBindings").take(take)),
+    (row) => hiddenContexts.has(row.workspaceId),
+  );
+  const plansPage = without(
+    pageOf(await ctx.db.query("workspacePlans").take(take)),
+    (row) => hiddenContexts.has(row.workspaceId),
+  );
   const grantsPage = pageOf(await ctx.db.query("oauthGrants").take(take));
   const clientsPage = pageOf(await ctx.db.query("oauthClients").take(take));
   const googlePage = pageOf(await ctx.db.query("googleConnections").take(take));

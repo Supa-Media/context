@@ -21,6 +21,8 @@ export const ADMIN_ACTIONS = [
   "search.meaning_restarted",
   "person.phone_set",
   "person.phone_removed",
+  "person.archived",
+  "person.unarchived",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];
