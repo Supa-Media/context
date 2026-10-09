@@ -258,6 +258,7 @@ export function ExplorerDialogs({
           current={files.iconOf(dialog.path)}
           onSet={(icon) => files.setIcon(dialog.path, icon)}
           onClose={onClose}
+          anchor={dialog.anchor}
         />
       );
     case "rename":

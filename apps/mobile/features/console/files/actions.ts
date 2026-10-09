@@ -64,8 +64,11 @@ export type Dialog =
   | { kind: "share"; path: string }
   /** A folder's tags (`TagsSheet`). */
   | { kind: "tags"; folder: string }
-  /** A folder's emoji icon, from a grid (`FolderIconDialog`). */
-  | { kind: "folderIcon"; path: string }
+  /**
+   * A folder's emoji icon, from a grid (`FolderIconDialog`). `anchor` when it
+   * was raised by clicking the icon in the tree, so the picker opens there.
+   */
+  | { kind: "folderIcon"; path: string; anchor?: { x: number; y: number } }
   /** "Add a folder" at the top of the workspace: its built-in folders, or one of the person's own. */
   | { kind: "addFolder" }
   /** Several picked rows' tags, from a phone's select bar (board 16). */

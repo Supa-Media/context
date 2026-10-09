@@ -5,14 +5,14 @@ import { Icon } from "../../design/components/Icon";
 import { Reveal } from "../../design/components/Reveal";
 import { useArrivals } from "../../design/useArrivals";
 import { Text } from "../../design/components/Text";
-import { EmojiGlyph } from "../emoji/EmojiGlyph";
-import { pointerType, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import type { SyncMark } from "./pendingMarks";
 import type { PickGesture } from "./selection";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
+import { TreeFolderGlyph } from "./TreeFolderGlyph";
 import { AgentMark, withAgentMark } from "../agents/AgentMark";
 import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
@@ -99,12 +99,19 @@ export function FileTree({
   agentMarks,
   workspaceId = null,
   iconOf,
+  onIconPress,
 }: {
   rows: readonly TreeRow[];
   /** Whose tree this is, for the counts the live map puts on its top folders (`mapCounts.ts`). */
   workspaceId?: string | null;
   /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
   iconOf?: (path: string) => string | null;
+  /**
+   * A folder's icon was clicked: open its picker at `anchor`, a window point
+   * under the icon. Absent for somebody who cannot change one, whose icon is
+   * then part of the row like the name. See `TreeFolderGlyph`.
+   */
+  onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -193,6 +200,7 @@ export function FileTree({
         agent={agentMarks?.get(row.path) ?? null}
         workspaceId={workspaceId}
         folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
+        onIconPress={onIconPress}
       />
     );
   }
@@ -231,11 +239,13 @@ function FileRow({
   agent,
   workspaceId,
   folderIcon,
+  onIconPress,
 }: {
   row: TreeRow;
   workspaceId: string | null;
   /** The emoji this folder was given, or `null` for the plain folder icon. Files never have one. */
   folderIcon: string | null;
+  onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -343,15 +353,11 @@ function FileRow({
           the reserved space, and a file has nothing to draw in it.
         */}
         <View style={styles.glyph}>
-          {row.kind !== "folder" ? null : folderIcon === null ? (
-            <Icon name="folder" size={14} color={colors.chromeMuted} />
-          ) : (
-            <EmojiGlyph
-              emoji={folderIcon}
-              size={14}
-              textStyle={styles.glyphEmoji}
-              fallback={<Icon name="folder" size={14} color={colors.chromeMuted} />}
-              testID="tree-folder-emoji"
+          {row.kind !== "folder" ? null : (
+            <TreeFolderGlyph
+              label={row.label}
+              icon={folderIcon}
+              onPress={onIconPress === undefined ? undefined : (anchor) => onIconPress(row.path, anchor)}
             />
           )}
         </View>
@@ -589,7 +595,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   chevron: { width: 10, alignItems: "center", justifyContent: "center" },
   /** The folder's glyph: 16pt of room, with the gap after it the name needs. */
   glyph: { width: 16, marginRight: 4, alignItems: "center", justifyContent: "center" },
-  glyphEmoji: { fontSize: pointerType.ui, lineHeight: 16 },
   /** Shrinks before the sync mark after it does — a long name ellipsises, the mark stays. */
   label: { flexShrink: 1, minWidth: 0 },
 
