@@ -25,6 +25,13 @@
  *     read makes the next widening ask` fails.
  *  5. `settleByText` matching "yes" inside a longer text. → `a text that is
  *     more than yes goes to the model` fails.
+ *  6. `/approvals` needing write again, for a member of the default
+ *     workspace. → `a member here who is an editor there can list and approve
+ *     a held write into that workspace` fails.
+ *  7. The released-result lookup removed from `egressGate`, for a call that no
+ *     longer widens. → `the client that asked calls again and is handed what
+ *     the person released`, `the owner's app releases a link...` and `the
+ *     client that asked for a link calls again...` fail.
  */
 
 import worker from "../src/index.js";
@@ -43,6 +50,8 @@ const TOKEN_MCP = `cat_egress_mcp_${"0".repeat(24)}`;
 const TOKEN_TEXTS = `cat_egress_texts_${"0".repeat(22)}`;
 const TOKEN_CONSOLE = `cat_egress_console_${"0".repeat(20)}`;
 const TOKEN_STRANGER_CONSOLE = `cat_egress_otherapp_${"0".repeat(19)}`;
+const TOKEN_MEMBER_MCP = `cat_egress_member_mcp_${"0".repeat(18)}`;
+const TOKEN_MEMBER_CONSOLE = `cat_egress_member_console_${"0".repeat(14)}`;
 const API_KEY = "zarquon-plumbago-egress-not-a-real-key";
 
 const PRIVACY_MANIFEST =
@@ -160,6 +169,7 @@ export async function runAgentEgressChecks(check) {
     });
     controlPlane.addWorkspace("ws_egress", "egress", binding("tenant-egress"));
     controlPlane.addWorkspace("ws_egress_team", "egress-team", binding("tenant-egress-team"), { kind: "shared" });
+    controlPlane.addWorkspace("ws_egress_editor", "egress-editor", binding("tenant-egress-editor"), { kind: "shared" });
     const grant = (accessToken, clientId, clientName, userId = "user_egress") =>
       controlPlane.addGrant({
         accessToken,
@@ -183,12 +193,37 @@ export async function runAgentEgressChecks(check) {
       clientId: "context_console",
       userId: "user_someone_else",
     });
+    // A person who is a `member` of the workspace their connections default to
+    // and an `editor` of another: the default clamps write away, so their
+    // console has to be able to approve a write over there.
+    const memberOfEditor = [{ workspaceId: "ws_egress_editor", role: "editor" }];
+    await controlPlane.addGrant({
+      accessToken: TOKEN_MEMBER_MCP,
+      workspaceId: "ws_egress_team",
+      role: "member",
+      scopes: ["context:read", "context:write"],
+      clientId: "mcp_client_egress_member",
+      clientName: "Claude Desktop",
+      userId: "user_member",
+      alsoMemberOf: memberOfEditor,
+    });
+    await controlPlane.addGrant({
+      accessToken: TOKEN_MEMBER_CONSOLE,
+      workspaceId: "ws_egress_team",
+      role: "member",
+      scopes: ["context:read", "context:write"],
+      clientId: "context_console",
+      clientName: "Context (this app)",
+      userId: "user_member",
+      alsoMemberOf: memberOfEditor,
+    });
     controlPlane.connectProvider("ws_egress", "anthropic", API_KEY);
 
     const bucket = s3.bucketFor("tenant-egress");
     const team = s3.bucketFor("tenant-egress-team");
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "g0" });
     team.set("privacy.md", { body: PRIVACY_MANIFEST.replace("  1-projects: team", "  notes: team"), etag: "t0" });
+    s3.bucketFor("tenant-egress-editor").set("privacy.md", { body: PRIVACY_MANIFEST, etag: "e0" });
     bucket.set("2-areas/secret.md", { body: "# Secret\n\nSALARY-MARKER\n", etag: "g1" });
     bucket.set("2-areas/second.md", { body: "# Second\n", etag: "g2" });
     bucket.set("2-areas/third.md", { body: "# Third\n", etag: "g3" });
@@ -288,10 +323,16 @@ export async function runAgentEgressChecks(check) {
     const again = await request(env, TOKEN_CONSOLE, "/approvals", { id: secretApproval?.id, action: "approve" });
     check("approving it twice finds nothing the second time", again.status === 404 && done().length === 1);
 
+    // The note is team now, so the same call no longer widens; it is still
+    // handed the result the person released, and that record is consumed.
+    const doneBeforeCollect = done().length;
     const collected = await call(env, TOKEN_MCP, "set_visibility", { path: "2-areas/secret.md", visibility: "team" });
     check(
-      "the client that asked calls again: the note is team now, so that is no widening and it simply runs",
-      collected.isError !== true && /^unchanged: 2-areas\/secret\.md/.test(textOf(collected)) && pending().length === 2,
+      "the client that asked calls again and is handed what the person released",
+      collected.isError !== true &&
+        /visibility changed/.test(textOf(collected)) &&
+        done().length === doneBeforeCollect - 1 &&
+        pending().length === 2,
     );
 
     // A link stays a widening however often it is asked for, so the released
@@ -300,12 +341,12 @@ export async function runAgentEgressChecks(check) {
     const linkReleased = await request(env, TOKEN_CONSOLE, "/approvals", { id: linkApproval?.id, action: "approve" });
     check(
       "the owner's app releases a link, and the mint happened once, as them",
-      linkReleased.status === 200 && linkReleased.body?.ok === true && /link: https/.test(linkReleased.body?.result ?? "") && done().length === 2,
+      linkReleased.status === 200 && linkReleased.body?.ok === true && /link: https/.test(linkReleased.body?.result ?? "") && done().length === 1,
     );
     const handed = await call(env, TOKEN_MCP, "create_link", { path: "1-projects/plan.md" });
     check(
-      "the client that asked calls again and is handed what the person released",
-      handed.isError !== true && /link: https/.test(textOf(handed)) && done().length === 1,
+      "the client that asked for a link calls again and is handed it, and a link stays a widening",
+      handed.isError !== true && /link: https/.test(textOf(handed)) && done().length === 0,
     );
     const once = await call(env, TOKEN_MCP, "create_link", { path: "1-projects/plan.md" });
     check("a released result is handed out once; the next call is held afresh", once.isError === true && pending().length === 2);
@@ -443,6 +484,29 @@ export async function runAgentEgressChecks(check) {
         approvalVerdict("yes, and also move it") === null &&
         approvalVerdict("I said no last time") === null &&
         approvalVerdict("") === null,
+    );
+    /* ---------------- a member here who is an editor there ---------------- */
+
+    // The console's own route needs read, not write, so a person whose default
+    // workspace clamps them to `member` can still answer for a write they may
+    // make in the workspace it lands in (`http/route.js`).
+    const memberHeld = await call(env, TOKEN_MEMBER_MCP, "write_note", {
+      path: "1-projects/from-a-member.md",
+      content: "# From a member\n",
+      context: "@egress-editor",
+    });
+    const memberListed = await request(env, TOKEN_MEMBER_CONSOLE, "/approvals", undefined, "GET");
+    const memberApproval = memberListed.body?.approvals?.find((row) => /1-projects\/from-a-member\.md/.test(row.summary));
+    const memberApproved = await request(env, TOKEN_MEMBER_CONSOLE, "/approvals", { id: memberApproval?.id, action: "approve" });
+    check(
+      "a member here who is an editor there can list and approve a held write into that workspace",
+      memberHeld.isError === true &&
+        /write 1-projects\/from-a-member\.md into @egress-editor/.test(textOf(memberHeld)) &&
+        memberListed.status === 200 &&
+        memberApproval?.tool === "write_note" &&
+        memberApproved.status === 200 &&
+        memberApproved.body?.status === "approved" &&
+        s3.bucketFor("tenant-egress-editor").get("1-projects/from-a-member.md") !== undefined,
     );
   } finally {
     globalThis.fetch = previousFetch;

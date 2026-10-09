@@ -34,7 +34,7 @@ import { toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
-import { approvalRequired, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
+import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
 import { createPending, findPending, takeDone } from "./approvals.js";
 import { loadPrivacyState } from "../privacy/state.js";
 
@@ -107,6 +107,22 @@ async function egressGate(name, supplied, args, { store, session, target, target
       model wrote is never the thing that lets one through.
     */
     if (widening && advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
+    /*
+      A call that no longer widens can still be one a person released. The
+      release ran the change, so the same call asked again is now a no-op
+      (the folder is team already, the note is team already) and `wideningOf`
+      says null; without this lookup the client would be told nothing about
+      the result it was promised and the tool would run again against a
+      stale etag. So the released result is handed back to an identical
+      re-call whether or not it still widens. A turn the gateway sees whole
+      never waits on an approval and is not consulted, and neither is a
+      replay that is itself the approved call.
+    */
+    const seenWhole = session.egress?.complete === true || session.egress?.approved === true;
+    if (widening === null && !seenWhole && mightWiden(name, args, { into })) {
+      const released = await takeDone(store, { name, args: supplied, userId: session.actorUserId });
+      if (released) return released;
+    }
     return null;
   }
   const userId = session.actorUserId;

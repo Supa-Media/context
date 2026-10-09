@@ -69,9 +69,13 @@ settlements are audit entries (`approve_action`, `deny_action`). An approval run
 who approved, with their own authority (their yes in their own app is at
 least the consent a client's grant recorded), recorded in the audit trail
 under the client that asked, and keeps the result for an hour so the client
-that asked can call again with the same arguments and be handed it — when
-that call is still a widening; a publish already done is no widening and the
-re-call simply runs. `confirm_team_publish`, the tools' earlier answer to "did the person
+that asked can call again with the same arguments and be handed it. The
+released result is handed back to the identical re-call whether or not that
+call still widens: a publish already done no longer widens, so the re-call
+would otherwise run again against the state the release left. The gate looks
+for the released result on any call that could have been held
+(`mightWiden`), and only for a turn it does not see whole.
+`confirm_team_publish`, the tools' earlier answer to "did the person
 really say so", is now written by the gate when it lets a widening through
 and ignored otherwise, because a model passes it as easily as not.
 

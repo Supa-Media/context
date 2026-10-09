@@ -294,6 +294,74 @@ export async function wideningOf(name, args, { into = null, privacy }) {
 }
 
 /**
+ * The write tools `wideningOf` can classify as a widening when they write into
+ * another workspace. Every one of them is also listed in its switch.
+ */
+const WRITE_TOOLS_THAT_CAN_REACH_ELSEWHERE = new Set([
+  "write_note",
+  "set_visibility",
+  "set_folder_visibility",
+  "save_context",
+  "move_note",
+  "move_notes",
+  "move_folder",
+  "remember",
+  "propose_note",
+  "submit_form",
+  "update_submission",
+]);
+
+/**
+ * Whether `wideningOf` could classify this call as a widening, judged from its
+ * tool and arguments alone: the manifest is not read, so this is a superset.
+ *
+ * It exists for a call whose widening has already been released. Once a
+ * person approves a held call and it runs, the same call asked again no longer
+ * widens (the note is team now), so `wideningOf` says null, and the released
+ * result would never be handed back: the re-call would run again, with the
+ * arguments it had been released against gone stale. The gate therefore still
+ * consults the done record for any call this could have held, and a false
+ * positive costs one read of the done records, which is harmless because a
+ * record only exists for a call a person released. A false negative would
+ * leave a released call without its result, so this errs wide.
+ *
+ * Never true for a dry run, which is never held and changes nothing.
+ *
+ * @param {string} name the tool
+ * @param {object} args the arguments, `context` already stripped
+ * @param {object} options
+ * @param {string|null} options.into the other workspace addressed, as `@name`, or null
+ * @returns {boolean}
+ */
+export function mightWiden(name, args, { into = null } = {}) {
+  const a = args && typeof args === "object" ? args : {};
+  if (a.dry_run === true) return false;
+  if (name === "create_link") return true;
+  if (typeof into === "string" && into !== "") return WRITE_TOOLS_THAT_CAN_REACH_ELSEWHERE.has(name);
+  switch (name) {
+    case "write_note":
+      return (
+        a.site?.action === "publish" ||
+        SHARE_VALUES.has(a.share) ||
+        (Array.isArray(a.images) && a.images.some((image) => typeof image?.url === "string")) ||
+        a.visibility === "team"
+      );
+    case "set_visibility":
+      return a.visibility === "team";
+    case "set_folder_visibility":
+      return a.visibility === "team" || a.visibility === "inherit";
+    case "save_context":
+      return a.visibility === "team" || a.visibility === "public";
+    case "move_note":
+    case "move_notes":
+    case "move_folder":
+      return a.confirm_team_publish === true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Whether a widening must wait for a person.
  *
  * `egress` is what the caller attached to the session: `{ approved: true }`

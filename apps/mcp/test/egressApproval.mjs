@@ -69,10 +69,6 @@ export async function releaseNewest(env, consoleToken, origin = "https://mcp.con
 export async function approving(once, { env, consoleToken, origin, call = null }) {
   const first = await once();
   if (!isHeld(first) || !consoleToken) return first;
-  const released = await releaseNewest(env, consoleToken, origin, call);
-  if (process.env.EGRESS_TRACE) console.log("EGRESS_TRACE held:", JSON.stringify(call), "released:", released);
-  if (!released) return first;
-  const again = await once();
-  if (process.env.EGRESS_TRACE) console.log("EGRESS_TRACE again:", JSON.stringify(again).slice(0, 300));
-  return again;
+  if (!(await releaseNewest(env, consoleToken, origin, call))) return first;
+  return await once();
 }

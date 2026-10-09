@@ -10,6 +10,7 @@ import { test } from "node:test";
 import {
   approvalRequired,
   markUntrusted,
+  mightWiden,
   newLedger,
   recordRead,
   wideningOf,
@@ -163,4 +164,109 @@ test("a turn the gateway does not see whole always asks, and an approved replay 
   assert.equal(approvalRequired({ complete: false, ledger: newLedger() }, anyone, "ws"), true);
   assert.equal(approvalRequired({ complete: true }, anyone, "ws"), true, "complete without a ledger fails closed");
   assert.equal(approvalRequired({ approved: true }, anyone, "ws"), false);
+});
+
+test("mightWiden admits every call wideningOf could call a widening, whatever the manifest says", async () => {
+  // The re-call of a released call is judged by this, not by the manifest,
+  // which the release has already changed. So it must never say no to a call
+  // wideningOf says yes to, under any manifest and for any workspace addressed.
+  const manifests = {
+    mixed: RULES,
+    allTeam: [
+      { prefix: "1-projects", vis: "team" },
+      { prefix: "2-areas", vis: "team" },
+    ],
+    allPrivate: [],
+  };
+  const cases = [
+    ["create_link", { path: "1-projects/plan.md" }],
+    ["create_link", { path: "1-projects", kind: "folder", audience: "members" }],
+    ["write_note", { path: "a.md", content: "", share: "anyone" }],
+    ["write_note", { path: "a.md", content: "", share: "collect" }],
+    ["write_note", { path: "a.md", content: "", share: "members" }],
+    ["write_note", { path: "website/index.md", site: { action: "publish" } }],
+    ["write_note", { path: "a.md", content: "", images: [{ name: "x.png", url: "https://pics.example/x.png" }] }],
+    ["write_note", { path: "2-areas/a.md", content: "", visibility: "team", confirm_team_publish: true }],
+    ["write_note", { path: "notes/from-me.md", content: "" }],
+    ["set_visibility", { path: "2-areas/a.md", visibility: "team" }],
+    ["set_folder_visibility", { path: "2-areas", visibility: "team" }],
+    ["set_folder_visibility", { path: "1-projects/held", visibility: "inherit" }],
+    ["save_context", { visibility: "team" }],
+    ["save_context", { visibility: "public" }],
+    ["move_note", { source: "2-areas/a.md", destination: "1-projects/a.md", confirm_team_publish: true }],
+    ["move_notes", { moves: [{ source: "2-areas/a.md", destination: "1-projects/a.md" }], confirm_team_publish: true }],
+    ["move_folder", { source: "2-areas", destination: "1-projects", confirm_team_publish: true }],
+    ["remember", { content: "x" }],
+    ["propose_note", { path: "a.md" }],
+    ["submit_form", { form: "x" }],
+    ["update_submission", { id: "x" }],
+  ];
+  let widenedSomewhere = 0;
+  for (const [name, args] of cases) {
+    let everWidened = false;
+    for (const into of [null, "@elsewhere"]) {
+      for (const rules of Object.values(manifests)) {
+        const widened = await wideningOf(name, args, {
+          into,
+          privacy: async () => ({ rules, overrides: new Map() }),
+        });
+        if (widened !== null) everWidened = true;
+        assert.ok(
+          widened === null || mightWiden(name, args, { into }),
+          `${name} ${JSON.stringify(args)} into ${into} widens, but mightWiden said no`,
+        );
+      }
+    }
+    assert.ok(everWidened, `${name} ${JSON.stringify(args)} is a widening under some manifest: the case is not vacuous`);
+    widenedSomewhere += 1;
+  }
+  assert.equal(widenedSomewhere, cases.length);
+});
+
+test("mightWiden says yes to the calls that can widen, and no to the rest", () => {
+  // Widening shapes, judged without a manifest.
+  assert.equal(mightWiden("create_link", { path: "a.md" }), true);
+  assert.equal(mightWiden("create_link", {}), true, "a link is a widening whatever it names");
+  assert.equal(mightWiden("write_note", { path: "a.md", share: "anyone" }), true);
+  assert.equal(mightWiden("write_note", { path: "a.md", share: "members" }), true);
+  assert.equal(mightWiden("write_note", { path: "website/index.md", site: { action: "publish" } }), true);
+  assert.equal(mightWiden("write_note", { path: "a.md", images: [{ url: "https://pics.example/x.png" }] }), true);
+  assert.equal(mightWiden("write_note", { path: "a.md", visibility: "team" }), true);
+  assert.equal(mightWiden("set_visibility", { path: "a.md", visibility: "team" }), true);
+  assert.equal(mightWiden("set_folder_visibility", { path: "a", visibility: "team" }), true);
+  assert.equal(mightWiden("set_folder_visibility", { path: "a", visibility: "inherit" }), true);
+  assert.equal(mightWiden("save_context", { visibility: "team" }), true);
+  assert.equal(mightWiden("save_context", { visibility: "public" }), true);
+  assert.equal(mightWiden("move_note", { source: "a.md", destination: "b.md", confirm_team_publish: true }), true);
+  assert.equal(mightWiden("move_notes", { moves: [], confirm_team_publish: true }), true);
+  assert.equal(mightWiden("move_folder", { source: "a", destination: "b", confirm_team_publish: true }), true);
+
+  // Shapes that never widen by themselves.
+  assert.equal(mightWiden("write_note", { path: "a.md", content: "" }), false, "an ordinary write");
+  assert.equal(mightWiden("write_note", { path: "a.md", visibility: "private" }), false);
+  assert.equal(mightWiden("set_visibility", { path: "a.md", visibility: "private" }), false);
+  assert.equal(mightWiden("set_folder_visibility", { path: "a", visibility: "private" }), false);
+  assert.equal(mightWiden("save_context", { visibility: "private" }), false);
+  assert.equal(mightWiden("move_note", { source: "a.md", destination: "b.md" }), false, "a move without the publish ask");
+  assert.equal(mightWiden("move_folder", { source: "a", destination: "b", confirm_team_publish: false }), false);
+  for (const name of ["remember", "propose_note", "submit_form", "update_submission"]) {
+    assert.equal(mightWiden(name, { content: "x" }), false, `${name} inside this workspace`);
+  }
+  assert.equal(mightWiden("read_note", { path: "a.md", visibility: "team" }), false, "a read");
+  assert.equal(mightWiden("search", { query: "team" }), false, "a search");
+  assert.equal(mightWiden("report_problem", { message: "hi" }), false, "support's intake");
+  assert.equal(mightWiden("write_note", undefined), false, "no arguments");
+});
+
+test("mightWiden never admits a dry run, and an addressed workspace makes every write tool possible", () => {
+  assert.equal(mightWiden("create_link", { path: "a.md", dry_run: true }), false, "a dry run changes nothing");
+  assert.equal(mightWiden("set_visibility", { path: "a.md", visibility: "team", dry_run: true }), false);
+  assert.equal(mightWiden("write_note", { path: "a.md", share: "anyone", dry_run: true }, { into: "@elsewhere" }), false);
+
+  assert.equal(mightWiden("write_note", { path: "a.md", content: "" }, { into: "@elsewhere" }), true);
+  assert.equal(mightWiden("remember", { content: "x" }, { into: "@elsewhere" }), true);
+  assert.equal(mightWiden("propose_note", { path: "a.md" }, { into: "@elsewhere" }), true);
+  assert.equal(mightWiden("move_note", { source: "a.md", destination: "b.md" }, { into: "@elsewhere" }), true);
+  assert.equal(mightWiden("read_note", { path: "a.md" }, { into: "@elsewhere" }), false, "a read into another workspace is no widening");
+  assert.equal(mightWiden("report_problem", { message: "hi" }, { into: "@elsewhere" }), false);
 });

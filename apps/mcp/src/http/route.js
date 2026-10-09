@@ -226,10 +226,16 @@ export async function route(request, env, ctx) {
       // answer and cannot suggest, which is the honest shape of a read-only
       // grant rather than a special case.
       // A summary is written into the note, so it needs write like any edit.
-      // Answering an approval releases a write, so it needs write; a client
-      // that cannot write could never have been held at the gate either.
-      const needed = summaryRoute || approvalsRoute
+      // `/approvals` needs only read. Answering an approval releases a write,
+      // but the release is replayed through `callToolForSession`, which checks
+      // write against the workspace the call actually lands in: this
+      // connection's default workspace may clamp the person to `member` where
+      // they are an `editor` in the one they asked to write into. Clamping
+      // the route here would 403 them there, and they could never approve it.
+      const needed = summaryRoute
         ? SCOPE_WRITE
+        : approvalsRoute
+        ? SCOPE_READ
         : meetingRoute
         ? scopeForMeetingRequest(request.method)
         : path === "/inbox"

@@ -383,10 +383,17 @@ export async function runSiteActionChecks(check) {
     check("a malformed draft, an unknown action and a site passed with content are refused before anything is sent",
       badDraft.isError && badAction.isError && withContent.isError && controlPlane.siteCalls.length === callsBefore + 1);
 
-    // The egress gate's own records (`.context/approvals/`) are not the site's.
+    // The egress gate's own records are not the site's: the pending and done
+    // records under `.context/approvals/`, and the audit entry each approval or
+    // denial leaves (`settlePending`, `approve_action` / `deny_action`). Nothing
+    // else under `.context/audit/` is excused, so a site call that wrote one would
+    // still be caught.
+    const gateRecord = ([key, value]) =>
+      key.startsWith(".context/approvals/") ||
+      (key.startsWith(".context/audit/") && /"action":"(approve|deny)_action"/.test(String(value?.body ?? "")));
     check(
       "nothing was written to the bucket",
-      JSON.stringify([...bucket.objects.entries()].filter(([key]) => !key.startsWith(".context/approvals/"))) === before,
+      JSON.stringify([...bucket.objects.entries()].filter((entry) => !gateRecord(entry))) === before,
     );
   } finally {
     restore();
