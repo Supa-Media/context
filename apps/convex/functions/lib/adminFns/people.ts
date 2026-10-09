@@ -14,6 +14,12 @@
  * A phone typed here counts as confirmed, as one confirmed by text does: the
  * person staff vouch for is the one they know. One phone is still one person,
  * so a number another account holds is refused, never moved.
+ *
+ * Archiving (Dev2, 2026-10-09: "I have a bunch of test accounts here
+ * cluttering the space") hides an account from the console's lists and
+ * figures and deletes nothing: data and buckets stay, the account can still
+ * sign in, and Unarchive undoes it. `archivedUserIds` is what the other
+ * console reports read to leave them out.
  */
 
 import { v } from "convex/values";
@@ -43,6 +49,7 @@ export const personValidator = v.object({
   /** Phones linked for texting the assistant, which also stand for this person. */
   textingPhones: v.array(v.string()),
   joinedAt: v.number(),
+  archived: v.boolean(),
   workspaces: v.array(
     v.object({
       slug: v.string(),
@@ -54,6 +61,26 @@ export const personValidator = v.object({
 });
 
 export type Person = typeof personValidator.type;
+
+export const archiveResultValidator = v.object({
+  status: v.union(v.literal("archived"), v.literal("unarchived"), v.literal("self"), v.literal("not_found")),
+});
+
+/** Archived accounts the console leaves out; far above any real number. */
+const ARCHIVE_LIMIT = 5000;
+
+/** Every archived account, for leaving them out of the console's lists and figures. */
+export async function archivedUserIds(ctx: QueryCtx): Promise<Set<Id<"users">>> {
+  const rows = await ctx.db.query("archivedAccounts").take(ARCHIVE_LIMIT);
+  return new Set(rows.map((row) => row.userId));
+}
+
+async function archiveRowOf(ctx: QueryCtx, userId: Id<"users">) {
+  return await ctx.db
+    .query("archivedAccounts")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+}
 
 export const setPhoneResultValidator = v.object({
   status: v.union(v.literal("saved"), v.literal("removed"), v.literal("invalid"), v.literal("taken"), v.literal("not_found")),
@@ -73,7 +100,7 @@ async function usernameOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | 
   return row?.name ?? null;
 }
 
-async function personOf(ctx: QueryCtx, user: Doc<"users">): Promise<Person> {
+async function personOf(ctx: QueryCtx, user: Doc<"users">, archived: boolean): Promise<Person> {
   const emails = [
     ...(user.email === undefined ? [] : [user.email.toLowerCase()]),
     ...(await attachedEmailsOf(ctx, user._id)),
@@ -105,6 +132,7 @@ async function personOf(ctx: QueryCtx, user: Doc<"users">): Promise<Person> {
     phone: user.phone ?? null,
     textingPhones: links.map((link) => link.phone),
     joinedAt: user._creationTime,
+    archived,
     workspaces,
   };
 }
@@ -118,13 +146,28 @@ function phoneDigits(search: string): string | null {
 
 /**
  * Everybody matching `search`: a name, an address, an @username or a phone,
- * any part of it. Empty means the newest accounts.
+ * any part of it. Empty means the newest accounts. `archived` lists only the
+ * archived ones; otherwise they are left out.
  */
-export async function listPeopleHandler(ctx: QueryCtx, search: string): Promise<Person[]> {
+export async function listPeopleHandler(ctx: QueryCtx, search: string, archived = false): Promise<Person[]> {
   const query = search.trim().toLowerCase();
+  const hidden = await archivedUserIds(ctx);
+  const shown = (userId: Id<"users">) => hidden.has(userId) === archived;
   if (query === "") {
-    const newest = await ctx.db.query("users").order("desc").take(PEOPLE_PAGE);
-    return await Promise.all(newest.map((user) => personOf(ctx, user)));
+    const people: Person[] = [];
+    if (archived) {
+      for (const userId of hidden) {
+        if (people.length >= PEOPLE_PAGE) break;
+        const user = await ctx.db.get(userId);
+        if (user !== null) people.push(await personOf(ctx, user, true));
+      }
+      return people.sort((a, b) => b.joinedAt - a.joinedAt);
+    }
+    for await (const user of ctx.db.query("users").order("desc")) {
+      if (people.length >= PEOPLE_PAGE) break;
+      if (shown(user._id)) people.push(await personOf(ctx, user, false));
+    }
+    return people;
   }
 
   const found = new Set<Id<"users">>();
@@ -155,8 +198,9 @@ export async function listPeopleHandler(ctx: QueryCtx, search: string): Promise<
   const people: Person[] = [];
   for (const userId of found) {
     if (people.length >= PEOPLE_PAGE) break;
+    if (!shown(userId)) continue;
     const user = await ctx.db.get(userId);
-    if (user !== null) people.push(await personOf(ctx, user));
+    if (user !== null) people.push(await personOf(ctx, user, archived));
   }
   return people.sort((a, b) => b.joinedAt - a.joinedAt);
 }
@@ -216,4 +260,31 @@ async function holderOf(ctx: QueryCtx, phone: string, userId: Id<"users">): Prom
     .filter((q) => q.neq(q.field("userId"), userId))
     .first();
   return link === null ? undefined : ((await ctx.db.get(link.userId))?.email ?? undefined);
+}
+
+/**
+ * Archive or unarchive an account. Hides it from the console; deletes
+ * nothing. Staff cannot archive themselves.
+ */
+export async function setArchivedHandler(
+  ctx: MutationCtx,
+  actor: AdminActor,
+  userId: Id<"users">,
+  archived: boolean,
+): Promise<typeof archiveResultValidator.type> {
+  if (userId === actor.userId) return { status: "self" };
+  if ((await ctx.db.get(userId)) === null) return { status: "not_found" };
+  const row = await archiveRowOf(ctx, userId);
+  if (archived) {
+    if (row === null) {
+      await ctx.db.insert("archivedAccounts", { userId, archivedBy: actor.userId, archivedAt: Date.now() });
+      await recordAdminAudit(ctx, actor, "person.archived", userId);
+    }
+    return { status: "archived" };
+  }
+  if (row !== null) {
+    await ctx.db.delete(row._id);
+    await recordAdminAudit(ctx, actor, "person.unarchived", userId);
+  }
+  return { status: "unarchived" };
 }

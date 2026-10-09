@@ -84,7 +84,14 @@ import {
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
 import { getSignupAlertsHandler, setSignupAlertsHandler } from "./lib/adminFns/signupAlerts";
-import { listPeopleHandler, personValidator, setPhoneHandler, setPhoneResultValidator } from "./lib/adminFns/people";
+import {
+  archiveResultValidator,
+  listPeopleHandler,
+  personValidator,
+  setArchivedHandler,
+  setPhoneHandler,
+  setPhoneResultValidator,
+} from "./lib/adminFns/people";
 import {
   communityKindValidator,
   communityLinkValidator,
@@ -357,13 +364,28 @@ export const setSignupAlerts = mutation({
  * of them. See `lib/adminFns/people.ts`.
  */
 export const listPeople = query({
-  args: { search: v.string() },
+  args: { search: v.string(), archived: v.optional(v.boolean()) },
   returns: v.array(personValidator),
   handler: async (ctx, args) => {
     await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
     });
-    return await listPeopleHandler(ctx, args.search);
+    return await listPeopleHandler(ctx, args.search, args.archived ?? false);
+  },
+});
+
+/** Hide an account from the console, or bring it back. Deletes nothing. */
+export const setPersonArchived = mutation({
+  args: { userId: v.id("users"), archived: v.boolean() },
+  returns: archiveResultValidator,
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setArchivedHandler(ctx, actor, args.userId, args.archived);
   },
 });
 

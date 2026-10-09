@@ -129,6 +129,48 @@ describe("typing in a phone", () => {
   });
 });
 
+const archive = (t: TestConvex, by: Id<"users">, userId: Id<"users">, archived = true) =>
+  asUser(t, by).mutation(api.functions.admin.setPersonArchived, { userId, archived });
+
+describe("archiving", () => {
+  test("hides an account from People and the Growth figures, deletes nothing, and comes back", async () => {
+    const t = setupTest();
+    const { staff, kayla, boss } = await world(t);
+    const before = await asUser(t, staff).query(api.functions.admin.censusReport, {});
+    expect(await archive(t, staff, boss)).toEqual({ status: "archived" });
+
+    expect((await find(t, staff, "")).map((person) => person.userId)).not.toContain(boss);
+    expect(await find(t, staff, "boss@work")).toEqual([]);
+    const archived = await asUser(t, staff).query(api.functions.admin.listPeople, { search: "", archived: true });
+    expect(archived.map((person) => [person.userId, person.archived])).toEqual([[boss, true]]);
+
+    const after = await asUser(t, staff).query(api.functions.admin.censusReport, {});
+    expect(after.accounts.total.count).toBe(before.accounts.total.count - 1);
+    // boss made the shared workspace; kayla's personal one still counts.
+    expect(after.contexts.total.count).toBe(before.contexts.total.count - 1);
+    expect(after.roster.map((row) => row.email)).not.toContain("boss@work.example");
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(boss)).not.toBeNull();
+      expect(await ctx.db.query("workspaces").collect()).toHaveLength(2);
+    });
+
+    expect(await archive(t, staff, boss, false)).toEqual({ status: "unarchived" });
+    expect((await find(t, staff, "boss@work")).map((person) => person.userId)).toEqual([boss]);
+    const trail = await t.run(async (ctx) => await ctx.db.query("adminAuditEvents").collect());
+    expect(trail.map((row) => row.action)).toEqual(["person.archived", "person.unarchived"]);
+    void kayla;
+  });
+
+  test("staff cannot archive themselves, and nobody else can archive at all", async () => {
+    const t = setupTest();
+    const { staff, kayla, boss } = await world(t);
+    expect(await archive(t, staff, staff)).toEqual({ status: "self" });
+    expect(await captureError(() => archive(t, kayla, boss))).toBeDefined();
+    expect(await t.run(async (ctx) => await ctx.db.query("archivedAccounts").collect())).toEqual([]);
+  });
+});
+
 describe("nobody else", () => {
   test("can look people up or set a phone", async () => {
     const t = setupTest();

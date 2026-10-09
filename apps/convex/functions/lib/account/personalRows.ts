@@ -52,6 +52,11 @@ export async function deletePersonalRows(
     .withIndex("by_user", (q) => q.eq("fromUserId", userId))
     .collect();
   for (const row of handOffs) await ctx.db.delete(row._id);
+  const archived = await ctx.db
+    .query("archivedAccounts")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of archived) await ctx.db.delete(row._id);
 
   // The photo they chose to be drawn with, and its object in file storage.
   await deleteAccountPhoto(ctx, userId);

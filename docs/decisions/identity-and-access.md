@@ -130,6 +130,8 @@ Every account also confirms a phone once (`functions/phoneCheck.ts`, behind `PHO
 
 Staff can also type a person's phone in the console's People tab (`/admin/people`, `lib/adminFns/people.ts`; Dev2, 2026-10-09, ahead of signing in with a phone number). A typed phone counts as confirmed, because staff vouch for the person they know. The one-phone-one-account rule still holds: a number another account holds is refused and never moved. The staff audit trail keeps only the last four digits. `__tests__/adminPeople.test.ts` fails if a held number is accepted or a whole number reaches the trail.
 
+Staff can also archive an account there (Dev2, 2026-10-09, for test accounts cluttering the console). Archiving only hides the account from People and from Growth's figures and roster, along with the workspaces it made. It deletes nothing: the account, its workspaces and their buckets stay, it can still sign in, and Unarchive undoes it. Real deletion stays the account owner's own action. The `archivedAccounts` row goes when the account is closed.
+
 ## A shared workspace opened to an email domain
 
 Decided by the owner, 2026-10-09 (boards s3/s4). An owner of a **shared** workspace can open it to everyone at an email domain, such as `publicworship.org`, from Settings › Sharing › Your organization. Somebody with a confirmed address there joins when they open a link to the workspace, either with their main email or with one added on Account settings. They join with the role the owner picked, which is Can read by default. The invite-only gate lets that address in. When they stop signing in with any address at the domain, they leave (`viaDomain` on the membership).

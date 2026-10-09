@@ -9,6 +9,9 @@
  * Control-plane metadata only, like the rest of the console: nothing here
  * names a note. A phone saved here counts as confirmed; one phone is one
  * person, so a number somebody else holds is refused with who holds it.
+ *
+ * Archive hides an account (test accounts, mostly) from this list and from
+ * Growth's figures. It deletes nothing and can be undone from Archived.
  */
 
 import { useEffect, useState } from "react";
@@ -19,11 +22,18 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { Button, Card, Pill, Text, TextField, leading, space, useThemedStyles, type Colors } from "../design";
 import { pointerType } from "../design/tokens";
 import { EmptyNote, Skeleton, useCompact } from "./AdminKit";
+import { Segments } from "./Segments";
 import { messageFor } from "./SecretDialogs";
 import { joinedLabel, phoneSentence, roleLabel, type PersonRole, type PhoneResult } from "./people";
 
 /** Waits this long after the last key before asking the server. */
 const SEARCH_PAUSE_MS = 250;
+
+const VIEWS = [
+  { key: "active", label: "People" },
+  { key: "archived", label: "Archived" },
+] as const;
+type PeopleView = (typeof VIEWS)[number]["key"];
 
 interface Person {
   userId: Id<"users">;
@@ -33,6 +43,7 @@ interface Person {
   phone: string | null;
   textingPhones: string[];
   joinedAt: number;
+  archived: boolean;
   workspaces: { slug: string; name: string; kind: "personal" | "shared"; role: PersonRole }[];
 }
 
@@ -45,7 +56,8 @@ export function PeopleSection() {
     const timer = setTimeout(() => setSearch(typed.trim()), SEARCH_PAUSE_MS);
     return () => clearTimeout(timer);
   }, [typed]);
-  const people = useQuery(api.functions.admin.listPeople, { search });
+  const [view, setView] = useState<PeopleView>("active");
+  const people = useQuery(api.functions.admin.listPeople, { search, archived: view === "archived" });
 
   return (
     <View style={styles.section}>
@@ -67,16 +79,31 @@ export function PeopleSection() {
         autoCorrect={false}
         testID="admin-people-search"
       />
+      <Segments options={VIEWS} value={view} onChange={setView} label="Which accounts" testID="admin-people-view" />
       {people === undefined ? (
         <View style={styles.list}>
           <Skeleton width="100%" height={140} />
           <Skeleton width="100%" height={140} />
         </View>
       ) : people.length === 0 ? (
-        <EmptyNote title={search === "" ? "No accounts yet." : `Nobody matches “${search}”.`} />
+        <EmptyNote
+          title={
+            search !== ""
+              ? `Nobody matches “${search}”.`
+              : view === "archived"
+                ? "No archived accounts."
+                : "No accounts yet."
+          }
+        />
       ) : (
         <View style={styles.list}>
-          {search === "" ? <Text variant="meta">Newest accounts first.</Text> : null}
+          {search === "" ? (
+            <Text variant="meta">
+              {view === "archived"
+                ? "Hidden from People and Growth. Nothing was deleted, and they can still sign in."
+                : "Newest accounts first."}
+            </Text>
+          ) : null}
           {people.map((person) => (
             <PersonCard key={person.userId} person={person} />
           ))}
@@ -99,6 +126,7 @@ function PersonCard({ person }: { person: Person }) {
             {joinedLabel(person.joinedAt)}
           </Text>
         </View>
+        <ArchiveButton person={person} />
       </View>
 
       <Label>Emails</Label>
@@ -125,6 +153,40 @@ function PersonCard({ person }: { person: Person }) {
         ))}
       </View>
     </Card>
+  );
+}
+
+function ArchiveButton({ person }: { person: Person }) {
+  const setArchived = useMutation(api.functions.admin.setPersonArchived);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function press() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await setArchived({ userId: person.userId, archived: !person.archived });
+      if (result.status === "self") setError("You can't archive your own account.");
+    } catch (caught) {
+      setError(messageFor(caught, "That did not work. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <View>
+      <Button
+        label={person.archived ? "Unarchive" : "Archive"}
+        variant="dialog"
+        disabled={busy}
+        onPress={() => void press()}
+        testID={`admin-person-archive-${person.userId}`}
+      />
+      {error ? (
+        <Text variant="error" role="alert">
+          {error}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
