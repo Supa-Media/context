@@ -213,6 +213,12 @@ describe("what the map says when it cannot draw yet", () => {
     );
   });
 
+  test("a map catching up says what is missing and that it fills in by itself", () => {
+    expect(mapNotice(page(3, { behind: true }))).toBe(
+      "Some recent edits aren't on the map yet. Their links fill in by themselves in a moment.",
+    );
+  });
+
   test("a map cut only at the link limit says every note is there", () => {
     expect(mapNotice(page(3, { truncated: true, linksCut: true }))).toBe(
       "Every note is here, but some links between them aren't drawn: there are too many to show at once.",

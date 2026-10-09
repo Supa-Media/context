@@ -110,7 +110,11 @@ export interface WorkspaceGraphResult {
    */
   pathChunks?: string[][];
   linkChunks?: number[][];
-  /** The index has not caught up with the bucket: "the map is catching up". */
+  /**
+   * The index has not caught up with the bucket, or (from the link table) enough
+   * notes are waiting on their links to matter (`linksBehind`): "the map is
+   * catching up".
+   */
   behind: boolean;
   /**
    * Nothing has indexed this bucket at all. Distinct from an empty workspace
@@ -139,6 +143,23 @@ function decoded(target: string): string {
   } catch {
     return target;
   }
+}
+
+/**
+ * When the map says it is catching up: only once enough notes are waiting on
+ * their links to make a visible difference. Every save of text leaves its note
+ * unparsed until the next fill pass, which a map read schedules, so in a
+ * workspace somebody is writing in a few notes are almost always waiting; a
+ * notice for those would be on nearly every time anybody opened the map, and
+ * would read as stuck. Below this the map draws what it has and its next
+ * refresh brings the rest in. One bit leaves the server, never the count,
+ * which includes notes the caller may not see.
+ */
+export const LINKS_BEHIND_MIN = 20;
+export const LINKS_BEHIND_SHARE = 0.05;
+
+export function linksBehind(unparsed: number, notes: number): boolean {
+  return unparsed > 0 && unparsed >= Math.max(LINKS_BEHIND_MIN, notes * LINKS_BEHIND_SHARE);
 }
 
 /** The tree's link table, as the barrier attaches it to the map's store (`treeTableOps.ts`). */
@@ -262,7 +283,7 @@ export async function workspaceGraph(
 
   let behind: boolean;
   if (tableRows !== null) {
-    behind = table!.unparsed > 0;
+    behind = linksBehind(table!.unparsed, tableRows.paths.length);
     for (const [physical, kind, target] of tableRows.links) {
       const source = mayDraw(physical) ? indexOf.get(logicalPath(physical)) : undefined;
       if (source === undefined) continue;

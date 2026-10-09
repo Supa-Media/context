@@ -111,3 +111,13 @@ that reloads is sent everything again. Not a native canvas library
 dependency an over-the-air update cannot add. Guards:
 `__tests__/liveMapWebview.test.ts`, `__tests__/mapBundle.test.ts`, and the
 `editor-bundle` CI job, which rebuilds both bundles and diffs them.
+
+**"Catching up" means a real gap (2026-10-09).** Every save of text leaves its
+note waiting until the link table's next fill pass, which a map read
+schedules, so a workspace anybody is writing in nearly always has a few. The
+first link-table version said "catching up" whenever one was waiting, and the
+notice was up on almost every open. It now shows only once at least 20 notes
+and 5% of the workspace are waiting (`linksBehind` in `lib/fileOps/graph.ts`).
+Only that one bit leaves the server, because the count includes notes the
+caller may not see. While the notice is up the map reads again every 20
+seconds instead of every 2 minutes, so it clears by itself.

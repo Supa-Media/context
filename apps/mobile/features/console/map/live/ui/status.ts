@@ -14,7 +14,7 @@ export function mapNotice(page: Pick<MapPageState, "graphs" | "historyLoading" |
   if (notes === 0) return "No notes to draw here yet.";
   const cut = cutNotice(page.graphs.partial);
   if (cut !== null) return cut;
-  if (page.graphs.partial.behind) return "The map is catching up with the latest changes.";
+  if (page.graphs.partial.behind) return "Some recent edits aren't on the map yet. Their links fill in by themselves in a moment.";
   return null;
 }
 
