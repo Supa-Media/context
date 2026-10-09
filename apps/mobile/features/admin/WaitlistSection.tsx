@@ -43,6 +43,7 @@ import { WaitlistRows } from "./WaitlistRows";
 import {
   WAITLIST_FILTERS,
   admittedSentence,
+  landingSentence,
   people,
   removedSentence,
   type WaitlistStatus,
@@ -97,6 +98,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
   const admit = useMutation(api.functions.admin.admitWaitlist);
   const remove = useMutation(api.functions.admin.removeFromWaitlist);
   const referrals = useQuery(api.functions.admin.listReferrals, {});
+  const landing = useQuery(api.functions.admin.waitlistLandingCounts, {});
 
   // A selection belongs to the list it was made on.
   useEffect(() => setSelected(new Set()), [view]);
@@ -136,6 +138,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
     setSelected(picked.length === rows.length ? new Set() : new Set(rows.map((row) => row.id)));
 
   const counts = list?.counts;
+  const landingLine = landing === undefined ? null : landingSentence(landing);
   return (
     <View style={styles.section}>
       <View style={[styles.head, compact && styles.headCompact]}>
@@ -202,6 +205,12 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
       />
 
       {friends ? <ReferralsView list={referrals} /> : null}
+
+      {!friends && landingLine !== null ? (
+        <Text variant="meta" style={compact ? styles.textCompact : null} testID="admin-waitlist-landing">
+          {landingLine}
+        </Text>
+      ) : null}
 
       {!friends && picked.length > 0 ? (
         <View style={[styles.bulk, compact && styles.bulkCompact]} testID="admin-waitlist-bulk">

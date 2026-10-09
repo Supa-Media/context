@@ -13,7 +13,14 @@ export const PHONE_CHECK_TITLE = "Add your phone number";
 export const PHONE_CHECK_WHY =
   "We text you a code once to check it's yours. From then on, your phone is how you sign in.";
 
-const TAKEN = "That number is already on another Context account. Use a different number, or sign in to that account.";
+/**
+ * One person, one account, however many emails (Dev2, 2026-10-09): a number
+ * that already signs in elsewhere is the person's account, so the way on is
+ * to sign in with it and add this email there, which folds an empty account
+ * in (`functions/signInEmails.ts`).
+ */
+const TAKEN =
+  "That number already signs in to a Context account. Sign in with your phone instead, then add this email in Settings › Profile › Emails you sign in with.";
 const TOO_MANY = "Too many tries for now. Wait a bit, then try again.";
 const FAILED = "We couldn't send a text just now. Try again in a minute.";
 

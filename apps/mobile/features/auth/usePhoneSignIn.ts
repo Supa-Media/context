@@ -4,6 +4,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import { OTP_LENGTH } from "./CodeBoxes";
 import { CODE_FAILED, startError, type StartStatus } from "./phoneSignIn";
+import { landingPage } from "./landingPage";
 
 /** The provider `apps/convex/auth.ts` registers for a texted code. */
 export const PHONE_VERIFY_PROVIDER = "phone-verify";
@@ -32,7 +33,11 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
     setError(null);
     setSubmitting(true);
     try {
-      const result = (await start({ phone: sentTo ?? phone })) as { status: StartStatus; phone?: string };
+      const landing = landingPage();
+      const result = (await start({
+        phone: sentTo ?? phone,
+        ...(landing === undefined ? {} : { landing }),
+      })) as { status: StartStatus; phone?: string };
       setError(startError(result.status));
       if (result.status === "sent" && result.phone !== undefined) {
         setSentTo(result.phone);

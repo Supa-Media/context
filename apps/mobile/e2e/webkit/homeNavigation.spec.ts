@@ -33,7 +33,7 @@ async function openFromHome(page: Page, title: string): Promise<void> {
 }
 
 test("Home reaches every page, and Back walks the pages a visitor opened", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?page=index");
   await expect(content(page)).toContainText("Notes for your team", { timeout: 15_000 });
   await expect(page.getByRole("toolbar", { name: "Note actions and new note" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Browse files" })).toHaveCount(0);
@@ -71,7 +71,7 @@ test("a cast comment on a phone shows its highlight and waits for a tap", async 
     emoji: {},
     images: {},
   };
-  await page.route(/\/$/, async (route) => {
+  await page.route(/\/\?page=index$/, async (route) => {
     const response = await route.fetch();
     const html = (await response.text()).replace(
       "</head>",
@@ -79,7 +79,7 @@ test("a cast comment on a phone shows its highlight and waits for a tap", async 
     );
     await route.fulfill({ response, body: html });
   });
-  await page.goto("/");
+  await page.goto("/?page=index");
 
   const highlight = page.locator(".cm-cmt-hl").first();
   await expect(highlight).toBeVisible({ timeout: 15_000 });

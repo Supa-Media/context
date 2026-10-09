@@ -36,6 +36,14 @@ export const waitlistTables = {
     source: v.union(v.literal("homepage"), v.literal("login"), v.literal("staff")),
     /** The optional one-line answer, at most `USE_FOR_MAX` characters. */
     useFor: v.optional(v.string()),
+    /**
+     * Which landing page (`/a` to `/e`, `LANDING_PAGES` in `@context/shared`)
+     * the person saw before joining. Set once, when the row is made, and never
+     * changed after; read for the landing-page test. `enter` and `phoneSignIn`
+     * validate it and drop anything that is not one, so a stored value is
+     * always a landing page.
+     */
+    landing: v.optional(v.string()),
     admittedAt: v.optional(v.number()),
     admittedBy: v.optional(v.id("users")),
     /**

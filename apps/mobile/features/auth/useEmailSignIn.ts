@@ -4,6 +4,7 @@ import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "@context/convex/_generated/api";
 import { adClickId } from "./adClickId";
+import { landingPage } from "./landingPage";
 import { reportWaitlistSignUp } from "./xPixel";
 import { metaBrowserIds } from "./metaBrowserIds";
 import { reportMetaLead } from "./metaPixel";
@@ -63,10 +64,12 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
         return;
       }
       const twclid = adClickId();
+      const landing = landingPage();
       const { status, conversionId } = await enter({
         email: normalized,
         source: options.source,
         ...(twclid === undefined ? {} : { twclid }),
+        ...(landing === undefined ? {} : { landing }),
         ...metaBrowserIds(),
       });
       if (status === "admitted") await sendCode(normalized, false);

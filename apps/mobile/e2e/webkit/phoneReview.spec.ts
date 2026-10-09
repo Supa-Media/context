@@ -32,7 +32,7 @@ async function touch(page: Page, testID: string): Promise<void> {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?page=index");
   await expect(content(page)).toContainText("Notes for your team", { timeout: 15_000 });
 });
 
