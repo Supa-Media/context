@@ -325,8 +325,7 @@ export function homeRedirect(
 ): { pathname: "/"; params: { page: string } } | null {
   if (!web) return null;
   const route = homePagePath(segments);
-  const page = route === null ? undefined : pageParam(route);
-  return page === undefined ? null : { pathname: "/", params: { page } };
+  return route === null ? null : { pathname: "/", params: { page: pageParam(route) } };
 }
 
 /**
@@ -336,16 +335,25 @@ export function homeRedirect(
  * `login`) keeps `/?page=login`, since `/login` would open sign-in.
  */
 export function pageHref(routePath: string): string {
+  // A link to the home page is a link to the front door.
+  if (routePath === "/") return "/";
   const page = pageParam(routePath);
-  if (page === undefined) return "/";
   return homePagePath(page.split("/")) === null
     ? `/?page=${encodeURIComponent(page)}`
     : `/${page.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-/** The `?page=` a route path is written as in the address bar; the home page has none. */
-export function pageParam(routePath: string): string | undefined {
-  return routePath === "/" ? undefined : routePath.slice(1);
+/**
+ * The `?page=` the website's own home page is written as. `/` with no
+ * `?page=` is landing page a (Dev2, 2026-10-09; `features/landing`), so the
+ * home page of the site, drawn in the console's frame, needs an address of its
+ * own. `index` cannot be another page's: `index.md` is the home page.
+ */
+export const HOME_PAGE_PARAM = "index";
+
+/** The `?page=` a route path is written as in the address bar. */
+export function pageParam(routePath: string): string {
+  return routePath === "/" ? HOME_PAGE_PARAM : routePath.slice(1);
 }
 
 /** The route path a `?page=` names. */
@@ -353,5 +361,5 @@ export function routeFromParam(param: string | string[] | undefined): string {
   const value = Array.isArray(param) ? param[0] : param;
   if (value === undefined || value === "") return "/";
   const trimmed = value.replace(/^\/+/, "").replace(/\/+$/, "");
-  return trimmed === "" ? "/" : `/${trimmed}`;
+  return trimmed === "" || trimmed === HOME_PAGE_PARAM ? "/" : `/${trimmed}`;
 }

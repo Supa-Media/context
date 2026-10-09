@@ -252,6 +252,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
+- [The front door is five landing pages under test](./websites/landing-pages.md)
 
 ## [Release communication](./release-communication.md)
 
