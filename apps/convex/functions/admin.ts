@@ -108,6 +108,11 @@ import {
   setInvitesOffHandler,
   traceReferralHandler,
 } from "./lib/adminFns/referrals";
+import {
+  setSignInTextsSenderHandler,
+  signInTextsHandler,
+  signInTextsValidator,
+} from "./lib/adminFns/signInTexts";
 
 export { COUNT_CEILING, ROSTER_LIMIT };
 export type { AdminSecretRow, CountedTotal, MetricSeries };
@@ -790,6 +795,33 @@ export const secretEnvelope = internalQuery({
       .query("appSecrets")
       .withIndex("by_name", (q) => q.eq("name", args.name))
       .unique(),
+});
+
+/** Who sign-in codes come from, and whether they say Context. */
+export const signInTexts = query({
+  args: {},
+  returns: signInTextsValidator,
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await signInTextsHandler(ctx);
+  },
+});
+
+/** Set the Messaging Service sign-in codes are texted through; empty clears it. */
+export const setSignInTextsSender = mutation({
+  args: { messagingServiceSid: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setSignInTextsSenderHandler(ctx, args.messagingServiceSid, actor);
+  },
 });
 
 /**

@@ -20,4 +20,16 @@ export const phoneCodeTables = {
   })
     .index("by_phone", ["phone"])
     .index("by_expiresAt", ["expiresAt"]),
+
+  /**
+   * Who sign-in codes come from when the deployment names nobody: the
+   * Messaging Service staff pasted in the admin console (Dev2, 2026-10-09).
+   * One row. Not a secret, an ID, so it is stored plain and shown back; the
+   * account's auth token stays in the deployment's environment.
+   */
+  smsSettings: defineTable({
+    messagingServiceSid: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedBy: v.id("users"),
+  }),
 };
