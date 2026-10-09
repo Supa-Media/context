@@ -28,6 +28,20 @@ afterEach(async () => {
 });
 
 describe("a projection that fails on a blip", () => {
+  test("only one pass can hold a workspace's projection lease", async () => {
+    const { t, workspaceId } = await opted({ notes: 3 });
+    const claim = (token: string) => t.mutation(internal.functions.fastSearch.claimProjection, { workspaceId, token });
+    const release = (token: string) => t.mutation(internal.functions.fastSearch.releaseProjection, { workspaceId, token });
+
+    expect(await claim("first")).toBe(true);
+    expect(await claim("second")).toBe(false);
+    await release("second");
+    expect(await claim("second")).toBe(false);
+    await release("first");
+    expect(await claim("second")).toBe(true);
+    await release("second");
+  });
+
   test("a Cloudflare blip is retried by the chain, not recorded as failed", async () => {
     /*
       The screen a person actually saw: "Cloudflare could not be reached. This

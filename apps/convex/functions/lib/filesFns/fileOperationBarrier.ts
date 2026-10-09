@@ -100,6 +100,7 @@ export async function runFileOperationHandler(
    * listing per link, forever, for a context with nothing left to copy.
    */
   let projection: ProjectionClient | null = null;
+  let projectionLeaseToken: string | null = null;
 
   /**
    * This context's search database, if the row is in the state the caller
@@ -163,6 +164,13 @@ export async function runFileOperationHandler(
   if (args.operation.kind === "projectIndex") {
     const target = await projectionTarget("backfilling");
     if (target === null) return IDLE_PROJECTION;
+    const token = crypto.randomUUID();
+    const claimed = await ctx.runMutation(internal.functions.fastSearch.claimProjection, {
+      workspaceId: args.workspaceId,
+      token,
+    });
+    if (!claimed) return IDLE_PROJECTION;
+    projectionLeaseToken = token;
 
     try {
       projection = await clientFor(target);
@@ -182,6 +190,10 @@ export async function runFileOperationHandler(
           error: messageFor("NOT_CONFIGURED"),
         },
       );
+      await ctx.runMutation(internal.functions.fastSearch.releaseProjection, {
+        workspaceId: args.workspaceId,
+        token,
+      });
       return IDLE_PROJECTION;
     }
   }
@@ -521,7 +533,16 @@ export async function runFileOperationHandler(
   }
 
   if (result.kind === "indexProjected") {
-    await recordProjectionOutcome(ctx, args, result);
+    try {
+      await recordProjectionOutcome(ctx, args, result);
+    } finally {
+      if (projectionLeaseToken !== null) {
+        await ctx.runMutation(internal.functions.fastSearch.releaseProjection, {
+          workspaceId: args.workspaceId,
+          token: projectionLeaseToken,
+        });
+      }
+    }
     // The detail was for the log line; the scheduler keeps return values, and
     // the validator holds them to the shape every caller already reads.
     const { failureDetail: _logged, priorities: _recorded, ...answer } = result;
