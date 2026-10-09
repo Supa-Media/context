@@ -203,6 +203,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     AI_GATEWAY_TOKEN: "bench-gateway-token-not-a-real-one",
   };
 
+  /** The status the failed round got, from the turn log's trace; null when none. */
+  const failedStatus = (trace) => {
+    const failed = (trace ?? []).find((entry) => entry.kind === "model" && entry.ok === false);
+    return typeof failed?.status === "number" ? failed.status : null;
+  };
+
   return {
     /** One texted message, answered with the conversation so far. */
     async text(message) {
@@ -226,16 +232,31 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
-        error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
+        // The gateway hides a provider's reason from the caller; the turn log
+        // keeps the status (`route.js` `wireTraceEntry`), and a result says it.
+        error:
+          response.status === 200
+            ? null
+            : `${String(body?.error ?? `status ${response.status}`)}${failedStatus(turn.trace) === null ? "" : ` (status ${failedStatus(turn.trace)})`}`,
         ms,
         model: usage.model ?? body?.model ?? null,
         // Each call with whether it succeeded: a result note that hides failed calls
         // reads like a model that could not find anything.
         // The router's pick first, when the setup has one (`src/agent/router.js`):
         // a judge sees which tier answered, and the score prices that model.
+        // A fallback and a retried round are recorded the same way, because
+        // they are what production does and a result must show how often.
         tools: (turn.trace ?? [])
-          .filter((entry) => entry.kind === "tool" || entry.kind === "router")
-          .map((entry) => (entry.kind === "router" ? { tool: `router: ${entry.tier}`, ok: true } : { tool: entry.tool, ok: entry.ok !== false })),
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && entry.retried))
+          .map((entry) =>
+            entry.kind === "router"
+              ? { tool: `router: ${entry.tier}`, ok: true }
+              : entry.kind === "fallback"
+                ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
+                : entry.kind === "model"
+                  ? { tool: `retried${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
+                  : { tool: entry.tool, ok: entry.ok !== false },
+          ),
         usage: {
           input: usage.inputTokens ?? 0,
           output: usage.outputTokens ?? 0,

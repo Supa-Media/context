@@ -22,6 +22,9 @@
  *   models.router  optional, with `models.think`: the decision model that picks
  *                  a tier for each text (`router.js`; only Clef, for now)
  *   models.think   the model a `think` text runs on instead of `models.main`
+ *   models.fallback optional: the model a turn goes on with when the one it
+ *                  was on failed after its retry (decided by the owner,
+ *                  2026-10-09; another model than `main`, or it is no fallback)
  *   tools          names the setup was proved with (recorded; not yet offered)
  *   max_steps      1-12, the most rounds a turn may take
  *   body           the whole prompt a texted turn is given
@@ -83,6 +86,11 @@ async function parse(raw) {
     if (typeof models.think !== "string" || !isBuiltinModelName(models.think)) return null;
     router = { model: models.router, think: models.think };
   }
+  let fallback = null;
+  if (models.fallback !== undefined) {
+    if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
+    fallback = models.fallback;
+  }
 
   const tools = front.tools === undefined ? [] : front.tools;
   if (!Array.isArray(tools) || !tools.every((tool) => typeof tool === "string" && TOOL.test(tool))) return null;
@@ -102,6 +110,7 @@ async function parse(raw) {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
     router,
+    fallback,
     tools,
     maxSteps,
     prompt,

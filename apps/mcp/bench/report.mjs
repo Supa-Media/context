@@ -153,6 +153,25 @@ function routedLines(setups, runs) {
   return lines;
 }
 
+// For each setup: how many answers the gateway retried, and how many went on
+// to the setup's fallback model after the main one failed. Production does the
+// same, so a run says how often a person would have waited or been answered
+// by the fallback, and the score says what those answers were worth.
+function resilienceLines(setups, runs) {
+  const lines = [];
+  for (const setup of setups) {
+    const mine = runs.filter((r) => r.setup === setup.name);
+    const calls = (r) => (r.tools ?? []).filter((call) => typeof call !== "string").map((call) => call.tool);
+    const retried = mine.filter((r) => calls(r).some((name) => name.startsWith("retried")));
+    const fellBack = mine.filter((r) => calls(r).some((name) => name.startsWith("fallback: ")));
+    if (retried.length) lines.push(`Retried: ${setup.name} had the gateway retry a round in ${retried.length} of ${mine.length} answers.`, "");
+    if (setup.fallback) {
+      lines.push(`Fell back: ${setup.name} went on to ${setup.fallback} in ${fellBack.length} of ${mine.length} answers after ${setup.model} failed.`, "");
+    }
+  }
+  return lines;
+}
+
 function runBlock(run, setup) {
   const lines = [`#### ${run.id}`, ""];
   for (const m of run.conversation ?? []) {
@@ -226,6 +245,7 @@ export function resultMarkdown(result) {
     ...setups.map((s) => `| ${summaryRow(s, runs).join(" | ")} |`),
     "",
     ...routedLines(setups, runs),
+    ...resilienceLines(setups, runs),
     "## Answers",
     "",
   ];

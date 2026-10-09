@@ -472,3 +472,46 @@ test("a person's own key is never routed", async () => {
   assert.equal(ai.calls.length, 0);
   assert.equal(anthropicCalls.at(-1)?.body?.model, "claude-sonnet-5");
 });
+
+/* ---------------- the fallback model: a second model the turn goes on with (`turn.js`) ---------------- */
+
+test("parseSetup reads a fallback model, and refuses one that is the main model or no model", async () => {
+  const spare = await parseSetup(file("models:\n  main: anthropic/claude-haiku-5-5\n  fallback: \"@cf/zai-org/glm-4.7-flash\""));
+  assert.equal(spare.fallback, "@cf/zai-org/glm-4.7-flash");
+  assert.equal((await parseSetup(file(OK_FRONT))).fallback, null, "none named is none");
+  assert.equal(await parseSetup(file("models:\n  main: anthropic/claude-haiku-5-5\n  fallback: anthropic/claude-haiku-5-5")), null, "the same model is no fallback");
+  assert.equal(await parseSetup(file("models:\n  main: anthropic/claude-haiku-5-5\n  fallback: evil/model-x")), null);
+});
+
+test("a built-in turn whose production model fails goes on with the setup's fallback, and the meter and turn log say so", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file("models:\n  main: \"@cf/acme/texting-model\"\n  fallback: \"@cf/acme/spare-model\""), etag: "f1" });
+  const calls = [];
+  const ai = {
+    calls,
+    async run(model, input) {
+      calls.push({ model, input });
+      if (model === "@cf/acme/texting-model") throw new Error("upstream said no");
+      return { choices: [{ message: { content: "From the spare.", tool_calls: [] }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2 } };
+    },
+  };
+  const response = await ask({ ...base, AI: ai }, TOKEN_FREE);
+  assert.equal(response.status, 200);
+  assert.equal(response.body?.answer, "From the spare.");
+  assert.deepEqual(calls.map((call) => call.model), ["@cf/acme/texting-model", "@cf/acme/spare-model"]);
+  assert.equal(controlPlane.builtinReports.at(-1)?.model, "@cf/acme/spare-model", "the meter is told the model that answered");
+  const trace = controlPlane.turnReports.at(-1)?.trace ?? [];
+  const fell = trace.find((entry) => entry.kind === "fallback");
+  assert.deepEqual(fell, { kind: "fallback", ok: true, ms: fell?.ms ?? 0, model: "@cf/acme/spare-model" }, JSON.stringify(trace));
+  assert.ok(!("from" in (fell ?? {})) && !("reason" in (fell ?? {})), "the turn log gets the model and a status, never a provider's words");
+});
+
+test("a fallback this deployment cannot call is no fallback, and the failure is reported as before", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file("models:\n  main: \"@cf/acme/texting-model\"\n  fallback: anthropic/claude-sonnet-5-5"), etag: "f2" });
+  const ai = { calls: [], async run() { throw new Error("upstream said no"); } };
+  const response = await ask({ ...base, AI: ai }, TOKEN_FREE);
+  assert.equal(response.status, 502);
+  assert.equal(response.body?.error, "model_unavailable");
+  const trace = controlPlane.turnReports.at(-1)?.trace ?? [];
+  assert.ok(!trace.some((entry) => entry.kind === "fallback"));
+  assert.deepEqual(trace.at(-1) && { kind: trace.at(-1).kind, ok: trace.at(-1).ok }, { kind: "model", ok: false });
+});
