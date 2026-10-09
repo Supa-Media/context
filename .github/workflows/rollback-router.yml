@@ -51,10 +51,12 @@ jobs:
 
       - name: Record the restored deployment
         working-directory: infra/router
+        env:
+          VERSION_ID: ${{ inputs.version_id }}
         run: |
           pnpm exec wrangler deployments status --env=""
           {
             echo "## Production rollback"
             echo ""
-            echo "Restored Worker code and its matching Static Assets to \`${{ inputs.version_id }}\`."
+            echo "Restored Worker code and its matching Static Assets to \`${VERSION_ID}\`."
           } >> "$GITHUB_STEP_SUMMARY"
