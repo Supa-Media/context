@@ -325,7 +325,7 @@ function isHeading(line, heading) {
  * @param {string} markdown
  * @returns {SectionIndex}
  */
-function indexSections(markdown) {
+export function indexSections(markdown) {
   const lines = String(markdown ?? "").split("\n");
 
   let frontmatterEnd = -1;

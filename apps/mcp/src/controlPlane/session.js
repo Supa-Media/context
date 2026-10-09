@@ -155,6 +155,38 @@ export function createSessionMethods({ post, required }) {
     },
 
     /**
+     * May this grant spend one meeting summary? Every plan may, under a daily
+     * ceiling that depends on the plan (`apps/convex/functions/meetingSummary.ts`),
+     * and the answer counts the summary. `null` is an unknown token or a
+     * workspace it cannot reach.
+     *
+     * @returns {Promise<{allowed: true, remaining: number, paying: boolean}|{allowed: false, reason: string, paying: boolean}|null>}
+     */
+    async startMeetingSummary(accessToken, expectedWorkspaceId) {
+      const parsed = await post("/gateway/meeting-summary", { accessToken, expectedWorkspaceId });
+      return required(parsed, "verdict");
+    },
+
+    /** What one meeting summary spent: token counts, the model and a duration, never text. */
+    async recordMeetingSummaryUsage(
+      accessToken,
+      expectedWorkspaceId,
+      { input, output, cacheRead = 0, cacheWrite = 0, model, failed, ms },
+    ) {
+      await post("/gateway/meeting-summary/usage", {
+        accessToken,
+        expectedWorkspaceId,
+        inputTokens: input,
+        outputTokens: output,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        model,
+        failed,
+        ms,
+      });
+    },
+
+    /**
      * One finished agent turn for the turn log (`apps/convex/functions/agentTurns.ts`):
      * provider, model, outcome, durations, token counts and the trace of
      * model rounds and tool names. Never text, never a tool's arguments.

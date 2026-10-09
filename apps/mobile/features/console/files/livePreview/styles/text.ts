@@ -133,6 +133,7 @@ export const textStyles = `
 .cm-lp-preview-frame {
   display: block;
   width: 100%;
+  /* A fence may name its own height (height=px in its info string); this is the default without one. */
   height: 620px;
   max-height: 80vh;
   border: 0;

@@ -26,7 +26,9 @@ million input tokens.
 
 1. Register it in `features.ts`:
    `myFeature: { label, onByDefault: false, dailyCallsPerWorkspace, plan: "premium" }`.
-   The name is permanent, because usage and switches are keyed by it.
+   `plan: "everyone"` lets a free workspace in too, capped at `dailyCallsFree`
+   instead (`meetingSummary` is the example). The name is permanent, because
+   usage and switches are keyed by it.
 2. Ask from an action, never from anywhere else:
 
    ```ts
@@ -89,3 +91,8 @@ call. It still goes through this gate and meter: the gateway asks
 `/gateway/builtin-model` before the first round, which counts the turn, and
 reports token counts afterwards (`functions/builtinModel.ts`). See
 `docs/decisions/texting-assistant.md`.
+
+`meetingSummary` works the same way for a meeting summary's model call, on the
+Anthropic model rather than Workers AI: `/gateway/meeting-summary` before the
+call and `/gateway/meeting-summary/usage` after it (`functions/meetingSummary.ts`).
+Both features share `turns.ts` for the grant, the count and the record.

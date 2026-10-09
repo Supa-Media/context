@@ -18,8 +18,17 @@ export interface JevFeature {
    * this, so a bug in a feature cannot turn into a bill.
    */
   dailyCallsPerWorkspace: number;
-  /** Who may reach it. Only "premium" today: the plan pays for inference. */
-  plan: "premium";
+  /**
+   * Who may reach it. "premium": only a paying workspace, the plan pays for
+   * inference. "everyone": every plan may, and `dailyCallsFree` (not
+   * `dailyCallsPerWorkspace`) caps a workspace that is not paying.
+   */
+  plan: "premium" | "everyone";
+  /**
+   * Requests per UTC day for a workspace that is not paying. Only meaningful
+   * for plan "everyone"; a free workspace with none is refused past zero.
+   */
+  dailyCallsFree?: number;
 }
 
 export const JEV_FEATURES = {
@@ -66,6 +75,20 @@ export const JEV_FEATURES = {
     // A busy day of texting; a turn is at most eight model rounds.
     dailyCallsPerWorkspace: 100,
     plan: "premium",
+  },
+  /**
+   * Meeting summaries: a model call that writes a note from a meeting's
+   * transcript. The gateway makes the call; `functions/meetingSummary.ts` gates
+   * and meters it. Summaries for every plan (decided by the owner, 2026-10-09:
+   * "Same for all"); only the daily ceiling differs.
+   */
+  meetingSummary: {
+    label: "Meeting summaries",
+    onByDefault: true,
+    // Paying: a day's meetings, with room for re-runs. Free: a handful.
+    dailyCallsPerWorkspace: 50,
+    dailyCallsFree: 10,
+    plan: "everyone",
   },
 } as const satisfies Record<string, JevFeature>;
 

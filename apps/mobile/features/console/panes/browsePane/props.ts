@@ -1,6 +1,7 @@
 import type { SetupAgent } from "../../../agentSetup/guides";
 import type { Presence } from "../../presence/usePresence";
 import type { DrawingCollaboration } from "../../files/drawingCollaboration";
+import type { MeetingSummary } from "../../../meetings/useMeetingSummary";
 import type { ConsoleData } from "../../types";
 import type { SettingsSectionKey } from "../../settings/sections";
 
@@ -13,6 +14,12 @@ export type BrowsePaneProps = {
    * and the chip and the carets are then not drawn rather than drawn empty.
    */
   presence?: Presence;
+  /**
+   * The open note's meeting summary, from the route (`useMeetingSummary`). Kept
+   * out of this pane because the hook needs a Convex grant, which the landing
+   * page's demo does not have; absent there, and no Redo control is drawn.
+   */
+  summary?: MeetingSummary;
   /** The live room behind an open canvas, when there is one. */
   drawingCollaboration?: DrawingCollaboration;
   data: ConsoleData;

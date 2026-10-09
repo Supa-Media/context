@@ -194,7 +194,7 @@ describe("the AI costs report", () => {
     await spend(t, adaWs, "organizer", { costUsd: 0.5, calls: 10 });
 
     const result = await report(t, staff, 7);
-    expect(result.features.map((f) => f.feature)).toEqual(["assistant", "organizer", "ownerSuggest", "whatChanged"]);
+    expect(result.features.map((f) => f.feature)).toEqual(["assistant", "organizer", "ownerSuggest", "whatChanged", "meetingSummary"]);
     expect(new Set(result.features.map((f) => f.feature))).toEqual(new Set(Object.keys(JEV_FEATURES)));
 
     expect(result.features[0]).toMatchObject({ feature: "assistant", uses: 4, unit: "questions", costUsd: 2 });
@@ -203,6 +203,7 @@ describe("the AI costs report", () => {
     expect(result.features[1].eachUsd).toBeCloseTo(0.05);
     expect(result.features[2]).toMatchObject({ feature: "ownerSuggest", uses: 0, costUsd: 0, eachUsd: null, models: [] });
     expect(result.features[3]).toMatchObject({ feature: "whatChanged", uses: 0, costUsd: 0, eachUsd: null });
+    expect(result.features[4]).toMatchObject({ feature: "meetingSummary", uses: 0, costUsd: 0, eachUsd: null });
   });
 
   test("models aggregate across days and carry their list price, or null when unpriced", async () => {
