@@ -9,7 +9,10 @@ import { stagingStorageIsFree } from "./managedStorage";
  * The phone check: every account confirms a phone number once, with a texted
  * code, before the app opens (Dev2, 2026-10-09). It proves a real person is
  * behind the account, and it is the key a second sign-in email will later be
- * matched on. The phone is never used to sign in.
+ * matched on. Since the same day it also **signs in**
+ * (`functions/phoneSignIn.ts`), so what is recorded here is a credential: one
+ * phone is one account (`phoneHeldByAnother`), and the only path that can move
+ * a phone between accounts clears it (`functions/textLinks.ts`).
  *
  * ## Off unless both halves are there
  *

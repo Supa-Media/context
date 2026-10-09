@@ -153,3 +153,21 @@ stretch over that length. Multipliers such as 60x were a conversion a person had
 to make to know how long a replay would take. Dropping rolling windows back to
 calendar days, or taking speeds as multipliers again, fails
 `liveMapReplayBar.test.ts` and `liveMapRangeModel.test.ts`.
+**Each AI has a colour; people keep their faces (2026-10-09).** An agent is
+always a robot (PR #1097), so on the map the robot's tile is tinted by which
+AI it is: Claude orange, Codex purple, ChatGPT green, and the texting
+assistant a round teal badge with a speech bubble, the app's accent. Any other
+tool takes one of three spare colours (blue, pink, amber-brown), chosen from a
+hash of its name so it never changes. The classification is one pure module
+(`map/live/agentKind.ts`) that the React faces and the canvas both read, so the
+feed and the map agree. It reads the tool's name after the owner's possessive,
+never the owner's, and the texting assistant is recognised by its client name
+(`Texts (iMessage)`), since the activity file records no client id. A person is
+never an AI, and an edit the app's own console made is drawn as the person who
+made it, not as a tool named after its client (`Context (this app)`). The
+server records nothing differently. People keep their whole face palette:
+shape tells a person from a tool (a round face against a square robot or the
+round speech badge), so the handle colours are not narrowed to keep clear of
+the tints; trimming them to four made unrelated people share a colour, which
+Dev2 asked to avoid on 2026-09-28. A tool that loses its colour to a random
+pick fails `liveMapAgentKind.test.ts`.
