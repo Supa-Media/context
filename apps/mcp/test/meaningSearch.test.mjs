@@ -142,6 +142,27 @@ test("a refused REST call becomes one of our codes, with none of the provider's 
   );
 });
 
+test("a refused Vectorize write reports only its operation and numeric provider code", async () => {
+  const fetch = fakeFetch(() => ({
+    status: 400,
+    body: { success: false, errors: [{ code: 40007, message: `private note and ${TOKEN}` }] },
+  }));
+  const client = createMeaningClient(DESCRIPTOR, { fetchImpl: fetch.impl });
+  await assert.rejects(
+    () => client.deleteByIds(["id"]),
+    (error) => {
+      assert.equal(error instanceof MeaningError, true);
+      assert.equal(error.code, "REFUSED");
+      assert.equal(error.failureCause, "http_400");
+      assert.equal(error.operation, "delete_by_ids");
+      assert.deepEqual(error.providerCodes, [40007]);
+      assert.equal(JSON.stringify(error).includes(TOKEN), false);
+      assert.equal(JSON.stringify(error).includes("private note"), false);
+      return true;
+    },
+  );
+});
+
 // -- client ---------------------------------------------------------------
 
 test("a half-formed descriptor is no descriptor", () => {

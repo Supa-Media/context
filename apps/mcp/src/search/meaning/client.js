@@ -118,7 +118,8 @@ export function createMeaningClient(descriptor, options = {}) {
     } finally {
       clearTimeout(timer);
     }
-    const envelope = await readEnvelope(response, MEANING_RESPONSE_BYTE_CAP);
+    const operation = path === "/upsert" ? "upsert" : path === "/delete_by_ids" ? "delete_by_ids" : "query";
+    const envelope = await readEnvelope(response, MEANING_RESPONSE_BYTE_CAP, operation);
     return envelope.result;
   }
 

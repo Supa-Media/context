@@ -57,6 +57,10 @@ export interface MeaningPassResult {
   failure: string | null;
   /** Which call failed, from our closed set (`http_400`, `timeout`, `internal`…). */
   failureCause: string | null;
+  /** Fixed Cloudflare operation name, never a URL or note path. */
+  failureOperation?: string | null;
+  /** Numeric Cloudflare error codes only, never provider messages. */
+  providerCodes?: number[];
 }
 
 export async function projectMeaningIndex(

@@ -155,7 +155,7 @@ export async function meaningPass(
 ) {
   const notes = await readMeaningState(store, generation);
   const { changed, removed } = meaningDiff(census, notes, regionComplete);
-  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null };
+  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null, failureOperation: null, providerCodes: [] };
   let dirty = false;
 
   const finish = async () => {
@@ -192,6 +192,8 @@ export async function meaningPass(
       moved: result.embedded > 0 || result.deleted > 0,
       failure: result.failure,
       failureCause: result.failureCause,
+      failureOperation: result.failureOperation,
+      providerCodes: result.providerCodes,
     };
   };
 
@@ -265,6 +267,8 @@ export async function meaningPass(
     // Our closed set of causes, or "internal" for an error of our own code:
     // which call failed is what an operator needs, and never its message.
     result.failureCause = error instanceof MeaningError ? (error.failureCause ?? null) : "internal";
+    result.failureOperation = error instanceof MeaningError ? (error.operation ?? null) : null;
+    result.providerCodes = error instanceof MeaningError ? error.providerCodes : [];
   }
   return await finish();
 }
