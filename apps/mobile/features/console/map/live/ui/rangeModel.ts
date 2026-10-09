@@ -55,6 +55,12 @@ export function stretchSelection(stretch: Stretch, starts: readonly number[]): S
   return { s, b: Math.max(s + 1, Math.min(n, b)) };
 }
 
+/** A selection brought within a strip of `n` days, for when the history under it has changed length. */
+export function fitSelection(sel: Selection, n: number): Selection {
+  const s = Math.max(0, Math.min(sel.s, n - 1));
+  return { s, b: Math.max(s + 1, Math.min(n, sel.b)) };
+}
+
 /** Drag the start handle to a boundary: never past the end, a day is the least. */
 export function dragStart(sel: Selection, boundary: number, n: number): Selection {
   return { s: Math.max(0, Math.min(n - 1, Math.min(boundary, sel.b - 1))), b: sel.b };

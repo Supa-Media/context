@@ -13,6 +13,7 @@ import {
   countIn,
   dragEnd,
   dragStart,
+  fitSelection,
   litShortcuts,
   nudge,
   selectionStretch,
@@ -70,6 +71,12 @@ describe("the selection, in days", () => {
     expect(dragStart(sel, -3, n)).toEqual({ s: 0, b: 9 });
     expect(dragEnd(sel, 2, n)).toEqual({ s: 4, b: 5 });
     expect(dragEnd(sel, 500, n)).toEqual({ s: 4, b: n });
+  });
+
+  test("a selection from a longer history is brought into a shorter one, and never empty", () => {
+    expect(fitSelection({ s: 60, b: 65 }, 10)).toEqual({ s: 9, b: 10 });
+    expect(fitSelection({ s: 2, b: 90 }, 10)).toEqual({ s: 2, b: 10 });
+    expect(fitSelection({ s: 4, b: 4 }, 10)).toEqual({ s: 4, b: 5 });
   });
 
   test("the keyboard moves a handle a day, or a week with Shift, and keeps the same limits", () => {
