@@ -31,6 +31,28 @@ export async function deletePersonalRows(
     await revokeSharesAddressedTo(ctx, "email", me.email.toLowerCase());
   }
 
+  // Their other sign-in emails: each is an identifier like the main one, so
+  // what was shared with it is revoked the same way, and the address is free
+  // for whoever confirms it next. Codes and hand-offs waiting on them go too.
+  const attached = await ctx.db
+    .query("signInEmails")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of attached) {
+    await revokeSharesAddressedTo(ctx, "email", row.email);
+    await ctx.db.delete(row._id);
+  }
+  const emailCodes = await ctx.db
+    .query("signInEmailCodes")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of emailCodes) await ctx.db.delete(row._id);
+  const handOffs = await ctx.db
+    .query("emailHandOffs")
+    .withIndex("by_user", (q) => q.eq("fromUserId", userId))
+    .collect();
+  for (const row of handOffs) await ctx.db.delete(row._id);
+
   // The photo they chose to be drawn with, and its object in file storage.
   await deleteAccountPhoto(ctx, userId);
 
