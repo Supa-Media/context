@@ -281,3 +281,52 @@ manifest or activity log the gateway rewrites", "the judge is not asked for a
 gate opinion", "a gate failure is a failed must-not line on a gate question",
 "a run the model never answered is not a run", "an answer run again after an
 error says so on its block, and the summary counts the reruns".
+
+### The benchmark is a GitHub Action, and its fixtures live in the repository (2026-10-09)
+
+**Decided by the owner (2026-10-09)**: "these tests should be a GitHub
+Action that takes some parameters, that way anything that can run the GitHub
+Actions can see it and see the results." Until then every round ran on the
+owner's machine with keys from 1Password, handed to Codex by a written
+prompt, with the result copied back by hand.
+
+- **`ai-benchmark.yml`** is manual only (`workflow_dispatch`), in the
+  production environment, which already held every key the bench needs but
+  the Workers AI token (`CLOUDFLARE_AI_TOKEN`, now in the allowlist as
+  optional: no deploy reads it). Inputs: job, setups, questions, runs,
+  parallel, judge, `max_usd` (the judging's cap, default $1) and `fake`, which
+  runs the whole pipeline on the scripted model and spends nothing. It runs,
+  judges and scores, writes `pnpm ai summary` (the latest scores and the run's
+  summary lines, never an answer or an id) to the run's summary page, and
+  uploads the result and the key as two artifacts, the key on its own so a
+  judge can be handed the result alone. No schedule: a schedule would spend
+  money on nobody's say-so, and `check-workflow-triggers.mjs` keeps a branch
+  from running it.
+- **The fixtures moved into the repository**, at `apps/mcp/bench/ai/`
+  (workspaces, tests, setups), which reverses the 2026-10-08 decision that
+  they stay in `@context-lc`. A runner has no account, and the gateway has no
+  machine credential by design (`oauth.js`: every connection is somebody's
+  consent), so the folder the Action reads has to be one it can read without
+  one. What stays in `@context-lc ai/` is what needs the product: the process
+  README, the production files the gateway reads, the retired setups, and the
+  results. `pnpm ai run`, `judge` and `score` default to the repository's
+  folder when neither `--dir` nor `AI_BENCH_DIR` is set (`folder.mjs`).
+  Everything in the folder is invented; it was already readable by every
+  Context account, and the repository is public.
+- A round's result and key still belong in `@context-lc ai/results/`, copied
+  from the artifacts by whoever reads the round; a benchmark-runner OAuth
+  client with a stored refresh token would close that last hop and is the
+  identity-and-access work to do if copying by hand turns out to be the
+  bother the Action was meant to end.
+
+**What a simplification would cost:** adding a schedule or a branch trigger
+would spend the plan's credit, or run an unreviewed prompt with production's
+keys, with nobody asking; reading the fixtures from `@context-lc` instead
+would need a credential the gateway deliberately does not mint; writing
+answers to the summary page would put a judge's input where a judge might
+read it. Tests (`bench/test/folder.test.mjs`, `summary.test.mjs`): "--dir
+wins, then AI_BENCH_DIR, then the repository's bench/ai", "the repository's
+folder exists, loads, and holds the texting-assistant test and setups", "the
+summary carries the latest scores and the run's summary lines, and nothing
+else"; and `scripts/check-workflow-triggers.mjs` and
+`check-secrets-allowlist.mjs` on every pull request.

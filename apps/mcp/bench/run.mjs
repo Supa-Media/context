@@ -4,7 +4,7 @@
  * test, as the invented person the question names, in a throwaway world, and
  * the answers land in one result note to be judged later.
  *
- *   --dir <path>        the benchmarks folder (default: $AI_BENCH_DIR)
+ *   --dir <path>        the benchmarks folder (default: $AI_BENCH_DIR, else bench/ai/ here)
  *   --test <name>       the test file (default: the job's)
  *   --setups a,b        setup file names in setups/<job>/ (default: all)
  *   --questions 1,4     only these questions
@@ -32,9 +32,11 @@ import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, wor
 import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
+import { summaryCommand } from "./summary.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { realNow } from "./clock.mjs";
+import { benchFolder } from "./folder.mjs";
 
 /** The most texts the played person may send in one conversation. */
 const MAX_PERSON_TEXTS = 4;
@@ -105,7 +107,7 @@ async function converse(world, question, person) {
 
 /** What a run reads before it answers anything: the folder, the test, the setups, the questions. */
 async function loadRun(options) {
-  const dir = options.dir ?? process.env.AI_BENCH_DIR;
+  const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]");
   const loaded = await readBenchFolder(dir);
   // Fluff files are written out unless --no-fluff asks for the hand-written notes alone.
@@ -302,6 +304,7 @@ const USAGE = [
   "usage: pnpm ai run <job> --dir <benchmarks folder> [--fake] [--parallel <n>]",
   "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]",
   "       pnpm ai score <result file> --dir <benchmarks folder>",
+  "       pnpm ai summary <result file>",
 ].join("\n");
 
 const COMMANDS = new Map([
@@ -309,6 +312,7 @@ const COMMANDS = new Map([
   ["shard", shard],
   ["judge", judgeCommand],
   ["score", scoreCommand],
+  ["summary", summaryCommand],
 ]);
 
 // The command line runs only when this file is the entry point; a test may

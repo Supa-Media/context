@@ -29,6 +29,7 @@ import { isGateQuestion, parseTest } from "./load.mjs";
 import { claudeTransport } from "./models.mjs";
 import { priceUsd } from "./report.mjs";
 import { frontMatter, judgedSection, parseResult, setFrontStatus } from "./resultNote.mjs";
+import { benchFolder } from "./folder.mjs";
 
 /** The judge when neither --judge nor the test's judge: line names one. */
 export const DEFAULT_JUDGE = "claude-haiku-5-5";
@@ -278,7 +279,7 @@ export function fakeJudge() {
 
 /** The `judge` command: options come from run.mjs's argument parser. */
 export async function judgeCommand(options) {
-  const dir = options.dir ?? process.env.AI_BENCH_DIR;
+  const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]");
   const send = options.fake ? fakeJudge() : claudeTransport(process.env);
   if (!options.fake) {

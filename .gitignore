@@ -87,3 +87,6 @@ apps/mobile/public/drawing-assets/
 # would commit a repository inside the repository. `.claude/settings.json` is
 # tracked and stays tracked; only the scratch worktrees are ignored.
 .claude/worktrees/
+
+# Benchmark results are written to @context-lc ai/results/, never committed.
+apps/mcp/bench/ai/results/
