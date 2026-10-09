@@ -184,7 +184,7 @@ async function run(options) {
 
 const USAGE = [
   "usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]",
-  "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--fake]",
+  "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]",
   "       pnpm ai score <result file> --dir <benchmarks folder>",
 ].join("\n");
 
