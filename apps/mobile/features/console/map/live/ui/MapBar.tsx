@@ -132,6 +132,8 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.pageSurface,
     },
     spacer: { flex: 1 },
-    phone: { gap: space.x2, paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x2 },
+    // Stretched: `PhoneMap` lays the bar over the canvas with `alignItems: "flex-start"`,
+    // and tracks that share a row by `flexBasis: 0` have no width of their own.
+    phone: { alignSelf: "stretch", gap: space.x2, paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x2 },
     phoneRow: { flexDirection: "row", gap: space.x2 },
   });
