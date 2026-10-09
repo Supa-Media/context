@@ -338,6 +338,17 @@ describe("auto-organize rides the switch", () => {
     expect(await asUser(t, stranger).query(api.functions.organizer.status, { workspaceId })).toBeNull();
   });
 
+  test("What changed is off until switched on, and the status says so (Dev2, 2026-10-09)", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await payingWorkspace(t);
+    await switchOn(t, "organizer");
+    expect(await asUser(t, owner).query(api.functions.organizer.status, { workspaceId })).toMatchObject({ on: true, whatChanged: false });
+    await switchOn(t, "whatChanged");
+    expect(await asUser(t, owner).query(api.functions.organizer.status, { workspaceId })).toMatchObject({ on: true, whatChanged: true });
+    await asUser(t, owner).mutation(api.functions.organizer.setEnabled, { workspaceId, on: false });
+    expect(await asUser(t, owner).query(api.functions.organizer.status, { workspaceId })).toMatchObject({ on: false, whatChanged: false });
+  });
+
   test("seeing the notice schedules the first sweep a day out, and turning it off holds", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await payingWorkspace(t);

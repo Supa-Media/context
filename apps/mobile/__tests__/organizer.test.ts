@@ -29,6 +29,7 @@ import {
   sweepReadingTitle,
 } from "../features/organizer/copy";
 import {
+  changesCount,
   existingNoticeVisible,
   footCount,
   isOrganizerEntry,
@@ -40,6 +41,7 @@ import {
   shouldStartSweep,
   sortLine,
   sweepPhase,
+  whatChangedPage,
 } from "../features/organizer/rules";
 import type { OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
 import { rowText, type ActivityEntry } from "../features/console/activity/activity";
@@ -168,6 +170,17 @@ describe("rules", () => {
     expect(organizerState(new Error("Could not find public function"))).toEqual({ kind: "unavailable" });
     expect(organizerState(null)).toEqual({ kind: "unavailable" });
     expect(organizerState(STATUS)).toEqual({ kind: "ready", status: STATUS });
+  });
+
+  test("What changed switched off on the server: no page, no count, no way in (Dev2, 2026-10-09)", () => {
+    const off = with_({ whatChanged: false, changes: 4 });
+    expect(whatChangedPage(off)).toBe(false);
+    expect(changesCount(off)).toBeNull();
+    expect(footCount(off)).toBeNull();
+    expect(phoneEntryCount(off, { compact: true, atRoot: true })).toBeNull();
+    // A server older than the switch sends no field: the page stays as it was.
+    expect(whatChangedPage(STATUS)).toBe(true);
+    expect(changesCount(with_({ whatChanged: true, changes: 4 }))).toBe(4);
   });
 
   test("the foot line is for a paying owner with it switched on and something waiting", () => {

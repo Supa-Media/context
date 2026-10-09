@@ -465,6 +465,20 @@ describe("Settings › Premium", () => {
     expect(container.querySelector('[data-testid^="organizer-sort-"]')).toBeNull();
   });
 
+  test("What changed switched off: Sort now stays, nothing offers to open a page that is not there", () => {
+    const now = Date.now();
+    const done = { state: "done" as const, startedAt: now - 60_000, finishedAt: now - 3_600_000, read: 40, total: 40, found: { done: 1, archive: 0, file: 1 } };
+    const status = { ...STATUS, sweep: done, pending: 2, whatChanged: false };
+    const sorted = mount(createElement(Premium, { view: organizer({ status }), returned: null }));
+    expect(byId(sorted, "organizer-sort-done")).not.toBeNull();
+    expect(byId(sorted, "organizer-sort-now")).not.toBeNull();
+    expect(byId(sorted, "organizer-sort-review")).toBeNull();
+    const found = mount(createElement(Premium, { view: organizer({ status }), returned: "done" }));
+    expect(byId(found, "organizer-sweep-found")).not.toBeNull();
+    expect(byId(found, "organizer-show-me")).toBeNull();
+    expect(byId(found, "organizer-later")).not.toBeNull();
+  });
+
   test("a member reads it and is offered nothing to press", () => {
     const container = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, isOwner: false } }), returned: null }));
     expect(byId(container, "organizer-settings")?.textContent).toContain("Only the owner can turn auto-organize on or off.");

@@ -35,6 +35,7 @@ import {
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 import { requireUserId } from "./lib/billing/plan";
 import { withJev } from "./lib/jev/client";
+import { featureIsOn } from "./lib/jev/meter";
 import { type SweepWhy, askEach } from "./lib/organizer/ask";
 import { sweepWhyValidator } from "./lib/schema/organizer";
 import {
@@ -130,6 +131,8 @@ export const status = query({
       pending: v.number(),
       /** What changed cards waiting, for the count beside its page. */
       changes: v.number(),
+      /** The What changed page is switched on (Jev feature `whatChanged`); off, the app draws no page and no entry. */
+      whatChanged: v.boolean(),
       autopilot: countsValidatorBooleans(),
     }),
   ),
@@ -152,6 +155,7 @@ export const status = query({
       sweep: row?.sweep ?? null,
       pending: on ? (row?.pending ?? 0) : 0,
       changes: on ? (row?.changes ?? 0) : 0,
+      whatChanged: on && (await featureIsOn(ctx, "whatChanged")),
       autopilot: row?.autopilot ?? { done: false, archive: false, file: false },
     };
   },

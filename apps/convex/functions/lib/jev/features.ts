@@ -57,8 +57,10 @@ export const JEV_FEATURES = {
    */
   whatChanged: {
     label: "What changed",
-    // On for Premium (Dev2, 2026-10-05). Cards only propose; nothing applies without a press.
-    onByDefault: true,
+    // Off until it is properly tested (Dev2, 2026-10-09: the page kept coming
+    // back after being closed). Off, no arrival is read and the app draws no
+    // page; an admin switch row turns it back on without a deploy.
+    onByDefault: false,
     // One sweep reads at most MAX_CHANGE_SOURCES (40) arrivals; room for Sort now.
     dailyCallsPerWorkspace: 100,
     plan: "premium",

@@ -41,11 +41,20 @@ function suggesting(status: OrganizerStatus | null): status is OrganizerStatus {
 }
 
 /**
+ * The What changed page, and with it Tidy up, is there at all. Switched off
+ * on the server (`whatChanged`), there is no page, no sidebar row, no phone
+ * line and no "Look over" press: nothing that opens a page that is not drawn.
+ */
+export function whatChangedPage(status: OrganizerStatus | null): status is OrganizerStatus {
+  return suggesting(status) && status.whatChanged !== false;
+}
+
+/**
  * The explorer foot's "11 suggestions", or `null` for no line. What changed
  * cards are not among them: they have their own page and their own count.
  */
 export function footCount(status: OrganizerStatus | null): number | null {
-  if (!suggesting(status)) return null;
+  if (!whatChangedPage(status)) return null;
   const organizing = status.pending - (status.changes ?? 0);
   return organizing > 0 ? organizing : null;
 }
@@ -56,7 +65,7 @@ export function footCount(status: OrganizerStatus | null): number | null {
  * sees a suggestion at all.
  */
 export function changesCount(status: OrganizerStatus | null): number | null {
-  return suggesting(status) ? (status.changes ?? 0) : null;
+  return whatChangedPage(status) ? (status.changes ?? 0) : null;
 }
 
 /** The phone's "11 suggestions to look over", on the workspace's own page. */
