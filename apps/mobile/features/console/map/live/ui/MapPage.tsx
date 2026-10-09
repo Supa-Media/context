@@ -63,7 +63,7 @@ function DesktopMap({ page, camera, peek, onOpenNote }: { page: MapPageState; ca
             ) : null}
             {page.replaying && page.replay !== null ? (
               <View style={styles.badge} pointerEvents="none" testID="map-replay-badge">
-                <Text style={styles.badgeText}>{replayBadge(page.replay.range, page.replay.speed)}</Text>
+                <Text style={styles.badgeText}>{replayBadge(page.replay)}</Text>
               </View>
             ) : null}
             <MapNotice page={page} />

@@ -1,74 +1,72 @@
+import { useCallback, useRef, useState } from "react";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import type { MapPageState } from "../hooks/useMapPage";
+import type { MapMode, MapPageState } from "../hooks/useMapPage";
+import { dateShort, stretchText } from "../replayClock";
 import { Chip, Choice, LiveDot, Segmented } from "./controls";
+import { RangePicker, type Anchor } from "./RangePicker";
 
 /**
- * The bar over the map: Live / Today / This week on the left; on the right,
- * who is being followed, the way back to live while replaying, Map / Folders,
- * and — for somebody in more than one workspace — this workspace or all of
- * them. A phone has two rows of segmented tracks that fill its width: when,
- * then Map / Folders beside which workspaces. Back to live is the Live
- * segment itself there.
+ * The bar over the map: Live, the past 24 hours, the past week and Custom on
+ * the left; on the right, who is being followed, Map / Folders, and — for
+ * somebody in more than one workspace — this workspace or all of them. Custom
+ * opens the range picker under its chip (a sheet on a phone), and once a
+ * custom stretch is playing the chip says which one. A phone has two rows: when
+ * (Live, 24h, Week, and a calendar for a custom stretch) and then Map / Folders
+ * beside which workspaces.
  */
 export function MapBar({ page, compact }: { page: MapPageState; compact: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const [picking, setPicking] = useState(false);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const customNode = useRef<View>(null);
+  const closePicker = useCallback(() => setPicking(false), []);
   const live = page.mode === "live";
+  const custom = page.mode === "custom";
   const following = page.follow;
-  const when = (
-    <Choice
-      label="When"
-      value={page.mode}
-      onChange={page.setMode}
-      testID="map-when"
-      options={[
-        { value: "live", label: "Live", leading: <LiveDot pulsing={live} reducedMotion={page.reducedMotion} /> },
-        { value: "today", label: "Today" },
-        { value: "week", label: "This week" },
-      ]}
-    />
-  );
-  const back = live ? null : (
-    <Chip label="Back to live" onPress={() => page.setMode("live")} testID="map-back-to-live" />
-  );
-  const layout = (
-    <Choice
-      label="Layout"
-      value={page.view}
-      onChange={page.setView}
-      testID="map-view"
-      options={[
-        { value: "map", label: "Map" },
-        { value: "folders", label: "Folders" },
-      ]}
-    />
-  );
-  const which = page.many ? (
-    <Choice
-      label="Which workspaces"
-      value={page.scope}
-      onChange={page.setScope}
-      testID="map-scope"
-      options={[
-        { value: "one", label: "This workspace" },
-        { value: "all", label: compact ? "All" : "All my workspaces" },
-      ]}
-    />
-  ) : null;
+
+  // Opened from the Custom chip, the popover hangs under it; a phone has no chip to measure and gets a sheet.
+  const openPicker = () => {
+    const node = customNode.current as unknown as { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null;
+    if (node?.measureInWindow) {
+      node.measureInWindow((x, y, width, height) => {
+        setAnchor({ x, y, width, height });
+        setPicking(true);
+      });
+      return;
+    }
+    setAnchor(null);
+    setPicking(true);
+  };
+
+  const pick = (next: MapMode) => {
+    if (next === "custom") openPicker();
+    else page.setMode(next);
+  };
+
+  const picker = picking ? <RangePicker page={page} compact={compact} anchor={anchor} onClose={closePicker} /> : null;
+
   if (compact) {
+    const calendarOn = custom && page.custom !== null;
     const whenOptions = [
       { value: "live" as const, label: "Live", leading: <LiveDot pulsing={live} reducedMotion={page.reducedMotion} /> },
-      { value: "today" as const, label: "Today" },
+      { value: "day" as const, label: "24h" },
       { value: "week" as const, label: "Week" },
+      {
+        value: "custom" as const,
+        label: calendarOn ? dateShort(page.custom!.from) : "",
+        accessibilityLabel: "Pick a stretch of time",
+        leading: <Icon name="calendar" size={14} color={custom ? colors.pageSurface : colors.text2} />,
+      },
     ];
     return (
       <View style={styles.phone} testID="map-bar">
         <View style={styles.phoneRow}>
-          <Segmented label="When" value={page.mode} onChange={page.setMode} testID="map-when" options={whenOptions} />
+          <Segmented label="When" value={page.mode} onChange={pick} testID="map-when" options={whenOptions} />
         </View>
         <View style={styles.phoneRow}>
           <Segmented
@@ -89,18 +87,39 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
               testID="map-scope"
               grow={1.25}
               options={[
-                { value: "one", label: "This workspace" },
+                { value: "one", label: "This one" },
                 { value: "all", label: "All" },
               ]}
             />
           ) : null}
         </View>
+        {picker}
       </View>
     );
   }
   return (
     <View style={styles.bar} testID="map-bar">
-      {when}
+      <Choice
+        label="When"
+        value={page.mode === "custom" ? null : page.mode}
+        onChange={page.setMode}
+        testID="map-when"
+        options={[
+          { value: "live", label: "Live", leading: <LiveDot pulsing={live} reducedMotion={page.reducedMotion} /> },
+          { value: "day", label: "Past 24 hours" },
+          { value: "week", label: "Past week" },
+        ]}
+      />
+      <View ref={customNode} collapsable={false}>
+        <Chip
+          role="radio"
+          label={custom && page.custom !== null ? stretchText(page.custom) : "Custom"}
+          on={custom}
+          onPress={openPicker}
+          trailing={<Icon name="chevronDown" size={12} color={custom ? colors.pageSurface : colors.text2} />}
+          testID="map-custom"
+        />
+      </View>
       <View style={styles.spacer} />
       {following !== null ? (
         <Chip
@@ -112,9 +131,29 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
           testID="map-following"
         />
       ) : null}
-      {back}
-      {layout}
-      {which}
+      <Choice
+        label="Layout"
+        value={page.view}
+        onChange={page.setView}
+        testID="map-view"
+        options={[
+          { value: "map", label: "Map" },
+          { value: "folders", label: "Folders" },
+        ]}
+      />
+      {page.many ? (
+        <Choice
+          label="Which workspaces"
+          value={page.scope}
+          onChange={page.setScope}
+          testID="map-scope"
+          options={[
+            { value: "one", label: "This workspace" },
+            { value: "all", label: "All my workspaces" },
+          ]}
+        />
+      ) : null}
+      {picker}
     </View>
   );
 }

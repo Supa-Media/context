@@ -138,3 +138,18 @@ opened off the map returns to it. The map also keeps its camera, its open card
 and its scope for the session (`peek/mapMemory.ts`), so it comes back as it
 was left. Dropping the map from history fails `noteHistory.test.ts`, and a
 card that stopped showing live writing fails `liveMapPeekCard.test.ts`.
+
+### The replay picks a stretch of time, not a calendar day (2026-10-09)
+
+A replay covers a stretch of time, not a calendar day. Past 24 hours and Past
+week are rolling windows that end at the moment they are chosen, so a replay
+at 9pm on a Tuesday shows the hours before it, not the hours since midnight.
+Custom picks any run of days from the whole history: the picker draws one bar
+per day since the first change, its handles snap to day boundaries, and the
+end handle at today means now. A stretch is fixed when its replay starts, and
+the idle window, arrow steps and ticks follow its length. A replay takes 2
+minutes, 30 seconds or 10 seconds whatever the stretch is, so the speed is the
+stretch over that length. Multipliers such as 60x were a conversion a person had
+to make to know how long a replay would take. Dropping rolling windows back to
+calendar days, or taking speeds as multipliers again, fails
+`liveMapReplayBar.test.ts` and `liveMapRangeModel.test.ts`.

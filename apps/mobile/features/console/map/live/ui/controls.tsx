@@ -61,7 +61,8 @@ export function Choice<T extends string>({
 }: {
   label: string;
   options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode }>;
-  value: T;
+  /** `null` when the choice is something the row does not offer, so none is chosen. */
+  value: T | null;
   onChange: (value: T) => void;
   testID?: string;
 }) {
@@ -98,8 +99,10 @@ export function Segmented<T extends string>({
   grow = 1,
 }: {
   label: string;
-  options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode }>;
-  value: T;
+  /** `accessibilityLabel` names a segment whose visible words are not its whole name, such as an icon alone. */
+  options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode; accessibilityLabel?: string }>;
+  /** `null` when the choice is something the track does not offer, so none is chosen. */
+  value: T | null;
   onChange: (value: T) => void;
   testID?: string;
   /** Share of the row this track takes beside others. */
@@ -115,15 +118,17 @@ export function Segmented<T extends string>({
             key={option.value}
             onPress={() => onChange(option.value)}
             accessibilityRole="radio"
-            accessibilityLabel={option.label}
+            accessibilityLabel={option.accessibilityLabel ?? option.label}
             accessibilityState={{ checked: on }}
             style={({ pressed }: { pressed: boolean }) => [styles.segment, on ? styles.segmentOn : pressed ? styles.chipHover : null]}
             testID={testID === undefined ? undefined : `${testID}-${option.value}`}
           >
             {option.leading}
-            <Text style={[styles.segmentText, on && styles.chipTextOn]} numberOfLines={1}>
-              {option.label}
-            </Text>
+            {option.label === "" ? null : (
+              <Text style={[styles.segmentText, on && styles.chipTextOn]} numberOfLines={1}>
+                {option.label}
+              </Text>
+            )}
           </Pressable>
         );
       })}
