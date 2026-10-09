@@ -10,7 +10,7 @@ import { mirroredListNotes } from "./mirrorLists";
 import type { MirrorStore } from "./mirrorStoreCore";
 import { onBucketWrite } from "../console/files/bucketWrites";
 import { FRONT_NOTES } from "../../../mcp/src/lists/grammar.js";
-import { serverFrontNotes, serverListNotes, type ServerListIO, type ServerListMemo } from "./serverLists";
+import { serverFrontNotes, serverListNotes, tableListNotes, type ServerListIO, type ServerListMemo } from "./serverLists";
 
 /**
  * Where the console's folder lists read their notes, and the one road a list
@@ -83,6 +83,10 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
     load: async (folder, subfolders) => {
       if (online()) {
         try {
+          // The tree's properties table first: one query. Where it cannot
+          // answer yet, every note is read from the bucket.
+          const fromTable = await tableListNotes(io, folder, subfolders).catch(() => null);
+          if (fromTable !== null) return fromTable;
           return await serverListNotes(io, memo, folder, subfolders);
         } catch (error) {
           // The server did not answer: the device's copy, where there is one, rather than nothing.

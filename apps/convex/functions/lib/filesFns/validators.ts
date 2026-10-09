@@ -188,6 +188,16 @@ export const manifestValidator = v.object({
   privacy: v.optional(v.union(v.string(), v.null())),
 });
 
+/** One page of a folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+export const folderNotesValidator = v.object({
+  kind: v.literal("folderNotes"),
+  available: v.boolean(),
+  notes: v.array(v.object({ path: v.string(), updatedAt: v.optional(v.number()), props: v.string() })),
+  cursor: v.union(v.string(), v.null()),
+  missing: v.array(v.string()),
+  fill: v.boolean(),
+});
+
 /** One page of what changed since a device's last sync. See `TreeChangesResult`. */
 export const treeChangesValidator = v.object({
   kind: v.literal("treeChanges"),

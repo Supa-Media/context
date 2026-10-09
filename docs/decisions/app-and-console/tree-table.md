@@ -150,3 +150,40 @@ whole bucket), `apps/convex/__tests__/workspaceGraphLinkTable.test.ts` (the
 map from the table equals the map from the index at owner and team clearance,
 a held-back note and its links absent, the index not read) and
 `treeTableOps.test.ts` (a finished sweep goes on to the links).
+
+### Front matter lives beside the tree, and a folder List is one query
+
+Decided by the owner, 2026-10-09 ("lets go ahead and do both"), after project
+Lists and Boards took minutes: a List needs each note's `status:` and `owner:`,
+which live inside each note, and since browsers read the server (#1346) every
+open read every note from the bucket. #1388 cut what is read (the folder, not
+its parent's subtree; plain reads without the collaboration document); this
+makes it one query.
+
+**What it is.** `tree_props` (`apps/mcp/src/tree/props.js`): path, the tree
+version it was parsed at, and the note's properties, first heading and first
+paragraph as JSON, parsed by the same `noteProperties`, `noteHeading` and
+`noteLede` (`apps/mcp/src/lists/lede.js`) every reader uses. An encrypted
+note stores only that it is encrypted. Filled after the links by the same
+chained pass (`propFillPass`).
+
+**What it never decides.** Who may see a row. `folderNotes`
+(`functions/lib/filesFns/folderNotes.ts`) puts every row through `canSee` over
+the live `privacy.md` before using any value; a folder the reader cannot see
+answers empty. The table holds note text (front matter and a sentence), as the
+search projection in the same database already does.
+
+**How it stays true.** It is never trusted blindly: a row parsed at another
+version than its tree row is re-read from the bucket (plain, re-asking
+`canSee`) and fixed before the answer goes out. Every write path inside
+Context already records a note's new version in the tree, so a missed update
+costs one read, never a wrong value. Edits made outside Context entirely wait
+for the next sweep, as the tree does; the owner accepted that ("no need to
+worry about outside editing"). More stale rows on a page than
+`STALE_READ_CAP` (a table not yet filled), a tree not whole, or no database at
+all, and the answer is `available: false`: the List reads the bucket as before.
+
+**What a simplification would cost.** Serving rows without the version check
+shows statuses that changed; filtering by a visibility stored in the table
+would make it a second privacy engine. `apps/convex/__tests__/folderNotesTable.test.ts`
+fails for either.
