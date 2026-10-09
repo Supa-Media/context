@@ -81,6 +81,20 @@ jobs:
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
       BENCH_JOB: ${{ inputs.job || 'texting-assistant' }}
       BENCH_FAKE: ${{ inputs.fake && '--fake' || '' }}
+      # Every free-text input arrives here and nowhere else. GitHub pastes an
+      # expression into a `run:` line as text before bash parses it, so a value
+      # holding a quote would be a command in a job that carries production's
+      # model and gateway credentials. An `env:` value is handed to the process,
+      # not to the parser; `scripts/check-workflow-interpolation.mjs` keeps it
+      # that way. The shapes are checked below as well, because a benchmark
+      # argument that is not a number or a name is a mistake worth a clear
+      # refusal rather than a stack trace twenty minutes in.
+      BENCH_PARALLEL: ${{ inputs.parallel || '6' }}
+      BENCH_SETUPS: ${{ inputs.setups }}
+      BENCH_QUESTIONS: ${{ inputs.questions }}
+      BENCH_RUNS: ${{ inputs.runs }}
+      BENCH_JUDGE: ${{ inputs.judge }}
+      BENCH_MAX_USD: ${{ inputs.max_usd || '1' }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -89,6 +103,18 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      - name: Refuse an argument that is not the shape it should be
+        run: |
+          set -euo pipefail
+          refuse() { echo "::error::$1"; exit 1; }
+          [[ "$BENCH_JOB" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || refuse "job must be a lowercase name (tests/<job>.md)."
+          [[ "$BENCH_PARALLEL" =~ ^[0-9]{1,3}$ ]] || refuse "parallel must be a whole number."
+          [[ "$BENCH_RUNS" =~ ^[0-9]{0,3}$ ]] || refuse "runs must be a whole number, or empty for the test's own."
+          [[ "$BENCH_MAX_USD" =~ ^[0-9]{1,4}(\.[0-9]{1,2})?$ ]] || refuse "max_usd must be a number of dollars."
+          [[ "$BENCH_JUDGE" =~ ^[a-z0-9@/._-]{0,64}$ ]] || refuse "judge must be a model id."
+          [[ "$BENCH_SETUPS" =~ ^[A-Za-z0-9,._-]{0,256}$ ]] || refuse "setups must be comma-separated setup names."
+          [[ "$BENCH_QUESTIONS" =~ ^[0-9,]{0,256}$ ]] || refuse "questions must be comma-separated numbers."
 
       - name: Refuse to run without the keys a real round needs
         if: ${{ !inputs.fake }}
@@ -105,29 +131,37 @@ jobs:
           echo "key=apps/mcp/bench/ai/results/${stamp} ${BENCH_JOB} gh-${{ github.run_number }} key.md" >> "$GITHUB_OUTPUT"
 
       - name: Run every setup against every question
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
         run: |
-          args=("$BENCH_JOB" --parallel "${{ inputs.parallel || '6' }}" --out "${{ steps.name.outputs.result }}")
-          [ -n "${{ inputs.setups }}" ] && args+=(--setups "${{ inputs.setups }}")
-          [ -n "${{ inputs.questions }}" ] && args+=(--questions "${{ inputs.questions }}")
-          [ -n "${{ inputs.runs }}" ] && args+=(--runs "${{ inputs.runs }}")
+          args=("$BENCH_JOB" --parallel "$BENCH_PARALLEL" --out "$RESULT")
+          [ -n "$BENCH_SETUPS" ] && args+=(--setups "$BENCH_SETUPS")
+          [ -n "$BENCH_QUESTIONS" ] && args+=(--questions "$BENCH_QUESTIONS")
+          [ -n "$BENCH_RUNS" ] && args+=(--runs "$BENCH_RUNS")
           [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
           pnpm ai run "${args[@]}"
 
       - name: Judge every answer, blind
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
         run: |
-          args=("${{ steps.name.outputs.result }}" --max-usd "${{ inputs.max_usd || '1' }}")
-          [ -n "${{ inputs.judge }}" ] && args+=(--judge "${{ inputs.judge }}")
+          args=("$RESULT" --max-usd "$BENCH_MAX_USD")
+          [ -n "$BENCH_JUDGE" ] && args+=(--judge "$BENCH_JUDGE")
           [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
           pnpm ai judge "${args[@]}"
 
       - name: Score
-        run: pnpm ai score "${{ steps.name.outputs.result }}"
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
+        run: pnpm ai score "$RESULT"
 
       - name: Show the scores on this run's summary page
         if: ${{ always() && steps.name.outputs.result != '' }}
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
         run: |
-          if [ -f "${{ steps.name.outputs.result }}" ]; then
-            pnpm --silent ai summary "${{ steps.name.outputs.result }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$RESULT" ]; then
+            pnpm --silent ai summary "$RESULT" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "_The run wrote no result note; read the job log._" >> "$GITHUB_STEP_SUMMARY"
           fi

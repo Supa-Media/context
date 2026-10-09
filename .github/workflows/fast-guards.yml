@@ -31,6 +31,8 @@ jobs:
           node scripts/check-workflow-yaml.mjs
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
+          node scripts/check-workflow-interpolation.mjs --self-test
+          node scripts/check-workflow-interpolation.mjs
           node scripts/check-package-tests-run.mjs --self-test
           node scripts/check-package-tests-run.mjs
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test

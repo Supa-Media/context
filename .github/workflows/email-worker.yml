@@ -81,6 +81,8 @@ jobs:
         run: |
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
+          node scripts/check-workflow-interpolation.mjs --self-test
+          node scripts/check-workflow-interpolation.mjs
 
       # Second host for the browser-scope guard. The first is in workers.yml, not
       # in either workflow whose path gates the script validates.
