@@ -178,9 +178,19 @@ describe("a projection pass the control plane runs itself", () => {
     // The changed Areas note sorts after the first 300 current paths. A
     // scheduled action crosses that D1 window using the same bucket listing.
     store.seed("2-areas/README.md", "# Areas changed\n");
+    const query = d1.client.query;
+    let versionQueries = 0;
+    d1.client.query = async (sql, params) => {
+      if (sql.startsWith("SELECT path, version FROM notes WHERE path IN")) {
+        versionQueries += 1;
+        if ((params?.length ?? 0) > 100) throw new Error("D1 refused an oversized version probe");
+      }
+      return query(sql, params);
+    };
     const reached = await projectSearchIndex(store, d1.client);
     expect(reached.projected).toBe(1);
     expect(reached.ready).toBe(true);
+    expect(versionQueries).toBeGreaterThan(1);
   });
 
   test("copies a bucket nothing has ever searched", async () => {

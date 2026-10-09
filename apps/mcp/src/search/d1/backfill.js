@@ -143,6 +143,9 @@ export const D1_PASS_NOTE_CAP = 20;
  */
 export const VERSION_PROBE_CAP = 100;
 
+/** The largest D1 `IN` query known to work across the Cloudflare API. */
+const VERSION_PROBE_QUERY_CAP = 100;
+
 /**
  * Statements held before they are sent. A window of a hundred typical notes is
  * about five hundred statements, so a pass usually sends once; the client
@@ -173,15 +176,17 @@ export async function readIndexState(client) {
 
 /** The versions the projection currently holds for a window of paths. */
 export async function storedVersions(client, paths) {
-  if (paths.length === 0) return new Map();
-  const placeholders = paths.map(() => "?").join(", ");
-  const rows = await client.query(
-    `SELECT path, version FROM notes WHERE path IN (${placeholders})`,
-    paths
-  );
   const versions = new Map();
-  for (const row of rows) {
-    if (row && typeof row.path === "string") versions.set(row.path, row.version);
+  for (let at = 0; at < paths.length; at += VERSION_PROBE_QUERY_CAP) {
+    const batch = paths.slice(at, at + VERSION_PROBE_QUERY_CAP);
+    const placeholders = batch.map(() => "?").join(", ");
+    const rows = await client.query(
+      `SELECT path, version FROM notes WHERE path IN (${placeholders})`,
+      batch
+    );
+    for (const row of rows) {
+      if (row && typeof row.path === "string") versions.set(row.path, row.version);
+    }
   }
   return versions;
 }
@@ -394,8 +399,9 @@ export async function projectPass(
 
     let stored = new Map();
     if (window.length > 0) {
-      if (!afford(1)) return await finish(result, paths, indexPending, budget, reserve, client, reportProgress);
-      budget.take(floor);
+      const probes = Math.ceil(window.length / VERSION_PROBE_QUERY_CAP);
+      if (!afford(probes)) return await finish(result, paths, indexPending, budget, reserve, client, reportProgress);
+      for (let probe = 0; probe < probes; probe += 1) budget.take(floor);
       stored = await storedVersions(client, window);
     }
 
