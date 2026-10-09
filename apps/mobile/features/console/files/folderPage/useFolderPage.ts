@@ -6,10 +6,16 @@
  * The notes come from the same place a list block's do — `FolderListSource`,
  * which is `useFolderLists` reading this device's copy at the role's
  * clearance — so the page can only ever describe notes the reader could
- * already open. Loaded from the folder's *parent*, with subfolders, because
- * a project folder's menus offer the values its siblings use — and the front
- * notes of every folder above that, since a folder's status list is inherited
+ * already open. Loaded from the folder itself, with subfolders, and the front
+ * notes of every folder above it, since a folder's status list is inherited
  * from the nearest one that declares it (`statuses.ts`).
+ *
+ * Not from the parent's whole subtree, as it once was so a project's menus
+ * could offer the values its siblings use: that was free against a device's
+ * copy and ruinous against the server, where opening the Projects Board read
+ * every note in the workspace, each one from the bucket (2026-10-08). Where
+ * the source can read front notes by name (`loadFront`), the folders above
+ * cost one call; elsewhere each is loaded without its subfolders, as before.
  *
  * A choice shows at once: it is laid over the notes until the device's copy
  * says the same thing, and taken back if the write is refused (the sentence
@@ -19,7 +25,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderListSource, ListNote, ListSource, PropertyValue } from "../listBlock/model";
-import { parentPath } from "../paths";
 import { isProjectsFolder } from "./model";
 import type { TaskHost } from "./tasks/taskHost";
 import type { PeekEditing } from "./panel/peekEditing";
@@ -118,7 +123,7 @@ function settle(notes: readonly ListNote[], chosen: Chosen): void {
 
 export function useFolderNotes(host: FolderPageHost | undefined, folder: string): FolderNotes {
   const source = host?.source;
-  const scope = folder === "" ? "" : parentPath(folder);
+  const scope = folder;
   const [loaded, setLoaded] = useState<{
     notes: readonly ListNote[];
     complete: boolean;
@@ -143,8 +148,13 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
     if (source === undefined) return;
     let current = true;
     const read = () => {
-      void Promise.all([source.load(scope, true), ...ancestorsOf(scope).map((above) => source.load(above, false))])
-        .then(([result, ...above]) => {
+      const folders = ancestorsOf(scope);
+      const above: Promise<readonly (readonly ListNote[])[]> =
+        source.loadFront !== undefined
+          ? source.loadFront(folders).then((notes) => [notes])
+          : Promise.all(folders.map((at) => source.load(at, false).then((each) => each?.notes ?? [])));
+      void Promise.all([source.load(scope, true), above])
+        .then(([result, aboveNotes]) => {
           if (!current) return;
           if (result === null) {
             setLoaded({ notes: [], complete: false });
@@ -152,7 +162,7 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
           }
           // Only the front notes above matter (a status list is inherited), and a note is never listed twice.
           const byPath = new Map(result.notes.map((note) => [note.path, note]));
-          for (const each of above) for (const note of each?.notes ?? []) if (!byPath.has(note.path)) byPath.set(note.path, note);
+          for (const each of aboveNotes) for (const note of each) if (!byPath.has(note.path)) byPath.set(note.path, note);
           setLoaded({ notes: [...byPath.values()], complete: result.complete, missing: result.missing });
         })
         .catch(() => {
@@ -274,13 +284,15 @@ export function holdsFolder(result: ListSource, folder: string): boolean {
   });
 }
 
-/** Every folder above `folder`, nearest first, not the workspace root. */
+/** Every folder above `folder`, nearest first, and the workspace root last. */
 function ancestorsOf(folder: string): string[] {
+  if (folder === "") return [];
   const out: string[] = [];
   let at = folder;
   while (at.includes("/")) {
     at = at.slice(0, at.lastIndexOf("/"));
     out.push(at);
   }
+  out.push("");
   return out;
 }

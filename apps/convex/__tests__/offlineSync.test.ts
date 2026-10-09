@@ -481,6 +481,31 @@ describe("reading a batch of notes", () => {
     expect(JSON.stringify(results)).not.toContain("salaries");
   });
 
+  test("a plain read is one GET a note and opens no collaboration document", async () => {
+    // A store collaboration runs on: the ordinary read makes and reads each
+    // note's document under `.context/`; a List's plain read must not.
+    const store = await bucket({ conditional: true });
+    const gets = countingGets(store);
+    const plain = await readFiles(store, { paths: ["1-projects/context-lc.md"], clearance: TEAM, plain: true });
+    expect(plain[0]).toMatchObject({ outcome: "read", note: { text: "# Context.LC\n\nnotes\n" } });
+    expect(plain[0]).not.toHaveProperty("note.documentId");
+    expect(gets).toEqual([PRIVACY_KEY, "1-projects/context-lc.md"]);
+    expect([...store.objects.keys()].some((key) => key.startsWith(".context/collaboration/"))).toBe(false);
+
+    // Sabotage reference: the same note read the ordinary way does open one.
+    const full = await readFiles(store, { paths: ["1-projects/context-lc.md"], clearance: TEAM });
+    expect(full[0]).toHaveProperty("note.documentId");
+  });
+
+  test("a plain read refuses a hidden note exactly as an ordinary one does", async () => {
+    const store = await bucket({ conditional: true });
+    const gets = countingGets(store);
+    const [plain] = await readFiles(store, { paths: ["1-projects/pay.md"], clearance: TEAM, plain: true });
+    const [ordinary] = await readFiles(store, { paths: ["1-projects/pay.md"], clearance: TEAM });
+    expect(plain).toEqual(ordinary);
+    expect(gets).toEqual([PRIVACY_KEY, PRIVACY_KEY]);
+  });
+
   test("a hidden note is never fetched from the bucket at all", async () => {
     const store = await bucket();
     const gets = countingGets(store);
