@@ -68,6 +68,54 @@ test('a refused request fails the deploy', async () => {
   );
 });
 
+/*
+  A REFUSAL'S BODY REACHES A PUBLIC LOG, SO IT MUST NOT BE ABLE TO CARRY A VALUE.
+
+  This repository is public, so its Actions logs are public, and the variables
+  this script syncs include `STORAGE_SECRET_ENCRYPTION_KEY`, `JWT_PRIVATE_KEY`,
+  `GATEWAY_SECRET` and the Twilio API key secret.
+
+  What stood between those and the log was a sentence about somebody else's API:
+  "the body names the problem and never echoes a value back". That may well be
+  true of Convex today; it is a claim about a third party's error format, which
+  can change without anyone here noticing, and the failure is silent and public.
+
+  GitHub's own secret masking is not the backstop it looks like: it redacts
+  exact matches, and the body is truncated, so a value cut across the limit
+  reaches the log as a fragment the masker does not recognise.
+
+  So the values are taken out of the body here, where they are known — the same
+  argument the gateway's storage-detail redactor makes: a value we hold is
+  detectable, and a shape rule is a guess. Redaction runs BEFORE the truncation
+  for the reason that one does too: a half-cut secret must not survive the cut.
+*/
+test('a refusal cannot print a synced value, however the body is shaped', async () => {
+  const SECRET = 'fake-signing-key-abcdefghijklmnopqrstuvwxyz-0123456789';
+  const refusal = (body) => ({ ok: false, status: 400, text: async () => body });
+  const detailOf = async (body) => {
+    const error = await syncConvexEnv({
+      names: ['JWT_PRIVATE_KEY'], values: { JWT_PRIVATE_KEY: SECRET },
+      url: URL_OK, key: KEY, log: () => {}, fetchImpl: async () => refusal(body),
+    }).then(() => null, (thrown) => thrown);
+    assert.ok(error, 'expected a refusal to throw');
+    return error.message;
+  };
+
+  // Echoed whole.
+  const whole = await detailOf(`invalid value for JWT_PRIVATE_KEY: ${SECRET}`);
+  assert.doesNotMatch(whole, /fake-signing-key/);
+  assert.match(whole, /HTTP 400/);
+  assert.match(whole, /invalid value for JWT_PRIVATE_KEY/, 'the diagnosis itself still reaches the log');
+
+  // Echoed across the truncation boundary: the half that would survive a cut
+  // is not an exact match, so masking elsewhere would not catch it.
+  const padded = `${'x'.repeat(280)} ${SECRET}`;
+  assert.doesNotMatch(await detailOf(padded), /fake-signing/);
+
+  // A body with no value in it is unchanged, so a real diagnosis is not lost.
+  assert.match(await detailOf('BadAdminKey'), /BadAdminKey/);
+});
+
 test('nothing to set sends nothing', async () => {
   let called = false;
   await syncConvexEnv({ names: ['A'], values: {}, url: URL_OK, key: KEY, log: () => {}, fetchImpl: async () => { called = true; } });
