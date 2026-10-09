@@ -11,8 +11,9 @@
 export const LANDING_CSS = `
 .lp{position:relative;height:100vh;height:100dvh;overflow-y:auto;scroll-behavior:smooth;background:var(--paper);color:var(--ink);font-family:"Instrument Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 .lp *,.lp *::before,.lp *::after{box-sizing:border-box}
-.lp a{color:inherit;text-decoration:none}
-.lp h1,.lp h2,.lp h3,.lp p{margin:0}
+/* resets carry no weight (:where), so a class like .lp-stmt's centring margin still wins */
+:where(.lp) a{color:inherit;text-decoration:none}
+:where(.lp) :where(h1,h2,h3,p){margin:0}
 .lp-nav{position:absolute;left:0;right:0;top:0;z-index:5;display:flex;align-items:center;gap:20px;padding:22px clamp(16px,4vw,48px)}
 .lp-brand{font-weight:600;font-size:22px;letter-spacing:-.02em}
 .lp-nav .lp-sp{flex:1}
