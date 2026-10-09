@@ -280,7 +280,10 @@ export async function projectSearchIndex(
     ready: progress.state === "ready",
     failure,
     failureDetail: result.failureDetail ?? null,
-    moved: moved || result.projected > 0 || result.deleted > 0,
+    // A window of already-current notes can still move the cursor closer to
+    // missing notes. Keep the chain running through it instead of waiting for
+    // the 15-minute stalled-backfill sweep after every such window.
+    moved: moved || result.projected > 0 || result.deleted > 0 || result.cursorAdvanced,
     report: failure === null && worthReporting(result),
   };
 }

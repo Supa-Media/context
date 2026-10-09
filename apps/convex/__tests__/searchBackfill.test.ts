@@ -169,6 +169,24 @@ async function chain(
 }
 
 describe("a projection pass the control plane runs itself", () => {
+  test("chains through a current window to reach a later changed note", async () => {
+    const store = bucket(101);
+    const d1 = stubD1();
+    const filled = await chain(store, d1.client);
+    expect(filled.last.ready).toBe(true);
+
+    // The changed Areas note sorts after the first 100 current paths. The
+    // first pass writes no note but advances the cursor to reach it.
+    store.seed("2-areas/README.md", "# Areas changed\n");
+    const traversed = await projectSearchIndex(store, d1.client);
+    expect(traversed.projected).toBe(0);
+    expect(traversed.moved).toBe(true);
+    expect(traversed.ready).toBe(false);
+
+    const reached = await projectSearchIndex(store, d1.client);
+    expect(reached.projected).toBe(1);
+  });
+
   test("copies a bucket nothing has ever searched", async () => {
     const store = bucket();
     const d1 = stubD1();
