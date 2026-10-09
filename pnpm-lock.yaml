@@ -59,8 +59,8 @@ importers:
         specifier: ^2.6.2
         version: 2.6.2
       '@supa-media/convex':
-        specifier: ^1.8.0
-        version: 1.8.0(@convex-dev/auth@0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
+        specifier: ^1.9.0
+        version: 1.9.0(@convex-dev/auth@0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -3534,8 +3534,8 @@ packages:
   '@speed-highlight/core@1.2.24':
     resolution: {integrity: sha512-qeW2e1l78afw8VhRPfPQ1Gjj+KU5XFQ/OFV5ti6eTa9bruO7mJyZtA4vw0ofqmA3tKCkROE9xLk3VZoeRc98nw==}
 
-  '@supa-media/convex@1.8.0':
-    resolution: {integrity: sha512-HuQhU2qRpYqHNKoP01I9KOoegS2djMSMCcJyy/31H5FTl4JiXGqGGq1LUAQv3zJq7VmxO+As+FfSIoLKWt8fBA==}
+  '@supa-media/convex@1.9.0':
+    resolution: {integrity: sha512-5lT19lORSK7vvYnJ/4ox03IKFYm+vi0jIlOvkHWHixA6zDcdE8q5aOtXiQYg17abU/Fhz49PQsdsanC3wdUb3g==}
     peerDependencies:
       '@convex-dev/auth': '>=0.0.90'
       convex: '>=1.31.0'
@@ -12063,7 +12063,7 @@ snapshots:
 
   '@speed-highlight/core@1.2.24': {}
 
-  '@supa-media/convex@1.8.0(@convex-dev/auth@0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
+  '@supa-media/convex@1.9.0(@convex-dev/auth@0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
     dependencies:
       '@convex-dev/auth': 0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
