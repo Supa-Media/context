@@ -11,8 +11,9 @@
 export const LANDING_CSS = `
 .lp{position:relative;height:100vh;height:100dvh;overflow-y:auto;scroll-behavior:smooth;background:var(--paper);color:var(--ink);font-family:"Instrument Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 .lp *,.lp *::before,.lp *::after{box-sizing:border-box}
-.lp a{color:inherit;text-decoration:none}
-.lp h1,.lp h2,.lp h3,.lp p{margin:0}
+/* resets carry no weight (:where), so a class like .lp-stmt's centring margin still wins */
+:where(.lp) a{color:inherit;text-decoration:none}
+:where(.lp) :where(h1,h2,h3,p){margin:0}
 .lp-nav{position:absolute;left:0;right:0;top:0;z-index:5;display:flex;align-items:center;gap:20px;padding:22px clamp(16px,4vw,48px)}
 .lp-brand{font-weight:600;font-size:22px;letter-spacing:-.02em}
 .lp-nav .lp-sp{flex:1}
@@ -34,6 +35,12 @@ export const LANDING_CSS = `
 .lp-a-hero{position:relative;height:max(640px,100vh);background:radial-gradient(ellipse 46% 50% at 50% 42%,color-mix(in srgb,var(--paper2) 85%,var(--accent)) 0%,transparent 72%)}
 .lp-a-line{position:absolute;left:0;right:0;bottom:max(96px,13vh);z-index:3;display:flex;flex-direction:column;align-items:center;gap:22px;padding:0 16px}
 .lp-a-line .lp-h1{font-size:clamp(52px,7vw,72px)}
+.lp-a-editor{margin:clamp(80px,10vw,140px) auto 0;width:min(calc(100% - 32px),1200px);display:flex;flex-direction:column;align-items:center;gap:14px}
+.lp-a-editor h2{font-weight:600;font-size:clamp(32px,4.4vw,56px);line-height:1.05;letter-spacing:-.035em;text-align:center;text-wrap:balance;max-width:860px;padding:0 16px}
+.lp-points{list-style:none;margin:0 0 18px;padding:0 16px;display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.lp-points li{text-align:center;font-weight:500;font-size:15px;color:var(--ink2);padding:8px 14px;border-radius:999px;border:1px solid var(--hair);background:var(--paper2)}
+.lp-editor{width:100%;margin-top:8px}
+.lp-editor-stage{position:relative;overflow:hidden}
 .lp-stmt{margin:0 auto;padding:clamp(120px,16vw,220px) 16px 0;max-width:1040px;text-align:center;font-weight:600;font-size:clamp(40px,6.4vw,92px);line-height:1.02;letter-spacing:-.04em;text-wrap:balance}
 .lp-prose{margin:clamp(80px,11vw,160px) auto 0;max-width:720px;padding:0 16px;display:flex;flex-direction:column;gap:34px;text-align:center;font-weight:500;font-size:clamp(18px,1.6vw,21px);line-height:1.85;color:var(--ink2);text-wrap:pretty}
 .lp-join{position:relative;margin-top:clamp(110px,14vw,200px);padding:0 16px clamp(140px,16vw,220px);display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center;scroll-margin-top:40px}
@@ -116,4 +123,5 @@ export const LANDING_CSS = `
   .lp-d-win{height:440px}
 }
 @media (prefers-reduced-motion:reduce){.lp-b{animation:none}}
+@media (max-width:600px){.lp-points{gap:8px}.lp-points li{font-size:13px;padding:6px 12px}}
 `;

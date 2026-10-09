@@ -43,6 +43,8 @@ export interface DemoContextTree {
    * additionally a context they only ever read.
    */
   readOnlyReason: string;
+  /** Emoji on folders, by tree path; a folder with none draws the plain icon. */
+  icons?: Readonly<Record<string, string>>;
 }
 
 export function file(path: string, over: Partial<FileEntry> = {}): FileEntry {

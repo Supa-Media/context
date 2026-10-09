@@ -16,6 +16,31 @@ test("/ is landing page a, with the phone sign-up a tap away", async ({ page }) 
   await expect(page.locator("[data-landing=a] canvas").first()).toBeAttached();
 });
 
+test("the statement under the hero is centred on a wide screen", async ({ page }) => {
+  // A reset with more weight than `.lp-stmt` once dropped its `margin: 0 auto`,
+  // pinning the statement to the left edge (Dev2, 2026-10-09).
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto("/");
+  const statement = page.locator(".lp-stmt");
+  await expect(statement).toBeAttached({ timeout: 15_000 });
+  const box = await statement.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: window.innerWidth - r.right };
+  });
+  expect(Math.abs(box.left - box.right)).toBeLessThan(24);
+});
+
+test("page a shows the real editor under its headline, playing a demo in a PARA tree", async ({ page }) => {
+  await page.goto("/");
+  const section = page.getByRole("region", { name: /A Markdown editor/ });
+  await section.scrollIntoViewIfNeeded({ timeout: 15_000 });
+  const stage = page.frameLocator(".lp-editor iframe");
+  await expect(stage.getByText("Launch plan").first()).toBeVisible({ timeout: 20_000 });
+  await expect(stage.getByText("projects").first()).toBeVisible();
+  // The stage is our own studio's kind: no "unpublished draft" line in it.
+  await expect(stage.getByText("Preview of an unpublished draft")).toHaveCount(0);
+});
+
 for (const letter of ["b", "c", "d", "e"]) {
   test(`/${letter} is its own landing page`, async ({ page }) => {
     await page.goto(`/${letter}`);
