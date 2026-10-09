@@ -140,3 +140,21 @@ test("every turn is told which model answers it, and the ground rules, even with
   assert.match(app, /Never fill a gap with a guess/);
   assert.doesNotMatch(systemPrompt(null), /AI model/, "no model, no line");
 });
+
+test("a turn with earlier turns is told their lookups happened", async () => {
+  const history = [
+    { role: "user", text: "what time's the dentist again" },
+    { role: "assistant", text: "Tuesday, October 13 at 3 pm." },
+  ];
+  const ai = scripted([chat("Anytime.")]);
+  await turn(ai, { question: "thanks!", history, notes: { prompt: "You are Context." } });
+  const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
+  assert.match(system, /you did use them/, "the words-only history is explained");
+  assert.match(system, /Never take back or doubt an earlier answer/);
+
+  const first = scripted([chat("Tuesday.")]);
+  await turn(first, { notes: { prompt: "You are Context." } });
+  const opening = first.calls[0].input.messages.find((message) => message.role === "system").content;
+  assert.doesNotMatch(opening, /you did use them/, "a first text has no earlier turns to explain");
+  assert.doesNotMatch(systemPrompt(null, { texting: true }), /you did use them/);
+});

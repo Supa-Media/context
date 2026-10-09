@@ -323,7 +323,13 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked });
   }
   const systemFor = (answering) =>
-    systemPrompt(place, { texting, notes, model: answering, edits: tools.some((tool) => tool.name === "write_note") }) +
+    systemPrompt(place, {
+      texting,
+      notes,
+      model: answering,
+      edits: tools.some((tool) => tool.name === "write_note"),
+      continued: history.length > 0,
+    }) +
     webPrompt(webNames);
   let system = systemFor(model);
   const messages = [
