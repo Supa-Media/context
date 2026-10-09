@@ -23,7 +23,7 @@ import {
 } from "./copy";
 import { useOrganizerView } from "./OrganizerContext";
 import { relativeTime } from "../console/format";
-import { type SortLine, previewSuggestions, settingsCard, shouldStartSweep, sortLine, sweepPhase } from "./rules";
+import { type SortLine, previewSuggestions, settingsCard, shouldStartSweep, sortLine, sweepPhase, whatChangedPage } from "./rules";
 import { makeStyles } from "./styles";
 import { ORGANIZER_KINDS, type OrganizerStatus, type OrganizerSuggestion } from "./types";
 import type { OrganizerView } from "./useOrganizer";
@@ -59,7 +59,8 @@ export function SweepCard({
   slug: string;
   status: OrganizerStatus;
   preview: readonly OrganizerSuggestion[];
-  onShow: () => void;
+  /** Absent while the What changed page is switched off: no press to a page that is not there. */
+  onShow?: () => void;
   onLater: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -113,13 +114,15 @@ export function SweepCard({
             </View>
           )}
           <Row style={styles.actions}>
-            <Button
-              label={sweepCopy.show}
-              variant="mini"
-              onPress={onShow}
-              testID="organizer-show-me"
-              style={styles.indent}
-            />
+            {onShow !== undefined ? (
+              <Button
+                label={sweepCopy.show}
+                variant="mini"
+                onPress={onShow}
+                testID="organizer-show-me"
+                style={styles.indent}
+              />
+            ) : null}
             <Button label={sweepCopy.later} onPress={onLater} testID="organizer-later" />
           </Row>
         </>
@@ -142,7 +145,8 @@ export function SortStatus({
   line: SortLine;
   now: number;
   onSortNow: () => void;
-  onReview: () => void;
+  /** Absent while the What changed page is switched off. */
+  onReview?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -160,7 +164,7 @@ export function SortStatus({
       <Text variant="rowSub" role="status" style={styles.sortText}>
         {text}
       </Text>
-      {line.kind === "done" && line.pending > 0 ? (
+      {line.kind === "done" && line.pending > 0 && onReview !== undefined ? (
         <Button label={sortCopy.lookOver} variant="mini" onPress={onReview} testID="organizer-sort-review" />
       ) : null}
       {line.kind === "running" ? null : (
@@ -215,7 +219,7 @@ export function AutoOrganizeSettings({
         </Hint>
       ) : (
         <>
-          {line !== null && onSortNow !== undefined && onReview !== undefined ? (
+          {line !== null && onSortNow !== undefined ? (
             <SortStatus line={line} now={now} onSortNow={onSortNow} onReview={onReview} />
           ) : null}
           {status.on ? (
@@ -287,6 +291,7 @@ export function usePremiumSlotsFor(organizer: OrganizerView | undefined, returne
 
   if (organizer === undefined || status === null) return {};
   const card = settingsCard(status);
+  const review = whatChangedPage(status) ? () => organizer.openReview({ closeSettings: true }) : undefined;
   return {
     included: <IncludedLine />,
     top:
@@ -296,7 +301,7 @@ export function usePremiumSlotsFor(organizer: OrganizerView | undefined, returne
           slug={organizer.slug}
           status={status}
           preview={previewSuggestions(organizer.suggestions.list ?? [])}
-          onShow={() => organizer.openReview({ closeSettings: true })}
+          onShow={review}
           onLater={() => setLater(true)}
         />
       ),
@@ -307,7 +312,7 @@ export function usePremiumSlotsFor(organizer: OrganizerView | undefined, returne
           onEnabled={organizer.setEnabled}
           onAutopilot={organizer.setAutopilot}
           onSortNow={organizer.sweepNow}
-          onReview={() => organizer.openReview({ closeSettings: true })}
+          onReview={review}
         />
       ),
   };
