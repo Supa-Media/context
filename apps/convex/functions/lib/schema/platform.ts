@@ -190,6 +190,9 @@ export const platformTables = {
      * alive, and nothing restarted it (2026-10-08). Absent on rows from before.
      */
     chainedAt: v.optional(v.number()),
+    /** One control-plane projection pass at a time per workspace. The lease
+     * outlives Convex's action limit, then expires if an action is lost. */
+    projectionLease: v.optional(v.object({ token: v.string(), until: v.number() })),
     /**
      * Where provisioning the managed bucket has got to, for the one context
      * this plan is for.

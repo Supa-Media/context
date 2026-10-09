@@ -45,10 +45,12 @@ import {
 import { searchableContextsForHandler, searchableContextsHandler } from "./lib/fastSearchFns/scope";
 import {
   bindingForWorkspaceHandler,
+  claimProjectionHandler,
   forgetIndexHandler,
   projectionTargetForWorkspaceHandler,
   recordProjectionProgressHandler,
   recordProvisionResultHandler,
+  releaseProjectionHandler,
   sweepStalledBackfillsHandler,
 } from "./lib/fastSearchFns/internal";
 import { searchableContextValidator, stateValidator } from "./lib/fastSearchFns/validators";
@@ -275,6 +277,18 @@ export const projectionTargetForWorkspace = internalQuery({
     }),
   ),
   handler: (ctx, args) => projectionTargetForWorkspaceHandler(ctx, args),
+});
+
+/** Serialize scheduled projection passes for a workspace. */
+export const claimProjection = internalMutation({
+  args: { workspaceId: v.id("workspaces"), token: v.string() },
+  returns: v.boolean(),
+  handler: (ctx, args) => claimProjectionHandler(ctx, args),
+});
+
+export const releaseProjection = internalMutation({
+  args: { workspaceId: v.id("workspaces"), token: v.string() },
+  handler: (ctx, args) => releaseProjectionHandler(ctx, args),
 });
 
 /**

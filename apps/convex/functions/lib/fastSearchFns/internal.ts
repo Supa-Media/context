@@ -26,6 +26,31 @@ import { cleanPriorities, type IndexingPriorities } from "../indexingPriorities"
 
 /** Contexts one sweep may restart. See `sweepStalledBackfillsHandler`. */
 const SWEEP_BATCH = 50;
+const PROJECTION_LEASE_MS = 11 * 60 * 1_000;
+
+export async function claimProjectionHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces">; token: string },
+): Promise<boolean> {
+  const row = await bindingFor(ctx, args.workspaceId);
+  if (row?.status !== "backfilling" || !row.optedIn) return false;
+  const now = Date.now();
+  if (row.projectionLease && row.projectionLease.until > now) return false;
+  await ctx.db.patch(row._id, {
+    projectionLease: { token: args.token, until: now + PROJECTION_LEASE_MS },
+    chainedAt: now,
+  });
+  return true;
+}
+
+export async function releaseProjectionHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces">; token: string },
+): Promise<void> {
+  const row = await bindingFor(ctx, args.workspaceId);
+  if (row?.projectionLease?.token !== args.token) return;
+  await ctx.db.patch(row._id, { projectionLease: undefined });
+}
 
 export async function bindingForWorkspaceHandler(
   ctx: QueryCtx,
