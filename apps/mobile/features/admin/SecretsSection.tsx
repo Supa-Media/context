@@ -30,6 +30,7 @@ import {
 import { pointerType } from "../design/tokens";
 import { EmptyNote, NoticeLine, Panel, Skeleton, useCompact, usePanelPad } from "./AdminKit";
 import { DeleteSecretDialog, SetSecretDialog } from "./SecretDialogs";
+import { SignInTexts } from "./SignInTexts";
 import { KNOWN_SECRETS, relativeTime, type KnownSecret } from "./report";
 
 /** A configured row, as `listSecrets` returns it. Never a value. */
@@ -193,6 +194,8 @@ export function SecretsSection({
         the deployment needs before it can read this table stay in the environment and are refused
         here.
       </Text>
+
+      <SignInTexts />
 
       {dialog?.kind === "set" || dialog?.kind === "replace" ? (
         <SetSecretDialog
