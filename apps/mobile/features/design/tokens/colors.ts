@@ -538,6 +538,17 @@ export const lightMapColors = {
   zone: "#F3EFE7",
   zoneLine: "#DCD5C8",
   ink: "#2E2A25",
+  // Each AI tool's colour (`map/live/agentKind.ts`). The texting assistant is
+  // the app's accent. The spare three take any tool the map does not know.
+  agentClaude: "#d9712e",
+  agentCodex: "#7d5fd6",
+  agentChatgpt: "#5f9e3c",
+  agentContext: "#0E6C69",
+  agentBlue: "#3573D1",
+  agentPink: "#C2417F",
+  agentAmber: "#8E5E1F",
+  /** The robot's and the bubble's glyph, read on every tint above. */
+  agentGlyph: "#FFFFFF",
 } as const;
 
 export type MapColors = Readonly<Record<keyof typeof lightMapColors, string>>;
@@ -549,6 +560,14 @@ export const darkMapColors: MapColors = {
   zone: "#2B2825",
   zoneLine: "#504A43",
   ink: "#D8D2C9",
+  agentClaude: "#e8894a",
+  agentCodex: "#a58be8",
+  agentChatgpt: "#8fc46a",
+  agentContext: "#6BC8C1",
+  agentBlue: "#6FA3F2",
+  agentPink: "#F27DB5",
+  agentAmber: "#D9A25C",
+  agentGlyph: "#1B1815",
 };
 
 /**

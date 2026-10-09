@@ -1,4 +1,5 @@
 import type { ActivityEvent, AgentActivityView } from "../../agents/agentActivity";
+import { consoleHandOf, CONSOLE_CLIENT_NAME } from "./agentKind";
 import { fileTitle } from "./engine/paths";
 import type { MapActor } from "./engine/timeline";
 import type { ActorRef, MapEvent, MapNode, WorkspaceGraph } from "./types";
@@ -9,14 +10,27 @@ import type { ActorRef, MapEvent, MapNode, WorkspaceGraph } from "./types";
  * see; this only renames and drops what the map cannot draw.
  */
 
+/**
+ * An actor a client named, as the map draws it. The app's own console is the
+ * person whose hand it is, never a tool: its edits are recorded under its own
+ * client name (`CONSOLE_CLIENT_NAME`), and "@dev2's Context (this app)" is
+ * "@dev2" drawn as their face.
+ */
+function actorRefOf(kind: "person" | "agent", id: string, name: string): ActorRef {
+  const hand = kind === "agent" ? consoleHandOf(name) : null;
+  if (hand !== null) return { id, kind: "person", name: hand };
+  return { id, kind, name };
+}
+
 /** Who is in one workspace now, from its `/agent-activity` answer, as map actors. */
 export function actorsFromActivity(view: AgentActivityView, workspaceId: string, now: number): MapActor[] {
   const out: MapActor[] = [];
   for (const agent of view.agents) {
+    const who = actorRefOf("agent", agent.id, agent.name);
     out.push({
       id: agent.id,
-      kind: "agent",
-      name: agent.name,
+      kind: who.kind,
+      name: who.name,
       ...(agent.self ? { self: true } : {}),
       path: agent.path,
       // An older gateway sends no `doing`: a write is then an edit.
@@ -45,7 +59,7 @@ export function actorsFromActivity(view: AgentActivityView, workspaceId: string,
 
 /** One gateway event as a map event. A move with no `from` cannot be drawn. */
 export function eventFromActivity(event: ActivityEvent, workspaceId: string): MapEvent | null {
-  const actor: ActorRef = { id: event.actor.id, kind: event.actor.kind, name: event.actor.name };
+  const actor = actorRefOf(event.actor.kind, event.actor.id, event.actor.name);
   if (event.kind === "move") {
     if (!event.from) return null;
     return { kind: "move", at: event.at, workspaceId, from: event.from, to: event.to ?? event.path, actor };
@@ -154,11 +168,15 @@ export type HistoryEntry = {
  * (`actorLabel` in `activity.cjs`): "@seyi's Claude" for a tool, "@seyi" for a person.
  * The line names a tool only by its client, so the id is the words: two lines
  * by the same hand are the same face on the replay.
+ *
+ * A line the app's own console made names that console as its client, and it
+ * is the person's hand: "@seyi" as a face, never "@seyi's Context (this app)"
+ * as a robot.
  */
 export function historyActor(entry: Pick<HistoryEntry, "by" | "via">): ActorRef {
   const by = entry.by ?? null;
   const via = entry.via ?? null;
-  if (via !== null) {
+  if (via !== null && via !== CONSOLE_CLIENT_NAME) {
     const name = by === null ? via : `${by}'s ${via}`;
     return { id: `h:${by ?? ""}:${via}`, kind: "agent", name };
   }
