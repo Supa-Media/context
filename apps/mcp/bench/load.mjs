@@ -136,7 +136,11 @@ export function parseTest(raw) {
       cur.lines.push(line);
     }
   }
-  return { front, questions: sections.map(readQuestion) };
+  // Lines the judge grades on every answer, from the front matter's
+  // `every_answer:` map (the keys are labels; the order is the file's). They
+  // are judge lines, so they shape the voice bar and never a pass or a gate.
+  const everyAnswer = typeof front.every_answer === "object" && front.every_answer !== null ? Object.values(front.every_answer).filter(Boolean) : [];
+  return { front, everyAnswer, questions: sections.map(readQuestion) };
 }
 
 // Recursively list .md files under base, as forward-slash paths relative to base.

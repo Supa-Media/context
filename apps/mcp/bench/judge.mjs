@@ -61,12 +61,17 @@ const SYSTEM = [
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/** The checks of a question, in the order the judge must return verdicts. */
-function checksOf(question) {
+/**
+ * The checks of a question, in the order the judge must return verdicts: the
+ * question's own must, must not and judge lines, then the test's
+ * `every_answer` lines (how every text should read), as judge lines.
+ */
+function checksOf(question, every = []) {
   return [
     ...question.must.map((line) => ({ kind: "must", line })),
     ...question.mustNot.map((line) => ({ kind: "must not", line })),
     ...question.judge.map((line) => ({ kind: "judge", line })),
+    ...every.map((line) => ({ kind: "judge", line })),
   ];
 }
 
@@ -80,8 +85,8 @@ export function isUnanswered(answer) {
  * checks in the order the judge must return verdicts. The payload is the only
  * thing the judge is shown.
  */
-export function buildJudgeRequest({ model, question, answers }) {
-  const checks = checksOf(question);
+export function buildJudgeRequest({ model, question, answers, every = [] }) {
+  const checks = checksOf(question, every);
   const payload = {
     question: question.text,
     asked_by: answers[0]?.as ?? null,
@@ -202,7 +207,7 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
     if (answers.every((answer) => done.has(answer.id))) continue;
     const question = test.questions.find((q) => q.n === n);
     if (!question) throw new Error(`answers to question ${n} are in the result, but the test does not have it`);
-    const { checks, body, inputTokens, outputTokens } = buildJudgeRequest({ model: judgeModel, question, answers });
+    const { checks, body, inputTokens, outputTokens } = buildJudgeRequest({ model: judgeModel, question, answers, every: test.everyAnswer });
     requests.push({ n, answers, checks, body, inputTokens, outputTokens, gate: isGateQuestion(question) });
   }
 

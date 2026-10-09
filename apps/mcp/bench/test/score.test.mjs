@@ -203,9 +203,9 @@ test("each setup gets one row: score, gates, judge lines, price, speed, texts, g
     await scoreFile({ path, dir, date: "2026-10-10" });
     const md = await readFile(path, "utf8");
     assert.deepEqual(scoredRows(md), [
-      "| alpha | 100% | passed | 1 of 2 | $0.0015 | 2.5 s | 1.0 | yes |",
-      "| beta | 66.7% | passed | 2 of 2 | unknown | 5.5 s | 1.0 | no |",
-      "| gamma | 100% | failed (q2) | 1 of 2 | $0.0040 | 4.0 s | 1.0 | no |",
+      "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | yes |",
+      "| beta | 66.7% | passed | 2 of 2 (100%) | unknown | 5.5 s | 1.0 | no |",
+      "| gamma | 100% | failed (q2) | 1 of 2 (50%) | $0.0040 | 4.0 s | 1.0 | no |",
     ]);
   } finally {
     await cleanup();
@@ -252,6 +252,36 @@ test("the best setup is the one that passes every bar, and none when none does",
   } finally {
     await strict.cleanup();
   }
+});
+
+test("voice is the share of judge lines passed; a voice bar holds a setup to it, and no bar only reports it", async () => {
+  // Without a bar, alpha's 1 of 2 judge lines (50%) is reported, and alpha is still good enough.
+  const plain = await folder();
+  try {
+    await scoreFile({ path: plain.path, dir: plain.dir, date: "2026-10-10" });
+    const md = await readFile(plain.path, "utf8");
+    assert.equal(scoredRows(md)[0], "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | yes |");
+    assert.ok(md.includes("Bars: score 80%, price under $0.005 a question, speed under 8 s, texts 4 or fewer."));
+  } finally {
+    await plain.cleanup();
+  }
+  // With a voice bar of 80%, 50% is not good enough, and the bar is listed.
+  const barred = await folder({ test: TEST_MD.replace("  texts: 4 or fewer\n", "  texts: 4 or fewer\n  voice: 80%\n") });
+  try {
+    await scoreFile({ path: barred.path, dir: barred.dir, date: "2026-10-10" });
+    const md = await readFile(barred.path, "utf8");
+    assert.equal(scoredRows(md)[0], "| alpha | 100% | passed | 1 of 2 (50%) | $0.0015 | 2.5 s | 1.0 | no |");
+    assert.ok(md.includes("Bars: score 80%, voice 80%, price under $0.005 a question, speed under 8 s, texts 4 or fewer."));
+    assert.ok(md.includes("Best setup that passes every bar: none."));
+  } finally {
+    await barred.cleanup();
+  }
+});
+
+test("parseBars reads a voice bar as a percentage, and has no voice key when the test sets none", () => {
+  assert.deepEqual(parseBars({ score: "80%", voice: "80%" }), { score: 80, price: null, speed: null, texts: null, voice: 80 });
+  assert.deepEqual(parseBars({ voice: "most" }), { score: null, price: null, speed: null, texts: null, voice: null });
+  assert.equal("voice" in parseBars({ score: "80%" }), false);
 });
 
 test("a bar that cannot be read is not met, so the setup is not good enough", async () => {

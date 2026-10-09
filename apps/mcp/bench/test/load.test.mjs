@@ -473,3 +473,31 @@ test("every privacy question is a gate; a back-and-forth one only with a gate li
   assert.equal(isGateQuestion(gatedBack), true);
   assert.equal(isGateQuestion(lookup), false);
 });
+
+// ---- every_answer: lines the judge grades on every answer ----
+
+test("parseTest reads every_answer as a list of judge lines, in the file's order, dropping empty ones", () => {
+  const raw = [
+    "---",
+    "test: texting-assistant",
+    "every_answer:",
+    "  short: read like a text from a friend, not a report",
+    "  empty:",
+    "  next: end on one next step or one question, never both",
+    "---",
+    "",
+    "## 1. When's the dentist?",
+    "",
+    "- kind: lookup",
+    "- as: Maya",
+    "- must: say Tuesday",
+  ].join("\n");
+  const parsed = parseTest(raw);
+  assert.deepEqual(parsed.everyAnswer, ["read like a text from a friend, not a report", "end on one next step or one question, never both"]);
+  assert.equal(parsed.questions.length, 1);
+});
+
+test("parseTest gives a test with no every_answer an empty list", () => {
+  const raw = ["---", "test: texting-assistant", "---", "", "## 1. Q?", "", "- kind: lookup", "- as: Maya", "- must: answer"].join("\n");
+  assert.deepEqual(parseTest(raw).everyAnswer, []);
+});

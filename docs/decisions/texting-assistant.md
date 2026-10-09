@@ -638,3 +638,43 @@ thinking model, and the meter says so", "a low-confidence think, a word the
 router does not know, or a failed router all stay on main", "a person's own key
 is never routed", "a routed setup records the tier first on the tools line and
 reports the model that answered".
+
+## The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)
+
+**Decided by the owner (2026-10-09):** "make sure that the text bot talks,
+reacts, replies similarly to how Instinct does, very conversational and human
+like", with a real Instinct thread as the reference. What that thread does,
+distilled (the thread itself is personal and was not kept anywhere): short
+replies in several bubbles, one idea each; the answer first, then at most a
+line of context; what was done in a few words, never how or where; a caveat
+in one clause; a real opinion in one line when asked; one clarifying question
+at a time, then waiting; a draft shown before anything goes out; a reply that
+ends on one next step or one question, never both; the person's own register,
+contractions, an emoji only after theirs; a one-word reply where one word is
+enough. Two Instinct habits do not transfer: a tapback reaction instead of
+"got it" (Linq's client sends no reactions; `apps/agent/src/format.ts` has no
+such path) and an "On it" text before slow work (a turn here is synchronous
+and answers once).
+
+**How it is held:** the setup prompt carries a "How you talk" section saying
+the above (`@context-lc ai/setups/texting-assistant/guide-*`); the test file's
+front matter gains `every_answer:`, a labelled map of judge lines graded on
+every answer, and a `voice:` bar under `good_enough` (`bench/load.mjs`,
+`bench/judge.mjs`, `bench/score.mjs`). The voice lines are judge lines: they
+never pass or fail a question and never gate, so a setup cannot fail the
+facts by being chatty or pass them by being terse. The share of voice lines
+passed is the setup's voice, printed beside the judge-lines count and held to
+the bar only when the test sets one. Nine conversational questions (a
+greeting, thanks, an opinion, a clarifying question, a catch-up, an
+emoji-toned ask, a correction, "are you a bot?", a short list) were added to
+the test so the voice is measured on texts that have no fact to get right.
+
+**What a simplification would cost:** grading voice inside each question's
+must lines would make tone a pass or fail on facts, and every question would
+carry the same five lines by hand; a voice bar that gates would let a chatty
+but correct setup fail the run. Tests (`bench/test/load.test.mjs`,
+`bench/test/judge.test.mjs`, `bench/test/score.test.mjs`): "parseTest reads
+every_answer as a list of judge lines", "the test's every_answer lines reach
+the judge as trailing judge lines on every question", "voice is the share of
+judge lines passed; a voice bar holds a setup to it, and no bar only reports
+it".
