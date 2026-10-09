@@ -63,6 +63,9 @@ const PROJECTION_RESERVE_SHARE = 4;
  */
 const PROJECTION_NOTE_CAP = 100;
 
+/** Scan several D1 windows against one bucket listing, within one scheduled action. */
+const PROJECTION_WINDOWS_PER_PASS = 10;
+
 /** What one pass learned. No path, no title, no term — see `maintainSearchIndex`. */
 export interface ProjectionPass {
   projected: number;
@@ -248,43 +251,57 @@ export async function projectSearchIndex(
   // parameters read as required from TypeScript — `reportProgress` defaults to
   // `null` in the body and is deliberately not passed. The fields below are
   // checked against their own declared types; only the omission is waived.
-  const result = await projectPass(store, client, {
-    census,
-    touched: synced?.touched ?? [],
-    removed: [
-      ...(synced?.removed ?? []),
-      ...(listed ? await goneFromBucket(store, client, budget, listed) : []),
-    ],
-    visibilityOf: (path: string) =>
-      effectiveVisibility(path, state.rules, state.overrides),
-    budget,
-    noteCap: options.noteCap ?? PROJECTION_NOTE_CAP,
-    versionProbeCap: 300,
-    // A projection cannot honestly call itself complete over a census the R2
-    // index is still building — every count here is a floor when a walk was
-    // cut short, in the census's own language.
-    indexPending,
-    // The pass may spend down to nothing: this is not riding a search, and
-    // there is no caller after it owed a reserve.
-    reserve: 0,
-  } as unknown as Parameters<typeof projectPass>[2]);
+  const removed = [
+    ...(synced?.removed ?? []),
+    ...(listed ? await goneFromBucket(store, client, budget, listed) : []),
+  ];
+  let projected = 0;
+  let deleted = 0;
+  let cursorAdvanced = false;
+  let last = null as Awaited<ReturnType<typeof projectPass>> | null;
+  let counted = null as Awaited<ReturnType<typeof projectPass>> | null;
+  const noteCap = options.noteCap ?? PROJECTION_NOTE_CAP;
+  for (let window = 0; window < PROJECTION_WINDOWS_PER_PASS; window += 1) {
+    // The expensive bucket listing above is valid for every window in this
+    // action. Walk current notes here instead of listing the entire bucket
+    // again for each 300-path D1 version probe.
+    const result = await projectPass(store, client, {
+      census,
+      touched: window === 0 ? synced?.touched ?? [] : [],
+      removed: window === 0 ? removed : [],
+      visibilityOf: (path: string) =>
+        effectiveVisibility(path, state.rules, state.overrides),
+      budget,
+      noteCap: Math.max(0, noteCap - projected),
+      versionProbeCap: 300,
+      indexPending,
+      reserve: 0,
+    } as unknown as Parameters<typeof projectPass>[2]);
+    last = result;
+    projected += result.projected;
+    deleted += result.deleted;
+    cursorAdvanced ||= result.cursorAdvanced;
+    if (result.projected > 0 || result.deleted > 0 || result.sweepComplete) counted = result;
+    if (result.failure || result.sweepComplete || !result.cursorAdvanced || projected >= noteCap) break;
+  }
 
-  const progress = progressFrom(result);
+  const result = last!;
+  const progress = progressFrom(counted ?? result);
   const failure: string | null = result.failure ?? null;
   return {
-    projected: result.projected,
-    deleted: result.deleted,
+    projected,
+    deleted,
     notesIndexed: progress.notesIndexed,
     notesPending: progress.notesPending,
     ...(progress.priorities ? { priorities: progress.priorities as IndexingPriorities } : {}),
-    ready: progress.state === "ready",
+    ready: result.sweepComplete && result.failure === null && result.notesPending === 0,
     failure,
     failureDetail: result.failureDetail ?? null,
     // A window of already-current notes can still move the cursor closer to
     // missing notes. Keep the chain running through it instead of waiting for
     // the 15-minute stalled-backfill sweep after every such window.
-    moved: moved || result.projected > 0 || result.deleted > 0 || result.cursorAdvanced,
-    report: failure === null && worthReporting(result),
+    moved: moved || projected > 0 || deleted > 0 || cursorAdvanced,
+    report: failure === null && (projected > 0 || deleted > 0 || worthReporting(result)),
   };
 }
 
