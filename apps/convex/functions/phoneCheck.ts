@@ -1,14 +1,10 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import {
-  checkTwilioVerification,
-  sendTwilioVerification,
-} from "@supa-media/convex/auth";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { canTextCodes, checkCode, textCode } from "./phoneCodes";
 import {
-  contextVerifyKeys,
   hasConfirmedPhone,
   isExemptEmail,
   normalizePhone,
@@ -115,8 +111,7 @@ export const sendPhoneCode = action({
   returns: v.object({ status: sendStatus, phone: v.optional(v.string()) }),
   handler: async (ctx, args): Promise<SendResult> => {
     const userId = requireSignedIn((await getAuthUserId(ctx)) as Id<"users"> | null);
-    const keys = contextVerifyKeys();
-    if (keys === null) return { status: "failed" as const };
+    if (!canTextCodes()) return { status: "failed" as const };
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" as const };
     let reserved: "ok" | "taken" | "too_many" | "not_needed";
@@ -129,7 +124,7 @@ export const sendPhoneCode = action({
       throw error;
     }
     if (reserved !== "ok") return { status: reserved };
-    const sent = await sendTwilioVerification(keys, phone);
+    const sent = await textCode(ctx, phone);
     return sent.ok ? { status: "sent" as const, phone } : { status: sent.reason };
   },
 });
@@ -169,15 +164,14 @@ export const confirmPhoneCode = action({
   returns: v.object({ status: confirmStatus }),
   handler: async (ctx, args): Promise<ConfirmResult> => {
     const userId = requireSignedIn((await getAuthUserId(ctx)) as Id<"users"> | null);
-    const keys = contextVerifyKeys();
-    if (keys === null) return { status: "failed" as const };
+    if (!canTextCodes()) return { status: "failed" as const };
     const phone = normalizePhone(args.phone);
     const code = args.code.replace(/\s/g, "");
     if (phone === null || !/^\d{4,10}$/.test(code)) return { status: "wrong" as const };
     if (!(await ctx.runMutation(internal.functions.phoneCheck.spendCheck, { userId }))) {
       return { status: "too_many" as const };
     }
-    const checked = await checkTwilioVerification(keys, phone, code);
+    const checked = await checkCode(ctx, phone, code);
     if (checked !== "approved") return { status: checked };
     const recorded: "confirmed" | "joined" | "taken" = await ctx.runMutation(internal.functions.phoneCheck.recordConfirmedPhone, { userId, phone });
     return { status: recorded };

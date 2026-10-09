@@ -8,6 +8,7 @@ import type { Id } from "./_generated/dataModel";
 import { scheduleSignupAlert } from "./functions/signupAlerts";
 import { scheduleXConversion } from "./functions/xConversions";
 import { scheduleMetaConversion } from "./functions/metaConversions";
+import { checkCode } from "./functions/phoneCodes";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -49,13 +50,15 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     await scheduleMetaConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
   },
   // Signing in with a phone (Dev2, 2026-10-09). The app texts the code
-  // (`functions/phoneSignIn.ts`), Twilio checks it, and `signInUser` names the
+  // (`functions/phoneSignIn.ts`), `checkCode` checks it, and `signInUser` names the
   // account: the one holding the phone, or a new one for a phone staff let in
   // from the waitlist. Any other phone is refused. `spendCheck` is the guess
   // limit, since `@convex-dev/auth` does not rate-limit a credentials provider.
   phoneVerify: {
     findUserByPhone: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.signInUser, { phone }) as never,
     mayCheck: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.spendCheck, { phone }),
+    // Context texts its own codes (`functions/phoneCodes.ts`), so it checks them too.
+    check: (phone, code, ctx) => checkCode(ctx as never, phone, code),
   },
   resend: {
     fromAddress: process.env.AUTH_EMAIL_FROM ?? "auth@context.com",

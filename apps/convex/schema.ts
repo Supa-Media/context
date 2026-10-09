@@ -11,6 +11,7 @@ import { provisioningTables } from "./functions/lib/schema/provisioning";
 import { ingestionTables } from "./functions/lib/schema/ingestion";
 import { jobTables } from "./functions/lib/schema/jobs";
 import { rateLimitTables } from "./functions/lib/schema/rateLimits";
+import { phoneCodeTables } from "./functions/lib/schema/phoneCodes";
 import { oauthTables } from "./functions/lib/schema/oauth";
 import { platformTables } from "./functions/lib/schema/platform";
 import { billingTables } from "./functions/lib/schema/billing";
@@ -76,6 +77,7 @@ const schema = defineSchema({
   ...ingestionTables,
   ...jobTables,
   ...rateLimitTables,
+  ...phoneCodeTables,
   ...oauthTables,
   ...platformTables,
   ...billingTables,
