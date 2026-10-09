@@ -200,6 +200,21 @@ test("a persistent input refusal probes with fixed text without returning provid
   assert.equal(JSON.parse(fetch.requests.at(-1).init.body).text[0], "A short document");
 });
 
+test("a refused opening can embed another section of the same passage", async () => {
+  const passage = `BAD ${"good content ".repeat(130)}`;
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text[0].includes("BAD")) return { status: 400, body: { success: false, errors: [{ code: 3030 }] } };
+    return { success: true, result: { data: [vector()] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  assert.equal((await embed([passage])).length, 1);
+  assert.equal(fetch.requests.length, 4);
+  const selected = JSON.parse(fetch.requests.at(-1).init.body).text[0];
+  assert.ok(selected.includes("good content"));
+  assert.equal(selected.includes("BAD"), false);
+});
+
 test("a refused Vectorize write reports only its operation and numeric provider code", async () => {
   const fetch = fakeFetch(() => ({
     status: 400,
