@@ -4,6 +4,7 @@ import { MembersSection } from "../../members/MembersSection";
 import { shareBackSuggestions } from "../../members/members";
 import { selectedContext, type ConsoleData } from "../../types";
 import { GroupsPanel } from "./GroupsPanel";
+import { OrganizationCard } from "./OrganizationCard";
 import { PanelHead } from "./PanelHead";
 import { PrivacyPanel } from "./PrivacyPanel";
 import { SharedLinksPanel } from "./SharedLinksPanel";
@@ -49,6 +50,12 @@ export function SharingSection({ data, sectioned }: { data: ConsoleData; section
             : []
         }
       />
+
+      {current !== null && current.kind === "shared" && current.role === "owner" && !data.demo ? (
+        <View style={styles.block}>
+          <OrganizationCard workspaceId={current.id} />
+        </View>
+      ) : null}
 
       <View style={styles.block}>
         <GroupsPanel

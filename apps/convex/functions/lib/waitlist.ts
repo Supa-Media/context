@@ -35,6 +35,7 @@
  * row reads exactly like a waiting one.
  */
 
+import { domainOf, isPersonalMailDomain } from "./emailDomains";
 import { normalizeEmail } from "@context/shared";
 import type { GenericDatabaseReader } from "convex/server";
 import type { DataModel } from "../../_generated/dataModel";
@@ -106,6 +107,18 @@ export async function isAdmittedWithoutReferral(
     .withIndex("by_email", (q) => q.eq("email", email))
     .first();
   if (attached !== null) return true;
+
+  // An address at a domain a shared workspace is open to: its owner let
+  // everyone there in (`functions/workspaceDomains.ts`). Says only that some
+  // workspace is open to the domain, never which.
+  const domain = domainOf(email);
+  if (domain !== null && !isPersonalMailDomain(domain)) {
+    const open = await db
+      .query("workspaceDomains")
+      .withIndex("by_domain", (q) => q.eq("domain", domain))
+      .take(20);
+    if (open.some((row) => row.enabled)) return true;
+  }
 
   const row = await db
     .query("waitlist")

@@ -95,6 +95,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A workspace's name can be given back, and only its owner can give it
 - The covered-context set is a reach, not an identity
 - One person, several sign-in emails, and accounts are never joined
+- A shared workspace opened to an email domain
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
 

@@ -7,6 +7,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { foldIn, ownsAnything } from "./lib/account/foldIn";
+import { leaveDroppedDomains } from "./lib/domainMembership";
 import { parseInvitee } from "./lib/invitees";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./lib/signInEmails";
@@ -302,6 +303,8 @@ export const removeEmail = mutation({
     }
     await ctx.db.delete(row._id);
     await dropSignInsThrough(ctx, userId, email);
+    // Somebody in a workspace through this address's domain leaves it.
+    await leaveDroppedDomains(ctx, userId);
     return null;
   },
 });

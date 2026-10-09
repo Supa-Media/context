@@ -112,6 +112,7 @@ import type * as functions_places from "../functions/places.js";
 import type * as functions_phoneCheck from "../functions/phoneCheck.js";
 import type * as functions_signInEmails from "../functions/signInEmails.js";
 import type * as functions_otherEmail from "../functions/otherEmail.js";
+import type * as functions_workspaceDomains from "../functions/workspaceDomains.js";
 import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_routines from "../functions/routines.js";
@@ -245,6 +246,7 @@ declare const fullApi: ApiFromModules<{
   "functions/phoneCheck": typeof functions_phoneCheck;
   "functions/signInEmails": typeof functions_signInEmails;
   "functions/otherEmail": typeof functions_otherEmail;
+  "functions/workspaceDomains": typeof functions_workspaceDomains;
   "functions/telemetry": typeof functions_telemetry;
   "functions/textLinks": typeof functions_textLinks;
   "functions/routines": typeof functions_routines;
