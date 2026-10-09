@@ -155,7 +155,7 @@ export async function meaningPass(
 ) {
   const notes = await readMeaningState(store, generation);
   const { changed, removed } = meaningDiff(census, notes, regionComplete);
-  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null, failureOperation: null, providerCodes: [] };
+  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null, failureOperation: null, providerCodes: [], probeStatus: null, inputChars: null };
   let dirty = false;
 
   const finish = async () => {
@@ -194,6 +194,8 @@ export async function meaningPass(
       failureCause: result.failureCause,
       failureOperation: result.failureOperation,
       providerCodes: result.providerCodes,
+      probeStatus: result.probeStatus,
+      inputChars: result.inputChars,
     };
   };
 
@@ -269,6 +271,8 @@ export async function meaningPass(
     result.failureCause = error instanceof MeaningError ? (error.failureCause ?? null) : "internal";
     result.failureOperation = error instanceof MeaningError ? (error.operation ?? null) : null;
     result.providerCodes = error instanceof MeaningError ? error.providerCodes : [];
+    result.probeStatus = error instanceof MeaningError ? (error.probeStatus ?? null) : null;
+    result.inputChars = error instanceof MeaningError ? (error.inputChars ?? null) : null;
   }
   return await finish();
 }
