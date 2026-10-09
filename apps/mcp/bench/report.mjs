@@ -59,6 +59,9 @@ const PRICES = {
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   "anthropic/claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  // The thinking tier a router may send a text to (`src/agent/router.js`).
+  "anthropic/claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
   // The judge the first judging used, priced so an estimate can refuse it.
   "anthropic/claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
   "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
@@ -134,6 +137,22 @@ function summaryRow(setup, runs) {
   ];
 }
 
+// For each setup with a router (`src/agent/router.js`): how many answers it sent
+// to the thinking model, and what those cost, so the average price above can
+// be read as "cheap most of the time, expensive one time in ten".
+function routedLines(setups, runs) {
+  const lines = [];
+  for (const setup of setups) {
+    if (!setup.router) continue;
+    const mine = runs.filter((r) => r.setup === setup.name && !r.error);
+    const thought = mine.filter((r) => (r.tools ?? []).some((call) => typeof call !== "string" && call.tool === "router: think"));
+    const prices = thought.map((r) => runPrice(r, setup)).filter((p) => p !== null);
+    const price = prices.length ? fmtUsd(mean(prices)) : "n/a";
+    lines.push(`Routed: ${setup.name} sent ${thought.length} of ${mine.length} answers to ${setup.router.think} (${price} each); the rest ran on ${setup.model}.`, "");
+  }
+  return lines;
+}
+
 function runBlock(run, setup) {
   const lines = [`#### ${run.id}`, ""];
   for (const m of run.conversation ?? []) {
@@ -206,6 +225,7 @@ export function resultMarkdown(result) {
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...setups.map((s) => `| ${summaryRow(s, runs).join(" | ")} |`),
     "",
+    ...routedLines(setups, runs),
     "## Answers",
     "",
   ];

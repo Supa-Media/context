@@ -69,7 +69,7 @@ async function readSetups(dir, job, only) {
     const parsed = await parseSetup(raw);
     // The product would refuse it and fall back, so a run of it measures nothing.
     if (!parsed) throw new Error(`setups/${job}/${name}.md is not a valid setup file`);
-    setups.push({ name, raw, version: parsed.version, model: parsed.model });
+    setups.push({ name, raw, version: parsed.version, model: parsed.model, router: parsed.router });
   }
   return setups;
 }
@@ -171,7 +171,7 @@ async function run(options) {
     world: prepared ? "warm" : "cold",
     commit: commit(),
     playedBy: options.fake ? null : test.front.played_by ?? null,
-    setups: setups.map(({ name, version: v, model }) => ({ name, version: v, model })),
+    setups: setups.map(({ name, version: v, model, router }) => ({ name, version: v, model, ...(router ? { router } : {}) })),
     runs: records,
     resultFile: basename(out),
     keyFile: basename(keyOut),

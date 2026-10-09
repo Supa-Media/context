@@ -606,3 +606,35 @@ write tool and field is offered to a text or withheld by name", "a text is
 offered the MCP's own write tools, cross-workspace moves included", "a text
 never exports keys, touches plumbing or writes a malformed routine, whatever
 the model named", "a routine's own run is never offered a write".
+
+## A setup may route each text to a cheap or a smart model (2026-10-09)
+
+**Decided by the owner (2026-10-09):** the next benchmark run compares a cheap
+model on its own against the same cheap model with a "really smart" one
+(Claude Opus 5.5) behind it for the texts that need real reasoning. A setup
+therefore keeps `models.main` and may add `models.router` and `models.think`
+(`src/agent/router.js`, `production.js`). Before the first round, the router
+(Clef, the decision model `decide.js` already runs for the agent's computer)
+reads the person's text and picks lookup, change or think; `think` runs the
+whole turn on the thinking model, anything else on `main`. The pick, the
+router's word and what it read are recorded in the turn's trace, the meter is
+told the model that answered, and the benchmark's result note shows the pick
+first on each answer's tools line and, under the summary, how many answers
+each routed setup sent to its thinking model and at what price.
+
+**Why Clef and not the cheap model, or a gateway route:** a model asked "do you
+need help?" almost never says yes and the asking costs a whole round; a
+gateway dynamic route (`dynamic/<name>`) never sees the text, so it can split
+traffic and cap spend but cannot tell a lookup from a hard question. Clef
+answers in tens of milliseconds for a fraction of a cent, stores nothing, and
+its pick is a plain word that can be checked by hand.
+
+**What a simplification would cost:** routing inside the prompt ("escalate when
+unsure") is unmeasurable, since the result note cannot say which model
+answered; pricing a routed run by the setup's main model would hide the whole
+point. Tests (`apps/mcp/test/agentProduction.test.mjs`, `bench/test/world.test.mjs`,
+`bench/test/report.test.mjs`): "a text the router calls think runs on the
+thinking model, and the meter says so", "a low-confidence think, a word the
+router does not know, or a failed router all stay on main", "a person's own key
+is never routed", "a routed setup records the tier first on the tools line and
+reports the model that answered".

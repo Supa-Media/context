@@ -379,3 +379,87 @@ test("max_steps caps the rounds a built-in turn may take", async () => {
   assert.equal(response.body?.exhausted, true, "the turn ends after one round");
   assert.equal(ai.calls.length, 1);
 });
+
+/* ---------------- the router: which model a text runs on (`router.js`) ---------------- */
+
+const ROUTED_FRONT =
+  "models:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\"\n  think: anthropic/claude-opus-5-5";
+
+test("parseSetup reads a router and its thinking model", async () => {
+  const setup = await parseSetup(file(ROUTED_FRONT));
+  assert.ok(setup);
+  assert.equal(setup.model, "anthropic/claude-haiku-5-5");
+  assert.deepEqual(setup.router, { model: "@cf/cloudflare/clef", think: "anthropic/claude-opus-5-5" });
+});
+
+test("parseSetup reads no router when the file names none", async () => {
+  assert.equal((await parseSetup(file(OK_FRONT))).router, null);
+});
+
+for (const [name, front] of [
+  ["a router with no thinking model", "models:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\""],
+  ["a thinking model with no router", "models:\n  main: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
+  ["a router that is not Clef", "models:\n  main: anthropic/claude-haiku-5-5\n  router: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
+  ["a thinking model outside the accepted shapes", "models:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\"\n  think: evil/model-x"],
+]) {
+  test(`parseSetup refuses ${name}`, async () => {
+    assert.equal(await parseSetup(file(front)), null);
+  });
+}
+
+/** Clef's answer to the router's pick-one question. */
+const clefSays = (choice, confidence = 0.9) => ({ answers: { tier: { choice, confidence } } });
+
+test("a text the router calls think runs on the thinking model, and the meter says so", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r1" });
+  const ai = fakeAi([clefSays("think")]);
+  const response = await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
+  assert.equal(response.status, 200);
+  assert.equal(ai.calls[0]?.model, "@cf/cloudflare/clef", "the router is asked first");
+  assert.ok(String(ai.calls[0]?.input?.state ?? "").includes("What are you?"), "it reads the person's text");
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-opus-5-5", "the thinking model answers");
+  const report = controlPlane.builtinReports.at(-1);
+  assert.equal(report?.model, "anthropic/claude-opus-5-5", "the meter reports the model that answered");
+  assert.ok((report?.decision ?? report?.decisionTokens ?? 0) > 0, "what the router read is metered");
+  const trace = controlPlane.turnReports.at(-1)?.trace ?? [];
+  assert.deepEqual(trace[0] && { kind: trace[0].kind, tier: trace[0].tier, model: trace[0].model }, { kind: "router", tier: "think", model: "anthropic/claude-opus-5-5" });
+});
+
+test("a text the router calls lookup stays on the main model", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r2" });
+  const ai = fakeAi([clefSays("lookup")]);
+  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5");
+  assert.equal(controlPlane.builtinReports.at(-1)?.model, "anthropic/claude-haiku-5-5");
+});
+
+test("a low-confidence think, a word the router does not know, or a failed router all stay on main", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r3" });
+  for (const reply of [clefSays("think", 0.2), clefSays("genius"), { nonsense: true }]) {
+    const ai = fakeAi([reply]);
+    await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
+    assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5", JSON.stringify(reply));
+  }
+  const throwing = { calls: [], async run() { throw new Error("clef is down"); } };
+  const response = await ask({ ...base, ...gatewayVars, AI: throwing }, TOKEN_FREE);
+  assert.equal(response.status, 200, "a router that throws costs nobody their answer");
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5");
+});
+
+test("a thinking model this deployment cannot call means no routing at all", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, {
+    body: file("models:\n  main: @cf/acme/texting-model\n  router: \"@cf/cloudflare/clef\"\n  think: anthropic/claude-opus-5-5"),
+    etag: "r4",
+  });
+  const ai = fakeAi([clefSays("think")]);
+  await ask({ ...base, AI: ai }, TOKEN_FREE);
+  assert.equal(ai.calls[0]?.model, "@cf/acme/texting-model", "Clef is never asked; the main model answers");
+});
+
+test("a person's own key is never routed", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r5" });
+  const ai = fakeAi([clefSays("think")]);
+  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_TEXTS);
+  assert.equal(ai.calls.length, 0);
+  assert.equal(anthropicCalls.at(-1)?.body?.model, "claude-sonnet-5");
+});
