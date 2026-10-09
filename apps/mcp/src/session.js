@@ -267,6 +267,11 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // Which notes agents touched recently, for the console's file tree. Also in
   // the control plane's RESERVED_NAMES, for the reason `presence` is.
   "agent-activity",
+  // What the egress gate is holding for a person, and their answer, at
+  // `/approvals` (`http/approvals.js`). Reserved on the same terms, and caught
+  // the same way as `agent`: a route that answered 404 while its suite was
+  // green, because the path read as a workspace called `approvals`.
+  "approvals",
 ]);
 
 /* --------------------------- session resolution --------------------------- */

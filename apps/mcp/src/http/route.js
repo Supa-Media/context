@@ -38,6 +38,7 @@ import { createControlPlane } from "../controlPlane.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { handleApprovals } from "./approvals.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleGranolaWebhook } from "../ingestion/granolaWebhook.js";
@@ -183,15 +184,20 @@ export async function route(request, env, ctx) {
     // with a meeting error naming the route.
     const meetingRoute = matchMeetingRoute(path);
     const summaryRoute = path === MEETING_SUMMARY_PATH;
+    // What the egress gate is holding for this person, and their answer: the
+    // app reads it over GET and answers over POST, so the POST-only gate below
+    // is not asked of it either.
+    const approvalsRoute = path === "/approvals";
     if (
       summaryRoute ||
       path === "/mcp" ||
       path === "/inbox" ||
       path === "/agent" ||
       path === "/collaboration" ||
+      approvalsRoute ||
       meetingRoute
     ) {
-      if (!meetingRoute && request.method !== "POST") return new Response(null, { status: 405 });
+      if (!meetingRoute && !approvalsRoute && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
       try {
@@ -220,7 +226,9 @@ export async function route(request, env, ctx) {
       // answer and cannot suggest, which is the honest shape of a read-only
       // grant rather than a special case.
       // A summary is written into the note, so it needs write like any edit.
-      const needed = summaryRoute
+      // Answering an approval releases a write, so it needs write; a client
+      // that cannot write could never have been held at the gate either.
+      const needed = summaryRoute || approvalsRoute
         ? SCOPE_WRITE
         : meetingRoute
         ? scopeForMeetingRequest(request.method)
@@ -528,6 +536,7 @@ export async function route(request, env, ctx) {
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
       if (path === "/agent") return await handleAgent(request, env, store, session, controlPlane);
+      if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
     }

@@ -29,6 +29,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 
 const S3_ENDPOINT = "https://s3.example-remember.test";
 const OWNER = `cat_remember_owner_${"0".repeat(21)}`;
@@ -68,8 +69,16 @@ async function rpc(token, method, params, path = "/mcp") {
   return body?.result;
 }
 
+/** The person's own app on each workspace a tool grant connects to (`egressApproval.mjs`). */
+const CONSOLE_ME = `cat_remember_console_me_${"0".repeat(16)}`;
+const CONSOLE_RAW = `cat_remember_console_raw_${"0".repeat(15)}`;
+const consoleFor = (token) => (token === OWNER ? CONSOLE_ME : token === RAW ? CONSOLE_RAW : null);
+
 async function call(token, name, args) {
-  const result = await rpc(token, "tools/call", { name, arguments: args });
+  const result = await approving(() => rpc(token, "tools/call", { name, arguments: args }), {
+    env,
+    consoleToken: consoleFor(token),
+  });
   return { text: result?.content?.[0]?.text || "", isError: result?.isError === true };
 }
 
@@ -113,6 +122,24 @@ before(async () => {
       { workspaceId: "ws_team", role: "owner" },
       { workspaceId: "ws_edit", role: "editor" },
     ],
+  });
+  await controlPlane.addGrant({
+    workspaceId: "ws_me",
+    userId: "user_me",
+    accessToken: CONSOLE_ME,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    alsoMemberOf: [
+      { workspaceId: "ws_team", role: "owner" },
+      { workspaceId: "ws_edit", role: "editor" },
+    ],
+  });
+  await controlPlane.addGrant({
+    workspaceId: "ws_raw",
+    userId: "user_me",
+    accessToken: CONSOLE_RAW,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
   });
   await controlPlane.addGrant({
     workspaceId: "ws_me",

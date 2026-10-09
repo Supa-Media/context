@@ -105,7 +105,13 @@ breaking one, stop and say so rather than working around it.
    locator, and every page, referenced notes included, resolves the same way,
    so frontmatter can narrow a page but never publish one `privacy.md` holds
    back, and no page may name the whole context
-   ([websites](./docs/decisions/websites.md)).
+   ([websites](./docs/decisions/websites.md)). **And no AI client widens any
+   of this on its own**: a tool call that would let more people see something
+   — a link, a publish, a visibility change, a move into a wider folder or
+   another workspace, an image fetched from an address the model chose — waits
+   for the person's yes, checked by the gateway and never by the model
+   (decided by the owner, 2026-10-09;
+   [agent-egress](./docs/decisions/privacy-and-sharing/agent-egress.md)).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture
 address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).

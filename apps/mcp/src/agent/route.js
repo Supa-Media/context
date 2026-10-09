@@ -36,6 +36,8 @@ import {
   stopRoutine,
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { markUntrusted, newLedger } from "../privacy/egress.js";
+import { listPending, replayAsAsked, settlePending } from "../tools/approvals.js";
 
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
@@ -139,6 +141,25 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     );
   }
 
+  /*
+    A TEXTED YES OR NO SETTLES A PENDING APPROVAL BEFORE ANY MODEL RUNS.
+
+    The egress gate (`privacy/egress.js`) held a widening call until the
+    person says so, and the person says so here: a text that is nothing but
+    yes or no, from the linked phone, is matched by this code and never shown
+    to a model. The call then runs through the same dispatcher under this
+    session, marked approved, and the result is the reply. Only the texting
+    client: a routine's run has no person on the line, and the app approves
+    through `/approvals`.
+  */
+  if (session.actorClientId === TEXTS_CLIENT_ID) {
+    const verdict = approvalVerdict(question);
+    if (verdict !== null) {
+      const settled = await settleByText(store, session, verdict);
+      if (settled !== null) return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
+    }
+  }
+
   let credential;
   try {
     credential = await openProvider(controlPlane, session, body.provider, env);
@@ -167,6 +188,16 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   }
 
   const offered = await toolsForSession(session, store);
+
+  /*
+    THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
+    question is the person's own words and every tool call passes through
+    this gateway — so the gate can ask only when the turn read something the
+    new audience could not see (`privacy/egress.js`). An MCP client gets no
+    ledger and is always asked.
+  */
+  const ledger = newLedger();
+  session.egress = { complete: true, ledger, texting: session.actorClientId === TEXTS_CLIENT_ID };
 
   /*
     A named conversation carries its recent turns into this one. Only a name
@@ -213,7 +244,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     the body either, which keeps `watch.md` from reading as a hostname.
   */
   const vouched = runner ? routine?.body ?? "" : question;
-  const web =
+  const opened =
     computer === null && search === null
       ? null
       : webSession(computer, question, {
@@ -221,6 +252,19 @@ export async function handleAgent(request, env, store, session, controlPlane) {
           search,
           addresses: vouched,
         });
+  // A page or a search result is text from outside the workspace: once one
+  // is read, every widening in this turn asks (`privacy/egress.js`).
+  const web =
+    opened === null
+      ? null
+      : {
+          tools: opened.tools,
+          usage: opened.usage,
+          call: (name, args) => {
+            markUntrusted(ledger);
+            return opened.call(name, args);
+          },
+        };
 
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
@@ -386,9 +430,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       });
     }
 
+    // The ask goes out in the gateway's own words, after whatever the model
+    // said: a person can allow only what they were told about, and the model
+    // relaying it is a courtesy rather than the mechanism.
+    const answer = ledger.asked.length === 0 ? turn.answer : `${turn.answer}\n\n${askLine(ledger.asked)}`;
+
     if (conversation !== null && !turn.exhausted) {
       try {
-        await appendConversation(store, conversation, history, question, turn.answer);
+        await appendConversation(store, conversation, history, question, answer);
       } catch {
         // The answer is still owed. A history that failed to save costs the
         // next turn some context, not this one its reply.
@@ -396,7 +445,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     }
 
     return json({
-      answer: turn.answer,
+      answer,
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
@@ -437,4 +486,50 @@ async function keepRun(store, routine, runs, outcome, text) {
   } catch {
     // See above.
   }
+}
+
+/** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
+const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
+const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
+
+export function approvalVerdict(text) {
+  if (typeof text !== "string") return null;
+  if (YES.test(text)) return "approve";
+  if (NO.test(text)) return "deny";
+  return null;
+}
+
+/** The line a texted answer ends with when the turn held something for the person. */
+export function askLine(asked) {
+  const what = asked.map((record) => record.summary).join("; ");
+  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Reply YES to go ahead, or NO to drop it.`;
+}
+
+/**
+ * Settle the newest approval this thread asked for, as the person's text
+ * said. Returns the reply, or null when nothing was waiting — in which case
+ * the text is an ordinary one and the model answers it.
+ */
+async function settleByText(store, session, verdict) {
+  // Only what this thread asked about, and asked recently: a yes here never
+  // releases a call some other client raised that the person was not told of.
+  const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
+  if (waiting.length === 0) return null;
+  const { record } = waiting[0];
+  const settled = await settlePending(store, record.id, {
+    userId: session.actorUserId,
+    action: verdict,
+    actorScope: session.scope,
+    run: (held) =>
+      replayAsAsked(store, session, held, (approver) =>
+        callToolForSession({ name: held.tool, arguments: held.args }, store, approver),
+      ),
+  });
+  if (settled.status === "denied") return `OK, dropped: ${record.summary}.`;
+  if (settled.status !== "approved") return null;
+  const text = settled.result?.content?.[0]?.text;
+  const said = typeof text === "string" && text.trim() ? text.trim() : "done.";
+  return settled.result?.isError === true
+    ? `I tried to ${record.summary}, but: ${said}`
+    : `Done: ${record.summary}. ${said}`;
 }

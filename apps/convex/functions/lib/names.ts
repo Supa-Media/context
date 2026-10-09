@@ -294,6 +294,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // What agents are reading and writing in a workspace, for the console's file
   // tree, at `/agent-activity`. Reserved on the same terms as `presence`.
   "agent-activity",
+  // What the egress gate is holding for a person, at `/approvals` on the
+  // gateway. Reserved on the same terms as `presence`.
+  "approvals",
   "oauth",
   "static",
   "status",
