@@ -15,6 +15,7 @@ import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
 import { MachinesCard } from "./panels/MachinesCard";
+import { SignInEmailsCard } from "./panels/SignInEmailsCard";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
 
 /**
@@ -185,6 +186,10 @@ export function AccountSection({
           laptop is gone has to be able to cut it off from the phone in their
           hand, and this is the account-scoped screen they are already on.
         */}
+        {/* Every email this person signs in with (Dev2, 2026-10-09). */}
+        <View style={styles.spaced}>
+          <SignInEmailsCard />
+        </View>
         <View style={styles.spaced}>
           <MachinesCard />
         </View>

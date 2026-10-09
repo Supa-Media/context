@@ -113,3 +113,13 @@ revoke an unused invite, or pause new ones for everyone.
 
 Simplifying any of this away costs the waitlist its meaning. Tests:
 `apps/convex/__tests__/referrals.test.ts`.
+
+## One person, several sign-in emails, and accounts are never joined
+
+Decided by the owner, 2026-10-09. An account belongs to a person, and that person may sign in with several emails: a work one, a home one. Each extra address is a `signInEmails` row, confirmed by a code mailed to it, and every "who is this address?" question goes through `lib/signInEmails.ts`. That covers sign-in (`findUserByEmail` in `auth.ts`), shares and invitations (`lib/identities.ts`), the invite-only gate, and invitation mail. `users.email` stays the one address mail goes to; a returning sign-in never replaces it (`@supa-media/convex` 1.8.0).
+
+An address already on another account is never "joined", because two accounts each own a personal workspace and one person must not have two. When that other account owns **no** workspace (someone who only ever joined other people's), confirming the code moves its memberships over and closes it. If it owns anything, the address is refused before a code is sent, and again when the code is confirmed. The code is the consent, since only the mailbox's holder can read it.
+
+Simplifying this to "match people by `users.email`" would turn every added address into a second account the first time it signs in. `__tests__/signInEmailsSignIn.test.ts` runs the real sign-in and fails if that happens. Letting an add take an address from an account that owns a workspace would delete somebody's notes on the strength of one mailed code; `__tests__/signInEmails.test.ts` refuses it.
+
+Every account also confirms a phone once (`functions/phoneCheck.ts`, behind `PHONE_CHECK`). One phone number belongs to one account, so the phone can later tie a new email to the person who already has one.
