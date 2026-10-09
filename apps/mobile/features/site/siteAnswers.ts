@@ -12,8 +12,10 @@
  * - an answer, once fetched, is kept and drawn straight away when its address
  *   is opened again, and asked for again behind it once it is older than
  *   `FRESH_MS`;
- * - the pages the site's menu names are fetched as soon as a page lands, so
- *   the first click on them is already answered;
+ * - every page the open page links to, its menu and the links in its words,
+ *   is fetched as soon as it lands, so even the first click on one is
+ *   already answered (a designed site's own links are fetched where they
+ *   are drawn, `DesignedSite.web.tsx`);
  * - a page not fetched yet keeps the last page of the same site on screen
  *   until its answer lands, as a browser does, rather than a blank.
  *
@@ -22,7 +24,8 @@
  * revision (a Publish or a restriction) drops every answer kept for it.
  */
 
-import type { ResolvedWebsiteAddress } from "@context/shared";
+import { SHARE_ROUTE, type ResolvedWebsiteAddress } from "@context/shared";
+import { parseNote } from "../share/markdown";
 
 export interface SiteAsk {
   handle: string;
@@ -34,8 +37,12 @@ export type AskAddress = (ask: SiteAsk) => Promise<ResolvedWebsiteAddress>;
 
 /** Past this, a kept answer is still drawn, and asked for again behind it. */
 export const FRESH_MS = 30_000;
-/** How many of a menu's pages one landing fetches ahead. */
-export const PREFETCH_LIMIT = 8;
+/**
+ * How many linked pages one landing fetches ahead. Only pages the open page
+ * names: a visitor can already see those, so nothing is enumerated that the
+ * site did not show them.
+ */
+export const PREFETCH_LIMIT = 24;
 const MAX_ENTRIES = 200;
 
 interface Entry {
@@ -136,10 +143,42 @@ export function loadAnswer(
 }
 
 /**
- * The menu pages a landed answer names, fetched ahead unless already kept. `askFor` builds each one's ask exactly as a click on it would, so the
+ * The site pages a page's words link to, as a click on each would ask for
+ * them: rooted links only (the rest leave the site), without their `#part`,
+ * and never an unlisted share (`/s/…`), which is a different app.
+ */
+export function bodyLinks(markdown: string): string[] {
+  const found: string[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    const node = value as Record<string, unknown>;
+    if ((node.kind === "link" || node.kind === "button") && typeof node.href === "string") {
+      const path = node.href.split("#")[0]!;
+      if (path.startsWith("/") && !path.startsWith("//") && path !== SHARE_ROUTE && !path.startsWith(`${SHARE_ROUTE}/`)) {
+        try {
+          found.push(decodeURIComponent(path));
+        } catch {
+          // A malformed escape names no page.
+        }
+      }
+      return;
+    }
+    for (const child of Object.values(node)) visit(child);
+  };
+  visit(parseNote(markdown).blocks);
+  return found;
+}
+
+/**
+ * The pages a landed answer links to, its menu first and then its words,
+ * fetched ahead unless already kept. `askFor` builds each one's ask exactly as a click on it would, so the
  * answer is kept under the key the click looks for.
  */
-export function prefetchMenu(
+export function prefetchLinked(
   from: SiteAsk,
   view: ResolvedWebsiteAddress,
   askFor: (routePath: string) => SiteAsk,
@@ -148,8 +187,10 @@ export function prefetchMenu(
   now: () => number = Date.now,
 ): void {
   if (view.kind === "legacy_short_link") return;
-  const paths = view.navigation
-    .map((item) => item.routePath)
+  const paths = [
+    ...view.navigation.map((item) => item.routePath),
+    ...(view.kind === "page" ? bodyLinks(view.markdown) : []),
+  ]
     .filter((path, index, all) => path !== from.routePath && all.indexOf(path) === index)
     .slice(0, PREFETCH_LIMIT);
   for (const routePath of paths) prefetchPage(askFor(routePath), signedIn, askAddress, now);
