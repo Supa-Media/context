@@ -613,5 +613,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`
-- Setups are benchmarked in a throwaway world, on invented workspaces
+- [Setups are benchmarked in a throwaway world, on invented workspaces](./texting-assistant/benchmarks.md)
 - A text has every MCP tool
+- [A setup may route each text to a cheap or a smart model (2026-10-09)](./texting-assistant/benchmarks.md)
+- [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
+- [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)

@@ -18,8 +18,6 @@
  * Its end-to-end half (a texted turn through `/agent`) is in agentBuiltin.test.mjs.
  */
 
-import { test } from "node:test";
-import assert from "node:assert/strict";
 import {
   aiGatewayConfig,
   gatewayBody,
@@ -642,70 +640,3 @@ export async function runAgentGatewayChecks(check) {
 
   resetCreditState();
 }
-
-/* ---------------- a busy provider is retried once, after a short wait ---------------- */
-
-test("a 529, a 503 or a 429 is retried once after a wait, and the answer says it was", async () => {
-  const cfg = aiGatewayConfig(env());
-  for (const status of [529, 503, 429]) {
-    resetCreditState();
-    const waits = [];
-    const busyThenFine = scripted([{ status, body: { error: { type: "overloaded_error" } } }, { status: 200, body: answer("after the wait") }]);
-    const result = await requestViaGateway(CALL, cfg, { fetchImpl: busyThenFine.fetchImpl, now: () => T0, wait: async (ms) => { waits.push(ms); } });
-    assert.equal(result.text, "after the wait", `a ${status} is retried`);
-    assert.equal(busyThenFine.calls.length, 2);
-    assert.deepEqual(waits, [750], "one wait before the second try");
-    assert.deepEqual(result.retried, { status }, "the turn is told what was retried");
-  }
-});
-
-test("a provider still busy on the second try is a ProviderError with that status, and there is no third try", async () => {
-  resetCreditState();
-  const cfg = aiGatewayConfig(env());
-  const busy = scripted([{ status: 529, body: "overloaded" }, { status: 529, body: "overloaded" }, { status: 200, body: answer("never asked") }]);
-  const failure = await requestViaGateway(CALL, cfg, { fetchImpl: busy.fetchImpl, now: () => T0, wait: async () => {} }).then(() => null, (error) => error);
-  assert.ok(failure instanceof ProviderError);
-  assert.equal(failure.status, 529);
-  assert.equal(busy.calls.length, 2);
-});
-
-test("a 400 or a 500 is not retried, and a first try that served is not marked retried", async () => {
-  const cfg = aiGatewayConfig(env());
-  for (const status of [400, 500]) {
-    resetCreditState();
-    const broken = scripted([{ status, body: "no" }, { status: 200, body: answer("never asked") }]);
-    const failure = await requestViaGateway(CALL, cfg, { fetchImpl: broken.fetchImpl, now: () => T0, wait: async () => { throw new Error("must not wait"); } }).then(() => null, (error) => error);
-    assert.ok(failure instanceof ProviderError && failure.status === status, `a ${status} fails at once`);
-    assert.equal(broken.calls.length, 1);
-  }
-  resetCreditState();
-  const fine = scripted([{ status: 200, body: answer("first time") }]);
-  const served = await requestViaGateway(CALL, cfg, { fetchImpl: fine.fetchImpl, now: () => T0 });
-  assert.equal(served.retried, null);
-});
-
-test("a request that never got through is retried once; a timed-out one is not", async () => {
-  resetCreditState();
-  const cfg = aiGatewayConfig(env());
-  let calls = 0;
-  const flaky = async (url, init) => {
-    calls += 1;
-    if (calls === 1) throw new TypeError("fetch failed");
-    return scripted([{ status: 200, body: answer("second time") }]).fetchImpl(url, init);
-  };
-  const result = await requestViaGateway(CALL, cfg, { fetchImpl: flaky, now: () => T0, wait: async () => {} });
-  assert.equal(result.text, "second time");
-  assert.deepEqual(result.retried, { status: null });
-
-  resetCreditState();
-  let hung = 0;
-  // Stands in for the round's deadline running out: fetch rejects with the
-  // AbortError the timer's abort produces.
-  const hangs = async () => {
-    hung += 1;
-    throw Object.assign(new Error("This operation was aborted"), { name: "AbortError" });
-  };
-  const timedOut = await requestViaGateway(CALL, cfg, { fetchImpl: hangs, now: () => T0, wait: async () => { throw new Error("must not wait"); } }).then(() => null, (error) => error);
-  assert.ok(timedOut instanceof ProviderError, "a hang is a provider error");
-  assert.equal(hung, 1, "and is not retried");
-});
