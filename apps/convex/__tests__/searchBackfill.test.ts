@@ -169,22 +169,18 @@ async function chain(
 }
 
 describe("a projection pass the control plane runs itself", () => {
-  test("chains through a current window to reach a later changed note", async () => {
+  test("reuses one listing to cross current windows and reach a later changed note", async () => {
     const store = bucket(301);
     const d1 = stubD1();
     const filled = await chain(store, d1.client);
     expect(filled.last.ready).toBe(true);
 
-    // The changed Areas note sorts after the first 300 current paths. The
-    // first pass writes no note but advances the cursor to reach it.
+    // The changed Areas note sorts after the first 300 current paths. A
+    // scheduled action crosses that D1 window using the same bucket listing.
     store.seed("2-areas/README.md", "# Areas changed\n");
-    const traversed = await projectSearchIndex(store, d1.client);
-    expect(traversed.projected).toBe(0);
-    expect(traversed.moved).toBe(true);
-    expect(traversed.ready).toBe(false);
-
     const reached = await projectSearchIndex(store, d1.client);
     expect(reached.projected).toBe(1);
+    expect(reached.ready).toBe(true);
   });
 
   test("copies a bucket nothing has ever searched", async () => {
