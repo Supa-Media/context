@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, createWorkspace, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
+import { hashToken } from "../functions/lib/crypto";
 
 /**
  * SIGNING IN WITH A PHONE, THROUGH THE REAL SIGN-IN.
@@ -228,6 +229,51 @@ describe("the email a phone account is asked for", () => {
     const jordan = await createUser(t, "jordan@home.example");
     await createWorkspace(t, jordan, "jordan", { kind: "personal" });
     expect(await addEmail(t, other, "jordan@home.example")).toBe("has_own_workspace");
+  });
+});
+
+describe("a phone that has changed hands", () => {
+  /**
+   * Texting a code back from the number is the strongest claim the product
+   * recognises: `consumeLinkCode` moves a `phoneLinks` row off whoever had it
+   * ("whoever texted the code holds the phone"). Sign-in has to read the same
+   * claim, or the new holder of a recycled number signs in to the account that
+   * confirmed it first — one account reaching another.
+   */
+  test("signs in to the account holding it now, not the one that confirmed it first", async () => {
+    const t = setupTest();
+    const first = await kayla(t);
+    const holder = await createUser(t, "boss@work.example");
+    await createWorkspace(t, holder, "boss", { kind: "personal" });
+    const { code } = await asUser(t, holder).action(api.functions.textLinks.startPhoneLink, { phone: KAYLA_PHONE });
+    expect(
+      await t.mutation(internal.functions.textLinks.consumeLinkCode, {
+        phone: KAYLA_PHONE,
+        hashedCode: await hashToken(code),
+      }),
+    ).toMatchObject({ status: "linked" });
+
+    expect((await start(t, KAYLA_PHONE)).status).toBe("sent");
+    await signIn(t, KAYLA_PHONE, goodCode);
+    expect(await sessionUsers(t)).toEqual([holder]);
+    expect(await sessionUsers(t)).not.toContain(first);
+  });
+
+  test("one phone is one account: linking it clears the confirmation it had elsewhere", async () => {
+    const t = setupTest();
+    const first = await kayla(t);
+    const holder = await createUser(t, "boss@work.example");
+    await createWorkspace(t, holder, "boss", { kind: "personal" });
+    const { code } = await asUser(t, holder).action(api.functions.textLinks.startPhoneLink, { phone: KAYLA_PHONE });
+    await t.mutation(internal.functions.textLinks.consumeLinkCode, {
+      phone: KAYLA_PHONE,
+      hashedCode: await hashToken(code),
+    });
+    await t.run(async (ctx) => {
+      const stale = await ctx.db.get(first);
+      expect(stale?.phone).toBeUndefined();
+      expect(stale?.phoneVerificationTime).toBeUndefined();
+    });
   });
 });
 
