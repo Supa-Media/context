@@ -159,7 +159,9 @@ function routedLines(setups, runs) {
 // by the fallback, and the score says what those answers were worth.
 // Where a run's hours went, per setup: answering (the model's time, which the
 // setup owns), playing the person (the run's), and the rest (worlds, reruns).
-// Decided 2026-10-09, after a seven-hour run whose answers summed to two.
+// Decided 2026-10-09, after a seven-hour run whose answers summed to two. The
+// total is summed over the setup's conversations, so with shards it exceeds
+// the clock: the line says "across its conversations", never "wall time".
 function timeLines(setups, runs) {
   const lines = [];
   const minutes = (ms) => `${Math.round(ms / 60000)} min`;
@@ -169,7 +171,7 @@ function timeLines(setups, runs) {
     const wall = mine.reduce((sum, r) => sum + r.wallMs, 0);
     const answering = mine.reduce((sum, r) => sum + (r.ms ?? 0), 0);
     const person = mine.reduce((sum, r) => sum + (r.personMs ?? 0), 0);
-    lines.push(`Time: ${setup.name} took ${minutes(wall)} of wall time, ${minutes(answering)} answering, ${minutes(person)} playing the person, ${minutes(Math.max(0, wall - answering - person))} on worlds and reruns.`, "");
+    lines.push(`Time: ${setup.name} spent ${minutes(wall)} across its conversations: ${minutes(answering)} answering, ${minutes(person)} playing the person, ${minutes(Math.max(0, wall - answering - person))} on worlds and reruns.`, "");
   }
   return lines;
 }
