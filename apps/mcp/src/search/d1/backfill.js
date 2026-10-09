@@ -333,6 +333,7 @@ export async function projectPass(
     notesIndexed: 0,
     notesPending: 0,
     cursor: "",
+    cursorAdvanced: false,
     sweepComplete: false,
     reported: false,
     failure: null,
@@ -546,6 +547,7 @@ export async function projectPass(
            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
         [CURSOR_KEY, nextCursor]
       );
+      result.cursorAdvanced = true;
     }
     result.cursor = nextCursor;
   } catch (error) {
