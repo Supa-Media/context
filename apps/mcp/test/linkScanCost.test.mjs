@@ -241,10 +241,20 @@ for (const [name, text] of Object.entries(SHAPES)) {
   });
 }
 
+/** The least of `n` timings: scheduling noise only ever adds, so the floor is the cost. */
+function leastCost(run, n = 5) {
+  let least = Infinity;
+  for (let i = 0; i < n; i += 1) least = Math.min(least, cost(run));
+  return least;
+}
+
 test("cost grows linearly, not quadratically, with length", () => {
   // Doubling the input must not quadruple the time. Measured against the
   // 32 KB cost with a 4x allowance, which a quadratic scanner blows by 2x
-  // again at this size and a linear one comes nowhere near.
+  // again at this size and a linear one comes nowhere near. Both costs are
+  // the least of five runs, and the small one is floored at 2 ms: on a CI
+  // runner one timing of 1 ms against one of 4 ms is noise, not a curve
+  // (2026-10-09, a failure on a pull request that never touched the scanner).
   const small = "[[".repeat(16384);
   const large = "[[".repeat(32768);
   const warm = () => {
@@ -252,7 +262,7 @@ test("cost grows linearly, not quadratically, with length", () => {
     parseLinks(large);
   };
   warm();
-  const smallMs = Math.max(cost(() => parseLinks(small)), 1);
-  const largeMs = cost(() => parseLinks(large));
+  const smallMs = Math.max(leastCost(() => parseLinks(small)), 2);
+  const largeMs = leastCost(() => parseLinks(large));
   assert.ok(largeMs < smallMs * 4, `32 KB took ${Math.round(smallMs)} ms, 64 KB took ${Math.round(largeMs)} ms`);
 });
