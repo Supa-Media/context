@@ -23,7 +23,7 @@ import {
   noteStore,
   projectPass,
 } from "./fixtures.mjs";
-import { D1_GROUP_BYTES, groupStatements } from "../../src/search/d1/client.js";
+import { D1_BATCH_STATEMENTS, D1_GROUP_BYTES, groupStatements } from "../../src/search/d1/client.js";
 import { projectNote, upsertStatements } from "../../src/search/d1/project.js";
 
 function noteStatements(path, content) {
@@ -107,8 +107,8 @@ export async function runBatchingChecks(check) {
   }
 
   {
-    // A whole window of notes goes out together: a pass of 60 notes is one
-    // write request, not sixty.
+    // A whole window still uses a handful of bounded requests, not one per
+    // note. Each transaction stays below the size that timed out in D1.
     const backend = createD1Backend();
     const client = createD1Client(DESCRIPTOR, { fetchImpl: (u, i) => backend.handle(u, i) });
     const notes = {};
@@ -128,7 +128,8 @@ export async function runBatchingChecks(check) {
     const writes = backend.requests.slice(before).filter((r) => r.batch > 0);
     const indexed = backend.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
     check("a pass of 60 notes copies all 60", result.projected === 60 && indexed === 60);
-    check("in one write request", writes.length === 1);
+    check("in bounded batches", writes.length > 1 && writes.length < 60 &&
+      writes.every((r) => r.batch <= D1_BATCH_STATEMENTS));
     backend.close();
   }
 
