@@ -21,12 +21,15 @@ const NOBODY = "+15555550199";
 
 type TwilioCall = { path: string; to: string | null };
 let calls: TwilioCall[];
+/** The `CustomFriendlyName` each texted code was signed with. */
+let sentNames: (string | null)[];
 let goodCode: string;
 /** Codes mailed by the fake Resend, by recipient. */
 let mailed: Map<string, string>;
 
 beforeEach(async () => {
   calls = [];
+  sentNames = [];
   goodCode = "123456";
   mailed = new Map();
   vi.stubEnv("RESEND_API_KEY", "re_fake_key_for_tests");
@@ -50,7 +53,10 @@ beforeEach(async () => {
     if (url.host !== "verify.twilio.com") throw new Error(`network access attempted: ${url}`);
     const body = new URLSearchParams(init?.body as URLSearchParams);
     calls.push({ path: url.pathname.split("/").pop()!, to: body.get("To") });
-    if (url.pathname.endsWith("/Verifications")) return new Response(JSON.stringify({ status: "pending" }), { status: 201 });
+    if (url.pathname.endsWith("/Verifications")) {
+      sentNames.push(body.get("CustomFriendlyName"));
+      return new Response(JSON.stringify({ status: "pending" }), { status: 201 });
+    }
     if (body.get("Code") !== goodCode) return new Response("{}", { status: 404 });
     return new Response(JSON.stringify({ status: "approved", valid: true }), { status: 200 });
   });
@@ -86,6 +92,8 @@ describe("a phone an account holds", () => {
     const id = await kayla(t);
     expect(await start(t, "+1 (555) 555-0100")).toEqual({ status: "sent", phone: KAYLA_PHONE });
     expect(calls).toEqual([{ path: "Verifications", to: KAYLA_PHONE }]);
+    // The Verify service may carry another app's name; the text must say ours.
+    expect(sentNames).toEqual(["Context"]);
 
     const result = await signIn(t, KAYLA_PHONE, goodCode);
     expect(result.tokens).toBeTruthy();

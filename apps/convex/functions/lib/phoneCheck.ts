@@ -42,6 +42,18 @@ export const PHONE_CHECK_EXEMPT_ENV = "PHONE_CHECK_EXEMPT_EMAILS";
 /** E.164: a plus, a non-zero country digit, 7 to 15 digits in all. */
 const E164 = /^\+[1-9]\d{6,14}$/;
 
+/**
+ * The Twilio Verify keys, with the texted code signed "Context". The Verify
+ * service may be shared with another app, whose name it carries, and Twilio
+ * writes that name into the text ("Your <name> verification code"), so the
+ * name is sent with every code. `TWILIO_VERIFY_FRIENDLY_NAME` still wins, for
+ * a self-hosted deployment with a name of its own.
+ */
+export function contextVerifyKeys(env: Environment = process.env) {
+  const keys = twilioVerifyKeys(env);
+  return keys === null ? null : { friendlyName: "Context", ...keys };
+}
+
 export function phoneCheckRequired(env: Environment = process.env): boolean {
   return env[PHONE_CHECK_ENV]?.trim().toLowerCase() === "required" && twilioVerifyKeys(env) !== null;
 }

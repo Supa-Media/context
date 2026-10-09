@@ -2,13 +2,13 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   checkTwilioVerification,
   sendTwilioVerification,
-  twilioVerifyKeys,
 } from "@supa-media/convex/auth";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
+  contextVerifyKeys,
   hasConfirmedPhone,
   isExemptEmail,
   normalizePhone,
@@ -115,7 +115,7 @@ export const sendPhoneCode = action({
   returns: v.object({ status: sendStatus, phone: v.optional(v.string()) }),
   handler: async (ctx, args): Promise<SendResult> => {
     const userId = requireSignedIn((await getAuthUserId(ctx)) as Id<"users"> | null);
-    const keys = twilioVerifyKeys();
+    const keys = contextVerifyKeys();
     if (keys === null) return { status: "failed" as const };
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" as const };
@@ -169,7 +169,7 @@ export const confirmPhoneCode = action({
   returns: v.object({ status: confirmStatus }),
   handler: async (ctx, args): Promise<ConfirmResult> => {
     const userId = requireSignedIn((await getAuthUserId(ctx)) as Id<"users"> | null);
-    const keys = twilioVerifyKeys();
+    const keys = contextVerifyKeys();
     if (keys === null) return { status: "failed" as const };
     const phone = normalizePhone(args.phone);
     const code = args.code.replace(/\s/g, "");

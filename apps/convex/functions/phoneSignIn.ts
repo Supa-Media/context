@@ -1,10 +1,10 @@
-import { sendTwilioVerification, twilioVerifyKeys } from "@supa-media/convex/auth";
+import { sendTwilioVerification } from "@supa-media/convex/auth";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { normalizePhone } from "./lib/phoneCheck";
+import { contextVerifyKeys, normalizePhone } from "./lib/phoneCheck";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { isPhoneAdmitted } from "./lib/waitlist";
 import { scheduleSignupAlert } from "./signupAlerts";
@@ -164,7 +164,7 @@ export const start = action({
   handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string }> => {
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" };
-    const keys = twilioVerifyKeys();
+    const keys = contextVerifyKeys();
     if (keys === null) return { status: "unavailable", phone };
     let reserved: "ok" | "joined" | "already" | "too_many";
     try {
