@@ -87,7 +87,10 @@ test('Twilio credentials sync in both deployments and phone check only in stagin
   }
   assert.ok(backendKeys.includes('PHONE_CHECK'));
   assert.ok(staging.includes('PHONE_CHECK: \u0024{{ secrets.PHONE_CHECK }}'));
-  assert.doesNotMatch(production, /PHONE_CHECK/);
+  // On in production since 2026-10-09 (Dev2 chose it with phone sign-in),
+  // with the GitHub secret as the switch back off.
+  assert.ok(production.includes("PHONE_CHECK: \u0024{{ secrets.PHONE_CHECK || 'required' }}"));
+  assert.ok(productionSync.includes('PHONE_CHECK'));
   assert.doesNotMatch(staging + production, /TWILIO_AUTH_TOKEN/);
 });
 
