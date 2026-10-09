@@ -27,7 +27,12 @@ and the other clean addresses redirect to), and a cast preview
 - **The sign-up is the sign-in page's own, phone first** (the owner, the same
   day: "waitlist etc will have to change to phone number"). `LandingSignUp`
   is `PhoneSignInForm` with "Use email instead" swapping in the homepage's
-  `JoinCard`; it has no copy of its own.
+  `JoinCard`; it has no copy of its own. Email never skips the phone: both
+  email forms say a phone number is still needed after signing in, and that
+  an email which already has an account gets the number added to it (Dev2:
+  one identity per person, however many emails). A number that already
+  signs in elsewhere sends the person to sign in with it and add the email
+  there, which folds an empty account in.
 - **The waitlist records the page.** The first landing page a browser session
   sees is kept (`features/auth/landingPage.ts`) and sent with the join, by
   phone or email; the server stores it only on a new row and only when it is

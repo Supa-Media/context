@@ -244,6 +244,9 @@ describe("the request screen on a phone", () => {
     const view = mount();
     expect(view.text()).toContain("Already in? We'll email you a code. Not yet? We'll add you to the waitlist.");
     expect(view.text()).not.toContain("control plane");
+    // Email is the way round the phone, never round needing one (Dev2, 2026-10-09).
+    expect(view.text()).toContain("You'll still need a phone number");
+    expect(view.text()).toContain("If this email already has an account, the number is added to it.");
     view.unmount();
   });
 
