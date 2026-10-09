@@ -134,7 +134,9 @@ of the few places the retired noun survives; being generalized in place.
 The gateway has one explicit runtime dependency boundary: `@context/collaboration`,
 which owns Yjs merging and the customer-bucket editing history. Other gateway
 code stays dependency-free. This exception implements the owner-approved shared
-saving model; see [collaboration](./docs/decisions/collaboration.md). It runs on the Workers runtime, so use
+saving model; see [collaboration](./docs/decisions/collaboration.md). The second
+is `js-tiktoken`, loaded lazily behind the response to count Premium usage
+tokens ([token-usage](./docs/decisions/observability/token-usage.md)). It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
 an in-memory store stub: fast, offline, currently 4,338 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.

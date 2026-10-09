@@ -24,6 +24,19 @@
  * the same number for everyone looking at it.
  */
 
+/**
+ * Which kind of agent a grant belongs to, read off the OAuth client's name.
+ *
+ * Closed, so the admin dashboard can break totals down by agent without the
+ * control plane storing a free-text client name against a metric.
+ */
+export const CLIENT_FAMILIES = ["claude", "chatgpt", "codex", "gemini", "other"] as const;
+export type ClientFamily = (typeof CLIENT_FAMILIES)[number];
+
+function familyMetrics<P extends string>(prefix: P) {
+  return CLIENT_FAMILIES.map((family) => `${prefix}.${family}` as const);
+}
+
 /** Every counter the platform keeps. Adding one is a deliberate edit. */
 export const USAGE_METRICS = [
   /** MCP tool calls served by the gateway, per workspace. */
@@ -42,7 +55,85 @@ export const USAGE_METRICS = [
   "account.signin",
   /** Accounts created. */
   "account.created",
+  // Platform-wide totals of `usageHourly`, by client family, for the admin
+  // dashboard. Bumped by `recordHourly` only, so they cover Premium workspaces.
+  ...familyMetrics("mcp.request_tokens"),
+  ...familyMetrics("mcp.response_tokens"),
 ] as const;
+
+export function clientFamily(clientName: string | undefined): ClientFamily {
+  const name = (clientName ?? "").toLowerCase();
+  // Codex before ChatGPT: both are OpenAI's, and Codex names itself.
+  if (name.includes("codex")) return "codex";
+  if (name.includes("chatgpt") || name.includes("openai")) return "chatgpt";
+  if (name.includes("claude") || name.includes("anthropic")) return "claude";
+  if (name.includes("gemini") || name.includes("google")) return "gemini";
+  return "other";
+}
+
+/**
+ * What `usageHourly` counts. Tokens are what crossed the MCP boundary:
+ * the tool call in, Context's answer out.
+ */
+export const HOURLY_METRICS = [
+  "mcp.request_tokens",
+  "mcp.response_tokens",
+  "mcp.calls",
+  "mcp.failed_calls",
+  "mcp.images",
+  "note.write",
+] as const;
+export type HourlyMetric = (typeof HOURLY_METRICS)[number];
+const HOURLY_SET: ReadonlySet<string> = new Set(HOURLY_METRICS);
+export function isHourlyMetric(value: unknown): value is HourlyMetric {
+  return typeof value === "string" && HOURLY_SET.has(value);
+}
+
+export const TOKEN_METHODS = ["exact", "estimated", "count"] as const;
+const METHOD_SET: ReadonlySet<string> = new Set(TOKEN_METHODS);
+export function isTokenMethod(value: unknown): value is (typeof TOKEN_METHODS)[number] {
+  return typeof value === "string" && METHOD_SET.has(value);
+}
+
+/**
+ * The model, as a string this table may hold.
+ *
+ * Model ids are open-ended (`/agent` takes a person's own), so a fixed list
+ * would label every new release "other". Instead the *shape* is closed: a known
+ * provider prefix and a short id in a restricted alphabet. Anything else is
+ * "other", and no model at all is "unknown" (an external MCP client never
+ * says which model it runs).
+ */
+const MODEL_SHAPES = [
+  /^(?:anthropic\/)?claude-[a-z0-9.-]{1,48}$/,
+  /^(?:openai\/)?(?:gpt-|o\d)[a-z0-9.-]{0,48}$/,
+  /^(?:google\/)?gemini-[a-z0-9.-]{1,48}$/,
+  /^@cf\/[a-z0-9._-]{1,32}\/[a-z0-9._-]{1,64}$/,
+];
+
+export function normalizeModel(raw: unknown): string {
+  if (typeof raw !== "string" || raw.length === 0) return "unknown";
+  const model = raw.trim().toLowerCase();
+  return MODEL_SHAPES.some((shape) => shape.test(model)) ? model : "other";
+}
+
+/**
+ * Distinct models one workspace may add in a day before the rest are "other".
+ * The shapes above bound what a model string looks like, not how many there
+ * are, and a caller who controls the header could otherwise mint rows at will.
+ */
+export const MAX_MODELS_PER_WORKSPACE_DAY = 20;
+
+/** One token report may claim at most this many (a 64 MiB answer, at 4 bytes per token). */
+export const MAX_TOKEN_EVENT_COUNT = 16_777_216;
+
+/** Hourly rows older than this are pruned: a year of heatmap, and some slack. */
+export const HOURLY_RETENTION_DAYS = 400;
+
+/** UTC hour of `at`, 0 to 23. */
+export function hourOf(at: number): number {
+  return new Date(at).getUTCHours();
+}
 
 export type UsageMetric = (typeof USAGE_METRICS)[number];
 

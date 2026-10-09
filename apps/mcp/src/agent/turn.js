@@ -462,6 +462,9 @@ export async function runTurn(options) {
       }
       let result;
       const called = clock();
+      // Which model made this call, for the usage breakdown. Per call, because
+      // routing and fallback can change the model mid-turn.
+      options.onModel?.(model);
       try {
         result = await withinTime(
           webNames.has(call.name) ? web.call(call.name, call.args) : callTool(call.name, call.args),

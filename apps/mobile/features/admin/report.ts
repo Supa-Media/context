@@ -29,6 +29,15 @@ export interface Series {
  * it. A metric with no entry here is still rendered — under its raw name, at
  * the end — so a newly-added counter is visible rather than silently dropped.
  */
+/** The control plane's `CLIENT_FAMILIES`, with the name a person reads. */
+const TOKEN_FAMILIES = [
+  ["claude", "Claude"],
+  ["chatgpt", "ChatGPT"],
+  ["codex", "Codex"],
+  ["gemini", "Gemini"],
+  ["other", "Other agents"],
+] as const;
+
 export const METRIC_LABELS: Record<string, string> = {
   "mcp.tool_call": "Tool calls",
   "mcp.session": "MCP connections",
@@ -38,12 +47,25 @@ export const METRIC_LABELS: Record<string, string> = {
   "web.visit": "Site visits",
   "account.signin": "Sign-ins",
   "account.created": "Accounts created",
+  // Premium workspaces only, counted with OpenAI's o200k_base tokenizer: exact
+  // for OpenAI's agents, an approximation for the rest
+  // (`docs/decisions/observability/token-usage.md`).
+  ...Object.fromEntries(
+    TOKEN_FAMILIES.flatMap(([family, name]) => [
+      [`mcp.request_tokens.${family}`, `Tokens into Context · ${name}`],
+      [`mcp.response_tokens.${family}`, `Tokens out of Context · ${name}`],
+    ]),
+  ),
 };
 
 export const METRIC_ORDER: readonly string[] = [
   "mcp.tool_call",
   "search.query",
   "note.write",
+  ...TOKEN_FAMILIES.flatMap(([family]) => [
+    `mcp.request_tokens.${family}`,
+    `mcp.response_tokens.${family}`,
+  ]),
   "mcp.session",
   "app.session",
   "web.visit",
