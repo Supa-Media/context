@@ -17,6 +17,9 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { CONTROL_PLANE_SITE_TIMEOUT_MS, CONTROL_PLANE_TIMEOUT_MS } from "../src/controlPlane/client.js";
+import { ControlPlaneError, createControlPlane } from "../src/controlPlane.js";
+import { toolSiteAction } from "../src/tools/notes/site.js";
 
 const EDITOR_TOKEN = `cat_site_editor_${"0".repeat(16)}`;
 const MEMBER_TOKEN = `cat_site_member_${"0".repeat(16)}`;
@@ -364,4 +367,68 @@ export async function runSiteActionChecks(check) {
   } finally {
     restore();
   }
+
+  await runSlowSiteChecks(check);
+}
+
+/**
+ * A site call reads every page from the bucket and a publish writes a copy of
+ * each, so it may take longer than a lookup; and when the gateway does give
+ * up, it says it gave up rather than calling the control plane unavailable.
+ * On 2026-10-09 a seven-page site's status, check and publish all failed as
+ * "control plane unavailable: request failed" because the scan outlasted the
+ * 8-second lookup timeout, and the agent went hunting an outage.
+ */
+async function runSlowSiteChecks(check) {
+  const timeouts = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    timeouts.push(ms);
+    // Fire at once, so the abort is exercised without waiting for it.
+    return realSetTimeout(fn, 0, ...rest);
+  };
+  const hang = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    });
+  const env = { CONTROL_PLANE_URL: "https://control-plane.example.test", GATEWAY_SECRET: "s".repeat(32) };
+  let siteError = null;
+  try {
+    await createControlPlane(env, { fetchImpl: hang }).site("cat_token", "ws_site", { action: "status" });
+  } catch (error) {
+    siteError = error;
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  check("a site call waits longer than a lookup does",
+    CONTROL_PLANE_SITE_TIMEOUT_MS > CONTROL_PLANE_TIMEOUT_MS && timeouts.includes(CONTROL_PLANE_SITE_TIMEOUT_MS));
+  check("a call the gateway gave up on says it timed out, not that the request failed",
+    siteError instanceof ControlPlaneError && siteError.reason === "timed out");
+
+  let failError = null;
+  try {
+    await createControlPlane(env, { fetchImpl: async () => { throw new TypeError("network"); } }).site("cat_token", "ws_site", { action: "status" });
+  } catch (error) {
+    failError = error;
+  }
+  check("a request that fails outright still says the request failed",
+    failError instanceof ControlPlaneError && failError.reason === "request failed");
+
+  const slow = { site: async () => { throw new ControlPlaneError("timed out"); } };
+  const status = await toolSiteAction(slow, { path: "website/index.md", site: { action: "status" } });
+  const publish = await toolSiteAction(slow, { path: "website/index.md", site: { action: "publish" } });
+  const textOf = (result) => result?.content?.[0]?.text ?? "";
+  check("a slow status is reported as slow, not as an outage",
+    status.isError && textOf(status).includes("took too long") && !textOf(status).includes("unavailable"));
+  check("a slow publish says it may have landed and how to find out",
+    publish.isError && textOf(publish).includes("may or may not have landed") && textOf(publish).includes('action: "history"'));
+
+  const broken = { site: async () => { throw new ControlPlaneError("status 500", 500); } };
+  let rethrown = null;
+  try {
+    await toolSiteAction(broken, { path: "website/index.md", site: { action: "status" } });
+  } catch (error) {
+    rethrown = error;
+  }
+  check("any other control-plane failure is still raised as one", rethrown instanceof ControlPlaneError);
 }
