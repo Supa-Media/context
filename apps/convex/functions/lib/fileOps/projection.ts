@@ -57,10 +57,9 @@ const PROJECTION_RESERVE_SHARE = 4;
 /**
  * Notes one pass may copy.
  *
- * `VERSION_PROBE_CAP` in `d1/backfill.js` bounds the window to 100 paths, so
- * asking for more than that cannot buy more; asking for the gateway's 20 would
- * leave three quarters of an affordable pass unspent. The budget is the real
- * bound either way.
+ * Writes stay at 100 even though the control plane probes 300 versions per
+ * pass. A current window is a cheap D1 read, while listing a 10,000-note
+ * bucket again just to cross another 100 current paths takes minutes.
  */
 const PROJECTION_NOTE_CAP = 100;
 
@@ -260,6 +259,7 @@ export async function projectSearchIndex(
       effectiveVisibility(path, state.rules, state.overrides),
     budget,
     noteCap: options.noteCap ?? PROJECTION_NOTE_CAP,
+    versionProbeCap: 300,
     // A projection cannot honestly call itself complete over a census the R2
     // index is still building — every count here is a floor when a walk was
     // cut short, in the census's own language.
