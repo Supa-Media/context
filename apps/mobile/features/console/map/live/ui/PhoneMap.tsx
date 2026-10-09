@@ -20,7 +20,8 @@ const FOLDED_ROWS = 3;
 const OPEN_ROWS = 8;
 
 /**
- * The map on a phone: the canvas fills the screen, Live / Today / This week
+ * The map on a phone: the canvas fills the screen, Live / 24h / Week / a
+ * calendar for a custom stretch
  * float over its top, and a sheet at the bottom says who is working and on
  * what. The sheet folds to the faces and the latest three lines, and opens for
  * the rest; its height is handed to the engine as an inset, so the camera
