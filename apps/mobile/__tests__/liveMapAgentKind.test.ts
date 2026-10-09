@@ -24,6 +24,7 @@ import {
   agentKindOf,
   agentPaintOf,
   agentTint,
+  consoleHandOf,
   ownerNameOf,
   spareIndexOf,
   toolNameOf,
@@ -94,6 +95,41 @@ describe("a person is never an agent, and the app's own console is not one eithe
     const root = join(__dirname, "../../convex/functions");
     expect(readFileSync(join(root, "textLinks.ts"), "utf8")).toContain(`const TEXTS_CLIENT_NAME = "${TEXTS_CLIENT_NAME}";`);
     expect(readFileSync(join(root, "agentGrant.ts"), "utf8")).toContain(`const CONSOLE_CLIENT_NAME = "${CONSOLE_CLIENT_NAME}";`);
+  });
+
+  /**
+   * And the gateway's half, which is what stops a stranger taking either name.
+   * `normalizeClientName` marks a registration whose **tool part** is one of
+   * these, so it has to split the name the same way `toolNameOf` does — the
+   * whole name is not what gets read here. Two copies, pinned together.
+   */
+  test("the gateway refuses these names by the same split this module reads", () => {
+    const source = readFileSync(
+      join(__dirname, "../../mcp/src/oauth/registration.js"),
+      "utf8",
+    );
+    expect(source).toContain(
+      `const FIRST_PARTY_NAMES = new Set(["${CONSOLE_CLIENT_NAME.toLowerCase()}", "${TEXTS_CLIENT_NAME.toLowerCase()}"]);`,
+    );
+    expect(source).toContain(`const POSSESSIVE = "'s ";`);
+    expect(source).toContain("name.lastIndexOf(POSSESSIVE)");
+  });
+
+  /**
+   * The consumer's side of that guard: the marked name the gateway stores must
+   * not come back out as a hand or as the texting assistant's badge. Marking
+   * only the front of the name would leave the possessive carrying it.
+   */
+  test("a marked name is drawn as an ordinary tool, however it was smuggled", () => {
+    for (const marked of [
+      `Unverified: ${CONSOLE_CLIENT_NAME}`,
+      `x's Unverified: ${CONSOLE_CLIENT_NAME}`,
+      `@seyi's x's Unverified: ${CONSOLE_CLIENT_NAME}`,
+    ]) {
+      expect(agentKindOf(agent(marked))).toBe("other");
+      expect(consoleHandOf(marked)).toBeNull();
+    }
+    expect(agentKindOf(agent(`x's Unverified: ${TEXTS_CLIENT_NAME}`))).toBe("other");
   });
 });
 
