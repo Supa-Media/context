@@ -84,6 +84,16 @@ describe("when it asks", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("a Twilio API key works in place of the auth token", async () => {
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "");
+    vi.stubEnv("TWILIO_API_KEY_SID", "SK_test_not_real");
+    vi.stubEnv("TWILIO_API_KEY_SECRET", "test-secret-not-real");
+    expect(phoneCheckRequired()).toBe(true);
+    const t = setupTest();
+    const userId = await createUser(t, "ada@example.invalid");
+    expect(await send(t, userId)).toEqual({ status: "sent", phone: PHONE });
+  });
+
   test("a phone linked for texting already counts", async () => {
     const t = setupTest();
     const userId = await createUser(t, "ada@example.invalid");
