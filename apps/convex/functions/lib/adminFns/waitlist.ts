@@ -39,7 +39,13 @@ export const waitlistRowValidator = v.object({
   source: v.string(),
   useFor: v.union(v.string(), v.null()),
   admittedAt: v.union(v.number(), v.null()),
+  /** The landing page (`/a` to `/e`) the person saw before joining, if recorded. */
+  landing: v.optional(v.string()),
 });
+
+export const landingCountsValidator = v.array(
+  v.object({ landing: v.string(), joined: v.number(), admitted: v.number() }),
+);
 
 export async function listWaitlistHandler(
   ctx: QueryCtx,
@@ -64,6 +70,7 @@ export async function listWaitlistHandler(
       source: row.source,
       useFor: row.useFor ?? null,
       admittedAt: row.admittedAt ?? null,
+      landing: row.landing,
     })),
     more: rows.length > WAITLIST_PAGE,
     counts,
@@ -78,6 +85,26 @@ async function countStatus(ctx: QueryCtx, status: Doc<"waitlist">["status"]): Pr
     .withIndex("by_status_joinedAt", (q) => q.eq("status", status))
     .take(COUNT_LIMIT);
   return rows.length;
+}
+
+/**
+ * Joins and admissions per landing page, for the console's one-line summary.
+ * `none` is a row made before the page was recorded. Like the counts above,
+ * this reads at most `COUNT_LIMIT` rows, so past that it is a floor.
+ */
+export async function landingCountsHandler(ctx: QueryCtx) {
+  const rows = await ctx.db.query("waitlist").take(COUNT_LIMIT);
+  const tallies = new Map<string, { joined: number; admitted: number }>();
+  for (const row of rows) {
+    const landing = row.landing ?? "none";
+    const tally = tallies.get(landing) ?? { joined: 0, admitted: 0 };
+    tally.joined += 1;
+    if (row.status === "admitted") tally.admitted += 1;
+    tallies.set(landing, tally);
+  }
+  return [...tallies.entries()]
+    .map(([landing, tally]) => ({ landing, ...tally }))
+    .sort((a, b) => (a.landing < b.landing ? -1 : a.landing > b.landing ? 1 : 0));
 }
 
 async function admitRow(ctx: MutationCtx, row: Doc<"waitlist">, actor: AdminActor): Promise<boolean> {

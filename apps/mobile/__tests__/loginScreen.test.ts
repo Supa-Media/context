@@ -128,6 +128,7 @@ describe("signing in", () => {
     expect(view.text()).toContain("Invite only for now");
     await view.type("login-email", "Seyi@Example.com ");
     await view.press("login-submit");
+    // No landing page was drawn, so none is sent (`features/auth/landingPage.ts`).
     expect(mockEntered).toEqual([{ email: "seyi@example.com", source: "login" }]);
     expect(mockCalls).toEqual([{ email: "seyi@example.com" }]);
     // Six digits and ten minutes are `@supa-media/convex`'s, not ours to change.

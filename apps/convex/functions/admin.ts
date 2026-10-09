@@ -78,6 +78,8 @@ import {
 import {
   addEmailsHandler,
   admitHandler,
+  landingCountsHandler,
+  landingCountsValidator,
   listWaitlistHandler,
   removeHandler,
   waitlistRowValidator,
@@ -282,6 +284,21 @@ export const listWaitlist = query({
       throw toConvexError(error);
     });
     return await listWaitlistHandler(ctx, args.status);
+  },
+});
+
+/**
+ * Joins and admissions per landing page (`/a` to `/e`), for the Waitlist
+ * tab's summary line. Staff only, like the list above.
+ */
+export const waitlistLandingCounts = query({
+  args: {},
+  returns: landingCountsValidator,
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await landingCountsHandler(ctx);
   },
 });
 

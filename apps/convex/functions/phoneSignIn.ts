@@ -11,6 +11,7 @@ import { scheduleSignupAlert } from "./signupAlerts";
 import { scheduleXConversion } from "./xConversions";
 import { scheduleMetaConversion } from "./metaConversions";
 import { WAITLIST_JOINS_PER_HOUR } from "./waitlist";
+import { landingPageOf } from "@context/shared";
 
 /**
  * Signing in, and joining the waitlist, with a phone (Dev2, 2026-10-09:
@@ -73,7 +74,11 @@ export async function phoneHolder(ctx: QueryCtx, phone: string): Promise<Id<"use
 }
 
 /** Put `phone` on the waitlist, or say it already is. */
-async function joinWaitlist(ctx: MutationCtx, phone: string): Promise<"joined" | "already" | "too_many"> {
+async function joinWaitlist(
+  ctx: MutationCtx,
+  phone: string,
+  landing: string | undefined,
+): Promise<"joined" | "already" | "too_many"> {
   const existing = await ctx.db
     .query("waitlist")
     .withIndex("by_phone", (q) => q.eq("phone", phone))
@@ -83,7 +88,14 @@ async function joinWaitlist(ctx: MutationCtx, phone: string): Promise<"joined" |
   if (!(await tryConsumeRateLimit(ctx, { key: "waitlist.join", limit: WAITLIST_JOINS_PER_HOUR, windowMs: WINDOW_MS }))) {
     return "too_many";
   }
-  const id = await ctx.db.insert("waitlist", { phone, status: "waiting", joinedAt: Date.now(), source: "login" });
+  const page = landingPageOf(landing);
+  const id = await ctx.db.insert("waitlist", {
+    phone,
+    status: "waiting",
+    joinedAt: Date.now(),
+    source: "login",
+    ...(page === undefined ? {} : { landing: page }),
+  });
   await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
   return "joined";
 }
@@ -93,14 +105,14 @@ async function joinWaitlist(ctx: MutationCtx, phone: string): Promise<"joined" |
  * may. A phone that may not joins the waitlist instead, and is texted nothing.
  */
 export const reserveSend = internalMutation({
-  args: { phone: v.string() },
+  args: { phone: v.string(), landing: v.optional(v.string()) },
   returns: v.union(v.literal("ok"), v.literal("joined"), v.literal("already"), v.literal("too_many")),
-  handler: async (ctx, { phone }) => {
+  handler: async (ctx, { phone, landing }) => {
     if (!(await tryConsumeRateLimit(ctx, { key: "phoneSignIn.lookup", limit: LOOKUPS_PER_HOUR, windowMs: WINDOW_MS }))) {
       return "too_many";
     }
     if ((await phoneHolder(ctx, phone)) === null && !(await isPhoneAdmitted(ctx.db, phone))) {
-      return await joinWaitlist(ctx, phone);
+      return await joinWaitlist(ctx, phone, landing);
     }
     if (!(await tryConsumeRateLimit(ctx, { key: `phoneCheck.sendTo:${phone}`, limit: SEND_PER_PHONE, windowMs: WINDOW_MS }))) {
       return "too_many";
@@ -146,7 +158,8 @@ export const spendCheck = internalMutation({
 
 /** The sign-in page's first step: text a code, or put the phone on the list. */
 export const start = action({
-  args: { phone: v.string() },
+  // `landing` is the page the person saw; it is kept only if they join.
+  args: { phone: v.string(), landing: v.optional(v.string()) },
   returns: v.object({ status: startStatus, phone: v.optional(v.string()) }),
   handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string }> => {
     const phone = normalizePhone(args.phone);
@@ -155,7 +168,10 @@ export const start = action({
     if (keys === null) return { status: "unavailable", phone };
     let reserved: "ok" | "joined" | "already" | "too_many";
     try {
-      reserved = await ctx.runMutation(internal.functions.phoneSignIn.reserveSend, { phone });
+      reserved = await ctx.runMutation(internal.functions.phoneSignIn.reserveSend, {
+        phone,
+        ...(args.landing === undefined ? {} : { landing: args.landing }),
+      });
     } catch (error) {
       if (error instanceof ConvexError && (error.data as { code?: string }).code === "RATE_LIMITED") {
         return { status: "too_many" };
