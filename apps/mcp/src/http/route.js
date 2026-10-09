@@ -172,7 +172,7 @@ export async function route(request, env, ctx) {
     // branch for the reasons `/presence` has one: a GET that reads no note,
     // writes nothing, and needs no queue, usage counter or search budget.
     if (path === "/agent-activity") {
-      return await handleAgentActivity(request, env, { slug, pathToken, origin });
+      return await handleAgentActivity(request, env, { slug, pathToken, origin, ctx });
     }
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,

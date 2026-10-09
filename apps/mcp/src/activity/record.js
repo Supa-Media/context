@@ -23,6 +23,7 @@ import { timestampSlug } from "../notes/paths.js";
 import { sendsTreeHint, treeHintOf } from "./changes.js";
 import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
 import { keepTreeTable, treeTouchOf } from "../tree/record.js";
+import { keepHistoryActivityLater } from "../history/record.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
   const at = new Date().toISOString();
@@ -321,6 +322,8 @@ async function recordActivity(store, change) {
         continue;
       }
       if (put === null) continue;
+      // The replay's index of these lines, behind the response (`history/record.js`).
+      keepHistoryActivityLater(store, next.entries, typeof put?.etag === "string" ? put.etag : null);
       /*
         THE FILE IS PRIVATE, AND THAT IS CHECKED RATHER THAN ASSUMED.
 
