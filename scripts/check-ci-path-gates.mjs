@@ -19,6 +19,8 @@ const INFRA_PATHS = [".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace
 
 /** Where the editor bundle records the sources it was built from. */
 const BUNDLE = "apps/mobile/features/console/files/webview/bundle.generated.ts";
+/** The phone map's engine, built and checked by the same job. */
+const MAP_BUNDLE = "apps/mobile/features/console/map/live/webview/bundle.generated.ts";
 
 /**
  * Does one changed file fall under one watched pattern?
@@ -190,13 +192,13 @@ export function unwatchedSources(sources, watched) {
  * So the list is checked against the bundle's own record of what it was built
  * from, here, in the lane that runs on every pull request.
  */
-export function assertBundleSourcesWatched(root = ROOT) {
-  const generated = readFileSync(join(root, BUNDLE), "utf8");
+export function assertBundleSourcesWatched(root = ROOT, bundle = BUNDLE, minimum = 50) {
+  const generated = readFileSync(join(root, bundle), "utf8");
   const sources = [...generated.matchAll(/^ {2}"([^"]+)": "[0-9a-f]{64}",$/gm)].map((match) => match[1]);
   // A reader that silently matches nothing would pass every repository it is
   // pointed at, which is this file's own most-repeated failure shape.
-  if (sources.length < 50) {
-    throw new Error(`read only ${sources.length} sources from ${BUNDLE}; the reader is wrong`);
+  if (sources.length < minimum) {
+    throw new Error(`read only ${sources.length} sources from ${bundle}; the reader is wrong`);
   }
   const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
   const unwatched = unwatchedSources(sources, watched);
@@ -230,11 +232,11 @@ export function assertBundleSourcesWatched(root = ROOT) {
  *
  * So the output is asserted here, beside the inputs, with the same matcher.
  */
-export function assertBundleArtifactWatched(root = ROOT) {
+export function assertBundleArtifactWatched(root = ROOT, bundle = BUNDLE) {
   const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
-  if (unwatchedSources([BUNDLE], watched).length > 0) {
+  if (unwatchedSources([bundle], watched).length > 0) {
     throw new Error(
-      `editor-bundle does not run when ${BUNDLE} itself changes, so a commit that edits only the ` +
+      `editor-bundle does not run when ${bundle} itself changes, so a commit that edits only the ` +
         "generated bundle skips the rebuild that would catch it",
     );
   }
@@ -553,6 +555,8 @@ export function check(root = ROOT) {
   }
   assertBundleSourcesWatched(root);
   assertBundleArtifactWatched(root);
+  assertBundleSourcesWatched(root, MAP_BUNDLE, 20);
+  assertBundleArtifactWatched(root, MAP_BUNDLE);
   for (const script of rootDeclaringGuards(root)) assertGuardRootsWatched(script, root);
 }
 

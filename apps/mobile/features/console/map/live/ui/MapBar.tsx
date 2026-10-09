@@ -1,17 +1,18 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MapPageState } from "../hooks/useMapPage";
-import { Chip, Choice, LiveDot } from "./controls";
+import { Chip, Choice, LiveDot, Segmented } from "./controls";
 
 /**
  * The bar over the map: Live / Today / This week on the left; on the right,
  * who is being followed, the way back to live while replaying, Map / Folders,
  * and — for somebody in more than one workspace — this workspace or all of
- * them. A phone has two rows, when and the way back over Map / Folders and
- * which workspaces, and each scrolls sideways rather than wrapping.
+ * them. A phone has two rows of segmented tracks that fill its width: when,
+ * then Map / Folders beside which workspaces. Back to live is the Live
+ * segment itself there.
  */
 export function MapBar({ page, compact }: { page: MapPageState; compact: boolean }) {
   const styles = useThemedStyles(makeStyles);
@@ -59,16 +60,41 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
     />
   ) : null;
   if (compact) {
+    const whenOptions = [
+      { value: "live" as const, label: "Live", leading: <LiveDot pulsing={live} reducedMotion={page.reducedMotion} /> },
+      { value: "today" as const, label: "Today" },
+      { value: "week" as const, label: "Week" },
+    ];
     return (
-      <View testID="map-bar">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.phoneBar}>
-          {when}
-          {back}
-        </ScrollView>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.phoneRow2}>
-          {layout}
-          {which}
-        </ScrollView>
+      <View style={styles.phone} testID="map-bar">
+        <View style={styles.phoneRow}>
+          <Segmented label="When" value={page.mode} onChange={page.setMode} testID="map-when" options={whenOptions} />
+        </View>
+        <View style={styles.phoneRow}>
+          <Segmented
+            label="Layout"
+            value={page.view}
+            onChange={page.setView}
+            testID="map-view"
+            options={[
+              { value: "map", label: "Map" },
+              { value: "folders", label: "Folders" },
+            ]}
+          />
+          {page.many ? (
+            <Segmented
+              label="Which workspaces"
+              value={page.scope}
+              onChange={page.setScope}
+              testID="map-scope"
+              grow={1.25}
+              options={[
+                { value: "one", label: "This one" },
+                { value: "all", label: "All" },
+              ]}
+            />
+          ) : null}
+        </View>
       </View>
     );
   }
@@ -106,6 +132,6 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.pageSurface,
     },
     spacer: { flex: 1 },
-    phoneBar: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x1 },
-    phoneRow2: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x4, paddingBottom: space.x2 },
+    phone: { gap: space.x2, paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x2 },
+    phoneRow: { flexDirection: "row", gap: space.x2 },
   });
