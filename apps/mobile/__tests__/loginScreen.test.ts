@@ -128,6 +128,7 @@ describe("signing in", () => {
     expect(view.text()).toContain("Invite only for now");
     await view.type("login-email", "Seyi@Example.com ");
     await view.press("login-submit");
+    // No landing page was drawn, so none is sent (`features/auth/landingPage.ts`).
     expect(mockEntered).toEqual([{ email: "seyi@example.com", source: "login" }]);
     expect(mockCalls).toEqual([{ email: "seyi@example.com" }]);
     // Six digits and ten minutes are `@supa-media/convex`'s, not ours to change.
@@ -243,6 +244,9 @@ describe("the request screen on a phone", () => {
     const view = mount();
     expect(view.text()).toContain("Already in? We'll email you a code. Not yet? We'll add you to the waitlist.");
     expect(view.text()).not.toContain("control plane");
+    // Email is the way round the phone, never round needing one (Dev2, 2026-10-09).
+    expect(view.text()).toContain("You'll still need a phone number");
+    expect(view.text()).toContain("If this email already has an account, the number is added to it.");
     view.unmount();
   });
 

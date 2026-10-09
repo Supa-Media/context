@@ -47,6 +47,17 @@ export {
   PINNED_CONTEXT_SLUG,
   isPinnedContextSlug,
 } from "./pinnedContext";
+/**
+ * The landing pages (`/a` to `/e`) and the rule that names them. The waitlist
+ * records which one a person saw, so both halves read it from here.
+ */
+export {
+  DEFAULT_LANDING_PAGE,
+  LANDING_PAGES,
+  landingPageFromPath,
+  landingPageOf,
+  type LandingPage,
+} from "./landingPages";
 export {
   DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT,
   matchesDestructiveActionAcknowledgement,

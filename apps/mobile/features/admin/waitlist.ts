@@ -23,11 +23,31 @@ export interface WaitlistRow {
   source: string;
   useFor: string | null;
   admittedAt: number | null;
+  /** The landing page (`/a` to `/e`) the person saw before joining, if recorded. */
+  landing?: string;
+}
+
+/** Joins per landing page, as `waitlistLandingCounts` returns them. */
+export interface LandingCount {
+  landing: string;
+  joined: number;
+  admitted: number;
 }
 
 /** Who a row is: the address, or the phone it joined with. */
 export function rowName(row: Pick<WaitlistRow, "email" | "phone">): string {
   return row.email ?? row.phone ?? "";
+}
+
+/** A row's landing page as its small label, `page c`, or `null` when none was recorded. */
+export function pageLabel(landing: string | undefined): string | null {
+  return landing === undefined ? null : `page ${landing}`;
+}
+
+/** The one-line summary above the list, `Joined from: a 12 · b 4 · none 30`, or `null` for none yet. */
+export function landingSentence(counts: readonly LandingCount[]): string | null {
+  if (counts.length === 0) return null;
+  return `Joined from: ${counts.map((count) => `${count.landing} ${count.joined}`).join(" · ")}`;
 }
 
 /** The three lists, in the order the filter shows them. */

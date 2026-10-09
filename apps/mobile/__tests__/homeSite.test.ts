@@ -222,7 +222,9 @@ describe("links inside a page", () => {
   });
 
   test("the page is ?page= in the address, and the home page has none", () => {
-    expect(pageParam("/")).toBeUndefined();
+    // `/` is landing page a, so the site's own home page is `?page=index`.
+    expect(pageParam("/")).toBe("index");
+    expect(routeFromParam("index")).toBe("/");
     expect(pageParam("/pricing")).toBe("pricing");
     expect(routeFromParam(undefined)).toBe("/");
     expect(routeFromParam("pricing")).toBe("/pricing");
