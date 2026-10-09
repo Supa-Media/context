@@ -35,11 +35,13 @@ type Page = { objectKey: string; markdown: string };
 export async function referencedWebsitePages(
   own: readonly WebsiteRouteStatus[],
   ownPages: readonly Page[],
-  elsewhere: readonly string[],
+  /** Every Markdown path under a folder that the scan's clearance may list. */
+  list: (folder: string) => Promise<string[]>,
   read: (keys: string[]) => Promise<{ pages: Page[]; etags: Map<string, string> }>,
 ): Promise<{ statuses: WebsiteRouteStatus[]; pages: Page[]; etags: Map<string, string> }> {
   const markdownOf = new Map(ownPages.map((page) => [page.objectKey, page.markdown]));
-  const candidates = [...elsewhere].sort();
+  /** Each named folder is listed once, however many pages name it. */
+  const listed = new Map<string, string[]>();
   /** Note → the key it would have inside `website/`. The first page to name it wins. */
   const virtualKey = new Map<string, string>();
   for (const status of [...own].sort((a, b) => a.objectKey.localeCompare(b.objectKey))) {
@@ -47,7 +49,8 @@ export async function referencedWebsitePages(
     if (status.status !== "live") continue;
     const folder = websiteFolderReference(markdownOf.get(status.objectKey) ?? "");
     if (folder === null) continue;
-    for (const note of candidates) {
+    if (!listed.has(folder)) listed.set(folder, [...(await list(folder))].sort());
+    for (const note of listed.get(folder)!) {
       if (virtualKey.has(note)) continue;
       const key = referencedWebsiteKey(status.objectKey, folder, note);
       if (key !== null) virtualKey.set(note, key);
