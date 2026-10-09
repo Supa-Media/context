@@ -4,6 +4,7 @@ import {
   DEFAULT_ASIDE_TAB,
   asideTabFor,
   meetingNeedsAttention,
+  visibleAsideTabs,
 } from "../features/console/aside/tabs";
 
 /**
@@ -81,11 +82,50 @@ describe("the dot that makes that safe", () => {
 });
 
 describe("the catalogue", () => {
-  test("two tabs, and chat leads", () => {
-    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["chat", "meetings"]);
+  // Three now: Approvals joined so the owner can answer what an AI client
+  // asked to hold (`features/approvals`). Chat still leads; visibility is
+  // decided by `visibleAsideTabs`, not by this list.
+  test("three tabs, and chat leads", () => {
+    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["chat", "meetings", "approvals"]);
   });
 
   test("every tab has a word on it", () => {
     for (const tab of ASIDE_TABS) expect(tab.label.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * THE APPROVALS TAB IS THERE ONLY WHEN IT CAN BE ANSWERED.
+ *
+ * It sits beside Chat because the two are the same job from the same place: a
+ * question about the context, and the answer to a question the context's AI
+ * clients asked. It is absent on the homepage, where there is no context to
+ * answer for, and absent when the console has no approvals route to ask.
+ *
+ * ## Sabotage record
+ *
+ * Applied, suite run, named test observed failing, reverted.
+ *
+ *  1. `visibleAsideTabs` returning every tab regardless of `chat`.
+ *     → **1 fails**: `the homepage shows the Meetings tab alone`.
+ *  2. The approvals term dropped, so the tab shows where it cannot be answered.
+ *     → **1 fails**: `Approvals is absent where it cannot be answered`.
+ */
+describe("which tabs a console shows", () => {
+  test("a console with a chat shows all three, in order", () => {
+    expect(visibleAsideTabs({ chat: true, approvals: true })).toEqual([
+      "chat",
+      "meetings",
+      "approvals",
+    ]);
+  });
+
+  test("the homepage shows the Meetings tab alone", () => {
+    expect(visibleAsideTabs({ chat: false, approvals: true })).toEqual(["meetings"]);
+    expect(visibleAsideTabs({ chat: false, approvals: false })).toEqual(["meetings"]);
+  });
+
+  test("Approvals is absent where it cannot be answered", () => {
+    expect(visibleAsideTabs({ chat: true, approvals: false })).toEqual(["chat", "meetings"]);
   });
 });

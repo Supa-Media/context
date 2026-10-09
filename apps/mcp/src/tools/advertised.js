@@ -59,6 +59,16 @@ const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
 const UNLISTED_TOOLS = new Set(["create_form"]);
 
 /**
+ * The name a tool is known by in the dispatch table: an alias resolved, any
+ * other name unchanged. The egress gate classifies a call by this, never by
+ * the spelling the client used, because a gate that reads the old name of
+ * `save_context` as a tool it has never heard of lets that name publish.
+ */
+export function canonicalToolName(name) {
+  return TOOL_NAME_ALIASES.get(name) ?? name;
+}
+
+/**
  * The advertised `inputSchema` for a tool name, alias resolved.
  *
  * Built once per isolate. `toolDefinitions()` rebuilds the advertised objects

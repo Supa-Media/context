@@ -38,6 +38,7 @@ import { createControlPlane } from "../controlPlane.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { handleApprovals } from "./approvals.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleGranolaWebhook } from "../ingestion/granolaWebhook.js";
@@ -69,7 +70,7 @@ export async function route(request, env, ctx) {
     //
     // Meeting ingestion used to be lifted out of this line — `isMeetingPath` on
     // the raw pathname, before the selector — because `meetings` was not one of
-    // `session.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
+    // `workspacePath.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
     // as a workspace called "meetings" selecting the path `/sessions`. That was
     // one route defending itself against a list it was missing from, and it left
     // the actual hole open: the name was still claimable, in a namespace where a
@@ -183,15 +184,20 @@ export async function route(request, env, ctx) {
     // with a meeting error naming the route.
     const meetingRoute = matchMeetingRoute(path);
     const summaryRoute = path === MEETING_SUMMARY_PATH;
+    // What the egress gate is holding for this person, and their answer: the
+    // app reads it over GET and answers over POST, so the POST-only gate below
+    // is not asked of it either.
+    const approvalsRoute = path === "/approvals";
     if (
       summaryRoute ||
       path === "/mcp" ||
       path === "/inbox" ||
       path === "/agent" ||
       path === "/collaboration" ||
+      approvalsRoute ||
       meetingRoute
     ) {
-      if (!meetingRoute && request.method !== "POST") return new Response(null, { status: 405 });
+      if (!meetingRoute && !approvalsRoute && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
       try {
@@ -220,8 +226,16 @@ export async function route(request, env, ctx) {
       // answer and cannot suggest, which is the honest shape of a read-only
       // grant rather than a special case.
       // A summary is written into the note, so it needs write like any edit.
+      // `/approvals` needs only read. Answering an approval releases a write,
+      // but the release is replayed through `callToolForSession`, which checks
+      // write against the workspace the call actually lands in: this
+      // connection's default workspace may clamp the person to `member` where
+      // they are an `editor` in the one they asked to write into. Clamping
+      // the route here would 403 them there, and they could never approve it.
       const needed = summaryRoute
         ? SCOPE_WRITE
+        : approvalsRoute
+        ? SCOPE_READ
         : meetingRoute
         ? scopeForMeetingRequest(request.method)
         : path === "/inbox"
@@ -528,6 +542,7 @@ export async function route(request, env, ctx) {
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
       if (path === "/agent") return await handleAgent(request, env, store, session, controlPlane);
+      if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
     }

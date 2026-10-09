@@ -26,6 +26,7 @@ import {
 import { sweepTreePass } from "../src/tree/sweep.js";
 import { createD1Client } from "../src/search/d1/client.js";
 import { treeTouchOf } from "../src/tree/record.js";
+import { approving } from "./egressApproval.mjs";
 
 const TOKEN = `cat_tree_${"0".repeat(28)}`;
 const WS = "ws_tree";
@@ -44,6 +45,14 @@ async function setUp() {
     clientId: "mcp_client_tree",
     userId: "user_tree",
   });
+  await controlPlane.addGrant({
+    accessToken: CONSOLE_TOKEN,
+    workspaceId: WS,
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    userId: "user_tree",
+  });
   const bucket = s3.bucketFor("tree-bucket");
   bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "p0" });
   bucket.set("1-projects/plan.md", { body: "# Plan\n", etag: "e-plan" });
@@ -59,7 +68,20 @@ async function setUp() {
   };
 }
 
+/** The person's own app, which approves what the gate holds (`egressApproval.mjs`). */
+const CONSOLE_TOKEN = `cat_tree_console_${"0".repeat(20)}`;
+
 async function call(name, args) {
+  const result = await approving(async () => (await callOnce(name, args)).result, {
+    env: { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+    consoleToken: CONSOLE_TOKEN,
+    origin: "https://gateway.test",
+  });
+  assert.ok(!result?.isError, JSON.stringify(result).slice(0, 400));
+  return { jsonrpc: "2.0", id: 1, result };
+}
+
+async function callOnce(name, args) {
   const harness = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://gateway.test/mcp", {
@@ -72,7 +94,6 @@ async function call(name, args) {
   );
   const body = await response.json();
   await harness.settle();
-  assert.ok(!body.result?.isError, JSON.stringify(body).slice(0, 400));
   return body;
 }
 

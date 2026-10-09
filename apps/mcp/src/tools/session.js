@@ -14,6 +14,8 @@ import {
   FORM_TOOLS,
   isUsableContextName,
   ROUTING_PLANNING_TOOLS,
+  toolDefinitions,
+  toolExistenceMasked,
   toolIsWriting,
 } from "./registry.js";
 import {
@@ -24,15 +26,18 @@ import {
   StorageUnavailable,
   writesAnywhere,
 } from "../session.js";
-import { isPlumbing } from "../privacy/engine.js";
+import { isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
 import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
 import { reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
-import { toolArgumentRefusal } from "./advertised.js";
+import { canonicalToolName, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
+import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
+import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
+import { loadPrivacyState } from "../privacy/state.js";
 
 /**
  * Tools that rearrange notes inside one context. A move adds nothing, so on a
@@ -58,6 +63,152 @@ async function answeringNoteCap(run) {
     if (error instanceof NoteCapReached) return toolError(error.message);
     throw error;
   }
+}
+
+/**
+ * THE EGRESS GATE, at the one place every AI client's call passes.
+ *
+ * A call that would widen who can see something (`privacy/egress.js`) runs
+ * only when `approvalRequired` says the person need not be asked, or when a
+ * person already released exactly this call. Otherwise it is held as a
+ * pending approval in the connection's own context and the model is told,
+ * in band, what it would have done and who can allow it. Never thrown, never
+ * silent: a refusal the model cannot read is one it retries.
+ *
+ * `supplied` — the arguments as the client sent them, `context` included —
+ * is what is stored and what is replayed, so an approved call routes exactly
+ * as the asked one did. `target` is the context it was routed to, which is
+ * the audience the widening is measured against.
+ */
+async function egressGate(suppliedName, supplied, args, { store, session, target, targetStore, into }) {
+  /*
+    The gate reads a call by the name it is dispatched under, never by the
+    spelling the client used: `archive_chat` is `save_context` and would
+    otherwise be a tool the gate has never heard of. What is stored and
+    replayed stays the name as supplied, so a released call routes as asked.
+  */
+  const name = canonicalToolName(suppliedName);
+  /*
+    Any tool that changes something, addressed into a workspace the call did
+    not start in, is a write into another workspace; the planning tools only
+    suggest. Derived from the tool definitions so a tool added next year, or a
+    tool absent from the classifier's switch, is held rather than let through.
+  */
+  const writes =
+    typeof into === "string" &&
+    into !== "" &&
+    isKnownTool(name) &&
+    toolIsWriting(name) &&
+    !ROUTING_PLANNING_TOOLS.has(name) &&
+    // A tool masked from this tier is an invented name to it, byte for byte;
+    // holding it would be the one answer that tells the two apart.
+    !toolExistenceMasked(name, target.scope);
+  const widening = await wideningOf(name, args, {
+    into,
+    writes,
+    // A move or a visibility change is measured against the manifest. The
+    // folder rules are what `scope_info` already shows every tier; the
+    // exact-note overrides are the owner's alone, so a team-tier caller is
+    // measured without them — else "held" against "not found" would tell such
+    // a caller which note in a team folder carries a private override, the
+    // oracle `crossContext` and the move tests cost-match to close.
+    privacy: async () => {
+      const privacy = await loadPrivacyState(targetStore);
+      return {
+        rules: privacy.rules,
+        overrides: target.scope === "private" ? privacy.overrides : new PrivacyOverrides(),
+      };
+    },
+  });
+  if (!approvalRequired(session.egress, widening, target.workspaceId)) {
+    /*
+      A widening the gate lets through carries the person's yes into the
+      tool. `confirm_team_publish` was the tools' own earlier answer to "did
+      the person really say so", and a model can pass it as easily as not;
+      the gate is what decides now — a person approved this exact call, or
+      the turn was their own words with nothing read — so it says yes here on
+      their behalf. A call the gate holds never reaches a tool, so the flag a
+      model wrote is never the thing that lets one through.
+    */
+    if (widening?.publishes === true && advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
+    /*
+      A call that no longer widens can still be one a person released. The
+      release ran the change, so the same call asked again is now a no-op
+      (the folder is team already, the note is team already) and `wideningOf`
+      says null; without this lookup the client would be told nothing about
+      the result it was promised and the tool would run again against a
+      stale etag. So the released result is handed back to an identical
+      re-call whether or not it still widens. A turn the gateway sees whole
+      never waits on an approval and is not consulted, and neither is a
+      replay that is itself the approved call.
+    */
+    const seenWhole = session.egress?.complete === true || session.egress?.approved === true;
+    if (widening === null && !seenWhole && mightWiden(name, args, { into, writes })) {
+      const released = await takeDone(store, {
+        name: suppliedName,
+        args: supplied,
+        userId: session.actorUserId,
+        clientId: session.actorClientId,
+      });
+      if (released) return released;
+    }
+    return null;
+  }
+  const userId = session.actorUserId;
+  const released = await takeDone(store, {
+    name: suppliedName,
+    args: supplied,
+    userId,
+    clientId: session.actorClientId,
+  });
+  if (released) return released;
+  const ledger = session.egress?.ledger ?? null;
+  const texting = session.egress?.texting === true;
+  const existing = await findPending(store, { name: suppliedName, args: supplied, userId });
+  const record =
+    (existing ? await rearmForText(store, existing, texting) : null) ??
+    (await createPending(store, {
+      name: suppliedName,
+      args: supplied,
+      actor: store.actor,
+      // The asking connection's own tier and scopes, for the trail: the
+      // replay runs as the person who approved (`replayAsAsked`).
+      tier: session.scope,
+      scopes: session.scopes,
+      widening,
+      workspaceId: target.workspaceId,
+      texting,
+    }));
+  if (record === null) {
+    return toolError(
+      `Not done: this would ${widening.summary}, and the person has too many approvals waiting already. ` +
+        "Ask them to clear some first.",
+    );
+  }
+  if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
+  const because = reasonFor(session.egress);
+  return toolError(
+    texting
+      ? `Not done yet: this would ${widening.summary}. It needs the person's OK first, because ${because}. ` +
+          "Tell them plainly what you want to do; they will be asked to reply YES to allow it, and it runs then. " +
+          "Don't call this again in this turn."
+      : `Not done: this would ${widening.summary}. It needs the person's approval first, because ${because}. ` +
+          "They can approve it in the Context app. " +
+          "Once they have, call this tool again with exactly the same arguments and it will run.",
+  );
+}
+
+let knownTools = null;
+/** Whether `name` is a tool this gateway defines; an invented name is nobody's write. */
+function isKnownTool(name) {
+  knownTools ??= new Set(toolDefinitions().map((tool) => tool.name));
+  return knownTools.has(name);
+}
+
+/** Whether the advertised schema for `name` takes `confirm_team_publish`. */
+function advertisesTeamConfirmation(name) {
+  const tool = toolDefinitions().find((entry) => entry.name === name);
+  return Boolean(tool?.inputSchema?.properties?.confirm_team_publish);
 }
 
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */
@@ -202,6 +353,22 @@ export async function callToolForSession(params, store, session) {
         "permission denied: moving a note into a private owner workspace from another workspace requires owner access to both contexts."
       );
     }
+    {
+      const held = await egressGate(params?.name, supplied, crossArgs, {
+        store,
+        session,
+        target: destinationTarget.session,
+        targetStore: destinationTarget.store,
+        // Another workspace than the one the connection started in, or than
+        // the one the note leaves: either way the move lands somewhere new.
+        into:
+          sourceTarget.session.workspaceId === destinationTarget.session.workspaceId &&
+          destinationTarget.session.workspaceId === session.workspaceId
+            ? null
+            : `@${destinationTarget.session.workspaceSlug}`,
+      });
+      if (held) return held;
+    }
     if (sourceTarget.session.workspaceId === destinationTarget.session.workspaceId) {
       // One context on both sides: a relocation, never refused by the cap.
       const result = await answeringNoteCap(() =>
@@ -304,12 +471,35 @@ export async function callToolForSession(params, store, session) {
     if (off.has(params?.name)) return toolError(disabledToolRefusal(params?.name));
   }
 
+  // After every refusal above, so a call that would not have run anyway is
+  // never held for a person to look at; before dispatch, which is the point.
+  {
+    const held = await egressGate(params?.name, supplied, args, {
+      store,
+      session,
+      target,
+      targetStore,
+      into: target.workspaceId === session.workspaceId ? null : `@${target.workspaceSlug}`,
+    });
+    if (held) return held;
+  }
+
   // A move inside one context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`); everything else is capped.
   const dispatch = async () => await callTool(params?.name, args, targetStore, target.scope);
   const result = await answeringNoteCap(() =>
     RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
   );
+  // What the model now holds, for the egress ledger of a turn seen whole.
+  if (!toolIsWriting(params?.name)) {
+    recordRead(session.egress?.ledger, {
+      name: params?.name,
+      args,
+      scope: target.scope,
+      workspaceId: target.workspaceId,
+      result,
+    });
+  }
   noteAgentActivity(targetStore, params?.name, args, result);
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it

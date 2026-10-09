@@ -109,7 +109,7 @@ describe("validateName (pure rules)", () => {
    * The check above is five strings somebody typed. It cannot notice a route
    * the gateway adds, and it did not notice one the gateway already had:
    * `granola-webhook` is in `RESERVED_FIRST_SEGMENTS` in `apps/mcp/src/
-   * session.js` and `validateName("granola-webhook")` returned `{ok: true}`,
+   * workspacePath.js` and `validateName("granola-webhook")` returned `{ok: true}`,
    * so anybody could claim it as a username or a workspace slug.
    *
    * Three things were relying on that not being so. The console's

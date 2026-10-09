@@ -14,6 +14,7 @@
  * come after it, not for this.
  */
 import worker from "../src/index.js";
+import { approving } from "./egressApproval.mjs";
 import { R2Store } from "../src/store/r2.js";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -256,6 +257,38 @@ await controlPlane.addGrant({
   clientId: "mcp_client_readonly",
   userId: "user_owner",
 });
+/*
+  Each person's own app, for the egress gate (`test/egressApproval.mjs`): a
+  call the gate holds is approved from here, as that person, and called
+  again. One per person who can write, with that person's role.
+*/
+const CONSOLE_TOKENS = {
+  user_owner: "cat_test_console_owner_0000000000000",
+  user_colleague: "cat_test_console_colleague_000000000",
+};
+const USER_OF_LABEL = {
+  "priv-token": "user_owner",
+  "owner-team-token": "user_owner",
+  "readonly-token": "user_owner",
+  "team-token": "user_colleague",
+  "pub-token": "user_colleague",
+};
+await controlPlane.addGrant({
+  accessToken: CONSOLE_TOKENS.user_owner,
+  workspaceId: WORKSPACE_ID,
+  role: "owner",
+  scopes: ["context:read", "context:write", "context:private"],
+  clientId: "context_console",
+  userId: "user_owner",
+});
+await controlPlane.addGrant({
+  accessToken: CONSOLE_TOKENS.user_colleague,
+  workspaceId: WORKSPACE_ID,
+  role: "editor",
+  scopes: ["context:read", "context:write"],
+  clientId: "context_console",
+  userId: "user_colleague",
+});
 
 const env = {
   CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -302,9 +335,21 @@ async function rpc(token, method, params) {
   const res = await worker.fetch(req, env, { waitUntil() {} });
   return res.status === 202 ? null : await res.json();
 }
+/**
+ * One tool call as an MCP client whose person approves, at once, whatever
+ * the egress gate holds (`egressApproval.mjs`). `callUnapproved` is the same
+ * call with nobody answering, for the checks about the hold itself.
+ */
 async function call(token, name, args = {}) {
-  const r = await rpc(token, "tools/call", { name, arguments: args });
-  return r.result;
+  return approving(() => callUnapproved(token, name, args), {
+    env,
+    consoleToken: CONSOLE_TOKENS[USER_OF_LABEL[token]],
+    origin: "https://x",
+    call: { name, args },
+  });
+}
+async function callUnapproved(token, name, args = {}) {
+  return (await rpc(token, "tools/call", { name, arguments: args })).result;
 }
 
 /**
@@ -481,6 +526,7 @@ export {
   env,
   rpc,
   call,
+  callUnapproved,
   lacks,
   succeeded,
   check,

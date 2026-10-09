@@ -1,7 +1,7 @@
 /**
  * The binding → store mapping, and every way it is supposed to refuse.
  *
- * `storeForBinding` is the single table `session.js` and the control plane's own
+  * `storeForBinding` is the single table `sessionStore.js` and the control plane's own
  * store-building paths go through, so it is the one place a new backend can be
  * forgotten. These checks are about what happens when a binding and its
  * `provider` do not agree — which is the shape of both a control-plane bug and
@@ -443,9 +443,9 @@ export function runStoreFactoryChecks(check) {
   /* ------------------ one table, not a switch per call site ----------------- */
 
   check(
-    "session.js builds no store of its own; it delegates to the one table",
+    "sessionStore.js builds no store of its own; it delegates to the one table",
     (() => {
-      const source = readFileSync(new URL("../src/session.js", import.meta.url), "utf8");
+      const source = readFileSync(new URL("../src/sessionStore.js", import.meta.url), "utf8");
       return (
         // `env` and then, optionally, the per-request options (the note cap,
         // managed-storage encryption), never a hand-built adapter.

@@ -3,6 +3,9 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { AgentConversation } from "../../agent/AgentConversation";
 import type { AgentEngine } from "../../agent/engine";
 import type { AgentPage } from "../../agent/page";
+import { ApprovalsPanel } from "../../approvals/ApprovalsPanel";
+import { pendingCount } from "../../approvals/copy";
+import type { ApprovalsView } from "../../approvals/useApprovals";
 import { Dot } from "../../design/components/Dot";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
@@ -14,6 +17,7 @@ import {
   CHAT_INTRO,
   asideTabFor,
   meetingNeedsAttention,
+  visibleAsideTabs,
   type AsideTab,
 } from "./tabs";
 
@@ -52,6 +56,7 @@ export function AsidePanel({
   started,
   newChat,
   onOpenNote,
+  approvals,
 }: {
   /** False draws the Meetings tab alone: the homepage, with no agent behind it. */
   chat?: boolean;
@@ -94,10 +99,24 @@ export function AsidePanel({
   newChat: number | null;
   /** Open a finished meeting's note in the console, by href and path. `null` on the demo console. */
   onOpenNote: ((href: string, path: string) => void) | null;
+  /**
+   * What the egress gate is holding for this person, from `useApprovals`.
+   *
+   * Optional, and absent means no Approvals tab: a host that cannot answer
+   * approvals (the homepage, a test that does not mount the hook) draws the
+   * panel it always drew. The tab's count is read here, so it is visible from
+   * the Chat tab without opening it.
+   */
+  approvals?: ApprovalsView;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>("chat");
-  const showing: AsideTab = chat ? asideTabFor(chosen) : "meetings";
+  const approvalsAvailable = approvals?.available === true;
+  const tabs = visibleAsideTabs({ chat, approvals: approvalsAvailable });
+  // The tab somebody chose, if this console still shows it; else the first one it does.
+  const wanted = asideTabFor(chosen);
+  const showing: AsideTab = tabs.includes(wanted) ? wanted : chat ? "chat" : "meetings";
+  const waiting = approvals?.items.length ?? 0;
 
   /*
     A question arriving takes the tab, where a meeting does not — and the two
@@ -130,12 +149,18 @@ export function AsidePanel({
   return (
     <View style={styles.panel} testID="aside-panel">
       <View style={styles.tabs} accessibilityRole="tablist">
-        {ASIDE_TABS.filter((tab) => chat || tab.key === "meetings").map((tab) => {
+        {ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => {
           const current = tab.key === showing;
+          const count = tab.key === "approvals" ? pendingCount(waiting) : "";
           return (
             <Pressable
               key={tab.key}
-              onPress={() => setChosen(tab.key)}
+              onPress={() => {
+                setChosen(tab.key);
+                // Looking at the list is asking for the newest one: a request
+                // raised since the console opened should be here when it is.
+                if (tab.key === "approvals") approvals?.refresh();
+              }}
               role="tab"
               accessibilityState={{ selected: current }}
               /*
@@ -148,7 +173,9 @@ export function AsidePanel({
               accessibilityLabel={
                 meetingNeedsAttention(showing, meetingLive) && tab.key === "meetings"
                   ? `${tab.label}, recording`
-                  : tab.label
+                  : count !== ""
+                    ? `${tab.label}, ${count} waiting`
+                    : tab.label
               }
               style={[styles.tab, current && styles.tabCurrent]}
               testID={`aside-tab-${tab.key}`}
@@ -156,6 +183,11 @@ export function AsidePanel({
               <Text variant="rowSub" style={[styles.tabLabel, current && styles.tabLabelCurrent]}>
                 {tab.label}
               </Text>
+              {count !== "" ? (
+                <Text variant="meta" style={styles.count} testID="aside-tab-approvals-count">
+                  {count}
+                </Text>
+              ) : null}
               {meetingNeedsAttention(showing, meetingLive) && tab.key === "meetings" ? (
                 /*
                   Wrapped, because `Dot` takes no `testID` — it is a 6pt mark
@@ -188,6 +220,10 @@ export function AsidePanel({
             asked={asked}
           />
         </View>
+      ) : showing === "approvals" && approvals !== undefined ? (
+        <View style={styles.body} testID="aside-approvals">
+          <ApprovalsPanel view={approvals} />
+        </View>
       ) : (
         <MeetingsTab onOpenNote={onOpenNote} />
       )}
@@ -217,6 +253,7 @@ const makeStyles = (colors: Colors) =>
     },
     tabCurrent: { backgroundColor: colors.chrome },
     tabLabel: { color: colors.muted },
+    count: { color: colors.muted },
     tabLabelCurrent: { color: colors.text },
     body: { flex: 1, minHeight: 0 },
     intro: { color: colors.muted, paddingHorizontal: space.x4, paddingTop: space.x3 },

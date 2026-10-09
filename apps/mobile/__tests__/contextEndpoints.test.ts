@@ -45,12 +45,12 @@ const ENDPOINT = "https://mcp.context.test/mcp";
 /**
  * The two files that declare `RESERVED_FIRST_SEGMENTS`, as text.
  *
- * Read rather than imported because both declarations are module-private, and
- * exporting either would mean editing shipped code to satisfy a test. The
- * control plane reaches `session.js` the same way, through a Vite `?raw` glob;
- * here `node:fs` is what this suite already uses for the same job.
+ * Read rather than imported so the check reads each declaration as the gateway
+ * ships it, not a value a module happens to export. The control plane reaches
+ * `workspacePath.js` the same way, through a Vite `?raw` glob; here `node:fs` is
+ * what this suite already uses for the same job.
  */
-const GATEWAY_SOURCE = readFileSync(join(__dirname, "../../mcp/src/session.js"), "utf8");
+const GATEWAY_SOURCE = readFileSync(join(__dirname, "../../mcp/src/workspacePath.js"), "utf8");
 const CONSOLE_SOURCE = readFileSync(
   join(__dirname, "../features/console/endpoints.ts"),
   "utf8",
@@ -97,7 +97,7 @@ describe("the endpoint for one context", () => {
    *
    * The check above is five strings somebody typed. It cannot notice a route
    * the gateway adds — and `endpoints.ts` keeps a **third** copy of
-   * `session.js`'s `RESERVED_FIRST_SEGMENTS`, which is exactly the copy that
+   * `workspacePath.js`'s `RESERVED_FIRST_SEGMENTS`, which is exactly the copy that
    * decides whether this product prints a URL that reaches a context or one
    * that reaches a route.
    *

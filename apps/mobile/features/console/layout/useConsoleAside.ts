@@ -3,6 +3,7 @@ import { WELCOME_ROUTE } from "../../onboarding/route";
 import { agentPage } from "../../agent/page";
 import { useOpenNote } from "../../agent/openNote";
 import { useAgentEngine } from "../../agent/useAgentEngine";
+import { useApprovals } from "../../approvals/useApprovals";
 import { useCarriesMeeting } from "../../meetings/carried";
 import { RESUME_RECENT_WINDOW_MS, resumeRowFor } from "../../meetings/resume";
 import { useMeetingFlow } from "../../meetings/useMeetingFlow";
@@ -259,6 +260,18 @@ export function useConsoleAside({
     workspaceId: data.selectedContextId,
     endpoint: data.endpoint,
   });
+  /*
+    What the egress gate is holding for this context, for the right panel's
+    Approvals tab and its count. Read here, beside the engine, because it is the
+    same grant for the same workspace — and because the count has to be known
+    before anybody opens the tab. Off where there is no panel (a phone's
+    console has none), on the demo, and with no context to ask about.
+  */
+  const approvals = useApprovals({
+    workspaceId: data.selectedContextId,
+    endpoint: data.endpoint,
+    enabled: !phone && !data.demo && data.selectedContextId !== null,
+  });
 
   const resumeMeeting = useResumeMeeting();
   /*
@@ -374,6 +387,7 @@ export function useConsoleAside({
     setAsked,
     openAsideAt,
     agentEngine,
+    approvals,
     resumeRow,
     voiceHost,
   };

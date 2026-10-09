@@ -34,7 +34,7 @@ const SLUG_PATTERN = /^[a-z0-9-]{2,32}$/;
 /**
  * First segments the gateway reads as a route rather than as a context.
  *
- * A third copy of `session.js`'s `RESERVED_FIRST_SEGMENTS`, and deliberately so
+ * A third copy of `workspacePath.js`'s `RESERVED_FIRST_SEGMENTS`, and deliberately so
  * for the reason that file gives for keeping its own: no context can be called
  * any of these — `functions/lib/names.ts` reserves them — but a screen that
  * assumed the two lists stayed in sync would print a URL that resolves to a
@@ -56,6 +56,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "collaboration",
   // What agents read and wrote lately, `/agent-activity` on the gateway.
   "agent-activity",
+  // What the egress gate is holding, and the app's yes or no, `/approvals` on the gateway.
+  "approvals",
 ]);
 
 /**

@@ -17,6 +17,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 import { CONTROL_PLANE_SITE_TIMEOUT_MS, CONTROL_PLANE_TIMEOUT_MS } from "../src/controlPlane/client.js";
 import { ControlPlaneError, createControlPlane } from "../src/controlPlane.js";
 import { toolSiteAction } from "../src/tools/notes/site.js";
@@ -73,7 +74,18 @@ function createBucket() {
   };
 }
 
+/** The editor's own app, which approves what the gate holds (`egressApproval.mjs`). */
+const CONSOLE_EDITOR = `cat_site_console_editor_${"0".repeat(16)}`;
+
 async function call(env, token, args) {
+  const result = await approving(() => callOnce(env, token, args), {
+    env,
+    consoleToken: token === EDITOR_TOKEN ? CONSOLE_EDITOR : null,
+  });
+  return { text: result?.content?.[0]?.text ?? JSON.stringify(result), isError: result?.isError === true };
+}
+
+async function callOnce(env, token, args) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
@@ -86,7 +98,7 @@ async function call(env, token, args) {
   );
   const body = await response.json();
   await settle();
-  return { text: body?.result?.content?.[0]?.text ?? JSON.stringify(body), isError: body?.result?.isError === true };
+  return body?.result ?? { isError: true, content: [{ type: "text", text: JSON.stringify(body) }] };
 }
 
 async function rawCall(env, token, args) {
@@ -131,6 +143,14 @@ export async function runSiteActionChecks(check) {
       role: "editor",
       scopes: ["context:read", "context:write"],
       clientId: "mcp_client_site_editor",
+      userId: "user_editor",
+    });
+    await controlPlane.addGrant({
+      accessToken: CONSOLE_EDITOR,
+      workspaceId: "ws_site",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "context_console",
       userId: "user_editor",
     });
     await controlPlane.addGrant({
@@ -363,7 +383,18 @@ export async function runSiteActionChecks(check) {
     check("a malformed draft, an unknown action and a site passed with content are refused before anything is sent",
       badDraft.isError && badAction.isError && withContent.isError && controlPlane.siteCalls.length === callsBefore + 1);
 
-    check("nothing was written to the bucket", JSON.stringify([...bucket.objects.entries()]) === before);
+    // The egress gate's own records are not the site's: the pending and done
+    // records under `.context/approvals/`, and the audit entry each approval or
+    // denial leaves (`settlePending`, `approve_action` / `deny_action`). Nothing
+    // else under `.context/audit/` is excused, so a site call that wrote one would
+    // still be caught.
+    const gateRecord = ([key, value]) =>
+      key.startsWith(".context/approvals/") ||
+      (key.startsWith(".context/audit/") && /"action":"(approve|deny)_action"/.test(String(value?.body ?? "")));
+    check(
+      "nothing was written to the bucket",
+      JSON.stringify([...bucket.objects.entries()].filter((entry) => !gateRecord(entry))) === before,
+    );
   } finally {
     restore();
   }

@@ -5,7 +5,7 @@
  *
  * ## Why this is read rather than restated
  *
- * `RESERVED_FIRST_SEGMENTS` lives in `apps/mcp/src/session.js` and decides, on
+ * `RESERVED_FIRST_SEGMENTS` lives in `apps/mcp/src/workspacePath.js` and decides, on
  * every request, whether `/@foo/mcp` means "the context called foo" or "the
  * route called foo". `RESERVED_NAMES` in `functions/lib/names.ts` decides
  * whether anybody may be called `foo` in the first place. The two are a pair,
@@ -19,9 +19,9 @@
  * gateway reads as a route is a context nobody can point a client at.
  *
  * So this reaches for the real thing, the way `gatewayFormat.helpers.ts`
- * reaches for the real privacy parser. Extracting rather than importing for
- * the same reason it gives: `session.js`'s declaration is module-private, and
- * exporting it would mean editing `apps/mcp` to satisfy a test.
+ * reaches for the real privacy parser. Reading the text rather than importing
+ * it, for the same reason it gives: the check is about the declaration as
+ * written, not an exported value.
  *
  * ## What is left here, and what moved
  *
@@ -43,11 +43,11 @@
 import { parseGatewayRouteSegments } from "@context/shared/src/gatewayRouteSegments";
 
 /**
- * Globbed rather than imported as `"…/session.js?raw"`, matching
+ * Globbed rather than imported as `"…/workspacePath.js?raw"`, matching
  * `gatewayFormat.helpers.ts`, so the typing dependency stays the one this
  * package already carries.
  */
-const SESSION_SOURCES = import.meta.glob("../../mcp/src/session.js", {
+const SESSION_SOURCES = import.meta.glob("../../mcp/src/workspacePath.js", {
   query: "?raw",
   import: "default",
   eager: true,

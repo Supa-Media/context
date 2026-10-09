@@ -516,10 +516,15 @@ and a routine's own run still only propose.
 
 **What is accepted:** a note the agent reads can carry instructions, and a
 personal context takes email from strangers into `0-inbox/`. A steered turn can
-now do anything the person could through an MCP client, including minting a
+now do anything the person could through an MCP client — *inside the
+workspace*. The part of this paragraph that once read "including minting a
 public link, publishing the website, and having the gateway fetch an image
-address of the model's choosing (which reopens, for writes, the channel "The
-agent opens only addresses it was given" closes for reads). Every write is
+address of the model's choosing" was reversed by the owner on 2026-10-09: a
+call that would widen who can see something, after the turn has read a
+private note or anything from outside, is held until the person replies YES
+on the thread, and the gateway checks the reply rather than the model
+([agent-egress](./privacy-and-sharing/agent-egress.md)). A turn that read
+nothing still runs it, because the words were the person's. Every write is
 attributed to the texting client in the audit trail and kept in the note's
 history.
 

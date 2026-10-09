@@ -47,6 +47,7 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 
 const S3_ENDPOINT = "https://s3.example-bulk-visibility.test";
 
@@ -84,7 +85,17 @@ function binding(bucket, key) {
   };
 }
 
+/** The owner's own app, which approves what the gate holds (`egressApproval.mjs`). */
+const CONSOLE_OWNER = `cat_bulkvis_console_${"0".repeat(21)}`;
+
 async function callTool(env, tokenValue, name, args = {}) {
+  return approving(() => callToolOnce(env, tokenValue, name, args), {
+    env,
+    consoleToken: tokenValue === TOKEN_OWNER ? CONSOLE_OWNER : null,
+  });
+}
+
+async function callToolOnce(env, tokenValue, name, args = {}) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
@@ -129,6 +140,14 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     role: "owner",
     scopes: ["context:read", "context:write", "context:private"],
     clientId: "mcp_client_bulkvis",
+    userId: "user_bulkvis",
+  });
+  await controlPlane.addGrant({
+    accessToken: CONSOLE_OWNER,
+    workspaceId: "ws_bulkvis",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
     userId: "user_bulkvis",
   });
   await controlPlane.addGrant({
