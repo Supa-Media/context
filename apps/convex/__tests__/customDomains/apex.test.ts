@@ -93,7 +93,8 @@ describe("a root domain", () => {
     vi.advanceTimersByTime(10_000);
     await asUser(t, owner).mutation(api.functions.customDomains.checkNow, { domainId });
     await runDue(t);
-    expect(patches()).toBe(afterConnect + 1);
+    // One for the root, and one for its www., whose certificate is its own.
+    expect(patches()).toBe(afterConnect + 2);
   });
 
   test("the TXT is taken from Cloudflare only in its own shape", () => {
