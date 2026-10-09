@@ -10,7 +10,7 @@ import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
 import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
-import { clearPendingPhone, pendingPhone } from "../../features/auth/pendingPhone";
+import { EmailCheckScreen } from "../../features/auth/EmailCheckScreen";
 import { DomainJoin } from "../../features/auth/DomainJoin";
 import { domainJoinFor, type JoinableWorkspace } from "../../features/auth/domainJoin";
 import { ToastHost } from "../../features/design/components/Toast";
@@ -204,8 +204,6 @@ export default function AppLayout() {
   // said once on the page it opened. A refused join is not asked again.
   const [joined, setJoined] = useState<JoinableWorkspace | null>(null);
   const [refusedJoin, setRefusedJoin] = useState<string | null>(null);
-  // Bumped when a typed phone is skipped, so the gate below is read again.
-  const [, setPhoneSkips] = useState(0);
   const onJoined = useCallback((workspace: JoinableWorkspace) => setJoined(workspace), []);
   const rows = usable<(WorkspaceStandingRow & ResumeWorkspaceRow)[]>(results.workspaces);
 
@@ -250,25 +248,16 @@ export default function AppLayout() {
     redirected to, so no URL gets past it. Unanswered is not a stop: the
     server answers "required" only when the check is switched on, has its
     keys, and this account has no confirmed phone (`functions/phoneCheck.ts`).
-
-    A number typed on the sign-in page that no account held yet (board p2) is
-    confirmed here too, check or no check: it is the phone they meant to sign
-    in with, so it goes on the account they just signed in to.
   */
-  const phoneAnswer = usable<{ required: boolean; confirmed: boolean }>(results.phoneCheck);
-  const typedPhone = phoneAnswer?.confirmed === false ? pendingPhone() : null;
-  if (blocksForPhone(phoneAnswer) || typedPhone !== null) {
-    return (
-      <PhoneCheckScreen
-        initialPhone={typedPhone ?? undefined}
-        onSkip={blocksForPhone(phoneAnswer) ? undefined : () => {
-                clearPendingPhone();
-                setPhoneSkips((n) => n + 1);
-              }}
-      />
-    );
-  }
-  if (phoneAnswer?.confirmed === true && pendingPhone() !== null) clearPendingPhone();
+  const phoneAnswer = usable<{ required: boolean; needsEmail?: boolean }>(results.phoneCheck);
+  if (blocksForPhone(phoneAnswer)) return <PhoneCheckScreen />;
+
+  /*
+    An account a phone made (a number staff let in from the waitlist) has no
+    email yet: asked once, right after, so mail and invitations reach them
+    (`functions/signInEmails.ts`).
+  */
+  if (phoneAnswer?.needsEmail === true) return <EmailCheckScreen />;
 
   /*
     A link to a workspace this person's email domain opens (board s4): join

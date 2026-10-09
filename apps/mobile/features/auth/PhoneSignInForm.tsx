@@ -5,12 +5,14 @@ import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, space, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
-import { PHONE_SIGN_IN_HEADING } from "./phoneSignIn";
+import { ALREADY_HEADING, JOINED_HEADING, PHONE_SIGN_IN_HEADING, WAITLIST_WHY } from "./phoneSignIn";
 import type { PhoneSignIn } from "./usePhoneSignIn";
 
 /**
  * The phone half of the sign-in page (board p1): a number, then the texted
- * code. Email stays one small link away. `usePhoneSignIn` is the state; the
+ * code. A number not let in yet goes on the waitlist, said here in place
+ * ("login and waitlist sign up" by phone, Dev2 2026-10-09). Email stays one
+ * small link away. `usePhoneSignIn` is the state; the
  * page around it (`LoginScreen`) draws the wordmark and the picture.
  */
 export function PhoneSignInForm({ flow, onUseEmail }: { flow: PhoneSignIn; onUseEmail: () => void }) {
@@ -18,6 +20,28 @@ export function PhoneSignInForm({ flow, onUseEmail }: { flow: PhoneSignIn; onUse
   const styles = useThemedStyles(makeStyles);
   const { sentTo, submitting, error } = flow;
   const spinner = submitting ? <ActivityIndicator color={colors.ink} size="small" /> : null;
+
+  if (flow.waitlist !== null) {
+    return (
+      <View testID="login-phone-waitlist">
+        <Text role="heading" aria-level={1} style={styles.pitch}>
+          {flow.waitlist === "joined" ? JOINED_HEADING : ALREADY_HEADING}
+        </Text>
+        <Text variant="rowSub" style={styles.sent}>
+          {WAITLIST_WHY}
+        </Text>
+        <Text variant="foot" style={styles.foot}>
+          <Text variant="foot" role="link" style={styles.link} onPress={flow.changeNumber} testID="login-phone-change">
+            Use a different number
+          </Text>
+          {" · Invited by email? "}
+          <Text variant="foot" role="link" style={styles.link} onPress={onUseEmail} testID="login-use-email">
+            Use email instead
+          </Text>
+        </Text>
+      </View>
+    );
+  }
 
   if (sentTo === null) {
     return (

@@ -3,7 +3,6 @@ import { useAction } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import { OTP_LENGTH } from "./CodeBoxes";
-import { setPendingPhone } from "./pendingPhone";
 import { CODE_FAILED, startError, type StartStatus } from "./phoneSignIn";
 
 /** The provider `apps/convex/auth.ts` registers for a texted code. */
@@ -12,12 +11,12 @@ export const PHONE_VERIFY_PROVIDER = "phone-verify";
 /**
  * The phone field on the sign-in page, as state (Dev2, 2026-10-09).
  *
- * A phone an account holds is texted a code, and the code signs in. A phone
- * nobody holds is kept (`pendingPhone`) and `onNewNumber` hands over to the
- * email field, whose sign-in is followed by the phone check for that number.
- * Without Twilio on this deployment, `onNewNumber` too: email still works.
+ * A phone an account holds, or one staff let in, is texted a code, and the
+ * code signs in (making the account, for a let-in phone). Any other phone is
+ * put on the waitlist and `waitlist` says so. Without Twilio on this
+ * deployment, `onUnavailable` hands over to the email field.
  */
-export function usePhoneSignIn(options: { onSignedIn: () => void; onNewNumber: () => void }) {
+export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable: () => void }) {
   const { signIn } = useAuthActions();
   const start = useAction(api.functions.phoneSignIn.start);
 
@@ -27,6 +26,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onNewNumber: (
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resent, setResent] = useState(false);
+  const [waitlist, setWaitlist] = useState<"joined" | "already" | null>(null);
 
   async function send(again = false) {
     setError(null);
@@ -38,9 +38,10 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onNewNumber: (
         setSentTo(result.phone);
         setCode("");
         setResent(again);
-      } else if (result.status === "new" || result.status === "unavailable") {
-        if (result.status === "new" && result.phone !== undefined) setPendingPhone(result.phone);
-        options.onNewNumber();
+      } else if (result.status === "joined" || result.status === "already") {
+        setWaitlist(result.status);
+      } else if (result.status === "unavailable") {
+        options.onUnavailable();
       }
     } catch {
       setError(startError("failed"));
@@ -71,6 +72,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onNewNumber: (
 
   function changeNumber() {
     if (submitting) return;
+    setWaitlist(null);
     setSentTo(null);
     setCode("");
     setError(null);
@@ -92,6 +94,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onNewNumber: (
     submitting,
     error,
     resent,
+    waitlist,
     canSend: phone.trim().length >= 7,
     send,
     verify,

@@ -15,6 +15,7 @@ import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { AdminActor } from "../admin";
+import { normalizePhone } from "../phoneCheck";
 import { waitlistEmail } from "../waitlist";
 
 /** Rows one listing returns, newest first. */
@@ -30,7 +31,9 @@ export const waitlistStatusValidator = v.union(
 
 export const waitlistRowValidator = v.object({
   id: v.id("waitlist"),
-  email: v.string(),
+  /** One of the two is set: how the person joined. */
+  email: v.union(v.string(), v.null()),
+  phone: v.union(v.string(), v.null()),
   status: waitlistStatusValidator,
   joinedAt: v.number(),
   source: v.string(),
@@ -54,7 +57,8 @@ export async function listWaitlistHandler(
   return {
     rows: rows.slice(0, WAITLIST_PAGE).map((row) => ({
       id: row._id,
-      email: row.email,
+      email: row.email ?? null,
+      phone: row.phone ?? null,
       status: row.status,
       joinedAt: row.joinedAt,
       source: row.source,
@@ -122,31 +126,46 @@ export async function removeHandler(ctx: MutationCtx, ids: Id<"waitlist">[]) {
 }
 
 /**
- * Let addresses in before they ever ask. Pasted text, split on commas,
- * whitespace and newlines; anything that is not an address is handed back
- * rather than dropped silently.
+ * Let people in before they ever ask. Pasted text, one per line or split on
+ * commas and semicolons; an address or a phone with its country code (people
+ * sign in with a phone since 2026-10-09). Anything else is handed back rather
+ * than dropped silently.
  */
 export async function addEmailsHandler(ctx: MutationCtx, raw: string, actor: AdminActor) {
-  const candidates = [...new Set(raw.split(/[\s,;]+/).filter((part) => part.length > 0))];
+  const candidates = [
+    ...new Set(
+      raw
+        .split(/[\n,;]+/)
+        .flatMap((part) => (normalizePhone(part) !== null ? [part.trim()] : part.split(/\s+/)))
+        .filter((part) => part.length > 0),
+    ),
+  ];
   checkBatch(candidates.length);
   const invalid: string[] = [];
   let changed = 0;
   for (const candidate of candidates) {
     const email = waitlistEmail(candidate);
-    if (email === null) {
+    const phone = email === null ? normalizePhone(candidate) : null;
+    if (email === null && phone === null) {
       invalid.push(candidate);
       continue;
     }
-    const existing = await ctx.db
-      .query("waitlist")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
+    const existing =
+      email !== null
+        ? await ctx.db
+            .query("waitlist")
+            .withIndex("by_email", (q) => q.eq("email", email))
+            .unique()
+        : await ctx.db
+            .query("waitlist")
+            .withIndex("by_phone", (q) => q.eq("phone", phone!))
+            .first();
     if (existing !== null) {
       if (await admitRow(ctx, existing, actor)) changed += 1;
       continue;
     }
     const id = await ctx.db.insert("waitlist", {
-      email,
+      ...(email !== null ? { email } : { phone: phone! }),
       status: "waiting",
       joinedAt: Date.now(),
       source: "staff",

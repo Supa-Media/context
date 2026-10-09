@@ -16,6 +16,7 @@ import {
   phoneHeldByAnother,
 } from "./lib/phoneCheck";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
+import { attachedEmailsOf } from "./lib/signInEmails";
 
 /**
  * The phone check's three calls: is this person asked, text them a code, and
@@ -59,18 +60,22 @@ function requireSignedIn(userId: Id<"users"> | null): Id<"users"> {
   return userId;
 }
 
-/** Whether the app should stop and ask this person for a phone. */
+/**
+ * Whether the app should stop and ask this person for a phone, or, for an
+ * account a phone made (`phoneSignIn.ts`), for the email it has not got yet.
+ */
 export const myPhoneCheck = query({
   args: {},
-  returns: v.object({ required: v.boolean(), confirmed: v.boolean() }),
+  returns: v.object({ required: v.boolean(), confirmed: v.boolean(), needsEmail: v.boolean() }),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
-    if (userId === null) return { required: false, confirmed: false };
+    if (userId === null) return { required: false, confirmed: false, needsEmail: false };
     const user = await ctx.db.get(userId);
-    if (user === null) return { required: false, confirmed: false };
+    if (user === null) return { required: false, confirmed: false, needsEmail: false };
     const confirmed = await hasConfirmedPhone(ctx, user);
     const required = phoneCheckRequired() && !isExemptEmail(user.email) && !confirmed;
-    return { required, confirmed };
+    const needsEmail = user.email === undefined && (await attachedEmailsOf(ctx, userId)).length === 0;
+    return { required, confirmed, needsEmail };
   },
 });
 

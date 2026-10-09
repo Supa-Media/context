@@ -134,6 +134,25 @@ export async function isAdmittedWithoutReferral(
 }
 
 /**
+ * Is this phone (E.164) let in to make an account? People join the waitlist
+ * with a phone on the sign-in page (Dev2, 2026-10-09), and staff let those
+ * rows in like any other. An open deployment admits every phone. A phone an
+ * account already holds signs in to it and never needs this.
+ */
+export async function isPhoneAdmitted(
+  db: Db,
+  phone: string,
+  env: Record<string, string | undefined> = process.env,
+): Promise<boolean> {
+  if (signupIsOpen(env)) return true;
+  const rows = await db
+    .query("waitlist")
+    .withIndex("by_phone", (q) => q.eq("phone", phone))
+    .take(5);
+  return rows.some((row) => row.status === "admitted");
+}
+
+/**
  * The new-account half of the gate, for `createSupaAuth`'s `canCreateUser`.
  *
  * The fixed-code test accounts (`test-email*` providers: the CUJ account and

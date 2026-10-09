@@ -118,7 +118,8 @@ export const mailFacts = internalQuery({
   returns: v.union(v.null(), v.object({ email: v.string() })),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.waitlistId);
-    return row === null ? null : { email: row.email };
+    // A row joined with a phone has no address to mail.
+    return row?.email === undefined ? null : { email: row.email };
   },
 });
 

@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
-import { isAdmitted, mayCreateUser, OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
+import { isAdmitted, isPhoneAdmitted, mayCreateUser, OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { WAITLIST_JOINS_PER_HOUR } from "../functions/waitlist";
 import { setupTest, type TestConvex } from "./fixtures.helpers";
 
@@ -282,5 +282,25 @@ describe("the staff Waitlist", () => {
     for (const email of ["a@one.test", "b@two.test", "waiting@studio.test"]) {
       expect(await admitted(t, email)).toBe(true);
     }
+  });
+
+  test("Add takes phones too, which then sign up by phone and are listed by number", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    const result = await as.mutation(api.functions.admin.addToWaitlist, {
+      emails: "+1 (555) 555-0142\nada@one.test, 555 0100",
+    });
+    expect(result).toEqual({ changed: 2, invalid: ["555", "0100"] });
+    await t.run(async (ctx) => {
+      expect(await isPhoneAdmitted(ctx.db, "+15555550142")).toBe(true);
+      expect(await isPhoneAdmitted(ctx.db, "+15555550199")).toBe(false);
+    });
+    const listed = await as.query(api.functions.admin.listWaitlist, { status: "admitted" });
+    expect(listed.rows.map((r) => r.email ?? r.phone).sort()).toEqual(["+15555550142", "ada@one.test"]);
+    // Adding the same number again lets nobody in twice.
+    expect(await as.mutation(api.functions.admin.addToWaitlist, { emails: "+15555550142" })).toEqual({
+      changed: 0,
+      invalid: [],
+    });
   });
 });

@@ -5,18 +5,19 @@
  * `apps/convex/functions/phoneSignIn.ts`. This is only the words.
  */
 
-export type StartStatus = "sent" | "new" | "invalid_phone" | "too_many" | "unavailable" | "failed";
+export type StartStatus = "sent" | "joined" | "already" | "invalid_phone" | "too_many" | "unavailable" | "failed";
 
 export const PHONE_SIGN_IN_HEADING = "Sign in or join";
-export const NEW_NUMBER_HEADING = "What's your email?";
-export const NEW_NUMBER_WHY =
-  "Mail goes here, like invites and updates. After this, your phone is all you need to sign in.";
+export const JOINED_HEADING = "You're on the list.";
+export const ALREADY_HEADING = "You're already on the list.";
+export const WAITLIST_WHY = "Context is invite only for now. When you're let in, this number is how you sign in.";
 export const CODE_FAILED = "That code didn't work. Check the text, or send a new code.";
 
 export function startError(status: StartStatus): string | null {
   switch (status) {
     case "sent":
-    case "new":
+    case "joined":
+    case "already":
     case "unavailable":
       return null;
     case "invalid_phone":
