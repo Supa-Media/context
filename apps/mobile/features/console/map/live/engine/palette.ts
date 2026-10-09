@@ -1,11 +1,13 @@
 import type { Colors, MapColors } from "../../../../design/tokens/colors";
+import type { AgentTintColors } from "../agentKind";
 
 /**
  * Every colour the map draws with. The engine takes one of these and never
  * reads a theme itself, so it works the same in a test, a worker or the app.
  *
- * Teal (`accent`) is spent on exactly three things: a note being written live,
- * a selected note, and a new note. Reading is drawn in `ink`.
+ * Teal (`accent`) is spent on a note being written live, a selected note, a
+ * new note, and the texting assistant's badge (`agent.agentContext`, which is
+ * the accent in both themes). Reading is drawn in `ink`.
  */
 export type MapPalette = {
   ground: string;
@@ -25,6 +27,8 @@ export type MapPalette = {
   /** A face with no picture: a silhouette on this ground. */
   faceGround: string;
   faceFigure: string;
+  /** Each AI tool's tint and glyph (`agentKind.ts`): a robot or the texting badge. */
+  agent: AgentTintColors;
   /** Soft drop shadows. */
   shadow: string;
 };
@@ -51,6 +55,16 @@ export function mapPalette(colors: Colors, map: MapColors): MapPalette {
     ink: map.ink,
     faceGround: colors.anonymousGround,
     faceFigure: colors.anonymousFigure,
+    agent: {
+      agentClaude: map.agentClaude,
+      agentCodex: map.agentCodex,
+      agentChatgpt: map.agentChatgpt,
+      agentContext: map.agentContext,
+      agentBlue: map.agentBlue,
+      agentPink: map.agentPink,
+      agentAmber: map.agentAmber,
+      agentGlyph: map.agentGlyph,
+    },
     shadow: "rgba(0,0,0,0.18)",
   };
 }

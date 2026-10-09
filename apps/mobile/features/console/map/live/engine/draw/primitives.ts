@@ -1,5 +1,6 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 
+import { agentPaint } from "../../agentKind";
 import type { MapPalette } from "../palette";
 
 /**
@@ -60,9 +61,11 @@ export function circle(ctx: Ctx, x: number, y: number, r: number): void {
 }
 
 /**
- * A face (person) or a robot (agent), centred on (x, y). People are a round
- * picture with a ground-coloured ring; agents are an ink tile with the robot
- * the app's `robot` icon draws, so the two are told apart at a glance.
+ * A face (person) or an AI (agent), centred on (x, y). People are a round
+ * picture with a ground-coloured ring. An agent is a robot on a tile tinted by
+ * which AI it is; the texting assistant is a round teal badge with a bubble.
+ * The shapes are told apart at a glance and the tints are the React faces'
+ * too (`agentKind.ts`).
  */
 export function drawFace(ctx: Ctx, who: Who, x: number, y: number, scale: number, style: Style): void {
   const C = style.palette;
@@ -89,14 +92,42 @@ export function drawFace(ctx: Ctx, who: Who, x: number, y: number, scale: number
     ctx.strokeStyle = C.ground;
     ctx.stroke();
   } else {
-    roundRect(ctx, -FACE_R, -FACE_R, FACE_R * 2, FACE_R * 2, 7);
-    ctx.fillStyle = C.ink;
+    // Which AI it is decides the tint (`agentKind.ts`); the texting assistant is a round badge.
+    const paint = agentPaint(who.name, C.agent);
+    if (paint.shape === "bubble") {
+      circle(ctx, 0, 0, FACE_R);
+    } else {
+      roundRect(ctx, -FACE_R, -FACE_R, FACE_R * 2, FACE_R * 2, 7);
+    }
+    ctx.fillStyle = paint.tint;
     ctx.fill();
     ctx.shadowColor = "transparent";
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = C.ground;
     ctx.stroke();
-    robot(ctx, C.ground);
+    if (paint.shape === "bubble") bubble(ctx, paint.glyph, paint.tint);
+    else robot(ctx, paint.glyph);
+  }
+  ctx.restore();
+}
+
+/** A speech bubble with three dots, the texting assistant's mark, in the tile's own scale. */
+function bubble(ctx: Ctx, glyph: string, tint: string): void {
+  ctx.save();
+  ctx.scale(0.8, 0.8);
+  ctx.fillStyle = glyph;
+  roundRect(ctx, -8, -7, 16, 11.5, 3.5);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-4.2, 3.8);
+  ctx.lineTo(-6.4, 8.4);
+  ctx.lineTo(0.2, 4.4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = tint;
+  for (const x of [-4.2, 0, 4.2]) {
+    circle(ctx, x, -1.25, 1.5);
+    ctx.fill();
   }
   ctx.restore();
 }
