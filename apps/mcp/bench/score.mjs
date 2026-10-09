@@ -24,6 +24,7 @@ import { dirname, join } from "node:path";
 
 import { isGateQuestion, parseTest } from "./load.mjs";
 import { frontMatter, parseJudgedSections, parseKey, parseResult, setFrontStatus } from "./resultNote.mjs";
+import { benchFolder } from "./folder.mjs";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -205,7 +206,7 @@ export async function scoreFile({ path, dir, date = today() }) {
 
 /** The `score` command: options come from run.mjs's argument parser. */
 export async function scoreCommand(options) {
-  const dir = options.dir ?? process.env.AI_BENCH_DIR;
+  const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai score <result file> --dir <benchmarks folder>");
   const { rows, best } = await scoreFile({ path: options.job, dir, date: today() });
   process.stderr.write(`scored ${rows.length} setups; best that passes every bar: ${best ?? "none"}; appended to ${options.job}\n`);
