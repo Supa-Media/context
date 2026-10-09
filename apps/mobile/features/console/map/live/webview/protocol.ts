@@ -1,5 +1,5 @@
 import type { ShownFace } from "../../../faces/faceStore";
-import type { CameraDetail, Inset } from "../engine/camera";
+import type { Cam, CameraDetail, Inset } from "../engine/camera";
 import type { FollowState } from "../engine/follow";
 import type { HitTarget } from "../engine/hit";
 import type { MapData } from "../engine/model";
@@ -30,7 +30,8 @@ export type MapCall =
   | { name: "focusPath"; workspaceId: string; path: string }
   | { name: "diveInto"; workspaceId: string; path: string }
   | { name: "select"; note: { workspaceId: string; path: string } | null }
-  | { name: "follow"; actorId: string | null };
+  | { name: "follow"; actorId: string | null }
+  | { name: "restoreCamera"; cam: Cam };
 
 export type HostMessage =
   | {
@@ -62,12 +63,15 @@ export type GuestMessage =
   | { type: "camera"; info: CameraDetail }
   | { type: "follow"; state: FollowState | null }
   | { type: "hover"; target: HitTarget | null }
-  | { type: "openNote"; note: { workspaceId: string; path: string } }
+  | { type: "openNote"; note: { workspaceId: string; path: string; at?: { x: number; y: number } } }
+  | { type: "tapEmpty" }
   | { type: "diveInto"; folder: { workspaceId: string; path: string } }
   | { type: "time"; t: number };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isText = (v: unknown, max = 4096): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
+
+const isCoordinate = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 100_000;
 
 function place(v: unknown): { workspaceId: string; path: string } | null {
   if (!isRecord(v) || !isText(v.workspaceId, 256) || !isText(v.path)) return null;
@@ -108,8 +112,13 @@ export function parseGuestMessage(raw: unknown): GuestMessage | null {
         : null;
     case "openNote": {
       const note = place(value.note);
-      return note ? { type: "openNote", note } : null;
+      if (note === null) return null;
+      const at = isRecord(value.note) ? value.note.at : undefined;
+      if (isRecord(at) && isCoordinate(at.x) && isCoordinate(at.y)) return { type: "openNote", note: { ...note, at: { x: at.x, y: at.y } } };
+      return { type: "openNote", note };
     }
+    case "tapEmpty":
+      return { type: "tapEmpty" };
     case "diveInto": {
       const folder = place(value.folder);
       return folder ? { type: "diveInto", folder } : null;

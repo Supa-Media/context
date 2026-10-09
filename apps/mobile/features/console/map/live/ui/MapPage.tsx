@@ -1,15 +1,17 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
 import type { ConsoleData } from "../../../types";
 import { useMapPage, type MapPageState } from "../hooks/useMapPage";
+import { useMapPeek, type MapPeek } from "../hooks/useMapPeek";
 import { replayBadge } from "../replayClock";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
 import { Breadcrumb, createCameraStore, OVERLAY_INSET, ZoomControl, type CameraStore } from "./CanvasOverlay";
 import { MapBar } from "./MapBar";
 import { MapPanel } from "./MapPanel";
+import { NotePeek } from "./NotePeek";
 import { PhoneMap } from "./PhoneMap";
 import { ReplayBar } from "./ReplayBar";
 import { mapNotice, statusParts } from "./status";
@@ -29,19 +31,25 @@ export type { OpenMapNote };
 export function MapPage({ data, compact, onOpenNote }: { data: ConsoleData; compact: boolean; onOpenNote: OpenMapNote }) {
   const page = useMapPage(data);
   const camera = useMemo(() => createCameraStore(), []);
-  if (compact) return <PhoneMap page={page} camera={camera} onOpenNote={onOpenNote} />;
-  return <DesktopMap page={page} camera={camera} onOpenNote={onOpenNote} />;
+  const peek = useMapPeek(page);
+  if (compact) return <PhoneMap page={page} camera={camera} peek={peek} onOpenNote={onOpenNote} />;
+  return <DesktopMap page={page} camera={camera} peek={peek} onOpenNote={onOpenNote} />;
 }
 
-function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: CameraStore; onOpenNote: OpenMapNote }) {
+function DesktopMap({ page, camera, peek, onOpenNote }: { page: MapPageState; camera: CameraStore; peek: MapPeek; onOpenNote: OpenMapNote }) {
   const styles = useThemedStyles(makeStyles);
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  const open = peek.peek;
   return (
     <View style={styles.page} testID="map-page">
       <MapBar page={page} compact={false} />
       <View style={styles.body}>
         <View style={styles.column}>
-          <View style={styles.canvasBox}>
-            <MapCanvas page={page} camera={camera} onOpenNote={onOpenNote} inset={page.view === "map" ? OVERLAY_INSET : NO_OVERLAY} />
+          <View
+            style={styles.canvasBox}
+            onLayout={(e) => setBox({ width: Math.round(e.nativeEvent.layout.width), height: Math.round(e.nativeEvent.layout.height) })}
+          >
+            <MapCanvas page={page} camera={camera} peek={peek} inset={page.view === "map" ? OVERLAY_INSET : NO_OVERLAY} />
             {page.view === "map" ? (
               <>
                 <Breadcrumb
@@ -59,6 +67,16 @@ function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: 
               </View>
             ) : null}
             <MapNotice page={page} />
+            {open !== null && box.width > 0 ? (
+              <NotePeek
+                page={page}
+                peek={open}
+                compact={false}
+                box={box}
+                onClose={peek.close}
+                onExpand={() => onOpenNote(open.workspaceId, open.path)}
+              />
+            ) : null}
           </View>
           {page.mode !== "live" ? <ReplayBar page={page} /> : null}
           <StatusLine page={page} />

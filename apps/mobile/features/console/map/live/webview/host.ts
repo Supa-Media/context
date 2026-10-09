@@ -22,7 +22,8 @@ export type MapHostHandlers = {
   onCamera?: (info: CameraDetail) => void;
   onFollow?: (state: FollowState | null) => void;
   onHover?: (target: HitTarget | null) => void;
-  onOpenNote?: (note: { workspaceId: string; path: string }) => void;
+  onOpenNote?: (note: { workspaceId: string; path: string; at?: { x: number; y: number } }) => void;
+  onTapEmpty?: () => void;
   onDiveInto?: (folder: { workspaceId: string; path: string }) => void;
   onTime?: (t: number) => void;
   onFailed?: (message: string) => void;
@@ -55,6 +56,10 @@ export function createMapHost(post: (raw: string) => void, handlers: () => MapHo
   let faces: Record<string, ShownFace> = {};
   let camera: CameraDetail | null = null;
   let follow: FollowState | null = null;
+  // A camera to put back and the highlighted note, kept until the guest can
+  // take them (coming back to the map, it may not be ready yet).
+  let restore: MapCall | null = null;
+  let selection: MapCall | null = null;
 
   const send = (message: Unversioned<HostMessage>) => {
     if (ready) post(JSON.stringify({ v: MAP_PROTOCOL_VERSION, ...message }));
@@ -69,6 +74,14 @@ export function createMapHost(post: (raw: string) => void, handlers: () => MapHo
     if (props !== null) send({ type: "props", ...props });
     send({ type: "faces", faces });
     sendData();
+    if (restore !== null) {
+      send({ type: "call", call: restore });
+      restore = null;
+    }
+    if (selection !== null) {
+      send({ type: "call", call: selection });
+      selection = null;
+    }
   };
   const call = (c: MapCall) => send({ type: "call", call: c });
 
@@ -81,13 +94,20 @@ export function createMapHost(post: (raw: string) => void, handlers: () => MapHo
       if (props !== null) host.setProps({ ...props, playing });
     },
     follow: (actorId) => call({ name: "follow", actorId }),
-    select: (note) => call({ name: "select", note }),
+    select: (note) => {
+      if (ready) call({ name: "select", note });
+      else selection = { name: "select", note };
+    },
     zoomIn: () => call({ name: "zoomIn" }),
     zoomOut: () => call({ name: "zoomOut" }),
     zoomTo: (level) => call({ name: "zoomTo", level }),
     fit: () => call({ name: "fit" }),
     focusPath: (workspaceId, path) => call({ name: "focusPath", workspaceId, path }),
     diveInto: (workspaceId, path) => call({ name: "diveInto", workspaceId, path }),
+    restoreCamera: (cam) => {
+      if (ready) call({ name: "restoreCamera", cam });
+      else restore = { name: "restoreCamera", cam };
+    },
     // The web view sizes itself; nothing here draws.
     resize: () => {},
     setInset: (inset) => {
@@ -152,6 +172,9 @@ export function createMapHost(post: (raw: string) => void, handlers: () => MapHo
           return;
         case "diveInto":
           h.onDiveInto?.(message.folder);
+          return;
+        case "tapEmpty":
+          h.onTapEmpty?.();
           return;
         case "time":
           h.onTime?.(message.t);

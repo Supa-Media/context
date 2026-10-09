@@ -19,6 +19,7 @@ import {
 import { crossMoveRows, liveFeed, nameBook, replayFeed, workingNowLine, type CrossMoveRow, type FeedItem } from "../feed";
 import { setMapFolderCounts } from "../mapCounts";
 import { useMapFixtureSource } from "../MapSourceContext";
+import { recallScope, rememberScope } from "../peek/mapMemory";
 import { REPLAY_IDLE_MS, replayReducer, replayWindow, startOfDay, type ReplayAction, type ReplayState } from "../replayClock";
 import type { MapClock, MapEvent, MapView } from "../types";
 import { useCrossMovesSince, useReplayHistory } from "./useHistory";
@@ -57,7 +58,15 @@ export function useMapPage(data: ConsoleData) {
   const colors = useColors();
   const scheme = useScheme();
   const reducedMotion = useReducedMotion();
-  const [scope, setScope] = useState<MapScopeChoice>("one");
+  // Coming back to the map (Back from a note) finds the scope it was left on.
+  const [scope, setScopeState] = useState<MapScopeChoice>(() => recallScope(data.selectedContextId));
+  const setScope = useCallback(
+    (next: MapScopeChoice) => {
+      rememberScope(data.selectedContextId, next);
+      setScopeState(next);
+    },
+    [data.selectedContextId],
+  );
   const [view, setView] = useState<MapView>("map");
   const [mode, setModeState] = useState<MapMode>("live");
   const [switchedAt, setSwitchedAt] = useState(() => Date.now());

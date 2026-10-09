@@ -25,7 +25,7 @@ export type LiveMapCanvasProps = {
   following?: string | null;
   /** The engine, for the zoom control and breadcrumb to drive. */
   onEngine?: (engine: MapEngine | null) => void;
-} & Pick<MapEngineOptions, "onCamera" | "onFollow" | "onHover" | "onOpenNote" | "onDiveInto" | "onTime" | "minimap">;
+} & Pick<MapEngineOptions, "onCamera" | "onFollow" | "onHover" | "onOpenNote" | "onTapEmpty" | "onDiveInto" | "onTime" | "minimap">;
 
 export function LiveMapCanvas(props: LiveMapCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -49,6 +49,7 @@ export function LiveMapCanvas(props: LiveMapCanvasProps) {
       onFollow: (state) => propsRef.current.onFollow?.(state),
       onHover: (target) => propsRef.current.onHover?.(target),
       onOpenNote: (note) => propsRef.current.onOpenNote?.(note),
+      onTapEmpty: () => propsRef.current.onTapEmpty?.(),
       onDiveInto: (folder) => propsRef.current.onDiveInto?.(folder),
       onTime: (t) => propsRef.current.onTime?.(t),
     });

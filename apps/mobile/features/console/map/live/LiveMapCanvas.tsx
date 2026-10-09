@@ -39,6 +39,7 @@ export function LiveMapCanvas(props: LiveMapCanvasProps) {
           onFollow: propsRef.current.onFollow,
           onHover: propsRef.current.onHover,
           onOpenNote: propsRef.current.onOpenNote,
+          onTapEmpty: propsRef.current.onTapEmpty,
           onDiveInto: propsRef.current.onDiveInto,
           onTime: propsRef.current.onTime,
           onFailed: (message) => setFailed(message),

@@ -51,7 +51,10 @@ export type MapEngineOptions = {
   onCamera?: (info: CameraDetail) => void;
   onFollow?: (state: FollowState | null) => void;
   onHover?: (target: HitTarget | null) => void;
-  onOpenNote?: (note: { workspaceId: string; path: string }) => void;
+  /** A note was tapped; `at` is where, in canvas pixels, for a card beside it. */
+  onOpenNote?: (note: { workspaceId: string; path: string; at?: { x: number; y: number } }) => void;
+  /** A tap that landed on nothing: whatever a note tap opened can close. */
+  onTapEmpty?: () => void;
   onDiveInto?: (folder: { workspaceId: string; path: string }) => void;
   /** Replay: the playhead while the engine plays it. */
   onTime?: (t: number) => void;
@@ -74,6 +77,8 @@ export type MapEngine = {
   fit(): void;
   focusPath(workspaceId: string, path: string): void;
   diveInto(workspaceId: string, folderPath: string): void;
+  /** Put the camera back where it was (coming back to the map); before the first data, on its arrival. */
+  restoreCamera(cam: Cam): void;
   resize(width: number, height: number, dpr?: number): void;
   setInset(inset: Inset): void;
   setReducedMotion(reduced: boolean): void;
@@ -118,6 +123,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let foldersScroll = 0;
   let foldersWidth = 0;
   let destroyed = false;
+  let restore: Cam | null = null;
 
   const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null });
   const timeNow = (): number => (data?.clock.kind === "replay" ? replayAt : now());
@@ -279,10 +285,13 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     tap: (x, y) => {
       const target = hitTest(hit, x, y);
-      if (!target) return;
+      if (!target) {
+        options.onTapEmpty?.();
+        return;
+      }
       if (target.kind === "actor") api.follow(following === target.id ? null : target.id);
       else if (target.kind === "pile") zoomToPile(target.ids);
-      else if (target.kind === "note") options.onOpenNote?.({ workspaceId: target.workspaceId, path: target.path });
+      else if (target.kind === "note") options.onOpenNote?.({ workspaceId: target.workspaceId, path: target.path, at: { x, y } });
     },
     doubleTap: (x, y) => {
       const target = hitTest(hit, x, y);
@@ -346,6 +355,11 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         flight = null;
         foldersScroll = 0;
       }
+      if (restore !== null && model) {
+        cam = clampScale(model.layout, vp, restore, model.scope);
+        restore = null;
+        autoFit = false;
+      }
       lastScope = scopeSig;
       wake();
     },
@@ -378,6 +392,16 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         if (target) flyTo(target);
       }
       if (!actorId) options.onFollow?.(null);
+      wake();
+    },
+    restoreCamera(next) {
+      if (!model) {
+        restore = next;
+        return;
+      }
+      cam = clampScale(model.layout, vp, next, model.scope);
+      flight = null;
+      autoFit = false;
       wake();
     },
     select(note) {
