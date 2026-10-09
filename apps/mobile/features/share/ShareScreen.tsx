@@ -41,6 +41,8 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { noteHref } from "../console/nav";
 import { PLATFORM_ORIGIN } from "../site/host";
 import { NoteBody } from "./NoteBody";
+import { SharedConsole } from "./SharedConsole";
+import { loginHref } from "../auth/redirect";
 import { ShareForm, collectAddress, type CollectAddress } from "./ShareForm";
 import { fenceAsForm } from "./collectForm";
 import { noteTitle, parseNote } from "./markdown";
@@ -52,6 +54,7 @@ import {
   onwardLinks,
   resolveShareView,
   shareHref,
+  shareSignInHref,
   type ShareResult,
   type SharedNote,
   type ShortLinkAddress,
@@ -210,11 +213,45 @@ export function ShareScreen({
     [router],
   );
 
+  const signIn = useCallback(() => {
+    if (site !== undefined) return site.signIn(requestedPath ?? undefined);
+    const back =
+      shortLink !== undefined
+        ? loginHref(shortLinkHref(shortLink, requestedPath ?? undefined))
+        : shareSignInHref(segment, requestedPath ?? undefined);
+    router.push(back);
+  }, [requestedPath, router, segment, shortLink, site]);
+
   if (view.kind === "wait") return <View style={styles.ground} />;
   if (view.kind === "signIn") {
     // Never a sign-in on a customer's origin: continue on ours instead.
     if (site !== undefined) return <SiteSignIn onContinue={() => site.signIn(requestedPath ?? undefined)} />;
     return <Redirect href={view.href} />;
+  }
+
+  /*
+    A link opened on context.lc is the console (Dev2, 2026-10-09), with two
+    exceptions that keep the old page. A link served at a customer's domain is
+    their website, not our app. A link taking answers to a form keeps the page
+    whose Send button submits through the link (`ShareForm`), the one write a
+    share page may make.
+
+    A reader who can already edit the note in their own workspace is sent
+    there: they are a member, and the note is theirs to work on, not a copy
+    behind glass. `editableInContext` is the server's answer, never ours.
+  */
+  if (view.kind === "ready" && site === undefined && !view.note.collecting) {
+    if (view.note.kind === "note" && view.note.editableInContext !== null) {
+      return <Redirect href={noteHref(view.note.editableInContext, view.note.path)} />;
+    }
+    return (
+      <SharedConsole
+        note={view.note}
+        signedIn={auth.isAuthenticated}
+        onOpen={open}
+        onSignIn={signIn}
+      />
+    );
   }
 
   return (

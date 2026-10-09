@@ -43,10 +43,11 @@ export function consoleCreateButton({
     `createNote` that is a no-op: a menu of three things that do nothing
     is worse than no menu. The homepage's visitor keeps it: their notes are
     real, in their tab, and the meeting and chat rows are already absent
-    because nothing behind them runs without an account.
+    because nothing behind them runs without an account. A shared link's
+    reader does not: their notes are somebody else's, read only.
   */
   return (
-    data.demo && data.visitor === undefined ? null : (
+    data.demo && (data.visitor === undefined || !data.files.canEdit) ? null : (
     <CreateButton
       compact={phone}
       onNewMeeting={startMeetingFlow}

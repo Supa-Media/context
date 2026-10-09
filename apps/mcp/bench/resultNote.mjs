@@ -174,6 +174,8 @@ export function judgedSection({ model, date, blocks }) {
       out.push("");
     }
     if (block.gate) out.push(`gate: ${block.gate}`, "");
+    // An answer the model never gave was not judged, and says so.
+    if (block.skipped) out.push(`skipped: ${cell(block.skipped)}`, "");
   }
   return out.join("\n");
 }
@@ -210,12 +212,14 @@ export function parseJudgedSections(raw) {
     } else if (!section) {
       continue;
     } else if ((m = line.match(/^### (\S+)$/))) {
-      block = { verdicts: [], gate: null };
+      block = { verdicts: [], gate: null, skipped: null };
       section.blocks.set(m[1], block);
     } else if (!block) {
       continue;
     } else if ((m = line.match(/^gate: (passed|failed)$/))) {
       block.gate = m[1];
+    } else if ((m = line.match(/^skipped: (.+)$/))) {
+      block.skipped = m[1];
     } else if (line.startsWith("|")) {
       const cells = splitRow(line);
       if (cells.length === 4 && (cells[2] === "pass" || cells[2] === "fail")) {

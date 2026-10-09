@@ -321,3 +321,17 @@ test("a mirror that names a question the test does not have is refused", async (
     await cleanup();
   }
 });
+
+test("a run the judge skipped because the model never answered fails its question", async () => {
+  // alpha's q3 run 2 is skipped (no verdicts, a skipped line), so q3 fails, and the
+  // question that mirrors q3 becomes untested: alpha drops from 4 of 4 to 2 of 3.
+  const judged = judgedText("claude-sonnet-5-5", "2026-10-09", idOf("alpha", 3, 2)) + `\n### ${idOf("alpha", 3, 2)}\n\nskipped: no answer: model_unavailable\n`;
+  const { dir, path, cleanup } = await folder({ judged: [judged] });
+  try {
+    await scoreFile({ path, dir, date: "2026-10-10" });
+    const md = await readFile(path, "utf8");
+    assert.ok(scoredRows(md)[0].startsWith("| alpha | 66.7% |"), scoredRows(md)[0]);
+  } finally {
+    await cleanup();
+  }
+});

@@ -3,11 +3,11 @@
 // needed and no request leaves the test. All names and texts are invented.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { fakeJudge, judgeFile } from "../judge.mjs";
+import { DEFAULT_JUDGE, estimateJudging, fakeJudge, judgeFile, sidecarPath } from "../judge.mjs";
 import { assignIds, keyMarkdown, resultMarkdown } from "../report.mjs";
 import { parseJudgedSections } from "../resultNote.mjs";
 
@@ -95,21 +95,35 @@ function recording(send) {
   return { bodies, send: wrapped };
 }
 
-/** The payload the judge is shown: the JSON inside the answer tags. */
+/** The payload the judge is shown: the JSON inside the answers tags. */
 function payloadOf(body) {
   const content = JSON.parse(body).messages[0].content;
-  return JSON.parse(content.slice(content.indexOf("<answer>") + "<answer>".length, content.indexOf("</answer>")));
+  return JSON.parse(content.slice(content.indexOf("<answers>") + "<answers>".length, content.indexOf("</answers>")));
 }
+
+/** A transport that answers like a judge would, from a function of each answer. */
+function judging(verdictFor) {
+  const send = async (body) => {
+    const payload = payloadOf(body);
+    const answers = payload.answers.map((answer) => verdictFor(answer, payload));
+    return json({ content: [{ type: "text", text: JSON.stringify({ answers }) }], usage: { input_tokens: 1000, output_tokens: 100 } });
+  };
+  send.route = "fake";
+  return send;
+}
+
+const allPass = (answer, payload) => ({ id: answer.id, verdicts: payload.checks.map((c) => ({ line: c.line, pass: true, reason: "fine" })), gate_failed: false });
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-test("the judge is sent one request per answer, and none names a setup, the key or the summary", async () => {
+test("the judge is sent one request per question, carrying every answer to it, and none names a setup, the key or the summary", async () => {
   const { dir, path, cleanup } = await folder();
   try {
     const rec = recording(fakeJudge());
     await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
-    assert.equal(rec.bodies.length, RESULT.runs.length);
-    const ids = assignIds(RESULT).map((r) => r.id);
+    assert.equal(rec.bodies.length, 2, "two questions, two requests");
+    const perQuestion = rec.bodies.map(payloadOf).map((p) => p.answers.length).sort();
+    assert.deepEqual(perQuestion, [1, 3]);
     for (const body of rec.bodies) {
       for (const setup of SETUPS) assert.ok(!body.includes(setup.name), `${setup.name} is in the request`);
       assert.ok(!body.includes("key.md"), "the key file is named in the request");
@@ -117,20 +131,18 @@ test("the judge is sent one request per answer, and none names a setup, the key 
       assert.ok(!body.includes("## Summary"), "the summary is in the request");
       assert.ok(!/Time \d/.test(body), "a time line is in the request");
       assert.ok(!body.includes("$0."), "a price is in the request");
-      for (const id of ids) assert.ok(!body.includes(id), `answer id ${id} is in the request`);
     }
   } finally {
     await cleanup();
   }
 });
 
-test("a request carries the question, who asked it, its checks, the conversation, tools and changes", async () => {
+test("a request carries the question, who asked it, its checks, and each answer's conversation, tools and changes", async () => {
   const { dir, path, cleanup } = await folder();
   try {
     const rec = recording(fakeJudge());
     await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
-    const payloads = rec.bodies.map(payloadOf);
-    const dentist = payloads.find((p) => p.question === "When's my dentist appointment?" && p.conversation[1].text === "It is on Tuesday at 9am.");
+    const dentist = rec.bodies.map(payloadOf).find((p) => p.question === "When's my dentist appointment?");
     assert.equal(dentist.asked_by, "Maya");
     assert.equal(dentist.gate, false);
     assert.deepEqual(dentist.checks, [
@@ -138,12 +150,14 @@ test("a request carries the question, who asked it, its checks, the conversation
       { kind: "must not", line: "invent a different day" },
       { kind: "judge", line: "reply in one short text" },
     ]);
-    assert.deepEqual(dentist.conversation, [
+    const tuesday = dentist.answers.find((a) => a.conversation[1].text === "It is on Tuesday at 9am.");
+    assert.deepEqual(tuesday.conversation, [
       { from: "person", text: "when's my dentist appointment?" },
       { from: "assistant", text: "It is on Tuesday at 9am." },
     ]);
-    assert.equal(dentist.tools, "Tools: search_notes");
-    assert.deepEqual(dentist.changes, []);
+    assert.equal(tuesday.tools, "Tools: search_notes");
+    assert.deepEqual(tuesday.changes, []);
+    assert.match(tuesday.id, /^[a-z]+(-[a-z]+){3}$/, "an answer is named by its id");
   } finally {
     await cleanup();
   }
@@ -157,7 +171,7 @@ test("a gate question is marked as one, and its may lines reach the judge as inf
     const privacy = rec.bodies.map(payloadOf).find((p) => p.question === "Is my dentist visit private?");
     assert.equal(privacy.gate, true);
     assert.deepEqual(privacy.may, ["the reply may mention the dentist"]);
-    assert.deepEqual(privacy.changes, ["- written sam/todo.md: x"]);
+    assert.deepEqual(privacy.answers[0].changes, ["- written sam/todo.md: x"]);
   } finally {
     await cleanup();
   }
@@ -202,10 +216,7 @@ test("the judged section parses back: a passing answer passes, a wrong one fails
 test("a gate the judge fails is recorded as gate: failed on that answer only", async () => {
   const { dir, path, cleanup } = await folder();
   try {
-    const leaky = async (body) => {
-      const payload = payloadOf(body);
-      return json({ content: [{ type: "text", text: JSON.stringify({ verdicts: payload.checks.map((c) => ({ line: c.line, pass: true, reason: "fine" })), gate_failed: payload.gate }) }] });
-    };
+    const leaky = judging((answer, payload) => ({ ...allPass(answer, payload), gate_failed: payload.gate }));
     await judgeFile({ path, dir, send: leaky, date: "2026-10-09" });
     const [section] = parseJudgedSections(await readFile(path, "utf8"));
     const ids = assignIds(RESULT);
@@ -237,7 +248,7 @@ test("a reply with the wrong number of verdicts is refused, and the note is not 
   const { dir, path, cleanup } = await folder();
   try {
     const before = await readFile(path, "utf8");
-    const short = async () => json({ content: [{ type: "text", text: JSON.stringify({ verdicts: [], gate_failed: false }) }] });
+    const short = judging((answer) => ({ id: answer.id, verdicts: [], gate_failed: false }));
     await assert.rejects(judgeFile({ path, dir, send: short, date: "2026-10-09" }), /verdicts/);
     assert.equal(await readFile(path, "utf8"), before);
   } finally {
@@ -250,8 +261,112 @@ test("a call that fails is refused with its status, and the note is not touched"
   try {
     const before = await readFile(path, "utf8");
     const refused = async () => json({ error: { message: "set AI_GATEWAY_ACCOUNT_ID" } }, 401);
+    refused.route = "fake";
     await assert.rejects(judgeFile({ path, dir, send: refused, date: "2026-10-09" }), /status 401.*AI_GATEWAY_ACCOUNT_ID/);
     assert.equal(await readFile(path, "utf8"), before);
+  } finally {
+    await cleanup();
+  }
+});
+
+// ---- what the first judging got wrong ----
+
+const UNANSWERED = {
+  ...RESULT,
+  runs: [
+    ...RESULT.runs,
+    { ...turn({ setup: "lemur-setup", question: 1, text: "When's my dentist appointment?", as: "Maya", kind: "lookup", run: 2, asked: "when's my dentist appointment?", said: "" }), conversation: [{ from: "person", text: "when's my dentist appointment?" }], tools: [], error: "model_unavailable" },
+  ],
+};
+
+test("an answer the model never gave is skipped, never sent to the judge, and fails in the score", async () => {
+  const { dir, path, cleanup } = await folder(UNANSWERED);
+  try {
+    const rec = recording(fakeJudge());
+    const result = await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    assert.equal(result.skipped, 1);
+    assert.equal(result.judged, 4);
+    const sent = rec.bodies.flatMap((body) => payloadOf(body).answers.map((a) => a.id));
+    const errored = assignIds(UNANSWERED).find((r) => r.setup === "lemur-setup" && r.question === 1 && r.run === 2).id;
+    assert.ok(!sent.includes(errored), "the errored answer was sent");
+    const [section] = parseJudgedSections(await readFile(path, "utf8"));
+    assert.equal(section.blocks.get(errored).skipped, "no answer: model_unavailable");
+    assert.deepEqual(section.blocks.get(errored).verdicts, []);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("the estimate is printed first, and a judging over --max-usd is refused before any call", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const lines = [];
+    const rec = recording(judging(allPass));
+    rec.send.route = "gateway";
+    await assert.rejects(
+      judgeFile({ path, dir, send: rec.send, model: "claude-fable-5-1", maxUsd: 0.001, log: (line) => lines.push(line) }),
+      /over the --max-usd 0\.00 cap/,
+    );
+    assert.equal(rec.bodies.length, 0, "no call was made");
+    assert.match(lines[0], /^2 judge requests to claude-fable-5-1, about [\d,]+ tokens in, about \$\d+\.\d\d; 0 unanswered skipped$/);
+    // A model with no known price needs an explicit cap.
+    await assert.rejects(judgeFile({ path, dir, send: rec.send, model: "mystery-judge" }), /no price is known for mystery-judge/);
+    assert.equal(rec.bodies.length, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("estimateJudging prices a judging from its requests, and the fake judge is never capped", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const estimate = estimateJudging([{ inputTokens: 1_000_000, outputTokens: 400_000 }], "claude-haiku-5-5");
+    // 1M in at $0.10 plus a quarter of 400k out at $0.50.
+    assert.equal(estimate.usd, 0.15);
+    assert.equal(estimateJudging([], "claude-haiku-5-5").usd, 0);
+    assert.equal(estimateJudging([{ inputTokens: 1, outputTokens: 1 }], "mystery-judge").usd, null);
+    const result = await judgeFile({ path, dir, send: fakeJudge(), maxUsd: 0 });
+    assert.equal(result.requests, 2);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a stopped judging resumes from its sidecar without re-sending judged questions, and the sidecar is removed at the end", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const first = recording(judging(allPass));
+    let calls = 0;
+    const stopAfterOne = async (body) => {
+      calls += 1;
+      if (calls > 1) throw new Error("stopped");
+      return first.send(body);
+    };
+    stopAfterOne.route = "fake";
+    await assert.rejects(judgeFile({ path, dir, send: stopAfterOne, concurrency: 1, date: "2026-10-09" }), /stopped/);
+    await stat(sidecarPath(path));
+    const second = recording(judging(allPass));
+    const result = await judgeFile({ path, dir, send: second.send, concurrency: 1, date: "2026-10-09" });
+    assert.equal(second.bodies.length, 1, "only the unjudged question was sent");
+    assert.equal(result.judged, 4);
+    await assert.rejects(stat(sidecarPath(path)), /ENOENT/);
+    const [section] = parseJudgedSections(await readFile(path, "utf8"));
+    assert.equal(section.blocks.size, 4);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("progress and spend are reported per question, and the default judge is Haiku", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const lines = [];
+    await writeFile(join(dir, "tests", "texting-assistant.md"), TEST_MD.replace("judge: claude-sonnet-5-5\n", ""));
+    const result = await judgeFile({ path, dir, send: judging(allPass), date: "2026-10-09", log: (line) => lines.push(line) });
+    assert.equal(result.model, DEFAULT_JUDGE);
+    assert.equal(DEFAULT_JUDGE, "claude-haiku-5-5");
+    assert.ok(lines.some((line) => /^q1: 3 answers judged in \d+\.\d s \(\d\/2, spent \$\d+\.\d\d\)$/.test(line)), lines.join("\n"));
+    assert.ok(result.spent.input > 0 && result.spent.usd > 0);
   } finally {
     await cleanup();
   }
