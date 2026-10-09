@@ -20,7 +20,7 @@
 // Model-agnostic like `enhance.js`: this builds requests and reads answers.
 // Which model runs them, behind which gateway, is the caller's.
 
-import { NOTES_HEADING, SUMMARY_HEADING, SUMMARY_PLACEHOLDER, TRANSCRIPT_CAVEAT, TRANSCRIPT_PLACEHOLDER, parseMeetingNote, summaryBounds } from "./note.js";
+import { NOTES_HEADING, SUMMARY_HEADING, SUMMARY_PLACEHOLDER, TRANSCRIPT_CAVEAT, TRANSCRIPT_PLACEHOLDER, indexSections, parseMeetingNote } from "./note.js";
 import { budgetTranscript } from "./enhance.js";
 
 /* ------------------------------ note states ------------------------------ */
@@ -115,6 +115,21 @@ export function transcriptWords(markdown) {
     .replace(/\[?\b\d{1,2}:\d{2}(?::\d{2})?\]?/g, " ");
   const words = spoken.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu);
   return words ? words.length : 0;
+}
+
+/**
+ * Where `## Summary` is and where its section ends (the next of `## My notes`
+ * and `## Transcript`, else the end), as line indexes; `null` without one.
+ * The summary writer replaces exactly these lines and nothing else.
+ *
+ * @param {string} markdown
+ * @returns {{start: number, end: number}|null}
+ */
+export function summaryBounds(markdown) {
+  const { summary, notes, transcript, lines } = indexSections(markdown);
+  if (summary === -1) return null;
+  const after = [notes, transcript].filter((index) => index > summary);
+  return { start: summary, end: after.length ? Math.min(...after) : lines.length };
 }
 
 /**

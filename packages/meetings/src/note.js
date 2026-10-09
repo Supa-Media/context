@@ -325,7 +325,7 @@ function isHeading(line, heading) {
  * @param {string} markdown
  * @returns {SectionIndex}
  */
-function indexSections(markdown) {
+export function indexSections(markdown) {
   const lines = String(markdown ?? "").split("\n");
 
   let frontmatterEnd = -1;
@@ -357,21 +357,6 @@ function indexSections(markdown) {
   if (transcript !== -1 && notes !== -1 && transcript < notes) transcript = -1;
 
   return { frontmatterEnd, title, summary, notes, transcript, lines };
-}
-
-/**
- * Where `## Summary` is and where its section ends (the next of `## My notes`
- * and `## Transcript`, else the end), as line indexes; `null` without one.
- * The summary writer replaces exactly these lines and nothing else.
- *
- * @param {string} markdown
- * @returns {{start: number, end: number}|null}
- */
-export function summaryBounds(markdown) {
-  const { summary, notes, transcript, lines } = indexSections(markdown);
-  if (summary === -1) return null;
-  const after = [notes, transcript].filter((index) => index > summary);
-  return { start: summary, end: after.length ? Math.min(...after) : lines.length };
 }
 
 /**
