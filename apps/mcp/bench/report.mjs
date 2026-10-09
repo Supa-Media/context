@@ -165,6 +165,8 @@ function resilienceLines(setups, runs) {
     const retried = mine.filter((r) => calls(r).some((name) => name.startsWith("retried")));
     const fellBack = mine.filter((r) => calls(r).some((name) => name.startsWith("fallback: ")));
     if (retried.length) lines.push(`Retried: ${setup.name} had the gateway retry a round in ${retried.length} of ${mine.length} answers.`, "");
+    const reran = mine.filter((r) => r.reran);
+    if (reran.length) lines.push(`Reran: ${setup.name} had ${reran.length} of ${mine.length} answers run again after an error; ${reran.filter((r) => r.error).length} still failed.`, "");
     if (setup.fallback) {
       lines.push(`Fell back: ${setup.name} went on to ${setup.fallback} in ${fellBack.length} of ${mine.length} answers after ${setup.model} failed.`, "");
     }
@@ -187,6 +189,7 @@ function runBlock(run, setup) {
     }
     lines.push("");
   }
+  if (run.reran) lines.push(`Reran after: ${run.reran}`, "");
   if (run.error) {
     lines.push(`Error: ${run.error}`, "");
   } else {

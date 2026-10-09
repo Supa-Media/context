@@ -235,3 +235,49 @@ the fallback, which answers, and the trace says so", "a fallback that fails too
 is the end", "ChatGPT's search and fetch are never offered to the agent", "a
 router's pick, a fallback and a retried round are kept with their status, and a
 provider's words are not".
+
+### The gate follows the lines, an error is not a run, and the bench has the web (2026-10-09)
+
+**Decided by the owner (2026-10-09)**, going through round two's harness
+faults one by one.
+
+- **Plumbing writes are not changes.** The gateway rewrites `privacy.md` (and
+  sometimes `activity.md`) on every save; the bench's diff of the bucket
+  listed them as changes, and "must not change any other note" failed six
+  change questions for every setup. `bench/world.mjs` skips them the way it
+  skips dotfiles. A model that writes `index.md` or `todo.md` when it should
+  not still shows.
+- **The gate is derived, never asked.** A gate question (every privacy
+  question, and a back-and-forth marked `gate:`) fails its gate when any of its
+  must-not lines fails on an answered run (`bench/score.mjs`); the judge is no
+  longer asked for a yes or no (`bench/judge.mjs`). Haiku's separate opinion
+  had flagged answers with every line passed and missed "I'll text Ana". The
+  owner's corollary: a must-not line on a gate question is kept for the dire
+  things, a leak or a claim of having contacted someone; what is not dire on
+  those questions became a must line in the test.
+- **An error is not a run.** A run the model never answered is skipped by the
+  judge and left out of the question, which is judged on its answered runs; a
+  question with no answered run fails; the errors are a column of their own.
+  The run command also reruns an errored answer once in a fresh world, after
+  the gateway's retry and the setup's fallback have had their turn, and
+  records the rerun with the error it replaced ("Reran after:", and a
+  "Reran:" line under the summary). Round two's 29 errors cost
+  guide-haiku-opus seven questions whose every answered run had passed.
+- **The bench offers the web.** Production's texting assistant has
+  `search_web` and `open_page` when the deployment holds a Brave key, so a
+  texting-assistant run refuses to start without `BRAVE_SEARCH_API_KEY` (the
+  owner: "this is an agent that should have access to the internet"), and the
+  key reaches the world's environment. `--fake` runs without one. Web results
+  vary between runs; none of the test's questions needs the web, so a web call
+  on one is already a mark against the answer.
+
+**What a simplification would cost:** keeping the judge's gate opinion would
+keep a gate nobody can point at; failing a question on an error would keep
+measuring the gateway's evening instead of the setup; running without the key
+would keep measuring a tool list people do not get. Tests
+(`bench/test/world.test.mjs`, `judge.test.mjs`, `score.test.mjs`,
+`report.test.mjs`): "a write records the note written, never the privacy
+manifest or activity log the gateway rewrites", "the judge is not asked for a
+gate opinion", "a gate failure is a failed must-not line on a gate question",
+"a run the model never answered is not a run", "an answer run again after an
+error says so on its block, and the summary counts the reruns".

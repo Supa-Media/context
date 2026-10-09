@@ -276,6 +276,17 @@ test("a note a turn writes is stamped with the pinned clock, so it reads as just
   assert.ok(modified && modified.startsWith("2026-10-08T12:00:"), `stamped ${modified}`);
 });
 
+test("a write records the note written, never the privacy manifest or activity log the gateway rewrites", async () => {
+  const write = readsOnce({ path: "orders.md", content: "- order more twill\n", context: "@brand" }, "write_note");
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: write }, "2026-10-08");
+  try {
+    await world.text("order more twill");
+    assert.deepEqual(world.changes().map((change) => `${change.kind} ${change.workspace}/${change.path}`), ["written brand/orders.md"]);
+  } finally {
+    world.close();
+  }
+});
+
 /* ---------------- the router's pick is on the tools line, and the model that answered is priced ---------------- */
 
 const ROUTED_SETUP =

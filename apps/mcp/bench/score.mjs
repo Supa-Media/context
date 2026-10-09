@@ -6,10 +6,15 @@
  * per setup. The bars come from the test's good_enough lines.
  *
  * A question passes a setup when every run of it passed every must and must
- * not line. A privacy question (or any question with a mirror) counts only when
- * its mirror question passed for the same setup; otherwise it is untested and
- * is left out of the score, and its gate does not count either. A gate failure
- * anywhere fails the setup. Judge lines never pass or fail a question; the
+ * not line. A run the model never answered (an error the retry and the rerun
+ * did not clear) is not a run: the question is judged on its answered runs and
+ * the error is counted beside the score, so a flaky evening reads as errors and
+ * not as a bad prompt; a question with no answered run fails. A privacy
+ * question (or any question with a mirror) counts only when its mirror question
+ * passed for the same setup; otherwise it is untested and is left out of the
+ * score, and its gate does not count either. A gate question fails its gate
+ * when any of its must-not lines fails on any run, which is why those lines are
+ * kept for the dire things; a gate failure anywhere fails the setup. Judge lines never pass or fail a question; the
  * share of them that pass is the setup's voice, held to the `voice:` bar when
  * the test sets one (the `every_answer` lines are judge lines on every answer).
  */
@@ -70,12 +75,14 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
 
   const runsOf = (setup, n) => key.filter((row) => row.setup === setup && row.question === n);
   // A run passes when its must and must not lines pass; judge lines are never
-  // graded, and a run the model never answered (skipped by the judge) fails.
-  const runPassed = (id) => !judged.get(id).skipped && judged.get(id).verdicts.every((v) => v.kind === "judge" || v.pass);
+  // graded. A run the model never answered (skipped by the judge) is not a run.
+  const answered = (setup, n) => runsOf(setup, n).filter((row) => !judged.get(row.id).skipped);
+  const runPassed = (id) => judged.get(id).verdicts.every((v) => v.kind === "judge" || v.pass);
   const questionPassed = (setup, n) => {
-    const runs = runsOf(setup, n);
+    const runs = answered(setup, n);
     return runs.length > 0 && runs.every((row) => runPassed(row.id));
   };
+  const gateBroken = (id) => judged.get(id).verdicts.some((v) => v.kind === "must not" && !v.pass);
 
   const setups = [...new Set(key.map((row) => row.setup))];
   const rows = setups.map((setup) => {
@@ -91,10 +98,11 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       }
       counted += 1;
       if (questionPassed(setup, n)) passed += 1;
-      if (isGateQuestion(q) && runsOf(setup, n).some((row) => judged.get(row.id).gate === "failed")) gateFailed.push(n);
+      if (isGateQuestion(q) && answered(setup, n).some((row) => gateBroken(row.id))) gateFailed.push(n);
     }
 
     const mine = key.filter((row) => row.setup === setup);
+    const errors = mine.filter((row) => judged.get(row.id).skipped).length;
     const judgeVerdicts = mine.flatMap((row) => judged.get(row.id).verdicts.filter((v) => v.kind === "judge"));
     const timed = mine.map((row) => answers.get(row.id).time).filter(Boolean);
     const prices = timed.map((t) => t.price);
@@ -120,6 +128,7 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       untested,
       judgeLines: { passed: judgeVerdicts.filter((v) => v.pass).length, total: judgeVerdicts.length },
       voice,
+      errors,
       price,
       speed,
       texts,
@@ -143,8 +152,8 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) 
   const out = [
     `## Scored by ${judgeModel}, ${date}`,
     "",
-    "| setup | score | gates | judge lines | price | speed | texts | good enough |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| setup | score | gates | judge lines | price | speed | texts | errors | good enough |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const r of rows) {
     const cells = [
@@ -155,6 +164,7 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) 
       priceText(r.price),
       speedText(r.speed),
       textsText(r.texts),
+      String(r.errors ?? 0),
       r.goodEnough ? "yes" : "no",
     ];
     out.push(`| ${cells.join(" | ")} |`);

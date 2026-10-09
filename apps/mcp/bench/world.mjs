@@ -201,7 +201,15 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
     AI_GATEWAY_ID: "bench",
     AI_GATEWAY_TOKEN: "bench-gateway-token-not-a-real-one",
+    // Production offers search_web and open_page when it has a search key, so
+    // a run offers the same tools (decided 2026-10-09; round two measured a
+    // shorter tool list than production). The run command passes the key.
+    ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
   };
+
+  /** Files the gateway writes for itself on a save: never the model's change. */
+  const PLUMBING_FILES = new Set(["privacy.md", "activity.md"]);
+  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path);
 
   /** The status the failed round got, from the turn log's trace; null when none. */
   const failedStatus = (trace) => {
@@ -289,12 +297,15 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
             });
             continue;
           }
-          // Plumbing a turn writes for itself (history, reads, audit) is not something it did.
-          if (path.startsWith(".")) continue;
+          // Plumbing a turn writes for itself (history, reads, audit, and the
+          // privacy manifest and activity log the gateway rewrites on every
+          // save) is not something it did. Round two failed six change questions
+          // for every setup on "changed another note", every one `privacy.md`.
+          if (isPlumbingPath(path)) continue;
           out.push({ workspace: name, path, kind: "written", detail: text.replace(/\s+/g, " ").trim().slice(0, 300) });
         }
         for (const path of was.keys()) {
-          if (!now.has(path) && !path.startsWith(".")) out.push({ workspace: name, path, kind: "deleted", detail: "" });
+          if (!now.has(path) && !isPlumbingPath(path)) out.push({ workspace: name, path, kind: "deleted", detail: "" });
         }
       }
       return out;
