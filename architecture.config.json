@@ -62,12 +62,18 @@
       "command": "node scripts/build-editor-bundle.mjs"
     },
     {
+      "path": "apps/mobile/features/console/map/live/webview/bundle.generated.ts",
+      "reason": "Minified map engine bundle; CI rebuilds it and compares bytes.",
+      "command": "node scripts/build-map-bundle.mjs"
+    },
+    {
       "path": "apps/convex/functions/lib/reservedNames.generated.ts",
       "reason": "Vendored username blocklists with a digest.",
       "command": "node scripts/build-reserved-names.mjs"
     }
   ],
   "reviewed": {
+    "apps/mobile/features/design/tokens/colors.ts": "The app's colour tokens as one table: each theme's values sit side by side, and the contrast and palette tests read the whole table, so splitting it would scatter one theme across files.",
     "apps/mcp/test/browser/verifyEditor.mjs": "One browser harness: every scenario shares the same worker, control plane, static build and two signed-in pages it boots once; splitting it would boot that stack per file.",
     "apps/mobile/features/console/collaboration/durable.ts": "One class, DurableCollaborationController: the device record, the flush queue, remote reads, recovery replacement and generation adoption all mutate the same private record and Yjs document.",
     "apps/convex/__tests__/googleConnect/rowShape.test.ts": "The Google connection row's shape (products plus the nested gmail object) and the default destination folder, both about the same row.",
