@@ -67,20 +67,34 @@ export async function readConversation(store, name) {
     if (!object) return [];
     const parsed = JSON.parse(await object.text());
     const turns = Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [];
-    return trimHistory(turns.map(({ role, text }) => ({ role, text })));
+    return trimHistory(turns.map(({ role, text, tainted }) => ({ role, text, ...(tainted === true ? { tainted: true } : {}) })));
   } catch {
     return [];
   }
 }
 
-/** Append one question and its answer, keeping the file within bounds. */
-export async function appendConversation(store, name, history, question, answer) {
+/**
+ * Whether anything still in this history was written after the turn read
+ * something from outside the workspace. The next turn's own ledger starts
+ * empty, but the model it opens reads this history, and an answer that
+ * repeated a planted instruction is that instruction, one text later.
+ */
+export function historyIsTainted(history) {
+  return history.some((turn) => turn.tainted === true);
+}
+
+/**
+ * Append one question and its answer, keeping the file within bounds.
+ * `tainted` marks an answer written by a turn that read from outside the
+ * workspace (`historyIsTainted`); it ages out with the turn.
+ */
+export async function appendConversation(store, name, history, question, answer, { tainted = false } = {}) {
   const path = conversationPath(name);
   if (path === null) return;
   const turns = trimHistory([
     ...history,
     { role: "user", text: question },
-    { role: "assistant", text: answer },
+    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}) },
   ]);
   await store.put(path, JSON.stringify({ version: 1, turns }));
 }

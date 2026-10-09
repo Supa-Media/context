@@ -91,7 +91,9 @@ export async function listPending(store, { userId, texting = false, now = Date.n
       continue;
     }
     if (record.actor?.userId !== userId) continue;
-    if (texting && record.texting !== true) continue;
+    // A texted yes reaches only what the thread asked, lately, and has not
+    // since moved on from (`disarmTexting`).
+    if (texting && (record.texting !== true || (record.texting_until ?? record.expires_at) <= now)) continue;
     live.push({ key, etag, record });
   }
   return live.sort((a, b) => b.record.created_at - a.record.created_at);
@@ -131,6 +133,7 @@ export async function createPending(
     tier: tier === "private" ? "private" : "team",
     scopes: Array.isArray(scopes) ? scopes.filter((scope) => typeof scope === "string") : [],
     texting: texting === true,
+    ...(texting === true ? { texting_until: now + TEXTING_TTL_MS } : {}),
     created_at: now,
     expires_at: now + (texting === true ? TEXTING_TTL_MS : PENDING_TTL_MS),
   };
@@ -139,10 +142,53 @@ export async function createPending(
 }
 
 /**
- * The result a person already released for exactly this call, by this person,
- * consumed on the way out; or null.
+ * This thread asked for exactly this call again, and the person is about to be
+ * told. A record that is already armed for the thread is returned as it is; one
+ * that was raised by another client, or that the thread has since moved on
+ * from, is armed afresh, so the ask line the person reads and the record their
+ * yes releases are the same record. Returns the record the ask is about.
  */
-export async function takeDone(store, { name, args, userId, now = Date.now() }) {
+export async function rearmForText(store, { key, record }, texting, now = Date.now()) {
+  if (!texting || (record.texting === true && (record.texting_until ?? record.expires_at) > now)) return record;
+  const armed = { ...record, texting: true, texting_until: now + TEXTING_TTL_MS };
+  armed.expires_at = Math.max(record.expires_at ?? 0, armed.texting_until);
+  await store.put(key, JSON.stringify(armed));
+  return armed;
+}
+
+/**
+ * The thread has moved on: a text that went to the model is not an answer to an
+ * ask made before it, so no later bare yes may release one. The records stay
+ * for the app to answer; they just stop being a thing a text can settle. A
+ * record that cannot be disarmed is dropped, which is the safe direction.
+ */
+export async function disarmTexting(store, { userId, now = Date.now() }) {
+  for (const { key, etag, record } of await listPending(store, { userId, texting: true, now })) {
+    try {
+      const put = await store.put(key, JSON.stringify({ ...record, texting: false }), etag ? { onlyIf: { etagMatches: etag } } : undefined);
+      if (!put) await deleteWithLegacyFallback(store, key).catch(() => {});
+    } catch {
+      await deleteWithLegacyFallback(store, key).catch(() => {});
+    }
+  }
+}
+
+/** Drop asks by id for this person: a turn that failed before it could tell them. */
+export async function withdrawPending(store, { userId, ids, now = Date.now() }) {
+  const wanted = new Set(ids);
+  if (wanted.size === 0) return;
+  for (const { key, record } of await listPending(store, { userId, now })) {
+    if (wanted.has(record.id)) await deleteWithLegacyFallback(store, key).catch(() => {});
+  }
+}
+
+/**
+ * The result a person already released for exactly this call, by this person
+ * and for the client that asked, consumed on the way out; or null. Another
+ * client of the same person making the identical call is a different asker
+ * (it may be the one a planted instruction is driving) and is held afresh.
+ */
+export async function takeDone(store, { name, args, userId, clientId = null, now = Date.now() }) {
   const key = callKey(name, args);
   for (const { key: objectKey, record } of await readAll(store, DONE_PREFIX)) {
     if (expired(record, now)) {
@@ -150,6 +196,7 @@ export async function takeDone(store, { name, args, userId, now = Date.now() }) 
       continue;
     }
     if (record.key !== key || record.actor?.userId !== userId) continue;
+    if ((record.actor?.clientId ?? null) !== (clientId ?? null)) continue;
     await deleteWithLegacyFallback(store, objectKey).catch(() => {});
     return record.result ?? null;
   }
@@ -191,7 +238,7 @@ export async function settlePending(store, id, { userId, action, run, actorScope
     id: record.id,
     key: record.key,
     tool: record.tool,
-    actor: { userId: record.actor?.userId ?? null },
+    actor: { userId: record.actor?.userId ?? null, clientId: record.actor?.clientId ?? null },
     result,
     created_at: now,
     expires_at: now + DONE_TTL_MS,

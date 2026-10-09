@@ -22,6 +22,7 @@
  * again and be handed it (`tools/approvals.js`).
  */
 
+import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { listPending, replayAsAsked, settlePending } from "../tools/approvals.js";
 import { json } from "./responses.js";
@@ -33,6 +34,15 @@ export async function handleApprovals(request, store, session) {
   if (session.actorClientId !== CONSOLE_CLIENT_ID) {
     return json({ error: "forbidden", error_description: "Only the Context app can answer approvals." }, 403);
   }
+  /*
+    The acting identity rides on the per-request store, as it does on `/mcp`
+    and `/agent`: the replay of an approved call writes through it, and a
+    write with no actor is an audit row that names nobody, a managed bucket
+    that cannot find the workspace to seal under, and a move the control
+    plane is told nothing about.
+  */
+  store.actor = actorFor(session);
+  store.contexts = contextsFor(session);
   if (request.method === "GET") {
     const waiting = await listPending(store, { userId: session.actorUserId });
     return json({

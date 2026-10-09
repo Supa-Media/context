@@ -15,6 +15,7 @@ import {
   isUsableContextName,
   ROUTING_PLANNING_TOOLS,
   toolDefinitions,
+  toolExistenceMasked,
   toolIsWriting,
 } from "./registry.js";
 import {
@@ -30,12 +31,12 @@ import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
 import { reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
-import { toolArgumentRefusal } from "./advertised.js";
+import { canonicalToolName, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
-import { createPending, findPending, takeDone } from "./approvals.js";
+import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
 import { loadPrivacyState } from "../privacy/state.js";
 
 /**
@@ -79,9 +80,32 @@ async function answeringNoteCap(run) {
  * as the asked one did. `target` is the context it was routed to, which is
  * the audience the widening is measured against.
  */
-async function egressGate(name, supplied, args, { store, session, target, targetStore, into }) {
+async function egressGate(suppliedName, supplied, args, { store, session, target, targetStore, into }) {
+  /*
+    The gate reads a call by the name it is dispatched under, never by the
+    spelling the client used: `archive_chat` is `save_context` and would
+    otherwise be a tool the gate has never heard of. What is stored and
+    replayed stays the name as supplied, so a released call routes as asked.
+  */
+  const name = canonicalToolName(suppliedName);
+  /*
+    Any tool that changes something, addressed into a workspace the call did
+    not start in, is a write into another workspace; the planning tools only
+    suggest. Derived from the tool definitions so a tool added next year, or a
+    tool absent from the classifier's switch, is held rather than let through.
+  */
+  const writes =
+    typeof into === "string" &&
+    into !== "" &&
+    isKnownTool(name) &&
+    toolIsWriting(name) &&
+    !ROUTING_PLANNING_TOOLS.has(name) &&
+    // A tool masked from this tier is an invented name to it, byte for byte;
+    // holding it would be the one answer that tells the two apart.
+    !toolExistenceMasked(name, target.scope);
   const widening = await wideningOf(name, args, {
     into,
+    writes,
     // A move or a visibility change is measured against the manifest. The
     // folder rules are what `scope_info` already shows every tier; the
     // exact-note overrides are the owner's alone, so a team-tier caller is
@@ -106,7 +130,7 @@ async function egressGate(name, supplied, args, { store, session, target, target
       their behalf. A call the gate holds never reaches a tool, so the flag a
       model wrote is never the thing that lets one through.
     */
-    if (widening && advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
+    if (widening?.publishes === true && advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
     /*
       A call that no longer widens can still be one a person released. The
       release ran the change, so the same call asked again is now a no-op
@@ -119,22 +143,32 @@ async function egressGate(name, supplied, args, { store, session, target, target
       replay that is itself the approved call.
     */
     const seenWhole = session.egress?.complete === true || session.egress?.approved === true;
-    if (widening === null && !seenWhole && mightWiden(name, args, { into })) {
-      const released = await takeDone(store, { name, args: supplied, userId: session.actorUserId });
+    if (widening === null && !seenWhole && mightWiden(name, args, { into, writes })) {
+      const released = await takeDone(store, {
+        name: suppliedName,
+        args: supplied,
+        userId: session.actorUserId,
+        clientId: session.actorClientId,
+      });
       if (released) return released;
     }
     return null;
   }
   const userId = session.actorUserId;
-  const released = await takeDone(store, { name, args: supplied, userId });
+  const released = await takeDone(store, {
+    name: suppliedName,
+    args: supplied,
+    userId,
+    clientId: session.actorClientId,
+  });
   if (released) return released;
   const ledger = session.egress?.ledger ?? null;
   const texting = session.egress?.texting === true;
-  const existing = await findPending(store, { name, args: supplied, userId });
+  const existing = await findPending(store, { name: suppliedName, args: supplied, userId });
   const record =
-    existing?.record ??
+    (existing ? await rearmForText(store, existing, texting) : null) ??
     (await createPending(store, {
-      name,
+      name: suppliedName,
       args: supplied,
       actor: store.actor,
       // The asking connection's own tier and scopes, for the trail: the
@@ -162,6 +196,13 @@ async function egressGate(name, supplied, args, { store, session, target, target
           "They can approve it in the Context app. " +
           "Once they have, call this tool again with exactly the same arguments and it will run.",
   );
+}
+
+let knownTools = null;
+/** Whether `name` is a tool this gateway defines; an invented name is nobody's write. */
+function isKnownTool(name) {
+  knownTools ??= new Set(toolDefinitions().map((tool) => tool.name));
+  return knownTools.has(name);
 }
 
 /** Whether the advertised schema for `name` takes `confirm_team_publish`. */
@@ -318,8 +359,11 @@ export async function callToolForSession(params, store, session) {
         session,
         target: destinationTarget.session,
         targetStore: destinationTarget.store,
+        // Another workspace than the one the connection started in, or than
+        // the one the note leaves: either way the move lands somewhere new.
         into:
-          sourceTarget.session.workspaceId === destinationTarget.session.workspaceId
+          sourceTarget.session.workspaceId === destinationTarget.session.workspaceId &&
+          destinationTarget.session.workspaceId === session.workspaceId
             ? null
             : `@${destinationTarget.session.workspaceSlug}`,
       });

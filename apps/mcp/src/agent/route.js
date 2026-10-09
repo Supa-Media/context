@@ -22,7 +22,7 @@ import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
-import { appendConversation, conversationPath, readConversation } from "./conversation.js";
+import { appendConversation, conversationPath, historyIsTainted, readConversation } from "./conversation.js";
 import {
   loadRoutine,
   readRuns,
@@ -37,10 +37,12 @@ import {
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
-import { listPending, replayAsAsked, settlePending } from "../tools/approvals.js";
+import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
+/** The app's own client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
+const CONSOLE_CLIENT_ID = "context_console";
 
 /**
  * One agent turn over HTTP.
@@ -158,6 +160,13 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       const settled = await settleByText(store, session, verdict);
       if (settled !== null) return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
     }
+    /*
+      A text that goes to the model is not the answer to an ask made before it:
+      the person has moved on, and a bare "yes" to the model's next question
+      must not release a call raised two texts ago. Disarmed here, before the
+      model runs, so an ask this turn raises is the only one a yes can reach.
+    */
+    await disarmTexting(store, { userId: session.actorUserId });
   }
 
   let credential;
@@ -197,7 +206,18 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     ledger and is always asked.
   */
   const ledger = newLedger();
-  session.egress = { complete: true, ledger, texting: session.actorClientId === TEXTS_CLIENT_ID };
+  /*
+    "Seen whole" is a claim about who wrote the question, and only the clients
+    that are ours can make it: the texting thread's question is the person's
+    own message, the app's panel is their own hand, a routine is their own
+    note. Any other connected client could put anything in `question`, so its
+    turn is held like its tool calls are.
+  */
+  const firstParty =
+    session.actorClientId === TEXTS_CLIENT_ID ||
+    session.actorClientId === CONSOLE_CLIENT_ID ||
+    session.actorClientId === ROUTINES_CLIENT_ID;
+  session.egress = { complete: firstParty, ledger, texting: session.actorClientId === TEXTS_CLIENT_ID };
 
   /*
     A named conversation carries its recent turns into this one. Only a name
@@ -211,6 +231,8 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
+  // A previous answer written after a read from outside still carries it.
+  if (historyIsTainted(history)) markUntrusted(ledger);
 
   /*
     The computer is the texting assistant's for now (the owner's decision is
@@ -414,6 +436,11 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
       await keepRun(store, routine, runs, ran.outcome, ran.text);
+      /*
+        A routine that texts the person is a message they may answer with a bare
+        "ok" or "yes", and that answer is to it, not to an ask raised before it.
+      */
+      if (ran.text && routine.settings.send !== "note") await disarmTexting(store, { userId: session.actorUserId });
       // A routine whose `until:` came true stops itself, recoverably.
       if (ran.outcome === "finished") {
         await stopRoutine((name, args) => callToolForSession({ name, arguments: args }, store, session), routine.path);
@@ -437,7 +464,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        await appendConversation(store, conversation, history, question, answer);
+        await appendConversation(store, conversation, history, question, answer, { tainted: ledger.untrusted });
       } catch {
         // The answer is still owed. A history that failed to save costs the
         // next turn some context, not this one its reply.
@@ -453,6 +480,12 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     });
   } catch (error) {
     await meter(null, true);
+    /*
+      An ask the person was never told about (the turn failed before its ask
+      line went out) is withdrawn: left waiting, it would be released by the
+      next bare "yes", which is about something else.
+    */
+    await withdrawPending(store, { userId: session.actorUserId, ids: ledger.asked.map((asked) => asked.id) }).catch(() => {});
     if (runner) await keepRun(store, routine, runs, "failed", "");
     if (error instanceof ProviderError) {
       await afterAnswer(logTurn("failed", error.model, error.timing, null));
@@ -506,30 +539,38 @@ export function askLine(asked) {
 }
 
 /**
- * Settle the newest approval this thread asked for, as the person's text
- * said. Returns the reply, or null when nothing was waiting — in which case
- * the text is an ordinary one and the model answers it.
+ * Settle what this thread's latest ask put to the person, as their text said.
+ * Returns the reply, or null when nothing was waiting — in which case the text
+ * is an ordinary one and the model answers it.
  */
 async function settleByText(store, session, verdict) {
-  // Only what this thread asked about, and asked recently: a yes here never
-  // releases a call some other client raised that the person was not told of.
+  // Only what this thread asked about, lately, and not since moved on from: a
+  // yes here never releases a call some other client raised that the person was
+  // not told of. Every record left armed was asked in the thread's latest ask,
+  // and the ask line named all of them, so one yes answers all of them.
   const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
   if (waiting.length === 0) return null;
-  const { record } = waiting[0];
-  const settled = await settlePending(store, record.id, {
-    userId: session.actorUserId,
-    action: verdict,
-    actorScope: session.scope,
-    run: (held) =>
-      replayAsAsked(store, session, held, (approver) =>
-        callToolForSession({ name: held.tool, arguments: held.args }, store, approver),
-      ),
-  });
-  if (settled.status === "denied") return `OK, dropped: ${record.summary}.`;
-  if (settled.status !== "approved") return null;
-  const text = settled.result?.content?.[0]?.text;
-  const said = typeof text === "string" && text.trim() ? text.trim() : "done.";
-  return settled.result?.isError === true
-    ? `I tried to ${record.summary}, but: ${said}`
-    : `Done: ${record.summary}. ${said}`;
+  const replies = [];
+  for (const { record } of [...waiting].reverse()) {
+    const settled = await settlePending(store, record.id, {
+      userId: session.actorUserId,
+      action: verdict,
+      actorScope: session.scope,
+      run: (held) =>
+        replayAsAsked(store, session, held, (approver) =>
+          callToolForSession({ name: held.tool, arguments: held.args }, store, approver),
+        ),
+    });
+    if (settled.status === "denied") {
+      replies.push(`OK, dropped: ${record.summary}.`);
+      continue;
+    }
+    if (settled.status !== "approved") continue;
+    const text = settled.result?.content?.[0]?.text;
+    const said = typeof text === "string" && text.trim() ? text.trim() : "done.";
+    replies.push(
+      settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}. ${said}`,
+    );
+  }
+  return replies.length === 0 ? null : replies.join("\n");
 }

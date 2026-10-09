@@ -28,7 +28,9 @@
  *  - making a note or a folder team-visible, or saving a conversation that way;
  *  - moving notes, when the move is asked to publish them (`confirm_team_publish`)
  *    into a folder more people can see or into another workspace;
- *  - writing into another workspace at all.
+ *  - writing into another workspace at all: any tool that is not read-only,
+ *    whether or not it is listed below (`writes`, from the tool definitions).
+ *    A move into another workspace counts with or without the publish flag.
  *
  * Reads, and ordinary writes inside the workspace the call started in, are
  * never a widening and never ask. Nor is `report_problem`: its one
@@ -97,6 +99,16 @@ export const LISTING_TOOLS = new Set([
   "suggest_destination",
 ]);
 
+/**
+ * Listings that still carry words a stranger chose, so they are not "names,
+ * not content": a meeting's title and attendees come off a calendar invite
+ * anyone can send, a contact's name and organisation off the sender's own
+ * message, a proposal's reason off whichever agent filed it, and a plugin's
+ * name and author off its manifest. A listing
+ * that returns one marks the turn untrusted, though it marks nothing read.
+ */
+export const UNTRUSTED_LISTINGS = new Set(["list_meetings", "list_contacts", "list_proposals", "list_plugins"]);
+
 /** The `share` values on `write_note` that mint a link (`notes/write.js`). */
 const SHARE_VALUES = new Set(["members", "anyone", "collect"]);
 
@@ -119,7 +131,11 @@ export function markUntrusted(ledger) {
  * ledger assumes the worst rather than parsing every result.
  */
 export function recordRead(ledger, { name, args, scope, workspaceId, result }) {
-  if (!ledger || !result || result.isError === true || LISTING_TOOLS.has(name)) return;
+  if (!ledger || !result || result.isError === true) return;
+  if (LISTING_TOOLS.has(name)) {
+    if (UNTRUSTED_LISTINGS.has(name)) ledger.untrusted = true;
+    return;
+  }
   const label = scope === "private" ? "private" : "team";
   const had = ledger.reads.get(workspaceId);
   if (had === undefined || AUDIENCE_RANK[label] < AUDIENCE_RANK[had]) ledger.reads.set(workspaceId, label);
@@ -155,17 +171,49 @@ function hostOf(url) {
 }
 
 /**
+ * A summary is one plain line. It is built from arguments the model wrote (a
+ * path, an address) and read by a person who is about to say yes to it, in
+ * the gateway's own voice: a line break, a control character or a bidi
+ * override in it would let the model add sentences the person takes to be the
+ * gateway's, or reorder the ones that are.
+ */
+export function oneLine(text) {
+  return String(text)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The widest of several audiences. */
+function widest(audiences) {
+  return audiences.reduce((a, b) => (AUDIENCE_RANK[b] > AUDIENCE_RANK[a] ? b : a));
+}
+
+/**
  * What this call would widen, or null when it widens nothing.
  *
- * @param {string} name the tool
+ * @param {string} name the tool, already resolved from any alias
  * @param {object} args the arguments, `context` already stripped
  * @param {object} options
  * @param {string|null} options.into the other workspace addressed, as `@name`, or null
+ * @param {boolean} [options.writes] the tool changes something (it is not read-only
+ *   and not a planning tool): addressed into another workspace it is a widening
+ *   whatever else it does, so a write tool this file has never heard of cannot
+ *   slip through by being absent from the switch
  * @param {() => Promise<{rules: Array, overrides: Map}>} options.privacy the
  *   target workspace's manifest, loaded only for a move
  * @returns {Promise<{audience: string, summary: string}|null>}
  */
-export async function wideningOf(name, args, { into = null, privacy }) {
+export async function wideningOf(name, args, { into = null, privacy, writes = false }) {
+  const found = await classify(name, args, { into, privacy });
+  const a = args && typeof args === "object" ? args : {};
+  const elsewhere = typeof into === "string" && into !== "";
+  const widening =
+    found ?? (elsewhere && writes && a.dry_run !== true ? { audience: "team", summary: `change something in ${into} (${name})` } : null);
+  return widening === null ? null : { ...widening, summary: oneLine(widening.summary) };
+}
+
+async function classify(name, args, { into, privacy }) {
   const a = args && typeof args === "object" ? args : {};
   if (a.dry_run === true) return null;
   const elsewhere = typeof into === "string" && into !== "";
@@ -186,31 +234,50 @@ export async function wideningOf(name, args, { into = null, privacy }) {
             : `share ${what} with every member by link`,
       };
     }
-    case "write_note": {
-      if (a.site?.action === "publish") return { audience: "anyone", summary: "publish the website" };
-      if (SHARE_VALUES.has(a.share)) {
-        return a.share === "members"
-          ? { audience: "team", summary: `share ${a.path} with every member by link` }
-          : {
-              audience: "anyone",
-              summary: `share ${a.path} with anyone who has the link${a.share === "collect" ? ", and take answers from them" : ""}`,
-            };
+    /*
+      A call can widen in several ways at once, and a person who is asked
+      about one of them has said yes to all of them, so every one is named.
+    */
+    case "write_note":
+    case "create_form": {
+      const facets = [];
+      if (name === "write_note") {
+        if (a.site?.action === "publish") facets.push({ audience: "anyone", summary: "publish the website" });
+        if (SHARE_VALUES.has(a.share)) {
+          facets.push(
+            a.share === "members"
+              ? { audience: "team", summary: `share ${a.path} with every member by link` }
+              : {
+                  audience: "anyone",
+                  summary: `share ${a.path} with anyone who has the link${a.share === "collect" ? ", and take answers from them" : ""}`,
+                },
+          );
+        }
+        const hosts = (Array.isArray(a.images) ? a.images : [])
+          .filter((image) => typeof image?.url === "string")
+          .map((image) => hostOf(image.url));
+        if (hosts.length > 0) {
+          facets.push({ audience: "outside", summary: `fetch an image from ${[...new Set(hosts)].join(", ")} into ${a.path}` });
+        }
       }
-      const hosts = (Array.isArray(a.images) ? a.images : [])
-        .filter((image) => typeof image?.url === "string")
-        .map((image) => hostOf(image.url));
-      if (hosts.length > 0) {
-        return { audience: "outside", summary: `fetch an image from ${[...new Set(hosts)].join(", ")} into ${a.path}` };
-      }
-      if (elsewhere) return { audience: "team", summary: `write ${a.path} into ${into}` };
+      if (elsewhere) facets.push({ audience: "team", summary: `write ${a.path} into ${into}` });
+      // The ask is the flag: without it the tool refuses a publication itself,
+      // and the gate supplies the flag only for a call that carried it, so an
+      // approval given for an image address cannot publish the note as well.
       if (a.visibility === "team" && a.confirm_team_publish === true && (await nowReads(a.path)) !== "team") {
-        return { audience: "team", summary: `make ${a.path} visible to the team` };
+        facets.push({ audience: "team", summary: `make ${a.path} visible to the team`, publishes: true });
       }
-      return null;
+      return facets.length === 0
+        ? null
+        : {
+            audience: widest(facets.map((facet) => facet.audience)),
+            summary: facets.map((facet) => facet.summary).join(", and "),
+            publishes: facets.some((facet) => facet.publishes === true),
+          };
     }
     case "set_visibility":
       return a.visibility === "team" && (await nowReads(a.path)) !== "team"
-        ? { audience: "team", summary: `make ${a.path} visible to the team` }
+        ? { audience: "team", summary: `make ${a.path} visible to the team`, publishes: true }
         : null;
     case "set_folder_visibility": {
       if (a.visibility !== "team" && a.visibility !== "inherit") return null;
@@ -224,6 +291,7 @@ export async function wideningOf(name, args, { into = null, privacy }) {
       return widensVisibility(current, after)
         ? {
             audience: "team",
+            publishes: true,
             summary:
               a.visibility === "inherit"
                 ? `let the folder ${a.path} follow its parent's visibility`
@@ -232,34 +300,42 @@ export async function wideningOf(name, args, { into = null, privacy }) {
         : null;
     }
     case "save_context":
-      if (elsewhere) return { audience: "team", summary: `save this conversation into ${into}` };
+      if (elsewhere) {
+        return { audience: "team", summary: `save this conversation into ${into}`, publishes: a.visibility === "team" || a.visibility === "public" };
+      }
       if (a.visibility === "team" || a.visibility === "public") {
-        return { audience: "team", summary: "save this conversation where the team can read it" };
+        return { audience: "team", summary: "save this conversation where the team can read it", publishes: true };
       }
       return null;
     /*
-      A move widens only when the model asks it to publish: without
-      `confirm_team_publish` the move tools carry a private note's
-      visibility with it, land a note carried into another context at the
-      narrower end, or refuse — none of which shows it to anyone new. The
-      flag is the ask, and the ask is what waits for a person.
+      Inside one workspace a move widens only when the model asks it to
+      publish: without `confirm_team_publish` the move tools carry a note's
+      visibility with it or refuse, which shows it to nobody new. The flag is
+      the ask, and the ask is what waits for a person.
+
+      Into another workspace it widens with or without the flag: a note that
+      is team-visible here lands team-visible there, and "team" there is
+      other people. Which workspace is decided by where the call lands, not
+      by which of its arguments the model chose to spell.
     */
     case "move_note": {
-      if (a.confirm_team_publish !== true) return null;
+      const published = a.confirm_team_publish === true;
       if (elsewhere || a.destination_context !== undefined || a.source_context !== undefined) {
         const where = into ?? a.destination_context ?? "its own workspace";
-        return { audience: "team", summary: `move ${a.source} into ${where}, published to its team` };
+        return { audience: "team", summary: `move ${a.source} into ${where}${published ? ", published to its team" : ""}`, publishes: published };
       }
+      if (!published) return null;
       const { rules, overrides } = await privacy();
       const from = effectiveVisibility(normalizePath(a.source) ?? "", rules, overrides);
       const to = effectiveVisibility(normalizePath(a.destination) ?? "", rules, overrides);
       return widensVisibility(from, to)
-        ? { audience: "team", summary: `move ${a.source} to ${a.destination}, where more people can read it` }
+        ? { audience: "team", summary: `move ${a.source} to ${a.destination}, where more people can read it`, publishes: true }
         : null;
     }
     case "move_notes": {
-      if (a.confirm_team_publish !== true) return null;
-      if (elsewhere) return { audience: "team", summary: `move notes into ${into}, published to its team` };
+      const published = a.confirm_team_publish === true;
+      if (elsewhere) return { audience: "team", summary: `move notes into ${into}${published ? ", published to its team" : ""}`, publishes: published };
+      if (!published) return null;
       const { rules, overrides } = await privacy();
       const widened = (Array.isArray(a.moves) ? a.moves : []).filter((move) => {
         const from = effectiveVisibility(normalizePath(move?.source) ?? "", rules, overrides);
@@ -269,18 +345,26 @@ export async function wideningOf(name, args, { into = null, privacy }) {
       return widened.length > 0
         ? {
             audience: "team",
+            publishes: true,
             summary: `move ${widened.length === 1 ? widened[0].source : `${widened.length} notes`} where more people can read ${widened.length === 1 ? "it" : "them"}`,
           }
         : null;
     }
     case "move_folder": {
-      if (a.confirm_team_publish !== true) return null;
-      if (elsewhere) return { audience: "team", summary: `move the folder ${a.source} into ${into}, published to its team` };
+      const published = a.confirm_team_publish === true;
+      if (elsewhere) {
+        return {
+          audience: "team",
+          summary: `move the folder ${a.source} into ${into}${published ? ", published to its team" : ""}`,
+          publishes: published,
+        };
+      }
+      if (!published) return null;
       const { rules } = await privacy();
       const from = visibilityOf(normalizePath(a.source) ?? "", rules);
       const to = visibilityOf(normalizePath(a.destination) ?? "", rules);
       return widensVisibility(from, to)
-        ? { audience: "team", summary: `move the folder ${a.source} to ${a.destination}, where more people can read it` }
+        ? { audience: "team", summary: `move the folder ${a.source} to ${a.destination}, where more people can read it`, publishes: true }
         : null;
     }
     case "remember":
@@ -294,11 +378,12 @@ export async function wideningOf(name, args, { into = null, privacy }) {
 }
 
 /**
- * The write tools `wideningOf` can classify as a widening when they write into
- * another workspace. Every one of them is also listed in its switch.
+ * The write tools to treat as writes when a caller does not say (the pure
+ * tests do not). The gate itself passes `writes` from the tool definitions.
  */
 const WRITE_TOOLS_THAT_CAN_REACH_ELSEWHERE = new Set([
   "write_note",
+  "create_form",
   "set_visibility",
   "set_folder_visibility",
   "save_context",
@@ -327,17 +412,18 @@ const WRITE_TOOLS_THAT_CAN_REACH_ELSEWHERE = new Set([
  *
  * Never true for a dry run, which is never held and changes nothing.
  *
- * @param {string} name the tool
+ * @param {string} name the tool, already resolved from any alias
  * @param {object} args the arguments, `context` already stripped
  * @param {object} options
  * @param {string|null} options.into the other workspace addressed, as `@name`, or null
+ * @param {boolean} [options.writes] as for `wideningOf`
  * @returns {boolean}
  */
-export function mightWiden(name, args, { into = null } = {}) {
+export function mightWiden(name, args, { into = null, writes } = {}) {
   const a = args && typeof args === "object" ? args : {};
   if (a.dry_run === true) return false;
   if (name === "create_link") return true;
-  if (typeof into === "string" && into !== "") return WRITE_TOOLS_THAT_CAN_REACH_ELSEWHERE.has(name);
+  if (typeof into === "string" && into !== "") return writes ?? WRITE_TOOLS_THAT_CAN_REACH_ELSEWHERE.has(name);
   switch (name) {
     case "write_note":
       return (
@@ -346,6 +432,8 @@ export function mightWiden(name, args, { into = null } = {}) {
         (Array.isArray(a.images) && a.images.some((image) => typeof image?.url === "string")) ||
         a.visibility === "team"
       );
+    case "create_form":
+      return a.visibility === "team";
     case "set_visibility":
       return a.visibility === "team";
     case "set_folder_visibility":

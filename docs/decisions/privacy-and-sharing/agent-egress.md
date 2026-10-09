@@ -31,9 +31,17 @@ chose, so a note's text can ride in it); `set_visibility` and
 `set_folder_visibility` where the manifest reads narrower now, and
 `write_note` or `save_context` publishing to the team; a move asked to
 publish (`confirm_team_publish`) into a folder more people can read or into
-another workspace — without that flag the move tools carry a note's
-visibility with it, land it at the narrower end, or refuse, which shows it to
-nobody new; any write addressed into another workspace. Reads, ordinary
+another workspace — without that flag the move tools inside one workspace
+carry a note's visibility with it or refuse, which shows it to nobody new;
+into another workspace a move is a widening with or without the flag, because
+a team note lands team there and "team" there is other people; any write
+addressed into another workspace, which is any tool that is not read-only,
+derived from the tool definitions rather than listed, so a tool nobody has
+classified is held rather than let through. A call is classified by the name
+it is dispatched under (`archive_chat` is `save_context`; `create_form` is
+unlisted and still a note), and by every way it widens at once: the person who
+is asked is told all of them, and the gate supplies `confirm_team_publish`
+only when the call asked to publish. Reads, ordinary
 writes inside the workspace the call started in, and dry runs never widen
 and never ask; nor does `report_problem`, whose one destination is Context's
 own support intake rather than an address the model chose. `apps/mcp/src/privacy/egress.js`
@@ -46,7 +54,16 @@ mailbox day, a contact page, a meeting, a saved chat, a web page, a search).
 A widening then asks only when the turn read something the new audience
 could not already see, or anything untrusted; a turn that read nothing is the
 person's own words and runs. A listing (`list_notes`, `scope_info`) is names,
-not content, and marks nothing. An MCP client's turn is **not** seen whole:
+not content, and marks nothing; the three listings that carry words a stranger
+chose (`list_meetings`, `list_contacts`, `list_proposals`: an invite's title, a
+sender's name, a filing agent's reason) mark the turn untrusted without marking
+anything read. The ledger does not end with the turn: the texting thread's
+history remembers which answers were written after an outside read, and a turn
+that opens with one of them in its history starts untrusted, because the model
+reads that history and an answer that repeated a planted instruction is that
+instruction one text later. "Seen whole" is a claim about who wrote the question, so only our own clients
+make it (the texting thread, the app, a routine): a connected AI client that
+drives `/agent` is held like its tool calls are. An MCP client's turn is **not** seen whole:
 Claude Desktop reads web pages with its own tools, and a planted instruction
 there reaches this gateway as a clean `create_link`, so a widening from an
 MCP client always waits, whatever this gateway saw. Absent ledger fails
@@ -59,17 +76,23 @@ call. A held call is a record under `.context/approvals/pending/` in the
 context the client connected to: the tool, its arguments exactly as sent, a
 one-line summary, who asked. The texting assistant's person replies YES or NO
 on the thread; `agent/route.js` matches a text that is nothing but that,
-before any model runs, settles only what that thread asked and asked within
-the last half hour (a bare "yes" texted tomorrow must not run what was asked
-today, and never releases a call another client raised that the person was
-not told of), and the turn's answer ends with the ask in the gateway's own
-words rather than the model's. The app's owner answers at `/approvals`
+before any model runs, settles only what that thread's latest ask put to the
+person: asked within the last half hour (a bare "yes" texted tomorrow must not
+run what was asked today), not since moved on from (any text that goes to a
+model disarms the asks before it, so a "yes" to the model's next question
+cannot release a call raised two texts ago; the app can still answer it), and
+never a call another client raised that the person was not told of. An ask
+whose turn failed before its line went out is withdrawn. The turn's answer
+ends with the ask in the gateway's own words rather than the model's, as one
+plain line: the summary is built from arguments the model wrote, so control
+characters and bidi overrides are stripped before a person reads it. The app's owner answers at `/approvals`
 (`http/approvals.js`), first-party client only, same person only. Both
 settlements are audit entries (`approve_action`, `deny_action`). An approval runs the call once through the same dispatcher as the person
 who approved, with their own authority (their yes in their own app is at
 least the consent a client's grant recorded), recorded in the audit trail
 under the client that asked, and keeps the result for an hour so the client
-that asked can call again with the same arguments and be handed it. The
+that asked (that client, not another of the same person's) can call again
+with the same arguments and be handed it. The
 released result is handed back to the identical re-call whether or not that
 call still widens: a publish already done no longer widens, so the re-call
 would otherwise run again against the state the release left. The gate looks
@@ -96,6 +119,19 @@ MCP client's widening is held, whatever it read", "a texted turn that read a
 private note is asked before it widens", "an MCP client cannot approve its
 own call", "a page read makes the next widening ask", "a text that is more
 than yes goes to the model"; and `egress.test.mjs` for the pure half.
+
+**Known limits, found by trying to break it and left as the owner decided.**
+An ordinary write inside the workspace never asks, so a model that has read
+something private and something hostile can still copy the private text into a
+note that is already team-visible, linked, or a website draft; the gate stops
+the *publication*, not the copy. The ask names a path, not content, so a note
+the model has just filled and named "public-faq.md" is asked about as that name.
+A hostile client can fill the context's fifty pending slots with distinct junk
+calls and starve a real ask (it fails closed: nothing runs). `report_problem`
+and the texting assistant's web search carry model-chosen text to Context's
+intake and to a search provider, by earlier decision. A held call's record, with
+its arguments, lives in the bucket of the workspace the client connected to,
+which for a member of a shared workspace is not their own.
 
 **Not built, deliberately.** MCP elicitation (the client showing the person a
 dialog) would let an owner approve without leaving the chat; the transport
