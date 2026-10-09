@@ -1,165 +1,159 @@
 /**
- * A folder's about note, drawn at the top of its page: the words of its
+ * A folder's about note, under its title as a subtitle: the folder's
  * `about.md` (or the older `overview.md`, `index.md`, `README.md`, which mean
- * the same; the top of the workspace's is its front page, `index.md`), with
- * the filename in the corner so it reads as the file it is. Decided by the
- * owner on 2026-10-08, from the folder-about boards.
+ * the same; the top of the workspace's is its front page, `index.md`).
  *
- * The words are drawn by the panel's own body (`panel/PanelBody.tsx`): the
- * console's editor, read-only, without the frontmatter or a first heading
- * that only repeats the title. Pressed by somebody who may write, they become
- * editable in place through the same lent editor the side peek types into,
- * never a second one; "Done" gives it back. The filename opens the note on
- * its own page. A folder with no about note offers "Add a description" to a
- * writer, which creates `about.md` with that sentence (`LedeEditor.tsx`).
+ * Redesigned by the owner's call on 2026-10-09 ("I hate how the about.md
+ * looks… sometimes about will be long, sometimes short"), replacing the
+ * whole note drawn at note size with its filename in the corner:
  *
- * Long words fold: past `FOLD` the box stops, fades out and offers "Show all",
- * so a long note never pushes the folder's own notes off the screen; "Show
- * less" folds it back. Editing always shows the whole note.
+ * - **The opening words only** (`aboutSnippet.ts`), as plain text at body
+ *   size in the quiet colour: two lines on a desktop page, three on a phone.
+ *   No box, no filename, no headings.
+ * - **Read more**, only when something is left out or cut, opens the whole
+ *   note: beside the page in the side panel where it fits (`AboutPanel.tsx`,
+ *   where a writer types in it through the console's one editor), else in a
+ *   sheet (`AboutSheet.tsx`). On a phone the words themselves are the button.
+ * - **Edit**, for somebody who may write: the opening paragraph becomes a
+ *   field in place (`LedeEditor.tsx`). An about that opens with a list or a
+ *   heading is edited as a whole note instead, since its line is not a
+ *   paragraph one could type back.
+ * - A folder with no words yet offers "Add a short description" to a writer
+ *   and nothing to a reader; it creates `about.md` where there is none.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
-import { gradient } from "../../../design/css";
-import { withAlpha } from "../../../design/color";
-import { fonts } from "../../../design/tokens/typography";
-import { radii, space } from "../../../design/tokens";
+import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import type { FolderListSource } from "../listBlock/model";
-import type { NoteLinkOpen } from "../noteLinks";
-import { baseName } from "../paths";
+import { aboutSnippet } from "./aboutSnippet";
+import { ledeSource } from "./lede";
 import { Lede, type LedeEditing } from "./LedeEditor";
-import { PanelBody } from "./panel/PanelBody";
-import { editsHere, type PeekEditing } from "./panel/peekEditing";
+import { usePanelBody } from "./panel/usePanelBody";
 
-/** About five lines of the editor's 28pt reading line, plus its own padding. */
-export const FOLD = 172;
-/** The width the words are sized for until the box has been laid out: a note's measure. */
-const MEASURE = 640;
-/** How much taller than the fold the words must be before folding is worth a button. */
-const SLACK = 24;
+/** The lines the words get before Read more: a subtitle on a desktop page, a little more on a phone. */
+export const LINES = { desk: 2, phone: 3 } as const;
+/** An average character of the body face, for whether the words fill their lines. */
+const CHARACTER = 7.6;
+const PROMPT = "Add a short description";
 
 export function AboutBlock({
   path,
   title,
   source,
-  editing,
+  compact,
   create,
-  onOpenNote,
+  setLede,
+  onReadMore,
 }: {
   /** The about note, or null when the folder has none. */
   path: string | null;
-  /** The page's title, which a first heading repeating it is not drawn again under. */
+  /** The page's title, which a first heading repeating it is not read again under. */
   title: string;
   source: FolderListSource | undefined;
-  /** The console's editor, lent to this page; absent for a member and where there is none. */
-  editing?: PeekEditing;
+  /** A phone's page: three lines, and the words open the rest. */
+  compact: boolean;
   /** For a folder with no about note: creates one with the sentence typed. Null for a reader. */
   create: LedeEditing | null;
-  onOpenNote: (path: string, mode: NoteLinkOpen) => void;
+  /** Writes the about note's opening paragraph; null for a reader. */
+  setLede: ((path: string, text: string) => Promise<string | null>) | null;
+  /** Shows the whole note, editable where the page can lend its editor. */
+  onReadMore: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const body = usePanelBody(source, path);
   const [width, setWidth] = useState(0);
-  const [height, setHeight] = useState(0);
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(false);
-  // Another folder is another note: nothing carries over.
-  useEffect(() => {
-    setOpen(false);
-    setActive(false);
-    setHeight(0);
-  }, [path]);
+  const [typing, setTyping] = useState<string | null>(null);
 
-  if (path === null) return create === null ? null : <Lede text={null} editing={create} />;
+  if (path === null) return create === null ? null : <Lede text={null} editing={create} prompt={PROMPT} />;
+  if (body.kind === "loading" || body.kind === "none") return null;
+  const text = body.kind === "text" ? body.text : "";
+  const snippet = body.kind === "text" ? aboutSnippet(text, title) : null;
+  const writable = setLede !== null && body.kind === "text";
+  const paragraph: LedeEditing | null = !writable
+    ? null
+    : { read: async () => ledeSource(text), save: (next) => setLede(path, next) };
 
-  const writable = editing?.canEdit === true;
-  const typing = active && editsHere(editing, path);
-  const long = height > FOLD + SLACK;
-  const folded = long && !open && !active;
-  return (
-    <View style={styles.box} onLayout={(event) => setWidth(event.nativeEvent.layout.width)} testID="folder-about">
-      <View style={styles.corner}>
-        {active ? (
-          <Pressable onPress={() => setActive(false)} accessibilityRole="button" style={styles.chip} testID="folder-about-done">
-            <Text variant="treeMeta" style={styles.done}>
-              Done
-            </Text>
-          </Pressable>
-        ) : null}
-        <Pressable
-          onPress={() => onOpenNote(path, "foreground")}
-          accessibilityRole="link"
-          accessibilityLabel={`Open ${baseName(path)}`}
-          style={styles.chip}
-          testID="folder-about-file"
-        >
-          <Text variant="meta" style={styles.file}>
-            {baseName(path)}
-          </Text>
-        </Pressable>
-      </View>
-      <Pressable
-        disabled={!writable || active}
-        onPress={() => setActive(true)}
-        accessibilityLabel={writable && !active ? "Edit the folder's description" : undefined}
-        style={[styles.words, folded && styles.folded]}
+  if (snippet === null || (snippet.text === "" && !snippet.more)) {
+    // An about with nothing in it yet, such as the empty one New folder writes.
+    return paragraph === null ? null : <Lede text={null} editing={paragraph} prompt={PROMPT} />;
+  }
+  // Another note's field stays its own: a folder change while typing starts over.
+  if (typing === path && paragraph !== null) {
+    return <Lede text={snippet.text} editing={paragraph} autoOpen onClose={() => setTyping(null)} prompt={PROMPT} />;
+  }
+
+  const lines = compact ? LINES.phone : LINES.desk;
+  const perLine = width > 0 ? Math.floor(width / CHARACTER) : Infinity;
+  const more = snippet.more || snippet.text.length > perLine * lines;
+  const readMore = () => onReadMore(path);
+  const edit = () => (snippet.kind === "paragraph" ? setTyping(path) : readMore());
+  const words =
+    snippet.text === "" ? null : (
+      <Text
+        variant="body"
+        numberOfLines={lines}
+        style={styles.words}
+        // Said to a screen reader, which would read cut words as if they were all of them.
+        {...(more ? { accessibilityLabel: `${snippet.text} (continues)` } : {})}
         testID="folder-about-words"
       >
-        <View onLayout={(event) => setHeight(event.nativeEvent.layout.height)}>
-          <PanelBody
-            source={source}
-            path={path}
-            title={title}
-            width={width > 0 ? width : MEASURE}
-            onOpenNote={onOpenNote}
-            empty={writable ? "Add a description" : null}
-            {...(active && editing !== undefined ? { editing } : {})}
-          />
-        </View>
-        {folded ? <View pointerEvents="none" style={styles.fade} /> : null}
-      </Pressable>
-      {long && !active ? (
-        <Pressable onPress={() => setOpen((was) => !was)} accessibilityRole="button" style={styles.more} testID="folder-about-more">
-          <Text variant="treeMeta" style={styles.moreText}>
-            {open ? "Show less" : "Show all"}
-          </Text>
+        {isolateForDisplay(snippet.text)}
+      </Text>
+    );
+
+  return (
+    <View style={styles.box} onLayout={(event) => setWidth(event.nativeEvent.layout.width)} testID="folder-about">
+      {compact && more && words !== null ? (
+        <Pressable onPress={readMore} accessibilityRole="button" accessibilityLabel={`About ${title}, read all`} style={styles.tap} testID="folder-about-open">
+          {words}
         </Pressable>
-      ) : null}
-      {active && !typing ? (
-        <Text variant="treeMeta" style={styles.waiting}>
-          Opening for editing…
-        </Text>
+      ) : (
+        words
+      )}
+      {more || writable ? (
+        <View style={styles.actions}>
+          {more ? (
+            <Action label={compact ? "More" : snippet.text === "" ? "About this folder ›" : "Read more ›"} onPress={readMore} accent testID="folder-about-more" />
+          ) : null}
+          {writable ? <Action label="Edit" onPress={edit} testID="folder-about-edit" /> : null}
+        </View>
       ) : null}
     </View>
   );
 }
 
+function Action({ label, onPress, accent = false, testID }: { label: string; onPress: () => void; accent?: boolean; testID: string }) {
+  const styles = useThemedStyles(makeStyles);
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      accessibilityRole="button"
+      hitSlop={8}
+      style={styles.action}
+      testID={testID}
+    >
+      <Text variant="treeMeta" style={[accent ? styles.accent : styles.quiet, hovered && styles.hovered]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    box: { marginTop: space.x2 },
-    corner: { position: "absolute", right: 0, top: -space.x6, flexDirection: "row", gap: space.x1, zIndex: 1 },
-    chip: { paddingHorizontal: space.x2, paddingVertical: 2, borderRadius: radii.sm, backgroundColor: colors.chipFill },
-    file: { fontFamily: fonts.mono, color: colors.muted },
-    done: { color: colors.accent, fontWeight: "600" },
-    words: { borderRadius: radii.sm },
-    folded: { maxHeight: FOLD, overflow: "hidden" },
-    fade: {
-      position: "absolute",
-      left: 0,
-      right: 0,
-      bottom: 0,
-      height: 56,
-      ...gradient(`linear-gradient(to bottom, ${withAlpha(colors.pageSurface, 0)}, ${colors.pageSurface})`),
-    },
-    more: {
-      alignSelf: "flex-start",
-      marginTop: space.x1,
-      paddingHorizontal: space.x3,
-      paddingVertical: space.x1,
-      borderRadius: radii.pill,
-      backgroundColor: withAlpha(colors.accent, 0.12),
-    },
-    moreText: { color: colors.accent, fontWeight: "600" },
-    waiting: { color: colors.muted, marginTop: space.x1 },
+    box: { marginTop: space.x1 },
+    words: { color: colors.muted },
+    tap: { minHeight: 44, justifyContent: "center" },
+    actions: { flexDirection: "row", alignItems: "center", gap: space.x4, marginTop: space.x1 },
+    action: { paddingVertical: 2 },
+    accent: { color: colors.accent, fontWeight: "600" },
+    quiet: { color: colors.chromeMuted },
+    hovered: { textDecorationLine: "underline" },
   });

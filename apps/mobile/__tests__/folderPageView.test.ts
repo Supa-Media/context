@@ -267,8 +267,9 @@ describe("a project folder's own page", () => {
     const view = await mount(entry("folder", "1-projects/web"), WEB, host(null));
     expect(strip(view.container.textContent)).toContain("Website folder");
     expect(strip(one("folder-property-line").textContent)).toMatch(/^active·Seyi·updated /);
-    // Its words are the about note's, drawn whole at the top (`folderAbout.test.ts`).
-    expect(all("folder-about")).toHaveLength(1);
+    // Its words are the about note's opening, under the title (`folderAbout.test.ts`); this
+    // page has no source to read them from, so none are drawn rather than a guess.
+    expect(all("folder-about")).toHaveLength(0);
     // The visibility sentence gives way to the property line on a project.
     expect(strip(view.container.textContent)).not.toContain("visible to the people you granted access");
     // A member sees words, not controls.

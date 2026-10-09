@@ -485,9 +485,7 @@ describe("who may", () => {
     await press(one("folder-add-task-primary"));
     await rightClick(frameOf(row("Sign the lease")));
     await press(one("menu-item-priority"));
-    // The one file name on the page is on purpose: the about note's, in its corner, so it reads as a file.
-    expect(one("folder-about-file").textContent).toBe("overview.md");
-    for (const label of document.querySelectorAll('[data-testid="folder-about-file"]')) label.remove();
+    // Not even the about note's: it shows as words under the title, not as a file (2026-10-09).
     const text = strip(document.body.textContent) + strip(view.textContent);
     expect(text).not.toMatch(/\bp[0-3]\b|frontmatter|markdown|\.md\b|overview/i);
   });
