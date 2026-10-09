@@ -6,6 +6,7 @@
  * keep.
  */
 
+import type { FolderNotesResult } from "./folderNotes";
 import type { ActivityEntry } from "../activity";
 import type {
   ContextMoveExport,
@@ -113,6 +114,8 @@ export type FileOperation =
   | { kind: "treeState" }
   /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
   | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
+  /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+  | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -368,6 +371,7 @@ export type OperationResult =
     } & SyncManifest)
   | { kind: "treeKept"; complete: boolean }
   | TreeChangesResult
+  | FolderNotesResult
   | {
       kind: "treeState";
       status: "ready" | "filling" | "empty" | "unsupported" | "unreachable";

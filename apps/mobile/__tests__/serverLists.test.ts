@@ -20,7 +20,7 @@ import { currentEpoch } from "../features/offline/epoch";
 import { putMirroredNotes } from "../features/offline/mirror";
 import { memoryMirrorStore, type MirrorStore } from "../features/offline/mirrorStoreCore";
 import { folderListSource, type FolderListIO } from "../features/offline/folderListSource";
-import { READ_PARALLEL, serverFrontNotes, serverListNotes, type ServerListIO, type ServerListMemo } from "../features/offline/serverLists";
+import { READ_PARALLEL, serverFrontNotes, serverListNotes, tableListNotes, type ServerListIO, type ServerListMemo } from "../features/offline/serverLists";
 import type { BatchRead, ManifestPage } from "../features/offline/mirrorSync";
 import type { OpenNote } from "../features/console/files/types";
 
@@ -265,5 +265,54 @@ describe("serverFrontNotes", () => {
     expect(notes.map((each) => each.path).sort()).toEqual(["1-projects/about.md", "index.md"]);
     expect(calls.manifest).toBe(0);
     expect(calls.read).not.toContain("1-projects/big-sibling.md");
+  });
+});
+
+describe("tableListNotes", () => {
+  const props = (status: string) => JSON.stringify({ properties: { status }, heading: "H", lede: null });
+
+  test("the table's pages become the list, and no note is read", async () => {
+    const { io, calls } = server({});
+    const asked: (string | undefined)[] = [];
+    const table: ServerListIO = {
+      ...io,
+      folderNotes: async (_folder, _subfolders, cursor) => {
+        asked.push(cursor);
+        return cursor === undefined
+          ? { available: true, notes: [{ path: "1-projects/a.md", updatedAt: 3, props: props("doing") }], cursor: "1-projects/a.md", missing: [] }
+          : { available: true, notes: [{ path: "1-projects/b.md", props: props("done") }], cursor: null, missing: [] };
+      },
+    };
+    const result = await tableListNotes(table, "1-projects", true);
+    expect(result?.notes.map((note) => [note.path, note.properties.status, note.heading])).toEqual([
+      ["1-projects/a.md", "doing", "H"],
+      ["1-projects/b.md", "done", "H"],
+    ]);
+    expect(result?.complete).toBe(true);
+    expect(asked).toEqual([undefined, "1-projects/a.md"]);
+    expect(calls.read).toEqual([]);
+  });
+
+  test("a table that cannot answer hands the folder back to the bucket read", async () => {
+    const bucket = { "1-projects/a.md": note("1-projects/a.md", "---\nstatus: active\n---\n") };
+    const { io, calls } = server(bucket);
+    const table: FolderListIO = {
+      ...io,
+      folderNotes: async () => ({ available: false, notes: [], cursor: null, missing: [] }),
+      readNote: async () => { throw new Error("unused"); },
+      writeNote: async () => { throw new Error("unused"); },
+    };
+    const source = folderListSource({
+      workspaceId: W,
+      scope: "team",
+      canEdit: false,
+      io: table,
+      openMirror: async () => null,
+      needed: async () => new Map() as never,
+      online: () => true,
+    });
+    const result = await source.load("1-projects", true);
+    expect(result?.notes.map((each) => each.properties.status)).toEqual(["active"]);
+    expect(calls.read).toEqual(["1-projects/a.md"]);
   });
 });

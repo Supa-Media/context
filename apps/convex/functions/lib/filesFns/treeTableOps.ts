@@ -31,11 +31,13 @@ import type { ActionCtx } from "../../../_generated/server";
 // the life of one call and puts it in exactly one place, an `Authorization`
 // header.
 import { createD1Client } from "../../../../mcp/src/search/d1/client.js";
-import { readTreeState } from "../../../../mcp/src/tree/table.js";
+import { readTreeState, setStateStatements } from "../../../../mcp/src/tree/table.js";
 import { sweepDue, sweepTreePass } from "../../../../mcp/src/tree/sweep.js";
 import { touchTree } from "../../../../mcp/src/tree/touch.js";
 import { treeListingStore } from "../../../../mcp/src/tree/source.js";
 import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
+import { propFillPass } from "../../../../mcp/src/tree/props.js";
+import { folderNotesFromTable } from "./folderNotes";
 import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
 import { clearanceOf } from "../clearance";
 import { treeChanges } from "./treeChanges";
@@ -48,14 +50,18 @@ import type { FileOperation, OperationResult } from "./operationTypes";
 /** Sweep passes one chain may run: a bound on a loop, not on any context. */
 export const TREE_SWEEP_CHAIN = 50;
 
-export type TreeOperation = Extract<FileOperation, { kind: "sweepTree" | "touchTree" | "treeState" | "treeChanges" }>;
+export type TreeOperation = Extract<
+  FileOperation,
+  { kind: "sweepTree" | "touchTree" | "treeState" | "treeChanges" | "folderNotes" }
+>;
 
 export function isTreeOperation(operation: { kind: string }): operation is TreeOperation {
   return (
     operation.kind === "sweepTree" ||
     operation.kind === "touchTree" ||
     operation.kind === "treeState" ||
-    operation.kind === "treeChanges"
+    operation.kind === "treeChanges" ||
+    operation.kind === "folderNotes"
   );
 }
 
@@ -63,6 +69,9 @@ export function isTreeOperation(operation: { kind: string }): operation is TreeO
 export function noTreeTable(operation: TreeOperation): OperationResult {
   if (operation.kind === "treeState") {
     return { kind: "treeState", status: "unreachable", rows: null, sweptAt: null, dirty: false, error: null };
+  }
+  if (operation.kind === "folderNotes") {
+    return { kind: "folderNotes", available: false, notes: [], cursor: null, missing: [], fill: false };
   }
   if (operation.kind !== "treeChanges") return { kind: "treeKept", complete: false };
   return {
@@ -255,6 +264,27 @@ async function startSweepIfDue(
   if (sweepDue(state, Date.now())) await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
 }
 
+/** `index_state` key: when a List last asked for a properties fill. */
+const PROP_FILL_ASKED = "tree_props_fill_asked";
+
+/**
+ * A fill pass for a properties table a List found behind, unless a sweep is
+ * already running (it goes on to the links and properties when it finishes).
+ */
+async function startFillIfIdle(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; scope: "private" | "team" },
+  client: ProjectionClient,
+): Promise<void> {
+  const state = await readTreeState(client);
+  if (state.cursor !== null) return;
+  // A List redraws on every tree change; one chain a minute is plenty.
+  const [asked] = await client.query("SELECT value FROM index_state WHERE key = ?1", [PROP_FILL_ASKED]);
+  if (state.now !== null && Number(asked?.value) > state.now - 60_000) return;
+  await client.runAll(setStateStatements({ [PROP_FILL_ASKED]: state.now ?? Date.now() }));
+  await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
+}
+
 /** Run a `sweepTree` or `touchTree` with the bucket the barrier opened. */
 export async function runTreeOperation(
   ctx: ActionCtx,
@@ -265,6 +295,11 @@ export async function runTreeOperation(
   const operation = args.operation;
   if (operation.kind === "treeChanges") {
     return await treeChanges(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+  }
+  if (operation.kind === "folderNotes") {
+    const answer = await folderNotesFromTable(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+    if (answer.fill) await startFillIfIdle(ctx, args, client).catch(() => {});
+    return answer;
   }
   if (operation.kind === "touchTree") {
     try {
@@ -287,14 +322,18 @@ export async function runTreeOperation(
   if (operation.kind === "treeState") return await treeStateOf(client);
   const passes = Math.floor(operation.passes ?? 0) + 1;
   // A whole tree with no sweep due spends this pass on its links instead: the
-  // notes changed since they were last parsed (`tree/links.js`).
+  // notes changed since they were last parsed (`tree/links.js`); and once
+  // those are done, on its properties (`tree/props.js`), the same way.
   const state = await readTreeState(client).catch(() => null);
   if (state !== null && state.ready && !state.unsupported && state.cursor === null && !sweepDue(state, Date.now())) {
     const links = await linkFillPass(store, client).catch(() => null);
-    if (links !== null && links.read > 0 && links.remaining > 0 && passes < TREE_SWEEP_CHAIN) {
+    const props = links?.remaining === 0 ? await propFillPass(store, client).catch(() => null) : null;
+    const more =
+      (links !== null && links.read > 0 && links.remaining > 0) || (props !== null && props.read > 0 && props.remaining > 0);
+    if (more && passes < TREE_SWEEP_CHAIN) {
       await scheduleSweep(ctx, args.workspaceId, args.scope, passes);
     }
-    return { kind: "treeKept", complete: links?.remaining === 0 };
+    return { kind: "treeKept", complete: links?.remaining === 0 && props?.remaining === 0 };
   }
   const pass = await sweepTreePass(store, client).catch(() => null);
   // A finished sweep goes on to the links, through the branch above.

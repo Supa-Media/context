@@ -28,6 +28,57 @@ import type { ListNote, ListSource, PropertyValue } from "../console/files/listB
 export interface ServerListIO {
   manifest(folder: string, cursor: string | undefined): Promise<ManifestPage>;
   readNotes(paths: string[]): Promise<BatchRead[]>;
+  /**
+   * One page of the folder's notes from the tree's properties table
+   * (`folderNotes`): front matter already parsed, one query. Absent where
+   * there is no such call; `available: false` where the table cannot answer.
+   */
+  folderNotes?(folder: string, subfolders: boolean, cursor: string | undefined): Promise<FolderNotesPage>;
+}
+
+export interface FolderNotesPage {
+  available: boolean;
+  notes: { path: string; updatedAt?: number; props: string }[];
+  cursor: string | null;
+  missing: string[];
+}
+
+/** Pages of a folder read from the table, at most: a bound on a loop, not on a folder. */
+const MAX_TABLE_PAGES = 50;
+
+/**
+ * The folder's notes from the tree's properties table, or null when the table
+ * cannot answer and the folder is read from the bucket instead
+ * (`serverListNotes`). Decided by the owner, 2026-10-09: a project Board is
+ * one query, whatever the folder holds.
+ */
+export async function tableListNotes(
+  io: ServerListIO,
+  folder: string,
+  subfolders: boolean,
+): Promise<ListSource | null> {
+  if (io.folderNotes === undefined) return null;
+  const notes: ListNote[] = [];
+  const missing: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_TABLE_PAGES; page += 1) {
+    const answer = await io.folderNotes(folder, subfolders, cursor);
+    if (!answer.available) return null;
+    for (const row of answer.notes) {
+      const parsed = JSON.parse(row.props) as { properties?: Record<string, PropertyValue>; heading?: string | null; lede?: string | null };
+      notes.push({
+        path: row.path,
+        ...(row.updatedAt === undefined ? {} : { updatedAt: row.updatedAt }),
+        properties: parsed.properties ?? {},
+        heading: parsed.heading ?? null,
+        lede: parsed.lede ?? null,
+      });
+    }
+    missing.push(...answer.missing);
+    if (answer.cursor === null) return { notes, complete: missing.length === 0, missing };
+    cursor = answer.cursor;
+  }
+  return { notes, complete: false };
 }
 
 /** Parsed notes by path, each at the version it was parsed from. */
