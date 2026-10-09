@@ -92,8 +92,8 @@ describe("a phone an account holds", () => {
     const id = await kayla(t);
     expect(await start(t, "+1 (555) 555-0100")).toEqual({ status: "sent", phone: KAYLA_PHONE });
     expect(calls).toEqual([{ path: "Verifications", to: KAYLA_PHONE }]);
-    // The Verify service may carry another app's name; the text must say ours.
-    expect(sentNames).toEqual(["Context"]);
+    // No CustomFriendlyName: Twilio refused every send carrying one (2026-10-09).
+    expect(sentNames).toEqual([null]);
 
     const result = await signIn(t, KAYLA_PHONE, goodCode);
     expect(result.tokens).toBeTruthy();
