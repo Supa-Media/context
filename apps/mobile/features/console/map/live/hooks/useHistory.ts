@@ -3,17 +3,25 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { gatewayOriginFrom } from "../../../../meetings/gateway";
-import { eventsFromCrossMoves, eventsFromHistory, mergeEvents } from "../convert";
+import { eventsFromCrossMoves, mergeEvents } from "../convert";
 import { listActivityRef, workspaceMovesRef } from "../mapData";
-import { fetchStoredReads } from "../storedReads";
+import { MCP_ENDPOINT } from "../../../placeholderData";
+import {
+  type HistoryDay,
+  type ReplayHistoryDeps,
+  mergeHistoryDays,
+  workspaceHistory,
+  workspaceHistoryDays,
+} from "../replayHistory";
 import type { MapEvent } from "../types";
 
 /**
- * What happened in a stretch of time, for a replay: each workspace's
- * `activity.md` lines since `from` (`files.listActivity`, filtered per reader
- * by the control plane), plus the moves between the viewer's own workspaces
- * (`workspaceMoves.list`) when the map shows more than one, plus what AI
- * clients read, from each workspace's gateway (`storedReads.ts`).
+ * What happened in `span` — any window, a day or all of history — for a
+ * replay: one ask of each
+ * workspace's gateway (`replayHistory.ts`), which answers what was written,
+ * made, moved and read there, already filtered for the viewer — all at once,
+ * in parallel — plus the moves between the viewer's own workspaces
+ * (`workspaceMoves.list`) when the map shows more than one.
  *
  * `null` while asking. A workspace that cannot answer adds nothing rather than
  * failing the replay: the bar is still the day, with less on it.
@@ -40,12 +48,17 @@ export function useReplayHistory(
     }
     let stopped = false;
     setEvents(null);
-    const reads = workspaceIds.map((workspaceId) =>
-      calls.current
-        .list({ workspaceId: workspaceId as Id<"workspaces">, since: from })
-        .then((entries) => eventsFromHistory(entries, workspaceId))
-        .catch(() => [] as MapEvent[]),
-    );
+    const origin = endpoint === null || typeof fetch !== "function" ? null : gatewayOriginFrom(endpoint);
+    const deps: ReplayHistoryDeps = {
+      origin,
+      mint: async (id) => await calls.current.mint({ workspaceId: id as Id<"workspaces"> }),
+      fetchJson: async (url, token) => {
+        const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+        return response.ok ? ((await response.json()) as unknown) : null;
+      },
+      listActivity: async (id, since) => await calls.current.list({ workspaceId: id as Id<"workspaces">, since }),
+    };
+    const each = workspaceIds.map((workspaceId) => workspaceHistory(deps, workspaceId, from, to));
     const across =
       workspaceIds.length > 1
         ? calls.current
@@ -53,26 +66,7 @@ export function useReplayHistory(
             .then((answer) => eventsFromCrossMoves(answer.moves.filter((m) => workspaceIds.includes(m.fromWorkspaceId) || workspaceIds.includes(m.toWorkspaceId))))
             .catch(() => [] as MapEvent[])
         : Promise.resolve([] as MapEvent[]);
-    const origin = endpoint === null ? null : gatewayOriginFrom(endpoint);
-    const looked =
-      origin === null || typeof fetch !== "function"
-        ? []
-        : workspaceIds.map((workspaceId) =>
-            fetchStoredReads(
-              {
-                origin,
-                mint: async (id) => await calls.current.mint({ workspaceId: id as Id<"workspaces"> }),
-                fetchJson: async (url, token) => {
-                  const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
-                  return response.ok ? ((await response.json()) as unknown) : null;
-                },
-              },
-              workspaceId,
-              from,
-              to,
-            ),
-          );
-    void Promise.all([...reads, across, ...looked]).then((lists) => {
+    void Promise.all([...each, across]).then((lists) => {
       if (!stopped) setEvents(mergeEvents(...lists).filter((e) => e.at >= from && e.at <= to));
     });
     return () => {
@@ -82,6 +76,56 @@ export function useReplayHistory(
   }, [key, from, to, endpoint]);
 
   return events;
+}
+
+/**
+ * Every local day since the viewer's workspaces' history began, and how much
+ * happened on each — lines and reads they may see, nothing else — for a custom
+ * range picker's activity strip: one ask of each workspace's gateway, in
+ * parallel, summed per day. A gateway that does not answer it adds nothing,
+ * so an older one leaves an empty strip rather than a broken picker.
+ * `endpoint: null` asks nothing (a demo or a fixture).
+ */
+export function useHistoryDays(
+  contextIds: readonly string[],
+  endpoint: string | null = MCP_ENDPOINT,
+): { days: HistoryDay[]; startsAt: number | null; loading: boolean } {
+  const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
+  const call = useRef(mint);
+  call.current = mint;
+  const [state, setState] = useState<{ days: HistoryDay[]; startsAt: number | null; loading: boolean }>({
+    days: [],
+    startsAt: null,
+    loading: false,
+  });
+  const key = contextIds.join("|");
+
+  useEffect(() => {
+    const origin = endpoint === null || typeof fetch !== "function" ? null : gatewayOriginFrom(endpoint);
+    if (origin === null || contextIds.length === 0) {
+      setState({ days: [], startsAt: null, loading: false });
+      return;
+    }
+    let stopped = false;
+    setState((previous) => ({ ...previous, loading: true }));
+    const deps = {
+      origin,
+      mint: async (id: string) => await call.current({ workspaceId: id as Id<"workspaces"> }),
+      fetchJson: async (url: string, token: string) => {
+        const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+        return response.ok ? ((await response.json()) as unknown) : null;
+      },
+    };
+    void Promise.all(contextIds.map((id) => workspaceHistoryDays(deps, id))).then((answers) => {
+      if (!stopped) setState({ ...mergeHistoryDays(answers), loading: false });
+    });
+    return () => {
+      stopped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, endpoint]);
+
+  return state;
 }
 
 /**

@@ -71,3 +71,36 @@ reason no object count is returned — a console folder move's `movedObjects`
 counts notes at the mover's clearance. Reversing the filter fails "an editor
 sees the moves both of whose ends they can see, and no other"
 (`apps/convex/__tests__/workspaceMoves.test.ts`).
+
+### A replay is served from a history index in the context's own database (2026-10-09)
+
+A replay used to cost three round trips per workspace — `files.listActivity`
+reading `activity.md`, a console grant, and a gateway walk of
+`.context/reads/` one UTC day at a time for at most eight days — and was cut
+short by the file's 400-line cap, so a busy week lost its start. The gateway
+now keeps a **history table in each context's own search database**, beside
+the tree table (`apps/mcp/src/history/`): `activity.md`'s lines (mirrored on
+every write and on every ask, because the console writes the file without
+passing through the gateway), the `.context/audit/` records from before the
+first mirror (built with the file's own `entryFor`, so its substance rules
+hold), and the stored reads. Rows carry times, kinds, paths, `by`/`via` and
+the event-time flag — **never note text, never a line's summary**.
+
+It is a **disposable derivative** (non-negotiable #3): rebuilt from the bucket
+by a resumable, budgeted backfill that goes back only as far as somebody asks
+and says `complete: false` until it gets there; deleting the database loses
+nothing. One database per context, never a shared one. **Nothing in a row
+decides who sees it**: every answer re-runs the same filters the bucket's
+history is served through — `visibleEntries` after forwarding, with the
+console grant's group names, exactly as `files.listActivity` does, for lines;
+`readFilterFor` for reads — against the live `privacy.md`.
+
+It is served as new parameters on the existing route,
+`GET /agent-activity?history_since=&history_until=` (console only), in one
+answer of lines and reads with `complete`/`truncated`; and
+`?history_days=1&tz_offset_min=` counts the same filtered rows per local day
+for a range picker. Without a database (fast search off, a self-hosted
+gateway) or when it fails, the same answer is built from the bucket as before
+and says when that is short; an older gateway ignores the parameters and the
+console falls back to the two old asks. Reversing the per-caller filters fails
+the checks recorded in `apps/mcp/test/historyRoute.test.mjs`.

@@ -34,14 +34,17 @@ export function asksForStoredReads(params) {
  * The per-caller filter over stored reads, for this route and for
  * `list_changes`: the event-time flag below owner, then the note's path today
  * (through the forwarding ledger) against the live manifest. Answers the path
- * to show, or `null`.
+ * to show, or `null`. A caller that has already read the ledger passes it as
+ * `forwarding`, so one answer reads it once.
  */
-export async function readFilterFor(store, scope, rules, overrides) {
-  let forwarding = null;
-  try {
-    forwarding = await readForwarding(store);
-  } catch {
-    forwarding = null;
+export async function readFilterFor(store, scope, rules, overrides, { forwarding: known } = {}) {
+  let forwarding = known ?? null;
+  if (known === undefined) {
+    try {
+      forwarding = await readForwarding(store);
+    } catch {
+      forwarding = null;
+    }
   }
   const owner = scope === "private";
   return (record) => {

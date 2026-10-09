@@ -30,6 +30,7 @@ import { effectiveVisibility, isPlumbing } from "../privacy/engine.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
 import { isConsoleActor } from "./presence.js";
+import { keepHistoryRead } from "../history/record.js";
 
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -84,6 +85,8 @@ export function recordAgentRead(store, { tool, path }) {
       };
       const key = `${dayFolder(dayOf(at.getTime()))}${timestampSlug(at)}-${crypto.randomUUID()}.json`;
       await store.put(key, JSON.stringify(record));
+      // The replay's index, after the record it derives from has landed.
+      await keepHistoryRead(store, key, readRecordOf(record));
     } catch {
       // One read unrecorded. Nothing the caller did depends on it.
     }
@@ -210,9 +213,18 @@ async function readDay(store, day, budget) {
   const records = [];
   for (const entry of rolled.values()) {
     const record = readRecordOf(entry);
-    if (record) records.push(record);
+    if (record) records.push({ ...record, key: entry.key });
   }
   return { records, complete: listed.complete && affordable === missing.length };
+}
+
+/**
+ * One UTC day's stored reads, each with the key of the object behind it, for
+ * the history table's backfill (`history/backfill.js`). The same walk a replay
+ * makes: the roll-up, what it lacks newest first, the roll-up written back.
+ */
+export async function readDayRecords(store, day, budget) {
+  return await readDay(store, day, budget);
 }
 
 /**

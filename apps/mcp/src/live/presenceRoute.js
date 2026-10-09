@@ -6,6 +6,7 @@
 import { ACTIVITY_KINDS, activityForCaller, agentActivityKey } from "../agentActivity.js";
 import { heartbeatPerson } from "./activityHeartbeat.js";
 import { asksForStoredReads, storedReadsAnswer } from "./storedReads.js";
+import { asksForHistory, asksForHistoryDays, historyAnswer, historyDaysAnswer } from "../history/serve.js";
 import {
   bearerToken,
   hasScope,
@@ -263,7 +264,7 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
  * A manifest that does not parse answers with nothing rather than with a
  * guess. That is the same fail-closed rule `callTool` applies.
  */
-export async function handleAgentActivity(request, env, { slug, pathToken, origin }) {
+export async function handleAgentActivity(request, env, { slug, pathToken, origin, ctx = null }) {
   if (request.method !== "GET") return new Response(null, { status: 405 });
   if (!env.PRESENCE_ROOM) return json({ error: "presence_unavailable" }, 501);
 
@@ -296,7 +297,17 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
   if (privacy.error) return json({ ...activityForCaller([], now, () => false), peopleCount: 0, people: [] });
 
   const params = new URL(request.url).searchParams;
-  // A replay's reads are their own ask: no heartbeat, no room (`storedReads.js`).
+  // A replay's whole history, and its reads alone for an older console:
+  // their own asks, with no heartbeat and no room (`history/serve.js`,
+  // `storedReads.js`).
+  if (asksForHistory(params) || asksForHistoryDays(params)) {
+    const defer = (work) => {
+      const settled = Promise.resolve(work).catch(() => {});
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(settled);
+    };
+    const answer = asksForHistory(params) ? historyAnswer : historyDaysAnswer;
+    return json(await answer(session, store, privacy, params, env, { now, defer }));
+  }
   if (asksForStoredReads(params)) return json(await storedReadsAnswer(session, store, privacy, params, env, now));
   const sinceParam = params.has("since") ? Number(params.get("since")) : NaN;
   const since = Number.isFinite(sinceParam) && sinceParam >= 0 ? sinceParam : null;

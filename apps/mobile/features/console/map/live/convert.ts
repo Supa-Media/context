@@ -142,6 +142,11 @@ export type HistoryEntry = {
   via: string | null;
   /** `[from, to]` per note on a `moved` line, where the server sent them. */
   moves?: ReadonlyArray<ReadonlyArray<string>>;
+  /**
+   * A change record from before the feed began, which names a tool by id
+   * only: an AI client's hand with no name for it (the gateway's history).
+   */
+  agent?: boolean;
 };
 
 /**
@@ -162,7 +167,7 @@ export function historyActor(entry: Pick<HistoryEntry, "by" | "via">): ActorRef 
 
 /**
  * A workspace's history as replay events: what was written, made and moved.
- * What AI clients read comes from the gateway beside it (`storedReads.ts`).
+ * What AI clients read comes from the gateway beside it (`replayHistory.ts`).
  * A `moved` line with no pairs (written before they existed) has nothing to
  * fly and is left out rather than guessed at.
  */
@@ -171,7 +176,7 @@ export function eventsFromHistory(entries: readonly HistoryEntry[], workspaceId:
   for (const entry of entries) {
     const at = Date.parse(entry.at);
     if (!Number.isFinite(at)) continue;
-    const actor = historyActor(entry);
+    const actor = historyActor(entry.agent === true && entry.via === null ? { by: entry.by, via: "AI" } : entry);
     const notes = entry.paths.filter((path) => path.endsWith(".md"));
     if (entry.kind === "added") {
       for (const path of notes) out.push({ kind: "create", at, workspaceId, path, actor });
