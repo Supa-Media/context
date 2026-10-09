@@ -36,9 +36,10 @@ export const DEFAULT_JUDGE = "claude-haiku-5-5";
 export const DEFAULT_MAX_USD = 1;
 const DEFAULT_CONCURRENCY = 4;
 /** Output tokens one verdict is allowed, times checks times answers, bounded. */
-const TOKENS_PER_VERDICT = 40;
+// A complete verdict averaged 102 output tokens in a twelve-answer live request.
+const TOKENS_PER_VERDICT = 200;
 const MAX_TOKENS_FLOOR = 1500;
-const MAX_TOKENS_CEILING = 16000;
+const MAX_TOKENS_CEILING = 32000;
 /** A rough count: four characters to a token, which overestimates English. */
 const CHARS_PER_TOKEN = 4;
 
