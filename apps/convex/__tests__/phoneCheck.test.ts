@@ -64,8 +64,8 @@ describe("when it asks", () => {
     const userId = await createUser(t, "ada@example.invalid");
     expect(await check(t, userId)).toMatchObject({ required: true, confirmed: false });
     expect(await send(t, userId)).toEqual({ status: "sent", phone: PHONE });
-    // Signed "Context", whatever the shared Verify service is called.
-    expect(calls[0]?.body.get("CustomFriendlyName")).toBe("Context");
+    // No CustomFriendlyName: Twilio refused every send carrying one (2026-10-09).
+    expect(calls[0]?.body.has("CustomFriendlyName")).toBe(false);
     expect(await confirm(t, userId)).toEqual({ status: "confirmed" });
     expect(await check(t, userId)).toMatchObject({ required: false, confirmed: true });
     const user = await t.run(async (ctx) => await ctx.db.get(userId));
