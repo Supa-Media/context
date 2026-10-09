@@ -5,6 +5,7 @@ import {
   Pressable,
   StyleSheet,
   View,
+  useWindowDimensions,
   type NativeSyntheticEvent,
   type TargetedEvent,
 } from "react-native";
@@ -23,6 +24,7 @@ export function Shell({
   children,
   onClose,
   sheet = false,
+  anchor,
 }: {
   title: string;
   children: ReactNode;
@@ -34,19 +36,29 @@ export function Shell({
    * at the bottom of the glass.
    */
   sheet?: boolean;
+  /**
+   * Where the thing that raised it is, in window coordinates: the card opens
+   * there as a popover, over a clear scrim, instead of in the middle of a
+   * dimmed window. A folder's icon in the tree raises its picker this way
+   * (owner, 2026-10-09: "have the icon menu popup inline"). Ignored for a
+   * sheet, which belongs on the bottom edge whatever raised it.
+   */
+  anchor?: DialogAnchor;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const frame = useWindowDimensions();
+  const placed = anchor === undefined || sheet ? null : placeAnchored(anchor, frame);
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose} visible>
       <Pressable
-        style={[styles.scrim, sheet && styles.sheetScrim]}
+        style={[styles.scrim, sheet && styles.sheetScrim, placed !== null && styles.anchoredScrim]}
         accessibilityLabel="Close"
         onPress={onClose}
         {...(Platform.OS === "web" ? { onFocus: intoFirstField } : {})}
       >
         {/* Swallow presses inside the card so the scrim only closes on the scrim. */}
         <Pressable
-          style={[styles.card, sheet && styles.sheet]}
+          style={[styles.card, sheet && styles.sheet, placed !== null && [styles.anchored, placed]]}
           onPress={() => {}}
           accessibilityLabel={title}
           testID={sheet ? "dialog-sheet" : undefined}
@@ -59,6 +71,33 @@ export function Shell({
       </Pressable>
     </Modal>
   );
+}
+
+/** A point in window coordinates: the top-left corner the card should open at. */
+export interface DialogAnchor {
+  x: number;
+  y: number;
+}
+
+/** The anchored card's width, and the height it is assumed to need when deciding whether it fits below. */
+export const ANCHORED_WIDTH = 360;
+export const ANCHORED_HEIGHT = 520;
+const EDGE = 8;
+
+/**
+ * Where an anchored card goes: at the anchor, pulled back inside the window
+ * by the 8pt edge when it would spill past the right or the bottom, and never
+ * taller than the window. Exported for its tests.
+ */
+export function placeAnchored(
+  anchor: DialogAnchor,
+  frame: { width: number; height: number },
+): { left: number; top: number; width: number; maxHeight: number } {
+  const width = Math.min(ANCHORED_WIDTH, frame.width - EDGE * 2);
+  const maxHeight = frame.height - EDGE * 2;
+  const left = Math.max(EDGE, Math.min(anchor.x, frame.width - width - EDGE));
+  const top = Math.max(EDGE, Math.min(anchor.y, frame.height - Math.min(ANCHORED_HEIGHT, maxHeight) - EDGE));
+  return { left, top, width, maxHeight };
 }
 
 /**
@@ -117,4 +156,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingBottom: 34,
   },
   body: { marginTop: 12, gap: 12 },
+  /** Under a popover the window stays as it was: the card is the only thing that changed. */
+  anchoredScrim: { backgroundColor: "transparent", alignItems: "stretch", justifyContent: "flex-start", padding: 0 },
+  anchored: {
+    position: "absolute",
+    maxWidth: undefined,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    boxShadow: "0 24px 60px -20px rgba(0,0,0,.9)",
+  },
 });

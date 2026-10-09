@@ -94,6 +94,14 @@ Moved to [Somebody else's change reaches an open tree as a hint per audience, ne
 
 Moved to [A front matter change is a hint too, and an open project page fetches what moved](./app-and-console/offline-mirror-and-tree.md#a-front-matter-change-is-a-hint-too-and-an-open-project-page-fetches-what-moved).
 
+### A workspace's tree is a table in its own database, and the bucket stays the truth
+
+Moved to [A workspace's tree is a table in its own database, and the bucket stays the truth](./app-and-console/tree-table.md#a-workspaces-tree-is-a-table-in-its-own-database-and-the-bucket-stays-the-truth).
+
+### Links live beside the tree, and "who links here" is one query
+
+Moved to [Links live beside the tree, and "who links here" is one query](./app-and-console/tree-table.md#links-live-beside-the-tree-and-who-links-here-is-one-query).
+
 ### Offline is more than saving: create, rename, move, delete
 
 Moved to [Offline is more than saving: create, rename, move, delete](./app-and-console/offline-mutations-and-team-links.md#offline-is-more-than-saving-create-rename-move-delete).
@@ -106,9 +114,9 @@ Moved to [A team link's note survives the console's own cold start, and the logi
 
 Moved to [A folder page is a page, and a folder is acted on like a note](./app-and-console/mobile-navigation-shell.md#a-folder-page-is-a-page-and-a-folder-is-acted-on-like-a-note).
 
-### A folder's placeholder is not a row
+### A folder's about note is its description
 
-Moved to [A folder's placeholder is not a row](./app-and-console/mobile-navigation-shell.md#a-folders-placeholder-is-not-a-row).
+Moved to [A folder's about note is its description](./app-and-console/mobile-navigation-shell.md#a-folders-about-note-is-its-description).
 
 ### A phone gets a path bar, which is half of the line that was deleted
 

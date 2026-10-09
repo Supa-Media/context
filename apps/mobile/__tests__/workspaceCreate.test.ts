@@ -225,7 +225,7 @@ describe("the presets are things the control plane will accept", () => {
     },
   );
 
-  test("every folder carries a description, since it becomes that folder's README", () => {
+  test("every folder carries a description, since it becomes that folder's about note", () => {
     for (const preset of WORKSPACE_PRESETS) {
       for (const row of presetRows(preset.key)) {
         expect(row.description.trim().length).toBeGreaterThan(0);

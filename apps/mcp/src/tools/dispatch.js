@@ -17,7 +17,7 @@ import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
 import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
-import { toolExportEncryptionKeys, toolSetEncryption } from "./encryption/setEncryption.js";
+import { toolSetEncryption } from "./encryption/setEncryption.js";
 import { toolListChanges } from "../activity/changes.js";
 import {
   toolListChannelDays,
@@ -119,14 +119,8 @@ export async function callTool(name, args, store, scope) {
     // other caller — the same idiom `docs/decisions/encryption.md` already
     // uses for a team-tier read of a private encrypted note ("byte-identical
     // to a path that never existed"), applied here to a *tool* rather than a
-    // path. `set_encryption` and `list_plugins` answer a team-tier caller with
-    // a distinct "permission denied" message, which is fine for a capability
-    // whose existence is not itself sensitive; a workspace's key material is
-    // a narrower thing to advertise, so this refuses as though the tool were
-    // never registered at all.
-    case "export_encryption_keys":
-      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
-      return toolExportEncryptionKeys(store, scope);
+    // path. There is no key export here: the owner removed it on 2026-10-08,
+    // and its name now gets the default's `unknown tool` like any other.
     case "rotate_encryption_keys":
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolRotateEncryptionKeys(store, scope);

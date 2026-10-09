@@ -127,6 +127,51 @@ export async function runTenancyRegistrationAndPkceChecks(check, harness) {
     ordinary.stored === "Claude Code (v2.1) — Seyi's laptop"
   );
 
+  // The map draws the app's own console as the person and the texting
+  // assistant as its own badge, by these names; a stranger may not take them.
+  for (const taken of ["Context (this app)", "texts (imessage)", "  Context   (this app) "]) {
+    const posing = await registerNamed(taken);
+    check(
+      `a client cannot register under a first-party name (${JSON.stringify(taken)})`,
+      posing.stored.startsWith("Unverified: ") && posing.stored.toLowerCase().endsWith(taken.trim().replace(/\s+/g, " ").toLowerCase())
+    );
+  }
+
+  /*
+    AND THE GUARD HAS TO COMPARE THE STRING ITS CONSUMER COMPARES.
+
+    The map does not read the whole name. It takes the part after the **last**
+    `"'s "` (`toolNameOf` in `map/live/agentKind.ts`) because the app itself
+    prefixes the owner: `presenceActor` sends `"@seyi's <client name>"` and
+    `historyActor` builds the same. So a client that registers its own
+    possessive \u2014 `"x's Context (this app)"` \u2014 arrives as
+    `"@seyi's x's Context (this app)"`, whose tool part is exactly the console's
+    name, and is drawn as a person's face rather than as a tool. Marking the
+    front of the name does not help either: the mark has to land on the tool
+    part, or the possessive still carries it.
+  */
+  const toolPart = (name) => {
+    const at = name.lastIndexOf("'s ");
+    return (at >= 0 ? name.slice(at + 3) : name).trim().toLowerCase();
+  };
+  for (const taken of [
+    "x's Context (this app)",
+    "@seyi's texts (imessage)",
+    "Anything at all's Context (this app)",
+  ]) {
+    const posing = await registerNamed(taken);
+    check(
+      `a possessive cannot smuggle a first-party name past the guard (${JSON.stringify(taken)})`,
+      !["context (this app)", "texts (imessage)"].includes(toolPart(posing.stored))
+    );
+  }
+  // And the mark is stable: marking an already-marked name changes nothing.
+  const twice = await registerNamed("x's Unverified: Context (this app)");
+  check(
+    "a name that already carries the mark is left as written",
+    twice.stored === "x's Unverified: Context (this app)"
+  );
+
   const onlyNoise = await registerNamed("\u200b\u200b\u0000\n\t");
   check(
     "a name that is nothing but noise falls back rather than reaching the console empty",

@@ -475,12 +475,24 @@ export async function runMovesAndBatchChecks() {
       firstProgressReport?.body?.result?.progress?.total === 501 &&
       !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
   );
-  for (let i = 0; i < 400 &&
+  let observedReferenceBatch = false;
+  for (let i = 0; i < 1200 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
     const message = queuedGatewayMessages.shift();
     if (!message) break;
+    const beforeText = storedText(`.context/moves/${queuedMoveId}.json`);
     await worker.queue({ messages: [{ body: message }] }, env);
+    const afterText = storedText(`.context/moves/${queuedMoveId}.json`);
+    if (!isLogicalDeleteMarker(beforeText) && !isLogicalDeleteMarker(afterText)) {
+      const before = JSON.parse(beforeText);
+      const after = JSON.parse(afterText);
+      if (before.status === "rewriting" && after.reference_scanned > (before.reference_scanned || 0)) {
+        observedReferenceBatch = after.reference_scanned - (before.reference_scanned || 0) <= 5;
+      }
+    }
   }
+  check("queue link sweeps use a smaller bounded batch while copies still use twenty",
+    observedReferenceBatch);
   check(
     "queue consumer materializes a large logical move across bounded passes",
     isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)) &&
@@ -643,11 +655,24 @@ export async function runMovesAndBatchChecks() {
     !stalePass.isError && stalePass.content[0].text.includes("background worker queued") &&
       referenceMessages.length === queuedBeforeFreshPass + 1);
   delete env.GATEWAY_JOBS;
+  let profiledCheckpoint = false;
   for (let i = 0; i < 100 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)); i += 1) {
     const progress = await call("priv-token", "materialize_move", { id: linkJobId, batch_size: 100 });
     if (progress?.isError) break;
+    const markerText = storedText(`.context/moves/${linkJobId}.json`);
+    if (!profiledCheckpoint && !isLogicalDeleteMarker(markerText) &&
+        JSON.parse(markerText).reference_inventory_complete === true) {
+      const checkpointProfile = await call("priv-token", "materialize_move", {
+        id: `${linkJobId}:profile`, batch_size: 1,
+      });
+      profiledCheckpoint = !checkpointProfile.isError &&
+        checkpointProfile.content[0].text.includes("checkpointed inventory:") &&
+        !checkpointProfile.content[0].text.includes("note inventory:");
+    }
   }
+  check("owner profiles the checkpointed reference inventory without a fresh bucket walk",
+    profiledCheckpoint);
   check("queued reference repair updates inbound and moved-note relative links",
     isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)) &&
       storedText("1-projects/portable-link-ref.md") === "[[1-projects/deep/portable-link-moved/note]]" &&

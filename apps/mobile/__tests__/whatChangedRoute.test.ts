@@ -80,6 +80,8 @@ describe("routing", () => {
     expect(routeOrganizer(view(), router, true).pageOpen).toBe(true);
     expect(routeOrganizer(view(), router, false).pageOpen).toBe(false);
     expect(routeOrganizer(view({ ...STATUS, isOwner: false }), router, true).pageOpen).toBe(false);
+    // Switched off on the server, a `?changes=1` address (a bookmark, Back) draws no page.
+    expect(routeOrganizer(view({ ...STATUS, whatChanged: false }), router, true).pageOpen).toBe(false);
     expect(routeOrganizer(view({ ...STATUS, on: false }), router, true).pageOpen).toBe(false);
     expect(routeOrganizer(view(null), router, true).pageOpen).toBe(false);
   });

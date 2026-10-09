@@ -450,7 +450,9 @@ export async function runEndToEndChecks(check) {
     );
     check(
       "the ready projection retries a transient refusal three times",
-      d1.requests.length - requestsBeforeFailedWrite === 3,
+      // The tree table's own re-check of a new note goes to the same
+      // database; only the projection's requests are counted here.
+      d1.requests.slice(requestsBeforeFailedWrite).filter((request) => String(request.sql).includes("notes_")).length === 3,
     );
     check(
       "without returning provider or credential details",

@@ -8,6 +8,8 @@ import { Breadcrumb } from "../../files/Breadcrumb";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
 import { PresencePile } from "../../presence/PresencePile";
+import type { MeetingSummary } from "../../../meetings/useMeetingSummary";
+import { RedoSummary } from "./RedoSummary";
 import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
 import type { entryAt } from "../../files/tree";
@@ -29,6 +31,7 @@ export function BrowseNoteHead({
   onShare,
   openCrumbMenu,
   presence,
+  summary,
 }: {
   files: FileBrowser;
   selected: NonNullable<ReturnType<typeof entryAt>>;
@@ -41,6 +44,8 @@ export function BrowseNoteHead({
   openCrumbMenu: FolderListingState["openCrumbMenu"];
   /** The open note's room, for the pile beside the note's own controls. */
   presence?: Presence;
+  /** The open note's meeting summary, when it is one. */
+  summary?: MeetingSummary;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -183,6 +188,13 @@ export function BrowseNoteHead({
         row of its own over the title, so somebody arriving never moves the
         note. Only for the note the editor holds — the room is that note's.
       */}
+      {summary !== undefined &&
+      summary.isMeeting &&
+      files.canEdit &&
+      selected.kind === "file" &&
+      files.editor.path === selected.path ? (
+        <RedoSummary summary={summary} />
+      ) : null}
       {presence !== undefined && selected.kind === "file" && files.editor.path === selected.path ? (
         <PresencePile presence={presence} compact={false} />
       ) : null}

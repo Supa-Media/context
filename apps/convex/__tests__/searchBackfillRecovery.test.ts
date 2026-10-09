@@ -13,6 +13,8 @@
  *
  *   a Cloudflare blip recorded as `failed` instead of retried by the chain    1
  *   the sweep restarting a failure waiting cannot fix                         1
+ *   the sweep reading `updatedAt` again, which gateway reports move           1
+ *   a chain link not stamping its heartbeat                                   1
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -26,6 +28,20 @@ afterEach(async () => {
 });
 
 describe("a projection that fails on a blip", () => {
+  test("only one pass can hold a workspace's projection lease", async () => {
+    const { t, workspaceId } = await opted({ notes: 3 });
+    const claim = (token: string) => t.mutation(internal.functions.fastSearch.claimProjection, { workspaceId, token });
+    const release = (token: string) => t.mutation(internal.functions.fastSearch.releaseProjection, { workspaceId, token });
+
+    expect(await claim("first")).toBe(true);
+    expect(await claim("second")).toBe(false);
+    await release("second");
+    expect(await claim("second")).toBe(false);
+    await release("first");
+    expect(await claim("second")).toBe(true);
+    await release("second");
+  });
+
   test("a Cloudflare blip is retried by the chain, not recorded as failed", async () => {
     /*
       The screen a person actually saw: "Cloudflare could not be reached. This
@@ -198,5 +214,60 @@ describe("Try again on a database that already holds notes", () => {
     const after = await row(t, workspaceId);
     expect(after?.status).toBe("backfilling");
     expect(after?.notesIndexed).toBe(580);
+  });
+});
+
+describe("a dead chain on a workspace that is searched all day", () => {
+  test("gateway progress reports do not keep a dead chain looking alive", async () => {
+    /*
+      @seyi, 2026-10-08: the copy chain had stopped, but every search sent a
+      progress report from the gateway, which moved `updatedAt`, so the sweep
+      saw a row touched a moment ago and never restarted the chain. The fix to
+      its census sat undeployed in effect for an hour. The sweep reads the
+      chain's own heartbeat instead.
+    */
+    const { t, workspaceId } = await opted({ notes: 3 });
+    const long = Date.now() - 86_400_000;
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(existing!._id, { chainedAt: long, createdAt: long, updatedAt: long });
+    });
+    // A search's report, as `/gateway/search-index/progress` sends it.
+    await t.mutation(internal.functions.fastSearch.recordProjectionProgress, {
+      workspaceId,
+      notesIndexed: 1,
+      notesPending: 2,
+      ready: false,
+    });
+
+    const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
+
+    expect(swept.started).toBe(1);
+    expect(await queued(t, "runFileOperation")).toHaveLength(1);
+    // And the restart is a heartbeat, so the next sweep does not start a second.
+    const again = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
+    expect(again.started).toBe(0);
+  });
+
+  test("a link of the chain is a heartbeat", async () => {
+    const { t, workspaceId } = await opted({ notes: 150 });
+    const long = Date.now() - 86_400_000;
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(existing!._id, { chainedAt: long, createdAt: long, updatedAt: long });
+    });
+
+    await project(t, workspaceId, 0);
+    // Still filling, so the sweep would look at it.
+    expect((await row(t, workspaceId))?.status).toBe("backfilling");
+
+    const swept = await t.mutation(internal.functions.fastSearch.sweepStalledBackfills, {});
+    expect(swept.started).toBe(0);
   });
 });

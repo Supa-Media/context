@@ -11,11 +11,11 @@
  * page itself offers Files · List · Board, groups its children by status, and
  * gives anybody who may write a `Set status` on every folder and note —
  * writing the status into the note's own frontmatter, or a folder's front
- * note, or a new `overview.md` where a folder has none.
+ * note, or a new `about.md` where a folder has none.
  *
  * The properties with teeth: a member is never shown a control (the server
  * refuses the write anyway), and a folder's status goes to the front note by
- * the fixed order, or creates `overview.md` — never anywhere else.
+ * the fixed order, or creates `about.md` — never anywhere else.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
@@ -181,10 +181,10 @@ describe("a folder whose children have statuses", () => {
     const doThis = all("folder-note").find((row) => strip(row.textContent).includes("do this"))!;
     const button = doThis.querySelector<HTMLElement>('[data-testid="folder-make-task"]')!;
     // Said before anything is pressed: this writes a file that is not there yet.
-    expect(button.getAttribute("aria-label")).toBe("Make it a project, saves to overview.md");
+    expect(button.getAttribute("aria-label")).toBe("Make it a project, saves to about.md");
     await press(button);
-    // `do this` has only its untouched placeholder, so its first status creates overview.md — To do, not Backlog.
-    expect(writes).toEqual([["1-projects/do this/overview.md", "status", "to do", { create: true }]]);
+    // `do this` has only its untouched placeholder, so its first status creates about.md — To do, not Backlog.
+    expect(writes).toEqual([["1-projects/do this/about.md", "status", "to do", { create: true }]]);
   });
 
   test("a task's status menu offers the folder's statuses in their groups, and a note's goes in the note itself", async () => {
@@ -263,11 +263,13 @@ describe("the switch", () => {
 describe("a project folder's own page", () => {
   const WEB = listing("1-projects/web", [entry("file", "1-projects/web/overview.md"), entry("file", "1-projects/web/dns.md")]);
 
-  test("is titled by its front note and says its status, owner and first paragraph", async () => {
+  test("is titled by its front note and says its status and owner above its words", async () => {
     const view = await mount(entry("folder", "1-projects/web"), WEB, host(null));
     expect(strip(view.container.textContent)).toContain("Website folder");
     expect(strip(one("folder-property-line").textContent)).toMatch(/^active·Seyi·updated /);
-    expect(strip(one("folder-lede").textContent)).toBe("Publish a folder as a site.");
+    // Its words are the about note's opening, under the title (`folderAbout.test.ts`); this
+    // page has no source to read them from, so none are drawn rather than a guess.
+    expect(all("folder-about")).toHaveLength(0);
     // The visibility sentence gives way to the property line on a project.
     expect(strip(view.container.textContent)).not.toContain("visible to the people you granted access");
     // A member sees words, not controls.
@@ -293,14 +295,14 @@ describe("a project folder's own page", () => {
 describe("a plain folder", () => {
   const DO_THIS = listing("1-projects/do this", [entry("file", "1-projects/do this/README.md")]);
 
-  test("shows a writer Set status, which creates overview.md and says so first", async () => {
+  test("shows a writer Set status, which creates about.md and says so first", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects/do this"), DO_THIS, host(writes));
     expect(strip(one("folder-property-line").textContent)).toBe("Set status");
     await press(one("folder-property-status"));
-    expect(strip(one("menu-root").textContent)).toContain("Saves to overview.md");
+    expect(strip(one("menu-root").textContent)).toContain("Saves to about.md");
     await press(one("menu-item-choice:3"));
-    expect(writes).toEqual([["1-projects/do this/overview.md", "status", "in progress", { create: true }]]);
+    expect(writes).toEqual([["1-projects/do this/about.md", "status", "in progress", { create: true }]]);
   });
 
   test("shows a member nothing to press", async () => {

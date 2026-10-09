@@ -410,6 +410,24 @@ export function styleOf(file) {
  * ambiguous one resolves to nothing rather than to a guess.
  */
 export function resolveLink(link, fromPath, byName) {
+  const target = linkTargetOf(link, fromPath);
+  if (target === null) return null;
+  if (target.kind === "path") return target.path;
+  const candidates = byName?.get(target.name);
+  return candidates?.length === 1 ? candidates[0] : null;
+}
+
+/**
+ * What a link names before anything is looked up: a path (`kind: "path"`),
+ * or for a bare target only a name (`kind: "name"`, without `.md`), because a
+ * name means a note only once the whole bucket says which one carries it.
+ * `null` for anything this module will not touch.
+ *
+ * `resolveLink` is this plus the name lookup. The tree's link table stores
+ * exactly this, so "which notes point at X" is answered by the same parse a
+ * rewrite runs (`tree/links.js`).
+ */
+export function linkTargetOf(link, fromPath) {
   const target = link.target.trim();
   if (target === "" || target.startsWith("#") || isExternal(target)) return null;
 
@@ -419,11 +437,7 @@ export function resolveLink(link, fromPath, byName) {
   const decoded = link.kind === "inline" ? safeDecode(file) : file;
   const style = styleOf(decoded);
 
-  if (style === "bare") {
-    const name = decoded.replace(/\.md$/, "");
-    const candidates = byName?.get(name);
-    return candidates?.length === 1 ? candidates[0] : null;
-  }
+  if (style === "bare") return { kind: "name", name: decoded.replace(/\.md$/, "") };
 
   const base = style === "relative" ? dirOf(fromPath).split("/") : [];
   const segments = normalizeSegments([...base, ...decoded.split("/")]);
@@ -435,8 +449,8 @@ export function resolveLink(link, fromPath, byName) {
     already carrying a *different* extension is an attachment — an image, a PDF
     — and is resolved as written rather than having `.md` bolted onto it.
   */
-  if (path.endsWith(".md")) return path;
-  return /\.[a-z0-9]{1,8}$/i.test(path) ? path : `${path}.md`;
+  if (path.endsWith(".md")) return { kind: "path", path };
+  return { kind: "path", path: /\.[a-z0-9]{1,8}$/i.test(path) ? path : `${path}.md` };
 }
 
 function safeDecode(value) {

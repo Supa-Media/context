@@ -125,6 +125,10 @@ export async function runMeaningPass(
       workspaceId: args.workspaceId,
       code: pass.failure,
       cause: pass.failureCause,
+      operation: pass.failureOperation ?? null,
+      providerCodes: pass.providerCodes ?? [],
+      probeStatus: pass.probeStatus ?? null,
+      inputChars: pass.inputChars ?? null,
       embeddedThisPass: pass.embedded,
       passesLeft: passes,
       retrying,
@@ -142,7 +146,7 @@ export async function runMeaningPass(
         error: meaningMessageFor(pass.failure),
       });
     }
-    const { failure, failureCause: _cause, priorities: _priorities, ...counts } = pass;
+    const { failure, failureCause: _cause, failureOperation: _operation, providerCodes: _codes, probeStatus: _probe, inputChars: _chars, priorities: _priorities, ...counts } = pass;
     return { kind: "meaningProjected", ...counts, failure };
   }
 
@@ -156,7 +160,7 @@ export async function runMeaningPass(
     });
   }
   if (pass.moved && !pass.ready && passes > 0) await next(0);
-  const { failure: _none, failureCause: _noCause, priorities: _byPriority, ...counts } = pass;
+  const { failure: _none, failureCause: _noCause, failureOperation: _operation, providerCodes: _codes, probeStatus: _probe, inputChars: _chars, priorities: _byPriority, ...counts } = pass;
   return { kind: "meaningProjected", ...counts };
 }
 

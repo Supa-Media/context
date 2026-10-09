@@ -17,7 +17,7 @@
  * is what somebody means when they ask how many notes they have.
  *
  * What it *does* include is the files a scaffold wrote — `index.md`,
- * `privacy.md`, the folder READMEs. They are files in the bucket, the Browse
+ * `privacy.md`, the folder notes (`about.md`). They are files in the bucket, the Browse
  * pane lists them, and a person can count them by eye. A number that quietly
  * excluded "ours" would be a number nobody could reproduce from what is on
  * screen, which is how #25 happened in the first place.

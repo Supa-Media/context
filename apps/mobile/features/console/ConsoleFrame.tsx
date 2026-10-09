@@ -233,7 +233,14 @@ export function ConsoleFrame({
   // arrive at — and the strip showed one context's note names under another
   // context's name.
   const tabs = useTabs(data.files, data.selectedContextId);
-  const { history, step } = useConsoleHistory({ data, router, route, openSettingsSection });
+  const { history, step } = useConsoleHistory({
+    data,
+    router,
+    route,
+    openSettingsSection,
+    // Only where the map can be drawn (`useConsoleMapRoute` below): a visitor's `?map=1` is no page.
+    mapOpen: params.mapOpen === true && !data.demo && visitor === undefined,
+  });
   const current = selectedContext(data);
   /*
     Whether tabs are on screen at all. `TabStrip` is the pointer instrument and
@@ -275,7 +282,13 @@ export function ConsoleFrame({
 
   const { nav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
 
-  const contextLabel = atName(current?.slug ?? "your context");
+  /*
+    A visitor's one workspace is named by its display name: the homepage's is
+    "@context", and a shared link's is "Shared with you", which is not a
+    handle and must not read as one (`features/share/SharedConsole.tsx`).
+  */
+  const contextLabel =
+    visitor !== undefined && current?.displayName ? current.displayName : atName(current?.slug ?? "your context");
   // Auto-organize, for the surfaces that draw it; absent-as-nothing everywhere else.
   const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
   // Opening a note or folder from the tree leaves the page for it.

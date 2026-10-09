@@ -35,7 +35,8 @@ credential-bearing HTTP route (`CREDENTIAL_HTTP_ROUTES` stays at two members);
 `rotate_encryption_keys`, the owner-only, resumable, idempotent gateway tool
 that walks the bucket and re-wraps; the `workspaceDataKeys.retiredAt` field and
 `workspaceKeyRotations` table; and the grace-period *policy* (retired
-generations are never purged automatically). `export_encryption_keys` moves
+generations are never purged automatically). `export_encryption_keys` (removed
+from the MCP on 2026-10-08; the console's export remains) moves
 from a single-generation shape to the versioned, multi-generation bundle this
 file specifies above, and gains a matching offline decryptor,
 `packages/encryption-decryptor` — an independent reimplementation of the

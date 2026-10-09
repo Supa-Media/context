@@ -26,7 +26,7 @@ import {
   replacePrivacyRulesBlock,
 } from "../../privacy/engine.js";
 import { loadPrivacyState } from "../../privacy/state.js";
-import { MOVE_AUTOMATIC_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
+import { MOVE_AUTOMATIC_BATCH, MOVE_AUTOMATIC_REFERENCE_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
 import {
   moveJobActive,
   moveJobKey,
@@ -36,7 +36,7 @@ import {
 import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
 import { onlyLinkTargetsChanged } from "../../links.js";
-import { rewriteReferences } from "./references.js";
+import { referenceCandidates, rewriteReferences } from "./references.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { listImmediateLayout } from "../../notes/storage.js";
 import { loadMoveJobs } from "../../moves/jobs.js";
@@ -103,6 +103,16 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
       return toolError(`move ${job.id} reference inventory paused: exceeded 100 pages`);
     }
     if (!Array.isArray(job.reference_inventory_prefixes)) {
+      // The tree's link table answers the whole inventory in one pass, and
+      // names the few notes worth reading (`tree/links.js`).
+      const fromTable = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
+      if (fromTable !== null) {
+        job.reference_inventory_keys = fromTable.inventoryKeys;
+        job.reference_candidates = [...fromTable.candidates];
+        job.reference_inventory_complete = true;
+        await persistMoveJob(store, job);
+        return toolText(`move ${job.id}: reference inventory complete`);
+      }
       const layout = await listImmediateLayout(store);
       job.reference_inventory_prefixes = layout.prefixes;
       job.reference_inventory_index = 0;
@@ -147,10 +157,11 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
   const pending = Array.isArray(job.reference_failed_paths) ? job.reference_failed_paths : [];
   const retrying = job.reference_scan_complete === true && pending.length > 0;
   const selected = retrying ? pending.slice(0, referenceBatchSize) : null;
+  const candidates = Array.isArray(job.reference_candidates) ? new Set(job.reference_candidates) : undefined;
   const result = await rewriteReferences(store, job.reference_scope || scope, state.rules, state.overrides, renames,
-    retrying ? { paths: selected, currentJobId: job.id, inventoryKeys: job.reference_inventory_keys } :
+    retrying ? { paths: selected, currentJobId: job.id, inventoryKeys: job.reference_inventory_keys, candidates } :
       { after: job.reference_after, limit: referenceBatchSize, currentJobId: job.id,
-        inventoryKeys: job.reference_inventory_keys });
+        inventoryKeys: job.reference_inventory_keys, candidates });
   if (!Array.isArray(result.failedPaths)) {
     return toolError(`move ${job.id} reference rewrite paused: note listing did not finish`);
   }
@@ -191,7 +202,7 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
 
 export async function materializeMoveInBackground(store, scope, id) {
   for (let pass = 0; pass < 20; pass += 1) {
-    const result = await toolMaterializeMove(store, scope, id, MOVE_AUTOMATIC_BATCH);
+    const result = await toolMaterializeMove(store, scope, id, MOVE_AUTOMATIC_BATCH, { automatic: true });
     const text = result?.content?.[0]?.text || "";
     if (result?.isError || text.includes("complete") || text.includes("no active work")) return;
   }
@@ -372,7 +383,7 @@ async function retireMovePair(store, job, pair) {
   }
 }
 
-export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
+export async function toolMaterializeMove(store, scope, idArg, batchSizeArg, options = {}) {
   const key = moveJobKey(idArg);
   if (!key) return toolError("invalid move id");
   const marker = await getWithLegacyFallback(store, key);
@@ -418,6 +429,8 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     Number.isInteger(batchSizeArg) && batchSizeArg > 0
       ? Math.min(batchSizeArg, MOVE_MATERIALIZE_BATCH)
       : MOVE_MATERIALIZE_BATCH;
+  const referenceBatchSize = options.automatic === true
+    ? Math.min(batchSize, MOVE_AUTOMATIC_REFERENCE_BATCH) : batchSize;
   const sourcePrefix = `${job.source}/`;
   const sources = job.objects.filter(
     (item) =>
@@ -431,7 +444,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
 
   if (job.status === "rewriting") {
     try {
-      return await rewriteMoveReferences(store, scope, job, key, batchSize);
+      return await rewriteMoveReferences(store, scope, job, key, referenceBatchSize);
     } catch (error) {
       return toolError(`move ${job.id} reference rewrite paused: ${error.message}`);
     }
@@ -556,7 +569,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       { roots: [job.source], keep: [job.destination] }
     );
     await cleanupPrivacySourceAfterMove(store, job).catch(() => {});
-    return await rewriteMoveReferences(store, scope, job, key, batchSize);
+    return await rewriteMoveReferences(store, scope, job, key, referenceBatchSize);
   } catch (error) {
     job.status = job.status === "deleting" ? "needs_cleanup" :
       job.status === "rewriting" ? "rewriting" : "copying";
@@ -604,8 +617,16 @@ export async function toolProfileMoveReferences(store, idArg) {
       clearTimeout(timer);
     }
   }
-  const keys = await measure("note inventory", () => listAllNoteKeys(store));
+  // The materializer already checkpointed this inventory. Re-listing the
+  // entire bucket here made the diagnostic time out before reaching the
+  // expensive stage that actually blocks the worker.
+  const checkpointed = job.reference_inventory_complete === true &&
+    Array.isArray(job.reference_inventory_keys);
+  const keys = checkpointed
+    ? job.reference_inventory_keys.map((key) => ({ key }))
+    : await measure("note inventory", () => listAllNoteKeys(store));
   if (!keys) return toolText(rows.join("\n"));
+  if (checkpointed) rows.push(`checkpointed inventory: ${keys.length} keys`);
   const jobs = await measure("active move markers", () => loadMoveJobs(store));
   if (!jobs) return toolText(rows.join("\n"));
   await measure("forwarding ledger", () => readForwarding(store));

@@ -1,7 +1,9 @@
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { graphFromAnswer, type GraphAnswer } from "../convert";
+import { currentEpoch } from "../../../../offline/epoch";
+import { expandAnswer, graphFromAnswer, type GraphAnswer } from "../convert";
+import { cachedGraph, holdGraph } from "../graphCache";
 import { workspaceGraphRef } from "../mapData";
 import type { WorkspaceGraph } from "../types";
 
@@ -9,7 +11,9 @@ import type { WorkspaceGraph } from "../types";
 export type MapWorkspace = { id: string; slug: string; displayName: string; kind: string };
 
 /** How often a shown graph is read again. Live events move notes in between. */
-const REFRESH_MS = 2 * 60_000;
+export const REFRESH_MS = 2 * 60_000;
+/** While a workspace's map is catching up: soon enough that the notice clears as its links arrive. */
+export const CATCHING_UP_REFRESH_MS = 20_000;
 
 export type MapGraphs = {
   graphs: WorkspaceGraph[];
@@ -33,8 +37,10 @@ export type GraphGaps = {
 /**
  * Every visible note and link of each workspace on the map, from
  * `files.workspaceGraph` (one call per workspace; the control plane filters
- * each through the caller's own access). Read on the way in and every two
- * minutes after, while `enabled`.
+ * each through the caller's own access), in its compact form, which carries
+ * every note rather than the first 5,000. Read on the way in and every two
+ * minutes after (every twenty seconds while one is catching up), while `enabled`; a workspace read earlier this session is
+ * drawn from memory at once while its fresh answer comes (`graphCache.ts`).
  */
 export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boolean): MapGraphs {
   const read = useAction(workspaceGraphRef);
@@ -42,15 +48,31 @@ export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boole
   readRef.current = read;
   const [answers, setAnswers] = useState<ReadonlyMap<string, GraphAnswer | "failed">>(() => new Map());
   const key = workspaces.map((w) => w.id).join("|");
+  const catchingUp = useRef(false);
+  const catching = [...answers.values()].some((answer) => answer !== "failed" && answer.behind === true);
+  catchingUp.current = catching;
+  const reschedule = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!enabled || workspaces.length === 0) return;
     let stopped = false;
+    // What this tab already read is drawn now; the reads below replace it.
+    setAnswers((prev) => {
+      let next: Map<string, GraphAnswer | "failed"> | null = null;
+      for (const ws of workspaces) {
+        const cached = prev.has(ws.id) ? undefined : cachedGraph(ws.id);
+        if (cached !== undefined) (next ??= new Map(prev)).set(ws.id, cached);
+      }
+      return next ?? prev;
+    });
     const load = () => {
       for (const ws of workspaces) {
+        const epoch = currentEpoch();
         void readRef
-          .current({ workspaceId: ws.id as Id<"workspaces"> })
-          .then((answer) => {
+          .current({ workspaceId: ws.id as Id<"workspaces">, compact: true })
+          .then((raw) => {
+            const answer = expandAnswer(raw);
+            holdGraph(ws.id, answer, epoch);
             if (!stopped) setAnswers((prev) => new Map(prev).set(ws.id, answer));
           })
           .catch(() => {
@@ -59,15 +81,29 @@ export function useMapGraphs(workspaces: readonly MapWorkspace[], enabled: boole
       }
     };
     load();
-    const timer = setInterval(() => {
-      if (typeof document === "undefined" || document.visibilityState !== "hidden") load();
-    }, REFRESH_MS);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const next = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (typeof document === "undefined" || document.visibilityState !== "hidden") load();
+        next();
+      }, catchingUp.current ? CATCHING_UP_REFRESH_MS : REFRESH_MS);
+    };
+    next();
+    reschedule.current = next;
     return () => {
       stopped = true;
-      clearInterval(timer);
+      reschedule.current = () => {};
+      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
+
+  // A map that starts catching up waits twenty seconds, not out the rest of two
+  // minutes; one that has caught up goes back to two minutes from now.
+  useEffect(() => {
+    reschedule.current();
+  }, [catching]);
 
   return useMemo(() => {
     const graphs: WorkspaceGraph[] = [];

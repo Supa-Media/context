@@ -37,6 +37,40 @@ export interface HtmlPreview {
   readonly to: number;
   /** The fence's body, exactly as the file holds it. Never rewritten. */
   readonly html: string;
+  /** From `height=<px>` in the fence's info string; `undefined` keeps the default. */
+  readonly height?: number;
+}
+
+/** Smallest and largest frame a fence may ask for, in CSS pixels. */
+export const HTML_PREVIEW_MIN_HEIGHT = 80;
+export const HTML_PREVIEW_MAX_HEIGHT = 1200;
+
+/**
+ * The `height=<px>` option of an `html-preview` info string, or `undefined`.
+ *
+ * Summaries write charts this way (```` ```html-preview height=202 ````), so
+ * the note reads as an ordinary fence elsewhere and the editor sizes the frame
+ * to the chart. Anything malformed — a unit, a decimal, a stray word — is
+ * ignored rather than guessed at, and a height outside the range is clamped
+ * into it, so a fence can never draw a zero-height or a screen-filling frame.
+ */
+export function htmlPreviewHeight(info: string): number | undefined {
+  for (const word of info.trim().split(/\s+/).slice(1)) {
+    const match = /^height=(\d{1,5})$/.exec(word);
+    if (match === null) continue;
+    const px = Number(match[1]);
+    return Math.min(HTML_PREVIEW_MAX_HEIGHT, Math.max(HTML_PREVIEW_MIN_HEIGHT, px));
+  }
+  return undefined;
+}
+
+/** A fence's whole info string, trimmed, or `""`. */
+function fenceInfo(
+  doc: { sliceString: (from: number, to: number) => string },
+  fence: SyntaxNode,
+): string {
+  const info = fence.getChild("CodeInfo");
+  return info === null ? "" : doc.sliceString(info.from, info.to).trim();
 }
 
 /** The first word of a fence's info string, lower-cased, or `null`. */
@@ -44,9 +78,7 @@ function fenceTag(
   doc: { sliceString: (from: number, to: number) => string },
   fence: SyntaxNode,
 ): string | null {
-  const info = fence.getChild("CodeInfo");
-  if (info === null) return null;
-  const first = doc.sliceString(info.from, info.to).trim().split(/\s+/)[0];
+  const first = fenceInfo(doc, fence).split(/\s+/)[0];
   return first === undefined || first === "" ? null : first.toLowerCase();
 }
 
@@ -121,7 +153,8 @@ export function htmlPreviews(state: EditorState, frontEnd = 0): HtmlPreview[] {
       if (selectionTouches({ from: fence.from, to: fence.to }, selection)) return;
       const html = fenceBody(state.doc, fence);
       if (html.trim() === "") return;
-      previews.push({ from: fence.from, to: fence.to, html });
+      const height = htmlPreviewHeight(fenceInfo(state.doc, fence));
+      previews.push(height === undefined ? { from: fence.from, to: fence.to, html } : { from: fence.from, to: fence.to, html, height });
     },
   });
   return previews;
@@ -213,7 +246,11 @@ ${html}
  * link in a bare-sandbox frame cannot navigate.
  */
 export class HtmlPreviewWidget extends WidgetType {
-  constructor(private readonly html: string) {
+  constructor(
+    private readonly html: string,
+    /** The frame's height in CSS pixels; the default is the stylesheet's. */
+    private readonly height?: number,
+  ) {
     super();
   }
   /*
@@ -223,7 +260,7 @@ export class HtmlPreviewWidget extends WidgetType {
     reload its document under the reader's eyes several times a second.
   */
   eq(other: HtmlPreviewWidget): boolean {
-    return other.html === this.html;
+    return other.html === this.html && other.height === this.height;
   }
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
@@ -239,6 +276,8 @@ export class HtmlPreviewWidget extends WidgetType {
     */
     frame.setAttribute("sandbox", "");
     frame.setAttribute("srcdoc", previewDocument(this.html));
+    // Only when the fence asked for a height; otherwise the stylesheet's default stands.
+    if (this.height !== undefined) frame.style.height = `${this.height}px`;
     // A frame with no title is an unlabelled region to a screen reader, and
     // there is nothing inside this one it could read out instead.
     frame.setAttribute("title", "Rendered preview");

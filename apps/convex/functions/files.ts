@@ -371,14 +371,14 @@ export const readNote = action({
 
 /** See `syncManifestHandler` in `lib/filesFns/noteReads.ts`. */
 export const syncManifest = action({
-  args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()), folder: v.optional(v.string()) },
+  args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()), folder: v.optional(v.string()), source: v.optional(v.literal("tree")) },
   returns: manifestValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "manifest" }>> => await syncManifestHandler(ctx, args),
 });
 
 /** See `readNotesHandler` in `lib/filesFns/noteReads.ts`. */
 export const readNotes = action({
-  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()), plain: v.optional(v.boolean()) },
   returns: notesValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "notes" }>> => await readNotesHandler(ctx, args),
 });
@@ -410,7 +410,7 @@ export const notePaths = action({
 
 /** See `workspaceGraphHandler` in `lib/filesFns/search.ts`. */
 export const workspaceGraph = action({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: v.id("workspaces"), compact: v.optional(v.boolean()) },
   returns: workspaceGraphValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "workspaceGraph" }>> =>
     await workspaceGraphHandler(ctx, args),

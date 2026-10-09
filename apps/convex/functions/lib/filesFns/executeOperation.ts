@@ -487,7 +487,7 @@ export async function executeOperation(
         return { kind: "manifest", ...manifest };
       }
       case "readMany": {
-        const results = await readFiles(store, { paths: operation.paths, clearance });
+        const results = await readFiles(store, { paths: operation.paths, clearance, plain: operation.plain === true });
         return {
           kind: "notes",
           results: results.map((result) =>
@@ -562,7 +562,7 @@ export async function executeOperation(
         return { kind: "notePaths", paths: found?.paths ?? null };
       }
       case "workspaceGraph":
-        return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance)) };
+        return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance, { compact: operation.compact === true })) };
       case "visiblePaths":
         return { kind: "visiblePaths", paths: await visiblePathsOf(store, clearance, operation.paths) };
       case "projectIndex": {
@@ -585,7 +585,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": // run by the barrier, which holds its credential (`meaningPass.ts`)
+      case "projectMeaning": case "sweepTree": case "touchTree": case "treeState": case "treeChanges": case "folderNotes": // run by the barrier (`meaningPass.ts`, `treeTableOps.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building

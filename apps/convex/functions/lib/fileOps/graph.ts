@@ -3,6 +3,11 @@
  * between them — `docs/decisions/search.md`, "The map's graph is read per
  * shard at request time, and stored nowhere".
  *
+ * Where the context's tree table has read every note's links
+ * (`apps/mcp/src/tree/links.js`), the notes and links come from it instead,
+ * in a few queries, and no shard is read; everything below about who may see
+ * what applies to those rows exactly as to the shards'.
+ *
  * Built from the search index this bucket already keeps, never from a listing
  * or a body read: the docmap names every note and which shard holds it, and
  * each shard stores, per note, the `.md` targets the indexer resolved out of
@@ -44,19 +49,40 @@ import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 import { loadMoveJobs } from "../../../../mcp/src/moves/jobs.js";
 import {
   MAX_SHARD_COUNT,
+  SHARD_READ_CONCURRENCY,
   decodeShard,
   fetchShardBytes,
   indexIsBehind,
   loadDocmap,
 } from "../../../../mcp/src/search/shards.js";
+import { treeLinkRows, treeNotePaths } from "../../../../mcp/src/tree/links.js";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 
-/** Notes on one map. Past this the canvas is a blur and the answer is a floor. */
+/**
+ * Notes and links in the original answer, one object per note. Clients that
+ * predate the compact answer still ask for it, and get the floor they always
+ * got.
+ */
 export const GRAPH_NODE_CAP = 5_000;
-
-/** Links on one map, for the same reason. */
 export const GRAPH_EDGE_CAP = 20_000;
+
+/**
+ * Every note, in the compact answer (decided by the owner, 2026-10-08: "I
+ * want us to show all, but of course if an area is too dense we may not see
+ * details until we zoom in"). These are ceilings on what one answer may
+ * carry, not a reading choice: the index itself tops out near them (64 shards
+ * and a docmap of at most 4MB), and at roughly 60 bytes a path and a few per
+ * link they keep the answer to a few megabytes.
+ */
+export const GRAPH_ALL_NODE_CAP = 60_000;
+export const GRAPH_ALL_EDGE_CAP = 150_000;
+
+/**
+ * Items per chunk of the compact answer. A Convex array holds at most 8,192,
+ * so a whole workspace travels as arrays of arrays.
+ */
+export const GRAPH_CHUNK = 8_000;
 
 /**
  * Store operations one graph read may spend: the privacy manifest, the
@@ -76,7 +102,19 @@ export interface WorkspaceGraphResult {
   noteCount: number;
   /** The link cap cut links between notes that are drawn. */
   linksCut: boolean;
-  /** The index has not caught up with the bucket: "the map is catching up". */
+  /**
+   * The compact answer, when asked for: every node's path, in order, and the
+   * links as a flat list of index pairs, both split into chunks of at most
+   * `GRAPH_CHUNK`. `nodes` and `edges` are empty then; a title is the file
+   * name (`titleOf`), so it does not travel.
+   */
+  pathChunks?: string[][];
+  linkChunks?: number[][];
+  /**
+   * The index has not caught up with the bucket, or (from the link table) enough
+   * notes are waiting on their links to matter (`linksBehind`): "the map is
+   * catching up".
+   */
   behind: boolean;
   /**
    * Nothing has indexed this bucket at all. Distinct from an empty workspace
@@ -107,32 +145,79 @@ function decoded(target: string): string {
   }
 }
 
+/**
+ * When the map says it is catching up: only once enough notes are waiting on
+ * their links to make a visible difference. Every save of text leaves its note
+ * unparsed until the next fill pass, which a map read schedules, so in a
+ * workspace somebody is writing in a few notes are almost always waiting; a
+ * notice for those would be on nearly every time anybody opened the map, and
+ * would read as stuck. Below this the map draws what it has and its next
+ * refresh brings the rest in. One bit leaves the server, never the count,
+ * which includes notes the caller may not see.
+ */
+export const LINKS_BEHIND_MIN = 20;
+export const LINKS_BEHIND_SHARE = 0.05;
+
+export function linksBehind(unparsed: number, notes: number): boolean {
+  return unparsed > 0 && unparsed >= Math.max(LINKS_BEHIND_MIN, notes * LINKS_BEHIND_SHARE);
+}
+
+/** The tree's link table, as the barrier attaches it to the map's store (`treeTableOps.ts`). */
+interface LinkTable {
+  client: Parameters<typeof treeNotePaths>[0];
+  /** Notes changed since their links were read: the map is "catching up". */
+  unparsed: number;
+}
+
+function linkTableOf(store: FileStore): LinkTable | null {
+  const table = (store as unknown as { linkTable?: LinkTable }).linkTable;
+  return table && typeof table === "object" ? table : null;
+}
+
+/** Every note path and every link, from the table; `null` when it cannot be read. */
+async function readLinkTable(table: LinkTable): Promise<{ paths: string[]; links: string[][] } | null> {
+  try {
+    const [paths, links] = await Promise.all([treeNotePaths(table.client), treeLinkRows(table.client)]);
+    return { paths, links };
+  } catch {
+    return null;
+  }
+}
+
 export async function workspaceGraph(
   store: FileStore,
   clearance: Clearance,
-  options: { nodeCap?: number; edgeCap?: number } = {},
+  options: { nodeCap?: number; edgeCap?: number; compact?: boolean } = {},
 ): Promise<WorkspaceGraphResult> {
-  const nodeCap = options.nodeCap ?? GRAPH_NODE_CAP;
-  const edgeCap = options.edgeCap ?? GRAPH_EDGE_CAP;
-  const state = await loadPrivacyState(store);
+  const compact = options.compact === true;
+  const nodeCap = options.nodeCap ?? (compact ? GRAPH_ALL_NODE_CAP : GRAPH_NODE_CAP);
+  const edgeCap = options.edgeCap ?? (compact ? GRAPH_ALL_EDGE_CAP : GRAPH_EDGE_CAP);
+  const budget = createSearchBudget(GRAPH_BUDGET);
+  const table = linkTableOf(store);
+  // Independent reads, so one round trip rather than three: the time to the
+  // first drawn note is round trips to the bucket, not bytes. Where the tree's
+  // link table has read every note once, it answers both the notes and the
+  // links in two queries and the search index is not read at all.
+  const [state, tableRows, jobs] = await Promise.all([
+    loadPrivacyState(store),
+    table === null ? Promise.resolve(null) : readLinkTable(table),
+    loadMoveJobs(store),
+  ]);
+  const found =
+    tableRows === null
+      ? await loadDocmap(store as unknown as Parameters<typeof loadDocmap>[0], budget, 0)
+      : null;
   const isVisible = (path: string) =>
     !isPlumbing(path) &&
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
 
-  const budget = createSearchBudget(GRAPH_BUDGET);
-  const found = await loadDocmap(
-    store as unknown as Parameters<typeof loadDocmap>[0],
-    budget,
-    0,
-  );
-  if (found === null) {
+  if (tableRows === null && found === null) {
     return { nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true };
   }
 
   // The index follows physical objects, while a folder move changes their
   // public paths immediately. Draw the same logical paths as note listings
   // while the background worker copies and retires the old objects.
-  const jobs = await loadMoveJobs(store);
   const destinationOf = new Map<string, string>();
   const sourceOf = new Map<string, string>();
   for (const job of jobs) {
@@ -148,8 +233,9 @@ export async function workspaceGraph(
   };
 
   const visible = new Set<string>();
-  for (const docs of found.docsByShard) {
-    for (const path of docs.keys()) if (mayDraw(path)) visible.add(logicalPath(path));
+  const physicalPaths = tableRows !== null ? [tableRows.paths] : found!.docsByShard.map((docs) => docs.keys());
+  for (const paths of physicalPaths) {
+    for (const path of paths) if (mayDraw(path)) visible.add(logicalPath(path));
   }
   const sorted = [...visible].sort();
   let truncated = sorted.length > nodeCap;
@@ -170,57 +256,110 @@ export async function workspaceGraph(
     const unique = byName.get(nameOf(decoded(link)));
     return unique === null ? undefined : unique;
   };
+  // A bare `[[name]]` from the table: the note of that name beside the one
+  // linking, as the search index resolved it, else the one drawn note
+  // carrying the name. Both looked up among the nodes only.
+  const namedTarget = (from: string, name: string): number | undefined => {
+    const file = name.endsWith(".md") || /\.[a-z0-9]{1,8}$/i.test(name) ? name : `${name}.md`;
+    const folder = from.includes("/") ? from.slice(0, from.lastIndexOf("/") + 1) : "";
+    const beside = indexOf.get(logicalPath(`${folder}${file}`));
+    if (beside !== undefined) return beside;
+    const unique = byName.get(file);
+    return unique === null ? undefined : unique;
+  };
 
-  let behind = indexIsBehind(found.manifest.freshness);
   const edges = new Map<string, [number, number]>();
+  const addEdge = (source: number, target: number | undefined) => {
+    if (target === undefined || target === source) return;
+    const pair = `${source}>${target}`;
+    if (edges.has(pair)) return;
+    if (edges.size >= edgeCap) {
+      truncated = true;
+      linksCut = true;
+      return;
+    }
+    edges.set(pair, [source, target]);
+  };
+
+  let behind: boolean;
+  if (tableRows !== null) {
+    behind = linksBehind(table!.unparsed, tableRows.paths.length);
+    for (const [physical, kind, target] of tableRows.links) {
+      const source = mayDraw(physical) ? indexOf.get(logicalPath(physical)) : undefined;
+      if (source === undefined) continue;
+      addEdge(source, kind === "name" ? namedTarget(physical, target) : targetOf(target));
+    }
+  } else {
+    behind = await shardEdges(store, budget, found!, { indexOf, logicalPath, mayDraw, targetOf, addEdge });
+  }
+
+  const sortedEdges = [...edges.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const common = { truncated, noteCount: sorted.length, linksCut, behind, indexMissing: false };
+  if (!compact) return { nodes, edges: sortedEdges, ...common };
+  return {
+    nodes: [],
+    edges: [],
+    pathChunks: chunks(nodes.map((node) => node.path), GRAPH_CHUNK),
+    linkChunks: chunks(sortedEdges.flat(), GRAPH_CHUNK),
+    ...common,
+  };
+}
+
+/**
+ * The links from the search index's shards, for a context whose link table
+ * cannot answer yet. Returns whether the map is behind the bucket.
+ */
+async function shardEdges(
+  store: FileStore,
+  budget: ReturnType<typeof createSearchBudget>,
+  found: NonNullable<Awaited<ReturnType<typeof loadDocmap>>>,
+  draw: {
+    indexOf: Map<string, number>;
+    logicalPath: (path: string) => string;
+    mayDraw: (path: string) => boolean;
+    targetOf: (link: string) => number | undefined;
+    addEdge: (source: number, target: number | undefined) => void;
+  },
+): Promise<boolean> {
+  let behind = indexIsBehind(found.manifest.freshness);
+  const wanted: number[] = [];
   for (let id = 0; id < found.docsByShard.length; id += 1) {
-    let holdsNode = false;
     for (const path of found.docsByShard[id].keys()) {
-      if (indexOf.has(logicalPath(path)) && mayDraw(path)) {
-        holdsNode = true;
+      if (draw.indexOf.has(draw.logicalPath(path)) && draw.mayDraw(path)) {
+        wanted.push(id);
         break;
       }
     }
-    if (!holdsNode) continue;
-    const bytes = await fetchShardBytes(
-      store as unknown as Parameters<typeof fetchShardBytes>[0],
-      budget,
-      0,
-      id,
+  }
+  // Shards are fetched several at a time and parsed one at a time, as the
+  // search query walk does: what a wave holds is bytes, never parsed shards.
+  // One at a time, a big workspace's map waited on fifty round trips in a row.
+  for (let start = 0; start < wanted.length; start += SHARD_READ_CONCURRENCY) {
+    const wave = wanted.slice(start, start + SHARD_READ_CONCURRENCY);
+    const fetched = await Promise.all(
+      wave.map((id) => fetchShardBytes(store as unknown as Parameters<typeof fetchShardBytes>[0], budget, 0, id)),
     );
-    const shard = (bytes ? decodeShard(bytes) : null) as ParsedShard | null;
-    if (shard === null) {
-      behind = true;
-      continue;
-    }
-    for (const [key, doc] of shard.docs) {
-      const physical = doc.notePath ?? key;
-      const source = mayDraw(physical) ? indexOf.get(logicalPath(physical)) : undefined;
-      if (source === undefined) continue;
-      for (const link of doc.links) {
-        const target = targetOf(link);
-        if (target === undefined || target === source) continue;
-        const pair = `${source}>${target}`;
-        if (edges.has(pair)) continue;
-        if (edges.size >= edgeCap) {
-          truncated = true;
-          linksCut = true;
-          continue;
-        }
-        edges.set(pair, [source, target]);
+    for (const bytes of fetched) {
+      const shard = (bytes ? decodeShard(bytes) : null) as ParsedShard | null;
+      if (shard === null) {
+        behind = true;
+        continue;
+      }
+      for (const [key, doc] of shard.docs) {
+        const physical = doc.notePath ?? key;
+        const source = draw.mayDraw(physical) ? draw.indexOf.get(draw.logicalPath(physical)) : undefined;
+        if (source === undefined) continue;
+        for (const link of doc.links) draw.addEdge(source, draw.targetOf(link));
       }
     }
   }
+  return behind;
+}
 
-  return {
-    nodes,
-    edges: [...edges.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]),
-    truncated,
-    noteCount: sorted.length,
-    linksCut,
-    behind,
-    indexMissing: false,
-  };
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let start = 0; start < items.length; start += size) out.push(items.slice(start, start + size));
+  return out;
 }
 
 /**

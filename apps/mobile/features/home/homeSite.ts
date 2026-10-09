@@ -104,7 +104,7 @@ export interface HomeTree {
  * never draws); a folder takes the place of its first note. Nothing is added:
  * no private note, no Legal of the shell's own.
  */
-export function liveHomeTree(site: readonly HomePage[]): HomeTree {
+export function liveHomeTree(site: readonly HomePage[], icons: Readonly<Record<string, string>> = {}): HomeTree {
   const pages = new Map<string, HomePage>();
   const paths = new Map<string, string>();
   const entries: Record<string, FileEntry[]> = { "": [] };
@@ -130,13 +130,13 @@ export function liveHomeTree(site: readonly HomePage[]): HomeTree {
       parent = folder;
     }
     /*
-      A project's `overview.md` keeps its name: it is what makes its folder a
-      project (`FRONT_NOTES`), and where a scene's "marks … as" writes the
-      status. Not `index.md`, which is how the site sends a page that names a
-      folder, drawn by its title like any page.
+      A folder's own note (`about.md`, `overview.md`, `README.md`) keeps its
+      name: it is what makes its folder a project (`FRONT_NOTES`), and where a
+      scene's "marks … as" writes the status. Not `index.md`, which is how the
+      site sends a page that names a folder, drawn by its title like any page.
     */
     const leaf = segments[segments.length - 1]!;
-    const front = parent !== "" && leaf.toLowerCase() === FRONT_NOTES[0];
+    const front = parent !== "" && leaf !== "index.md" && FRONT_NOTES.includes(leaf);
     const path = front ? `${parent}/${leaf}` : numbered(parent, fileName(page.title));
     pages.set(path, page);
     paths.set(page.routePath, path);
@@ -146,12 +146,19 @@ export function liveHomeTree(site: readonly HomePage[]): HomeTree {
   for (const [path, page] of pages) notes[path] = page.markdown;
   const listings: Record<string, FolderListing> = {};
   for (const [path, list] of Object.entries(entries)) listings[path] = listing(path, list);
+  // Each icon onto its folder as the tree names it (`projects` → `02-projects`).
+  const folderIcons: Record<string, string> = {};
+  for (const [route, folder] of folders) {
+    const icon = Object.prototype.hasOwnProperty.call(icons, route.slice(1)) ? icons[route.slice(1)] : undefined;
+    if (icon !== undefined) folderIcons[folder] = icon;
+  }
   return {
     pages,
     paths,
     tree: {
       listings,
       notes,
+      icons: folderIcons,
       defaultSelection: paths.get("/") ?? [...pages.keys()][0] ?? "",
       defaultExpanded: [...folders.values()],
       readOnlyReason: "This workspace is read only. Make your own to start writing.",
@@ -325,8 +332,7 @@ export function homeRedirect(
 ): { pathname: "/"; params: { page: string } } | null {
   if (!web) return null;
   const route = homePagePath(segments);
-  const page = route === null ? undefined : pageParam(route);
-  return page === undefined ? null : { pathname: "/", params: { page } };
+  return route === null ? null : { pathname: "/", params: { page: pageParam(route) } };
 }
 
 /**
@@ -336,16 +342,25 @@ export function homeRedirect(
  * `login`) keeps `/?page=login`, since `/login` would open sign-in.
  */
 export function pageHref(routePath: string): string {
+  // A link to the home page is a link to the front door.
+  if (routePath === "/") return "/";
   const page = pageParam(routePath);
-  if (page === undefined) return "/";
   return homePagePath(page.split("/")) === null
     ? `/?page=${encodeURIComponent(page)}`
     : `/${page.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-/** The `?page=` a route path is written as in the address bar; the home page has none. */
-export function pageParam(routePath: string): string | undefined {
-  return routePath === "/" ? undefined : routePath.slice(1);
+/**
+ * The `?page=` the website's own home page is written as. `/` with no
+ * `?page=` is landing page a (Dev2, 2026-10-09; `features/landing`), so the
+ * home page of the site, drawn in the console's frame, needs an address of its
+ * own. `index` cannot be another page's: `index.md` is the home page.
+ */
+export const HOME_PAGE_PARAM = "index";
+
+/** The `?page=` a route path is written as in the address bar. */
+export function pageParam(routePath: string): string {
+  return routePath === "/" ? HOME_PAGE_PARAM : routePath.slice(1);
 }
 
 /** The route path a `?page=` names. */
@@ -353,5 +368,5 @@ export function routeFromParam(param: string | string[] | undefined): string {
   const value = Array.isArray(param) ? param[0] : param;
   if (value === undefined || value === "") return "/";
   const trimmed = value.replace(/^\/+/, "").replace(/\/+$/, "");
-  return trimmed === "" ? "/" : `/${trimmed}`;
+  return trimmed === "" || trimmed === HOME_PAGE_PARAM ? "/" : `/${trimmed}`;
 }

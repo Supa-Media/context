@@ -79,12 +79,11 @@ const D1_TIMEOUT_MS = 8_000;
 
 /**
  * How big one batched request may get: statements, and bytes of SQL and
- * params. A window of a hundred ordinary notes fits in one request, which is
- * the point; the caps keep a group of very long notes from becoming one body
- * big enough, or slow enough, to hit a limit of D1's own, and keep a refused
- * group small.
+ * params. @seyi's 500-statement requests timed out even after its projection
+ * was serialized (2026-10-09). Smaller transactions finish inside the D1
+ * timeout while still using far fewer requests than one per statement.
  */
-export const D1_BATCH_STATEMENTS = 500;
+export const D1_BATCH_STATEMENTS = 100;
 export const D1_GROUP_BYTES = 512 * 1024;
 
 /** Split statements into groups under both caps, in order. */

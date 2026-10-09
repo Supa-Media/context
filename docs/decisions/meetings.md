@@ -251,3 +251,6 @@ The owner asked for context.lc's visitors to try a meeting rather than read abou
 
 Words need transcription, and `transcribeChunk` refuses anybody without an account. So `transcribeDemoChunk` is a second, narrow door, and the first is untouched: two minutes per meeting (refused past it server-side, and the app stops there), a cap on each chunk's size, a per-tab allowance keyed by a random id, and a budget shared by every visitor, per minute and per day, which is the bound that holds against minted ids. It writes `rateLimits` and nothing else. Reversing this means visitors record silence; widening it means paying for anonymous inference without a ceiling. `apps/convex/__tests__/meetingTranscribe/demo.test.ts` fails if a bound goes.
 
+## Meeting summaries (2026-10-09)
+
+Moved to [Meeting summaries](./meetings/summaries.md): the model fills a tool and our code writes the Markdown, the same on every plan under a daily ceiling, started by opening the note.

@@ -88,6 +88,18 @@ jobs:
           STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS }}
           STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_API_KEY_SID: ${{ secrets.TWILIO_API_KEY_SID }}
+          TWILIO_API_KEY_SECRET: ${{ secrets.TWILIO_API_KEY_SECRET }}
+          TWILIO_VERIFY_SERVICE_SID: ${{ secrets.TWILIO_VERIFY_SERVICE_SID }}
+          # Sign-in codes in Context's own words (`functions/phoneCodes.ts`):
+          # the A2P-registered Messaging Service they are sent through. Unset,
+          # codes go through Twilio Verify as before.
+          TWILIO_MESSAGING_SERVICE_SID: ${{ secrets.TWILIO_MESSAGING_SERVICE_SID }}
+          # The phone check (`lib/phoneCheck.ts`), on in production since people
+          # sign in with their phone (Dev2, 2026-10-09). A `PHONE_CHECK` secret
+          # set to anything but `required` turns it back off.
+          PHONE_CHECK: ${{ secrets.PHONE_CHECK || 'required' }}
           # The From: address on sign-in codes and invitations. Missing from this
           # list until 2026-09-05, so it was the one Convex variable the deploy
           # did not keep in step with GitHub.
@@ -198,7 +210,9 @@ jobs:
             STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
             STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS \
             STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
-            RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET \
+            RESEND_API_KEY TWILIO_ACCOUNT_SID TWILIO_API_KEY_SID \
+            TWILIO_API_KEY_SECRET \
+            TWILIO_VERIFY_SERVICE_SID TWILIO_MESSAGING_SERVICE_SID PHONE_CHECK APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET \
             DROPBOX_APP_KEY DROPBOX_APP_SECRET \
             GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
             MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \

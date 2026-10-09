@@ -19,6 +19,12 @@
  *
  *   models.main    the built-in model (`@cf/…`, `anthropic/claude-…`, a catalog
  *                  model like `openai/gpt-…`, or a gateway route `dynamic/<name>`)
+ *   models.router  optional, with `models.think`: the decision model that picks
+ *                  a tier for each text (`router.js`; only Clef, for now)
+ *   models.think   the model a `think` text runs on instead of `models.main`
+ *   models.fallback optional: the model a turn goes on with when the one it
+ *                  was on failed after its retry (decided by the owner,
+ *                  2026-10-09; another model than `main`, or it is no fallback)
  *   tools          names the setup was proved with (recorded; not yet offered)
  *   max_steps      1-12, the most rounds a turn may take
  *   body           the whole prompt a texted turn is given
@@ -34,6 +40,7 @@
 import { loadPrivacyState } from "../privacy/state.js";
 import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
 import { isBuiltinModelName } from "./builtin.js";
+import { ROUTER_MODEL } from "./router.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -71,6 +78,20 @@ async function parse(raw) {
   const models = front.models;
   if (!isMap(models) || typeof models.main !== "string" || !isBuiltinModelName(models.main)) return null;
 
+  // A router without a thinking model has nowhere to send a text; a thinking
+  // model without a router would never be chosen. Either alone is a mistake.
+  let router = null;
+  if (models.router !== undefined || models.think !== undefined) {
+    if (models.router !== ROUTER_MODEL) return null;
+    if (typeof models.think !== "string" || !isBuiltinModelName(models.think)) return null;
+    router = { model: models.router, think: models.think };
+  }
+  let fallback = null;
+  if (models.fallback !== undefined) {
+    if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
+    fallback = models.fallback;
+  }
+
   const tools = front.tools === undefined ? [] : front.tools;
   if (!Array.isArray(tools) || !tools.every((tool) => typeof tool === "string" && TOOL.test(tool))) return null;
 
@@ -88,6 +109,8 @@ async function parse(raw) {
   return {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
+    router,
+    fallback,
     tools,
     maxSteps,
     prompt,

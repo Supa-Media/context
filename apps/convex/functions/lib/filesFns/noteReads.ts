@@ -86,6 +86,8 @@ export async function syncManifestHandler(
     workspaceId: Id<"workspaces">;
     cursor?: string;
     folder?: string;
+    /** `"tree"`: read the tree table where it can answer (`treeTableOps.ts`). */
+    source?: "tree";
   },
 ): Promise<Extract<OperationResult, { kind: "manifest" }>> {
   const actorUserId = await callerId(ctx);
@@ -102,6 +104,7 @@ export async function syncManifestHandler(
       kind: "manifest",
       ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
       ...(args.folder === undefined ? {} : { folder: args.folder }),
+      ...(args.source === undefined ? {} : { source: args.source }),
     },
   });
   return result as Extract<OperationResult, { kind: "manifest" }>;
@@ -120,6 +123,8 @@ export async function readNotesHandler(
   args: {
     workspaceId: Id<"workspaces">;
     paths: string[];
+    /** The Markdown as stored, without opening collaboration documents: what a folder List reads. */
+    plain?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "notes" }>> {
   const actorUserId = await callerId(ctx);
@@ -140,7 +145,7 @@ export async function readNotesHandler(
     workspaceId: args.workspaceId,
     scope,
     grantedNames,
-    operation: { kind: "readMany", paths: args.paths },
+    operation: { kind: "readMany", paths: args.paths, ...(args.plain === true ? { plain: true } : {}) },
   });
   return result as Extract<OperationResult, { kind: "notes" }>;
 }

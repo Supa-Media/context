@@ -34,6 +34,25 @@ describe("describing durable folder moves", () => {
     ).toBe("Waiting to start");
   });
 
+  test("shows link progress, recent pace, and elapsed time without a false ETA", () => {
+    const job = {
+      jobId: "job-2",
+      status: "running" as const,
+      phase: "rewriting" as const,
+      completed: 25,
+      total: 100,
+      progressChangedAt: 60_000,
+      progressPerMinute: 2.5,
+      updatedAt: 60_000,
+    };
+    expect(describeMoveProgress(job, 180_000).detail).toBe(
+      "Updating links · 25 of 100 · 25% · 2.5/min recently · Last advanced 2 min ago",
+    );
+    expect(describeMoveProgress(job, 720_000).detail).toBe(
+      "Updating links · 25 of 100 · 25% · No progress for 11 min",
+    );
+  });
+
   test("turns a provider failure into one short actionable sentence", () => {
     expect(
       describeMoveProgress({

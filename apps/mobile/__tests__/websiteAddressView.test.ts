@@ -12,6 +12,7 @@ const mockFavicons: (string | null)[] = [];
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock("../features/site/useWebsiteAddress", () => ({
+  useSitePrefetch: () => () => undefined,
   useWebsiteAddress: (request: unknown) => {
     mockRequests.push(request);
     return mockView;

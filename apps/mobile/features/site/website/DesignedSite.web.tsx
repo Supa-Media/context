@@ -20,6 +20,7 @@ import { createElement, useEffect, useMemo, useRef } from "react";
 import { SITE_BASE_CSS, SITE_SCOPE_CLASS, googleFontsUrl, type ResolvedWebsitePage, type WebsiteDesign } from "@context/shared";
 import { emojiPictures } from "../../share/emojiPictures";
 import { publishedImages } from "../../share/publishedImages";
+import { PREFETCH_LIMIT } from "../siteAnswers";
 import { designedPageHtml, sitePathOf } from "./designHtml";
 
 export const designedSiteAvailable = true;
@@ -31,11 +32,13 @@ export function DesignedSite({
   design,
   navigate,
   hrefFor,
+  prefetch,
 }: {
   view: Extract<ResolvedWebsitePage, { kind: "page" }>;
   design: WebsiteDesign;
   navigate: (routePath: string) => void;
   hrefFor: (routePath: string) => string;
+  prefetch?: (routePath: string) => void;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -70,11 +73,19 @@ export function DesignedSite({
   useEffect(() => {
     const root = container.current;
     if (root === null) return;
+    let ahead = 0;
     for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
       const path = sitePathOf(anchor.getAttribute("href") ?? "", view.routePath);
       if (path === null) continue;
       anchor.setAttribute("data-ctx-path", path);
       anchor.setAttribute("href", hrefFor(path));
+      // Every page this one links to is fetched now, so even a first click
+      // draws at once (`siteAnswers.ts`); each is fetched once per tab.
+      const [route] = path.split("#");
+      if (route !== view.routePath && ahead < PREFETCH_LIMIT) {
+        ahead += 1;
+        prefetch?.(route!);
+      }
     }
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -86,9 +97,23 @@ export function DesignedSite({
       event.preventDefault();
       navigate(route!);
     };
+    // A link the pointer or focus reaches is fetched ahead too, in case its
+    // first fetch failed or it was past the limit.
+    const onIntent = (event: Event) => {
+      const anchor = (event.target as Element | null)?.closest?.("a[data-ctx-path]");
+      if (anchor === null || anchor === undefined) return;
+      const [route] = anchor.getAttribute("data-ctx-path")!.split("#");
+      if (route !== view.routePath) prefetch?.(route!);
+    };
     root.addEventListener("click", onClick);
-    return () => root.removeEventListener("click", onClick);
-  }, [html, hrefFor, navigate, view.routePath]);
+    root.addEventListener("pointerover", onIntent);
+    root.addEventListener("focusin", onIntent);
+    return () => {
+      root.removeEventListener("click", onClick);
+      root.removeEventListener("pointerover", onIntent);
+      root.removeEventListener("focusin", onIntent);
+    };
+  }, [html, hrefFor, navigate, prefetch, view.routePath]);
 
   // A new page opens at its top, as a page load would.
   useEffect(() => {

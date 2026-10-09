@@ -46,6 +46,7 @@ export function useFolderLists(
   const readNote = useAction(api.functions.files.readNote);
   const readNotes = useAction(api.functions.files.readNotes);
   const syncManifest = useAction(api.functions.files.syncManifest);
+  const folderNotes = useAction(api.functions.folderNotes.folderNotes);
   // Read at load time, not render time, so going offline does not rebuild the source.
   const reachability = useReachability();
   const offline = useRef(reachability === "offline");
@@ -69,11 +70,17 @@ export function useFolderLists(
         readNote: (path) => readNote({ workspaceId: id, path }),
         manifest: (folder, cursor) =>
           withTimeout(
-            syncManifest({ workspaceId: id, folder, ...(cursor === undefined ? {} : { cursor }) }),
+            // The tree table where it can answer, as the sidebar's walk does.
+            syncManifest({ workspaceId: id, folder, source: "tree", ...(cursor === undefined ? {} : { cursor }) }),
             MANIFEST_TIMEOUT_MS,
           ),
+        folderNotes: (folder, subfolders, cursor) =>
+          withTimeout(
+            folderNotes({ workspaceId: id, folder, subfolders, ...(cursor === undefined ? {} : { cursor }) }),
+            READ_TIMEOUT_MS,
+          ),
         readNotes: async (paths) =>
-          (await withTimeout(readNotes({ workspaceId: id, paths }), READ_TIMEOUT_MS)).results,
+          (await withTimeout(readNotes({ workspaceId: id, paths, plain: true }), READ_TIMEOUT_MS)).results,
         writeNote: async (path, text, expectedEtag) => {
           // No version is a create, which the server refuses over an existing note.
           const written = await writeNote({
@@ -111,5 +118,5 @@ export function useFolderLists(
           })
         )?.value ?? null,
     };
-  }, [workspaceId, tier, canEdit, readNote, readNotes, syncManifest, writeNote, convex]);
+  }, [workspaceId, tier, canEdit, readNote, readNotes, syncManifest, folderNotes, writeNote, convex]);
 }

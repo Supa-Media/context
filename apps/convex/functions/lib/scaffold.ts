@@ -59,7 +59,7 @@
  *
  * Split into `lib/scaffold/` by responsibility — shared vocabulary
  * (`store.ts`), custom-folder validation (`customFolders.ts`), `privacy.md`
- * rendering (`privacyManifest.ts`), `index.md`/README rendering
+ * rendering (`privacyManifest.ts`), `index.md`/folder-note rendering
  * (`readmes.ts`), the guessable-path list (`mandatedPaths.ts`), existing-bucket
  * detection (`detect.ts`) and the write loop itself (`run.ts`). This file is a
  * facade: every name it exported before the split it still exports, from the

@@ -105,6 +105,7 @@ import { hashToken } from "./lib/crypto";
 import { handleForUser } from "./lib/identities";
 import { APP_ORIGIN_ENV_VAR, randomOpaqueToken } from "./lib/gatewayAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
+import { accountsForEmail } from "./lib/signInEmails";
 import {
   invitationUrlFor,
   renderInvitationEmail,
@@ -350,10 +351,7 @@ async function shouldMintSignInCode(
   ctx: MutationCtx,
   email: string,
 ): Promise<boolean> {
-  const matches = await ctx.db
-    .query("users")
-    .withIndex("by_email", (q) => q.eq("email", email))
-    .take(2);
+  const matches = await accountsForEmail(ctx, email, { verifiedOnly: false });
   // No account: the referral path this exists for. More than one: fail closed.
   if (matches.length !== 1) return matches.length === 0;
 
@@ -362,7 +360,7 @@ async function shouldMintSignInCode(
   // made the old check narrower than the rule it was written for.
   const membership = await ctx.db
     .query("workspaceMembers")
-    .withIndex("by_user", (q) => q.eq("userId", matches[0]._id))
+    .withIndex("by_user", (q) => q.eq("userId", matches[0]))
     .take(1);
   return membership.length === 0;
 }

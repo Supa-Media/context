@@ -1,4 +1,5 @@
 import type { ActivityEvent, AgentActivityView } from "../../agents/agentActivity";
+import { consoleHandOf, CONSOLE_CLIENT_NAME } from "./agentKind";
 import { fileTitle } from "./engine/paths";
 import type { MapActor } from "./engine/timeline";
 import type { ActorRef, MapEvent, MapNode, WorkspaceGraph } from "./types";
@@ -9,14 +10,27 @@ import type { ActorRef, MapEvent, MapNode, WorkspaceGraph } from "./types";
  * see; this only renames and drops what the map cannot draw.
  */
 
+/**
+ * An actor a client named, as the map draws it. The app's own console is the
+ * person whose hand it is, never a tool: its edits are recorded under its own
+ * client name (`CONSOLE_CLIENT_NAME`), and "@dev2's Context (this app)" is
+ * "@dev2" drawn as their face.
+ */
+function actorRefOf(kind: "person" | "agent", id: string, name: string): ActorRef {
+  const hand = kind === "agent" ? consoleHandOf(name) : null;
+  if (hand !== null) return { id, kind: "person", name: hand };
+  return { id, kind, name };
+}
+
 /** Who is in one workspace now, from its `/agent-activity` answer, as map actors. */
 export function actorsFromActivity(view: AgentActivityView, workspaceId: string, now: number): MapActor[] {
   const out: MapActor[] = [];
   for (const agent of view.agents) {
+    const who = actorRefOf("agent", agent.id, agent.name);
     out.push({
       id: agent.id,
-      kind: "agent",
-      name: agent.name,
+      kind: who.kind,
+      name: who.name,
       ...(agent.self ? { self: true } : {}),
       path: agent.path,
       // An older gateway sends no `doing`: a write is then an edit.
@@ -45,7 +59,7 @@ export function actorsFromActivity(view: AgentActivityView, workspaceId: string,
 
 /** One gateway event as a map event. A move with no `from` cannot be drawn. */
 export function eventFromActivity(event: ActivityEvent, workspaceId: string): MapEvent | null {
-  const actor: ActorRef = { id: event.actor.id, kind: event.actor.kind, name: event.actor.name };
+  const actor = actorRefOf(event.actor.kind, event.actor.id, event.actor.name);
   if (event.kind === "move") {
     if (!event.from) return null;
     return { kind: "move", at: event.at, workspaceId, from: event.from, to: event.to ?? event.path, actor };
@@ -79,13 +93,36 @@ export type GraphAnswer = {
   linksCut?: boolean;
   behind?: boolean;
   indexMissing?: boolean;
+  /**
+   * The compact answer (`compact: true`): every path in chunks, and the links
+   * as flat index pairs in chunks. When present, `nodes` and `edges` are empty.
+   */
+  pathChunks?: ReadonlyArray<ReadonlyArray<string>>;
+  linkChunks?: ReadonlyArray<ReadonlyArray<number>>;
 };
+
+/** `1-projects/launch.md` → `launch`, as the server titles a note. */
+export function titleOfPath(path: string): string {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  return name.endsWith(".md") ? name.slice(0, -3) : name;
+}
+
+/** The compact answer as nodes and edges; any other answer as it is. */
+export function expandAnswer(answer: GraphAnswer): GraphAnswer {
+  if (answer.pathChunks === undefined) return answer;
+  const nodes = answer.pathChunks.flat().map((path) => ({ path, title: titleOfPath(path) }));
+  const flat = (answer.linkChunks ?? []).flat();
+  const edges: number[][] = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) edges.push([flat[i]!, flat[i + 1]!]);
+  return { ...answer, nodes, edges, pathChunks: undefined, linkChunks: undefined };
+}
 
 /** A workspace's graph, keeping only edges that join two nodes it holds. */
 export function graphFromAnswer(
-  answer: GraphAnswer,
+  compactOrNot: GraphAnswer,
   workspace: { id: string; slug: string; name: string; kind: string },
 ): WorkspaceGraph {
+  const answer = expandAnswer(compactOrNot);
   const nodes: MapNode[] = answer.nodes.map((n) => ({ path: n.path, title: n.title }));
   const seen = new Set<string>();
   const edges: [number, number][] = [];
@@ -119,6 +156,11 @@ export type HistoryEntry = {
   via: string | null;
   /** `[from, to]` per note on a `moved` line, where the server sent them. */
   moves?: ReadonlyArray<ReadonlyArray<string>>;
+  /**
+   * A change record from before the feed began, which names a tool by id
+   * only: an AI client's hand with no name for it (the gateway's history).
+   */
+  agent?: boolean;
 };
 
 /**
@@ -126,11 +168,15 @@ export type HistoryEntry = {
  * (`actorLabel` in `activity.cjs`): "@seyi's Claude" for a tool, "@seyi" for a person.
  * The line names a tool only by its client, so the id is the words: two lines
  * by the same hand are the same face on the replay.
+ *
+ * A line the app's own console made names that console as its client, and it
+ * is the person's hand: "@seyi" as a face, never "@seyi's Context (this app)"
+ * as a robot.
  */
 export function historyActor(entry: Pick<HistoryEntry, "by" | "via">): ActorRef {
   const by = entry.by ?? null;
   const via = entry.via ?? null;
-  if (via !== null) {
+  if (via !== null && via !== CONSOLE_CLIENT_NAME) {
     const name = by === null ? via : `${by}'s ${via}`;
     return { id: `h:${by ?? ""}:${via}`, kind: "agent", name };
   }
@@ -139,7 +185,7 @@ export function historyActor(entry: Pick<HistoryEntry, "by" | "via">): ActorRef 
 
 /**
  * A workspace's history as replay events: what was written, made and moved.
- * What AI clients read comes from the gateway beside it (`storedReads.ts`).
+ * What AI clients read comes from the gateway beside it (`replayHistory.ts`).
  * A `moved` line with no pairs (written before they existed) has nothing to
  * fly and is left out rather than guessed at.
  */
@@ -148,7 +194,7 @@ export function eventsFromHistory(entries: readonly HistoryEntry[], workspaceId:
   for (const entry of entries) {
     const at = Date.parse(entry.at);
     if (!Number.isFinite(at)) continue;
-    const actor = historyActor(entry);
+    const actor = historyActor(entry.agent === true && entry.via === null ? { by: entry.by, via: "AI" } : entry);
     const notes = entry.paths.filter((path) => path.endsWith(".md"));
     if (entry.kind === "added") {
       for (const path of notes) out.push({ kind: "create", at, workspaceId, path, actor });

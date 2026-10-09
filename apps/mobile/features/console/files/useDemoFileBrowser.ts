@@ -253,8 +253,8 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       // complete answer and there is no docmap to merge in.
       linkPaths: knownNotePaths(tree.listings),
       resetPrivacy: noop,
-      // No folder has an icon on the landing page, and there is nothing to set one on.
-      iconOf: () => null,
+      // The icons the tree came with (a homepage scene names some); nothing here can set one.
+      iconOf: (path: string) => (tree.icons !== undefined && Object.prototype.hasOwnProperty.call(tree.icons, path) ? tree.icons[path]! : null),
       setIcon: async () => {},
       // The landing page has no bucket to add a folder to; its sheet is never offered.
       addBuiltInFolder: async () => {

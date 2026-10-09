@@ -31,6 +31,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import type { Invitee } from "./invitees";
 import { findName } from "./nameClaims";
+import { accountForEmail, attachedEmailsOf } from "./signInEmails";
 
 /**
  * The most members one lookup will scan.
@@ -72,16 +73,11 @@ export async function resolveAddressedUser(
   addressee: Invitee,
 ): Promise<Id<"users"> | null> {
   if (addressee.kind === "email") {
-    const matches = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", addressee.value))
-      .take(2);
-    if (matches.length !== 1) return null;
-    const user = matches[0];
-    // An unverified address proves nothing about who holds the mailbox, and a
+    // The main address or one added on Account settings, verified either way:
+    // an unverified address proves nothing about who holds the mailbox, and a
     // capability addressed to a mailbox is meaningless without that proof.
-    if (user.emailVerificationTime === undefined) return null;
-    return user._id;
+    // See `lib/signInEmails.ts`.
+    return await accountForEmail(ctx, addressee.value);
   }
 
   const claim = await findName(ctx, addressee.value);
@@ -133,6 +129,9 @@ export async function identifiersForUser(
   const identifiers: Invitee[] = [];
   if (me.email !== undefined && me.emailVerificationTime !== undefined) {
     identifiers.push({ kind: "email", value: me.email.toLowerCase() });
+  }
+  for (const email of await attachedEmailsOf(ctx, userId)) {
+    identifiers.push({ kind: "email", value: email });
   }
 
   const claims = await ctx.db

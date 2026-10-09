@@ -1,37 +1,49 @@
 /**
  * THE REPLAY BAR'S CLOCK, AND THE SIDEBAR'S COUNTS WHILE THE MAP IS OPEN.
  *
- * Today and This week replay what happened, sped up: the bar is the day (or
- * the week), the playhead can be dragged or stepped with the arrow keys, play
- * stops at the end and starts again from the beginning, and the clock reads
- * as a wall clock does. The sidebar's top-folder counts follow the playhead.
- * Times are built in local time so the suite reads the same in any timezone.
+ * A replay covers a stretch of time: the past 24 hours, the past week, or a
+ * custom stretch picked from the history. The stretch is fixed when the replay
+ * starts, so a rolling window ends at the moment it was chosen. A replay takes
+ * one of three lengths (2 minutes, 30 seconds or 10 seconds) whatever the
+ * stretch is, and the speed follows from the two. The bar is a slider: arrows
+ * step it, play stops at the end and starts again from the beginning, and the
+ * clock reads as a wall clock does. The sidebar's top-folder counts follow the
+ * playhead. Times are built in local time so the suite reads the same in any
+ * timezone.
  */
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { actorsAt, folderCountsAt } from "../features/console/map/live/engine";
 import { mapFolderCount, setMapFolderCounts } from "../features/console/map/live/mapCounts";
 import {
   DAY_MS,
-  DEFAULT_SPEED,
+  DEFAULT_LENGTH,
   HOUR_MS,
-  REPLAY_IDLE_MS,
-  REPLAY_SPEEDS,
+  REPLAY_LENGTHS,
   clockText,
   dayText,
   fractionOf,
+  keyStep,
+  lengthLabel,
+  lengthSpoken,
   placeMoments,
-  playbackMs,
   replayBadge,
+  replayIdleMs,
   replayReducer,
   replayTicks,
-  replayWindow,
+  rollingWindow,
   startReplay,
+  stretchText,
+  type ReplayLength,
   type ReplayState,
+  type Stretch,
 } from "../features/console/map/live/replayClock";
 import { tickLabels } from "../features/console/map/live/ui/zoomTicks";
 import { ev, para } from "./liveMapFixture";
 
 const at = (h: number, m = 0, day = 7) => new Date(2026, 9, day, h, m).getTime();
+const dayOf = (month: number, day: number) => new Date(2026, month, day).getTime();
+/** A stretch of the working day, from 8am to 6pm, ending now. */
+const workday: Stretch = { from: at(8), to: at(18), open: true };
 
 describe("the clock reads as a wall clock", () => {
   test("12-hour times and the day under them", () => {
@@ -43,88 +55,119 @@ describe("the clock reads as a wall clock", () => {
     expect(dayText(at(12, 20, 3), at(18))).toBe("Sat 3 Oct");
   });
 
-  test("the badge says what is replaying and how fast", () => {
-    expect(replayBadge("today", 60)).toBe("Replaying today · 60× speed");
-    expect(replayBadge("week", 600)).toBe("Replaying this week · 600× speed");
+  test("a stretch is named in plain words: a date and now, or two dates", () => {
+    expect(stretchText({ from: dayOf(8, 25), to: at(18), open: true })).toBe("25 Sep – now");
+    // The end is the midnight the stretch stops at, so its last day is the one before.
+    expect(stretchText({ from: dayOf(7, 12), to: dayOf(8, 4), open: false })).toBe("12 Aug – 3 Sep");
+  });
+
+  test("the badge says what is replaying, and how long it takes", () => {
+    const now = at(18, 20);
+    const rolling = (range: "day" | "week", length: ReplayLength) => ({ ...rollingWindow(range, now), range, length });
+    expect(replayBadge(rolling("day", 30_000))).toBe("Replaying the past 24 hours · 30 s");
+    expect(replayBadge(rolling("week", 120_000))).toBe("Replaying the past week · 2 min");
+    expect(replayBadge({ range: "custom", from: dayOf(8, 25), to: now, open: true, length: 10_000 })).toBe(
+      "Replaying 25 Sep – now · 10 s",
+    );
   });
 });
 
-describe("how fast a replay plays", () => {
-  test("a day offers 1×, 10× and 60×; a week 60×, 600× and 3600×", () => {
-    expect(REPLAY_SPEEDS.today).toEqual([1, 10, 60]);
-    expect(REPLAY_SPEEDS.week).toEqual([60, 600, 3600]);
-    expect(startReplay("today", at(18), at(8)).speed).toBe(DEFAULT_SPEED.today);
-    expect(startReplay("week", at(18)).speed).toBe(600);
+describe("the three lengths a replay takes", () => {
+  test("2 minutes, 30 seconds and 10 seconds, the default 30 seconds, for every range", () => {
+    expect(REPLAY_LENGTHS).toEqual([120_000, 30_000, 10_000]);
+    expect(DEFAULT_LENGTH).toBe(30_000);
+    for (const range of ["day", "week", "custom"] as const) {
+      expect(startReplay(range, workday).length).toBe(30_000);
+    }
   });
 
-  test("a working day at 60× is ten minutes; the week at 3600× is about three", () => {
-    const day = startReplay("today", at(18), at(8));
-    expect(playbackMs(day.from, day.to, 60)).toBe(10 * 60_000);
-    const week = startReplay("week", at(18));
-    const fastest = playbackMs(week.from, week.to, 3600);
-    expect(fastest).toBeGreaterThan(2.5 * 60_000);
-    expect(fastest).toBeLessThanOrEqual(3 * 60_000);
-    // 600× is a week in under twenty minutes; a day's 60× would be hours.
-    expect(playbackMs(week.from, week.to, 600)).toBeLessThan(20 * 60_000);
-    expect(playbackMs(week.from, week.to, 60)).toBeGreaterThan(2 * HOUR_MS);
+  test("the speed is the stretch over the length, computed when the length is chosen", () => {
+    const s = startReplay("day", workday);
+    expect(s.speed).toBe((10 * HOUR_MS) / 30_000);
+    const two = replayReducer(s, { type: "length", length: 120_000 });
+    expect(two).toMatchObject({ length: 120_000, speed: (10 * HOUR_MS) / 120_000 });
+    expect(replayReducer(two, { type: "length", length: 10_000 }).speed).toBe((10 * HOUR_MS) / 10_000);
   });
 
-  test("only a speed the range offers is taken, and a new range starts at its own", () => {
-    let s = startReplay("week", at(18));
-    s = replayReducer(s, { type: "speed", speed: 3600 });
-    expect(s.speed).toBe(3600);
-    expect(replayReducer(s, { type: "speed", speed: 1 })).toBe(s);
-    s = replayReducer(s, { type: "start", range: "today", now: at(18), firstAt: at(8) });
-    expect(s.speed).toBe(60);
-    expect(replayReducer(s, { type: "speed", speed: 600 }).speed).toBe(60);
+  test("a week at its shortest length runs at the speed the stretch over the length says", () => {
+    const week = startReplay("week", rollingWindow("week", at(18)));
+    expect(replayReducer(week, { type: "length", length: 10_000 }).speed).toBe((7 * DAY_MS) / 10_000);
+  });
+
+  test("a length the bar does not offer is refused, and a new replay starts at the default", () => {
+    const s = startReplay("day", workday);
+    expect(replayReducer(s, { type: "length", length: 60_000 as ReplayLength })).toBe(s);
+    const changed = replayReducer(s, { type: "length", length: 10_000 });
+    expect(replayReducer(changed, { type: "start", range: "day", span: workday }).length).toBe(30_000);
+  });
+
+  test("the bar names them in plain words, for a screen reader as well", () => {
+    expect(REPLAY_LENGTHS.map(lengthLabel)).toEqual(["2 min", "30 s", "10 s"]);
+    expect(REPLAY_LENGTHS.map(lengthSpoken)).toEqual(["2 minutes", "30 seconds", "10 seconds"]);
   });
 });
 
-describe("who was here, at the playhead", () => {
-  const NOTE = "1-projects/launch.md";
-  // Somebody working in bursts: a step at 12:00 and the next at 12:40.
-  const events = [ev.edit(at(12), "ws-a", NOTE), ev.edit(at(12, 40), "ws-a", NOTE)];
+describe("what a stretch is, and how long people stay on it", () => {
+  test("the past 24 hours and the past week end now and roll with the clock", () => {
+    const now = at(18, 20);
+    expect(rollingWindow("day", now)).toEqual({ from: now - DAY_MS, to: now, open: true });
+    expect(rollingWindow("week", now)).toEqual({ from: now - 7 * DAY_MS, to: now, open: true });
+  });
+
+  test("the idle window scales with the stretch: thirty minutes for a day, three hours for a week", () => {
+    expect(replayIdleMs(DAY_MS)).toBe(30 * 60_000);
+    expect(replayIdleMs(7 * DAY_MS)).toBe(3 * HOUR_MS);
+    // Clamped at both ends.
+    expect(replayIdleMs(HOUR_MS)).toBe(30 * 60_000);
+    expect(replayIdleMs(365 * DAY_MS)).toBe(6 * HOUR_MS);
+  });
 
   test("a day's replay keeps somebody half an hour after their last step", () => {
-    expect(REPLAY_IDLE_MS.today).toBe(30 * 60_000);
-    expect(actorsAt(events, at(12, 20), REPLAY_IDLE_MS.today).map((a) => a.name)).toEqual(["Maya"]);
-    expect(actorsAt(events, at(13, 20), REPLAY_IDLE_MS.today)).toEqual([]);
+    // Somebody working in bursts: a step at 12:00 and the next at 12:40.
+    const NOTE = "1-projects/launch.md";
+    const events = [ev.edit(at(12), "ws-a", NOTE), ev.edit(at(12, 40), "ws-a", NOTE)];
+    expect(actorsAt(events, at(12, 20), replayIdleMs(DAY_MS)).map((a) => a.name)).toEqual(["Maya"]);
+    expect(actorsAt(events, at(13, 20), replayIdleMs(DAY_MS))).toEqual([]);
   });
 
   test("a week's keeps them three hours, so a sped-up week is not an empty map", () => {
-    expect(REPLAY_IDLE_MS.week).toBe(3 * HOUR_MS);
-    expect(actorsAt(events, at(15), REPLAY_IDLE_MS.week)).toHaveLength(1);
-    expect(actorsAt(events, at(16), REPLAY_IDLE_MS.week)).toEqual([]);
-    expect(REPLAY_IDLE_MS.week).toBeGreaterThan(REPLAY_IDLE_MS.today);
+    const NOTE = "1-projects/launch.md";
+    const events = [ev.edit(at(12), "ws-a", NOTE), ev.edit(at(12, 40), "ws-a", NOTE)];
+    expect(actorsAt(events, at(15), replayIdleMs(7 * DAY_MS))).toHaveLength(1);
+    expect(actorsAt(events, at(16), replayIdleMs(7 * DAY_MS))).toEqual([]);
   });
 });
 
-describe("what Today and This week cover", () => {
-  test("today runs from the hour of the first change to now", () => {
-    expect(replayWindow("today", at(18), at(8, 42))).toEqual({ from: at(8), to: at(18) });
-    // With nothing to go by, from midnight.
-    expect(replayWindow("today", at(18))).toEqual({ from: at(0), to: at(18) });
+describe("the ticks along the bar", () => {
+  test("hours for a stretch of a day and a half or less, at most seven of them", () => {
+    expect(replayTicks(at(8), at(18)).map((t) => t.label)).toEqual(["8am", "10am", "12pm", "2pm", "4pm", "6pm"]);
+    expect(replayTicks(at(9), at(12)).map((t) => t.label)).toEqual(["9am", "10am", "11am", "12pm"]);
   });
 
-  test("this week is the last seven days, today included", () => {
-    expect(replayWindow("week", at(18))).toEqual({ from: at(0, 0, 1), to: at(18) });
+  test("a rolling day from the afternoon is ticked in hours across two dates", () => {
+    const ticks = replayTicks(at(14, 0, 6), at(14, 0, 7));
+    expect(ticks.map((t) => t.label)).toEqual(["4pm", "8pm", "12am", "4am", "8am", "12pm"]);
   });
 
-  test("a day is ticked in hours, at most seven of them; a week by its days", () => {
-    expect(replayTicks("today", at(8), at(18)).map((t) => t.label)).toEqual(["8am", "10am", "12pm", "2pm", "4pm", "6pm"]);
-    expect(replayTicks("today", at(9), at(12)).map((t) => t.label)).toEqual(["9am", "10am", "11am", "12pm"]);
-    const week = replayTicks("week", at(0, 0, 1), at(18));
+  test("up to two weeks, the start of each day by its weekday", () => {
+    const week = replayTicks(at(0, 0, 1), at(18));
     expect(week.map((t) => t.label)).toEqual(["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"]);
     expect(week[0]!.frac).toBe(0);
     for (const tick of week) expect(tick.frac).toBeGreaterThanOrEqual(0);
   });
+
+  test("longer than that, the dates, at most eight, evenly chosen", () => {
+    const ticks = replayTicks(dayOf(7, 12), dayOf(8, 4));
+    expect(ticks.map((t) => t.label)).toEqual(["12 Aug", "15 Aug", "18 Aug", "21 Aug", "24 Aug", "27 Aug", "30 Aug", "2 Sep"]);
+    for (const tick of ticks) expect(tick.frac).toBeGreaterThanOrEqual(0);
+  });
 });
 
 describe("the playhead", () => {
-  const start = (): ReplayState => startReplay("today", at(18), at(8, 30));
+  const start = (): ReplayState => startReplay("day", { from: at(8), to: at(18), open: true });
 
-  test("starts at the beginning, playing at 60×", () => {
-    expect(start()).toMatchObject({ from: at(8), to: at(18), at: at(8), seek: at(8), playing: true, speed: 60 });
+  test("starts at the beginning, playing at the default length", () => {
+    expect(start()).toMatchObject({ from: at(8), to: at(18), at: at(8), seek: at(8), playing: true, length: 30_000 });
   });
 
   test("play and pause; the engine's ticks move it without seeking", () => {
@@ -133,8 +176,7 @@ describe("the playhead", () => {
     expect(s).toMatchObject({ at: at(9), seek: at(8), playing: true });
     s = replayReducer(s, { type: "toggle" });
     expect(s).toMatchObject({ playing: false, seek: at(9) });
-    s = replayReducer(s, { type: "speed", speed: 10 });
-    expect(s.speed).toBe(10);
+    s = replayReducer(s, { type: "length", length: 120_000 });
     s = replayReducer(s, { type: "play" });
     expect(s.playing).toBe(true);
   });
@@ -154,7 +196,7 @@ describe("the playhead", () => {
     expect(fractionOf(at(13), at(8), at(18))).toBe(0.5);
   });
 
-  test("arrow keys step five minutes in a day, an hour with Shift; Home and End go to the ends", () => {
+  test("a stretch of a day steps five minutes, an hour with Shift; Home and End go to the ends", () => {
     let s = replayReducer(start(), { type: "scrub", at: at(12) });
     s = replayReducer(s, { type: "key", key: "ArrowRight" });
     expect(s.at).toBe(at(12, 5));
@@ -165,12 +207,20 @@ describe("the playhead", () => {
     expect(replayReducer(s, { type: "key", key: "x" })).toBe(s);
   });
 
-  test("a week steps an hour, a day with Shift", () => {
-    let s = startReplay("week", at(18));
+  test("a stretch of up to two weeks steps an hour, a day with Shift", () => {
+    let s = startReplay("week", rollingWindow("week", at(18)));
     s = replayReducer(s, { type: "key", key: "ArrowRight" });
     expect(s.at - s.from).toBe(HOUR_MS);
     s = replayReducer(s, { type: "key", key: "ArrowRight", shift: true });
     expect(s.at - s.from).toBe(HOUR_MS + DAY_MS);
+  });
+
+  test("the step scales with the span: a day, then a week with Shift for a longer one", () => {
+    expect(keyStep(30 * DAY_MS, false)).toBe(DAY_MS);
+    expect(keyStep(30 * DAY_MS, true)).toBe(7 * DAY_MS);
+    expect(keyStep(14 * DAY_MS, false)).toBe(HOUR_MS);
+    expect(keyStep(36 * HOUR_MS, false)).toBe(5 * 60_000);
+    expect(keyStep(36 * HOUR_MS, true)).toBe(HOUR_MS);
   });
 });
 

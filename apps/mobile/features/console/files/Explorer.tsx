@@ -174,6 +174,8 @@ export function Explorer({
         agentMarks={agentMarks}
         background={background}
         onAddFolder={files.canEdit ? () => setDialog({ kind: "addFolder" }) : undefined}
+        // The same editor-only rule as "Set icon…" in the row's menu (`iconGroup`).
+        onIconPress={files.canEdit ? (path, anchor) => setDialog({ kind: "folderIcon", path, anchor }) : undefined}
       />
 
       <ExplorerFoot

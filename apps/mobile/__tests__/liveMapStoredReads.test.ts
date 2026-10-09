@@ -6,7 +6,7 @@
 import { describe, expect, test } from "@jest/globals";
 import { eventsFromHistory } from "../features/console/map/live/convert";
 import { actorsAt } from "../features/console/map/live/engine/timeline";
-import { decodeStoredReads, eventsFromStoredReads, fetchStoredReads } from "../features/console/map/live/storedReads";
+import { decodeStoredReads, eventsFromStoredReads } from "../features/console/map/live/storedReads";
 
 describe("stored reads", () => {
   test("an answer is re-checked field by field, and anything else is no reads", () => {
@@ -57,37 +57,5 @@ describe("stored reads", () => {
     expect(actor.doing).toBe("read");
     expect(actor.path).toBe("b.md");
     expect(actor.reads).toEqual(["a.md", "b.md"]);
-  });
-
-  test("it asks the workspace's gateway with that workspace's grant, and a failure is no reads", async () => {
-    const asked: Array<{ url: string; token: string }> = [];
-    const events = await fetchStoredReads(
-      {
-        origin: "https://gateway.test",
-        mint: async (id) => ({ accessToken: `token-${id}` }),
-        fetchJson: async (url, token) => {
-          asked.push({ url, token });
-          return { reads: [{ at: 5, path: "a.md", tool: "read_note", by: "@m", via: "Claude" }] };
-        },
-      },
-      "w1",
-      1.5,
-      9.7,
-    );
-    expect(asked).toEqual([{ url: "https://gateway.test/agent-activity?reads_since=1&reads_until=9", token: "token-w1" }]);
-    expect(events).toHaveLength(1);
-    const failed = await fetchStoredReads(
-      {
-        origin: "https://gateway.test",
-        mint: async () => {
-          throw new Error("no grant");
-        },
-        fetchJson: async () => null,
-      },
-      "w1",
-      0,
-      1,
-    );
-    expect(failed).toEqual([]);
   });
 });

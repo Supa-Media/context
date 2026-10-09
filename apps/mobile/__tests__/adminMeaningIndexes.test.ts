@@ -56,14 +56,14 @@ describe("the indexing panel's words", () => {
     expect(meaningStatePill(row()).tone).toBe("crit");
   });
 
-  test("indexing priorities read as P1, P2, P3 with what each holds", () => {
+  test("indexing tiers read as T0, T1, T2 with what each holds", () => {
     expect(
       priorityLine([
         { priority: 1, indexed: 300, pending: 0 },
         { priority: 2, indexed: 12, pending: 30 },
         { priority: 3, indexed: 0, pending: 1200 },
       ]),
-    ).toBe("P1 Everything else 300/300 · P2 Inbox 12/42 · P3 Archive 0/1,200");
+    ).toBe("T0 Everything else 300/300 · T1 Inbox 12/42 · T2 Archive 0/1,200");
     expect(priorityLine(null)).toBeNull();
   });
 

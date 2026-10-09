@@ -75,9 +75,9 @@ describe("website route index", () => {
         .fn()
         .mockResolvedValueOnce({
           kind: "manifest",
-          entries: [{ path: "notes/before-website.md" }],
+          entries: [{ path: "website/about.md" }],
           folders: [],
-          cursor: "notes/before-website.md",
+          cursor: "website/about.md",
           truncated: false,
           manifestUsable: true,
         })
@@ -92,6 +92,11 @@ describe("website route index", () => {
         .mockResolvedValueOnce({
           kind: "notes",
           results: [
+            {
+              path: "website/about.md",
+              outcome: "read",
+              note: { text: "---\ntitle: About\n---\n\nAbout\n", etag: "about-etag" },
+            },
             {
               path: "website/index.md",
               outcome: "read",
@@ -111,7 +116,10 @@ describe("website route index", () => {
         { scope: "private", grantedNames: [] },
       ),
     ).resolves.toMatchObject({
-      indexed: [{ objectKey: "website/index.md", routePath: "/" }],
+      indexed: [
+        { objectKey: "website/about.md", routePath: "/about" },
+        { objectKey: "website/index.md", routePath: "/" },
+      ],
     });
     expect(ctx.runAction).toHaveBeenNthCalledWith(
       2,
@@ -119,9 +127,71 @@ describe("website route index", () => {
       expect.objectContaining({
         operation: {
           kind: "manifest",
-          cursor: "notes/before-website.md",
+          folder: "website",
+          cursor: "website/about.md",
         },
       }),
+    );
+  });
+
+  /*
+    On 2026-10-09 a seven-page site's status, check and publish over MCP all
+    failed because the scan walked the whole bucket to find `website/`, and on
+    a big workspace that outlasted the gateway's wait. The scan lists the site
+    and the folders its pages name, and nothing else.
+  */
+  test("lists only website/ and the folders its pages name, never the whole bucket", async () => {
+    const operations: Array<{ kind: string; folder?: string; paths?: string[] }> = [];
+    const notes: Record<string, string> = {
+      "website/index.md": "---\ntitle: Home\n---\n\nHome\n",
+      "website/guides.md": "---\ntitle: Guides\nfolder: 3-resources/guides\n---\n\nGuides\n",
+      "website/more.md": "---\ntitle: More\nfolder: 3-resources/guides\n---\n\nMore\n",
+      "3-resources/guides/tables.md": "---\ntitle: Tables\n---\n\nTables\n",
+    };
+    const listings: Record<string, string[]> = {
+      website: ["website/guides.md", "website/index.md", "website/more.md"],
+      // A stray key outside the folder, as a store that ignored the prefix
+      // would return it, is not taken as one of the folder's notes.
+      "3-resources/guides": ["3-resources/guides/tables.md", "3-resources/guides/logo.png", "elsewhere/secret.md"],
+    };
+    const ctx = {
+      runAction: vi.fn(async (_ref: unknown, args: { operation: { kind: string; folder?: string; paths?: string[] } }) => {
+        operations.push(args.operation);
+        if (args.operation.kind === "manifest") {
+          return {
+            kind: "manifest",
+            entries: (listings[args.operation.folder ?? ""] ?? []).map((path) => ({ path })),
+            folders: [],
+            cursor: null,
+            truncated: false,
+            manifestUsable: true,
+          };
+        }
+        return {
+          kind: "notes",
+          results: (args.operation.paths ?? []).map((path) => ({
+            path,
+            outcome: "read",
+            note: { text: notes[path]!, etag: `etag-${path}` },
+          })),
+        };
+      }),
+    } as unknown as ActionCtx;
+
+    const snapshot = await scanWebsiteRoutes(
+      ctx,
+      "0000000000000000010002workspaces" as Id<"workspaces">,
+      { scope: "private", grantedNames: [] },
+    );
+
+    const walks = operations.filter((operation) => operation.kind === "manifest");
+    expect(walks.map((walk) => walk.folder)).toEqual(["website", "3-resources/guides"]);
+    expect(operations.flatMap((operation) => operation.paths ?? [])).not.toContain("elsewhere/secret.md");
+    expect(snapshot.indexed.map((route) => [route.objectKey, route.routePath])).toEqual(
+      expect.arrayContaining([
+        ["website/index.md", "/"],
+        ["3-resources/guides/tables.md", "/guides/tables"],
+      ]),
     );
   });
 

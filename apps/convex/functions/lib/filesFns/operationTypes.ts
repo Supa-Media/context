@@ -6,6 +6,7 @@
  * keep.
  */
 
+import type { FolderNotesResult } from "./folderNotes";
 import type { ActivityEntry } from "../activity";
 import type {
   ContextMoveExport,
@@ -14,6 +15,8 @@ import type {
   FileContents,
   ProjectionPass,
   SearchResults,
+  ManifestEntry,
+  ManifestFolder,
   SyncManifest,
 } from "../fileOps";
 import type { FormAction, FormAnswer, FormResult, FormSeedResult } from "../formOps";
@@ -61,8 +64,8 @@ export type FileOperation =
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
   | { kind: "forward"; paths: string[] }
-  | { kind: "manifest"; cursor?: string; folder?: string }
-  | { kind: "readMany"; paths: string[] }
+  | { kind: "manifest"; cursor?: string; folder?: string; source?: "tree" }
+  | { kind: "readMany"; paths: string[]; plain?: boolean }
   | {
       kind: "writeWebsiteRelease";
       releaseId: string;
@@ -86,7 +89,7 @@ export type FileOperation =
       refreshOnMiss?: boolean;
     }
   | { kind: "notePaths" }
-  | { kind: "workspaceGraph" }
+  | { kind: "workspaceGraph"; compact?: boolean }
   | { kind: "visiblePaths"; paths: string[] }
   | { kind: "maintainIndex"; passes?: number }
   /**
@@ -97,6 +100,22 @@ export type FileOperation =
   | { kind: "projectIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
+  /** The tree table (`treeTableOps.ts`): scheduled by the barrier, never sent by a client. */
+  | { kind: "sweepTree"; passes?: number }
+  | {
+      kind: "touchTree";
+      paths: string[];
+      files: string[];
+      audiences: string[];
+      /** For a key this change took away: the audiences that could see it before. */
+      left?: { path: string; audiences: string[] }[];
+    }
+  /** The tree table's health, for the staff panel (`adminFns/treeIndexes.ts`). No bucket opened. */
+  | { kind: "treeState" }
+  /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
+  | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
+  /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+  | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -342,7 +361,26 @@ export type OperationResult =
       /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
       encrypted: boolean;
     }
-  | ({ kind: "manifest" } & SyncManifest)
+  | ({
+      kind: "manifest";
+      source?: "tree" | "bucket";
+      /** Where a catch-up after this walk starts, by the table's clock. First page of a table walk only. */
+      since?: number;
+      /** The `privacy.md` version the walk was judged by, read before it started. */
+      privacy?: string | null;
+    } & SyncManifest)
+  | { kind: "treeKept"; complete: boolean }
+  | TreeChangesResult
+  | FolderNotesResult
+  | {
+      kind: "treeState";
+      status: "ready" | "filling" | "empty" | "unsupported" | "unreachable";
+      rows: number | null;
+      sweptAt: number | null;
+      dirty: boolean;
+      /** Why the last sweep pass failed, keys removed. */
+      error: string | null;
+    }
   | {
       kind: "notes";
       results: Array<
@@ -399,3 +437,28 @@ export type OperationResult =
   | { kind: "emojiRemoved" }
   | { kind: "folderIcons"; icons: Array<{ path: string; icon: string }> }
   | { kind: "organizerResult"; output: string };
+
+/**
+ * One page of what changed since a device's last sync (`treeChanges.ts`).
+ * `full` means it cannot be answered that way: walk the manifest instead.
+ */
+export interface TreeChangesResult {
+  kind: "treeChanges";
+  full: boolean;
+  /** Keys this caller may see that appeared or changed version. */
+  entries: ManifestEntry[];
+  /** Folders those keys live under, and folders still held that a removal touched. */
+  folders: ManifestFolder[];
+  /** Keys that left, of those this caller could see before they left. */
+  gone: string[];
+  /** Folders of those keys that nothing is under any more. */
+  goneFolders: string[];
+  /** Ask again from here. */
+  since: number;
+  after: string;
+  /** This page was full: there is more after `since`/`after`. */
+  more: boolean;
+  /** The `privacy.md` version this page was judged by. */
+  privacy: string | null;
+  manifestUsable: boolean;
+}

@@ -81,7 +81,8 @@ export function findSpecifiers(source) {
     // is ordinary formatting, and an earlier version of this pattern excluded
     // \n and so missed every one of them. Bounded and non-greedy so it cannot
     // run away across unrelated statements; `;` still terminates.
-    /^[ \t]*(?:import|export)\b[^;]{0,400}?from[ \t\n]*["']([^"']+)["']/gm,
+    // `\bfrom` so a word merely ending in "from" (`"x_from"`) is not the keyword.
+    /^[ \t]*(?:import|export)\b[^;]{0,400}?\bfrom[ \t\n]*["']([^"']+)["']/gm,
     /^[ \t]*import[ \t]*["']([^"']+)["']/gm,
     // dynamic import and require, anywhere
     /\bimport[ \t]*\([ \t]*["']([^"']+)["']/g,
@@ -208,6 +209,7 @@ function selfTest() {
     ['/*\n * from "not yours" — byte-identical\n */', true, "prose in a block comment"],
     ['const url = "https://example.com/a//b";', true, "url containing slashes"],
     ['const msg = "import x from \\"zod\\"";', true, "import-shaped string literal"],
+    ['export const K = Object.freeze({\n  a: "x_from",\n  b: "y",\n});', true, "an exported string ending in from"],
     // The desktop bridge, which is relative and still forbidden. Every one of
     // these would have passed the "relative only" rule.
     [

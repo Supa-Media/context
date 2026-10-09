@@ -11,6 +11,7 @@ import { provisioningTables } from "./functions/lib/schema/provisioning";
 import { ingestionTables } from "./functions/lib/schema/ingestion";
 import { jobTables } from "./functions/lib/schema/jobs";
 import { rateLimitTables } from "./functions/lib/schema/rateLimits";
+import { phoneCodeTables } from "./functions/lib/schema/phoneCodes";
 import { oauthTables } from "./functions/lib/schema/oauth";
 import { platformTables } from "./functions/lib/schema/platform";
 import { billingTables } from "./functions/lib/schema/billing";
@@ -27,6 +28,9 @@ import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
+import { signInEmailTables } from "./functions/lib/schema/signInEmails";
+import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
+import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { meaningTables } from "./functions/lib/schema/meaning";
@@ -73,6 +77,7 @@ const schema = defineSchema({
   ...ingestionTables,
   ...jobTables,
   ...rateLimitTables,
+  ...phoneCodeTables,
   ...oauthTables,
   ...platformTables,
   ...billingTables,
@@ -89,6 +94,9 @@ const schema = defineSchema({
   ...placeTables,
   ...feedbackTables,
   ...textLinkTables,
+  ...signInEmailTables,
+  ...workspaceDomainTables,
+  ...archivedAccountTables,
   ...agentTurnTables,
   ...searchTimingTables,
   ...meaningTables,

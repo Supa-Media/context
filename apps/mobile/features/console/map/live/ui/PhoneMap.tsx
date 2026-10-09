@@ -5,12 +5,14 @@ import { Text } from "../../../../design/components/Text";
 import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MapPageState } from "../hooks/useMapPage";
+import type { MapPeek } from "../hooks/useMapPeek";
 import { replayBadge } from "../replayClock";
 import type { CameraStore } from "./CanvasOverlay";
 import { FollowPanel } from "./FollowPanel";
 import { MapBar } from "./MapBar";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
 import { Feed, WorkingNow } from "./MapPanel";
+import { NotePeek } from "./NotePeek";
 import { ReplayBar } from "./ReplayBar";
 
 /** Rows the folded sheet shows: what is happening now, and no more. */
@@ -18,14 +20,16 @@ const FOLDED_ROWS = 3;
 const OPEN_ROWS = 8;
 
 /**
- * The map on a phone: the canvas fills the screen, Live / Today / This week
+ * The map on a phone: the canvas fills the screen, Live / 24h / Week / a
+ * calendar for a custom stretch
  * float over its top, and a sheet at the bottom says who is working and on
  * what. The sheet folds to the faces and the latest three lines, and opens for
  * the rest; its height is handed to the engine as an inset, so the camera
  * fits the map into the part of the glass the sheet leaves. Pinch, pan and a
- * tap on a face are the engine's.
+ * tap on a face are the engine's. A tapped dot raises the note's card over the
+ * sheet; Open note opens it, and Back comes to the map with the card open.
  */
-export function PhoneMap({ page, camera, onOpenNote }: { page: MapPageState; camera: CameraStore; onOpenNote: OpenMapNote }) {
+export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageState; camera: CameraStore; peek: MapPeek; onOpenNote: OpenMapNote }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [open, setOpen] = useState(false);
@@ -33,14 +37,20 @@ export function PhoneMap({ page, camera, onOpenNote }: { page: MapPageState; cam
   const [bar, setBar] = useState(0);
   const inset = useMemo(() => ({ top: bar, right: 0, bottom: sheet, left: 0 }), [bar, sheet]);
   const following = page.follow !== null;
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  const card = peek.peek;
   return (
-    <View style={styles.page} testID="map-page">
-      <MapCanvas page={page} camera={camera} onOpenNote={onOpenNote} inset={inset} />
+    <View
+      style={styles.page}
+      testID="map-page"
+      onLayout={(e) => setBox({ width: Math.round(e.nativeEvent.layout.width), height: Math.round(e.nativeEvent.layout.height) })}
+    >
+      <MapCanvas page={page} camera={camera} peek={peek} inset={inset} />
       <View style={styles.top} onLayout={(e) => setBar(Math.round(e.nativeEvent.layout.height))} pointerEvents="box-none">
         <MapBar page={page} compact />
         {page.replaying && page.replay !== null ? (
           <View style={styles.badge} pointerEvents="none" testID="map-replay-badge">
-            <Text style={styles.badgeText}>{replayBadge(page.replay.range, page.replay.speed)}</Text>
+            <Text style={styles.badgeText}>{replayBadge(page.replay)}</Text>
           </View>
         ) : null}
       </View>
@@ -88,6 +98,9 @@ export function PhoneMap({ page, camera, onOpenNote }: { page: MapPageState; cam
         )}
         {page.mode !== "live" ? <ReplayBar page={page} compact /> : null}
       </View>
+      {card !== null ? (
+        <NotePeek page={page} peek={card} compact box={box} onClose={peek.close} onExpand={() => onOpenNote(card.workspaceId, card.path)} />
+      ) : null}
     </View>
   );
 }

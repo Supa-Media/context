@@ -52,6 +52,9 @@ export const MEANING_STATE_KEY = `${SEARCH_PREFIX}meaning/v1/state.json`;
  */
 export const MEANING_PASS_NOTE_CAP = 100;
 
+/** Notes read and embedded at once within a pass. */
+export const MEANING_PASS_CONCURRENCY = 8;
+
 /** Vectors held before an upsert is sent. Under the client's own batch. */
 const MEANING_HELD_VECTORS = 240;
 
@@ -152,7 +155,7 @@ export async function meaningPass(
 ) {
   const notes = await readMeaningState(store, generation);
   const { changed, removed } = meaningDiff(census, notes, regionComplete);
-  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null };
+  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null, failureOperation: null, providerCodes: [], probeStatus: null, inputChars: null };
   let dirty = false;
 
   const finish = async () => {
@@ -189,6 +192,10 @@ export async function meaningPass(
       moved: result.embedded > 0 || result.deleted > 0,
       failure: result.failure,
       failureCause: result.failureCause,
+      failureOperation: result.failureOperation,
+      providerCodes: result.providerCodes,
+      probeStatus: result.probeStatus,
+      inputChars: result.inputChars,
     };
   };
 
@@ -218,27 +225,42 @@ export async function meaningPass(
       heldPaths = [];
     };
 
-    for (const path of changed.slice(0, cap)) {
-      let object;
-      try {
-        object = await store.get(path);
-      } catch {
-        // One unreadable note must not cost the rest of the pass. It stays
-        // unrecorded and the next pass tries it again.
-        continue;
-      }
-      if (!object) {
-        // Gone between the docmap and now: the next pass's census drops it.
-        continue;
-      }
-      const change = await meaningChangeFor(
-        path,
-        { content: await object.text(), visibility: visibilityOf(path) },
-        embed,
+    // A note is a bucket read and a model call, each a round trip, so notes
+    // go `MEANING_PASS_CONCURRENCY` at a time rather than one after another:
+    // one at a time, a 9,000-note workspace took most of a day. Results are
+    // still recorded in order, and a refused call still ends the pass with
+    // nothing of its group recorded, so the next pass redoes it.
+    const todo = changed.slice(0, cap);
+    for (let start = 0; start < todo.length; start += MEANING_PASS_CONCURRENCY) {
+      const group = todo.slice(start, start + MEANING_PASS_CONCURRENCY);
+      const changes = await Promise.all(
+        group.map(async (path) => {
+          let object;
+          try {
+            object = await store.get(path);
+          } catch {
+            // One unreadable note must not cost the rest of the pass. It stays
+            // unrecorded and the next pass tries it again.
+            return null;
+          }
+          if (!object) {
+            // Gone between the docmap and now: the next pass's census drops it.
+            return null;
+          }
+          return await meaningChangeFor(
+            path,
+            { content: await object.text(), visibility: visibilityOf(path) },
+            embed,
+          );
+        }),
       );
-      held.push(...change.vectors);
-      heldDeletes.push(...change.deleteIds);
-      heldPaths.push([path, census.get(path)]);
+      for (let index = 0; index < group.length; index += 1) {
+        const change = changes[index];
+        if (change === null) continue;
+        held.push(...change.vectors);
+        heldDeletes.push(...change.deleteIds);
+        heldPaths.push([group[index], census.get(group[index])]);
+      }
       if (held.length >= MEANING_HELD_VECTORS) await flush();
     }
     await flush();
@@ -247,6 +269,10 @@ export async function meaningPass(
     // Our closed set of causes, or "internal" for an error of our own code:
     // which call failed is what an operator needs, and never its message.
     result.failureCause = error instanceof MeaningError ? (error.failureCause ?? null) : "internal";
+    result.failureOperation = error instanceof MeaningError ? (error.operation ?? null) : null;
+    result.providerCodes = error instanceof MeaningError ? error.providerCodes : [];
+    result.probeStatus = error instanceof MeaningError ? (error.probeStatus ?? null) : null;
+    result.inputChars = error instanceof MeaningError ? (error.inputChars ?? null) : null;
   }
   return await finish();
 }

@@ -33,6 +33,7 @@ export function ExplorerTree({
   agentMarks,
   background,
   onAddFolder,
+  onIconPress,
 }: {
   files: FileBrowser;
   query: string;
@@ -50,6 +51,8 @@ export function ExplorerTree({
   background: ExplorerState["background"];
   /** "Add a folder", after the last root row. Absent where nobody may make one. */
   onAddFolder?: () => void;
+  /** A folder's icon was clicked: open its picker there. Absent where nobody may change one. */
+  onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -114,6 +117,7 @@ export function ExplorerTree({
           agentMarks={agentMarks}
           workspaceId={files.contextId}
           iconOf={files.iconOf}
+          onIconPress={onIconPress}
         />
       )}
 

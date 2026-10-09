@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Redirect, Stack, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,6 +9,13 @@ import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
+import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
+import { EmailCheckScreen } from "../../features/auth/EmailCheckScreen";
+import { DomainJoin } from "../../features/auth/DomainJoin";
+import { domainJoinFor, type JoinableWorkspace } from "../../features/auth/domainJoin";
+import { ToastHost } from "../../features/design/components/Toast";
+import { joinedNotice } from "../../features/console/settings/panels/organization";
+import { blocksForPhone } from "../../features/auth/phoneCheck";
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
@@ -188,9 +195,16 @@ export default function AppLayout() {
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
       messages: { query: api.functions.messages.myMessageReads, args: {} },
+      phoneCheck: { query: api.functions.phoneCheck.myPhoneCheck, args: {} },
+      domainWorkspaces: { query: api.functions.workspaceDomains.myDomainWorkspaces, args: {} },
     };
   }, [authed]);
   const results = useQueries(spec);
+  // A workspace joined through an email domain on opening its link (board s4):
+  // said once on the page it opened. A refused join is not asked again.
+  const [joined, setJoined] = useState<JoinableWorkspace | null>(null);
+  const [refusedJoin, setRefusedJoin] = useState<string | null>(null);
+  const onJoined = useCallback((workspace: JoinableWorkspace) => setJoined(workspace), []);
   const rows = usable<(WorkspaceStandingRow & ResumeWorkspaceRow)[]>(results.workspaces);
 
   /*
@@ -227,6 +241,33 @@ export default function AppLayout() {
 
   if (decision.action === "wait") return null;
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
+
+  /*
+    The phone check (Dev2, 2026-10-09), in front of everything else a signed-in
+    person sees, onboarding included. Drawn in place of the routes rather than
+    redirected to, so no URL gets past it. Unanswered is not a stop: the
+    server answers "required" only when the check is switched on, has its
+    keys, and this account has no confirmed phone (`functions/phoneCheck.ts`).
+  */
+  const phoneAnswer = usable<{ required: boolean; needsEmail?: boolean }>(results.phoneCheck);
+  if (blocksForPhone(phoneAnswer)) return <PhoneCheckScreen />;
+
+  /*
+    An account a phone made (a number staff let in from the waitlist) has no
+    email yet: asked once, right after, so mail and invitations reach them
+    (`functions/signInEmails.ts`).
+  */
+  if (phoneAnswer?.needsEmail === true) return <EmailCheckScreen />;
+
+  /*
+    A link to a workspace this person's email domain opens (board s4): join
+    it, then draw the link's page. Before onboarding, so somebody whose first
+    sign-in came from that link lands on it rather than on setup.
+  */
+  const joining = domainJoinFor(pathname, usable<JoinableWorkspace[]>(results.domainWorkspaces));
+  if (joining !== null && joining.slug !== refusedJoin) {
+    return <DomainJoin workspace={joining} onJoined={onJoined} onRefused={() => setRefusedJoin(joining.slug)} />;
+  }
 
   const onboarding = needsOnboarding({
     standing: standingFrom(rows, usable<unknown[]>(results.invitations)),
@@ -277,6 +318,13 @@ export default function AppLayout() {
           be opened from, and where the early-beta notice is shown once.
         */}
         <FeedbackHost />
+        {joined === null ? null : (
+          <ToastHost
+            toasts={[{ id: `joined-${joined.slug}`, message: joinedNotice(joined.name, joined.domain) }]}
+            onDismiss={() => setJoined(null)}
+            bottomInset={insets.bottom}
+          />
+        )}
       </View>
     </MessagesProvider>
   );

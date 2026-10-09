@@ -57,22 +57,17 @@
  *     the wire and one at the function.
  *  4. The turn recording `steps` with the arguments each tool was called with.
  *     → **1 fails**: `the steps name tools and never arguments`.
- *  5. `agentTools` dropping the `WITHHELD_FROM_AGENT` filter — the shape of
- *     "`readOnlyHint` already says whether a model may call it".
- *     → **2 fail**: `the key export is never offered to the agent` and `...and
- *     does not run at all, whatever the model named`, one at the offering and
- *     one at the call. Two guards, and the export needs both gone to land.
+ *  5. `export_encryption_keys` put back in `schemas/notes.js` with
+ *     `readOnlyHint: true`, the shape it had before the owner removed it.
+ *     → **3 fail** here: `no connection's client is offered a key export, the
+ *     owner's included`, `the key export is never offered to the agent` and
+ *     `...and does not run at all, whatever the model named` (12 across the
+ *     suite, the tool counts and the encryption section among them).
  *  6. `runTurn` dispatching `call.name` without checking it against `tools` —
  *     the state this file was merged in.
  *     → **2 fail**: `a tool the agent was never offered writes nothing` and
  *     `...and does not run at all, whatever the model named`. The first one is
  *     the damage: the note really is in the bucket.
- *  7. `export_encryption_keys` renamed throughout `index.js` and nowhere else —
- *     the drift that makes a literal in `WITHHELD_FROM_AGENT` stop matching,
- *     which the absence check cannot see.
- *     → `this connection's client really is offered the key export` fails (with
- *     four in the encryption suite). The absence check passes, vacuously, which
- *     is the whole reason its companion is there.
  */
 
 import worker from "../src/index.js";
@@ -317,32 +312,19 @@ export async function runAgentChecks(check) {
     check("the read tools are offered", offeredNames.includes("read_note"));
 
     /*
-      AND `readOnlyHint` IS THE WRONG AXIS FOR "MAY A MODEL CALL THIS".
+      THERE IS NO KEY EXPORT TO OFFER.
 
-      `export_encryption_keys` mutates nothing, so it is annotated
-      `readOnlyHint: true` — correct, for what that flag answers. It also
-      returns this context's workspace data key(s) **in the clear**, and its own
-      description says there is no un-export. `agentTools` read that flag as
-      "safe to hand a model" and offered it, on the one grant tier that can call
-      it — this one.
-
-      Where that ends is not the answer on the screen. `propose_note` is offered
-      too and writes its content into the bucket, so a turn talked into
-      exporting and then proposing puts the key that opens every encrypted note
-      in this context next to the notes it opens: plaintext, at rest, in the one
-      place the encryption exists to survive. Non-negotiable #1 — credentials
-      never live in the bucket.
-
-      `WITHHELD_FROM_AGENT` holds the name as a string literal, so a check that
-      only asserts absence would keep passing after somebody renamed the tool
-      and quietly unwithheld it. The companion check below asserts the same
-      connection's *client* is still offered it, which is the half that fails on
-      that rename.
+      The owner removed `export_encryption_keys` from the MCP on 2026-10-08:
+      leaving the product already hands back every note in plain text, and a
+      tool that returned the key in the clear let any AI app pull it into a
+      chat, or, with `propose_note`, into the bucket beside the notes it opens.
+      Asked of the owner's own client, the widest grant there is, so a tool that
+      came back under that name would fail here before it reached a model.
     */
     const clientNames = await clientToolNames(env, TOKEN_OWNER);
     check(
-      "this connection's client really is offered the key export",
-      clientNames.includes("export_encryption_keys"),
+      "no connection's client is offered a key export, the owner's included",
+      clientNames.length > 0 && !clientNames.includes("export_encryption_keys"),
     );
     check(
       "the key export is never offered to the agent",

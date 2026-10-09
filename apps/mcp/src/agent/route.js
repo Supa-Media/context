@@ -35,7 +35,7 @@ import {
   runOutcome,
   stopRoutine,
 } from "./routine.js";
-import { routineAwareCallTool, routineTools } from "./routineWrites.js";
+import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
@@ -191,9 +191,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   // answers go out as iMessages, and only they are written for one. A
   // routine's answer is a text too, when it says anything.
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
-  // Texting "every morning..." writes the routine file (`routineWrites.js`);
-  // a routine's own run never may.
-  const routineWriting = routineTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
+  // A text has the MCP's own write tools (`textingWrites.js`, the owner,
+  // 2026-10-08); a routine's own run never may.
+  const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
   const computer = texting ? computerFor(env) : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
@@ -233,6 +233,15 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   const productionModel =
     builtin && production !== null && canRunBuiltin(production.model, env) ? production.model : null;
   const builtinUsed = productionModel ?? builtinModel(env);
+  // The setup's router (`router.js`), when this deployment can run both the
+  // decision model and the thinking model; otherwise every text runs on `main`.
+  const router =
+    productionModel !== null && production.router !== null && canRunBuiltin(production.router.think, env)
+      ? { decide: decisionEngine(env.AI), think: production.router.think }
+      : null;
+  // The setup's fallback model (`production.js`), when this deployment can call it.
+  const fallback =
+    productionModel !== null && production.fallback !== null && canRunBuiltin(production.fallback, env) ? production.fallback : null;
 
   const started = Date.now();
   /*
@@ -240,7 +249,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     Counts only, best effort: a meter that could not be reached costs us a
     report, not the person their answer.
   */
-  const meter = async (usage, failed) => {
+  const meter = async (usage, failed, model = builtinUsed) => {
     if (!builtin) return;
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
@@ -248,8 +257,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         output: usage?.output ?? 0,
         cacheRead: usage?.cacheRead ?? 0,
         cacheWrite: usage?.cacheWrite ?? 0,
-        model: builtinUsed,
-        decision: web?.usage.decision ?? 0,
+        // The model that answered: the router may have sent this text to `think`.
+        model: typeof model === "string" ? model : builtinUsed,
+        decision: (web?.usage.decision ?? 0) + (usage?.decision ?? 0),
         failed,
         ms: Date.now() - started,
       });
@@ -289,7 +299,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       rounds: timing?.rounds ?? 0,
       inputTokens: usage?.input ?? 0,
       outputTokens: usage?.output ?? 0,
-      trace: Array.isArray(timing?.trace) ? timing.trace : [],
+      trace: Array.isArray(timing?.trace) ? timing.trace.map(wireTraceEntry) : [],
     };
     console.log(
       JSON.stringify({
@@ -316,7 +326,12 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       question,
       place: body.place ?? null,
       credential,
-      tools: [...agentTools(offered), ...routineWriting],
+      // A turn that edits directly is not also handed proposals: they have no
+      // screen on a phone, and two ways to change a note is one too many.
+      tools: [
+        ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
+        ...textingWriting,
+      ],
       /*
         THE ONE DISPATCHER, AND IT IS THE CLIENT'S. Not a copy, not a subset
         assembled here — `callToolForSession` is what an MCP client's tool call
@@ -327,9 +342,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       onModel: (model) => {
         store.usageModel = model;
       },
-      callTool: routineAwareCallTool(
+      callTool: textingAwareCallTool(
         (name, args) => callToolForSession({ name, arguments: args }, store, session),
-        routineWriting.map((tool) => tool.name),
+        textingWriting,
       ),
       env,
       model: typeof body.model === "string" ? body.model : undefined,
@@ -352,9 +367,11 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
+      router,
+      fallback,
       maxRounds: production?.maxSteps ?? undefined,
     });
-    await afterAnswer(meter(turn.usage, false));
+    await afterAnswer(meter(turn.usage, false, turn.model));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (runner) {
@@ -414,6 +431,24 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     }
     throw error;
   }
+}
+
+/**
+ * A trace entry as the turn log takes it (`apps/convex/functions/agentTurns.ts`):
+ * kinds, names, numbers and flags, never a word the router or a provider
+ * wrote. The router's own word (`pick`) and a fallback's `from` stay in this
+ * worker's log line; the status a provider answered is a number and goes.
+ */
+function wireTraceEntry(entry) {
+  const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
+  if (entry.kind === "tool") return { ...base, tool: entry.tool };
+  if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model };
+  if (entry.kind === "fallback") return { ...base, model: entry.model, ...(typeof entry.status === "number" ? { status: entry.status } : {}) };
+  return {
+    ...base,
+    ...(entry.retried ? { retried: true } : {}),
+    ...(typeof entry.status === "number" ? { status: entry.status } : {}),
+  };
 }
 
 /**

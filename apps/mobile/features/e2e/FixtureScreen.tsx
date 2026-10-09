@@ -10,6 +10,8 @@ import { VaultImportFixture } from "../onboarding/VaultImportFixture";
 import { ProjectsFixture } from "./projects/ProjectsFixture";
 import { CastStudioFixture } from "./CastStudioFixture";
 import { LiveMapFixture } from "./LiveMapFixture";
+import { SharedLinkFixture } from "./SharedLinkFixture";
+import { PhoneCheckScreen } from "../auth/PhoneCheckScreen";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -32,6 +34,8 @@ export interface FixtureParams {
   user?: string | string[];
   /** `screen=projects`: `member` draws the page for somebody who may only read. */
   role?: string | string[];
+  /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
+  anyone?: string | string[];
   checkout?: string | string[];
   screen?: string | string[];
   /**
@@ -72,6 +76,11 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
+  // The phone check; `at=code` opens on the code step. Nothing is sent until a button is pressed.
+  if (first(params.screen) === "phone-check") {
+    return <PhoneCheckScreen initialSentTo={first(params.at) === "code" ? "+15555550100" : undefined} />;
+  }
+  if (first(params.screen) === "shared-link") return <SharedLinkFixture anyone={first(params.anyone) !== "no"} folder={first(params.at) === "folder"} />;
 
   /*
     The application frame, which is otherwise on no browser-reachable screen

@@ -36,11 +36,14 @@ import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { SignupAlerts } from "./SignupAlerts";
 import { totalReferrals } from "./referrals";
+import type { WAITLIST_PLACES } from "./place";
+import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistAdd } from "./WaitlistAdd";
 import { WaitlistRows } from "./WaitlistRows";
 import {
   WAITLIST_FILTERS,
   admittedSentence,
+  landingSentence,
   people,
   removedSentence,
   type WaitlistStatus,
@@ -54,17 +57,36 @@ interface Outcome {
 }
 
 /** The waitlist's own lists, and the referrals beside them. */
-type WaitlistView = WaitlistStatus | "friends";
+export type WaitlistView = WaitlistStatus | "friends";
+
+type WaitlistPlace = (typeof WAITLIST_PLACES)[number];
+
+/** The view an address names (`/admin/waitlist/let-in`); bare is Waiting. */
+export function waitlistView(place: string | null): WaitlistView {
+  if (place === "let-in") return "admitted";
+  if (place === "removed" || place === "friends") return place;
+  return "waiting";
+}
+
+/** The address segment for a view: the inverse of `waitlistView`, `null` for the default. */
+export function waitlistPlace(view: WaitlistView): WaitlistPlace | null {
+  if (view === "waiting") return null;
+  return view === "admitted" ? "let-in" : view;
+}
 
 const VIEWS: readonly { key: WaitlistView; label: string }[] = [
   ...WAITLIST_FILTERS,
   { key: "friends", label: "Invited by friends" },
 ];
 
-export function WaitlistSection() {
+/**
+ * `view`/`onView` are the list on show, which the route keeps in the address
+ * (`/admin/waitlist/<view>`); without them the tab keeps its own.
+ */
+export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: WaitlistView) => void } = {}) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
-  const [view, setView] = useState<WaitlistView>("waiting");
+  const [view, setView] = useOwnedOr<WaitlistView>(props.view, props.onView, "waiting");
   // The waitlist's counts stay on the chips while referrals are showing.
   const status: WaitlistStatus = view === "friends" ? "waiting" : view;
   const friends = view === "friends";
@@ -76,6 +98,7 @@ export function WaitlistSection() {
   const admit = useMutation(api.functions.admin.admitWaitlist);
   const remove = useMutation(api.functions.admin.removeFromWaitlist);
   const referrals = useQuery(api.functions.admin.listReferrals, {});
+  const landing = useQuery(api.functions.admin.waitlistLandingCounts, {});
 
   // A selection belongs to the list it was made on.
   useEffect(() => setSelected(new Set()), [view]);
@@ -115,6 +138,7 @@ export function WaitlistSection() {
     setSelected(picked.length === rows.length ? new Set() : new Set(rows.map((row) => row.id)));
 
   const counts = list?.counts;
+  const landingLine = landing === undefined ? null : landingSentence(landing);
   return (
     <View style={styles.section}>
       <View style={[styles.head, compact && styles.headCompact]}>
@@ -123,12 +147,12 @@ export function WaitlistSection() {
             Waitlist
           </Text>
           <Text variant="meta" style={compact ? styles.textCompact : null}>
-            People who asked to be let in. Letting someone in sends them an email.
+            People who asked to be let in, by email or phone. Letting someone in by email sends them an email.
           </Text>
         </View>
         {adding || friends ? null : (
           <Button
-            label="Add emails"
+            label="Add people"
             variant="dialogPrimary"
             onPress={() => {
               setOutcome(null);
@@ -157,7 +181,7 @@ export function WaitlistSection() {
           <NoticeLine mark={outcome.tone === "ok" ? "✓" : "!"} tone={outcome.tone}>
             {outcome.sentence}
             {outcome.invalid.length > 0
-              ? ` Not email addresses, so skipped: ${outcome.invalid.join(", ")}.`
+              ? ` Not an email or a phone with its country code, so skipped: ${outcome.invalid.join(", ")}.`
               : ""}
           </NoticeLine>
         </Notice>
@@ -181,6 +205,12 @@ export function WaitlistSection() {
       />
 
       {friends ? <ReferralsView list={referrals} /> : null}
+
+      {!friends && landingLine !== null ? (
+        <Text variant="meta" style={compact ? styles.textCompact : null} testID="admin-waitlist-landing">
+          {landingLine}
+        </Text>
+      ) : null}
 
       {!friends && picked.length > 0 ? (
         <View style={[styles.bulk, compact && styles.bulkCompact]} testID="admin-waitlist-bulk">

@@ -297,7 +297,7 @@ describe("adding a task", () => {
     await type("quick-add-title", "Book the photographer");
     await enter("quick-add-title");
     expect(seen.calls.map((call) => call.split("\n")[0])).toEqual([
-      `move ${CAFE}/photos.md -> ${CAFE}/photos/overview.md`,
+      `move ${CAFE}/photos.md -> ${CAFE}/photos/about.md`,
       `create ${CAFE}/photos/Book the photographer.md`,
     ]);
     // One row for the task, now a folder holding its first subtask, still open for the next.
@@ -307,7 +307,7 @@ describe("adding a task", () => {
     expect(seen.toasts.at(-1)!.message).toBe("Added “Book the photographer” to “Take photos for the menu”.");
     await act(async () => seen.toasts.at(-1)!.undo!());
     await settle();
-    expect(seen.calls.slice(2)).toEqual([`remove ${CAFE}/photos/Book the photographer.md`, `move ${CAFE}/photos/overview.md -> ${CAFE}/photos.md`]);
+    expect(seen.calls.slice(2)).toEqual([`remove ${CAFE}/photos/Book the photographer.md`, `move ${CAFE}/photos/about.md -> ${CAFE}/photos.md`]);
   });
 
   test("an opened task ends with + Add subtask; a subtask has no + Subtask of its own", async () => {
@@ -485,6 +485,7 @@ describe("who may", () => {
     await press(one("folder-add-task-primary"));
     await rightClick(frameOf(row("Sign the lease")));
     await press(one("menu-item-priority"));
+    // Not even the about note's: it shows as words under the title, not as a file (2026-10-09).
     const text = strip(document.body.textContent) + strip(view.textContent);
     expect(text).not.toMatch(/\bp[0-3]\b|frontmatter|markdown|\.md\b|overview/i);
   });

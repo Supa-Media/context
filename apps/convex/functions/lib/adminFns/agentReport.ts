@@ -48,9 +48,15 @@ function spread(values: number[]): { p50: number; p95: number } {
   return { p50: percentile(sorted, 50), p95: percentile(sorted, 95) };
 }
 
+// The turn log's entry shape (`lib/schema/agentTurns.ts`): a router's pick and
+// a fallback are entries too, and a model round may carry the status it got.
 const traceEntry = v.object({
-  kind: v.union(v.literal("model"), v.literal("tool")),
+  kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
   tool: v.optional(v.string()),
+  tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
+  model: v.optional(v.string()),
+  status: v.optional(v.number()),
+  retried: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),
 });

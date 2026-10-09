@@ -35,6 +35,7 @@
  * row reads exactly like a waiting one.
  */
 
+import { domainOf, isPersonalMailDomain } from "./emailDomains";
 import { normalizeEmail } from "@context/shared";
 import type { GenericDatabaseReader } from "convex/server";
 import type { DataModel } from "../../_generated/dataModel";
@@ -100,6 +101,24 @@ export async function isAdmittedWithoutReferral(
       .first();
     if (user !== null) return true;
   }
+  // An address added to an account on Account settings signs in to it.
+  const attached = await db
+    .query("signInEmails")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .first();
+  if (attached !== null) return true;
+
+  // An address at a domain a shared workspace is open to: its owner let
+  // everyone there in (`functions/workspaceDomains.ts`). Says only that some
+  // workspace is open to the domain, never which.
+  const domain = domainOf(email);
+  if (domain !== null && !isPersonalMailDomain(domain)) {
+    const open = await db
+      .query("workspaceDomains")
+      .withIndex("by_domain", (q) => q.eq("domain", domain))
+      .take(20);
+    if (open.some((row) => row.enabled)) return true;
+  }
 
   const row = await db
     .query("waitlist")
@@ -112,6 +131,25 @@ export async function isAdmittedWithoutReferral(
     .withIndex("by_invitee", (q) => q.eq("inviteeKind", "email").eq("invitee", email))
     .take(50);
   return invitations.some((row) => row.status === "pending" && row.expiresAt > now);
+}
+
+/**
+ * Is this phone (E.164) let in to make an account? People join the waitlist
+ * with a phone on the sign-in page (Dev2, 2026-10-09), and staff let those
+ * rows in like any other. An open deployment admits every phone. A phone an
+ * account already holds signs in to it and never needs this.
+ */
+export async function isPhoneAdmitted(
+  db: Db,
+  phone: string,
+  env: Record<string, string | undefined> = process.env,
+): Promise<boolean> {
+  if (signupIsOpen(env)) return true;
+  const rows = await db
+    .query("waitlist")
+    .withIndex("by_phone", (q) => q.eq("phone", phone))
+    .take(5);
+  return rows.some((row) => row.status === "admitted");
 }
 
 /**

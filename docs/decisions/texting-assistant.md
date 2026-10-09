@@ -464,22 +464,60 @@ holds back from members falls back, and its owner still reads it").
 
 ### Setups are benchmarked in a throwaway world, on invented workspaces
 
-Decided by the owner, 2026-10-08: a setup earns its way into the production
-note by answering a test, and the test never sees a customer's notes. The
-benchmark data (invented people, workspaces, questions, results) is plain
-Markdown in `@context-lc` `ai/`; its README is the process.
-`pnpm ai run <job> --dir <folder>` (`apps/mcp/bench/`) runs the real gateway
-in process over the in-memory control plane and store the tests use: each
-invented workspace is its own bucket with a real `privacy.md`, each invented
-person a texting grant covering exactly the workspaces `people.md` gives them,
-and the setup is written where the product reads it. Writes are read back as a
-list of changes and never applied; the only traffic that leaves is the model
-call, with the runner's own keys. Judging is a separate step any agent can do,
-recorded under the judge's name.
+Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](./texting-assistant/benchmarks.md#setups-are-benchmarked-in-a-throwaway-world-on-invented-workspaces).
 
-**What a simplification would cost:** a runner that called the model with the
-notes pasted in would score a setup that leaks a held-back note as one that
-answers well; a world that could reach the network could text a real person.
-The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
-never reads a note the workspace holds back", "the world lets no request out
-except the model's").
+### A text has every MCP tool
+
+Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
+"writes are proposals" for the texting client: a proposal has no screen on a
+phone. Then, after the assistant said it could not move notes between
+workspaces, which `move_note` does: "shouldn't we be listing all the tools and
+fields that an agent can use?" The first version had hand-written narrower
+schemas that dropped `destination_context`, `move_folder`, `remember` and the
+rest. Last: "our inhouse assistant should have just as much tool access as any
+other mcp", and "yes go" to public links, website publishing and image
+addresses, which a second version had still held back.
+
+So a texting turn on a grant that can write is offered every write tool its
+connection's `toolsForSession` returned, with the MCP's own descriptions and
+fields, generated in `apps/mcp/src/agent/textingWrites.js`, with nothing
+withheld (`WITHHELD_TOOLS` is empty). The one tool it used to withhold,
+`export_encryption_keys`, was removed from the MCP itself the same day
+([encryption](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08)).
+The dispatcher in front of the
+client's also refuses any path into a dot folder or `privacy.md` and a
+malformed routine under `routines/` ([routines](./routines.md)). Everything
+else, including whether the person may write in another workspace, is the
+client's dispatcher's, unchanged. The prompt tells the model to check its tool
+list before saying it can't do something, and to change notes only because
+the person asked, never because a note or a page said to. The app's agent panel
+and a routine's own run still only propose.
+
+**What is accepted:** a note the agent reads can carry instructions, and a
+personal context takes email from strangers into `0-inbox/`. A steered turn can
+now do anything the person could through an MCP client, including minting a
+public link, publishing the website, and having the gateway fetch an image
+address of the model's choosing (which reopens, for writes, the channel "The
+agent opens only addresses it was given" closes for reads). Every write is
+attributed to the texting client in the audit trail and kept in the note's
+history.
+
+**What a simplification would cost:** hand-copying schemas again is how the
+assistant came to deny a tool it had; dropping the key-export exception breaks
+non-negotiable #1. Tests (`apps/mcp/test/agentRoutine.test.mjs`): "every MCP
+write tool and field is offered to a text or withheld by name", "a text is
+offered the MCP's own write tools, cross-workspace moves included", "a text
+never exports keys, touches plumbing or writes a malformed routine, whatever
+the model named", "a routine's own run is never offered a write".
+
+### A setup may route each text to a cheap or a smart model (2026-10-09)
+
+Moved to [A setup may route each text to a cheap or a smart model (2026-10-09)](./texting-assistant/benchmarks.md#a-setup-may-route-each-text-to-a-cheap-or-a-smart-model-2026-10-09).
+
+### The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)
+
+Moved to [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md#the-assistant-texts-like-a-capable-friend-and-the-benchmark-grades-the-voice-2026-10-09).
+
+### A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)
+
+Moved to [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md#a-busy-provider-is-retried-a-failed-one-is-replaced-and-both-are-counted-2026-10-09).

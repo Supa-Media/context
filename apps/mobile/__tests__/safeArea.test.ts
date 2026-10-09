@@ -115,6 +115,7 @@ jest.mock("expo-router", () => {
     // own" an assertion about the layout rather than about its children.
     Stack: () => null,
     Slot: () => null,
+    Navigator: Object.assign(() => null, { Slot: () => null }),
     Link: ({ children }: { children?: unknown }) => h("div", null, children as never),
     useRouter: () => ({ replace: () => {}, push: () => {}, back: () => {} }),
     useLocalSearchParams: () => ({}),
@@ -368,7 +369,12 @@ const ROUTES: Record<string, Coverage> = {
     kind: "gate",
     mount: () => createElement(requireRoute("(app)/admin/_layout.tsx")),
   },
+  // A redirect to `/admin/growth`; the console itself is `[...section]`.
   "(app)/admin/index.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("(app)/admin/index.tsx")),
+  },
+  "(app)/admin/[...section].tsx": {
     kind: "screen",
     mount: () =>
       createElement(

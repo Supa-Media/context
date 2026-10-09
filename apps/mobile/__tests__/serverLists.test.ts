@@ -20,7 +20,7 @@ import { currentEpoch } from "../features/offline/epoch";
 import { putMirroredNotes } from "../features/offline/mirror";
 import { memoryMirrorStore, type MirrorStore } from "../features/offline/mirrorStoreCore";
 import { folderListSource, type FolderListIO } from "../features/offline/folderListSource";
-import { serverListNotes, type ServerListIO, type ServerListMemo } from "../features/offline/serverLists";
+import { READ_PARALLEL, serverFrontNotes, serverListNotes, tableListNotes, type ServerListIO, type ServerListMemo } from "../features/offline/serverLists";
 import type { BatchRead, ManifestPage } from "../features/offline/mirrorSync";
 import type { OpenNote } from "../features/console/files/types";
 
@@ -133,6 +133,40 @@ describe("serverListNotes", () => {
     expect(result.complete).toBe(false);
   });
 
+  test("a big folder's batches are asked for several at once, and every note still arrives", async () => {
+    const many: Record<string, OpenNote> = {};
+    for (let index = 0; index < 230; index += 1) many[`1-projects/n${String(index).padStart(3, "0")}.md`] = note(`1-projects/n${String(index).padStart(3, "0")}.md`, `---\nstatus: s${index}\n---\n`);
+    const { io } = server(many);
+    let inFlight = 0;
+    let most = 0;
+    const counting: ServerListIO = {
+      ...io,
+      readNotes: async (paths) => {
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        try {
+          return await io.readNotes(paths);
+        } finally {
+          inFlight -= 1;
+        }
+      },
+    };
+    const result = await serverListNotes(counting, new Map(), "1-projects", false);
+    expect(result.notes).toHaveLength(230);
+    expect(result.complete).toBe(true);
+    expect(most).toBe(READ_PARALLEL);
+  });
+
+  test("a batch that never fits stops every reader and leaves the rest as gaps", async () => {
+    const many: Record<string, OpenNote> = {};
+    for (let index = 0; index < 120; index += 1) many[`0-inbox/n${index}.md`] = note(`0-inbox/n${index}.md`, "# x\n");
+    const result = await serverListNotes(server(many, { defer: () => true }).io, new Map(), "0-inbox", false);
+    expect(result.notes).toEqual([]);
+    expect(result.complete).toBe(false);
+    expect([...(result.missing ?? [])].sort()).toEqual(Object.keys(many).sort());
+  });
+
   test("an encrypted note is left out, as offline", async () => {
     const sealed = { "0-inbox/s.md": { ...note("0-inbox/s.md", "ciphertext"), encrypted: true } };
     const result = await serverListNotes(server(sealed).io, new Map(), "0-inbox", false);
@@ -216,5 +250,69 @@ describe("folderListSource reads the server online and the device only offline",
     expect(await lists.setProperty!("1-projects/web/overview.md", "status", "paused")).toBeNull();
     expect(heard).toBeGreaterThan(0);
     stop();
+  });
+});
+
+describe("serverFrontNotes", () => {
+  test("reads the front notes of the folders above by name, without walking them", async () => {
+    const bucket = {
+      "1-projects/about.md": note("1-projects/about.md", "---\nstatuses: [todo, done]\n---\n"),
+      "1-projects/big-sibling.md": note("1-projects/big-sibling.md", "---\nstatus: todo\n---\n"),
+      "index.md": note("index.md", "# Home\n"),
+    };
+    const { io, calls } = server(bucket);
+    const notes = await serverFrontNotes(io, ["1-projects", ""]);
+    expect(notes.map((each) => each.path).sort()).toEqual(["1-projects/about.md", "index.md"]);
+    expect(calls.manifest).toBe(0);
+    expect(calls.read).not.toContain("1-projects/big-sibling.md");
+  });
+});
+
+describe("tableListNotes", () => {
+  const props = (status: string) => JSON.stringify({ properties: { status }, heading: "H", lede: null });
+
+  test("the table's pages become the list, and no note is read", async () => {
+    const { io, calls } = server({});
+    const asked: (string | undefined)[] = [];
+    const table: ServerListIO = {
+      ...io,
+      folderNotes: async (_folder, _subfolders, cursor) => {
+        asked.push(cursor);
+        return cursor === undefined
+          ? { available: true, notes: [{ path: "1-projects/a.md", updatedAt: 3, props: props("doing") }], cursor: "1-projects/a.md", missing: [] }
+          : { available: true, notes: [{ path: "1-projects/b.md", props: props("done") }], cursor: null, missing: [] };
+      },
+    };
+    const result = await tableListNotes(table, "1-projects", true);
+    expect(result?.notes.map((note) => [note.path, note.properties.status, note.heading])).toEqual([
+      ["1-projects/a.md", "doing", "H"],
+      ["1-projects/b.md", "done", "H"],
+    ]);
+    expect(result?.complete).toBe(true);
+    expect(asked).toEqual([undefined, "1-projects/a.md"]);
+    expect(calls.read).toEqual([]);
+  });
+
+  test("a table that cannot answer hands the folder back to the bucket read", async () => {
+    const bucket = { "1-projects/a.md": note("1-projects/a.md", "---\nstatus: active\n---\n") };
+    const { io, calls } = server(bucket);
+    const table: FolderListIO = {
+      ...io,
+      folderNotes: async () => ({ available: false, notes: [], cursor: null, missing: [] }),
+      readNote: async () => { throw new Error("unused"); },
+      writeNote: async () => { throw new Error("unused"); },
+    };
+    const source = folderListSource({
+      workspaceId: W,
+      scope: "team",
+      canEdit: false,
+      io: table,
+      openMirror: async () => null,
+      needed: async () => new Map() as never,
+      online: () => true,
+    });
+    const result = await source.load("1-projects", true);
+    expect(result?.notes.map((each) => each.properties.status)).toEqual(["active"]);
+    expect(calls.read).toEqual(["1-projects/a.md"]);
   });
 });

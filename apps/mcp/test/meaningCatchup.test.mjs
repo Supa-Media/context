@@ -11,6 +11,7 @@
  *   the cap ignored                               → "a long walk stops at its cap and resumes where it stopped" fails
  *   `DELETE_BATCH` back at 500                    → "a full pass fits Vectorize's 20-id cap on a delete" fails
  *   `changed.sort()` back to plain path order     → "the Inbox waits for everything else…" fails
+ *   notes read one at a time again                → "notes are read and embedded several at a time" fails
  */
 
 import test from "node:test";
@@ -20,6 +21,7 @@ import { MeaningError } from "../src/search/meaning/errors.js";
 import { meaningIdsFor } from "../src/search/meaning/project.js";
 import { createMeaningClient } from "../src/search/meaning/client.js";
 import {
+  MEANING_PASS_CONCURRENCY,
   MEANING_STATE_KEY,
   meaningDiff,
   meaningPass,
@@ -269,9 +271,32 @@ test("a full pass fits Vectorize's 20-id cap on a delete", async () => {
   assert.equal(deletes.length, 40 * 11);
 });
 
+test("a refused Vectorize delete retains its safe diagnostics for the pass log", async () => {
+  const store = memoryStore({
+    [MEANING_STATE_KEY]: JSON.stringify({ v: 1, generation: "g1", notes: { "gone.md": "v1" } }),
+  });
+  const fetchImpl = async () => new Response(
+    JSON.stringify({ success: false, errors: [{ code: 40007, message: "private path" }] }),
+    { status: 400 },
+  );
+  const client = createMeaningClient(
+    { indexName: "context-meaning-ws1", accountId: "fake-account", apiToken: "fake-token", state: "backfilling" },
+    { fetchImpl },
+  );
+  const pass = await meaningPass(store, {
+    client, embed, census: new Map(), visibilityOf: team, generation: "g1",
+  });
+  assert.deepEqual(
+    { failure: pass.failure, cause: pass.failureCause, operation: pass.failureOperation, codes: pass.providerCodes },
+    { failure: "REFUSED", cause: "http_400", operation: "delete_by_ids", codes: [40007] },
+  );
+  assert.equal(JSON.stringify(pass).includes("private path"), false);
+});
+
 test("a pass that fails part-way keeps the notes that already landed", async () => {
-  // Twelve passages a note, so twenty notes fill one held batch and the
-  // second batch's upsert is the one that is refused.
+  // Twelve passages a note, read eight notes at a time, so the first three
+  // groups (twenty-four notes) fill one held batch and the second batch's
+  // upsert is the one that is refused.
   const long = "word ".repeat(4_000);
   const files = {};
   const census = new Map();
@@ -294,9 +319,9 @@ test("a pass that fails part-way keeps the notes that already landed", async () 
   };
   const pass = await meaningPass(store, { client, embed, census, visibilityOf: team, generation: "g1" });
   assert.equal(pass.failure, "UNAVAILABLE");
-  assert.equal(pass.embedded, 20);
-  assert.equal(Object.keys(stateOf(store).notes).length, 20);
-  assert.equal(pass.notesPending, 10);
+  assert.equal(pass.embedded, 24);
+  assert.equal(Object.keys(stateOf(store).notes).length, 24);
+  assert.equal(pass.notesPending, 6);
 });
 
 test("a listing cut short removes nothing from the part it did not reach", async () => {
@@ -318,4 +343,28 @@ test("a listing cut short removes nothing from the part it did not reach", async
   assert.deepEqual(Object.keys(stateOf(store).notes).sort(), ["a/one.md", "b/unlisted.md"]);
   assert.equal(pass.deleted, 1);
   assert.equal(pass.ready, false);
+});
+
+test("notes are read and embedded several at a time, and recorded in order", async () => {
+  const files = {};
+  const census = new Map();
+  for (let i = 0; i < 16; i += 1) {
+    const path = `1-projects/n${String(i).padStart(2, "0")}.md`;
+    files[path] = `# Note ${i}`;
+    census.set(path, "v1");
+  }
+  const store = memoryStore(files);
+  let inFlight = 0;
+  let most = 0;
+  const slowEmbed = async (texts) => {
+    inFlight += 1;
+    most = Math.max(most, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight -= 1;
+    return embed(texts);
+  };
+  const pass = await meaningPass(store, { client: fakeIndex(), embed: slowEmbed, census, visibilityOf: team, generation: "g1" });
+  assert.equal(pass.embedded, 16);
+  assert.ok(most > 1 && most <= MEANING_PASS_CONCURRENCY, `at most ${MEANING_PASS_CONCURRENCY} at once, more than one`);
+  assert.deepEqual(Object.keys(stateOf(store).notes), [...census.keys()]);
 });

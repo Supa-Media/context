@@ -82,11 +82,19 @@ function drawNoteLabels(env: DrawEnv): void {
   if (hotAlpha <= 0) return;
   type Cand = { n: NotePlace; hot: boolean };
   const cands: Cand[] = [];
-  for (const key of scene.present) {
+  // Notes on screen, and notes flying across it from wherever they started.
+  const seen = new Set<string>();
+  const nearby = [...env.near];
+  for (const key of env.flyingAt.keys()) {
+    const n = model.layout.notes.get(key);
+    if (n && scene.present.has(key)) nearby.push(n);
+  }
+  for (const n of nearby) {
+    const key = n.key;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const flying = env.flyingAt.get(key);
     if (scene.hidden.has(key) && !flying) continue;
-    const n = model.layout.notes.get(key);
-    if (!n) continue;
     // A note on the move carries its name with it.
     const hot = env.hot.has(key) || follow.has(key) || popping.has(key) || !!flying;
     if (!hot && base <= 0) continue;
@@ -97,9 +105,8 @@ function drawNoteLabels(env: DrawEnv): void {
   // The names of notes somebody is on go first. After them, names go round
   // the dots, not over them: every dot on screen holds its own space.
   const claimDots = () => {
-    for (const key of scene.present) {
-      const n = model.layout.notes.get(key);
-      if (!n || scene.hidden.has(key)) continue;
+    for (const n of env.near) {
+      if (scene.hidden.has(n.key)) continue;
       const p = env.screen(n);
       if (!env.onScreen(p, 0)) continue;
       const R = dotRadius(s, n.deg) + 1;

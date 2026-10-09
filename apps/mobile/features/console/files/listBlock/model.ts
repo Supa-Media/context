@@ -122,6 +122,12 @@ export function selectRows(
  */
 export interface FolderListSource {
   load(folder: string, subfolders: boolean): Promise<ListSource | null>;
+  /**
+   * Only the front notes (`about.md`, `overview.md`, …) of each of `folders`,
+   * for a folder page's inherited status lists. Absent where `load` is cheap
+   * (a device's copy, a demo), and the page loads each folder above instead.
+   */
+  loadFront?(folders: readonly string[]): Promise<readonly ListNote[]>;
   subscribe?(listener: () => void): () => void;
   /**
    * Ask for this folder's notes to be brought up to date on this device now,

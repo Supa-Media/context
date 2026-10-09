@@ -78,12 +78,22 @@ import {
 import {
   addEmailsHandler,
   admitHandler,
+  landingCountsHandler,
+  landingCountsValidator,
   listWaitlistHandler,
   removeHandler,
   waitlistRowValidator,
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
 import { getSignupAlertsHandler, setSignupAlertsHandler } from "./lib/adminFns/signupAlerts";
+import {
+  archiveResultValidator,
+  listPeopleHandler,
+  personValidator,
+  setArchivedHandler,
+  setPhoneHandler,
+  setPhoneResultValidator,
+} from "./lib/adminFns/people";
 import {
   communityKindValidator,
   communityLinkValidator,
@@ -98,6 +108,11 @@ import {
   setInvitesOffHandler,
   traceReferralHandler,
 } from "./lib/adminFns/referrals";
+import {
+  setSignInTextsSenderHandler,
+  signInTextsHandler,
+  signInTextsValidator,
+} from "./lib/adminFns/signInTexts";
 
 export { COUNT_CEILING, ROSTER_LIMIT };
 export type { AdminSecretRow, CountedTotal, MetricSeries };
@@ -277,6 +292,21 @@ export const listWaitlist = query({
   },
 });
 
+/**
+ * Joins and admissions per landing page (`/a` to `/e`), for the Waitlist
+ * tab's summary line. Staff only, like the list above.
+ */
+export const waitlistLandingCounts = query({
+  args: {},
+  returns: landingCountsValidator,
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await landingCountsHandler(ctx);
+  },
+});
+
 /** Let people in. Each is mailed "you're in" once. */
 export const admitWaitlist = mutation({
   args: { ids: v.array(v.id("waitlist")) },
@@ -346,6 +376,53 @@ export const setSignupAlerts = mutation({
       throw toConvexError(error);
     }
     return await setSignupAlertsHandler(ctx, actor, args.on);
+  },
+});
+
+// -- people -----------------------------------------------------------------
+
+/**
+ * Who somebody is: addresses, username, phone, workspaces. Searched by any
+ * of them. See `lib/adminFns/people.ts`.
+ */
+export const listPeople = query({
+  args: { search: v.string(), archived: v.optional(v.boolean()) },
+  returns: v.array(personValidator),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await listPeopleHandler(ctx, args.search, args.archived ?? false);
+  },
+});
+
+/** Hide an account from the console, or bring it back. Deletes nothing. */
+export const setPersonArchived = mutation({
+  args: { userId: v.id("users"), archived: v.boolean() },
+  returns: archiveResultValidator,
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setArchivedHandler(ctx, actor, args.userId, args.archived);
+  },
+});
+
+/** Set or remove somebody's phone; a typed phone counts as confirmed. */
+export const setPersonPhone = mutation({
+  args: { userId: v.id("users"), phone: v.union(v.string(), v.null()) },
+  returns: setPhoneResultValidator,
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setPhoneHandler(ctx, actor, args.userId, args.phone);
   },
 });
 
@@ -718,6 +795,33 @@ export const secretEnvelope = internalQuery({
       .query("appSecrets")
       .withIndex("by_name", (q) => q.eq("name", args.name))
       .unique(),
+});
+
+/** Who sign-in codes come from, and whether they say Context. */
+export const signInTexts = query({
+  args: {},
+  returns: signInTextsValidator,
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await signInTextsHandler(ctx);
+  },
+});
+
+/** Set the Messaging Service sign-in codes are texted through; empty clears it. */
+export const setSignInTextsSender = mutation({
+  args: { messagingServiceSid: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setSignInTextsSenderHandler(ctx, args.messagingServiceSid, actor);
+  },
 });
 
 /**

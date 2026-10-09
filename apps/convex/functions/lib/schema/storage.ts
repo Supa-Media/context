@@ -218,7 +218,7 @@ export const storageTables = {
      * runs. Two jobs, and the second is the load-bearing one:
      *
      *  1. It is the honest half of `partial` — the console can name the two
-     *     READMEs that did not land, instead of calling the whole thing failed.
+     *     folder notes that did not land, instead of calling the whole thing failed.
      *  2. **It is how we tell our own half-written scaffold from a vault that
      *     was here before we arrived.** Both look like "the bucket already
      *     holds a context" to anything reading the bucket, and treating them

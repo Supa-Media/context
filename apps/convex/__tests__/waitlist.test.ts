@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
-import { isAdmitted, mayCreateUser, OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
+import { isAdmitted, isPhoneAdmitted, mayCreateUser, OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { WAITLIST_JOINS_PER_HOUR } from "../functions/waitlist";
 import { setupTest, type TestConvex } from "./fixtures.helpers";
 
@@ -282,5 +282,77 @@ describe("the staff Waitlist", () => {
     for (const email of ["a@one.test", "b@two.test", "waiting@studio.test"]) {
       expect(await admitted(t, email)).toBe(true);
     }
+  });
+
+  test("Add takes phones too, which then sign up by phone and are listed by number", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    const result = await as.mutation(api.functions.admin.addToWaitlist, {
+      emails: "+1 (555) 555-0142\nada@one.test, 555 0100",
+    });
+    expect(result).toEqual({ changed: 2, invalid: ["555", "0100"] });
+    await t.run(async (ctx) => {
+      expect(await isPhoneAdmitted(ctx.db, "+15555550142")).toBe(true);
+      expect(await isPhoneAdmitted(ctx.db, "+15555550199")).toBe(false);
+    });
+    const listed = await as.query(api.functions.admin.listWaitlist, { status: "admitted" });
+    expect(listed.rows.map((r) => r.email ?? r.phone).sort()).toEqual(["+15555550142", "ada@one.test"]);
+    // Adding the same number again lets nobody in twice.
+    expect(await as.mutation(api.functions.admin.addToWaitlist, { emails: "+15555550142" })).toEqual({
+      changed: 0,
+      invalid: [],
+    });
+  });
+});
+
+describe("which landing page a person saw", () => {
+  test("is stored on the row when they join, and only then", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "c" });
+    expect((await row(t, "jon@studio.test"))?.landing).toBe("c");
+    // A second visit from another page does not rewrite it.
+    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "e" })).toEqual({
+      status: "already",
+    });
+    expect((await row(t, "jon@studio.test"))?.landing).toBe("c");
+  });
+
+  test("a value that is not a landing page is dropped and the join still succeeds", async () => {
+    const t = setupTest();
+    for (const [i, landing] of ["z", "A", "<script>"].entries()) {
+      const email = `odd${i}@studio.test`;
+      expect(await t.mutation(api.functions.waitlist.enter, { email, landing })).toMatchObject({ status: "joined" });
+      expect((await row(t, email))?.landing).toBeUndefined();
+    }
+  });
+
+  test("a join without one stores none", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "plain@studio.test" });
+    expect(await row(t, "plain@studio.test")).not.toHaveProperty("landing");
+  });
+
+  test("staff see the joins and the admissions grouped by landing page, with none for the rest", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    await t.mutation(api.functions.waitlist.enter, { email: "a1@studio.test", landing: "a" });
+    await t.mutation(api.functions.waitlist.enter, { email: "a2@studio.test", landing: "a" });
+    await t.mutation(api.functions.waitlist.enter, { email: "b1@studio.test", landing: "b" });
+    await t.mutation(api.functions.waitlist.enter, { email: "none@studio.test" });
+    const id = (await row(t, "a2@studio.test"))!._id;
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [id] });
+    expect(await as.query(api.functions.admin.waitlistLandingCounts, {})).toEqual([
+      { landing: "a", joined: 2, admitted: 1 },
+      { landing: "b", joined: 1, admitted: 0 },
+      { landing: "none", joined: 1, admitted: 0 },
+    ]);
+  });
+
+  test("the landing counts are staff only", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "b" });
+    const stranger = t.withIdentity({ subject: await seedUser(t, "who@else.test") });
+    await expect(stranger.query(api.functions.admin.waitlistLandingCounts, {})).rejects.toThrow();
+    await expect(t.query(api.functions.admin.waitlistLandingCounts, {})).rejects.toThrow();
   });
 });

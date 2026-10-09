@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { densityFor } from "../app/frame";
@@ -15,6 +16,9 @@ import { useEmailSignIn } from "./useEmailSignIn";
 import { WaitlistResult } from "./WaitlistResult";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { SignInPreview } from "./SignInPreview";
+import { PhoneSignInForm } from "./PhoneSignInForm";
+import { EMAIL_STILL_NEEDS_PHONE } from "./phoneSignIn";
+import { usePhoneSignIn } from "./usePhoneSignIn";
 
 /**
  * A-01 and A-02 — sign in, then the code. Or the waitlist.
@@ -42,6 +46,11 @@ import { SignInPreview } from "./SignInPreview";
  * who invited them (or that the link no longer works) above the same field, and
  * on a working invite an address that is not let in is the wrong address, said
  * as an error rather than as a place on the waitlist (`joinInvite.ts`).
+ *
+ * Since 2026-10-09 the page asks for a phone first (board p1, `PhoneSignInForm`):
+ * a phone an account holds, or one staff let in, signs in with a texted code,
+ * and any other number joins the waitlist in place. A friend's
+ * `/join/<token>` link stays on email, because the invite is.
  */
 export function LoginScreen({ join }: { join?: JoinVariant }) {
   const colors = useColors();
@@ -51,12 +60,12 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
   const params = useLocalSearchParams<{ next?: string | string[] }>();
   const next = safeNextRoute(Array.isArray(params.next) ? params.next[0] : params.next);
 
-  const flow = useEmailSignIn({
-    source: "login",
-    // A real navigation on the web, not a client-side replace — see
-    // `landAfterSignIn` for the URL that hop was measured losing.
-    onSignedIn: () => landAfterSignIn(next, (href) => router.replace(href)),
-  });
+  // A real navigation on the web, not a client-side replace — see
+  // `landAfterSignIn` for the URL that hop was measured losing.
+  const onSignedIn = () => landAfterSignIn(next, (href) => router.replace(href));
+  const flow = useEmailSignIn({ source: "login", onSignedIn });
+  const [mode, setMode] = useState<"phone" | "email">(join ? "email" : "phone");
+  const phoneFlow = usePhoneSignIn({ onSignedIn, onUnavailable: () => setMode("email") });
   const { step, email, code, submitting, error, resent, canSubmit } = flow;
   const view = signInView(join, step);
   const asking = view === "request" || view === "wrongEmail";
@@ -82,7 +91,9 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
         </Text>
       </Pressable>
 
-      {view === "waitlist" ? (
+      {mode === "phone" ? (
+        <PhoneSignInForm flow={phoneFlow} onUseEmail={() => setMode("email")} />
+      ) : view === "waitlist" ? (
         <WaitlistResult flow={flow} />
       ) : asking ? (
         <>
@@ -151,82 +162,97 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
         </>
       )}
 
-      {error ? (
-        <Text variant="error" role="alert" style={styles.error}>
-          {error}
-        </Text>
-      ) : null}
-
-      {view === "wrongEmail" ? (
-        <View style={styles.error} testID="join-wrong-email">
-          <Text variant="error" role="alert">
-            {WRONG_EMAIL}
-          </Text>
-          <Text
-            variant="foot"
-            role="link"
-            style={styles.link}
-            onPress={() => router.replace(LOGIN_ROUTE)}
-            testID="join-waitlist-instead"
-          >
-            Join the waitlist instead
-          </Text>
-        </View>
-      ) : null}
-
-      {view === "waitlist" ? null : asking ? (
-        <View style={styles.primaryRow}>
-          <Button
-            label="Continue"
-            variant="accent"
-            disabled={submitting || !canSubmit}
-            onPress={() => void flow.submitEmail()}
-            trailing={spinner}
-            // The width of the thumb's reach on a phone, as one target.
-            style={phone ? styles.submitPhone : undefined}
-            testID="login-submit"
-          />
-        </View>
-      ) : (
+      {mode === "phone" ? null : (
         <>
-          <View style={styles.verifyRow}>
-            <Button
-              label="Resend code"
-              variant="decision"
-              disabled={submitting}
-              onPress={() => void flow.resend()}
-              testID="login-resend"
-            />
-            <Button
-              label="Continue →"
-              variant="accent"
-              disabled={submitting || !canSubmit}
-              onPress={() => void flow.verify()}
-              trailing={spinner}
-              testID="login-submit"
-            />
-          </View>
-          <Text
-            variant="foot"
-            role="link"
-            style={styles.link}
-            onPress={flow.changeEmail}
-            testID="login-change-email"
-          >
-            Change email →
-          </Text>
+          {error ? (
+            <Text variant="error" role="alert" style={styles.error}>
+              {error}
+            </Text>
+          ) : null}
+
+          {view === "wrongEmail" ? (
+            <View style={styles.error} testID="join-wrong-email">
+              <Text variant="error" role="alert">
+                {WRONG_EMAIL}
+              </Text>
+              <Text
+                variant="foot"
+                role="link"
+                style={styles.link}
+                onPress={() => router.replace(LOGIN_ROUTE)}
+                testID="join-waitlist-instead"
+              >
+                Join the waitlist instead
+              </Text>
+            </View>
+          ) : null}
+
+          {view === "waitlist" ? null : asking ? (
+            <View style={styles.primaryRow}>
+              <Button
+                label="Continue"
+                variant="accent"
+                disabled={submitting || !canSubmit}
+                onPress={() => void flow.submitEmail()}
+                trailing={spinner}
+                // The width of the thumb's reach on a phone, as one target.
+                style={phone ? styles.submitPhone : undefined}
+                testID="login-submit"
+              />
+            </View>
+          ) : (
+            <>
+              <View style={styles.verifyRow}>
+                <Button
+                  label="Resend code"
+                  variant="decision"
+                  disabled={submitting}
+                  onPress={() => void flow.resend()}
+                  testID="login-resend"
+                />
+                <Button
+                  label="Continue →"
+                  variant="accent"
+                  disabled={submitting || !canSubmit}
+                  onPress={() => void flow.verify()}
+                  trailing={spinner}
+                  testID="login-submit"
+                />
+              </View>
+              <Text
+                variant="foot"
+                role="link"
+                style={styles.link}
+                onPress={flow.changeEmail}
+                testID="login-change-email"
+              >
+                Change email →
+              </Text>
+            </>
+          )}
+
+          {view !== "waitlist" ? (
+            <Text variant="foot" style={styles.foot}>
+              {view === "verify"
+                ? "Next: pick the name your notes live under."
+                : join?.kind === "invite"
+                  ? JOIN_HELPER
+                  : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
+            </Text>
+          ) : null}
+          {asking ? (
+            <Text variant="foot" style={styles.foot} testID="login-needs-phone">
+              {EMAIL_STILL_NEEDS_PHONE}
+            </Text>
+          ) : null}
+
+          {join === undefined && view === "request" ? (
+            <Text variant="foot" role="link" style={styles.link} onPress={() => setMode("phone")} testID="login-use-phone">
+              Sign in with your phone instead
+            </Text>
+          ) : null}
         </>
       )}
-
-      {view !== "waitlist" ? (
-        <Text variant="foot" style={styles.foot}>
-          {view === "verify"
-            ? "Next: pick the name your notes live under."
-            : join?.kind === "invite"
-              ? JOIN_HELPER
-              : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
-        </Text>
-      ) : null}
     </View>
   );
 
@@ -237,7 +263,7 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
           <View style={[styles.formCol, wide && styles.formColWide]}>{form}</View>
           {wide ? (
             <View style={styles.previewCol}>
-              <SignInPreview kind={step === "verify" ? "email" : "product"} email={email.trim()} />
+              <SignInPreview kind={mode === "email" && step === "verify" ? "email" : "product"} email={email.trim()} />
             </View>
           ) : null}
         </View>

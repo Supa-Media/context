@@ -61,6 +61,8 @@ export function createControlPlaneStub(options = {}) {
   const providerCredentials = new Map();
   const builtinVerdicts = new Map();
   const builtinReports = [];
+  const meetingSummaryVerdicts = new Map();
+  const meetingSummaryReports = [];
   /** Every `/gateway/agent-turn` report, as the turn log would receive it. */
   const turnReports = [];
   /**
@@ -500,6 +502,20 @@ export function createControlPlaneStub(options = {}) {
         return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
       }
 
+      case "/gateway/meeting-summary":
+      case "/gateway/meeting-summary/usage": {
+        // The meeting-summary gate, as the built-in model's above: every plan
+        // may, so an unset workspace is allowed rather than refused.
+        const grant = await grantForAccessToken(body.accessToken);
+        const known = grant && (body.expectedWorkspaceId ?? grant.workspaceId) === grant.workspaceId;
+        if (path === "/gateway/meeting-summary/usage") {
+          if (known) meetingSummaryReports.push({ workspaceId: grant.workspaceId, ...body, accessToken: undefined });
+          return ok({ recorded: Boolean(known) });
+        }
+        if (!known) return ok({ verdict: null });
+        return ok({ verdict: meetingSummaryVerdicts.get(grant.workspaceId) ?? { allowed: true, remaining: 9, paying: false } });
+      }
+
       case "/gateway/agent-turn": {
         const grant = await grantForAccessToken(body.accessToken);
         const known = grant && (body.expectedWorkspaceId ?? grant.workspaceId) === grant.workspaceId;
@@ -903,6 +919,11 @@ export function createControlPlaneStub(options = {}) {
     builtinVerdicts.set(workspaceId, verdict);
   }
 
+  /** What `/gateway/meeting-summary` answers for one workspace. */
+  function setMeetingSummaryVerdict(workspaceId, verdict) {
+    meetingSummaryVerdicts.set(workspaceId, verdict);
+  }
+
   return {
     gatewayCalls,
     origin,
@@ -916,6 +937,8 @@ export function createControlPlaneStub(options = {}) {
     connectProvider,
     setBuiltinVerdict,
     builtinReports,
+    setMeetingSummaryVerdict,
+    meetingSummaryReports,
     turnReports,
     providerCredentials,
     grants,

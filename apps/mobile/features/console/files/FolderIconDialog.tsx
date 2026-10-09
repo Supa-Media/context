@@ -10,7 +10,7 @@ import { useFieldFont } from "../../design/fieldFont";
 import { useCustomEmoji } from "../emoji/context";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { toFileError } from "./browser";
-import { Shell } from "./DialogShell";
+import { Shell, type DialogAnchor } from "./DialogShell";
 import { allStandardEmoji, searchStandardEmoji } from "./emoji/standardEmoji";
 import { baseName, folderLabel } from "./paths";
 
@@ -52,6 +52,7 @@ export function FolderIconDialog({
   current,
   onSet,
   onClose,
+  anchor,
 }: {
   path: string;
   /** The folder's icon now, or `null`. */
@@ -59,6 +60,8 @@ export function FolderIconDialog({
   /** Rejects with the server's refusal, which is shown here. */
   onSet: (icon: string | null) => Promise<void>;
   onClose: () => void;
+  /** Opened from the folder's icon in the tree: a popover there rather than a dialog in the middle. */
+  anchor?: DialogAnchor;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -93,7 +96,7 @@ export function FolderIconDialog({
   }
 
   return (
-    <Shell title="Folder icon" onClose={onClose} sheet={sheet}>
+    <Shell title="Folder icon" onClose={onClose} sheet={sheet} anchor={anchor}>
       <Text variant="paneSub" testID="folder-icon-name">
         {folderLabel(baseName(path))}
       </Text>

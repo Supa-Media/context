@@ -5,7 +5,7 @@
  * the rules every operation keeps.
  */
 
-import { effectiveVisibility } from "../privacy";
+import { effectiveVisibility, isPlumbing } from "../privacy";
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 // The projection, on the same terms. `projectPass`, `loadCensus` and
 // `progressFrom` take a store, a census, a `visibilityOf` and a budget and
@@ -18,6 +18,7 @@ import {
   projectPass,
   worthReporting,
 } from "../../../../mcp/src/search/d1/backfill.js";
+import { listNoteObjects } from "../../../../mcp/src/search/shards/listing.js";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 import type { IndexingPriorities } from "../indexingPriorities";
@@ -187,13 +188,11 @@ export async function passCensus(
  * `maintainSearchIndex` have with `searchIndexedNotes` and `syncShardedIndex`.
  * Three consequences are load-bearing:
  *
- *  - **The R2 index pass comes first, and its diff is what feeds the copy.**
- *    The projection's census is the index's own docmap, so a bucket no search
- *    has ever built an index over has nothing to walk. Running the sync here
- *    means a context that has never been searched still fills — which is the
- *    case the three contexts stuck at "Preparing" were in — and it means the
- *    notes that just moved are copied first, from the diff that pass already
- *    computed. No second listing and no second answer to "what changed".
+ *  - **The census is a listing of the bucket, not the R2 index** (since
+ *    2026-10-08; see `listingCensus`). A context nobody has searched still
+ *    fills, which was the case of the three contexts stuck at "Preparing",
+ *    and a bucket whose index never converges no longer starves the copy.
+ *    The R2 index pass runs only when the listing fails.
  *  - **The tier a note is copied at is this runtime's `effectiveVisibility`**,
  *    injected as `visibilityOf` exactly as `isVisible` is injected into
  *    `searchIndexedNotes`, and proven identical to the gateway's by
@@ -217,7 +216,16 @@ export async function projectSearchIndex(
   const budget = createSearchBudget(options.budget ?? PROJECTION_PASS_BUDGET);
   const reserve = Math.floor(budget.remaining / PROJECTION_RESERVE_SHARE);
 
-  const { census, indexPending, synced } = await passCensus(store, budget, reserve);
+  // The bucket's own listing first, and the R2 index pass only when that
+  // fails. On @seyi (2026-10-08) the index pass never converged and took the
+  // pass with it: each link re-copied the notes it reported touching, the walk
+  // in tier order never left its first window, and nothing was left over to
+  // remove the rows of notes that had moved. Searches still keep that index.
+  const listed = await listingCensus(store, budget);
+  const fallback = listed ? null : await passCensus(store, budget, reserve);
+  const census = listed?.census ?? fallback?.census ?? null;
+  const indexPending = listed ? (listed.truncated ? 1 : 0) : (fallback?.indexPending ?? 0);
+  const synced = fallback?.synced ?? null;
 
   const moved = Boolean(synced?.committed);
   if (census === null) {
@@ -244,7 +252,10 @@ export async function projectSearchIndex(
   const result = await projectPass(store, client, {
     census,
     touched: synced?.touched ?? [],
-    removed: synced?.removed ?? [],
+    removed: [
+      ...(synced?.removed ?? []),
+      ...(listed ? await goneFromBucket(store, client, budget, listed) : []),
+    ],
     visibilityOf: (path: string) =>
       effectiveVisibility(path, state.rules, state.overrides),
     budget,
@@ -269,7 +280,80 @@ export async function projectSearchIndex(
     ready: progress.state === "ready",
     failure,
     failureDetail: result.failureDetail ?? null,
-    moved: moved || result.projected > 0 || result.deleted > 0,
+    // A window of already-current notes can still move the cursor closer to
+    // missing notes. Keep the chain running through it instead of waiting for
+    // the 15-minute stalled-backfill sweep after every such window.
+    moved: moved || result.projected > 0 || result.deleted > 0 || result.cursorAdvanced,
     report: failure === null && worthReporting(result),
   };
+}
+
+/**
+ * The bucket's own list of notes, for the copy to walk.
+ *
+ * Not the R2 index's docmap, which is what it walked until 2026-10-08. On a
+ * large workspace that index falls behind and keeps notes that have left: a
+ * move of @seyi's texts out of Areas left their old paths in it, so the copy
+ * counted thousands of Areas notes it could never read, and T0 never
+ * finished. Search by meaning lists the bucket for the same reason
+ * (`meaningProjection.ts`), and the two walk the same listing tokens the
+ * docmap held, so rows already copied stay current. `null` when the listing
+ * fails, and the pass falls back to the index's census rather than stopping.
+ */
+async function listingCensus(store: FileStore, budget: ReturnType<typeof createSearchBudget>) {
+  try {
+    const listing = await listNoteObjects(store, budget, 0, (key: string) => key.endsWith(".md") && !isPlumbing(key));
+    const census = new Map<string, string>();
+    for (const [path, entry] of listing.entries) census.set(path, entry.version);
+    return { census, regionComplete: listing.regionComplete, truncated: listing.truncated };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Notes asked about by name per pass before their rows go, and the ops kept
+ * back for the copy behind it. A move that strands thousands of rows clears in
+ * a few links rather than starving the copy of the notes still there.
+ */
+const GONE_CHECK_CAP = 200;
+const GONE_CHECK_KEEP = 100;
+
+/**
+ * Rows for notes the bucket no longer has, to delete first.
+ *
+ * A row the census lacks was never revisited by the sweep, so a note that moved
+ * away kept answering searches at a path that opens nothing. Only where the
+ * listing reached the end of that part of the bucket, since a walk cut short
+ * proves nothing about what it did not reach. And only once the note is asked
+ * for by name and absent: a note written after the listing has a row the
+ * listing cannot know about, and deleting it would hide a fresh note from
+ * search until the next sweep. A query or a read that fails deletes nothing.
+ */
+async function goneFromBucket(
+  store: FileStore,
+  client: ProjectionClient,
+  budget: ReturnType<typeof createSearchBudget>,
+  listed: { census: Map<string, string>; regionComplete: (path: string) => boolean },
+): Promise<string[]> {
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await client.query("SELECT path FROM notes", []);
+  } catch {
+    return [];
+  }
+  const gone: string[] = [];
+  let asked = 0;
+  for (const row of rows) {
+    const path = row?.path;
+    if (typeof path !== "string" || listed.census.has(path) || !listed.regionComplete(path)) continue;
+    if (asked >= GONE_CHECK_CAP || !budget.take(GONE_CHECK_KEEP)) break;
+    asked += 1;
+    try {
+      if ((await store.get(path)) === null) gone.push(path);
+    } catch {
+      // Unreadable is not absent: the row stays for the next pass to ask again.
+    }
+  }
+  return gone;
 }

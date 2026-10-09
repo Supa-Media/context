@@ -156,7 +156,7 @@ test("a texted turn is told the texting file's words, in place of the built-in o
   assert.ok(!system.includes("You are Context, the assistant built into"), "built-in identity replaced");
   assert.ok(!system.includes("No Markdown at all"), "built-in texting style replaced");
   assert.ok(!system.includes("NOT-THE-PINNED-ONE"), "only the pinned workspace's file counts");
-  assert.ok(system.includes("propose_note"), "what the code decides is still said");
+  assert.ok(system.includes("you change notes yourself when they ask"), "what the code decides is still said");
 });
 
 test("an app turn gets the app file, not the texting one", async () => {

@@ -26,6 +26,7 @@ import {
   resolveSession,
   SCOPE_CAPTURE,
   SCOPE_READ,
+  SCOPE_WRITE,
   sessionForContext,
   SessionRefusal,
   splitWorkspacePath,
@@ -50,6 +51,7 @@ import {
   scopeForMeetingRequest,
 } from "../meetings/ingest.js";
 import { localIngestionStore } from "../ingestion/inbox.js";
+import { MEETING_SUMMARY_PATH, handleMeetingSummary } from "../meetings/summarize.js";
 import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js";
 import { searchBudgetFor } from "../search/budget.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
@@ -110,7 +112,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path)) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -170,7 +172,7 @@ export async function route(request, env, ctx) {
     // branch for the reasons `/presence` has one: a GET that reads no note,
     // writes nothing, and needs no queue, usage counter or search budget.
     if (path === "/agent-activity") {
-      return await handleAgentActivity(request, env, { slug, pathToken, origin });
+      return await handleAgentActivity(request, env, { slug, pathToken, origin, ctx });
     }
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,
@@ -180,7 +182,9 @@ export async function route(request, env, ctx) {
     // the MCP transport paths only, and `handleMeetings` answers a wrong method
     // with a meeting error naming the route.
     const meetingRoute = matchMeetingRoute(path);
+    const summaryRoute = path === MEETING_SUMMARY_PATH;
     if (
+      summaryRoute ||
       path === "/mcp" ||
       path === "/inbox" ||
       path === "/agent" ||
@@ -215,7 +219,10 @@ export async function route(request, env, ctx) {
       // `callToolForSession` — so a read-only grant gets an assistant that can
       // answer and cannot suggest, which is the honest shape of a read-only
       // grant rather than a special case.
-      const needed = meetingRoute
+      // A summary is written into the note, so it needs write like any edit.
+      const needed = summaryRoute
+        ? SCOPE_WRITE
+        : meetingRoute
         ? scopeForMeetingRequest(request.method)
         : path === "/inbox"
           ? SCOPE_CAPTURE
@@ -224,7 +231,7 @@ export async function route(request, env, ctx) {
         // A meeting client is owed one of the contract's error codes, not the
         // OAuth challenge the MCP transport answers with; it names the one
         // missing scope for the same incremental-consent reason.
-        if (meetingRoute) return meetingScopeRefusal(needed);
+        if (meetingRoute || summaryRoute) return meetingScopeRefusal(needed);
         return forbiddenResponse(origin, null, {
           description: `This connection does not hold the ${needed} scope.`,
           // Incremental consent: name the one scope that was missing, so the
@@ -442,6 +449,11 @@ export async function route(request, env, ctx) {
       // cannot be filed into a workspace the URL did not name. The acting identity
       // rides on the store so the audit line for a written meeting says who,
       // and not merely at what tier.
+      if (summaryRoute) {
+        store.actor = actorFor(session);
+        return handleMeetingSummary(request, store, session, { controlPlane, env });
+      }
+
       if (meetingRoute) {
         store.actor = actorFor(session);
         return handleMeetings(request, path, store, session, {

@@ -1,15 +1,17 @@
-import { useMemo } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { useMemo, useState } from "react";
+import { StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
 import type { ConsoleData } from "../../../types";
 import { useMapPage, type MapPageState } from "../hooks/useMapPage";
+import { useMapPeek, type MapPeek } from "../hooks/useMapPeek";
 import { replayBadge } from "../replayClock";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
 import { Breadcrumb, createCameraStore, OVERLAY_INSET, ZoomControl, type CameraStore } from "./CanvasOverlay";
 import { MapBar } from "./MapBar";
-import { Feed, MapPanel, WorkingNow } from "./MapPanel";
+import { MapPanel } from "./MapPanel";
+import { NotePeek } from "./NotePeek";
 import { PhoneMap } from "./PhoneMap";
 import { ReplayBar } from "./ReplayBar";
 import { mapNotice, statusParts } from "./status";
@@ -20,28 +22,34 @@ import { mapNotice, statusParts } from "./status";
  * choices across the top, the canvas with where-you-are and the zoom control
  * over it, the replay bar under it while replaying, and the column of who is
  * working and what is happening beside it. A phone gets the canvas with a
- * sheet over it (`PhoneMap`); native, which has no canvas engine yet, gets
- * the words without the picture (`MapWithoutCanvas`).
+ * sheet over it (`PhoneMap`). In the native app the canvas is the same
+ * engine inside a web view (`LiveMapCanvas.tsx`), so every layout is the
+ * same on every platform.
  */
 export type { OpenMapNote };
 
 export function MapPage({ data, compact, onOpenNote }: { data: ConsoleData; compact: boolean; onOpenNote: OpenMapNote }) {
   const page = useMapPage(data);
   const camera = useMemo(() => createCameraStore(), []);
-  if (Platform.OS !== "web") return <MapWithoutCanvas page={page} onOpenNote={onOpenNote} />;
-  if (compact) return <PhoneMap page={page} camera={camera} onOpenNote={onOpenNote} />;
-  return <DesktopMap page={page} camera={camera} onOpenNote={onOpenNote} />;
+  const peek = useMapPeek(page);
+  if (compact) return <PhoneMap page={page} camera={camera} peek={peek} onOpenNote={onOpenNote} />;
+  return <DesktopMap page={page} camera={camera} peek={peek} onOpenNote={onOpenNote} />;
 }
 
-function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: CameraStore; onOpenNote: OpenMapNote }) {
+function DesktopMap({ page, camera, peek, onOpenNote }: { page: MapPageState; camera: CameraStore; peek: MapPeek; onOpenNote: OpenMapNote }) {
   const styles = useThemedStyles(makeStyles);
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  const open = peek.peek;
   return (
     <View style={styles.page} testID="map-page">
       <MapBar page={page} compact={false} />
       <View style={styles.body}>
         <View style={styles.column}>
-          <View style={styles.canvasBox}>
-            <MapCanvas page={page} camera={camera} onOpenNote={onOpenNote} inset={page.view === "map" ? OVERLAY_INSET : NO_OVERLAY} />
+          <View
+            style={styles.canvasBox}
+            onLayout={(e) => setBox({ width: Math.round(e.nativeEvent.layout.width), height: Math.round(e.nativeEvent.layout.height) })}
+          >
+            <MapCanvas page={page} camera={camera} peek={peek} inset={page.view === "map" ? OVERLAY_INSET : NO_OVERLAY} />
             {page.view === "map" ? (
               <>
                 <Breadcrumb
@@ -55,10 +63,20 @@ function DesktopMap({ page, camera, onOpenNote }: { page: MapPageState; camera: 
             ) : null}
             {page.replaying && page.replay !== null ? (
               <View style={styles.badge} pointerEvents="none" testID="map-replay-badge">
-                <Text style={styles.badgeText}>{replayBadge(page.replay.range, page.replay.speed)}</Text>
+                <Text style={styles.badgeText}>{replayBadge(page.replay)}</Text>
               </View>
             ) : null}
             <MapNotice page={page} />
+            {open !== null && box.width > 0 ? (
+              <NotePeek
+                page={page}
+                peek={open}
+                compact={false}
+                box={box}
+                onClose={peek.close}
+                onExpand={() => onOpenNote(open.workspaceId, open.path)}
+              />
+            ) : null}
           </View>
           {page.mode !== "live" ? <ReplayBar page={page} /> : null}
           <StatusLine page={page} />
@@ -100,28 +118,6 @@ function StatusLine({ page }: { page: MapPageState }) {
           {part}
         </Text>
       ))}
-    </View>
-  );
-}
-
-/**
- * Native: the engine draws on a web `<canvas>` and there is no native one yet,
- * so the page says who is working and what is happening — the half of the map
- * that is words — and says in one line where the picture is.
- */
-function MapWithoutCanvas({ page, onOpenNote }: { page: MapPageState; onOpenNote: OpenMapNote }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.native} testID="map-page">
-      <MapBar page={page} compact />
-      <View style={styles.nativeBody}>
-        <Text variant="meta" testID="map-native-note">
-          The map itself is drawn in the web app for now; here is who is working and what is happening.
-        </Text>
-        <WorkingNow page={page} />
-        {page.mode !== "live" ? <ReplayBar page={page} compact /> : null}
-        <Feed items={page.feed} replaying={page.replaying} now={page.now} onOpenNote={onOpenNote} compact />
-      </View>
     </View>
   );
 }
@@ -168,6 +164,4 @@ const makeStyles = (colors: Colors) =>
     statusText: { fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted },
     statusStrong: { color: colors.text2, fontWeight: "600" },
     spacer: { flex: 1 },
-    native: { flex: 1, backgroundColor: colors.pageSurface },
-    nativeBody: { padding: space.x4, gap: space.x3 },
   });

@@ -64,7 +64,7 @@ the note.
 `rows: projects` turns a list's rows into projects, and there is no project
 type behind it. A note directly in the listed folder is a project when its
 frontmatter has a `status`; a folder is one when its front note does, the
-first of `overview.md`, `index.md` and `README.md` that exists. A folder
+first of `about.md`, `overview.md`, `index.md` and `README.md` that exists. A folder
 project's name is its front note's `title`, then its first heading, then the
 folder name, and its `updated` is the newest save anywhere inside it.
 
@@ -138,13 +138,12 @@ It differs from `rows: projects` on purpose. A list block shows what already
 and every note in the folder is an item: one with a status is a task, and one
 without is drawn as a note with **Make it a task** beside it (see "Tasks and
 notes"), rather than being left out. A note's status is written into the note; a folder's into
-its front note by the same `overview.md` > `index.md` > `README.md` order; and
-a folder with none gets a new `overview.md` holding only that frontmatter —
-the status menu says "Saves to overview.md" before anything is pressed, and
-the button says it to a screen reader. The
-`README.md` a new folder is made with does not count while it still says only
-that it is a placeholder: a status written there would live in a file the
-console does not list and whose own text says to delete it. The create is the
+its front note by the same `about.md` > `overview.md` > `index.md` > `README.md` order; and
+a folder with none gets a new `about.md` holding only that frontmatter —
+the status menu says "Saves to about.md" before anything is pressed, and
+the button says it to a screen reader. A new folder
+is made with an `about.md` holding only its name, and that is a real note, so
+a status written there is the folder's status like any other front note. The create is the
 ordinary one — `files.writeNote` with no version, which the server refuses if a
 note appeared meanwhile, and that refusal is read and retried like any conflict,
 so nothing is ever replaced.
@@ -191,8 +190,8 @@ clearance, so the page can only describe notes the reader could already open;
 and the writes are the list's own (`writeNoteProperty`), gated the same way —
 owner and editor, never member. `apps/mobile/__tests__/folderPageView.test.ts`
 fails if a member is shown a control, if a folder's status goes anywhere but its
-front note or a new `overview.md`, or if an unset item is drawn as a task;
-`folderPageModel.test.ts` pins the front-note order and the placeholder rule;
+front note or a new `about.md`, or if an unset item is drawn as a task;
+`folderPageModel.test.ts` pins the front-note order;
 `listEdit.test.ts` fails if a missing note is created without being asked.
 
 ## Tasks and notes
@@ -501,12 +500,12 @@ sync use, which keeps any ancestor a queued edit still needs — and says the
 notes changed; and a sync that committed new bodies says so too (`onFetched`),
 and folder lists re-read on either. It is read back rather than composed from
 the text sent because the bucket may have merged the write into somebody's
-typing, and a new `overview.md` needs the visibility fields only a read
+typing, and a new `about.md` needs the visibility fields only a read
 carries. The overlay is still only an overlay: it is dropped once the device's
 copy agrees, never kept to paper over a stale copy. If the read-back fails the
 write stands and the next sync brings the note (`offline/folderListSource.ts`).
 `folderListWriteBack.test.ts` fails if a chosen status or a folder's first
-`overview.md` is gone after a reload, or if the sync stops saying it fetched.
+`about.md` is gone after a reload, or if the sync stops saying it fetched.
 
 ## An open project folder fetches its own notes
 

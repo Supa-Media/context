@@ -9,7 +9,12 @@
  * `index.js` built for the request — so there is no second answer anywhere to
  * "may this caller do that", which is the property that matters most here.
  *
- * ## Writes are proposals
+ * ## Writes are proposals, except from a text
+ *
+ * The one exception is a texting turn, which edits notes directly (the owner,
+ * 2026-10-08, "Edit directly"): `textingWrites.js` adds the connection's own
+ * MCP write tools and fields, all of them. Everywhere else, what follows
+ * holds.
  *
  * The agent is offered the read tools and `propose_note`, and never
  * `write_note`, `move_note`, `set_visibility` or anything else that changes the
@@ -41,6 +46,7 @@ import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from 
 import { AGENT_PROVIDERS, ProviderError, modelFor, requestCompletion } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
+import { pickTier } from "./router.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -68,25 +74,18 @@ const PROPOSAL_TOOL = "propose_note";
 /**
  * Tools a model is never offered, whatever their annotations say.
  *
- * `readOnlyHint` answers "does this change anything?" — and
- * `export_encryption_keys` truthfully answers no. It returns this context's
- * workspace data key(s) in the clear, and its own description says there is no
- * un-export. Reading that flag as "safe to hand a model" is reading an answer
- * to a different question, so the answer to this one is written down here
- * instead of inferred.
- *
- * What makes it worth a named list rather than a judgement call: the agent is
- * also offered `propose_note`, which puts its content in the bucket. Export
- * then propose and the key that opens every encrypted note in this context is
- * sitting in plaintext beside the notes it opens — the one place the encryption
- * exists to survive, and the thing non-negotiable #1 says never happens. The
- * turn never needs either tool to answer a question about somebody's notes.
- *
- * `rotate_encryption_keys` is named too although `readOnlyHint: false` already
- * keeps it out: a list of "the key material tools" that named one of the two
- * would read as a ruling that the other is fine to automate.
+ * `readOnlyHint` answers "does this change anything?", which is not the same
+ * question as "is this safe to hand a model". The gateway no longer has a key
+ * export (the owner removed it on 2026-10-08), so the one name left is
+ * `rotate_encryption_keys`: `readOnlyHint: false` already keeps it out of the
+ * read tools, and naming it says that automating the key material is a ruling
+ * made here, not an accident of a flag.
  */
-const WITHHELD_FROM_AGENT = new Set(["export_encryption_keys", "rotate_encryption_keys"]);
+// `search` and `fetch` are ChatGPT's two required tools: `search_notes` and
+// `read_note` in OpenAI's shape, without the `context` argument. A model that
+// has the real pair reaches for `search` by its name, passes `context`, and is
+// refused: 215 times in one benchmark run (2026-10-09).
+const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys", "search", "fetch"]);
 
 /** The longest question this route accepts. */
 export const MAX_QUESTION_LENGTH = 8000;
@@ -267,6 +266,9 @@ async function openBuiltin(controlPlane, session, env) {
  *   instead of `builtinModel(env)`; `route.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
+ * @param {{decide: Function|null, think: string}} [options.router] the setup's
+ *   model router (`router.js`): the decision engine that picks a tier for this
+ *   text, and the model a `think` text runs on; `route.js` checks it can be called
  * @param {() => number} [options.clock] milliseconds, for `timing`
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
@@ -284,6 +286,8 @@ export async function runTurn(options) {
     texting = false,
     notes = null,
     builtinModelOverride = null,
+    router = null,
+    fallback = null,
     maxRounds = MAX_ROUNDS,
     clock = Date.now,
     toolTimeoutMs = TOOL_TIMEOUT_MS,
@@ -298,14 +302,30 @@ export async function runTurn(options) {
   const provider = credential.provider;
   const builtin = provider === BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
-  const model = builtin ? builtinModelOverride ?? builtinModel(env) : modelFor(provider, env, requestedModel);
-  // Which model is making this turn's tool calls, for the usage breakdown.
-  options.onModel?.(model);
+  let model = builtin ? builtinModelOverride ?? builtinModel(env) : modelFor(provider, env, requestedModel);
   const rounds = roundsFor(maxRounds);
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  const system =
-    systemPrompt(place, { texting, notes, model }) +
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, decision: 0 };
+  const trace = [];
+  /*
+    THE ROUTER PICKS THE MODEL BEFORE THE FIRST ROUND (`router.js`).
+
+    Only a built-in turn routes (a person's own account keeps their model), and
+    the whole turn then runs on the model picked, so the tool rounds are
+    coherent. The pick, the router's own word and what it cost are recorded:
+    a benchmark prices the model that answered, and a person watching the
+    turn log sees which tier a slow or wrong answer came from.
+  */
+  if (builtin && router !== null) {
+    const asked = clock();
+    const routed = await pickTier({ decide: router.decide, text: question, history });
+    usage.decision += routed.tokens;
+    if (routed.tier === "think") model = router.think;
+    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked });
+  }
+  const systemFor = (answering) =>
+    systemPrompt(place, { texting, notes, model: answering, edits: tools.some((tool) => tool.name === "write_note") }) +
     webPrompt(webNames);
+  let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
     { role: "user", text: question },
@@ -329,7 +349,6 @@ export async function runTurn(options) {
     name, outcome and duration. What the turn log keeps, and what shows where
     one slow turn spent its time.
   */
-  const trace = [];
 
   /*
     THE NARROWED LIST IS ENFORCED HERE, NOT ONLY IN THE PROMPT.
@@ -362,6 +381,23 @@ export async function runTurn(options) {
             providerOptions,
           );
     } catch (error) {
+      /*
+        THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
+        failed after its retry costs the person a slower answer, never no
+        answer: the turn goes on from the same messages on the setup's
+        fallback model, once. The trace says so with the status, the meter is
+        told the model that answered, and a benchmark counts how often it
+        happened, because this is what production does too.
+      */
+      if (error instanceof ProviderError && builtin && fallback !== null && model !== fallback) {
+        const ms = clock() - asked;
+        timing.modelMs += ms;
+        trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
+        model = fallback;
+        system = systemFor(model);
+        round -= 1;
+        continue;
+      }
       // A failed turn is the one most worth seeing in the log, so the trace
       // so far travels with the error to `route.js`.
       if (error instanceof ProviderError) {
@@ -371,7 +407,7 @@ export async function runTurn(options) {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
           toolMs: timing.toolMs,
-          trace: [...trace, { kind: "model", ok: false, ms }],
+          trace: [...trace, { kind: "model", ok: false, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
         };
       }
       throw error;
@@ -379,7 +415,13 @@ export async function runTurn(options) {
     const roundMs = clock() - asked;
     timing.rounds += 1;
     timing.modelMs += roundMs;
-    trace.push({ kind: "model", ok: true, ms: roundMs });
+    trace.push({
+      kind: "model",
+      ok: true,
+      ms: roundMs,
+      // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
+      ...(answer.retried ? { retried: true, ...(answer.retried.status === null ? {} : { status: answer.retried.status }) } : {}),
+    });
     if (answer.usage) {
       usage.input += answer.usage.input;
       usage.output += answer.usage.output;
@@ -420,6 +462,9 @@ export async function runTurn(options) {
       }
       let result;
       const called = clock();
+      // Which model made this call, for the usage breakdown. Per call, because
+      // routing and fallback can change the model mid-turn.
+      options.onModel?.(model);
       try {
         result = await withinTime(
           webNames.has(call.name) ? web.call(call.name, call.args) : callTool(call.name, call.args),

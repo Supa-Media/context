@@ -99,6 +99,7 @@ function byTreePath<T>(byRoute: ReadonlyMap<string, T> | undefined, paths: Reado
 /** The built-in tree: the same every visit, so it is built once. */
 const BUILT_IN = homeTree(BUILT_IN_SITE);
 const NOTHING = liveHomeTree([]);
+const NO_ICONS: Readonly<Record<string, string>> = {};
 
 /** Always the one workspace's Browse: the homepage has no other console page. */
 const HOME_ROUTE: ConsoleRoute = { kind: "context", slug: HOME_CONTEXT.slug, view: "browse" };
@@ -119,10 +120,11 @@ export function HomeShell() {
   // The pages without their cast blocks, and what each one's cast does.
   const cast = useMemo(() => (live === null ? null : castSite(live)), [live]);
   const site = cast === null ? null : cast.pages;
+  const icons = source.kind === "live" ? (source.snapshot.icons ?? NO_ICONS) : NO_ICONS;
 
   const home = useMemo(
-    () => (source.kind === "builtIn" ? BUILT_IN : site === null ? NOTHING : liveHomeTree(site)),
-    [source.kind, site],
+    () => (source.kind === "builtIn" ? BUILT_IN : site === null ? NOTHING : liveHomeTree(site, icons)),
+    [source.kind, site, icons],
   );
   // Each page's cast, by the note it is in the tree.
   const scripts = useMemo(() => {
@@ -175,8 +177,7 @@ export function HomeShell() {
       const path = pathOf(next);
       if (path !== undefined) browser.select(path);
       if (next === routePath) return;
-      const page = pageParam(next);
-      router.push(page === undefined ? "/" : { pathname: "/", params: { page } });
+      router.push({ pathname: "/", params: { page: pageParam(next) } });
     },
     [browser, pathOf, routePath, router],
   );

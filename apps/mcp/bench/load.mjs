@@ -1,19 +1,18 @@
 // Loads the AI benchmark folder: people, workspaces, held-back rules and test questions.
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { assertIsoDate } from "./clock.mjs";
+
+import { expandFluff, parseFluff, resolveRel } from "./fluff.mjs";
+import { normalize, parseFront, unquote } from "./frontMatter.mjs";
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
 const PRIVACY_FILES = new Set(["privacy.md", "privacy-rules.md"]);
-
-// Normalize line endings so CRLF files parse the same as LF files.
-const normalize = (raw) => String(raw ?? "").replace(/\r\n?/g, "\n");
-
-// Strip one pair of matching quotes around a value.
-function unquote(s) {
-  const t = s.trim();
-  return /^(["']).*\1$/.test(t) && t.length >= 2 ? t.slice(1, -1) : t;
-}
+// Template folders live here. It is not a workspace.
+const BANK = "_bank";
+// A folder's fluff file says how many filler notes to write there.
+const FLUFF_FILE = "fluff.md";
 
 // Read the people table: "| Maya | maya (personal) | owner |" rows.
 export function parsePeople(raw) {
@@ -58,27 +57,12 @@ export function heldBack(raw) {
   return out;
 }
 
-// Parse the YAML front matter: "key: value" and one level of "  sub: value".
-function parseFront(lines) {
-  const front = {};
-  let key = null;
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const sub = line.match(/^ {2}([\w-]+):(?:\s+(.*))?$/);
-    if (sub && key) {
-      if (front[key] === "") front[key] = {};
-      if (typeof front[key] !== "object") throw new Error(`front matter: "${key}" has a value and sub-keys`);
-      front[key][sub[1]] = unquote(sub[2] ?? "");
-      continue;
-    }
-    const top = line.match(/^([\w-]+):(?:\s+(.*))?$/);
-    if (!top) throw new Error(`front matter: cannot read line "${line}"`);
-    key = top[1];
-    front[key] = unquote(top[2] ?? "");
-  }
-  // runs is the only non-string value; it defaults to 3.
+// runs is the only non-string value in a test's front matter; it defaults to 3.
+function withRuns(front) {
   const runs = front.runs === undefined ? 3 : Number.parseInt(front.runs, 10);
   if (!Number.isInteger(runs)) throw new Error(`front matter: runs must be a whole number, got "${front.runs}"`);
+  // today pins the benchmark's day; absent, the run uses the real one.
+  if (front.today !== undefined) assertIsoDate(front.today);
   return { ...front, runs };
 }
 
@@ -95,6 +79,10 @@ function readQuestion(sec) {
     must: [],
     mustNot: [],
     judge: [],
+    // The question number of the same fact asked by someone allowed to see it.
+    mirror: null,
+    // Allowed but never required: told to the judge, never graded.
+    may: [],
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -108,9 +96,18 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- must not:\s*(.*)$/))) q.mustNot.push(m[1].trim());
     else if ((m = line.match(/^- must:\s*(.*)$/))) q.must.push(m[1].trim());
     else if ((m = line.match(/^- judge:\s*(.*)$/))) q.judge.push(m[1].trim());
+    else if ((m = line.match(/^- may:\s*(.*)$/))) q.may.push(m[1].trim());
+    else if ((m = line.match(/^- mirror:\s*(.*)$/))) {
+      if (!/^\d+$/.test(m[1].trim())) throw new Error(`question ${sec.n}: mirror must be a question number, got "${m[1].trim()}"`);
+      q.mirror = Number(m[1].trim());
+    }
   }
   return q;
 }
+
+// A gate question is one a failure of fails the whole setup: every privacy
+// question, and a back-and-forth question marked `gate:`.
+export const isGateQuestion = (q) => q.kind === "privacy" || (q.kind === "back-and-forth" && q.gate === true);
 
 // Parse a test file: front matter plus one question per "## n. text" heading.
 export function parseTest(raw) {
@@ -121,7 +118,7 @@ export function parseTest(raw) {
   if (lines[0] === "---") {
     const end = lines.indexOf("---", 1);
     if (end > 0) {
-      front = parseFront(lines.slice(1, end));
+      front = withRuns(parseFront(lines.slice(1, end), 2));
       bodyStart = end + 1;
     }
   }
@@ -139,7 +136,11 @@ export function parseTest(raw) {
       cur.lines.push(line);
     }
   }
-  return { front, questions: sections.map(readQuestion) };
+  // Lines the judge grades on every answer, from the front matter's
+  // `every_answer:` map (the keys are labels; the order is the file's). They
+  // are judge lines, so they shape the voice bar and never a pass or a gate.
+  const everyAnswer = typeof front.every_answer === "object" && front.every_answer !== null ? Object.values(front.every_answer).filter(Boolean) : [];
+  return { front, everyAnswer, questions: sections.map(readQuestion) };
 }
 
 // Recursively list .md files under base, as forward-slash paths relative to base.
@@ -154,28 +155,67 @@ async function listMarkdown(base, rel = "") {
   return out.sort();
 }
 
+// The folder a file sits in, relative to its workspace: "" at the root.
+const folderOf = (rel) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
+
+// Read the template folders under workspaces/_bank/: folder name -> { path -> text }.
+async function readBank(wsRoot) {
+  const bank = {};
+  let entries;
+  try {
+    entries = await readdir(join(wsRoot, BANK), { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return bank;
+    throw error;
+  }
+  for (const entry of entries.filter((d) => d.isDirectory())) {
+    const base = join(wsRoot, BANK, entry.name);
+    const files = {};
+    for (const rel of await listMarkdown(base)) files[rel] = await readFile(join(base, rel), "utf8");
+    bank[entry.name] = files;
+  }
+  return bank;
+}
+
 // Read the whole benchmark folder into one object.
 export async function readBenchFolder(dir) {
   const readme = await readFile(join(dir, "README.md"), "utf8");
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
 
   const wsRoot = join(dir, "workspaces");
+  const bank = await readBank(wsRoot);
   const workspaces = {};
   const dirents = await readdir(wsRoot, { withFileTypes: true });
-  for (const entry of dirents.filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+  const folders = dirents.filter((d) => d.isDirectory() && d.name !== BANK).sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of folders) {
     const base = join(wsRoot, entry.name);
     const files = {};
     const held = [];
+    const fluff = [];
     for (const rel of await listMarkdown(base)) {
       const text = await readFile(join(base, rel), "utf8");
-      // Only a root-level privacy file is a rule file; others are ordinary notes.
-      if (PRIVACY_FILES.has(rel)) held.push(...heldBack(text));
-      else files[rel] = text;
+      if (rel === FLUFF_FILE || rel.endsWith(`/${FLUFF_FILE}`)) {
+        // A fluff file describes notes; it is never one.
+        const label = `workspaces/${entry.name}/${rel}`;
+        const parsed = parseFluff(text, label);
+        if (!Object.hasOwn(bank, parsed.from)) {
+          throw new Error(`${label}: from names template folder "${parsed.from}", but workspaces/${BANK}/${parsed.from}/ does not exist`);
+        }
+        fluff.push({ dir: folderOf(rel), fluff: parsed });
+      } else if (PRIVACY_FILES.has(rel)) {
+        // Only a root-level privacy file is a rule file; others are ordinary notes.
+        held.push(...heldBack(text));
+      } else {
+        files[rel] = text;
+      }
     }
-    workspaces[entry.name] = { files, heldBack: held };
+    workspaces[entry.name] = { files, heldBack: held, fluff };
   }
 
   for (const p of people) {
+    if (p.workspace === BANK) {
+      throw new Error(`people.md: ${p.person} is listed in workspace "${BANK}", which holds fluff templates, not a workspace`);
+    }
     if (!workspaces[p.workspace]) {
       throw new Error(`people.md: ${p.person} is listed in workspace "${p.workspace}", but workspaces/${p.workspace}/ does not exist`);
     }
@@ -189,5 +229,31 @@ export async function readBenchFolder(dir) {
     tests[name.slice(0, -3)] = { raw, ...parseTest(raw) };
   }
 
-  return { dir, readme, people, workspaces, tests };
+  return { dir, readme, people, workspaces, tests, bank };
+}
+
+/**
+ * The bench with every fluff file written out: each workspace's files gain its generated
+ * notes, listed in `generated`. The bench passed in is not changed.
+ */
+export function expandWorkspaces(bench) {
+  const workspaces = {};
+  for (const [name, ws] of Object.entries(bench.workspaces)) {
+    const files = { ...ws.files };
+    const held = [...ws.heldBack];
+    const generated = [];
+    for (const { dir, fluff } of ws.fluff) {
+      const made = expandFluff({ dir, fluff, templates: bench.bank[fluff.from], files });
+      for (const [path, text] of Object.entries(made)) {
+        files[path] = text;
+        generated.push(path);
+      }
+      // A copy of a held-back note is the same secret under a new name, so it stays held back.
+      for (const d of fluff.distractors) {
+        if (ws.heldBack.includes(resolveRel(dir, d.from))) held.push(resolveRel(dir, d.as));
+      }
+    }
+    workspaces[name] = { files, heldBack: held, fluff: ws.fluff, generated };
+  }
+  return { ...bench, workspaces };
 }

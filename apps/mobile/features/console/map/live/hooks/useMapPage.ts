@@ -19,13 +19,15 @@ import {
 import { crossMoveRows, liveFeed, nameBook, replayFeed, workingNowLine, type CrossMoveRow, type FeedItem } from "../feed";
 import { setMapFolderCounts } from "../mapCounts";
 import { useMapFixtureSource } from "../MapSourceContext";
-import { REPLAY_IDLE_MS, replayReducer, replayWindow, startOfDay, type ReplayAction, type ReplayState } from "../replayClock";
+import { recallScope, rememberScope } from "../peek/mapMemory";
+import { DAY_MS, replayIdleMs, replayReducer, rollingWindow, startOfDay, type ReplayAction, type ReplayState, type Stretch } from "../replayClock";
 import type { MapClock, MapEvent, MapView } from "../types";
 import { useCrossMovesSince, useReplayHistory } from "./useHistory";
 import { useLiveActivity } from "./useLiveActivity";
 import { useMapGraphs, type MapWorkspace } from "./useMapGraphs";
 
-export type MapMode = "live" | "today" | "week";
+/** Live, the past 24 hours, the past week, or a custom stretch picked from the history. */
+export type MapMode = "live" | "day" | "week" | "custom";
 export type MapScopeChoice = "one" | "all";
 
 /** Bars on the replay's activity histogram. */
@@ -57,10 +59,20 @@ export function useMapPage(data: ConsoleData) {
   const colors = useColors();
   const scheme = useScheme();
   const reducedMotion = useReducedMotion();
-  const [scope, setScope] = useState<MapScopeChoice>("one");
+  // Coming back to the map (Back from a note) finds the scope it was left on.
+  const [scope, setScopeState] = useState<MapScopeChoice>(() => recallScope(data.selectedContextId));
+  const setScope = useCallback(
+    (next: MapScopeChoice) => {
+      rememberScope(data.selectedContextId, next);
+      setScopeState(next);
+    },
+    [data.selectedContextId],
+  );
   const [view, setView] = useState<MapView>("map");
   const [mode, setModeState] = useState<MapMode>("live");
   const [switchedAt, setSwitchedAt] = useState(() => Date.now());
+  // The stretch picked in the range picker; set when a custom replay starts.
+  const [custom, setCustom] = useState<Stretch | null>(null);
   const [replay, dispatch] = useReducer(nullableReplay, null);
   const [follow, setFollow] = useState<FollowState | null>(null);
   const engineRef = useRef<MapEngine | null>(null);
@@ -83,7 +95,11 @@ export function useMapPage(data: ConsoleData) {
   const remote = fixture === null && !data.demo;
   const fetched = useMapGraphs(shown, remote);
   const polled = useLiveActivity(ids, remote ? MCP_ENDPOINT : null, mode === "live");
-  const span = useMemo(() => (mode === "live" ? null : replayWindow(mode, switchedAt)), [mode, switchedAt]);
+  // A rolling stretch ends at the moment it was chosen; a custom one is fixed by the picker.
+  const span = useMemo<Stretch | null>(
+    () => (mode === "live" ? null : mode === "custom" ? custom : rollingWindow(mode, switchedAt)),
+    [mode, switchedAt, custom],
+  );
   const asked = useReplayHistory(remote ? span : null, ids, remote ? MCP_ENDPOINT : null);
   const todayFrom = startOfDay(now);
   const crossToday = useCrossMovesSince(todayFrom, scope === "all" && many && mode === "live" && remote);
@@ -113,18 +129,40 @@ export function useMapPage(data: ConsoleData) {
     [fixture, span, asked, ids],
   );
 
-  // A replay starts once its history has arrived, trimmed to the day's first change.
+  // A replay starts once its history has arrived, over the stretch it was chosen for.
   useEffect(() => {
-    if (mode === "live" || history === null) return;
-    if (replay !== null && replay.range === mode) return;
-    dispatch({ type: "start", range: mode, now: switchedAt, firstAt: history[0]?.at });
-  }, [mode, history, replay, switchedAt]);
+    if (mode === "live" || span === null || history === null) return;
+    if (replay !== null && replay.range === mode && replay.from === span.from && replay.to === span.to) return;
+    dispatch({ type: "start", range: mode, span });
+  }, [mode, span, history, replay]);
 
   const setMode = useCallback((next: MapMode) => {
     setModeState(next);
     setSwitchedAt(Date.now());
     dispatch({ type: "stop" });
   }, []);
+
+  // A stretch from the range picker: fixed now, and replayed from its start.
+  const playStretch = useCallback((stretch: Stretch) => {
+    setCustom(stretch);
+    setModeState("custom");
+    setSwitchedAt(Date.now());
+    dispatch({ type: "stop" });
+  }, []);
+
+  // The fixture's invented history, counted per day, for the range picker's strip.
+  const localHistoryDays = useMemo(() => {
+    if (fixture === null) return null;
+    const counts = new Map<number, number>();
+    let startsAt: number | null = null;
+    for (const e of fixture.history(switchedAt - 60 * DAY_MS, switchedAt)) {
+      if (!ids.includes(e.workspaceId)) continue;
+      const day = startOfDay(e.at);
+      counts.set(day, (counts.get(day) ?? 0) + 1);
+      if (startsAt === null || e.at < startsAt) startsAt = e.at;
+    }
+    return { days: [...counts].map(([at, count]) => ({ at, count })), startsAt, loading: false };
+  }, [fixture, switchedAt, ids]);
 
   const replaying = mode !== "live" && replay !== null;
   const events: MapEvent[] = useMemo(
@@ -139,7 +177,7 @@ export function useMapPage(data: ConsoleData) {
   );
   const selfId = live.actors.find((a) => a.self && a.kind === "person")?.id ?? null;
   const clock: MapClock = replaying
-    ? { kind: "replay", from: replay.from, to: replay.to, at: replay.seek, speed: replay.speed, idleMs: REPLAY_IDLE_MS[replay.range] }
+    ? { kind: "replay", from: replay.from, to: replay.to, at: replay.seek, speed: replay.speed, idleMs: replayIdleMs(replay.to - replay.from) }
     : { kind: "live" };
   const palette = useMemo(() => mapPalette(colors, scheme === "dark" ? darkMapColors : lightMapColors), [colors, scheme]);
 
@@ -177,8 +215,8 @@ export function useMapPage(data: ConsoleData) {
     [replaying, events, t, book, live.actors, now, selfId],
   );
   const working: MapActor[] = useMemo(
-    () => (replaying ? actorsAt(events, t, REPLAY_IDLE_MS[replay.range]) : live.actors.filter((a) => !a.self)),
-    [replaying, events, t, live.actors, replay?.range],
+    () => (replaying ? actorsAt(events, t, replayIdleMs(replay.to - replay.from)) : live.actors.filter((a) => !a.self)),
+    [replaying, events, t, live.actors, replay?.from, replay?.to],
   );
   const crossRows: CrossMoveRow[] = useMemo(
     () => (scope === "all" && many ? crossMoveRows(events, replaying ? replay.from : todayFrom, t, book) : []),
@@ -218,6 +256,12 @@ export function useMapPage(data: ConsoleData) {
     setView,
     mode,
     setMode,
+    custom,
+    playStretch,
+    workspaceIds: ids,
+    /** Where the range picker asks for the history's days: nowhere for a demo or a fixture. */
+    historyEndpoint: remote ? MCP_ENDPOINT : null,
+    localHistoryDays,
     replay,
     replaying,
     dispatch,

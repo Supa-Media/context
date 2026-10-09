@@ -13,19 +13,18 @@ import { baseToolDefinitions } from "./schemas.js";
  * `list_plugins` is here because it reads a prefix the privacy manifest does
  * not reach, so it is the context owner's however harmless the read is.
  *
- * The two encryption tools are here for a stronger reason, and the listing is
- * where it has to be enforced. `callTool` answers both with the byte-identical
+ * The key rotation tool is here for a stronger reason, and the listing is
+ * where it has to be enforced. `callTool` answers it with the byte-identical
  * `unknown tool: …` an invented name gets — `docs/decisions/encryption.md`'s
  * "a team-tier caller does not even learn the tool exists". A refusal that
  * says "unknown tool" while `tools/list` has already handed the same caller
- * the name, the description and the sentence "export this context's workspace
- * data key(s) in the clear" is not masking anything; it is a masked answer
+ * the name and the description of a tool that re-wraps every encrypted note's
+ * key is not masking anything; it is a masked answer
  * about a capability the same connection was just advertised. Both halves or
  * neither.
  */
 export const PRIVATE_TIER_ONLY_TOOLS = new Set([
   "list_plugins",
-  "export_encryption_keys",
   "rotate_encryption_keys",
   "materialize_move",
   "migrate_storage_layout",
@@ -49,12 +48,12 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
  *
  * `list_plugins` and `set_encryption` answer a lower tier with a plain
  * "permission denied": what they do is not itself sensitive. A workspace's key
- * material is, so `callTool` answers these two with the byte-identical
+ * material is, so `callTool` answers these with the byte-identical
  * `unknown tool: …` an invented name gets.
  *
  * It is a named set rather than two inline `scope !== "private"` lines because
  * argument validation has to consult the same list. A masked tool must not be
- * validated: telling a team-tier caller that `export_encryption_keys` does not
+ * validated: telling a team-tier caller that `rotate_encryption_keys` does not
  * take an argument named `x`, when the same caller sending no arguments is
  * told the tool does not exist, is an existence oracle built out of the guard
  * that was supposed to close one. Two readers, one list, no drift.
@@ -71,7 +70,6 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
  * the one direction this comment promises they cannot.
  */
 export const EXISTENCE_MASKED_TOOLS = new Set([
-  "export_encryption_keys",
   "rotate_encryption_keys",
   "materialize_move",
   "migrate_storage_layout",

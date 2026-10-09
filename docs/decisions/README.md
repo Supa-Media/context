@@ -94,6 +94,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The hook is a capture-only OAuth client, and that is the whole design
 - A workspace's name can be given back, and only its owner can give it
 - The covered-context set is a reach, not an identity
+- One person, several sign-in emails, and accounts are never joined
+- A shared workspace opened to an email domain
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
 
@@ -139,6 +141,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Rotation: three different things, and they must not be confused
 - What a teardown deletes, and what it keeps — OPEN
 - Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
+- There is no key export over MCP (decided by the owner, 2026-10-08)
 - Encrypted notes are for humans; no AI client reads one
 - The KDF, per client
 - Bounds on a KDF descriptor, because a bucket is not a trusted input
@@ -249,6 +252,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
+- [The front door is five landing pages under test](./websites/landing-pages.md)
 
 ## [Release communication](./release-communication.md)
 
@@ -275,6 +279,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The backfill percentage is derived, and inherits the census's owner-only gate
 - The switch lives in a context's settings, and the server owns who may throw it
 - Corpus statistics are per tenant, which is why it is a database each
+- The control plane's copy walks a listing of the bucket, and deletes rows for notes it lacks
 - The gateway copies the notes, and a search is what starts it
 - …and the control plane runs the same pass for a person who is not there
 - …and a search reads it, which for a year it did not
@@ -290,7 +295,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every search is timed, and the time is all that is kept
 - Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 - Notes reach the index two ways, and a map in the bucket says which are in
-- Both indexes fill in priority order: everything else, then the Inbox, then the Archive
+- Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -316,6 +321,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The file tree is drawn from the mirror's metadata, so a folder opens without a request
 - Somebody else's change reaches an open tree as a hint per audience, never as the change
 - A front matter change is a hint too, and an open project page fetches what moved
+- A workspace's tree is a table in its own database, and the bucket stays the truth
+- Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
@@ -387,6 +394,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
 - [A replay reads the activity feed, and a move line carries its pairs](./app-and-console/live-map-history.md)
 - [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07)
+- [A replay is served from a history index in the context's own database](./app-and-console/live-map-history.md#a-replay-is-served-from-a-history-index-in-the-contexts-own-database-2026-10-09)
 
 ## [Meetings](./meetings.md)
 
@@ -433,6 +441,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
   were one build
 - A resumed meeting is a new part spliced into the note it already has
 - A homepage visitor can record a two-minute demo meeting, into their tab
+- A meeting summary is plain Markdown the model never writes ([summaries](./meetings/summaries.md))
+- Same for all plans, under a daily ceiling
+- A summary is started by opening the note, never by a timer
 
 ## [Communications](./communications.md)
 
@@ -602,7 +613,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`
-- Setups are benchmarked in a throwaway world, on invented workspaces
+- [Setups are benchmarked in a throwaway world, on invented workspaces](./texting-assistant/benchmarks.md)
+- A text has every MCP tool
+- [A setup may route each text to a cheap or a smart model (2026-10-09)](./texting-assistant/benchmarks.md)
+- [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
+- [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
 
 ## [Observability](./observability/token-usage.md)
 

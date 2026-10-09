@@ -59,6 +59,11 @@ export interface OrganizerStatus {
   pending: number;
   /** The What changed cards among them. Absent from a server older than the page. */
   changes?: number;
+  /**
+   * The What changed page is switched on. `false` hides the page and every
+   * way in; absent (a server older than the switch) reads as on.
+   */
+  whatChanged?: boolean;
   /** "Without asking", per kind. */
   autopilot: Record<OrganizerKind, boolean>;
 }

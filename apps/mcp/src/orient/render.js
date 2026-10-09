@@ -21,7 +21,7 @@ import { ROLE_LABEL, compareTopLevelFolders, folderRole } from "../../../../pack
  */
 export const ORIENT_FOLDER_PAGE_CAP = 5;
 export const ORIENT_RECENT_LIMIT = 8;
-const ORIENT_CHILDREN_LIMIT = 12;
+export const ORIENT_CHILDREN_LIMIT = 12;
 const ORIENT_ROOT_NOTE_LIMIT = 20;
 /** The front page is the customer's own prose; long ones are cut, never dropped. */
 export const ORIENT_INDEX_CHAR_CAP = 6_000;
@@ -221,6 +221,21 @@ export function renderBuiltInFolders(survey) {
   );
 }
 
+/**
+ * The guidance under the map. Each folder's description is drawn from its
+ * `about.md`, so the agent is told where that lives, when to read it, and that
+ * it is the file to keep up to date. The other names are not offered as a way
+ * to say the same thing, because a second file for the same purpose is how a
+ * folder ends up with two contradicting descriptions.
+ */
+export const FOLDER_ABOUT_GUIDANCE =
+  "Each folder's description is the first line of its `about.md`. Read a folder's `about.md` before working in that folder, and when you create a folder or learn what it is for, write or update its `about.md` with write_note; do not create `README.md` or `overview.md` for this.";
+
+/** `- 1-projects/ (42 notes) — Work with a finish line.` */
+function folderDescription(node) {
+  return node.description ? ` — ${node.description}` : "";
+}
+
 export function renderStructure(survey) {
   const lines = [];
   for (const note of survey.rootNotes.slice(0, ORIENT_ROOT_NOTE_LIMIT)) {
@@ -236,16 +251,14 @@ export function renderStructure(survey) {
     // that stopped early is no more a total than its parent's is.
     const floor = folder.truncated ? "+" : "";
     const noun = folder.count === 1 && !folder.truncated ? "note" : "notes";
-    lines.push(
-      folder.count === 0
-        ? `- ${folder.prefix}`
-        : `- ${folder.prefix} — ${folder.count}${floor} ${noun}`
-    );
+    const count = folder.count === 0 ? "" : ` (${folder.count}${floor} ${noun})`;
+    lines.push(`- ${folder.prefix}${count}${folderDescription(folder)}`);
     for (const child of folder.children.slice(0, ORIENT_CHILDREN_LIMIT)) {
       // No count means the walk stopped before reaching this subfolder. It is
       // named without a number rather than given a zero: "0 notes" about a
       // folder nothing counted is the one reading that is certainly wrong.
-      lines.push(child.count === null ? `  - ${child.prefix}` : `  - ${child.prefix} — ${child.count}${floor}`);
+      const childCount = child.count === null ? "" : ` (${child.count}${floor} ${child.count === 1 && !floor ? "note" : "notes"})`;
+      lines.push(`  - ${child.prefix}${childCount}${folderDescription(child)}`);
     }
     if (folder.children.length > ORIENT_CHILDREN_LIMIT) {
       lines.push(`  - (+${folder.children.length - ORIENT_CHILDREN_LIMIT} more folders)`);

@@ -25,6 +25,7 @@ import { runPathChecks } from "./paths.test.mjs";
 import { runRecorderChecks } from "./recorder.test.mjs";
 import { runRecoveryChecks } from "./recovery.test.mjs";
 import { runSessionChecks } from "./session.test.mjs";
+import { runSummaryChecks } from "./summary.test.mjs";
 import { runTranscriptChecks } from "./transcript.test.mjs";
 
 import * as index from "../src/index.js";
@@ -283,6 +284,7 @@ check(
 // -- the modules, in dependency order
 runTranscriptChecks(check);
 runSessionChecks(check);
+runSummaryChecks(check);
 runPathChecks(check);
 runNoteChecks(check);
 runContinuationChecks(check);

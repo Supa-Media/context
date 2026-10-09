@@ -98,8 +98,7 @@ import { useListingOrder } from "./listingOrder";
 import { baseName, folderLabel } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
-import { listedEntries } from "./tree";
-import { isGroupVisibility } from "./types";
+import { aboutNoteOf, listedEntries } from "./tree";
 import type { FileEntry, FolderListing } from "./types";
 
 /**
@@ -190,7 +189,6 @@ export function FolderView({
   drag,
   pendingStateFor,
   page,
-  showAudience = true,
   phoneHead,
   phoneButtons,
   phoneRows,
@@ -241,12 +239,6 @@ export function FolderView({
    * keeps no copy to read, and the page is the Files listing alone.
    */
   page?: FolderPageHost;
-  /**
-   * Whether to say who can read this folder. False for the homepage's
-   * visitor, for whom "visible to the people you granted access" is untrue:
-   * they granted nobody anything.
-   */
-  showAudience?: boolean;
   /** On a phone, what goes under the title in place of that sentence (`home/PhoneFolderHead.tsx`). */
   phoneHead?: ReactNode;
   /** On a phone, the folder's New folder and ••• (`PhoneFolderButtons`), on the title's row. */
@@ -268,11 +260,6 @@ export function FolderView({
     itself and this must not pay twice.
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
-  const isTeam = entry.visibility === "team";
-  // A group rule is neither of the two sentences below, and the `private` one
-  // would be the overstatement `privacy/words.ts` forbids — "yours alone" about
-  // a folder two colleagues can read.
-  const groupRule = isGroupVisibility(entry.visibility) ? entry.visibility : null;
   /*
     `listedEntries` rather than the listing itself, so this page and the tree
     agree about what is in a folder — including the folder placeholder, which
@@ -379,16 +366,15 @@ export function FolderView({
           switch and a project's property line around the listing below.
         */}
         {/*
-          The visibility, as a quiet line rather than a paragraph under a heading.
-
-          It was body copy plus a footnote spelling out what `team` means, under
-          every folder — and the footnote is an explanation of the model, which
-          belongs where somebody has gone looking for it rather than under each of
-          forty listings. What is left says what is true of this folder.
+          No sentence about who can read the folder: it went with the about
+          redesign (the owner, 2026-10-09), as it went from note pages before.
+          Who can read what is said where somebody goes looking for it, in
+          Share. A phone keeps its own line under the title (`phoneHead`).
         */}
         <FolderPage
           folder={entry.path}
           rows={rows}
+          aboutPath={aboutNoteOf(listing?.entries ?? [])}
           host={page}
           fallbackTitle={folderLabel(baseName(entry.path)) || contextLabel}
           icon={entry.path === "" ? null : (iconOf?.(entry.path) ?? null)}
@@ -396,24 +382,7 @@ export function FolderView({
           pageWidth={pageWidth}
           onSelect={onSelect}
           titleActions={compact ? phoneButtons : undefined}
-          rule={
-            compact && phoneHead !== undefined ? phoneHead :
-            /*
-              The owner's sentence about who can read this folder, and only for
-              somebody it is true of. A homepage visitor granted nobody access
-              and has no workspace for "yours alone" to mean anything in, so
-              the line is not drawn for them at all.
-            */
-            !showAudience ? null : (
-              <Text variant="treeMeta" style={styles.rule} testID="folder-audience">
-                {groupRule
-                  ? `${groupRule} — visible to that group, and to nobody else in this context`
-                  : isTeam
-                    ? "team — visible to the people you granted access, unless a note is held back"
-                    : "private — yours alone, unless a note is shared as an exception"}
-              </Text>
-            )
-          }
+          rule={compact && phoneHead !== undefined ? phoneHead : null}
           files={
             <>
               {listing === undefined ? (
@@ -574,7 +543,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * now is to be the thing a right-click lands on. See the render.
    */
   column: { ...documentMargin.column, gap: space.x2 },
-  rule: { color: colors.muted },
 
   /**
    * The phone's grouped card. See the listing for why it is one card.

@@ -78,6 +78,7 @@ export function BrowsePane({
   onOpenComms,
   onNavigate,
   onConnectAgent,
+  summary,
 }: BrowsePaneProps) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
@@ -384,6 +385,7 @@ export function BrowsePane({
           }
           openCrumbMenu={openCrumbMenu}
           presence={presence}
+          summary={summary}
         />
       ) : null}
 

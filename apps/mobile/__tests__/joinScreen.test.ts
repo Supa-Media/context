@@ -33,6 +33,8 @@ let mockStatus: "admitted" | "joined" | "already" = "admitted";
 let mockPreview: { works: boolean; inviterHandle: string | null } | undefined;
 const mockQueried: unknown[] = [];
 jest.mock("convex/react", () => ({
+  // The phone half of the page; an invite link stays on email, so unused.
+  useAction: () => async () => ({ status: "unavailable" }),
   useMutation: () => async () => ({ status: mockStatus }),
   useQuery: (_ref: unknown, args: unknown) => {
     mockQueried.push(args);

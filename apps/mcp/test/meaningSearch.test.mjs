@@ -142,6 +142,100 @@ test("a refused REST call becomes one of our codes, with none of the provider's 
   );
 });
 
+test("a 3030 batch refusal isolates the passage and preserves vector order", async () => {
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text.length > 1) return { status: 400, body: { success: false, errors: [{ code: 3030 }] } };
+    return { success: true, result: { data: [vector(text[0] === "first" ? 0.1 : 0.2)] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  const out = await embed(["first", "second"]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0][0], 0.1);
+  assert.equal(out[1][0], 0.2);
+  assert.equal(fetch.requests.length, 3);
+});
+
+test("a 3030 passage refusal retries a shorter clean input without exposing its text", async () => {
+  const secret = "private passage ".repeat(150);
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text[0].length > 1024) {
+      return { status: 400, body: { success: false, errors: [{ code: 3030, message: secret }] } };
+    }
+    return { success: true, result: { data: [vector()] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  assert.equal((await embed([secret])).length, 1);
+  assert.equal(fetch.requests.length, 2);
+  assert.ok(JSON.parse(fetch.requests[1].init.body).text[0].length <= 1024);
+});
+
+test("a persistent 3030 refusal stays closed after bounded retries", async () => {
+  const fetch = fakeFetch(() => ({ status: 400, body: { success: false, errors: [{ code: 3030 }] } }));
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  await assert.rejects(() => embed(["private passage"]), (error) => {
+    assert.equal(error.code, "REFUSED");
+    assert.equal(error.operation, "embed");
+    assert.deepEqual(error.providerCodes, [3030]);
+    assert.equal(error.probeStatus, "refused");
+    assert.equal(error.inputChars, 15);
+    return true;
+  });
+  assert.ok(fetch.requests.length <= 3);
+});
+
+test("a persistent input refusal probes with fixed text without returning provider words", async () => {
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text[0] === "A short document") return { success: true, result: { data: [vector()] } };
+    return { status: 400, body: { success: false, errors: [{ code: 3030, message: "private passage" }] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  await assert.rejects(() => embed(["private passage"]), (error) => {
+    assert.equal(error.probeStatus, "accepted");
+    assert.equal(JSON.stringify(error).includes("private passage"), false);
+    return true;
+  });
+  assert.equal(JSON.parse(fetch.requests.at(-1).init.body).text[0], "A short document");
+});
+
+test("a refused opening can embed another section of the same passage", async () => {
+  const passage = `BAD ${"good content ".repeat(130)}`;
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text[0].includes("BAD")) return { status: 400, body: { success: false, errors: [{ code: 3030 }] } };
+    return { success: true, result: { data: [vector()] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  assert.equal((await embed([passage])).length, 1);
+  assert.equal(fetch.requests.length, 4);
+  const selected = JSON.parse(fetch.requests.at(-1).init.body).text[0];
+  assert.ok(selected.includes("good content"));
+  assert.equal(selected.includes("BAD"), false);
+});
+
+test("a refused Vectorize write reports only its operation and numeric provider code", async () => {
+  const fetch = fakeFetch(() => ({
+    status: 400,
+    body: { success: false, errors: [{ code: 40007, message: `private note and ${TOKEN}` }] },
+  }));
+  const client = createMeaningClient(DESCRIPTOR, { fetchImpl: fetch.impl });
+  await assert.rejects(
+    () => client.deleteByIds(["id"]),
+    (error) => {
+      assert.equal(error instanceof MeaningError, true);
+      assert.equal(error.code, "REFUSED");
+      assert.equal(error.failureCause, "http_400");
+      assert.equal(error.operation, "delete_by_ids");
+      assert.deepEqual(error.providerCodes, [40007]);
+      assert.equal(JSON.stringify(error).includes(TOKEN), false);
+      assert.equal(JSON.stringify(error).includes("private note"), false);
+      return true;
+    },
+  );
+});
+
 // -- client ---------------------------------------------------------------
 
 test("a half-formed descriptor is no descriptor", () => {

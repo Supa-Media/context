@@ -1,5 +1,5 @@
 /**
- * Rendering `index.md` and the per-folder `README.md`s a fresh context starts
+ * Rendering `index.md` and the per-folder `about.md`s a fresh context starts
  * with.
  *
  * Split out of `lib/scaffold.ts` — see that file's header for the scaffolder's

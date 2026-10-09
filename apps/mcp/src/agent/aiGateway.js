@@ -47,6 +47,9 @@ const ANTHROPIC_VERSION = "2023-06-01";
 /** How much of the model's answer one round may produce. */
 const MAX_OUTPUT_TOKENS = 2048;
 
+/** The most a caller may ask for with `maxTokens`. */
+const MAX_CALLER_OUTPUT_TOKENS = 8192;
+
 /** How long one round may take before it is abandoned. */
 const ROUND_TIMEOUT_MS = 60_000;
 
@@ -66,6 +69,18 @@ const CREDIT_REST_MS = 15 * 60_000;
  * spent: an ordinary bad request would only fail twice.
  */
 const RETRY_WITHOUT_KEY = new Set([401, 403]);
+
+/**
+ * Statuses that mean the provider was busy rather than wrong (rate limited,
+ * unavailable, overloaded), after which the same call is sent once more after
+ * a short wait. Decided by the owner (2026-10-09): a benchmark run lost 29 of
+ * 708 answers to these in one evening, and the person texting gets the same.
+ * A 500 is not one of them: it says the request itself broke, and would only
+ * fail twice. A timed-out call is not retried either: it has already cost the
+ * round its whole deadline.
+ */
+const RETRY_BUSY = new Set([429, 503, 529]);
+const RETRY_WAIT_MS = 750;
 
 const ACCOUNT_ID = /^[0-9a-f]{32}$/;
 const GATEWAY_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -132,7 +147,7 @@ function metadataHeader(metadata) {
  * rounds over a growing transcript, so each round reads the previous one's
  * prefix from cache at a tenth of the price.
  */
-export function gatewayBody({ model, system, messages, tools }) {
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice }) {
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -148,10 +163,15 @@ export function gatewayBody({ model, system, messages, tools }) {
   }
   return {
     model: model.slice("anthropic/".length),
-    max_tokens: MAX_OUTPUT_TOKENS,
+    // A caller may ask for more room (a meeting summary is one long answer), never unbounded.
+    max_tokens: Number.isInteger(maxTokens) && maxTokens > 0 ? Math.min(maxTokens, MAX_CALLER_OUTPUT_TOKENS) : MAX_OUTPUT_TOKENS,
     messages: wire,
     ...(system ? { system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] } : {}),
     ...(toolList.length > 0 ? { tools: toolList } : {}),
+    // Only ever "call this one tool", and only a tool this request offers.
+    ...(typeof toolChoice === "string" && toolList.some((tool) => tool.name === toolChoice)
+      ? { tool_choice: { type: "tool", name: toolChoice } }
+      : {}),
   };
 }
 
@@ -204,9 +224,11 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
         signal: controller.signal,
         redirect: "manual",
       });
-    } catch {
-      // The caught error can quote the request, headers included.
-      throw new ProviderError("gateway request failed");
+    } catch (error) {
+      // The caught error can quote the request, headers included. A deadline
+      // that ran out is named as such, so it is not retried.
+      const timedOut = controller.signal.aborted || error?.name === "AbortError";
+      throw new ProviderError(timedOut ? "gateway timed out" : "gateway request failed");
     }
     const status = response?.status ?? null;
     return { status, text: response ? await readCapped(response) : null };
@@ -216,24 +238,45 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
 }
 
 /**
+ * `send`, once more after `RETRY_WAIT_MS` when the first try found the
+ * provider busy or never got through. `retried` is null when the first try
+ * served, else `{ status }` of the try that was retried (null for a request
+ * that never got a status), so the turn's trace can say so.
+ */
+async function sendWithRetry(config, body, options, fetchImpl, wait) {
+  let first;
+  try {
+    first = await send(config, body, options, fetchImpl);
+  } catch (error) {
+    if (!(error instanceof ProviderError) || error.reason !== "gateway request failed") throw error;
+    await wait(RETRY_WAIT_MS);
+    return { ...(await send(config, body, options, fetchImpl)), retried: { status: null } };
+  }
+  if (!RETRY_BUSY.has(first.status)) return { ...first, retried: null };
+  await wait(RETRY_WAIT_MS);
+  return { ...(await send(config, body, options, fetchImpl)), retried: { status: first.status } };
+}
+
+/**
  * One round through the gateway, in the shape `requestCompletion` returns,
  * plus token counts and who paid: `"credit"` (the plan) or `"cloudflare"`.
  *
  * @param {{model: string, system: string, messages: Array, tools: Array}} call
  * @param {{url: string, token: string, creditKey: ?string}} config
- * @param {{metadata?: object, fetchImpl?: Function, now?: () => number}} [options]
+ * @param {{metadata?: object, fetchImpl?: Function, now?: () => number, wait?: (ms: number) => Promise<void>}} [options]
  */
 export async function requestViaGateway(call, config, options = {}) {
   if (!config) throw new ProviderError("gateway not configured");
   if (!isGatewayModel(call.model)) throw new ProviderError("model not allowed");
   const fetchImpl = options.fetchImpl || ((...args) => globalThis.fetch(...args));
   const now = options.now || Date.now;
+  const wait = options.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const body = gatewayBody(call);
 
   let paidBy = "cloudflare";
   let answer = null;
   if (config.creditKey && now() >= creditRestingUntil) {
-    answer = await send(config, body, { withKey: true, metadata: options.metadata }, fetchImpl);
+    answer = await sendWithRetry(config, body, { withKey: true, metadata: options.metadata }, fetchImpl, wait);
     if (answer.status === 200) {
       paidBy = "credit";
     } else if (saysCreditSpent(answer.text) || answer.status === 402) {
@@ -249,7 +292,7 @@ export async function requestViaGateway(call, config, options = {}) {
     }
   }
   if (!answer) {
-    answer = await send(config, body, { withKey: false, metadata: options.metadata }, fetchImpl);
+    answer = await sendWithRetry(config, body, { withKey: false, metadata: options.metadata }, fetchImpl, wait);
   }
   if (answer.status !== 200) {
     throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
@@ -287,5 +330,6 @@ export async function requestViaGateway(call, config, options = {}) {
       cacheWrite: count(usage.cache_creation_input_tokens),
     },
     paidBy,
+    retried: answer.retried ?? null,
   };
 }

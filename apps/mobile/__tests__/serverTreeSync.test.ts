@@ -29,10 +29,13 @@ jest.mock("../features/offline/reachability", () => ({
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { useMirrorSync } = require("../features/offline/useMirrorSync") as typeof import("../features/offline/useMirrorSync");
+const { useMirrorSync, SERVER_TREE_FLOOR_MS, TABLE_TREE_FLOOR_MS } = require("../features/offline/useMirrorSync") as typeof import("../features/offline/useMirrorSync");
 const events = require("../features/offline/mirrorEvents") as typeof import("../features/offline/mirrorEvents");
-const { serverTree, forgetServerTrees } = require("../features/offline/serverTree") as typeof import("../features/offline/serverTree");
+const { serverTree, keptServerTree, forgetServerTrees } = require("../features/offline/serverTree") as typeof import("../features/offline/serverTree");
 const { currentEpoch } = require("../features/offline/epoch") as typeof import("../features/offline/epoch");
+const { buildOfflineNotesApi } = require("../features/offline/offlineNotes/api") as typeof import("../features/offline/offlineNotes/api");
+const { keepServerTree, holdServerTree, treeOfWalk } = require("../features/offline/serverTree") as typeof import("../features/offline/serverTree");
+const { emptyOutbox } = require("../features/offline/outbox") as typeof import("../features/offline/outbox");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 async function settle(rounds = 30) {
@@ -95,6 +98,8 @@ describe("a browser tab's tree", () => {
     const tree = serverTree("private", "w1", currentEpoch())!;
     expect(tree.value.get("0-inbox/google-chat")!.entries.map((e) => e.path)).toEqual(["0-inbox/google-chat/a.md"]);
     expect(tree.value.get("")!.entries.map((e) => e.path)).toEqual(["0-inbox", "todo.md"]);
+    // And kept for this tab, so a reload draws it at once.
+    expect(keptServerTree("private", "w1")!.value.get("")!.entries.map((e) => e.path)).toEqual(["0-inbox", "todo.md"]);
     await act(async () => root.unmount());
   });
 
@@ -124,5 +129,114 @@ describe("a browser tab's tree", () => {
     expect(calls).toEqual(["w2"]);
     expect(serverTree("private", "w2", currentEpoch())).not.toBeNull();
     await act(async () => root.unmount());
+  });
+
+  test("opening a context draws this session's tree, else the one kept before a reload", async () => {
+    const one = (path: string, listedAt: number) =>
+      treeOfWalk(
+        new Map([[path, { path, visibility: "private", inherited: "private", exception: false, readOnly: false }]]),
+        new Map(),
+        true,
+        listedAt,
+        listedAt,
+      );
+    const api = buildOfflineNotesApi({
+      workspaceId: "w3",
+      scope: "private",
+      store: { durable: false },
+      outbox: emptyOutbox("w3"),
+      epochRef: { current: currentEpoch() },
+    } as unknown as Parameters<typeof buildOfflineNotesApi>[0]);
+    expect(await api.cachedTree("w3")).toBeNull();
+    keepServerTree("private", "w3", one("kept.md", 100));
+    expect((await api.cachedTree("w3"))!.value.get("")!.entries.map((e) => e.path)).toEqual(["kept.md"]);
+    holdServerTree("private", "w3", one("live.md", 200), currentEpoch());
+    expect((await api.cachedTree("w3"))!.value.get("")!.entries.map((e) => e.path)).toEqual(["live.md"]);
+  });
+
+  test("a busy workspace's signals walk its tree at most once per floor", async () => {
+    const calls: number[] = [];
+    let now = 1_000_000;
+    const spy = jest.spyOn(Date, "now").mockImplementation(() => now);
+    const actions = {
+      syncManifest: async (): Promise<ManifestPage> => {
+        calls.push(now);
+        return { entries: [], folders: [{ path: "", visibility: "private" }], cursor: null, truncated: false, manifestUsable: true };
+      },
+      readNotes: async () => ({ results: [] }),
+    };
+    const contexts = [{ workspaceId: "w4", role: "owner" }];
+    function Harness() {
+      useMirrorSync({ contexts, actions });
+      return null;
+    }
+    jest.useFakeTimers({ doNotFake: ["nextTick", "queueMicrotask"] });
+    try {
+      const root = createRoot(document.createElement("div"));
+      await act(async () => root.render(createElement(Harness)));
+      await act(async () => events.requestMirrorRefresh("w4"));
+      await settle();
+      const first = calls.length;
+      now += 1_000;
+      await act(async () => events.requestMirrorRefresh("w4"));
+      await settle();
+      expect(calls.length).toBe(first); // held back: inside the floor
+      now += SERVER_TREE_FLOOR_MS;
+      await act(async () => {
+        jest.advanceTimersByTime(SERVER_TREE_FLOOR_MS);
+      });
+      await settle();
+      expect(calls.length).toBe(first + 1);
+      await act(async () => root.unmount());
+    } finally {
+      jest.useRealTimers();
+      spy.mockRestore();
+    }
+  });
+  test("a tree the table answers is walked again within a second, and asked for by name", async () => {
+    const calls: { at: number; source?: string }[] = [];
+    let now = 2_000_000;
+    const spy = jest.spyOn(Date, "now").mockImplementation(() => now);
+    const actions = {
+      syncManifest: async (args: { source?: "tree" }) => {
+        calls.push({ at: now, source: args.source });
+        return {
+          entries: [],
+          folders: [{ path: "", visibility: "private" as const }],
+          cursor: null,
+          truncated: false,
+          manifestUsable: true,
+          source: "tree" as const,
+        };
+      },
+      readNotes: async () => ({ results: [] }),
+    };
+    const contexts = [{ workspaceId: "w5", role: "owner" }];
+    function Harness() {
+      useMirrorSync({ contexts, actions });
+      return null;
+    }
+    jest.useFakeTimers({ doNotFake: ["nextTick", "queueMicrotask"] });
+    try {
+      const root = createRoot(document.createElement("div"));
+      await act(async () => root.render(createElement(Harness)));
+      await act(async () => events.requestMirrorRefresh("w5"));
+      await settle();
+      const first = calls.length;
+      expect(first).toBeGreaterThan(0);
+      expect(calls.every((call) => call.source === "tree")).toBe(true);
+      now += TABLE_TREE_FLOOR_MS;
+      await act(async () => events.requestMirrorRefresh("w5"));
+      await act(async () => {
+        jest.advanceTimersByTime(TABLE_TREE_FLOOR_MS);
+      });
+      await settle();
+      // Walked again a second later, not held for the bucket's fifteen.
+      expect(calls.length).toBe(first + 1);
+      await act(async () => root.unmount());
+    } finally {
+      jest.useRealTimers();
+      spy.mockRestore();
+    }
   });
 });

@@ -248,3 +248,32 @@ describe("credentials", () => {
     expect(mockCalls[0]?.args.name).toBe("STRIPE_SECRET_KEY");
   });
 });
+
+describe("sign-in texts", () => {
+  const SID = "MG0123456789abcdef0123456789abcdef";
+
+  beforeEach(() => {
+    asAdmin();
+    mockAnswers.set("functions/admin:listSecrets", []);
+  });
+
+  test("the Messaging Service ID is pasted and saved from the Credentials tab", async () => {
+    mockAnswers.set("functions/admin:signInTexts", { messagingServiceSid: null, fromDeployment: false, saysContext: false });
+    const container = mount();
+    click(container, "admin-tab-credentials");
+    expect(find("admin-sign-in-texts-status")?.textContent).toContain("Togather");
+    type("admin-sign-in-texts-sid", ` ${SID} `);
+    mockCall = async () => null;
+    click(container, "admin-sign-in-texts-save");
+    await settle();
+    expect(mockCalls).toEqual([{ name: "functions/admin:setSignInTextsSender", args: { messagingServiceSid: SID } }]);
+  });
+
+  test("a sender the deployment sets is not offered as a field", () => {
+    mockAnswers.set("functions/admin:signInTexts", { messagingServiceSid: null, fromDeployment: true, saysContext: true });
+    const container = mount();
+    click(container, "admin-tab-credentials");
+    expect(find("admin-sign-in-texts-status")?.textContent).toContain("Context code");
+    expect(has(container, "admin-sign-in-texts-sid")).toBe(false);
+  });
+});

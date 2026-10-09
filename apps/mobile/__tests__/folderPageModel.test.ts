@@ -55,9 +55,9 @@ describe("the note that speaks for a folder", () => {
     expect(summarizeFolder("p/web", notes.slice(0, 2)).target).toBe("p/web/index.md");
   });
 
-  test("a folder with no front note writes to a new overview.md", () => {
+  test("a folder with no front note writes to a new about.md", () => {
     const summary = summarizeFolder("p/do this", [note("p/do this/sketch.md")]);
-    expect(summary.target).toBe("p/do this/overview.md");
+    expect(summary.target).toBe("p/do this/about.md");
     expect(summary.creates).toBe(true);
     expect(summary.title).toBeNull();
     expect(summary.properties).toEqual({});
@@ -101,7 +101,7 @@ describe("a folder's children as items", () => {
     expect(web).toMatchObject({ kind: "folder", target: "p/web/overview.md", creates: false, status: "active", updatedAt: 50 });
     expect(web.properties.owner).toBe("Seyi");
     const backlog = items.find((item) => item.path === "p/backlog")!;
-    expect(backlog).toMatchObject({ target: "p/backlog/overview.md", creates: true, status: "", updatedAt: 70 });
+    expect(backlog).toMatchObject({ target: "p/backlog/about.md", creates: true, status: "", updatedAt: 70 });
     const loose = items.find((item) => item.path === "p/loose.md")!;
     expect(loose).toMatchObject({ kind: "note", target: "p/loose.md", creates: false, status: "paused" });
   });
@@ -191,9 +191,9 @@ describe("what a value menu offers", () => {
 describe("the placeholder a new folder is made with", () => {
   const placeholder = note("p/do this/README.md", {}, { lede: "Folder placeholder. Object storage has no empty folders, so this file is what makes p/do this/ exist." });
 
-  test("is not a front note, so a first status creates overview.md beside it", () => {
+  test("is not a front note, so a first status creates about.md beside it", () => {
     const summary = summarizeFolder("p/do this", [placeholder]);
-    expect(summary).toMatchObject({ target: "p/do this/overview.md", creates: true, lede: null });
+    expect(summary).toMatchObject({ target: "p/do this/about.md", creates: true, lede: null });
   });
 
   test("is one once somebody has written in it", () => {

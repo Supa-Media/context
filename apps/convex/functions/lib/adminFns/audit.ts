@@ -19,6 +19,11 @@ export const ADMIN_ACTIONS = [
   "community.link_saved",
   "community.link_deleted",
   "search.meaning_restarted",
+  "person.phone_set",
+  "person.phone_removed",
+  "person.archived",
+  "person.unarchived",
+  "texts.sender_set",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

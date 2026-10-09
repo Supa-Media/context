@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { heldBack, parsePeople, parseTest, readBenchFolder } from "../load.mjs";
+import { expandWorkspaces, heldBack, isGateQuestion, parsePeople, parseTest, readBenchFolder } from "../load.mjs";
 
 const BENCH = process.env.AI_BENCH_DIR ?? "/mnt/project-files/ai-benchmarks/markdown/ai";
 const skipReal = existsSync(join(BENCH, "README.md")) ? false : `example folder not found at ${BENCH}`;
@@ -153,6 +153,43 @@ test("parseTest rejects a non-integer runs value", () => {
   assert.throws(() => parseTest("---\nruns: many\n---\n## 1. Q\n"), /runs/);
 });
 
+// ---- today ----
+
+test("parseTest reads today as an ISO date", () => {
+  const parsed = parseTest("---\ntoday: 2026-10-08\nruns: 2\n---\n\n## 1. Q\n");
+  assert.equal(parsed.front.today, "2026-10-08");
+  assert.equal(parsed.front.runs, 2);
+});
+
+test("parseTest reads a quoted today", () => {
+  assert.equal(parseTest('---\ntoday: "2026-10-08"\n---\n## 1. Q\n').front.today, "2026-10-08");
+});
+
+test("parseTest leaves today unset when the front matter has none", () => {
+  assert.equal(parseTest("---\nruns: 1\n---\n## 1. Q\n").front.today, undefined);
+  assert.equal(parseTest("## 1. Q\n").front.today, undefined);
+});
+
+test("parseTest refuses a today that is not an ISO date, and says what it got", () => {
+  assert.throws(() => parseTest("---\ntoday: not-a-date\n---\n## 1. Q\n"), (err) => {
+    assert.match(err.message, /today/);
+    assert.match(err.message, /not-a-date/);
+    return true;
+  });
+});
+
+test("parseTest refuses an empty or impossible today", () => {
+  for (const value of ["", "2026/10/08", "10-08-2026", "2026-10-08T12:00", "2026-02-30", "2026-13-01", "2026-00-10", "2026-10-00"]) {
+    assert.throws(() => parseTest(`---\ntoday: ${value}\n---\n## 1. Q\n`), /today/, `today: "${value}" should be refused`);
+  }
+});
+
+test("parseTest accepts a leap day only in a leap year", () => {
+  assert.equal(parseTest("---\ntoday: 2028-02-29\n---\n## 1. Q\n").front.today, "2028-02-29");
+  assert.throws(() => parseTest("---\ntoday: 2026-02-29\n---\n## 1. Q\n"), /today/);
+  assert.throws(() => parseTest("---\ntoday: 2100-02-29\n---\n## 1. Q\n"), /today/);
+});
+
 // ---- whole folder ----
 
 test("readBenchFolder on the real folder", { skip: skipReal }, async () => {
@@ -208,4 +245,259 @@ test("readBenchFolder reads nested notes with forward-slash paths", async () => 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// ---- fluff files ----
+
+const PEOPLE_HEADER = "| Person | Workspace | Role |\n|---|---|---|\n";
+const TEMPLATE = "---\ntitle: Standup\n---\n\nStandup {n} on {date}, about {word}.\n";
+const FLUFF = "---\ncount: 3\nseed: 1\nfrom: meetings\nname: meeting-{n}.md\n---\n";
+
+/** A benchmark folder in a temp dir, from relative path -> text. Defaults give a valid folder. */
+async function benchTree(files) {
+  const dir = await mkdtemp(join(tmpdir(), "bench-fluff-"));
+  const all = { "README.md": "# Bench\n", "workspaces/people.md": PEOPLE_HEADER, "tests/placeholder.md": "", ...files };
+  for (const [rel, text] of Object.entries(all)) {
+    await mkdir(join(dir, rel, ".."), { recursive: true });
+    await writeFile(join(dir, rel), text);
+  }
+  return dir;
+}
+
+const WS_ROW = "| Ana | ws (personal) | owner |\n";
+
+test("fluff.md is read as a fluff file and never served as a note", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": FLUFF,
+    "workspaces/ws/meetings/real.md": "real\n",
+    "workspaces/ws/fluff.md": "---\ncount: 1\nseed: 2\nfrom: meetings\nname: root-{n}.md\n---\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    const bench = await readBenchFolder(dir);
+    assert.deepEqual(Object.keys(bench.workspaces.ws.files), ["meetings/real.md"]);
+    assert.deepEqual(
+      bench.workspaces.ws.fluff.map((f) => [f.dir, f.fluff.count, f.fluff.name]),
+      [
+        ["", 1, "root-{n}.md"],
+        ["meetings", 3, "meeting-{n}.md"],
+      ],
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("_bank holds the templates and is not a workspace", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/real.md": "real\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+    "workspaces/_bank/meetings/notes.txt": "not a template\n",
+  });
+  try {
+    const bench = await readBenchFolder(dir);
+    assert.deepEqual(Object.keys(bench.workspaces), ["ws"]);
+    assert.deepEqual(bench.bank, { meetings: { "standup.md": TEMPLATE } });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("people.md cannot name _bank as a workspace", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + "| Ghost | _bank | member |\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    await assert.rejects(readBenchFolder(dir), /_bank.*not a workspace/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a fluff file naming a missing template folder is refused, and says where", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": FLUFF.replace("from: meetings", "from: nope"),
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    await assert.rejects(readBenchFolder(dir), /workspaces\/ws\/meetings\/fluff\.md.*_bank\/nope\//);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a template folder name is looked up as a folder, not as an object property", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": FLUFF.replace("from: meetings", "from: constructor"),
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    await assert.rejects(readBenchFolder(dir), /_bank\/constructor\/ does not exist/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a malformed fluff file is refused with its path and line", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": FLUFF.replace("count: 3", "count: 50001"),
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    await assert.rejects(readBenchFolder(dir), /workspaces\/ws\/meetings\/fluff\.md line 2: count 50001 is over the 50,000 limit/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("expandWorkspaces adds the generated notes and leaves the loaded bench as it was", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": FLUFF,
+    "workspaces/ws/meetings/real.md": "real\n",
+    "workspaces/ws/plain.md": "plain\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    const bench = await readBenchFolder(dir);
+    const expanded = expandWorkspaces(bench);
+    const files = expanded.workspaces.ws.files;
+    assert.deepEqual(expanded.workspaces.ws.generated, ["meetings/meeting-1.md", "meetings/meeting-2.md", "meetings/meeting-3.md"]);
+    assert.deepEqual(Object.keys(files).sort(), ["meetings/meeting-1.md", "meetings/meeting-2.md", "meetings/meeting-3.md", "meetings/real.md", "plain.md"]);
+    assert.match(files["meetings/meeting-1.md"], /^---\nupdated: 2026-01-01\ntitle: Standup\n---\n\nStandup 1 on 2026-01-01, about [a-z]+\.\n$/);
+    assert.ok(!("meetings/fluff.md" in files), "fluff.md is not a note");
+    assert.deepEqual(Object.keys(bench.workspaces.ws.files), ["meetings/real.md", "plain.md"], "the loaded bench is not changed");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("expandWorkspaces writes the same notes every time", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": "---\ncount: 30\nseed: 5\nfrom: meetings\nname: meeting-{date}.md\ndates: 2026-01-05 to 2026-10-01\n---\n",
+    "workspaces/ws/meetings/real.md": "real\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    const bench = await readBenchFolder(dir);
+    assert.equal(JSON.stringify(expandWorkspaces(bench).workspaces), JSON.stringify(expandWorkspaces(bench).workspaces));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("expandWorkspaces refuses a generated note that would overwrite a hand-written one", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/meetings/fluff.md": FLUFF,
+    "workspaces/ws/meetings/meeting-2.md": "mine\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    const bench = await readBenchFolder(dir);
+    assert.throws(() => expandWorkspaces(bench), /meetings\/meeting-2\.md would overwrite a hand-written note/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a distractor copy of a held-back note is held back too", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/privacy.md": "Held back from members\n- people/john.md: owners only\n",
+    "workspaces/ws/people/john.md": "John's pay\n",
+    "workspaces/ws/people/fluff.md": "---\ncount: 1\nseed: 1\nfrom: meetings\nname: m-{n}.md\n---\n\n## Distractors\n\n- older copy of john.md as john-old.md dated 2026-03-02\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    const expanded = expandWorkspaces(await readBenchFolder(dir));
+    assert.ok("people/john-old.md" in expanded.workspaces.ws.files);
+    assert.deepEqual(expanded.workspaces.ws.heldBack, ["people/john.md", "people/john-old.md"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a workspace with no fluff expands to itself", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/real.md": "real\n",
+  });
+  try {
+    const expanded = expandWorkspaces(await readBenchFolder(dir));
+    assert.deepEqual(expanded.workspaces.ws.files, { "real.md": "real\n" });
+    assert.deepEqual(expanded.workspaces.ws.generated, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- mirror and may lines ----
+
+test("parseTest reads a mirror line as a question number", () => {
+  const parsed = parseTest("## 1. Is the dentist visit private?\n\n- kind: privacy\n- mirror: 4\n- must not: name the clinic\n\n## 4. Who is the dentist?\n");
+  assert.equal(parsed.questions[0].mirror, 4);
+  assert.equal(parsed.questions[1].mirror, null);
+});
+
+test("parseTest rejects a mirror line that is not a question number", () => {
+  assert.throws(() => parseTest("## 1. Q\n- mirror: four\n"), /mirror/);
+});
+
+test("parseTest reads may lines as allowed content, in order", () => {
+  const parsed = parseTest("## 1. When is it?\n\n- must: say Tuesday\n- may: the answer may mention the clinic\n- may: it may also give the room\n- must not: invent any date\n");
+  assert.deepEqual(parsed.questions[0].may, ["the answer may mention the clinic", "it may also give the room"]);
+  assert.deepEqual(parsed.questions[0].mustNot, ["invent any date"]);
+  assert.deepEqual(parsed.questions[0].must, ["say Tuesday"]);
+});
+
+test("a question with no may or mirror line has empty may and null mirror", () => {
+  const q = parseTest("## 1. Hi\n- must: say hi\n").questions[0];
+  assert.deepEqual(q.may, []);
+  assert.equal(q.mirror, null);
+});
+
+test("every privacy question is a gate; a back-and-forth one only with a gate line", () => {
+  const [privacy, bareBack, gatedBack, lookup] = parseTest(
+    "## 1. A\n- kind: privacy\n\n## 2. B\n- kind: back-and-forth\n\n## 3. C\n- kind: back-and-forth\n- gate:\n\n## 4. D\n- kind: lookup\n- gate:\n",
+  ).questions;
+  assert.equal(isGateQuestion(privacy), true);
+  assert.equal(isGateQuestion(bareBack), false);
+  assert.equal(isGateQuestion(gatedBack), true);
+  assert.equal(isGateQuestion(lookup), false);
+});
+
+// ---- every_answer: lines the judge grades on every answer ----
+
+test("parseTest reads every_answer as a list of judge lines, in the file's order, dropping empty ones", () => {
+  const raw = [
+    "---",
+    "test: texting-assistant",
+    "every_answer:",
+    "  short: read like a text from a friend, not a report",
+    "  empty:",
+    "  next: end on one next step or one question, never both",
+    "---",
+    "",
+    "## 1. When's the dentist?",
+    "",
+    "- kind: lookup",
+    "- as: Maya",
+    "- must: say Tuesday",
+  ].join("\n");
+  const parsed = parseTest(raw);
+  assert.deepEqual(parsed.everyAnswer, ["read like a text from a friend, not a report", "end on one next step or one question, never both"]);
+  assert.equal(parsed.questions.length, 1);
+});
+
+test("parseTest gives a test with no every_answer an empty list", () => {
+  const raw = ["---", "test: texting-assistant", "---", "", "## 1. Q?", "", "- kind: lookup", "- as: Maya", "- must: answer"].join("\n");
+  assert.deepEqual(parseTest(raw).everyAnswer, []);
 });

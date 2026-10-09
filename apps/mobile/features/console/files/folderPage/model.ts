@@ -38,7 +38,7 @@ import { comparePriority, priorityOf, type Priority } from "./taskProps";
 export type FolderPageView = "files" | "list" | "board";
 
 /** Where a new front note is written, when a folder has none. */
-export const NEW_FRONT_NOTE = "overview.md";
+export const NEW_FRONT_NOTE: string = FRONT_NOTES[0]!;
 
 /** What a folder or note is, as a folder page draws it. */
 export interface FolderSummary {

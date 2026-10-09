@@ -167,7 +167,15 @@ export function fakeGateway() {
 /** The same script for an `@cf/` setup, in the Workers AI chat shape. */
 export function fakeAi() {
   return {
-    async run(_model, input) {
+    async run(model, input) {
+      // Clef, the router (`src/agent/router.js`): a text that asks for a plan or
+      // a judgement is `think`; a text that edits is `change`; the rest `lookup`.
+      if (model === "@cf/cloudflare/clef") {
+        // The person's current text is the last line of the state; earlier turns are context.
+        const text = String(input.state ?? "").trim().split("\n").at(-1).toLowerCase();
+        const choice = /\b(should|plan|clash|conflict|compare|worth)\b/.test(text) ? "think" : /\b(add|change|move|push|mark|note that|remind)\b/.test(text) ? "change" : "lookup";
+        return { answers: { tier: { choice, confidence: 0.9 } } };
+      }
       const last = input.messages.at(-1);
       if (last?.role !== "tool") {
         const question = String(last?.content ?? "");

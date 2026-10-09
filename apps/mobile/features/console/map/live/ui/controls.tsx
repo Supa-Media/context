@@ -61,7 +61,8 @@ export function Choice<T extends string>({
 }: {
   label: string;
   options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode }>;
-  value: T;
+  /** `null` when the choice is something the row does not offer, so none is chosen. */
+  value: T | null;
   onChange: (value: T) => void;
   testID?: string;
 }) {
@@ -79,6 +80,58 @@ export function Choice<T extends string>({
           testID={testID === undefined ? undefined : `${testID}-${option.value}`}
         />
       ))}
+    </View>
+  );
+}
+
+/**
+ * The phone's version of `Choice`: one track with the options inside it,
+ * evenly split, the chosen one filled. Two of these fit across a phone where
+ * a row of separate pills scrolled sideways, and a track reads as "pick one"
+ * at a glance.
+ */
+export function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  testID,
+  grow = 1,
+}: {
+  label: string;
+  /** `accessibilityLabel` names a segment whose visible words are not its whole name, such as an icon alone. */
+  options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode; accessibilityLabel?: string }>;
+  /** `null` when the choice is something the track does not offer, so none is chosen. */
+  value: T | null;
+  onChange: (value: T) => void;
+  testID?: string;
+  /** Share of the row this track takes beside others. */
+  grow?: number;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={[styles.track, { flexGrow: grow }]} accessibilityRole="radiogroup" accessibilityLabel={label} testID={testID}>
+      {options.map((option) => {
+        const on = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            accessibilityRole="radio"
+            accessibilityLabel={option.accessibilityLabel ?? option.label}
+            accessibilityState={{ checked: on }}
+            style={({ pressed }: { pressed: boolean }) => [styles.segment, on ? styles.segmentOn : pressed ? styles.chipHover : null]}
+            testID={testID === undefined ? undefined : `${testID}-${option.value}`}
+          >
+            {option.leading}
+            {option.label === "" ? null : (
+              <Text style={[styles.segmentText, on && styles.chipTextOn]} numberOfLines={1}>
+                {option.label}
+              </Text>
+            )}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -182,6 +235,30 @@ export const makeStyles = (colors: Colors) =>
     chipText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text2 },
     chipTextOn: { color: colors.pageSurface },
     choice: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    track: {
+      flexBasis: 0,
+      minWidth: 0,
+      height: 36,
+      borderRadius: 11,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.lineStrong,
+      backgroundColor: colors.surface2,
+      padding: 3,
+      flexDirection: "row",
+      gap: 2,
+    },
+    segment: {
+      flex: 1,
+      minWidth: 0,
+      borderRadius: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingHorizontal: 6,
+    },
+    segmentOn: { backgroundColor: colors.text },
+    segmentText: { fontFamily: fonts.body, fontSize: pointerType.label, fontWeight: "600", color: colors.text2 },
     round: {
       alignItems: "center",
       justifyContent: "center",
