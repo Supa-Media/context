@@ -39,9 +39,18 @@ and the other clean addresses redirect to), and a cast preview
   one of `a`–`e` (`landingPageOf`, `packages/shared`), so nothing a visitor
   types reaches the table. Admin's Waitlist tab shows each row's page and a
   "Joined from" count. A visit that never touched a landing page records none.
+- **Page a's editor is the real one** (Dev2, 2026-10-09). Under the
+  headline, the homepage's own shell plays a made-up scene in an iframe, the
+  way the cast studio's stage does (`LandingEditor.web.tsx`,
+  `editorScene.ts`): a PARA tree with emoji on its folders, and people and
+  AIs writing in one note. It is a cast preview in the address, so it passes
+  the same checks a crafted one does, and folder icons in a snapshot are one
+  emoji on a plain lowercase path or nothing. Never a screenshot: it changes
+  when the console does.
 - **Single letters are free for this.** Handles are at least two characters
   (`NAME_MIN_LENGTH`), so `/a` to `/e` can never be somebody's website.
 
-Test: `apps/mobile/__tests__/landingRoute.test.ts` (which address is which
+Test: `apps/mobile/__tests__/landingEditorScene.test.ts` (the scene and its
+folder icons), `apps/mobile/__tests__/landingRoute.test.ts` (which address is which
 page, and that the website's own addresses are not), and the waitlist tests in
 `apps/convex/__tests__/waitlist.test.ts` and `phoneSignIn.test.ts`.

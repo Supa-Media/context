@@ -1,3 +1,4 @@
+import { isSingleEmoji } from "@context/shared";
 import { emojiPictures, type EmojiPictures } from "../share/emojiPictures";
 import { publishedImages, type PublishedImages } from "../share/publishedImages";
 import type { HomePage } from "./homeSite";
@@ -24,6 +25,27 @@ export interface HomeSnapshot {
   emoji: EmojiPictures;
   /** The pasted pictures the pages embed, drawn where their `![[leaf]]` is. */
   images: PublishedImages;
+  /**
+   * Emoji drawn on the tree's folders, by the folder's path in the site
+   * (`projects`, `projects/launch`). Only a cast preview carries any today:
+   * the landing page's editor demo names its folders' icons in its address.
+   */
+  icons?: Readonly<Record<string, string>>;
+}
+
+/** More than a tree could ever show; the rest is a crafted address. */
+const MAX_FOLDER_ICONS = 64;
+
+/** The folder icons a snapshot names, each a plain folder path and one emoji; anything else is dropped. */
+export function snapshotIcons(value: unknown): Record<string, string> {
+  const icons: Record<string, string> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return icons;
+  for (const [path, icon] of Object.entries(value as Record<string, unknown>).slice(0, MAX_FOLDER_ICONS)) {
+    if (typeof icon !== "string" || !isSingleEmoji(icon)) continue;
+    if (path === "" || path.length > 256 || path.split("/").some((segment) => !/^[a-z0-9][a-z0-9-]*$/.test(segment))) continue;
+    icons[path] = icon;
+  }
+  return icons;
 }
 
 /** A snapshot from anywhere (the HTML, or the action), checked, or `null`. */
@@ -54,6 +76,7 @@ export function parseHomeSnapshot(value: unknown): HomeSnapshot | null {
     pages,
     emoji: emojiPictures(body.emoji),
     images: publishedImages(body.images),
+    ...(body.icons === undefined ? {} : { icons: snapshotIcons(body.icons) }),
   };
 }
 

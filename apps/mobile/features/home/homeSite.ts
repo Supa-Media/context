@@ -104,7 +104,7 @@ export interface HomeTree {
  * never draws); a folder takes the place of its first note. Nothing is added:
  * no private note, no Legal of the shell's own.
  */
-export function liveHomeTree(site: readonly HomePage[]): HomeTree {
+export function liveHomeTree(site: readonly HomePage[], icons: Readonly<Record<string, string>> = {}): HomeTree {
   const pages = new Map<string, HomePage>();
   const paths = new Map<string, string>();
   const entries: Record<string, FileEntry[]> = { "": [] };
@@ -146,12 +146,19 @@ export function liveHomeTree(site: readonly HomePage[]): HomeTree {
   for (const [path, page] of pages) notes[path] = page.markdown;
   const listings: Record<string, FolderListing> = {};
   for (const [path, list] of Object.entries(entries)) listings[path] = listing(path, list);
+  // Each icon onto its folder as the tree names it (`projects` → `02-projects`).
+  const folderIcons: Record<string, string> = {};
+  for (const [route, folder] of folders) {
+    const icon = Object.prototype.hasOwnProperty.call(icons, route.slice(1)) ? icons[route.slice(1)] : undefined;
+    if (icon !== undefined) folderIcons[folder] = icon;
+  }
   return {
     pages,
     paths,
     tree: {
       listings,
       notes,
+      icons: folderIcons,
       defaultSelection: paths.get("/") ?? [...pages.keys()][0] ?? "",
       defaultExpanded: [...folders.values()],
       readOnlyReason: "This workspace is read only. Make your own to start writing.",
