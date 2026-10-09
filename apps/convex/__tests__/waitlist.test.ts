@@ -304,3 +304,55 @@ describe("the staff Waitlist", () => {
     });
   });
 });
+
+describe("which landing page a person saw", () => {
+  test("is stored on the row when they join, and only then", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "c" });
+    expect((await row(t, "jon@studio.test"))?.landing).toBe("c");
+    // A second visit from another page does not rewrite it.
+    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "e" })).toEqual({
+      status: "already",
+    });
+    expect((await row(t, "jon@studio.test"))?.landing).toBe("c");
+  });
+
+  test("a value that is not a landing page is dropped and the join still succeeds", async () => {
+    const t = setupTest();
+    for (const [i, landing] of ["z", "A", "<script>"].entries()) {
+      const email = `odd${i}@studio.test`;
+      expect(await t.mutation(api.functions.waitlist.enter, { email, landing })).toMatchObject({ status: "joined" });
+      expect((await row(t, email))?.landing).toBeUndefined();
+    }
+  });
+
+  test("a join without one stores none", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "plain@studio.test" });
+    expect(await row(t, "plain@studio.test")).not.toHaveProperty("landing");
+  });
+
+  test("staff see the joins and the admissions grouped by landing page, with none for the rest", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    await t.mutation(api.functions.waitlist.enter, { email: "a1@studio.test", landing: "a" });
+    await t.mutation(api.functions.waitlist.enter, { email: "a2@studio.test", landing: "a" });
+    await t.mutation(api.functions.waitlist.enter, { email: "b1@studio.test", landing: "b" });
+    await t.mutation(api.functions.waitlist.enter, { email: "none@studio.test" });
+    const id = (await row(t, "a2@studio.test"))!._id;
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [id] });
+    expect(await as.query(api.functions.admin.waitlistLandingCounts, {})).toEqual([
+      { landing: "a", joined: 2, admitted: 1 },
+      { landing: "b", joined: 1, admitted: 0 },
+      { landing: "none", joined: 1, admitted: 0 },
+    ]);
+  });
+
+  test("the landing counts are staff only", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "b" });
+    const stranger = t.withIdentity({ subject: await seedUser(t, "who@else.test") });
+    await expect(stranger.query(api.functions.admin.waitlistLandingCounts, {})).rejects.toThrow();
+    await expect(t.query(api.functions.admin.waitlistLandingCounts, {})).rejects.toThrow();
+  });
+});

@@ -33,7 +33,7 @@ async function touch(page: Page, testID: string, nth = 0): Promise<void> {
 }
 
 async function openLegal(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("/?page=index");
   await expect(page.locator(".cm-content").first()).toContainText("Notes for your team", { timeout: 15_000 });
   // From Home, where every folder is: the site's pages are notes at the top, and Legal is its one folder.
   await touch(page, "phone-back");

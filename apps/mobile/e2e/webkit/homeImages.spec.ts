@@ -40,7 +40,7 @@ test("a pasted picture on a homepage page is drawn from the site, and the page s
     emoji: {},
     images: { [LEAF]: PICTURE },
   };
-  await page.route(/\/$/, async (route) => {
+  await page.route(/\/\?page=index$/, async (route) => {
     const response = await route.fetch();
     const html = (await response.text()).replace(
       "</head>",
@@ -48,7 +48,7 @@ test("a pasted picture on a homepage page is drawn from the site, and the page s
     );
     await route.fulfill({ response, body: html });
   });
-  await page.goto("/");
+  await page.goto("/?page=index");
 
   const picture = page.locator(".cm-lp-image-img").first();
   await expect(picture).toHaveAttribute("src", PICTURE, { timeout: 15_000 });

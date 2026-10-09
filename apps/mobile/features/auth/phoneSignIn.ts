@@ -28,3 +28,12 @@ export function startError(status: StartStatus): string | null {
       return "We couldn't send a text just now. Try again, or use email instead.";
   }
 }
+
+/**
+ * Said wherever somebody signs in or joins with email instead of a phone
+ * (Dev2, 2026-10-09): a phone is still required (the phone check), and an
+ * email that already has an account gets the number added to it, so a person
+ * keeps one account whichever way they came in.
+ */
+export const EMAIL_STILL_NEEDS_PHONE =
+  "You'll still need a phone number: after you sign in, we'll text you a code to add one. If this email already has an account, the number is added to it.";

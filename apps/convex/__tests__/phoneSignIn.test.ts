@@ -142,6 +142,29 @@ describe("a phone nobody holds", () => {
   });
 });
 
+describe("which landing page a phone was joined from", () => {
+  test("is stored on the new waitlist row, and an invalid one is dropped", async () => {
+    const t = setupTest();
+    expect(await t.action(api.functions.phoneSignIn.start, { phone: NOBODY, landing: "d" })).toEqual({
+      status: "joined",
+      phone: NOBODY,
+    });
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("waitlist").withIndex("by_phone", (q) => q.eq("phone", NOBODY)).collect();
+      expect(rows.map((row) => row.landing)).toEqual(["d"]);
+    });
+    const other = "+15555550188";
+    expect(await t.action(api.functions.phoneSignIn.start, { phone: other, landing: "<b>" })).toEqual({
+      status: "joined",
+      phone: other,
+    });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("waitlist").withIndex("by_phone", (q) => q.eq("phone", other)).unique();
+      expect(row?.landing).toBeUndefined();
+    });
+  });
+});
+
 describe("a phone staff let in", () => {
   test("is texted a code, and the code makes its account with the phone confirmed", async () => {
     const t = setupTest();

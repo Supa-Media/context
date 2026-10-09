@@ -17,6 +17,7 @@ import { WaitlistResult } from "./WaitlistResult";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { SignInPreview } from "./SignInPreview";
 import { PhoneSignInForm } from "./PhoneSignInForm";
+import { EMAIL_STILL_NEEDS_PHONE } from "./phoneSignIn";
 import { usePhoneSignIn } from "./usePhoneSignIn";
 
 /**
@@ -237,6 +238,11 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
                 : join?.kind === "invite"
                   ? JOIN_HELPER
                   : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
+            </Text>
+          ) : null}
+          {asking ? (
+            <Text variant="foot" style={styles.foot} testID="login-needs-phone">
+              {EMAIL_STILL_NEEDS_PHONE}
             </Text>
           ) : null}
 

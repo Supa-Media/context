@@ -18,7 +18,14 @@ export const JOINED_TITLE = "Welcome back.";
 export const JOINED_BODY =
   "That number already has a Context account, so this email is on it now. Sign in again with your phone or this email to open it.";
 
-const TAKEN = "That number is already on another Context account. Use a different number, or sign in to that account.";
+/**
+ * One person, one account, however many emails (Dev2, 2026-10-09): a number
+ * another account holds joins the two when either owns nothing ("joined",
+ * `lib/account/phoneJoin.ts`). "taken" is left only for two accounts that
+ * each own a workspace, which are never joined.
+ */
+const TAKEN =
+  "That number already signs in to another Context account that has its own workspace. Use a different number, or sign out and sign in with your phone.";
 const TOO_MANY = "Too many tries for now. Wait a bit, then try again.";
 const FAILED = "We couldn't send a text just now. Try again in a minute.";
 

@@ -175,8 +175,7 @@ export function HomeShell() {
       const path = pathOf(next);
       if (path !== undefined) browser.select(path);
       if (next === routePath) return;
-      const page = pageParam(next);
-      router.push(page === undefined ? "/" : { pathname: "/", params: { page } });
+      router.push({ pathname: "/", params: { page: pageParam(next) } });
     },
     [browser, pathOf, routePath, router],
   );
