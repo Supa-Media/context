@@ -276,13 +276,19 @@ export function askPlan(kind: LocalAgentKind, claudePath: string, input: AskInpu
  * means everywhere else in this product, and a note held back by `privacy.md`
  * is held back from this too.
  */
-export function mcpConfigFor(endpoint: string, token: string): object {
+export function mcpConfigFor(endpoint: string, token: string, model: string | null = null): object {
   return {
     mcpServers: {
       [MCP_SERVER_NAME]: {
         type: "http",
         url: endpoint,
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          // Which model Claude Code ran last time, for the Premium usage
+          // breakdown (`docs/decisions/observability/token-usage.md`). The CLI
+          // names its model only once it has started, after this file is read.
+          ...(model === null ? {} : { "X-Context-Model": model }),
+        },
       },
     },
   };
@@ -293,6 +299,31 @@ export interface LocalAnswer {
   answer: string;
   provider: string;
   steps: { tool: string; ok: boolean }[];
+  /** The model that did most of the run, from `modelUsage`; null when absent. */
+  model: string | null;
+}
+
+/**
+ * The model that did most of a run: the `modelUsage` key with the most tokens.
+ * A run can touch more than one (a smaller model for housekeeping), and the
+ * label belongs to the one that did the work.
+ */
+export function mainModel(modelUsage: unknown): string | null {
+  if (modelUsage === null || typeof modelUsage !== "object" || Array.isArray(modelUsage)) return null;
+  let best: string | null = null;
+  let most = -1;
+  for (const [model, usage] of Object.entries(modelUsage as Record<string, unknown>)) {
+    if (model.length === 0 || model.length > 128) continue;
+    const u = (usage ?? {}) as Record<string, unknown>;
+    const total = ["inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"]
+      .map((key) => (typeof u[key] === "number" ? (u[key] as number) : 0))
+      .reduce((a, b) => a + b, 0);
+    if (total > most) {
+      best = model;
+      most = total;
+    }
+  }
+  return best;
 }
 
 /**
@@ -333,7 +364,7 @@ export function readLocalAnswer(exitOk: boolean, stdout: string): LocalAnswer | 
     return LOCAL_MESSAGES.failed;
   }
 
-  const body = parsed as { result?: unknown; is_error?: unknown };
+  const body = parsed as { result?: unknown; is_error?: unknown; modelUsage?: unknown };
   const result = typeof body.result === "string" ? body.result : "";
 
   if (body.is_error === true || !exitOk) {
@@ -343,5 +374,5 @@ export function readLocalAnswer(exitOk: boolean, stdout: string): LocalAnswer | 
   }
   if (result.trim().length === 0) return LOCAL_MESSAGES.empty;
 
-  return { answer: result, provider: "claude-code", steps: [] };
+  return { answer: result, provider: "claude-code", steps: [], model: mainModel(body.modelUsage) };
 }
