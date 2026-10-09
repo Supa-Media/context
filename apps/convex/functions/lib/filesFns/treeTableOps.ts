@@ -30,7 +30,7 @@ import type { ActionCtx } from "../../../_generated/server";
 // Workers runtime, which is Convex's runtime too. It holds the write token for
 // the life of one call and puts it in exactly one place, an `Authorization`
 // header.
-import { createD1Client } from "../../../../mcp/src/search/d1/client.js";
+import { createD1Client, failureDetailOf } from "../../../../mcp/src/search/d1/client.js";
 import { readTreeState, setStateStatements } from "../../../../mcp/src/tree/table.js";
 import { sweepDue, sweepTreePass } from "../../../../mcp/src/tree/sweep.js";
 import { touchTree } from "../../../../mcp/src/tree/touch.js";
@@ -335,7 +335,29 @@ export async function runTreeOperation(
     }
     return { kind: "treeKept", complete: links?.remaining === 0 && props?.remaining === 0 };
   }
-  const pass = await sweepTreePass(store, client).catch(() => null);
+  const pass = await sweepTreePass(
+    {
+      list: async (options: Parameters<FileStore["list"]>[0]) => {
+        try {
+          return await store.list(options);
+        } catch (error) {
+          // Storage errors may contain bucket names or note paths. The stage
+          // and workspace id are enough to distinguish this from a D1 fault.
+          console.error("tree_index.list_failed", { workspaceId: args.workspaceId });
+          throw error;
+        }
+      },
+    },
+    client,
+  ).catch((error) => {
+    const detail = failureDetailOf(error);
+    console.error("tree_index.sweep_failed", {
+      workspaceId: args.workspaceId,
+      source: detail === null ? "storage_or_internal" : "d1",
+      detail,
+    });
+    return null;
+  });
   // A finished sweep goes on to the links, through the branch above.
   const more = pass !== null && !pass.unsupported && (pass.complete || pass.rows + pass.pages > 0);
   if (more && passes < TREE_SWEEP_CHAIN) {

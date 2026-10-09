@@ -151,7 +151,7 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
         if (error instanceof MeaningError) throw error;
         throw new MeaningError("UNAVAILABLE", { cause: "network" });
       }
-      const body = await readEnvelope(response, EMBED_RESPONSE_BYTE_CAP);
+      const body = await readEnvelope(response, EMBED_RESPONSE_BYTE_CAP, "embed");
       out.push(...vectorsFrom(body.result, group.length));
     }
     return out;
@@ -162,7 +162,7 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
  * A Cloudflare `{success, result}` envelope, or a `MeaningError` saying why
  * not. Shared with `client.js`. Nothing the provider wrote is carried.
  */
-export async function readEnvelope(response, cap) {
+export async function readEnvelope(response, cap, operation) {
   if (!response) throw new MeaningError("UNAVAILABLE", { cause: "network" });
   const declared = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declared) && declared > cap) {
@@ -185,6 +185,10 @@ export async function readEnvelope(response, cap) {
     throw MeaningError.fromStatus(
       response.status,
       response.status === 200 ? "envelope" : `http_${response.status}`,
+      {
+        operation,
+        providerCodes: Array.isArray(body?.errors) ? body.errors.map((entry) => entry?.code) : [],
+      },
     );
   }
   return body;

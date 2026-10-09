@@ -271,6 +271,28 @@ test("a full pass fits Vectorize's 20-id cap on a delete", async () => {
   assert.equal(deletes.length, 40 * 11);
 });
 
+test("a refused Vectorize delete retains its safe diagnostics for the pass log", async () => {
+  const store = memoryStore({
+    [MEANING_STATE_KEY]: JSON.stringify({ v: 1, generation: "g1", notes: { "gone.md": "v1" } }),
+  });
+  const fetchImpl = async () => new Response(
+    JSON.stringify({ success: false, errors: [{ code: 40007, message: "private path" }] }),
+    { status: 400 },
+  );
+  const client = createMeaningClient(
+    { indexName: "context-meaning-ws1", accountId: "fake-account", apiToken: "fake-token", state: "backfilling" },
+    { fetchImpl },
+  );
+  const pass = await meaningPass(store, {
+    client, embed, census: new Map(), visibilityOf: team, generation: "g1",
+  });
+  assert.deepEqual(
+    { failure: pass.failure, cause: pass.failureCause, operation: pass.failureOperation, codes: pass.providerCodes },
+    { failure: "REFUSED", cause: "http_400", operation: "delete_by_ids", codes: [40007] },
+  );
+  assert.equal(JSON.stringify(pass).includes("private path"), false);
+});
+
 test("a pass that fails part-way keeps the notes that already landed", async () => {
   // Twelve passages a note, read eight notes at a time, so the first three
   // groups (twenty-four notes) fill one held batch and the second batch's
