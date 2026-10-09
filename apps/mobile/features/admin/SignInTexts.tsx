@@ -11,12 +11,11 @@ import { StyleSheet, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button, Text, TextField, space, useThemedStyles, type Colors } from "../design";
-import { Panel, Skeleton, useCompact, usePanelPad } from "./AdminKit";
+import { Panel, Skeleton, useCompact } from "./AdminKit";
 import { messageFor } from "./SecretDialogs";
 
 export function SignInTexts() {
   const styles = useThemedStyles(makeStyles);
-  const pad = usePanelPad();
   const compact = useCompact();
   const state = useQuery(api.functions.admin.signInTexts, {});
   const save = useMutation(api.functions.admin.setSignInTextsSender);
