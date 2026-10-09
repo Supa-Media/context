@@ -63,6 +63,7 @@ import { useCompact } from "./AdminKit";
 import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
 import { GrowthSection } from "./GrowthSection";
+import { PeopleSection } from "./PeopleSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
@@ -192,6 +193,7 @@ function Console(props: AdminPaneProps) {
             onView={(view) => go({ tab: "waitlist", sub: waitlistPlace(view) })}
           />
         ) : null}
+        {tab === "people" ? <PeopleSection /> : null}
       </View>
     </>
   );

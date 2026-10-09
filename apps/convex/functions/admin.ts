@@ -84,6 +84,7 @@ import {
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
 import { getSignupAlertsHandler, setSignupAlertsHandler } from "./lib/adminFns/signupAlerts";
+import { listPeopleHandler, personValidator, setPhoneHandler, setPhoneResultValidator } from "./lib/adminFns/people";
 import {
   communityKindValidator,
   communityLinkValidator,
@@ -346,6 +347,38 @@ export const setSignupAlerts = mutation({
       throw toConvexError(error);
     }
     return await setSignupAlertsHandler(ctx, actor, args.on);
+  },
+});
+
+// -- people -----------------------------------------------------------------
+
+/**
+ * Who somebody is: addresses, username, phone, workspaces. Searched by any
+ * of them. See `lib/adminFns/people.ts`.
+ */
+export const listPeople = query({
+  args: { search: v.string() },
+  returns: v.array(personValidator),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await listPeopleHandler(ctx, args.search);
+  },
+});
+
+/** Set or remove somebody's phone; a typed phone counts as confirmed. */
+export const setPersonPhone = mutation({
+  args: { userId: v.id("users"), phone: v.union(v.string(), v.null()) },
+  returns: setPhoneResultValidator,
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setPhoneHandler(ctx, actor, args.userId, args.phone);
   },
 });
 

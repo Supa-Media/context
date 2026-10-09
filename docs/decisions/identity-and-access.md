@@ -128,6 +128,8 @@ Closing an account frees every address it signs in with. Shares addressed to any
 
 Every account also confirms a phone once (`functions/phoneCheck.ts`, behind `PHONE_CHECK`). One phone number belongs to one account, so the phone can later tie a new email to the person who already has one.
 
+Staff can also type a person's phone in the console's People tab (`/admin/people`, `lib/adminFns/people.ts`; Dev2, 2026-10-09, ahead of signing in with a phone number). A typed phone counts as confirmed, because staff vouch for the person they know. The one-phone-one-account rule still holds: a number another account holds is refused and never moved. The staff audit trail keeps only the last four digits. `__tests__/adminPeople.test.ts` fails if a held number is accepted or a whole number reaches the trail.
+
 ## A shared workspace opened to an email domain
 
 Decided by the owner, 2026-10-09 (boards s3/s4). An owner of a **shared** workspace can open it to everyone at an email domain, such as `publicworship.org`, from Settings › Sharing › Your organization. Somebody with a confirmed address there joins when they open a link to the workspace, either with their main email or with one added on Account settings. They join with the role the owner picked, which is Can read by default. The invite-only gate lets that address in. When they stop signing in with any address at the domain, they leave (`viaDomain` on the membership).
