@@ -19,11 +19,34 @@
 export const ASIDE_TABS = [
   { key: "chat", label: "Chat" },
   { key: "meetings", label: "Meetings" },
+  { key: "approvals", label: "Approvals" },
 ] as const;
 
 export type AsideTab = (typeof ASIDE_TABS)[number]["key"];
 
 export const DEFAULT_ASIDE_TAB: AsideTab = "chat";
+
+/**
+ * The tabs a console shows, in order.
+ *
+ * Meetings is always there. Chat and Approvals are both about the context, so
+ * both need a context to answer for: the homepage has none and shows Meetings
+ * alone, as it always has. Approvals also needs this console to have an
+ * approvals route to ask — `approvals` is false otherwise, and the tab is then
+ * absent rather than an empty list that says nothing is waiting when nobody
+ * has checked.
+ */
+export function visibleAsideTabs({
+  chat,
+  approvals,
+}: {
+  chat: boolean;
+  approvals: boolean;
+}): AsideTab[] {
+  return ASIDE_TABS.map((tab) => tab.key).filter(
+    (key) => key === "meetings" || (chat && (key !== "approvals" || approvals)),
+  );
+}
 
 /**
  * Which tab is showing.

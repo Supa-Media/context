@@ -104,6 +104,7 @@ export function consoleAsidePanel({
   meetingsAt,
   newChatAt,
   router,
+  approvals,
 }: {
   data: ConsoleData;
   agentEngine: ConsoleAside["agentEngine"];
@@ -112,6 +113,7 @@ export function consoleAsidePanel({
   meetingsAt: number | null;
   newChatAt: number | null;
   router: ConsoleRouter;
+  approvals: ConsoleAside["approvals"];
 }) {
   /*
     The right panel's contents. Supplied here rather than by the pane for
@@ -137,6 +139,7 @@ export function consoleAsidePanel({
         asked={asked}
         started={meetingsAt}
         newChat={newChatAt}
+        approvals={approvals}
         /*
           A finished meeting's note, opened in the editor behind the
           panel. `noteEditorHref` builds a console address out of the

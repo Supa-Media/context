@@ -56,6 +56,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "collaboration",
   // What agents read and wrote lately, `/agent-activity` on the gateway.
   "agent-activity",
+  // What the egress gate is holding, and the app's yes or no, `/approvals` on the gateway.
+  "approvals",
 ]);
 
 /**

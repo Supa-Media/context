@@ -330,7 +330,7 @@ export function ConsoleFrame({
   const {
     meetingsAt, newChatAt, phoneChatAt, setPhoneChatAt, showMeetings, contextHrefFrom,
     startMeetingFlow, meetingSheet, startNewChat, startMeeting, canCreate, agentPlace, asked,
-    setAsked, openAsideAt, agentEngine, resumeRow, voiceHost,
+    setAsked, openAsideAt, agentEngine, approvals, resumeRow, voiceHost,
   } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, pathname });
 
   /**
@@ -519,7 +519,7 @@ export function ConsoleFrame({
           no visible change at all.
         */
         aside={consoleAsidePanel({
-          data, agentEngine, agentPlace, asked, meetingsAt, newChatAt, router,
+          data, agentEngine, agentPlace, asked, meetingsAt, newChatAt, router, approvals,
         })}
         explorer={consoleExplorer({
           browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
