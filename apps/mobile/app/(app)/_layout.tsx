@@ -10,8 +10,7 @@ import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
 import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
-import { OtherEmailScreen } from "../../features/auth/OtherEmailScreen";
-import { asksForOtherEmail } from "../../features/auth/otherEmail";
+import { clearPendingPhone, pendingPhone } from "../../features/auth/pendingPhone";
 import { DomainJoin } from "../../features/auth/DomainJoin";
 import { domainJoinFor, type JoinableWorkspace } from "../../features/auth/domainJoin";
 import { ToastHost } from "../../features/design/components/Toast";
@@ -197,18 +196,16 @@ export default function AppLayout() {
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
       messages: { query: api.functions.messages.myMessageReads, args: {} },
       phoneCheck: { query: api.functions.phoneCheck.myPhoneCheck, args: {} },
-      otherEmail: { query: api.functions.otherEmail.myOtherEmailQuestion, args: {} },
       domainWorkspaces: { query: api.functions.workspaceDomains.myDomainWorkspaces, args: {} },
     };
   }, [authed]);
   const results = useQueries(spec);
-  // The address handed to another account by "Do you already use Context with
-  // another email?", held so its last panel survives the switch of account.
-  const [handedOff, setHandedOff] = useState<string | null>(null);
   // A workspace joined through an email domain on opening its link (board s4):
   // said once on the page it opened. A refused join is not asked again.
   const [joined, setJoined] = useState<JoinableWorkspace | null>(null);
   const [refusedJoin, setRefusedJoin] = useState<string | null>(null);
+  // Bumped when a typed phone is skipped, so the gate below is read again.
+  const [, setPhoneSkips] = useState(0);
   const onJoined = useCallback((workspace: JoinableWorkspace) => setJoined(workspace), []);
   const rows = usable<(WorkspaceStandingRow & ResumeWorkspaceRow)[]>(results.workspaces);
 
@@ -248,30 +245,30 @@ export default function AppLayout() {
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
 
   /*
-    "Do you already use Context with another email?" (board s7), before the
-    phone check: a "yes" moves this sign-in to the account the person already
-    has, and that is the account a phone belongs on.
-  */
-  const otherEmail = usable<{ ask: boolean; email: string | null }>(results.otherEmail);
-  if (handedOff !== null || (asksForOtherEmail(otherEmail) && otherEmail?.email)) {
-    return (
-      <OtherEmailScreen
-        email={handedOff ?? otherEmail?.email ?? ""}
-        done={handedOff !== null}
-        onAdded={setHandedOff}
-        onContinue={() => setHandedOff(null)}
-      />
-    );
-  }
-
-  /*
     The phone check (Dev2, 2026-10-09), in front of everything else a signed-in
     person sees, onboarding included. Drawn in place of the routes rather than
     redirected to, so no URL gets past it. Unanswered is not a stop: the
     server answers "required" only when the check is switched on, has its
     keys, and this account has no confirmed phone (`functions/phoneCheck.ts`).
+
+    A number typed on the sign-in page that no account held yet (board p2) is
+    confirmed here too, check or no check: it is the phone they meant to sign
+    in with, so it goes on the account they just signed in to.
   */
-  if (blocksForPhone(usable<{ required: boolean }>(results.phoneCheck))) return <PhoneCheckScreen />;
+  const phoneAnswer = usable<{ required: boolean; confirmed: boolean }>(results.phoneCheck);
+  const typedPhone = phoneAnswer?.confirmed === false ? pendingPhone() : null;
+  if (blocksForPhone(phoneAnswer) || typedPhone !== null) {
+    return (
+      <PhoneCheckScreen
+        initialPhone={typedPhone ?? undefined}
+        onSkip={blocksForPhone(phoneAnswer) ? undefined : () => {
+                clearPendingPhone();
+                setPhoneSkips((n) => n + 1);
+              }}
+      />
+    );
+  }
+  if (phoneAnswer?.confirmed === true && pendingPhone() !== null) clearPendingPhone();
 
   /*
     A link to a workspace this person's email domain opens (board s4): join

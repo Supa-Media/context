@@ -35,11 +35,11 @@ export const signInEmailTables = {
   }).index("by_user", ["userId"]),
 
   /**
-   * "Do you already use Context with another email?" — yes (board s7). The
-   * new account mints this, the app then signs in with the other address, and
-   * that account redeems it to take the new address over
-   * (`functions/otherEmail.ts`). Only the token's hash is kept; fifteen
-   * minutes, one per account, spent once.
+   * Retired with "Do you already use Context with another email?" (board s7)
+   * when sign-in moved to phone numbers (2026-10-09): a phone now ties a new
+   * address to the person who already has an account. Nothing writes here any
+   * more; the table stays declared until its fifteen-minute rows are gone and
+   * it can be dropped without a deploy refusing the schema.
    */
   emailHandOffs: defineTable({
     fromUserId: v.id("users"),

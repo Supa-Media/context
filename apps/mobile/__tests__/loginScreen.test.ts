@@ -5,7 +5,9 @@ import { describe, expect, jest, test } from "@jest/globals";
 
 /**
  * A-01 and A-02, driven: an address becomes a code request, six digits become
- * a verification, and the two ways off the code screen do what they say.
+ * a verification, and the two ways off the code screen do what they say. The
+ * page opens on the phone (board p1); the email tests take its "Use email
+ * instead" link first, and the phone tests at the end drive that half.
  *
  * The OTP itself is `@convex-dev/auth`'s; what this proves is the screen's own
  * wiring — the calls it makes and the state it leaves behind.
@@ -16,6 +18,11 @@ jest.mock("react-native-safe-area-context", () => ({
 }));
 
 const mockCalls: Array<Record<string, unknown>> = [];
+const mockProviders: string[] = [];
+// What `phoneSignIn.start` answers, and whether a texted code signs in.
+let mockStart: { status: string; phone?: string } = { status: "sent", phone: "+15555550100" };
+let mockSigningIn = true;
+const mockStarted: Array<Record<string, unknown>> = [];
 const mockRouter = { replace: jest.fn(), push: jest.fn() };
 
 jest.mock("expo-router", () => ({
@@ -25,8 +32,10 @@ jest.mock("expo-router", () => ({
 
 jest.mock("@convex-dev/auth/react", () => ({
   useAuthActions: () => ({
-    signIn: async (_provider: string, args: Record<string, unknown>) => {
+    signIn: async (provider: string, args: Record<string, unknown>) => {
+      mockProviders.push(provider);
       mockCalls.push(args);
+      return { signingIn: provider === "phone-verify" ? mockSigningIn : false };
     },
   }),
 }));
@@ -37,6 +46,10 @@ let mockStatus: "admitted" | "joined" | "already" = "admitted";
 const mockEntered: Array<Record<string, unknown>> = [];
 const mockDescribed: Array<Record<string, unknown>> = [];
 jest.mock("convex/react", () => ({
+  useAction: () => async (args: Record<string, unknown>) => {
+    mockStarted.push(args);
+    return mockStart;
+  },
   useMutation: () => async (args: Record<string, unknown>) => {
     if ("useFor" in args) {
       mockDescribed.push(args);
@@ -56,10 +69,12 @@ import { createRoot } from "react-dom/client";
 import { LoginScreen } from "../features/auth/LoginScreen";
 import { codeDigits } from "../features/auth/CodeBoxes";
 import { SignInPreview } from "../features/auth/SignInPreview";
+import { landAfterSignIn } from "../features/auth/landing";
+import { clearPendingPhone, pendingPhone } from "../features/auth/pendingPhone";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function mount() {
+function mount(options: { phone?: boolean } = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -67,6 +82,11 @@ function mount() {
     root.render(createElement(LoginScreen));
   });
   const byId = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+  if (!options.phone) {
+    act(() => {
+      byId("login-use-email")!.click();
+    });
+  }
   const type = async (id: string, value: string) => {
     const input = byId(id) as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -238,5 +258,59 @@ describe("the request screen on a phone", () => {
     expect(getComputedStyle(desktop.byId("login-submit")!).alignSelf).toBe("flex-start");
     desktop.unmount();
     atWidth(0);
+  });
+});
+
+describe("signing in with a phone", () => {
+  test("the page opens on the phone; a held phone is texted, and the code signs in", async () => {
+    mockCalls.length = 0;
+    mockProviders.length = 0;
+    mockStarted.length = 0;
+    mockStart = { status: "sent", phone: "+15555550100" };
+    mockSigningIn = true;
+    (landAfterSignIn as jest.Mock).mockClear();
+    const view = mount({ phone: true });
+    expect(view.text()).toContain("Sign in or join");
+    expect(view.text()).toContain("Use email instead");
+    await view.type("login-phone", "+1 555 555 0100");
+    await view.press("login-phone-send");
+    expect(mockStarted).toEqual([{ phone: "+1 555 555 0100" }]);
+    expect(view.text()).toContain("Check your texts");
+    expect(view.text()).toContain("+15555550100");
+    await view.type("login-phone-code", "392 418");
+    expect(mockProviders).toEqual(["phone-verify"]);
+    expect(mockCalls).toEqual([{ phone: "+15555550100", code: "392418" }]);
+    expect(landAfterSignIn).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  test("a refused code says so and signs nobody in", async () => {
+    mockStart = { status: "sent", phone: "+15555550100" };
+    mockSigningIn = false;
+    (landAfterSignIn as jest.Mock).mockClear();
+    const view = mount({ phone: true });
+    await view.type("login-phone", "+15555550100");
+    await view.press("login-phone-send");
+    await view.type("login-phone-code", "000000");
+    expect(view.text()).toContain("That code didn't work");
+    expect(landAfterSignIn).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  test("a new number asks for an email once, and keeps the number for after", async () => {
+    clearPendingPhone();
+    mockStart = { status: "new", phone: "+15555550142" };
+    mockCalls.length = 0;
+    const view = mount({ phone: true });
+    await view.type("login-phone", "+1 555 555 0142");
+    await view.press("login-phone-send");
+    expect(view.text()).toContain("What's your email?");
+    expect(view.byId("login-email")).not.toBeNull();
+    expect(pendingPhone()).toBe("+15555550142");
+    expect(mockCalls).toEqual([]);
+    await view.press("login-use-phone");
+    expect(pendingPhone()).toBeNull();
+    expect(view.byId("login-phone")).not.toBeNull();
+    view.unmount();
   });
 });

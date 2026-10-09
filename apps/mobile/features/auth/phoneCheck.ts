@@ -11,7 +11,7 @@ export type ConfirmStatus = "confirmed" | "wrong" | "taken" | "too_many" | "fail
 
 export const PHONE_CHECK_TITLE = "Add your phone number";
 export const PHONE_CHECK_WHY =
-  "We text you a code once to check there's a real person behind every account. You won't need your phone to sign in.";
+  "We text you a code once to check it's yours. From then on, your phone is how you sign in.";
 
 const TAKEN = "That number is already on another Context account. Use a different number, or sign in to that account.";
 const TOO_MANY = "Too many tries for now. Wait a bit, then try again.";
