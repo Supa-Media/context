@@ -47,6 +47,36 @@ export function deploymentUrl(url, key) {
   return `https://${name}.convex.cloud`;
 }
 
+/**
+ * A refusal's body, with every value this call was syncing taken out.
+ *
+ * The body names the problem — an invalid variable name, a bad admin key — and
+ * that diagnosis is why it is printed at all. It reaches a **public** Actions
+ * log, though, and the variables here include `STORAGE_SECRET_ENCRYPTION_KEY`,
+ * `JWT_PRIVATE_KEY`, `GATEWAY_SECRET` and the Twilio API key secret. This used
+ * to rest on "the body never echoes a value back", which is a claim about
+ * somebody else's error format: true today, unannounced if it changes, and
+ * public when it does.
+ *
+ * GitHub's secret masking is not the backstop it looks like either. It redacts
+ * exact matches, and this is truncated, so a value cut across the limit arrives
+ * as a fragment the masker does not recognise.
+ *
+ * So the values are removed here, where they are known. `split`/`join` rather
+ * than a built pattern because a value is not ours to assume is regex-safe,
+ * and **before** the truncation so a half-cut secret cannot survive the cut.
+ * Short values are left alone: a one or two character variable is not a secret
+ * and would redact half the alphabet out of the diagnosis.
+ */
+export function safeRefusalDetail(body, changes) {
+  let detail = typeof body === 'string' ? body : '';
+  for (const change of changes ?? []) {
+    const value = change?.value;
+    if (typeof value === 'string' && value.length >= 8) detail = detail.split(value).join('[value]');
+  }
+  return detail.slice(0, 300);
+}
+
 export async function syncConvexEnv({ names, values, url, key, fetchImpl = fetch, log = console.log }) {
   const base = deploymentUrl(url, key);
   const { changes, skipped } = plannedChanges(names, values);
@@ -57,9 +87,7 @@ export async function syncConvexEnv({ names, values, url, key, fetchImpl = fetch
       body: JSON.stringify({ changes }),
     });
     if (!response.ok) {
-      // The body names the problem (e.g. an invalid variable name) and never
-      // echoes a value back; still, print only its first 300 characters.
-      const detail = (await response.text().catch(() => '')).slice(0, 300);
+      const detail = safeRefusalDetail(await response.text().catch(() => ''), changes);
       throw new Error(`Convex refused the variables (HTTP ${response.status}): ${detail}`);
     }
   }
