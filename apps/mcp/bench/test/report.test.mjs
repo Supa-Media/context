@@ -526,3 +526,17 @@ test("a setup without a fallback and no retries gets neither line", () => {
   assert.ok(!md.includes("Fell back:"));
   assert.ok(!md.includes("Retried:"));
 });
+
+test("the summary says where each setup's wall time went", () => {
+  const timed = {
+    ...fixture,
+    setups: [{ name: "haiku", version: "abc123abc123", model: "anthropic/claude-haiku-5-5" }],
+    runs: [
+      { setup: "haiku", question: 1, run: 1, model: "anthropic/claude-haiku-5-5", tools: [], usage: { input: 1000, output: 10 }, ms: 300000, personMs: 60000, wallMs: 420000, texts: 1, conversation: [] },
+      { setup: "haiku", question: 2, run: 1, model: "anthropic/claude-haiku-5-5", tools: [], usage: { input: 1000, output: 10 }, ms: 300000, personMs: 0, wallMs: 360000, texts: 1, conversation: [] },
+    ],
+  };
+  const md = resultMarkdown(timed);
+  assert.ok(md.includes("Time: haiku took 13 min of wall time, 10 min answering, 1 min playing the person, 2 min on worlds and reruns."), md);
+  assert.ok(!resultMarkdown(fixture).includes("Time: "), "a result without wall times says nothing");
+});
