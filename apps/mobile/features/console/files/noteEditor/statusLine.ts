@@ -61,7 +61,14 @@ export function noteFoot({
       says nothing and the other two are about what went wrong, not where the
       text is.
     */
-    local && state.status !== "empty" && state.status !== "error" && state.status !== "conflict"
+    /*
+      A visitor who cannot edit at all (a shared link's reader) has no edits to
+      place anywhere, and their note is not in a bucket of theirs either, so
+      the foot says nothing rather than either sentence.
+    */
+    local && !editable
+      ? ""
+      : local && state.status !== "empty" && state.status !== "error" && state.status !== "conflict"
       ? LOCAL_ONLY
       : presence?.collaboration?.message ??
     (collaborationStatus === "local"

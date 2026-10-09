@@ -63,6 +63,8 @@ export function useVisitorConsoleData(
   agents?: AgentActivityView,
   /** A sentence the homepage itself has to say, such as a demo meeting stopping. */
   notice: { toast: ToastSpec; dismiss: () => void } | null = null,
+  /** The one workspace drawn: the homepage's `@context`, or a shared link's. */
+  context: ConsoleContext = HOME_CONTEXT,
 ): ConsoleData {
   const demo = useDemoConsoleData();
   const [toast, setToast] = useState<ToastSpec | null>(null);
@@ -97,8 +99,8 @@ export function useVisitorConsoleData(
     // workspace" (Dev2, 2026-09-28).
     visitor: signedIn ? { openApp, share, meetings } : { signIn, share, meetings },
     viewer: signedIn ? SIGNED_IN : VISITOR,
-    contexts: [HOME_CONTEXT],
-    selectedContextId: HOME_CONTEXT.id,
+    contexts: [context],
+    selectedContextId: context.id,
     selectContext: () => {},
     stats: [],
     clients: [],
