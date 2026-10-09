@@ -138,3 +138,20 @@ opened off the map returns to it. The map also keeps its camera, its open card
 and its scope for the session (`peek/mapMemory.ts`), so it comes back as it
 was left. Dropping the map from history fails `noteHistory.test.ts`, and a
 card that stopped showing live writing fails `liveMapPeekCard.test.ts`.
+
+**Each AI has a colour; people keep their faces (2026-10-09).** An agent is
+always a robot (PR #1097), so on the map the robot's tile is tinted by which
+AI it is: Claude orange, Codex purple, ChatGPT green, and the texting
+assistant a round teal badge with a speech bubble, the app's accent. Any other
+tool takes one of three spare colours (blue, pink, amber-brown), chosen from a
+hash of its name so it never changes. The classification is one pure module
+(`map/live/agentKind.ts`) that the React faces and the canvas both read, so the
+feed and the map agree. It reads the tool's name after the owner's possessive,
+never the owner's, and the texting assistant is recognised by its client name
+(`Texts (iMessage)`), since the activity file records no client id. A person is
+never an AI, and an edit the app's own console made is drawn as the person who
+made it, not as a tool named after its client (`Context (this app)`). The
+server records nothing differently. The handle colours a person without a photo
+is drawn on keep clear of every AI tint, so four are left: red, yellow, lime
+and sky. Dropping the tints from the handle set fails `faceGroundsGuard.test.ts`,
+and a tool that loses its colour to a random pick fails `liveMapAgentKind.test.ts`.
