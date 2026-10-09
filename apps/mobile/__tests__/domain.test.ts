@@ -13,6 +13,8 @@ import {
   recordsSummary,
   USUAL_CONNECT_MS,
   transientNote,
+  wwwPill,
+  wwwSentence,
   type DnsRecord,
   type DomainView,
 } from "../features/console/domain/domain";
@@ -180,5 +182,53 @@ describe("a pending root domain says what is done and what is left", () => {
   test("the folded summary counts three records as well as two", () => {
     expect(recordsSummary(apex().records)).toBe("3 records");
     expect(recordsSummary([rec("routing", "ALIAS", "@", true), rec("ownership", "TXT", "_context", true)])).toBe("Both found");
+  });
+});
+
+describe("a live root domain's www.", () => {
+  const cname: DnsRecord = { purpose: "www", type: "CNAME", name: "www.acme.com", host: "www", value: "customers.context.lc", done: true };
+  const root = (www: DomainView["www"]): DomainView => ({
+    ...base,
+    hostname: "acme.com",
+    apex: true,
+    status: "active",
+    stage: "live",
+    ownershipVerified: true,
+    routingVerified: true,
+    httpsReady: true,
+    records: [cname],
+    www,
+  });
+
+  test("only says it works once its own certificate is in", () => {
+    const live = root({ hostname: "www.acme.com", live: true, stage: "live", problem: null });
+    expect(wwwSentence(live)).toBe("www.acme.com sends visitors to acme.com.");
+    expect(wwwPill(live.www!)).toEqual({ tone: "ok", label: "Live" });
+
+    const securing = root({ hostname: "www.acme.com", live: false, stage: "https", problem: null });
+    expect(wwwSentence(securing)).toContain("its own certificate is on the way");
+    expect(wwwSentence(securing)).toContain("security error");
+    expect(wwwPill(securing.www!)).toEqual({ tone: "neutral", label: "Securing" });
+
+    const connecting = root({ hostname: "www.acme.com", live: false, stage: "routing", problem: null });
+    expect(wwwSentence(connecting)).toBe("To send www.acme.com here too, add a CNAME for www pointing at customers.context.lc.");
+    expect(wwwPill(connecting.www!)).toEqual({ tone: "neutral", label: "Connecting" });
+  });
+
+  test.each([
+    ["CERTIFICATE_FAILED", "certificate couldn't be issued"],
+    ["ROUTING_BLOCKED", "isn't reaching Context"],
+    ["TIMED_OUT", "We stopped checking www.acme.com"],
+    ["PROVIDER_REFUSED", "turned www.acme.com down"],
+  ])("a stuck www. (%s) says what to do and needs attention", (problem, words) => {
+    const stuck = root({ hostname: "www.acme.com", live: false, stage: "https", problem });
+    expect(wwwSentence(stuck)).toContain(words);
+    expect(wwwPill(stuck.www!)).toEqual({ tone: "warn", label: "Needs attention" });
+  });
+
+  test("a problem that is ours to retry is a wait, not an alarm", () => {
+    const retrying = root({ hostname: "www.acme.com", live: false, stage: "https", problem: "PROVIDER_UNAVAILABLE" });
+    expect(wwwPill(retrying.www!)).toEqual({ tone: "neutral", label: "Securing" });
+    expect(wwwSentence(retrying)).toContain("on the way");
   });
 });

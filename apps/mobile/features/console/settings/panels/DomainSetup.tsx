@@ -168,7 +168,7 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
   );
 }
 
-function CheckLine({ domain, actions }: { domain: DomainView; actions: DomainActions }) {
+export function CheckLine({ domain, actions }: { domain: DomainView; actions: DomainActions }) {
   const styles = useThemedStyles(makeStyles);
   const [busy, setBusy] = useState(false);
   // Re-render once in a while so "Checked just now" ages without a query.

@@ -110,6 +110,10 @@ async function ensureRegistration(
   return registration;
 }
 
+function stillPending(registration: CustomHostname): boolean {
+  return registration.status === "pending" || registration.ssl?.status !== "active";
+}
+
 async function runCheck(
   ctx: ActionCtx,
   domainId: Doc<"customDomains">["_id"],
@@ -132,9 +136,11 @@ async function runCheck(
   } else {
     try {
       let registration = await ensureRegistration(ctx, config, row);
-      // A root domain waits on Cloudflare's own backoff, which reaches hours
-      // between looks; a press of "Check again" asks it to look now.
-      if (options.refresh && row.apex && registration !== null && registration.status === "pending") {
+      // A hostname or certificate still pending waits on Cloudflare's own
+      // backoff, which reaches hours between looks; a press of "Check again"
+      // asks it to look now. That includes a root's `www.`, whose certificate
+      // is its own and can still be pending after the root is live.
+      if (options.refresh && registration !== null && stillPending(registration)) {
         registration = await refreshHostname(config, registration.id);
       }
       findings.readiness = readinessOf(registration);

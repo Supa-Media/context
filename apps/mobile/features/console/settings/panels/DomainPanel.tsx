@@ -19,12 +19,13 @@ import {
   domainPill,
   domainShapeProblem,
   domainUrl,
+  wwwPill,
   wwwSentence,
   type DomainView,
 } from "../../domain/domain";
 import type { DomainActions, DomainPanelView, HomepageChoice } from "../../domain/useDomain";
 import { useDomain } from "../../domain/useDomain";
-import { DomainSetup } from "./DomainSetup";
+import { CheckLine, DomainSetup } from "./DomainSetup";
 import { PanelHead } from "./PanelHead";
 import { LiveWebsiteCard, WebsiteCard, WebsiteViewOverride } from "./WebsiteCard";
 import { consoleOrigin } from "../../files/shareOrigin";
@@ -332,15 +333,19 @@ function DomainCard({
           {domain.www !== null && (owner || domain.www.live) ? (
             <Row divided testID="domain-www">
               <Grow>
-                <Text variant="rowTitle" selectable>
+                <Text variant="rowTitle" selectable numberOfLines={1}>
                   {domain.www.hostname}
                 </Text>
                 <Text variant="rowSub" style={styles.sub} selectable>
                   {wwwSentence(domain)}
                 </Text>
               </Grow>
+              <WwwPill www={domain.www} />
             </Row>
           ) : null}
+          {/* Live is not the end of checking: a `www.` can still be on its
+              way, and a live domain can lose its records. */}
+          {owner ? <CheckLine domain={domain} actions={actions} /> : null}
         </>
       ) : null}
 
@@ -374,6 +379,15 @@ function DomainCard({
 
       {owner && domain.status !== "removing" ? <RemoveRow domain={domain} actions={actions} /> : null}
     </Card>
+  );
+}
+
+function WwwPill({ www }: { www: NonNullable<DomainView["www"]> }) {
+  const pill = wwwPill(www);
+  return (
+    <Pill tone={pill.tone} leading={<Dot tone={pill.tone} />} testID="domain-www-pill">
+      {pill.label}
+    </Pill>
   );
 }
 
