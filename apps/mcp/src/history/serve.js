@@ -179,7 +179,7 @@ function within(entry, from, to) {
 }
 
 /** The answer from the table, or throws for the caller to answer from the bucket. */
-async function fromIndex(store, client, { from, to, now, budget, file, defer }) {
+async function fromIndex(store, client, { from, to, now, budget, file, defer, maxRows = HISTORY_MAX_ROWS }) {
   let state = await readHistoryState(client);
   budget.take();
   // The first mirror says where audit records stop being needed, so it is
@@ -203,7 +203,7 @@ async function fromIndex(store, client, { from, to, now, budget, file, defer }) 
   let before = null;
   let full = false;
   for (;;) {
-    const want = Math.min(HISTORY_PAGE_ROWS, HISTORY_MAX_ROWS - rows.length);
+    const want = Math.min(HISTORY_PAGE_ROWS, maxRows - rows.length);
     // Exactly at the cap is counted as short: the next row may exist.
     if (want <= 0 || !budget.take()) {
       full = true;
@@ -255,14 +255,19 @@ async function fromBucket(store, { from, to, budget, file, readVisible }) {
   return { entries: lines, readRecords: reads, complete: !truncated && !fileShort && !spanShort, truncated };
 }
 
-export async function historyAnswer(session, store, privacy, params, env, { now = Date.now(), defer = (work) => Promise.resolve(work).catch(() => {}) } = {}) {
+export async function historyAnswer(session, store, privacy, params, env, options = {}) {
+  const now = options.now ?? Date.now();
   if (!isConsoleActor({ clientId: session.actorClientId })) return empty();
   if (privacy.error) return empty();
   const from = Number(params.get("history_since"));
   const toParam = params.has("history_until") ? Number(params.get("history_until")) : now;
   const to = Number.isFinite(toParam) ? Math.min(toParam, now) : now;
   if (!Number.isFinite(from) || from < 0 || from > to) return empty();
+  return { history: await gather(session, store, privacy, env, { ...options, now, from, to }) };
+}
 
+/** Lines and reads in `[from, to]`, filtered for this caller, from the table or else the bucket. */
+async function gather(session, store, privacy, env, { from, to, now, defer = (work) => Promise.resolve(work).catch(() => {}), maxRows }) {
   const budget = storageBudget(searchBudgetFor(env));
   budget.take(2);
   const [file, forwarding] = await Promise.all([readFile(store), readForwarding(store)]);
@@ -271,7 +276,7 @@ export async function historyAnswer(session, store, privacy, params, env, { now 
   const client = historyClientOf(store);
   if (client !== null) {
     try {
-      const found = await fromIndex(store, client, { from, to, now, budget, file, defer });
+      const found = await fromIndex(store, client, { from, to, now, budget, file, defer, maxRows });
       return finish(found.entries, filters.reads(found.reads), filters, found, "index");
     } catch {
       // The database is having a bad day: the bucket still answers.
@@ -288,7 +293,53 @@ function finish(entries, visibleReads, filters, found, source) {
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
     .map(shapeEntry);
   const reads = visibleReads.sort((a, b) => a.at - b.at || a.path.localeCompare(b.path)).map(shapeRead);
+  return { entries: lines, reads, complete: found.complete && !found.truncated, truncated: found.truncated, source };
+}
+
+/* ------------------------------------------------------------------ *
+ * The per-day summary: a custom range picker's strip over all history.
+ * ------------------------------------------------------------------ */
+
+/** Rows one summary reads at most, newest kept: an activity strip, not a replay. */
+export const HISTORY_DAYS_MAX_ROWS = 20 * HISTORY_PAGE_ROWS;
+
+/** Whether this ask is for the per-day summary. */
+export function asksForHistoryDays(params) {
+  return params.has("history_days");
+}
+
+/**
+ * `GET /agent-activity?history_days=1&tz_offset_min=<local minus UTC>` —
+ *
+ *     {historyDays: [{day: "YYYY-MM-DD", count}], historyStartsAt, historyDaysComplete}
+ *
+ * Every line and every read since the context began, through exactly the
+ * filters a replay is served through (`gather`), counted per local day. A row
+ * the caller may not see is not counted, so a count is never a hint about a
+ * note held back. `historyStartsAt` is the earliest row the caller can see,
+ * or null. Console only, like the rest of the history.
+ */
+export async function historyDaysAnswer(session, store, privacy, params, env, options = {}) {
+  const now = options.now ?? Date.now();
+  const none = { historyDays: [], historyStartsAt: null, historyDaysComplete: false };
+  if (!isConsoleActor({ clientId: session.actorClientId })) return none;
+  if (privacy.error) return none;
+  const rawOffset = Number(params.get("tz_offset_min"));
+  const offset = Number.isFinite(rawOffset) ? Math.max(-14 * 60, Math.min(14 * 60, Math.round(rawOffset))) : 0;
+  const found = await gather(session, store, privacy, env, { ...options, now, from: 0, to: now, maxRows: HISTORY_DAYS_MAX_ROWS });
+  const counts = new Map();
+  let startsAt = null;
+  const count = (at) => {
+    if (!Number.isFinite(at)) return;
+    if (startsAt === null || at < startsAt) startsAt = at;
+    const day = new Date(at + offset * 60_000).toISOString().slice(0, 10);
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  };
+  for (const entry of found.entries) count(Date.parse(entry.at));
+  for (const read of found.reads) count(read.at);
   return {
-    history: { entries: lines, reads, complete: found.complete && !found.truncated, truncated: found.truncated, source },
+    historyDays: [...counts.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([day, n]) => ({ day, count: n })),
+    historyStartsAt: startsAt,
+    historyDaysComplete: found.complete,
   };
 }

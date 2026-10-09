@@ -414,3 +414,45 @@ test("an answer bigger than the cap keeps the newest and says it is short", asyn
     world.restore();
   }
 });
+
+test("the per-day summary counts only what the caller may see, in their own day, from where history starts", async () => {
+  const world = await setUp();
+  try {
+    await seedA(world);
+    const days = async (token, offset = "0") => await ask(world, token, { history_days: "1", tz_offset_min: offset });
+    const owner = await days(T.console);
+    const teamView = await days(T.consoleTeam);
+    const total = (answer) => answer.historyDays.reduce((sum, day) => sum + day.count, 0);
+    const replay = async (token) => {
+      const answer = await history(world, token, 24 * 365);
+      return answer.entries.length + answer.reads.length;
+    };
+    assert.equal(total(owner), await replay(T.console), "a day's count is the replay's rows");
+    assert.equal(total(teamView), await replay(T.consoleTeam), "and a teammate's counts are their replay's");
+    assert.ok(total(teamView) < total(owner), "what a teammate may not see is not counted");
+    assert.equal(owner.historyDaysComplete, true);
+    const ancient = Date.now() - 24 * 31 * H;
+    assert.ok(Math.abs(owner.historyStartsAt - ancient) < 60_000, "history starts at the oldest record");
+    assert.ok(teamView.historyStartsAt > owner.historyStartsAt, "a teammate's starts at the oldest they may see");
+    assert.ok(owner.historyDays.every((day) => /^\d{4}-\d{2}-\d{2}$/.test(day.day) && day.count > 0));
+    const full = await history(world, T.console, 24 * 365);
+    const times = [...full.entries.map((entry) => Date.parse(entry.at)), ...full.reads.map((read) => read.at)];
+    for (const offset of [840, -600]) {
+      const expected = new Map();
+      for (const at of times) {
+        const day = new Date(at + offset * 60_000).toISOString().slice(0, 10);
+        expected.set(day, (expected.get(day) ?? 0) + 1);
+      }
+      const got = await days(T.console, String(offset));
+      assert.deepEqual(
+        got.historyDays,
+        [...expected.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([day, count]) => ({ day, count })),
+        "each row counted on the caller's own day",
+      );
+    }
+    const tool = await ask(world, T.teamTool, { history_days: "1" });
+    assert.deepEqual(tool.historyDays, []);
+  } finally {
+    world.restore();
+  }
+});

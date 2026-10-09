@@ -6,7 +6,7 @@
 import { ACTIVITY_KINDS, activityForCaller, agentActivityKey } from "../agentActivity.js";
 import { heartbeatPerson } from "./activityHeartbeat.js";
 import { asksForStoredReads, storedReadsAnswer } from "./storedReads.js";
-import { asksForHistory, historyAnswer } from "../history/serve.js";
+import { asksForHistory, asksForHistoryDays, historyAnswer, historyDaysAnswer } from "../history/serve.js";
 import {
   bearerToken,
   hasScope,
@@ -300,12 +300,13 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
   // A replay's whole history, and its reads alone for an older console:
   // their own asks, with no heartbeat and no room (`history/serve.js`,
   // `storedReads.js`).
-  if (asksForHistory(params)) {
+  if (asksForHistory(params) || asksForHistoryDays(params)) {
     const defer = (work) => {
       const settled = Promise.resolve(work).catch(() => {});
       if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(settled);
     };
-    return json(await historyAnswer(session, store, privacy, params, env, { now, defer }));
+    const answer = asksForHistory(params) ? historyAnswer : historyDaysAnswer;
+    return json(await answer(session, store, privacy, params, env, { now, defer }));
   }
   if (asksForStoredReads(params)) return json(await storedReadsAnswer(session, store, privacy, params, env, now));
   const sinceParam = params.has("since") ? Number(params.get("since")) : NaN;
