@@ -62,11 +62,6 @@
       "command": "node scripts/build-editor-bundle.mjs"
     },
     {
-      "path": "apps/mobile/features/console/map/live/webview/bundle.generated.ts",
-      "reason": "Minified map engine bundle; CI rebuilds it and compares bytes.",
-      "command": "node scripts/build-map-bundle.mjs"
-    },
-    {
       "path": "apps/convex/functions/lib/reservedNames.generated.ts",
       "reason": "Vendored username blocklists with a digest.",
       "command": "node scripts/build-reserved-names.mjs"
