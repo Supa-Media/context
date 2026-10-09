@@ -86,9 +86,9 @@ function isInputRefusal(error) {
 }
 
 /** Keep a refused passage useful while bounding a model input. No note text enters errors. */
-function shorterInput(text, limit) {
+function shorterInput(text, limit, offset = 0) {
   return Array.from(text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " "))
-    .slice(0, limit)
+    .slice(offset, offset + limit)
     .join("");
 }
 
@@ -189,6 +189,22 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
           if (!isInputRefusal(retryError)) throw retryError;
         }
       }
+      // A bad opening segment can survive both prefix retries. Try clean
+      // sections elsewhere before giving up on this passage. The 1,024-char
+      // sections keep much more of its meaning when they work.
+      const length = Array.from(group[0]).length;
+      for (const limit of [1024, 256]) {
+        if (length <= limit) continue;
+        for (const offset of [Math.floor((length - limit) / 2), length - limit]) {
+          const section = shorterInput(group[0], limit, offset);
+          if (!section) continue;
+          try {
+            return await request([section]);
+          } catch (retryError) {
+            if (!isInputRefusal(retryError)) throw retryError;
+          }
+        }
+      }
       // A fixed, content-free probe distinguishes a particular input from a
       // provider-wide refusal. Never carry the provider's message or the
       // rejected passage into the diagnostic error.
@@ -203,7 +219,7 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
         operation: "embed",
         providerCodes: error.providerCodes,
         probeStatus,
-        inputChars: Array.from(group[0]).length,
+        inputChars: length,
       });
     }
   }
