@@ -259,9 +259,9 @@ test("priceUsd prices haiku under both names", () => {
 
 test("priceUsd prices sonnet under both names", () => {
   const usage = { input: 1000000, output: 1000000, cacheRead: 1000000, cacheWrite: 1000000 };
-  // 3 + 15 + 0.30 + 3.75
-  assert.equal(priceUsd("anthropic/claude-sonnet-5-5", usage), 22.05);
-  assert.equal(priceUsd("claude-sonnet-5-5", usage), 22.05);
+  // 2 + 10 + 0.20 + 2.50
+  assert.equal(priceUsd("anthropic/claude-sonnet-5-5", usage), 14.7);
+  assert.equal(priceUsd("claude-sonnet-5-5", usage), 14.7);
 });
 
 test("priceUsd bills glm cache tokens at the input rate", () => {
