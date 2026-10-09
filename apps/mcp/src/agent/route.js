@@ -233,6 +233,12 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   const productionModel =
     builtin && production !== null && canRunBuiltin(production.model, env) ? production.model : null;
   const builtinUsed = productionModel ?? builtinModel(env);
+  // The setup's router (`router.js`), when this deployment can run both the
+  // decision model and the thinking model; otherwise every text runs on `main`.
+  const router =
+    productionModel !== null && production.router !== null && canRunBuiltin(production.router.think, env)
+      ? { decide: decisionEngine(env.AI), think: production.router.think }
+      : null;
 
   const started = Date.now();
   /*
@@ -240,7 +246,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     Counts only, best effort: a meter that could not be reached costs us a
     report, not the person their answer.
   */
-  const meter = async (usage, failed) => {
+  const meter = async (usage, failed, model = builtinUsed) => {
     if (!builtin) return;
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
@@ -248,8 +254,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         output: usage?.output ?? 0,
         cacheRead: usage?.cacheRead ?? 0,
         cacheWrite: usage?.cacheWrite ?? 0,
-        model: builtinUsed,
-        decision: web?.usage.decision ?? 0,
+        // The model that answered: the router may have sent this text to `think`.
+        model: typeof model === "string" ? model : builtinUsed,
+        decision: (web?.usage.decision ?? 0) + (usage?.decision ?? 0),
         failed,
         ms: Date.now() - started,
       });
@@ -354,9 +361,10 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
+      router,
       maxRounds: production?.maxSteps ?? undefined,
     });
-    await afterAnswer(meter(turn.usage, false));
+    await afterAnswer(meter(turn.usage, false, turn.model));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (runner) {

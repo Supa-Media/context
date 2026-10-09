@@ -468,3 +468,24 @@ test("front matter says whether the world was warm or cold, when the run said", 
   assert.ok(warm.includes("world: warm"));
   assert.ok(!resultMarkdown(fixture).includes("world:"));
 });
+
+test("priceUsd prices opus under both names", () => {
+  const usage = { input: 1000000, output: 1000000, cacheRead: 1000000, cacheWrite: 1000000 };
+  // 4 + 20 + 0.20 + 5
+  assert.equal(priceUsd("anthropic/claude-opus-5-5", usage), 29.2);
+  assert.equal(priceUsd("claude-opus-5-5", usage), 29.2);
+});
+
+test("a routed setup gets a line saying how many answers went to the thinking model", () => {
+  const routed = {
+    ...fixture,
+    setups: [{ name: "router-opus", version: "abc123abc123", model: "anthropic/claude-haiku-5-5", router: { model: "@cf/cloudflare/clef", think: "anthropic/claude-opus-5-5" } }],
+    runs: [
+      { setup: "router-opus", question: 1, run: 1, model: "anthropic/claude-opus-5-5", tools: [{ tool: "router: think", ok: true }], usage: { input: 1000000, output: 0 }, ms: 1000, texts: 1, conversation: [] },
+      { setup: "router-opus", question: 2, run: 1, model: "anthropic/claude-haiku-5-5", tools: [{ tool: "router: main", ok: true }], usage: { input: 1000000, output: 0 }, ms: 1000, texts: 1, conversation: [] },
+    ],
+  };
+  const md = resultMarkdown(routed);
+  assert.ok(md.includes("Routed: router-opus sent 1 of 2 answers to anthropic/claude-opus-5-5 ($4.0000 each); the rest ran on anthropic/claude-haiku-5-5."), md);
+  assert.ok(md.includes("Tools: router: think"), "the pick is on the answer's tools line");
+});

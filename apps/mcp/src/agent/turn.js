@@ -46,6 +46,7 @@ import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from 
 import { AGENT_PROVIDERS, ProviderError, modelFor, requestCompletion } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
+import { pickTier } from "./router.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -261,6 +262,9 @@ async function openBuiltin(controlPlane, session, env) {
  *   instead of `builtinModel(env)`; `route.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
+ * @param {{decide: Function|null, think: string}} [options.router] the setup's
+ *   model router (`router.js`): the decision engine that picks a tier for this
+ *   text, and the model a `think` text runs on; `route.js` checks it can be called
  * @param {() => number} [options.clock] milliseconds, for `timing`
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
@@ -278,6 +282,7 @@ export async function runTurn(options) {
     texting = false,
     notes = null,
     builtinModelOverride = null,
+    router = null,
     maxRounds = MAX_ROUNDS,
     clock = Date.now,
     toolTimeoutMs = TOOL_TIMEOUT_MS,
@@ -292,9 +297,26 @@ export async function runTurn(options) {
   const provider = credential.provider;
   const builtin = provider === BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
-  const model = builtin ? builtinModelOverride ?? builtinModel(env) : modelFor(provider, env, requestedModel);
+  let model = builtin ? builtinModelOverride ?? builtinModel(env) : modelFor(provider, env, requestedModel);
   const rounds = roundsFor(maxRounds);
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, decision: 0 };
+  const trace = [];
+  /*
+    THE ROUTER PICKS THE MODEL BEFORE THE FIRST ROUND (`router.js`).
+
+    Only a built-in turn routes (a person's own account keeps their model), and
+    the whole turn then runs on the model picked, so the tool rounds are
+    coherent. The pick, the router's own word and what it cost are recorded:
+    a benchmark prices the model that answered, and a person watching the
+    turn log sees which tier a slow or wrong answer came from.
+  */
+  if (builtin && router !== null) {
+    const asked = clock();
+    const routed = await pickTier({ decide: router.decide, text: question, history });
+    usage.decision += routed.tokens;
+    if (routed.tier === "think") model = router.think;
+    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked });
+  }
   const system =
     systemPrompt(place, { texting, notes, model, edits: tools.some((tool) => tool.name === "write_note") }) +
     webPrompt(webNames);
@@ -321,7 +343,6 @@ export async function runTurn(options) {
     name, outcome and duration. What the turn log keeps, and what shows where
     one slow turn spent its time.
   */
-  const trace = [];
 
   /*
     THE NARROWED LIST IS ENFORCED HERE, NOT ONLY IN THE PROMPT.

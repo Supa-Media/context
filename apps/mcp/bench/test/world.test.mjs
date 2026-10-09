@@ -275,3 +275,30 @@ test("a note a turn writes is stamped with the pinned clock, so it reads as just
   }
   assert.ok(modified && modified.startsWith("2026-10-08T12:00:"), `stamped ${modified}`);
 });
+
+/* ---------------- the router's pick is on the tools line, and the model that answered is priced ---------------- */
+
+const ROUTED_SETUP =
+  "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\"\n  think: anthropic/claude-opus-5-5\n---\n\nYou are a test assistant.\n";
+
+test("a routed setup records the tier first on the tools line and reports the model that answered", async () => {
+  const { fakeAi } = await import("../models.mjs");
+  const seen = [];
+  const gatewayFetch = async (url, init) => {
+    seen.push(JSON.parse(init.body).model);
+    return readsOnce({ path: "health/dentist.md" })(url, init);
+  };
+  const world = await createWorld(bench, "Maya", ROUTED_SETUP, { gatewayFetch, ai: fakeAi() });
+  try {
+    const thought = await world.text("Should I move the trip, given the dentist clash?");
+    assert.equal(thought.tools[0]?.tool, "router: think", JSON.stringify(thought.tools));
+    assert.equal(thought.model, "anthropic/claude-opus-5-5", "priced as the model that answered");
+    assert.equal(seen.at(-1), "claude-opus-5-5");
+    const looked = await world.text("When is my dentist appointment?");
+    assert.equal(looked.tools[0]?.tool, "router: main");
+    assert.equal(looked.model, "anthropic/claude-haiku-5-5");
+    assert.equal(seen.at(-1), "claude-haiku-5-5");
+  } finally {
+    world.close();
+  }
+});

@@ -231,7 +231,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         model: usage.model ?? body?.model ?? null,
         // Each call with whether it succeeded: a result note that hides failed calls
         // reads like a model that could not find anything.
-        tools: (turn.trace ?? []).filter((entry) => entry.kind === "tool").map((entry) => ({ tool: entry.tool, ok: entry.ok !== false })),
+        // The router's pick first, when the setup has one (`src/agent/router.js`):
+        // a judge sees which tier answered, and the score prices that model.
+        tools: (turn.trace ?? [])
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router")
+          .map((entry) => (entry.kind === "router" ? { tool: `router: ${entry.tier}`, ok: true } : { tool: entry.tool, ok: entry.ok !== false })),
         usage: {
           input: usage.inputTokens ?? 0,
           output: usage.outputTokens ?? 0,
