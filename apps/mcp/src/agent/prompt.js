@@ -87,7 +87,19 @@ export function modelLine(model) {
  * edits or proposes, and where the person is — is said here either way, so a
  * note can add to the agent's understanding but never misdescribe its reach.
  */
-export function systemPrompt(place, { texting = false, notes = null, model = null, edits = false } = {}) {
+/**
+ * Said when the turn carries earlier turns of the conversation. The history is
+ * words only (`conversation.js`), so the model sees its earlier answers with no
+ * tool call behind them, and a model that notices concludes it never looked and
+ * takes the answer back ("I didn't check your notes before answering", in a
+ * round-three benchmark on a "thanks!"). The lookups happened; say so.
+ */
+const CONTINUED =
+  "Earlier texts in this conversation are shown as words only: the notes you read and the tools you used to answer " +
+  "them are not shown here, but you did use them. Never take back or doubt an earlier answer because its lookups " +
+  "are not shown; if something needs checking, read the notes again.";
+
+export function systemPrompt(place, { texting = false, notes = null, model = null, edits = false, continued = false } = {}) {
   // A production setup's prompt (`production.js`) is the whole of who the
   // assistant is and how it writes: it stands in for the identity and the
   // texting style alike, so it is said once and nothing else follows it.
@@ -107,6 +119,7 @@ export function systemPrompt(place, { texting = false, notes = null, model = nul
         edits ? EDITS_DIRECTLY : PROPOSES,
         ...GROUND_RULES,
       ];
+  if (continued) lines.push(CONTINUED);
   const which = modelLine(model);
   if (which) lines.push(which);
 

@@ -23,6 +23,7 @@ export const ADMIN_ACTIONS = [
   "person.phone_removed",
   "person.archived",
   "person.unarchived",
+  "texts.sender_set",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

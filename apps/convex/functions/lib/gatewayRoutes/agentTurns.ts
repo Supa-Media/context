@@ -3,27 +3,50 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
 
-type TraceEntry = { kind: "model" | "tool"; tool?: string; ok: boolean; ms: number };
+type TraceEntry = {
+  kind: "model" | "tool" | "router" | "fallback";
+  tool?: string;
+  tier?: "main" | "think";
+  model?: string;
+  status?: number;
+  retried?: boolean;
+  ok: boolean;
+  ms: number;
+};
 
-/** The trace as sent, or null for any entry that is not exactly the shape. */
+/**
+ * The trace as the gateway's `wireTraceEntry` (`apps/mcp/src/agent/route.js`)
+ * sends it: kinds, names, numbers and flags. Anything else on an entry is
+ * dropped here, before the mutation's validator ever sees it, so a field this
+ * handler does not know can never carry a provider's words into the log.
+ */
 function traceOf(value: unknown): TraceEntry[] | null {
   if (!Array.isArray(value)) return null;
   const trace: TraceEntry[] = [];
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) return null;
-    const { kind, tool, ok, ms } = entry as Record<string, unknown>;
-    if ((kind !== "model" && kind !== "tool") || typeof ok !== "boolean" || typeof ms !== "number") return null;
+    const { kind, tool, tier, model, status, retried, ok, ms } = entry as Record<string, unknown>;
+    if (kind !== "model" && kind !== "tool" && kind !== "router" && kind !== "fallback") return null;
+    if (typeof ok !== "boolean" || typeof ms !== "number") return null;
     if (tool !== undefined && typeof tool !== "string") return null;
-    trace.push(tool === undefined ? { kind, ok, ms } : { kind, tool, ok, ms });
+    if (tier !== undefined && tier !== "main" && tier !== "think") return null;
+    if (model !== undefined && typeof model !== "string") return null;
+    if (status !== undefined && typeof status !== "number") return null;
+    if (retried !== undefined && typeof retried !== "boolean") return null;
+    trace.push({
+      kind,
+      ok,
+      ms,
+      ...(tool === undefined ? {} : { tool }),
+      ...(tier === undefined ? {} : { tier }),
+      ...(model === undefined ? {} : { model }),
+      ...(status === undefined ? {} : { status }),
+      ...(retried === undefined ? {} : { retried }),
+    });
   }
   return trace;
 }
 
-/**
- * POST /gateway/agent-turn — one finished agent turn, for the turn log
- * (`functions/agentTurns.ts`). Behind the gateway's own secret, with the
- * person's access token as the second proof. Names and numbers only.
- */
 export async function gatewayAgentTurnHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const accessToken = stringField(body, "accessToken");
   const expected = nullableStringField(body, "expectedWorkspaceId");

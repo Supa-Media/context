@@ -201,6 +201,20 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
     AI_GATEWAY_ID: "bench",
     AI_GATEWAY_TOKEN: "bench-gateway-token-not-a-real-one",
+    // Production offers search_web and open_page when it has a search key, so
+    // a run offers the same tools (decided 2026-10-09; round two measured a
+    // shorter tool list than production). The run command passes the key.
+    ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+  };
+
+  /** Files the gateway writes for itself on a save: never the model's change. */
+  const PLUMBING_FILES = new Set(["privacy.md", "activity.md"]);
+  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path);
+
+  /** The status the failed round got, from the turn log's trace; null when none. */
+  const failedStatus = (trace) => {
+    const failed = (trace ?? []).find((entry) => entry.kind === "model" && entry.ok === false);
+    return typeof failed?.status === "number" ? failed.status : null;
   };
 
   return {
@@ -226,16 +240,31 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
-        error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
+        // The gateway hides a provider's reason from the caller; the turn log
+        // keeps the status (`route.js` `wireTraceEntry`), and a result says it.
+        error:
+          response.status === 200
+            ? null
+            : `${String(body?.error ?? `status ${response.status}`)}${failedStatus(turn.trace) === null ? "" : ` (status ${failedStatus(turn.trace)})`}`,
         ms,
         model: usage.model ?? body?.model ?? null,
         // Each call with whether it succeeded: a result note that hides failed calls
         // reads like a model that could not find anything.
         // The router's pick first, when the setup has one (`src/agent/router.js`):
         // a judge sees which tier answered, and the score prices that model.
+        // A fallback and a retried round are recorded the same way, because
+        // they are what production does and a result must show how often.
         tools: (turn.trace ?? [])
-          .filter((entry) => entry.kind === "tool" || entry.kind === "router")
-          .map((entry) => (entry.kind === "router" ? { tool: `router: ${entry.tier}`, ok: true } : { tool: entry.tool, ok: entry.ok !== false })),
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && entry.retried))
+          .map((entry) =>
+            entry.kind === "router"
+              ? { tool: `router: ${entry.tier}`, ok: true }
+              : entry.kind === "fallback"
+                ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
+                : entry.kind === "model"
+                  ? { tool: `retried${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
+                  : { tool: entry.tool, ok: entry.ok !== false },
+          ),
         usage: {
           input: usage.inputTokens ?? 0,
           output: usage.outputTokens ?? 0,
@@ -268,12 +297,15 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
             });
             continue;
           }
-          // Plumbing a turn writes for itself (history, reads, audit) is not something it did.
-          if (path.startsWith(".")) continue;
+          // Plumbing a turn writes for itself (history, reads, audit, and the
+          // privacy manifest and activity log the gateway rewrites on every
+          // save) is not something it did. Round two failed six change questions
+          // for every setup on "changed another note", every one `privacy.md`.
+          if (isPlumbingPath(path)) continue;
           out.push({ workspace: name, path, kind: "written", detail: text.replace(/\s+/g, " ").trim().slice(0, 300) });
         }
         for (const path of was.keys()) {
-          if (!now.has(path) && !path.startsWith(".")) out.push({ workspace: name, path, kind: "deleted", detail: "" });
+          if (!now.has(path) && !isPlumbingPath(path)) out.push({ workspace: name, path, kind: "deleted", detail: "" });
         }
       }
       return out;

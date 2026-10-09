@@ -1,9 +1,10 @@
 import { checkTwilioVerification, sendTwilioSms, sendTwilioVerification, twilioSmsKeys } from "@supa-media/convex/auth";
 import type { TwilioCheckResult, TwilioSendResult } from "@supa-media/convex/auth";
 import { v } from "convex/values";
-import { internalMutation, type ActionCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { contextVerifyKeys } from "./lib/phoneCheck";
+import { smsKeysWithSender, storedMessagingServiceSid } from "./lib/adminFns/signInTexts";
 
 /**
  * Sign-in codes in Context's own words (Dev2, 2026-10-09).
@@ -11,10 +12,12 @@ import { contextVerifyKeys } from "./lib/phoneCheck";
  * Twilio Verify wrote "Your togather verification code", because the Verify
  * service is shared with Togather and signs codes with its name, and it
  * refused a per-text name (#1427, undone in #1432). So Context texts the code
- * itself, from its own number (`TWILIO_FROM_NUMBER`), and keeps a hash of it
- * here to check against.
+ * itself, through its Messaging Service, and keeps a hash of it here to
+ * check against. The service comes from the deployment
+ * (`TWILIO_MESSAGING_SERVICE_SID`) or, when that names none, from the admin
+ * console's Credentials tab.
  *
- * Until that number is configured, codes still go through Verify, and a code
+ * Until either is set, codes still go through Verify, and a code
  * Verify sent is still checked by Verify: a code is checked by whoever sent
  * it, so switching over never strands a code already on someone's phone.
  */
@@ -54,9 +57,17 @@ export function canTextCodes(): boolean {
   return twilioSmsKeys() !== null || contextVerifyKeys() !== null;
 }
 
-/** Text a sign-in code to `phone` (E.164): Context's own words when it has a number. */
+/** The deployment's sender, else the one staff set in the console, else none. */
+async function smsKeys(ctx: ActionCtx) {
+  const fromDeployment = twilioSmsKeys();
+  if (fromDeployment !== null) return fromDeployment;
+  const stored: string | null = await ctx.runQuery(internal.functions.phoneCodes.storedSender, {});
+  return stored === null ? null : smsKeysWithSender(stored);
+}
+
+/** Text a sign-in code to `phone` (E.164): Context's own words when it has a sender. */
 export async function textCode(ctx: ActionCtx, phone: string): Promise<TwilioSendResult> {
-  const sms = twilioSmsKeys();
+  const sms = await smsKeys(ctx);
   if (sms === null) {
     const verify = contextVerifyKeys();
     return verify === null ? { ok: false, reason: "failed" } : await sendTwilioVerification(verify, phone);
@@ -81,6 +92,12 @@ export async function checkCode(ctx: ActionCtx, phone: string, code: string): Pr
   const verify = contextVerifyKeys();
   return verify === null ? "wrong" : await checkTwilioVerification(verify, phone, code);
 }
+
+export const storedSender = internalQuery({
+  args: {},
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx) => await storedMessagingServiceSid(ctx),
+});
 
 /** Keep `codeHash` as the one code for `phone`, replacing any earlier one. */
 export const issue = internalMutation({

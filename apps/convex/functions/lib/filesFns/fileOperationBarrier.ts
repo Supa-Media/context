@@ -430,6 +430,7 @@ export async function runFileOperationHandler(
     (material) => {
       dueNotification = material;
     },
+    args.workspaceId,
   );
   const result = await (RELOCATING_OPERATIONS.has(args.operation.kind)
     ? asRelocation(store, operate)

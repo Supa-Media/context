@@ -1,0 +1,151 @@
+# Runs one of the AI jobs' benchmarks against the real models and shows the
+# scores on the run's summary page, so anybody who can open the Actions tab can
+# run a round and read it without a machine, a key or a chat.
+#
+# What it runs is `pnpm ai run`, `judge`, `score` and `summary` from
+# apps/mcp/bench/, against the folder committed at apps/mcp/bench/ai/: invented
+# people and workspaces, the tests, and the setups the round compares. No
+# customer note is anywhere near it. The result and the key go up as two
+# artifacts; the result and the key still belong in `@context-lc ai/results/`,
+# and whoever reads the round copies them there (the key is a separate
+# artifact so a judge can be handed the result alone).
+#
+# What it spends: the gateway's model calls, on the Claude plan credit first
+# (ANTHROPIC_CREDIT_KEY), then Unified Billing; a four-arm texting-assistant
+# round is a few dollars, almost all of it the Sonnet arm. The judging refuses
+# over `max_usd` before its first call (default $1; Haiku judges a round for
+# cents). The `fake` input runs the whole pipeline on a scripted model and
+# spends nothing, which is how to check the workflow itself.
+#
+# Manual only. It reads production's secrets, and nothing about a branch may
+# run it: no `push`, no `pull_request`, no schedule (a schedule would spend
+# money on nobody's say-so). check-workflow-triggers.mjs holds that line.
+name: AI Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "The job to benchmark (tests/<job>.md, setups/<job>/)"
+        required: false
+        default: "texting-assistant"
+      setups:
+        description: "Setups to run, comma-separated; empty runs every setup in setups/<job>/"
+        required: false
+        default: ""
+      questions:
+        description: "Questions to ask, comma-separated; empty asks them all"
+        required: false
+        default: ""
+      runs:
+        description: "Runs per question; empty uses the test's"
+        required: false
+        default: ""
+      parallel:
+        description: "How many processes answer at once"
+        required: false
+        default: "6"
+      judge:
+        description: "The judge model; empty uses the test's (Haiku)"
+        required: false
+        default: ""
+      max_usd:
+        description: "The most the judging may spend; it refuses over this before its first call"
+        required: false
+        default: "1"
+      fake:
+        description: "Scripted model, no keys, spends nothing: checks the workflow"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Run, judge, score
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 120
+    env:
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      BENCH_JOB: ${{ inputs.job || 'texting-assistant' }}
+      BENCH_FAKE: ${{ inputs.fake && '--fake' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refuse to run without the keys a real round needs
+        if: ${{ !inputs.fake }}
+        run: |
+          for var in AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID AI_GATEWAY_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_AI_TOKEN BRAVE_SEARCH_API_KEY; do
+            if [ -z "${!var}" ]; then echo "::error::$var is empty in the production environment (scripts/secrets-allowlist.json says which sync fills it)."; exit 1; fi
+          done
+
+      - name: Name the result
+        id: name
+        run: |
+          stamp="$(date -u +%Y-%m-%d)"
+          echo "result=apps/mcp/bench/ai/results/${stamp} ${BENCH_JOB} gh-${{ github.run_number }}.md" >> "$GITHUB_OUTPUT"
+          echo "key=apps/mcp/bench/ai/results/${stamp} ${BENCH_JOB} gh-${{ github.run_number }} key.md" >> "$GITHUB_OUTPUT"
+
+      - name: Run every setup against every question
+        run: |
+          args=("$BENCH_JOB" --parallel "${{ inputs.parallel || '6' }}" --out "${{ steps.name.outputs.result }}")
+          [ -n "${{ inputs.setups }}" ] && args+=(--setups "${{ inputs.setups }}")
+          [ -n "${{ inputs.questions }}" ] && args+=(--questions "${{ inputs.questions }}")
+          [ -n "${{ inputs.runs }}" ] && args+=(--runs "${{ inputs.runs }}")
+          [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
+          pnpm ai run "${args[@]}"
+
+      - name: Judge every answer, blind
+        run: |
+          args=("${{ steps.name.outputs.result }}" --max-usd "${{ inputs.max_usd || '1' }}")
+          [ -n "${{ inputs.judge }}" ] && args+=(--judge "${{ inputs.judge }}")
+          [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
+          pnpm ai judge "${args[@]}"
+
+      - name: Score
+        run: pnpm ai score "${{ steps.name.outputs.result }}"
+
+      - name: Show the scores on this run's summary page
+        if: ${{ always() && steps.name.outputs.result != '' }}
+        run: |
+          if [ -f "${{ steps.name.outputs.result }}" ]; then
+            pnpm --silent ai summary "${{ steps.name.outputs.result }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "_The run wrote no result note; read the job log._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the result note
+        if: ${{ always() && steps.name.outputs.result != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-result
+          path: ${{ steps.name.outputs.result }}
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload the key note, separately
+        if: ${{ always() && steps.name.outputs.key != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-key
+          path: ${{ steps.name.outputs.key }}
+          if-no-files-found: ignore
+          retention-days: 90

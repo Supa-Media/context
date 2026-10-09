@@ -143,6 +143,9 @@ export const D1_PASS_NOTE_CAP = 20;
  */
 export const VERSION_PROBE_CAP = 100;
 
+/** The largest D1 `IN` query known to work across the Cloudflare API. */
+const VERSION_PROBE_QUERY_CAP = 100;
+
 /**
  * Statements held before they are sent. A window of a hundred typical notes is
  * about five hundred statements, so a pass usually sends once; the client
@@ -173,15 +176,17 @@ export async function readIndexState(client) {
 
 /** The versions the projection currently holds for a window of paths. */
 export async function storedVersions(client, paths) {
-  if (paths.length === 0) return new Map();
-  const placeholders = paths.map(() => "?").join(", ");
-  const rows = await client.query(
-    `SELECT path, version FROM notes WHERE path IN (${placeholders})`,
-    paths
-  );
   const versions = new Map();
-  for (const row of rows) {
-    if (row && typeof row.path === "string") versions.set(row.path, row.version);
+  for (let at = 0; at < paths.length; at += VERSION_PROBE_QUERY_CAP) {
+    const batch = paths.slice(at, at + VERSION_PROBE_QUERY_CAP);
+    const placeholders = batch.map(() => "?").join(", ");
+    const rows = await client.query(
+      `SELECT path, version FROM notes WHERE path IN (${placeholders})`,
+      batch
+    );
+    for (const row of rows) {
+      if (row && typeof row.path === "string") versions.set(row.path, row.version);
+    }
   }
   return versions;
 }
@@ -308,6 +313,9 @@ export async function countProjected(client) {
  * @param {object} options.budget the shared subrequest budget.
  * @param {number} options.reserve ops this pass may not spend.
  * @param {number} options.noteCap notes this pass may project.
+ * @param {number} options.versionProbeCap paths whose stored versions one pass
+ *   may compare. The control plane can scan more current paths than a gateway
+ *   request without raising the cap on notes it writes.
  * @param {number} options.indexPending notes the R2 index itself has not
  *   reached yet, so a projection cannot honestly call itself complete.
  * @param {(progress: object) => Promise<void>|void} options.reportProgress
@@ -323,6 +331,7 @@ export async function projectPass(
     budget,
     reserve = 0,
     noteCap = D1_PASS_NOTE_CAP,
+    versionProbeCap = VERSION_PROBE_CAP,
     indexPending = 0,
     reportProgress = null,
   } = {}
@@ -333,6 +342,7 @@ export async function projectPass(
     notesIndexed: 0,
     notesPending: 0,
     cursor: "",
+    cursorAdvanced: false,
     sweepComplete: false,
     reported: false,
     failure: null,
@@ -340,6 +350,9 @@ export async function projectPass(
   };
   const paths = census instanceof Map ? census : new Map(census || []);
   const cap = Number.isFinite(noteCap) ? Math.max(0, Math.floor(noteCap)) : D1_PASS_NOTE_CAP;
+  const probeCap = Number.isFinite(versionProbeCap)
+    ? Math.max(1, Math.min(300, Math.floor(versionProbeCap)))
+    : VERSION_PROBE_CAP;
   // Every op below is taken against this floor, so the cursor write at the end
   // is affordable however the pass went. `budget.take(floor)` spends one op
   // only while more than `floor` remain.
@@ -379,15 +392,16 @@ export async function projectPass(
     for (const path of sorted) {
       if (cursorKeyOf(path) <= from) continue;
       remaining.push(path);
-      if (remaining.length > VERSION_PROBE_CAP) break;
+      if (remaining.length > probeCap) break;
     }
-    const windowReachedEnd = remaining.length <= VERSION_PROBE_CAP;
-    const window = remaining.slice(0, VERSION_PROBE_CAP);
+    const windowReachedEnd = remaining.length <= probeCap;
+    const window = remaining.slice(0, probeCap);
 
     let stored = new Map();
     if (window.length > 0) {
-      if (!afford(1)) return await finish(result, paths, indexPending, budget, reserve, client, reportProgress);
-      budget.take(floor);
+      const probes = Math.ceil(window.length / VERSION_PROBE_QUERY_CAP);
+      if (!afford(probes)) return await finish(result, paths, indexPending, budget, reserve, client, reportProgress);
+      for (let probe = 0; probe < probes; probe += 1) budget.take(floor);
       stored = await storedVersions(client, window);
     }
 
@@ -546,6 +560,7 @@ export async function projectPass(
            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
         [CURSOR_KEY, nextCursor]
       );
+      result.cursorAdvanced = true;
     }
     result.cursor = nextCursor;
   } catch (error) {

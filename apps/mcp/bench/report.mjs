@@ -153,6 +153,46 @@ function routedLines(setups, runs) {
   return lines;
 }
 
+// For each setup: how many answers the gateway retried, and how many went on
+// to the setup's fallback model after the main one failed. Production does the
+// same, so a run says how often a person would have waited or been answered
+// by the fallback, and the score says what those answers were worth.
+// Where a run's hours went, per setup: answering (the model's time, which the
+// setup owns), playing the person (the run's), and the rest (worlds, reruns).
+// Decided 2026-10-09, after a seven-hour run whose answers summed to two. The
+// total is summed over the setup's conversations, so with shards it exceeds
+// the clock: the line says "across its conversations", never "wall time".
+function timeLines(setups, runs) {
+  const lines = [];
+  const minutes = (ms) => `${Math.round(ms / 60000)} min`;
+  for (const setup of setups) {
+    const mine = runs.filter((r) => r.setup === setup.name && typeof r.wallMs === "number");
+    if (!mine.length) continue;
+    const wall = mine.reduce((sum, r) => sum + r.wallMs, 0);
+    const answering = mine.reduce((sum, r) => sum + (r.ms ?? 0), 0);
+    const person = mine.reduce((sum, r) => sum + (r.personMs ?? 0), 0);
+    lines.push(`Time: ${setup.name} spent ${minutes(wall)} across its conversations: ${minutes(answering)} answering, ${minutes(person)} playing the person, ${minutes(Math.max(0, wall - answering - person))} on worlds and reruns.`, "");
+  }
+  return lines;
+}
+
+function resilienceLines(setups, runs) {
+  const lines = [];
+  for (const setup of setups) {
+    const mine = runs.filter((r) => r.setup === setup.name);
+    const calls = (r) => (r.tools ?? []).filter((call) => typeof call !== "string").map((call) => call.tool);
+    const retried = mine.filter((r) => calls(r).some((name) => name.startsWith("retried")));
+    const fellBack = mine.filter((r) => calls(r).some((name) => name.startsWith("fallback: ")));
+    if (retried.length) lines.push(`Retried: ${setup.name} had the gateway retry a round in ${retried.length} of ${mine.length} answers.`, "");
+    const reran = mine.filter((r) => r.reran);
+    if (reran.length) lines.push(`Reran: ${setup.name} had ${reran.length} of ${mine.length} answers run again after an error; ${reran.filter((r) => r.error).length} still failed.`, "");
+    if (setup.fallback) {
+      lines.push(`Fell back: ${setup.name} went on to ${setup.fallback} in ${fellBack.length} of ${mine.length} answers after ${setup.model} failed.`, "");
+    }
+  }
+  return lines;
+}
+
 function runBlock(run, setup) {
   const lines = [`#### ${run.id}`, ""];
   for (const m of run.conversation ?? []) {
@@ -168,6 +208,7 @@ function runBlock(run, setup) {
     }
     lines.push("");
   }
+  if (run.reran) lines.push(`Reran after: ${run.reran}`, "");
   if (run.error) {
     lines.push(`Error: ${run.error}`, "");
   } else {
@@ -226,6 +267,8 @@ export function resultMarkdown(result) {
     ...setups.map((s) => `| ${summaryRow(s, runs).join(" | ")} |`),
     "",
     ...routedLines(setups, runs),
+    ...resilienceLines(setups, runs),
+    ...timeLines(setups, runs),
     "## Answers",
     "",
   ];

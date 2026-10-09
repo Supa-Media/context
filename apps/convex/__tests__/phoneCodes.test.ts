@@ -3,6 +3,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
 import { codeText, newCode } from "../functions/phoneCodes";
+import { smsKeysWithSender } from "../functions/lib/adminFns/signInTexts";
 
 /**
  * SIGN-IN CODES IN CONTEXT'S OWN WORDS.
@@ -170,5 +171,101 @@ describe("checking it", () => {
       status: "confirmed",
     });
     expect(calls.some((call) => call.host === "verify.twilio.com")).toBe(false);
+  });
+});
+
+describe("the sender staff set in the admin console (Dev2, 2026-10-09)", () => {
+  const STAFF = "staff@context.test";
+  const STORED = "MG0123456789abcdef0123456789abcdef";
+
+  async function staff(t: TestConvex) {
+    vi.stubEnv("ADMIN_EMAILS", STAFF);
+    const id = await t.run((ctx) => ctx.db.insert("users", { email: STAFF, emailVerificationTime: Date.now() } as never));
+    return t.withIdentity({ subject: id });
+  }
+
+  test("texts in Context's words through the stored Messaging Service when the deployment names none", async () => {
+    vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "");
+    const t = setupTest();
+    await held(t);
+    const admin = await staff(t);
+    expect(await admin.query(api.functions.admin.signInTexts, {})).toEqual({
+      messagingServiceSid: null,
+      fromDeployment: false,
+      saysContext: false,
+    });
+    await admin.mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: ` ${STORED} ` });
+    expect(await admin.query(api.functions.admin.signInTexts, {})).toEqual({
+      messagingServiceSid: STORED,
+      fromDeployment: false,
+      saysContext: true,
+    });
+    await start(t);
+    const sent = calls.find((call) => call.host === "api.twilio.com")!;
+    expect(sent.body.get("MessagingServiceSid")).toBe(STORED);
+    expect(calls.some((call) => call.host === "verify.twilio.com")).toBe(false);
+    expect(await signIn(t, textedCode())).toBe(true);
+  });
+
+  test("clearing it puts codes back through Verify", async () => {
+    vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "");
+    const t = setupTest();
+    await held(t);
+    const admin = await staff(t);
+    await admin.mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: STORED });
+    await admin.mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: "" });
+    await start(t);
+    expect(calls.some((call) => call.host === "api.twilio.com")).toBe(false);
+    expect(calls.some((call) => call.host === "verify.twilio.com")).toBe(true);
+  });
+
+  test("the deployment's own value wins over the stored one", async () => {
+    const t = setupTest();
+    await held(t);
+    const admin = await staff(t);
+    await admin.mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: STORED });
+    expect((await admin.query(api.functions.admin.signInTexts, {})).fromDeployment).toBe(true);
+    await start(t);
+    expect(calls.find((call) => call.host === "api.twilio.com")!.body.get("MessagingServiceSid")).toBe("MG_test_not_real");
+  });
+
+  test("only a Messaging Service ID is kept, and only staff may set or read it", async () => {
+    const t = setupTest();
+    const admin = await staff(t);
+    for (const bad of ["MG123", "AC" + "0".repeat(32), "+12025550100", "https://x.test"]) {
+      await expect(admin.mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: bad })).rejects.toThrow(
+        /Messaging Service/,
+      );
+    }
+    const stranger = await createUser(t, "someone@home.example");
+    await expect(
+      asUser(t, stranger).mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: STORED }),
+    ).rejects.toThrow();
+    await expect(asUser(t, stranger).query(api.functions.admin.signInTexts, {})).rejects.toThrow();
+    await expect(t.mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: STORED })).rejects.toThrow();
+  });
+});
+
+describe("the stored sender on the real runtime", () => {
+  test("reads the account keys by name, because a deployment's environment cannot be listed", () => {
+    // Convex's `process.env` answers a named read but lists no keys, so
+    // `{ ...process.env }` is empty there. That shipped (#1439): the panel
+    // saved the ID and every code still went through Verify.
+    const values: Record<string, string> = {
+      TWILIO_ACCOUNT_SID: "AC_test_not_real",
+      TWILIO_API_KEY_SID: "SK_test_not_real",
+      TWILIO_API_KEY_SECRET: "test-secret-not-real",
+    };
+    const unlistable = new Proxy({} as Record<string, string | undefined>, {
+      get: (_target, name) => values[name as string],
+      ownKeys: () => [],
+    });
+    expect({ ...unlistable }).toEqual({});
+    expect(smsKeysWithSender("MG0123456789abcdef0123456789abcdef", unlistable)).toEqual({
+      accountSid: "AC_test_not_real",
+      apiKeySid: "SK_test_not_real",
+      authToken: "test-secret-not-real",
+      from: { messagingServiceSid: "MG0123456789abcdef0123456789abcdef" },
+    });
   });
 });

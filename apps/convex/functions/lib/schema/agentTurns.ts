@@ -32,8 +32,16 @@ export const agentTurnTables = {
     /** In order: each model round, and each tool call between them. */
     trace: v.array(
       v.object({
-        kind: v.union(v.literal("model"), v.literal("tool")),
+        kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
         tool: v.optional(v.string()),
+        // router: the tier picked and the model it runs on; fallback: the model
+        // the turn went on with. Model names only, as `model` above.
+        tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
+        model: v.optional(v.string()),
+        // model: the HTTP status a failed or retried round got; fallback: the
+        // status that caused it. A number, never a provider's words.
+        status: v.optional(v.number()),
+        retried: v.optional(v.boolean()),
         ok: v.boolean(),
         ms: v.number(),
       }),

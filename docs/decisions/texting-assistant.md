@@ -159,6 +159,27 @@ bubble under a finished answer. Tests: `format.test.ts`; `inbox.test.ts`
 after"); `agentBuiltin.test.mjs` ("a texting grant's turn is told it is writing
 a text").
 
+### Earlier turns are words only, and the model is told so (2026-10-09)
+
+A conversation's history is the words exchanged, never a tool's result
+(`conversation.js`): a result can quote a note the next turn's grant may no
+longer reach. So the model sees its earlier answers with no tool call behind
+them, and a model that notices concludes it never looked. Round three of the
+texting benchmark caught Haiku doing exactly that on a "thanks!": in four of
+twelve runs it took back a correct dentist time with "I didn't check your
+notes before answering", when its first turn had read the note. A turn that
+carries history now says in the system prompt that the lookups behind the
+earlier answers happened and are not shown, and that an earlier answer is
+never taken back for lack of them (`prompt.js`, `CONTINUED`). The decision
+to keep tool results out of the history stands; this is the model being told
+what the history is.
+
+**What a simplification would cost:** dropping the line brings the retraction
+back on the second text of any conversation; putting tool results in the
+history instead would hand a later turn a note its grant may no longer reach.
+Test (`agentTurnLimits.test.mjs`): "a turn with earlier turns is told their
+lookups happened".
+
 ### Every agent turn is logged by name and duration, never by text
 
 The owner, 2026-10-07: "make sure that we are logging these things so that
@@ -464,104 +485,7 @@ holds back from members falls back, and its owner still reads it").
 
 ### Setups are benchmarked in a throwaway world, on invented workspaces
 
-Decided by the owner, 2026-10-08: a setup earns its way into the production
-note by answering a test, and the test never sees a customer's notes. The
-benchmark data (invented people, workspaces, questions, results) is plain
-Markdown in `@context-lc` `ai/`; its README is the process.
-`pnpm ai run <job> --dir <folder>` (`apps/mcp/bench/`) runs the real gateway
-in process over the in-memory control plane and store the tests use: each
-invented workspace is its own bucket with a real `privacy.md`, each invented
-person a texting grant covering exactly the workspaces `people.md` gives them,
-and the setup is written where the product reads it. Writes are read back as a
-list of changes and never applied; the only traffic that leaves is the model
-call, with the runner's own keys. Judging is a separate step any agent can do,
-recorded under the judge's name.
-
-**What a simplification would cost:** a runner that called the model with the
-notes pasted in would score a setup that leaks a held-back note as one that
-answers well; a world that could reach the network could text a real person.
-The tests that fail are in `apps/mcp/bench/test/world.test.mjs` ("a member
-never reads a note the workspace holds back", "the world lets no request out
-except the model's").
-
-**The world runs with the deployed search budget, and says which calls failed.**
-The first run (2026-10-08) measured nothing: the world had no
-`SEARCH_SUBREQUEST_BUDGET`, so a search spent the free-tier 40 on a bucket scan
-and every `read_note`, `list_notes` and `orient` after it in the same turn was
-refused, which every setup reported as "I couldn't find that" or "the note
-won't open". The world now sets the budget `wrangler.toml` sets, and a result
-note names each tool call that failed and counts them per setup, so a run that
-is broken reads as broken rather than as a bad model. Test: `world.test.mjs`,
-"after a search, reads, listing and orient in the same turn still work".
-
-**The benchmark pins its day.** Decided by the owner, 2026-10-08: a test names
-`today`, the world's clock reads that day at noon UTC and runs on from there,
-and every fixture note's modified time comes from its own front matter
-(`updated`, else `date`, else the start of `dates`, else two months before
-today), so "untouched for a month" and "this weekend" mean the same thing on
-every run and a stale-project rule can be graded. Without a pin the run uses
-the real clock and the result note says `today: real`. Tests: `world.test.mjs`
-(the clock and the note ages), `load.test.mjs` (a bad `today` is refused by
-name).
-
-**Fixtures grow by fluff files, never by hand.** Decided by the owner,
-2026-10-08: the hand-written workspaces stay small and readable in
-`@context-lc`, and a `fluff.md` in any folder says what filler to generate
-there (`count`, `seed`, `from` a template folder under `workspaces/_bank/`, a
-`name` pattern, a date range) and which hand-written notes to copy as older,
-dated distractors. The run expands them deterministically from the seed, so two
-runs on different days write identical notes; a fluff file is never served as a
-note, `_bank` is never a workspace, and a distractor copy of a held-back note
-stays held back. `--no-fluff` runs the hand-written notes alone. Tests:
-`bench/test/fluff.test.mjs`, `load.test.mjs` ("fluff.md never appears in
-files", "a distractor copy of a held-back note is held back").
-
-**The world starts warm.** Decided by the owner, 2026-10-08. A cold world has
-no search index, so every search is a bucket scan, which is the free-tier
-first-minute of a fresh import and not the product people use. `pnpm ai run`
-now warms every workspace once (`bench/warm.mjs`): each gets a search database
-on the test suite's D1 stand-in, its owner searches it until the projection
-reports nothing pending, and the bucket (index shards included) and the
-database are snapshotted. Every conversation then starts from copies, so a
-turn's write never reaches the next conversation and the first search is
-answered from the index for a handful of store operations. `--cold` keeps the
-old behaviour for the fresh-import case, and the result note says which
-(`world: warm` or `cold`). Tests: `bench/test/warm.test.mjs` ("the first search
-of a conversation is served from the index", "a turn's write in one
-conversation never reaches the next", "a warmed world still holds back what the
-workspace holds back").
-
-**Judging is blind by construction.** Decided by the owner, 2026-10-08: any
-model may judge, through the AI gateway or a chat connected to the MCP, so the
-result note cannot be allowed to say who wrote an answer. The run names every
-answer by a random four-word id and writes the id-to-setup key as a separate
-file the judge never opens; the Answers section carries no setup name and
-orders answers by id. `pnpm ai judge <result>` sends each answer with its
-question's must, must-not, may and judge lines, never a setup or the key, and
-appends a `## Judged by` section; `pnpm ai score <result>` joins the latest
-judging to the key and appends per-setup scores, gates and the good-enough
-bars. A privacy question counts only when its `mirror:` (the same fact asked by
-someone allowed to see it) passed for that setup; otherwise it is untested, not
-passed, because a setup that finds nothing looks perfectly private. Tests:
-`bench/test/judge.test.mjs` (the judge payload names no setup),
-`score.test.mjs` (mirror rule), `report.test.mjs` (ids, key).
-
-**A judging says what it will cost before it spends, and spends as little as
-the verdicts allow.** The first judging (2026-10-08) sent one request per
-answer, 900 of them, to Claude Fable, with no estimate, no progress, nothing
-saved until the end, and 150 of the answers were `model_unavailable` errors
-with nothing to grade; the owner stopped it after about  of judge calls and
-no verdicts written. Now: every answer to a question travels in one request
-(50 for a 50-question run), answers the model never gave are recorded as
-skipped without a call and fail their question in the score, the judge
-defaults to Haiku, the request count and an estimate are printed first and a
-judging over `--max-usd` (default ) is refused before the first call, each
-question's verdicts are saved to a sidecar as they arrive so a stopped
-judging resumes without paying twice, progress and spend are printed per
-question, and four requests run at once. Tests: `judge.test.mjs` ("an answer
-the model never gave is skipped, never sent to the judge", "a judging over
---max-usd is refused before any call", "a stopped judging resumes from its
-sidecar"), `score.test.mjs` ("a run the judge skipped ... fails its question").
+Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](./texting-assistant/benchmarks.md#setups-are-benchmarked-in-a-throwaway-world-on-invented-workspaces).
 
 ### A text has every MCP tool
 
@@ -612,78 +536,14 @@ offered the MCP's own write tools, cross-workspace moves included", "a text
 never exports keys, touches plumbing or writes a malformed routine, whatever
 the model named", "a routine's own run is never offered a write".
 
-## A setup may route each text to a cheap or a smart model (2026-10-09)
+### A setup may route each text to a cheap or a smart model (2026-10-09)
 
-**Decided by the owner (2026-10-09):** the next benchmark run compares a cheap
-model on its own against the same cheap model with a "really smart" one
-(Claude Opus 5.5) behind it for the texts that need real reasoning. A setup
-therefore keeps `models.main` and may add `models.router` and `models.think`
-(`src/agent/router.js`, `production.js`). Before the first round, the router
-(Clef, the decision model `decide.js` already runs for the agent's computer)
-reads the person's text and picks lookup, change or think; `think` runs the
-whole turn on the thinking model, anything else on `main`. The pick, the
-router's word and what it read are recorded in the turn's trace, the meter is
-told the model that answered, and the benchmark's result note shows the pick
-first on each answer's tools line and, under the summary, how many answers
-each routed setup sent to its thinking model and at what price.
-Whether a person can make an event is a `think` request: answering it may need
-several commitments compared, even when the text is short. A plain request for
-one appointment's time remains a lookup. Clef's low-confidence fallback still
-uses `main`.
+Moved to [A setup may route each text to a cheap or a smart model (2026-10-09)](./texting-assistant/benchmarks.md#a-setup-may-route-each-text-to-a-cheap-or-a-smart-model-2026-10-09).
 
-**Why Clef and not the cheap model, or a gateway route:** a model asked "do you
-need help?" almost never says yes and the asking costs a whole round; a
-gateway dynamic route (`dynamic/<name>`) never sees the text, so it can split
-traffic and cap spend but cannot tell a lookup from a hard question. Clef
-answers in tens of milliseconds for a fraction of a cent, stores nothing, and
-its pick is a plain word that can be checked by hand.
+### The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)
 
-**What a simplification would cost:** routing inside the prompt ("escalate when
-unsure") is unmeasurable, since the result note cannot say which model
-answered; pricing a routed run by the setup's main model would hide the whole
-point. Tests (`apps/mcp/test/agentProduction.test.mjs`, `bench/test/world.test.mjs`,
-`bench/test/report.test.mjs`): "a text the router calls think runs on the
-thinking model, and the meter says so", "a low-confidence think, a word the
-router does not know, or a failed router all stay on main", "a person's own key
-is never routed", "a routed setup records the tier first on the tools line and
-reports the model that answered".
+Moved to [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md#the-assistant-texts-like-a-capable-friend-and-the-benchmark-grades-the-voice-2026-10-09).
 
-## The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)
+### A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)
 
-**Decided by the owner (2026-10-09):** "make sure that the text bot talks,
-reacts, replies similarly to how Instinct does, very conversational and human
-like", with a real Instinct thread as the reference. What that thread does,
-distilled (the thread itself is personal and was not kept anywhere): short
-replies in several bubbles, one idea each; the answer first, then at most a
-line of context; what was done in a few words, never how or where; a caveat
-in one clause; a real opinion in one line when asked; one clarifying question
-at a time, then waiting; a draft shown before anything goes out; a reply that
-ends on one next step or one question, never both; the person's own register,
-contractions, an emoji only after theirs; a one-word reply where one word is
-enough. Two Instinct habits do not transfer: a tapback reaction instead of
-"got it" (Linq's client sends no reactions; `apps/agent/src/format.ts` has no
-such path) and an "On it" text before slow work (a turn here is synchronous
-and answers once).
-
-**How it is held:** the setup prompt carries a "How you talk" section saying
-the above (`@context-lc ai/setups/texting-assistant/guide-*`); the test file's
-front matter gains `every_answer:`, a labelled map of judge lines graded on
-every answer, and a `voice:` bar under `good_enough` (`bench/load.mjs`,
-`bench/judge.mjs`, `bench/score.mjs`). The voice lines are judge lines: they
-never pass or fail a question and never gate, so a setup cannot fail the
-facts by being chatty or pass them by being terse. The share of voice lines
-passed is the setup's voice, printed beside the judge-lines count and held to
-the bar only when the test sets one. Nine conversational questions (a
-greeting, thanks, an opinion, a clarifying question, a catch-up, an
-emoji-toned ask, a correction, "are you a bot?", a short list) were added to
-the test so the voice is measured on texts that have no fact to get right.
-
-**What a simplification would cost:** grading voice inside each question's
-must lines would make tone a pass or fail on facts, and every question would
-carry the same five lines by hand; a voice bar that gates would let a chatty
-but correct setup fail the run. Tests (`bench/test/load.test.mjs`,
-`bench/test/judge.test.mjs`, `bench/test/score.test.mjs`): "parseTest reads
-every_answer as a list of judge lines", "the test's every_answer lines reach
-the judge as trailing judge lines on every question", "voice is the share of
-judge lines passed; a voice bar holds a setup to it, and no bar only reports
-it".
+Moved to [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md#a-busy-provider-is-retried-a-failed-one-is-replaced-and-both-are-counted-2026-10-09).
