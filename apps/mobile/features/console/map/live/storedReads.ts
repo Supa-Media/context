@@ -37,7 +37,8 @@ export function eventsFromStoredReads(reads: readonly StoredRead[], workspaceId:
       at: read.at,
       workspaceId,
       path: read.path,
-      // A stored read is always a tool's: the console's own reads are never kept.
-      actor: { ...historyActor({ by: read.by, via: read.via ?? "AI" }), kind: "agent" as const },
+      // A stored read is a tool's, and the console's own reads are never kept. Whose
+      // hand it was comes from the same rule as a history line (`historyActor`).
+      actor: historyActor({ by: read.by, via: read.via ?? "AI" }),
     }));
 }
