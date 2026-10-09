@@ -67,6 +67,7 @@ import { runAgentGatewayChecks } from "./agentGateway.test.mjs";
 import { runAgentComputerChecks } from "./agentComputer.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
+import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
@@ -152,6 +153,8 @@ await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
 await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
 // The egress gate: a widening tool call waits for a person, outside the model.
 await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
+// The texting-turn half of the egress gate, on its own fresh world (agentEgressFixtures.mjs).
+await suite("runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(check));
 await suite("runAgentSearchChecks", () => runAgentSearchChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.

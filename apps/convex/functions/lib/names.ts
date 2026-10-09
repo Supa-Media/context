@@ -261,7 +261,7 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   "auth",
   "cdn",
   "dev",
-  // Every first path segment `apps/mcp/src/session.js` reads as a route rather
+  // Every first path segment `apps/mcp/src/workspacePath.js` reads as a route rather
   // than as a context. `granola-webhook` was claimable until a test derived
   // this set from the gateway's own list instead of restating five of them by
   // hand: the gateway reads `/@granola-webhook/mcp` as a route, so the context

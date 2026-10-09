@@ -5,7 +5,7 @@
  * called foo* or *the route called foo*. It is written down three times, and
  * the three cannot import each other:
  *
- *  1. `apps/mcp/src/session.js` — the normative one. It is what actually
+ *  1. `apps/mcp/src/workspacePath.js` — the normative one. It is what actually
  *     answers the request, and its own comment says it does not get to assume
  *     the other copies stayed in sync.
  *  2. `apps/convex/functions/lib/names.ts` — `RESERVED_NAMES`, which decides
@@ -24,8 +24,8 @@
  *
  * ## Why the source is parsed rather than imported
  *
- * `session.js`'s declaration is module-private, and exporting it would mean
- * editing the gateway to satisfy a test. `apps/convex` reaches the file through
+ * The guard checks the declaration as the gateway ships it, not a value a
+ * module happens to export. `apps/convex` reaches the file through
  * a Vite `?raw` glob and `apps/mobile` through `node:fs`, so the two supply the
  * text differently — but they must not read it differently. **Two parsers for
  * one declaration is the drift this exists to catch**, which is why the parsing
@@ -61,8 +61,8 @@ const DECLARATION = /const RESERVED_FIRST_SEGMENTS = new Set\(\[([\s\S]*?)\]\)/;
 /**
  * Every first path segment a `RESERVED_FIRST_SEGMENTS` declaration names.
  *
- * Parsed out of the literal rather than evaluated: `session.js` is an ES module
- * with imports, and evaluating it to read one constant would couple this to
+ * Parsed out of the literal rather than evaluated: `workspacePath.js` is an ES
+ * module, and evaluating it to read one constant would couple this to
  * everything else in it.
  *
  * Comments are stripped first. Every quoted string in the block was otherwise

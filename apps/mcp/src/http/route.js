@@ -70,7 +70,7 @@ export async function route(request, env, ctx) {
     //
     // Meeting ingestion used to be lifted out of this line — `isMeetingPath` on
     // the raw pathname, before the selector — because `meetings` was not one of
-    // `session.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
+    // `workspacePath.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
     // as a workspace called "meetings" selecting the path `/sessions`. That was
     // one route defending itself against a list it was missing from, and it left
     // the actual hole open: the name was still claimable, in a namespace where a
