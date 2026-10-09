@@ -4,10 +4,9 @@ import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Doc, Id } from "../_generated/dataModel";
-import { recordAudit } from "./lib/audit";
+import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
-import { deletePersonalRows } from "./lib/account/personalRows";
+import { foldIn, ownsAnything } from "./lib/account/foldIn";
 import { parseInvitee } from "./lib/invitees";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./lib/signInEmails";
@@ -62,15 +61,6 @@ function requireSignedIn(userId: Id<"users"> | null): Id<"users"> {
 function newCode(): string {
   const bytes = crypto.getRandomValues(new Uint32Array(1));
   return String(bytes[0] % 10 ** CODE_LENGTH).padStart(CODE_LENGTH, "0");
-}
-
-/** Whether `userId` owns any workspace, personal or shared. */
-async function ownsAnything(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
-  const memberships = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(200);
-  return memberships.some((membership) => membership.role === "owner");
 }
 
 /**
@@ -293,51 +283,6 @@ export const confirmAddEmail = action({
   },
 });
 
-/**
- * Fold an account that owns nothing into `intoId`: its memberships move (the
- * stronger role wins where both are members), then it closes. Its address
- * is cleared before the close so the close does not revoke what was shared
- * with it — that address now belongs to `intoId`.
- */
-async function foldIn(ctx: MutationCtx, fromId: Id<"users">, intoId: Id<"users">): Promise<void> {
-  const rank: Record<Doc<"workspaceMembers">["role"], number> = { member: 0, editor: 1, owner: 2 };
-  const moving = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_user", (q) => q.eq("userId", fromId))
-    .take(200);
-  for (const membership of moving) {
-    const existing = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_user", (q) => q.eq("userId", intoId))
-      .filter((q) => q.eq(q.field("workspaceId"), membership.workspaceId))
-      .first();
-    if (existing === null) {
-      await ctx.db.patch(membership._id, { userId: intoId });
-    } else {
-      if (rank[membership.role] > rank[existing.role]) await ctx.db.patch(existing._id, { role: membership.role });
-      await ctx.db.delete(membership._id);
-    }
-    await recordAudit(ctx, {
-      workspaceId: membership.workspaceId,
-      actorUserId: intoId,
-      action: "member.merged_sign_in_email",
-    });
-  }
-  // Every address on the closing account moves with it, so nothing shared
-  // with any of them is revoked by the close below.
-  const attached = await ctx.db
-    .query("signInEmails")
-    .withIndex("by_user", (q) => q.eq("userId", fromId))
-    .take(MAX_EMAILS_PER_ACCOUNT + 1);
-  for (const row of attached) await ctx.db.patch(row._id, { userId: intoId });
-  const from = await ctx.db.get(fromId);
-  const fromEmail = from?.email?.toLowerCase();
-  if (fromEmail !== undefined && from?.emailVerificationTime !== undefined) {
-    await ctx.db.insert("signInEmails", { userId: intoId, email: fromEmail, addedAt: Date.now() });
-  }
-  await ctx.db.patch(fromId, { email: undefined });
-  await deletePersonalRows(ctx, fromId);
-}
 
 // ── Changing ───────────────────────────────────────────────────────────────
 

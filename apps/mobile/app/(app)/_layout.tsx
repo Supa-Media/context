@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Redirect, Stack, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,8 @@ import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
 import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
+import { OtherEmailScreen } from "../../features/auth/OtherEmailScreen";
+import { asksForOtherEmail } from "../../features/auth/otherEmail";
 import { blocksForPhone } from "../../features/auth/phoneCheck";
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
@@ -191,9 +193,13 @@ export default function AppLayout() {
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
       messages: { query: api.functions.messages.myMessageReads, args: {} },
       phoneCheck: { query: api.functions.phoneCheck.myPhoneCheck, args: {} },
+      otherEmail: { query: api.functions.otherEmail.myOtherEmailQuestion, args: {} },
     };
   }, [authed]);
   const results = useQueries(spec);
+  // The address handed to another account by "Do you already use Context with
+  // another email?", held so its last panel survives the switch of account.
+  const [handedOff, setHandedOff] = useState<string | null>(null);
   const rows = usable<(WorkspaceStandingRow & ResumeWorkspaceRow)[]>(results.workspaces);
 
   /*
@@ -230,6 +236,23 @@ export default function AppLayout() {
 
   if (decision.action === "wait") return null;
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
+
+  /*
+    "Do you already use Context with another email?" (board s7), before the
+    phone check: a "yes" moves this sign-in to the account the person already
+    has, and that is the account a phone belongs on.
+  */
+  const otherEmail = usable<{ ask: boolean; email: string | null }>(results.otherEmail);
+  if (handedOff !== null || (asksForOtherEmail(otherEmail) && otherEmail?.email)) {
+    return (
+      <OtherEmailScreen
+        email={handedOff ?? otherEmail?.email ?? ""}
+        done={handedOff !== null}
+        onAdded={setHandedOff}
+        onContinue={() => setHandedOff(null)}
+      />
+    );
+  }
 
   /*
     The phone check (Dev2, 2026-10-09), in front of everything else a signed-in

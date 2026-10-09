@@ -122,4 +122,8 @@ An address already on another account is never "joined", because two accounts ea
 
 Simplifying this to "match people by `users.email`" would turn every added address into a second account the first time it signs in. `__tests__/signInEmailsSignIn.test.ts` runs the real sign-in and fails if that happens. Letting an add take an address from an account that owns a workspace would delete somebody's notes on the strength of one mailed code; `__tests__/signInEmails.test.ts` refuses it.
 
+The first sign-in with an address no account has asks "Do you already use Context with another email?" before anything else, the phone check included (board s7, `functions/otherEmail.ts`). "Yes" never takes an address on one mailbox's word: the new account mints a hand-off token, which only a session signed in with that address can do, and the app then signs in with the other address the ordinary way, with a code mailed to it. That account spends the token, and the new account is folded in exactly as above, re-checked in the same transaction. "No" is kept on the account (`messageReads`, `other-email`) and is never asked again. `__tests__/otherEmail.test.ts` covers the whole path through the real sign-in, and it fails if a token outlives its use or its fifteen minutes, or if an account that came to own something is folded in anyway.
+
+Closing an account frees every address it signs in with. Shares addressed to any of them are revoked, as they are for the main address, so a dead account can never hold an address (`personalRows.ts`).
+
 Every account also confirms a phone once (`functions/phoneCheck.ts`, behind `PHONE_CHECK`). One phone number belongs to one account, so the phone can later tie a new email to the person who already has one.

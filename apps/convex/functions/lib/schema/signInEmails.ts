@@ -33,4 +33,19 @@ export const signInEmailTables = {
     expiresAt: v.number(),
     wrongTries: v.number(),
   }).index("by_user", ["userId"]),
+
+  /**
+   * "Do you already use Context with another email?" — yes (board s7). The
+   * new account mints this, the app then signs in with the other address, and
+   * that account redeems it to take the new address over
+   * (`functions/otherEmail.ts`). Only the token's hash is kept; fifteen
+   * minutes, one per account, spent once.
+   */
+  emailHandOffs: defineTable({
+    fromUserId: v.id("users"),
+    hashedToken: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_token", ["hashedToken"])
+    .index("by_user", ["fromUserId"]),
 };

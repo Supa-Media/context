@@ -43,6 +43,12 @@ export interface InAppMessageSpec {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const IN_APP_MESSAGES = {
+  /**
+   * "Do you already use Context with another email?": asked once, before
+   * anything else, of an account that signed in by email and owns nothing
+   * (`apps/convex/functions/otherEmail.ts`).
+   */
+  "other-email": { kind: "onboarding", priority: 110, scope: "account", store: "messageReads" },
   /** `/welcome`, the first-run steps: nothing else while somebody is in them. */
   "first-run": { kind: "onboarding", priority: 100, scope: "account", store: "own" },
   /** `/welcome?resume=storage`: the storage step, picked back up at sign-in. */
