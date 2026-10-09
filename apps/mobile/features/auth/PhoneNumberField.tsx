@@ -193,9 +193,9 @@ const makeStyles = (colors: Colors) =>
       borderRightWidth: 1,
       borderRightColor: colors.lineStrong,
     },
-    flag: { fontSize: 18 },
+    flag: { fontSize: t.h3 },
     dial: { fontSize: t.lede, fontFamily: fonts.body, color: colors.text },
-    caret: { color: colors.muted, fontSize: 12 },
+    caret: { color: colors.muted, fontSize: t.meta },
     input: {
       flex: 1,
       minWidth: 0,
