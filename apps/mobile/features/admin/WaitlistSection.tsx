@@ -144,12 +144,12 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
             Waitlist
           </Text>
           <Text variant="meta" style={compact ? styles.textCompact : null}>
-            People who asked to be let in. Letting someone in sends them an email.
+            People who asked to be let in, by email or phone. Letting someone in by email sends them an email.
           </Text>
         </View>
         {adding || friends ? null : (
           <Button
-            label="Add emails"
+            label="Add people"
             variant="dialogPrimary"
             onPress={() => {
               setOutcome(null);
@@ -178,7 +178,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
           <NoticeLine mark={outcome.tone === "ok" ? "✓" : "!"} tone={outcome.tone}>
             {outcome.sentence}
             {outcome.invalid.length > 0
-              ? ` Not email addresses, so skipped: ${outcome.invalid.join(", ")}.`
+              ? ` Not an email or a phone with its country code, so skipped: ${outcome.invalid.join(", ")}.`
               : ""}
           </NoticeLine>
         </Notice>

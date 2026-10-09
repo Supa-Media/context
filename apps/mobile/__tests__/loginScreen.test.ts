@@ -70,7 +70,6 @@ import { LoginScreen } from "../features/auth/LoginScreen";
 import { codeDigits } from "../features/auth/CodeBoxes";
 import { SignInPreview } from "../features/auth/SignInPreview";
 import { landAfterSignIn } from "../features/auth/landing";
-import { clearPendingPhone, pendingPhone } from "../features/auth/pendingPhone";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -297,20 +296,28 @@ describe("signing in with a phone", () => {
     view.unmount();
   });
 
-  test("a new number asks for an email once, and keeps the number for after", async () => {
-    clearPendingPhone();
-    mockStart = { status: "new", phone: "+15555550142" };
+  test("a number not let in yet joins the waitlist and is texted nothing", async () => {
+    mockStart = { status: "joined", phone: "+15555550142" };
     mockCalls.length = 0;
     const view = mount({ phone: true });
     await view.type("login-phone", "+1 555 555 0142");
     await view.press("login-phone-send");
-    expect(view.text()).toContain("What's your email?");
-    expect(view.byId("login-email")).not.toBeNull();
-    expect(pendingPhone()).toBe("+15555550142");
+    expect(view.byId("login-phone-waitlist")).not.toBeNull();
+    expect(view.text()).toContain("You're on the list.");
     expect(mockCalls).toEqual([]);
-    await view.press("login-use-phone");
-    expect(pendingPhone()).toBeNull();
+    await view.press("login-phone-change");
     expect(view.byId("login-phone")).not.toBeNull();
+    view.unmount();
+  });
+
+  test("a number already on the list says so", async () => {
+    mockStart = { status: "already", phone: "+15555550142" };
+    const view = mount({ phone: true });
+    await view.type("login-phone", "+1 555 555 0142");
+    await view.press("login-phone-send");
+    expect(view.byId("login-phone-waitlist")).not.toBeNull();
+    await view.press("login-use-email");
+    expect(view.byId("login-email")).not.toBeNull();
     view.unmount();
   });
 });

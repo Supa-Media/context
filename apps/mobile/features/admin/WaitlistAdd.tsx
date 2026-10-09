@@ -65,7 +65,7 @@ export function WaitlistAdd({
   return (
     <Card style={compact ? styles.cardCompact : styles.card} testID="admin-waitlist-add">
       <TextField
-        label="Emails"
+        label="Emails or phones"
         value={emails}
         onChangeText={setEmails}
         multiline
@@ -73,8 +73,8 @@ export function WaitlistAdd({
         autoCapitalize="none"
         autoCorrect={false}
         autoFocus
-        placeholder={"ada@example.com\ngrace@example.com"}
-        hint="One per line, or separated by commas. Each gets a “You're in” email."
+        placeholder={"ada@example.com\n+1 555 555 0100"}
+        hint="One per line, or separated by commas. A phone needs its country code. Emails get a “You're in” email; phones can sign in by text right away."
         style={styles.field}
         testID="admin-waitlist-add-emails"
       />

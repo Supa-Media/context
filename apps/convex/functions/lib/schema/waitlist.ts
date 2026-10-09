@@ -17,8 +17,14 @@ import { v } from "convex/values";
  */
 export const waitlistTables = {
   waitlist: defineTable({
-    /** Lowercased and trimmed — `normalizeEmail` from `@context/shared`. */
-    email: v.string(),
+    /**
+     * Lowercased and trimmed — `normalizeEmail` from `@context/shared`. Absent
+     * on a row somebody joined with a phone (Dev2, 2026-10-09: "login and
+     * waitlist sign up" by phone); every row has one or the other.
+     */
+    email: v.optional(v.string()),
+    /** E.164, for a row joined with a phone on the sign-in page. */
+    phone: v.optional(v.string()),
     /**
      * `waiting` until staff act. `admitted` may be mailed a code. `removed` is
      * staff saying no for now: the person still reads "you're already on the
@@ -40,6 +46,7 @@ export const waitlistTables = {
     admittedMailAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
+    .index("by_phone", ["phone"])
     .index("by_status_joinedAt", ["status", "joinedAt"]),
 
   /**

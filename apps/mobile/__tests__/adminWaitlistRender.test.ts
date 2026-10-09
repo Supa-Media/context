@@ -254,7 +254,7 @@ describe.each([
     expect(find("admin-waitlist-add")).toBeNull();
     const said = find("admin-waitlist-outcome")?.textContent ?? "";
     expect(said).toContain("Let 2 people in. They'll get an email.");
-    expect(said).toContain("Not email addresses, so skipped: not-an-email.");
+    expect(said).toContain("Not an email or a phone with its country code, so skipped: not-an-email.");
   });
 
   test("the signup-alerts switch names the address and turns alerts on", async () => {

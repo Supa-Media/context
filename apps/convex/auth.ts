@@ -48,13 +48,13 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     await scheduleXConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleMetaConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
   },
-  // Signing in with a phone an account already holds (Dev2, 2026-10-09). The
-  // app texts the code (`functions/phoneSignIn.ts`), Twilio checks it, and a
-  // phone nobody holds is refused: new people come in by email, then confirm
-  // the phone they typed. `spendCheck` is the guess limit, since
-  // `@convex-dev/auth` does not rate-limit a credentials provider.
+  // Signing in with a phone (Dev2, 2026-10-09). The app texts the code
+  // (`functions/phoneSignIn.ts`), Twilio checks it, and `signInUser` names the
+  // account: the one holding the phone, or a new one for a phone staff let in
+  // from the waitlist. Any other phone is refused. `spendCheck` is the guess
+  // limit, since `@convex-dev/auth` does not rate-limit a credentials provider.
   phoneVerify: {
-    findUserByPhone: (ctx, phone) => ctx.runQuery(internal.functions.phoneSignIn.holder, { phone }) as never,
+    findUserByPhone: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.signInUser, { phone }) as never,
     mayCheck: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.spendCheck, { phone }),
   },
   resend: {

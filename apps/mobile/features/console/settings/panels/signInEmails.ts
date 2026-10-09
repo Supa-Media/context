@@ -10,7 +10,7 @@ export type StartStatus =
   | "has_own_workspace"
   | "too_many_emails"
   | "too_many";
-export type ConfirmStatus = "added" | "wrong" | "expired" | "has_own_workspace" | "too_many";
+export type ConfirmStatus = "added" | "moved" | "wrong" | "expired" | "has_own_workspace" | "too_many";
 
 export const EMAILS_INTRO =
   "Sign in with any of these. Anything shared with one of them reaches you here. Mail goes to the one marked.";
@@ -37,6 +37,7 @@ export function startError(status: string): string | null {
 export function confirmError(status: string): string | null {
   switch (status as ConfirmStatus) {
     case "added":
+    case "moved":
       return null;
     case "wrong":
       return "That code didn't work. Check the email, or send a new code.";

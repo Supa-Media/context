@@ -30,8 +30,9 @@ describe("the gate", () => {
     expect(gate).toBeGreaterThan(source.indexOf('decision.action === "redirect"'));
     expect(gate).toBeLessThan(source.indexOf("needsOnboarding({"));
     expect(source).toContain("<PhoneCheckScreen");
-    // A number typed at sign-in that no account held is confirmed here too.
-    expect(source).toContain("initialPhone={typedPhone");
+    // An account a phone made is asked for its email once, right after.
+    expect(source.indexOf("<EmailCheckScreen")).toBeGreaterThan(gate);
+    expect(source).toContain("needsEmail === true");
   });
 });
 

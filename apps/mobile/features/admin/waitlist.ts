@@ -15,12 +15,19 @@ export type WaitlistStatus = "waiting" | "admitted" | "removed";
 /** One row, as `listWaitlist` returns it. */
 export interface WaitlistRow {
   id: string;
-  email: string;
+  /** One of the two is set: how the person joined (a phone since 2026-10-09). */
+  email: string | null;
+  phone: string | null;
   status: WaitlistStatus;
   joinedAt: number;
   source: string;
   useFor: string | null;
   admittedAt: number | null;
+}
+
+/** Who a row is: the address, or the phone it joined with. */
+export function rowName(row: Pick<WaitlistRow, "email" | "phone">): string {
+  return row.email ?? row.phone ?? "";
 }
 
 /** The three lists, in the order the filter shows them. */

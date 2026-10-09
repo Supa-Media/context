@@ -13,7 +13,7 @@ import { Icon } from "../design/components/Icon";
 import { pointerType } from "../design/tokens";
 import { useCompact, usePanelPad } from "./AdminKit";
 import { TableRow, type Column } from "./AdminTable";
-import { shortDate, type WaitlistRow, type WaitlistStatus } from "./waitlist";
+import { rowName, shortDate, type WaitlistRow, type WaitlistStatus } from "./waitlist";
 
 /** What a row can do, which depends on the list it is in. */
 export interface RowActions {
@@ -107,14 +107,14 @@ function WideTable({
                   <PickBox
                     key="pick"
                     picked={actions.selected.has(row.id)}
-                    label={`Select ${row.email}`}
+                    label={`Select ${rowName(row)}`}
                     onPick={() => actions.onToggle(row.id)}
                     testID={`admin-waitlist-pick-${row.id}`}
                   />,
                 ]
               : []),
             <Text key="email" variant="rowTitle" numberOfLines={1} style={styles.email}>
-              {row.email}
+              {rowName(row)}
             </Text>,
             <UseFor key="for" text={row.useFor} />,
             <Text key="when" variant="meta" numberOfLines={1}>
@@ -155,14 +155,14 @@ function StackedRow({
       {actions.selectable ? (
         <PickBox
           picked={actions.selected.has(row.id)}
-          label={`Select ${row.email}`}
+          label={`Select ${rowName(row)}`}
           onPick={() => actions.onToggle(row.id)}
           testID={`admin-waitlist-pick-${row.id}`}
         />
       ) : null}
       <View style={styles.main}>
         <Text variant="rowTitle" style={styles.emailCompact}>
-          {row.email}
+          {rowName(row)}
         </Text>
         {row.useFor ? <UseFor text={row.useFor} /> : null}
         <Text variant="meta">{when}</Text>
@@ -199,7 +199,7 @@ function AdmitButton({
   return (
     <Button
       label="Let in"
-      accessibilityLabel={`Let ${row.email} in`}
+      accessibilityLabel={`Let ${rowName(row)} in`}
       disabled={busy}
       onPress={() => onAdmit(row.id)}
       testID={`admin-waitlist-admit-${row.id}`}

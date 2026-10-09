@@ -33,6 +33,16 @@ import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./li
  *
  * The code is the consent: only somebody who reads that mailbox can close the
  * account behind it, which is exactly who could sign in to it anyway.
+ *
+ * ## An account made by a phone (2026-10-09)
+ *
+ * A phone staff let in from the waitlist makes an account with no email, and
+ * the app asks for one once. The first address becomes the mail address. If
+ * it already belongs to an account that owns something, the person already
+ * had Context: the new, empty phone account folds into that one and its phone
+ * goes with it ("moved"), so the next phone sign-in lands there. Both halves
+ * are proven, the phone by the texted code that made the account and the
+ * mailbox by this code.
  */
 
 const CODE_LENGTH = 6;
@@ -52,7 +62,7 @@ type StartStatus =
   | "has_own_workspace"
   | "too_many_emails"
   | "too_many";
-type ConfirmStatus = "added" | "wrong" | "expired" | "has_own_workspace" | "too_many";
+type ConfirmStatus = "added" | "moved" | "wrong" | "expired" | "has_own_workspace" | "too_many";
 
 function requireSignedIn(userId: Id<"users"> | null): Id<"users"> {
   if (userId === null) throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
@@ -72,14 +82,46 @@ async function standingOf(
   ctx: QueryCtx,
   userId: Id<"users">,
   email: string,
-): Promise<{ kind: "mine" } | { kind: "free" } | { kind: "other"; otherId: Id<"users"> } | { kind: "blocked" }> {
+): Promise<
+  | { kind: "mine" }
+  | { kind: "free" }
+  | { kind: "other"; otherId: Id<"users"> }
+  | { kind: "blocked"; holder?: Id<"users"> }
+> {
   // Unverified rows too: an address sitting unverified on another account is
   // still that account's, and attaching it here would make it ambiguous.
   const holders = await accountsForEmail(ctx, email, { verifiedOnly: false });
   if (holders.includes(userId)) return { kind: "mine" };
   if (holders.length === 0) return { kind: "free" };
   if (holders.length > 1) return { kind: "blocked" };
-  return (await ownsAnything(ctx, holders[0])) ? { kind: "blocked" } : { kind: "other", otherId: holders[0] };
+  return (await ownsAnything(ctx, holders[0]))
+    ? { kind: "blocked", holder: holders[0] }
+    : { kind: "other", otherId: holders[0] };
+}
+
+/**
+ * The account `userId`'s phone account would fold into for `email`, or null:
+ * only an account made by a phone with no email yet and owning nothing, and
+ * only into the one account holding the address that has no other phone.
+ */
+async function moveTarget(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  standing: Awaited<ReturnType<typeof standingOf>>,
+): Promise<Id<"users"> | null> {
+  if (standing.kind !== "blocked" || standing.holder === undefined) return null;
+  const me = await ctx.db.get(userId);
+  if (me === null || me.email !== undefined || me.phone === undefined || me.phoneVerificationTime === undefined) return null;
+  if ((await attachedEmailsOf(ctx, userId)).length > 0 || (await ownsAnything(ctx, userId))) return null;
+  const holder = await ctx.db.get(standing.holder);
+  if (holder === null) return null;
+  if (holder.phone !== undefined && holder.phoneVerificationTime !== undefined && holder.phone !== me.phone) return null;
+  const link = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_user", (q) => q.eq("userId", standing.holder!))
+    .first();
+  if (link !== null && link.phone !== me.phone) return null;
+  return standing.holder;
 }
 
 // ── Reading ────────────────────────────────────────────────────────────────
@@ -114,7 +156,7 @@ export const prepareCode = internalMutation({
   handler: async (ctx, { userId, email, hashedCode }) => {
     const standing = await standingOf(ctx, userId, email);
     if (standing.kind === "mine") return "already_yours";
-    if (standing.kind === "blocked") return "has_own_workspace";
+    if (standing.kind === "blocked" && (await moveTarget(ctx, userId, standing)) === null) return "has_own_workspace";
     if ((await attachedEmailsOf(ctx, userId)).length >= MAX_EMAILS_PER_ACCOUNT) return "too_many_emails";
     if (!(await tryConsumeRateLimit(ctx, { key: `signInEmail.send:${userId}`, limit: SEND_LIMIT, windowMs: WINDOW_MS }))) {
       return "too_many";
@@ -232,6 +274,7 @@ export const consumeCode = internalMutation({
   args: { userId: v.id("users"), email: v.string(), hashedCode: v.string() },
   returns: v.union(
     v.literal("added"),
+    v.literal("moved"),
     v.literal("wrong"),
     v.literal("expired"),
     v.literal("has_own_workspace"),
@@ -255,11 +298,31 @@ export const consumeCode = internalMutation({
 
     const standing = await standingOf(ctx, userId, email);
     if (standing.kind === "mine") return "added";
-    if (standing.kind === "blocked") return "has_own_workspace";
+    if (standing.kind === "blocked") {
+      const into = await moveTarget(ctx, userId, standing);
+      if (into === null) return "has_own_workspace";
+      const me = (await ctx.db.get(userId))!;
+      // The empty phone account closes into the one that had the address,
+      // and its phone, proven by the code that made it, goes along.
+      await foldIn(ctx, userId, into);
+      await ctx.db.patch(into, { phone: me.phone, phoneVerificationTime: me.phoneVerificationTime });
+      return "moved";
+    }
     if (standing.kind === "other") await foldIn(ctx, standing.otherId, userId);
     // Folding may already have brought this address over.
     if ((await standingOf(ctx, userId, email)).kind !== "mine") {
       await ctx.db.insert("signInEmails", { userId, email, addedAt: Date.now() });
+    }
+    // An account made by a phone has no mail address yet: this is it.
+    const me = await ctx.db.get(userId);
+    if (me !== null && me.email === undefined) {
+      const attached = await ctx.db
+        .query("signInEmails")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .filter((q) => q.eq(q.field("userId"), userId))
+        .first();
+      if (attached !== null) await ctx.db.delete(attached._id);
+      await ctx.db.patch(userId, { email, emailVerificationTime: Date.now() });
     }
     return "added";
   },

@@ -10,61 +10,66 @@ import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
 import { fonts, layout, leading, pointerType as t, space, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
-import { forgetLocalCopies, unsentOnDevice } from "../offline/forget";
 import { resetObservabilityUser } from "../observability/client";
+import { confirmError, startError } from "../console/settings/panels/signInEmails";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
-import { PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./phoneCheck";
+
+export const EMAIL_CHECK_TITLE = "What's your email?";
+export const EMAIL_CHECK_WHY = "Mail goes here, like invites and updates. You'll keep signing in with your phone.";
 
 /**
- * The phone check (Dev2, 2026-10-09): one screen in front of the whole app
- * until this account has confirmed a phone with a texted code. Drawn by
- * `app/(app)/_layout.tsx` in place of every route, so there is no way round it
- * in the app; AI connections are not affected.
+ * Asked once of an account a phone made (a number staff let in from the
+ * waitlist, Dev2 2026-10-09), before anything else it sees: the address mail
+ * and invitations go to, confirmed with a mailed code. Drawn by
+ * `app/(app)/_layout.tsx` in place of every route, like the phone check.
  *
- * Two steps, like sign-in: the number, then the code. Once the code is
- * confirmed the layout's subscription answers "not required" and the app
- * draws on its own; this screen does not navigate.
+ * An address that already has its own Context account means the person was
+ * here already: their new, empty phone account folds into that one, phone
+ * and all (`functions/signInEmails.ts`, "moved"), and they sign in again with
+ * the phone to land there.
  */
-export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } = {}) {
+export function EmailCheckScreen() {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const { signOut } = useAuthActions();
-  const sendCode = useAction(api.functions.phoneCheck.sendPhoneCode);
-  const confirmCode = useAction(api.functions.phoneCheck.confirmPhoneCode);
+  const startAdd = useAction(api.functions.signInEmails.startAddEmail);
+  const confirmAdd = useAction(api.functions.signInEmails.confirmAddEmail);
 
-  const [phone, setPhone] = useState("");
-  const [sentTo, setSentTo] = useState<string | null>(initialSentTo ?? null);
+  const [email, setEmail] = useState("");
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [moved, setMoved] = useState(false);
 
   const send = async () => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await sendCode({ phone: sentTo ?? phone });
-      setError(sendError(result.status));
-      if (result.status === "sent" && result.phone !== undefined) {
-        setSentTo(result.phone);
+      const result = await startAdd({ email: sentTo ?? email });
+      setError(startError(result.status));
+      if (result.status === "sent" && result.email !== undefined) {
+        setSentTo(result.email);
         setCode("");
       }
     } catch {
-      setError(sendError("failed"));
+      setError(startError("failed"));
     } finally {
       setBusy(false);
     }
   };
 
   const confirm = async (value = code) => {
-    if (busy || sentTo === null || value.length !== OTP_LENGTH) return;
+    if (busy || value.length !== OTP_LENGTH) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await confirmCode({ phone: sentTo, code: value });
+      const result = await confirmAdd({ code: value });
       setError(confirmError(result.status));
-      if (result.status !== "confirmed") setCode("");
+      if (result.status === "moved") setMoved(true);
+      else if (result.status !== "added") setCode("");
     } catch {
       setError(confirmError("failed"));
     } finally {
@@ -72,15 +77,11 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
     }
   };
 
-  const useAnotherAccount = () => {
+  const signInAgain = () => {
     void (async () => {
-      // Edits still waiting to sync stay on the device for the next sign-in
-      // rather than being dropped by a sign-out from this screen.
-      const unsent = await unsentOnDevice(null);
-      if (unsent.pending + unsent.conflicted + unsent.rejected === 0) await forgetLocalCopies();
       await signOut();
       resetObservabilityUser();
-      router.replace("/");
+      router.replace("/login");
     })();
   };
 
@@ -88,7 +89,7 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
 
   return (
     <View style={styles.ground}>
-      <CenteredScroll testID="phone-check">
+      <CenteredScroll testID="email-check">
         <View style={styles.form}>
           <Text variant="mark" style={styles.mark}>
             Context
@@ -96,36 +97,50 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
               .lc
             </Text>
           </Text>
-          {sentTo === null ? (
+          {moved ? (
             <>
               <Text role="heading" aria-level={1} style={styles.pitch}>
-                {PHONE_CHECK_TITLE}
+                Welcome back.
               </Text>
               <Text variant="rowSub" style={styles.body}>
-                {PHONE_CHECK_WHY}
+                <Text style={styles.strong}>{sentTo}</Text> already had a Context account, so your phone is on it now.
+                Sign in again with your phone to open it.
+              </Text>
+              <View style={styles.primaryRow}>
+                <Button label="Sign in again" variant="accent" onPress={signInAgain} testID="email-check-sign-in" />
+              </View>
+            </>
+          ) : sentTo === null ? (
+            <>
+              <Text role="heading" aria-level={1} style={styles.pitch}>
+                {EMAIL_CHECK_TITLE}
+              </Text>
+              <Text variant="rowSub" style={styles.body}>
+                {EMAIL_CHECK_WHY}
               </Text>
               <View style={styles.field}>
                 <TextField
-                  label="Phone number"
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="+1 555 555 0100"
-                  keyboardType="phone-pad"
-                  autoComplete="tel"
-                  textContentType="telephoneNumber"
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="you@work.com"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  autoComplete="email"
                   editable={!busy}
                   onSubmitEditing={() => void send()}
-                  testID="phone-check-number"
+                  testID="email-check-address"
                 />
               </View>
             </>
           ) : (
             <>
               <Text role="heading" aria-level={1} style={styles.pitch}>
-                Check your texts.
+                Check your email.
               </Text>
               <Text variant="rowSub" style={styles.body}>
-                We sent a code to <Text style={styles.strong}>{sentTo}</Text>.
+                We sent a six-digit code to <Text style={styles.strong}>{sentTo}</Text>.
               </Text>
               <Text variant="eyebrow" style={styles.label}>
                 Code
@@ -137,7 +152,7 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
                   setCode(value);
                   if (value.length === OTP_LENGTH) void confirm(value);
                 }}
-                testID="phone-check-code"
+                testID="email-check-code"
               />
             </>
           )}
@@ -148,15 +163,15 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
             </Text>
           ) : null}
 
-          {sentTo === null ? (
+          {moved ? null : sentTo === null ? (
             <View style={styles.primaryRow}>
               <Button
-                label="Text me a code"
+                label="Email me a code"
                 variant="accent"
-                disabled={busy || phone.trim() === ""}
+                disabled={busy || email.trim() === ""}
                 onPress={() => void send()}
                 trailing={spinner}
-                testID="phone-check-send"
+                testID="email-check-send"
               />
             </View>
           ) : (
@@ -167,7 +182,7 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
                   variant="decision"
                   disabled={busy}
                   onPress={() => void send()}
-                  testID="phone-check-resend"
+                  testID="email-check-resend"
                 />
                 <Button
                   label="Continue →"
@@ -175,7 +190,7 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
                   disabled={busy || code.length !== OTP_LENGTH}
                   onPress={() => void confirm()}
                   trailing={spinner}
-                  testID="phone-check-confirm"
+                  testID="email-check-confirm"
                 />
               </View>
               <Text
@@ -187,22 +202,12 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
                   setCode("");
                   setError(null);
                 }}
-                testID="phone-check-change"
+                testID="email-check-change"
               >
-                Use a different number
+                Use a different email
               </Text>
             </>
           )}
-
-          <Text
-            variant="foot"
-            role="link"
-            style={styles.signOut}
-            onPress={useAnotherAccount}
-            testID="phone-check-sign-out"
-          >
-            Sign out
-          </Text>
         </View>
       </CenteredScroll>
     </View>
@@ -237,5 +242,4 @@ const makeStyles = (colors: Colors) =>
     primaryRow: { marginTop: space.x5, alignSelf: "stretch" },
     verifyRow: { marginTop: space.x5, flexDirection: "row", justifyContent: "space-between", gap: space.x3 },
     link: { marginTop: space.x4, color: colors.accent, fontWeight: "600", textDecorationLine: "underline" },
-    signOut: { marginTop: space.x6, color: colors.muted, textDecorationLine: "underline" },
   });

@@ -18,8 +18,6 @@ import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { SignInPreview } from "./SignInPreview";
 import { PhoneSignInForm } from "./PhoneSignInForm";
 import { usePhoneSignIn } from "./usePhoneSignIn";
-import { clearPendingPhone } from "./pendingPhone";
-import { NEW_NUMBER_HEADING, NEW_NUMBER_WHY } from "./phoneSignIn";
 
 /**
  * A-01 and A-02 — sign in, then the code. Or the waitlist.
@@ -49,10 +47,9 @@ import { NEW_NUMBER_HEADING, NEW_NUMBER_WHY } from "./phoneSignIn";
  * as an error rather than as a place on the waitlist (`joinInvite.ts`).
  *
  * Since 2026-10-09 the page asks for a phone first (board p1, `PhoneSignInForm`):
- * a phone an account holds signs in with a texted code. A new number comes
- * back here to the email field, headed "What's your email?" (board p2), and
- * once signed in the phone check confirms that number onto the account. A
- * friend's `/join/<token>` link stays on email, because the invite is.
+ * a phone an account holds, or one staff let in, signs in with a texted code,
+ * and any other number joins the waitlist in place. A friend's
+ * `/join/<token>` link stays on email, because the invite is.
  */
 export function LoginScreen({ join }: { join?: JoinVariant }) {
   const colors = useColors();
@@ -67,19 +64,7 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
   const onSignedIn = () => landAfterSignIn(next, (href) => router.replace(href));
   const flow = useEmailSignIn({ source: "login", onSignedIn });
   const [mode, setMode] = useState<"phone" | "email">(join ? "email" : "phone");
-  const [newNumber, setNewNumber] = useState(false);
-  const phoneFlow = usePhoneSignIn({
-    onSignedIn,
-    onNewNumber: () => {
-      setNewNumber(true);
-      setMode("email");
-    },
-  });
-  const usePhone = () => {
-    clearPendingPhone();
-    setNewNumber(false);
-    setMode("phone");
-  };
+  const phoneFlow = usePhoneSignIn({ onSignedIn, onUnavailable: () => setMode("email") });
   const { step, email, code, submitting, error, resent, canSubmit } = flow;
   const view = signInView(join, step);
   const asking = view === "request" || view === "wrongEmail";
@@ -113,15 +98,6 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
         <>
           {join ? (
             <JoinHeading variant={join} />
-          ) : newNumber ? (
-            <>
-              <Text role="heading" aria-level={1} style={styles.pitch}>
-                {NEW_NUMBER_HEADING}
-              </Text>
-              <Text variant="rowSub" style={styles.sent}>
-                {NEW_NUMBER_WHY}
-              </Text>
-            </>
           ) : (
             <>
               <Text variant="eyebrow" style={styles.eyebrow}>
@@ -260,15 +236,13 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
                 ? "Next: pick the name your notes live under."
                 : join?.kind === "invite"
                   ? JOIN_HELPER
-                  : newNumber
-                    ? "Already in? We'll email you a code. Not yet? We'll add you to the waitlist."
-                    : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
+                  : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
             </Text>
           ) : null}
 
           {join === undefined && view === "request" ? (
-            <Text variant="foot" role="link" style={styles.link} onPress={usePhone} testID="login-use-phone">
-              {newNumber ? "Use a different number" : "Sign in with your phone instead"}
+            <Text variant="foot" role="link" style={styles.link} onPress={() => setMode("phone")} testID="login-use-phone">
+              Sign in with your phone instead
             </Text>
           ) : null}
         </>

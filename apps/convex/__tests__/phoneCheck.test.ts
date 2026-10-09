@@ -62,10 +62,10 @@ describe("when it asks", () => {
   test("a new account is asked, and is not once its phone is confirmed", async () => {
     const t = setupTest();
     const userId = await createUser(t, "ada@example.invalid");
-    expect(await check(t, userId)).toEqual({ required: true, confirmed: false });
+    expect(await check(t, userId)).toMatchObject({ required: true, confirmed: false });
     expect(await send(t, userId)).toEqual({ status: "sent", phone: PHONE });
     expect(await confirm(t, userId)).toEqual({ status: "confirmed" });
-    expect(await check(t, userId)).toEqual({ required: false, confirmed: true });
+    expect(await check(t, userId)).toMatchObject({ required: false, confirmed: true });
     const user = await t.run(async (ctx) => await ctx.db.get(userId));
     expect(user?.phone).toBe(PHONE);
     expect(typeof user?.phoneVerificationTime).toBe("number");
@@ -100,7 +100,7 @@ describe("when it asks", () => {
     await t.run(async (ctx) => {
       await ctx.db.insert("phoneLinks", { userId, phone: PHONE, linkedAt: Date.now() });
     });
-    expect(await check(t, userId)).toEqual({ required: false, confirmed: true });
+    expect(await check(t, userId)).toMatchObject({ required: false, confirmed: true });
   });
 
   test("the reviewer, the test account and listed addresses are never asked", async () => {
@@ -120,7 +120,7 @@ describe("when it asks", () => {
 
   test("signed out is never asked, and cannot send or confirm", async () => {
     const t = setupTest();
-    expect(await t.query(api.functions.phoneCheck.myPhoneCheck, {})).toEqual({ required: false, confirmed: false });
+    expect(await t.query(api.functions.phoneCheck.myPhoneCheck, {})).toEqual({ required: false, confirmed: false, needsEmail: false });
     expect(errorCode(await captureError(() => t.action(api.functions.phoneCheck.sendPhoneCode, { phone: PHONE })))).toBe(
       "NOT_AUTHENTICATED",
     );
