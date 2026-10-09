@@ -1,4 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
+import { htmlPreviewHeight } from "../../features/console/files/livePreview/htmlPreview";
 import {
   decorationsFor,
   frontmatterRange,
@@ -250,6 +251,61 @@ describe("html-preview fences", () => {
   test("the box is clipped, so a layout cannot draw over the console", () => {
     expect(livePreviewStyles).toMatch(/\.cm-lp-preview\b[^}]*overflow:\s*hidden/s);
     expect(livePreviewStyles).toMatch(/\.cm-lp-preview-frame\b[^}]*max-height/s);
+  });
+
+  /**
+   * `height=<px>` is how a summary sizes its chart, so the note reads as an
+   * ordinary fence everywhere else. Without it the frame keeps its stylesheet
+   * height, and a malformed value must never leak into the style.
+   */
+  describe("the optional height", () => {
+    const sized = (info: string) => ["```" + info, "<div>x</div>", "```", "", "after"].join("\n");
+
+    test("is read from the info string", () => {
+      expect(htmlPreviews(stateFor(sized("html-preview height=202"), 10_000))[0]!.height).toBe(202);
+      expect(htmlPreviews(stateFor(sized("html-preview wide height=300"), 10_000))[0]!.height).toBe(300);
+    });
+
+    test("is absent when the fence does not name one", () => {
+      const [preview] = htmlPreviews(stateFor(sized("html-preview"), 10_000));
+      expect(preview).toBeDefined();
+      expect(preview!.height).toBeUndefined();
+    });
+
+    test("is clamped into 80 to 1200 pixels", () => {
+      expect(htmlPreviewHeight("html-preview height=10")).toBe(80);
+      expect(htmlPreviewHeight("html-preview height=99999")).toBe(1200);
+      expect(htmlPreviewHeight("html-preview height=640")).toBe(640);
+    });
+
+    test("ignores anything malformed rather than guessing", () => {
+      for (const info of [
+        "html-preview height=",
+        "html-preview height=auto",
+        "html-preview height=202px",
+        "html-preview height=20.5",
+        "html-preview height=-5",
+        "html-preview heights=202",
+        "html-preview 202",
+      ]) {
+        expect(htmlPreviewHeight(info)).toBeUndefined();
+      }
+    });
+
+    test("the widget compares its height, so a changed height redraws the frame", () => {
+      const widget = (height?: number) => new HtmlPreviewWidget("<div>x</div>", height);
+      expect(widget(202).eq(widget(202))).toBe(true);
+      expect(widget(202).eq(widget(300))).toBe(false);
+      expect(widget(undefined).eq(widget(202))).toBe(false);
+      expect(widget().eq(new HtmlPreviewWidget("<div>x</div>"))).toBe(true);
+    });
+
+    test("a changed height is a changed widget, so the frame is redrawn", () => {
+      const a = htmlPreviews(stateFor(sized("html-preview height=202"), 10_000));
+      const b = htmlPreviews(stateFor(sized("html-preview height=240"), 10_000));
+      expect(a[0]!.html).toBe(b[0]!.html);
+      expect(a[0]!.height).not.toBe(b[0]!.height);
+    });
   });
 
   test("a note mixing a preview with every other construct still builds", () => {

@@ -346,7 +346,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   for (const preview of previews) {
     hides.push(
       Decoration.replace({
-        widget: new HtmlPreviewWidget(preview.html),
+        widget: new HtmlPreviewWidget(preview.html, preview.height),
         block: true,
       }).range(preview.from, preview.to),
     );

@@ -123,6 +123,13 @@ describe("the preview frame", () => {
     expect(frameFor(NOTE).getAttribute("title")).toBe("Rendered preview");
   });
 
+  test("a fence's height sets the frame's height, and nothing else sets one", () => {
+    const sized = ["```html-preview height=202", "<div>x</div>", "```", "", "after"].join("\n");
+    expect(frameFor(sized).style.height).toBe("202px");
+    // Without the option the inline style stays empty and the stylesheet's default stands.
+    expect(frameFor(NOTE).style.height).toBe("");
+  });
+
   test("the widget wraps it in the element that does the clipping", () => {
     const frame = frameFor(NOTE);
     expect(frame.parentElement?.className).toBe("cm-lp-preview");
