@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../../design/components/Text";
@@ -82,6 +82,9 @@ function Track({ page, replay, compact }: { page: MapPageState; replay: ReplaySt
   const ref = useRef<View>(null);
   const max = Math.max(1, ...page.bars);
   const box = useRef({ x: 0, width: 1 });
+  // A moment's label is no wider than the room `placeMoments` leaves it, or it runs into the next.
+  const [trackWidth, setTrackWidth] = useState(0);
+  const labelWidth = trackWidth > 0 ? Math.max(40, Math.min(170, trackWidth * MOMENT_GAP - 12)) : 170;
   const head = fractionOf(replay.at, replay.from, replay.to);
   // A phone's narrow bar names every other tick.
   const ticks = replayTicks(replay.from, replay.to).filter((_, i) => !compact || i % 2 === 0);
@@ -103,6 +106,7 @@ function Track({ page, replay, compact }: { page: MapPageState; replay: ReplaySt
       style={[styles.track, compact && styles.trackCompact]}
       onLayout={(e) => {
         box.current = { x: box.current.x, width: Math.max(1, e.nativeEvent.layout.width) };
+        setTrackWidth(e.nativeEvent.layout.width);
         measure();
       }}
       focusable
@@ -150,7 +154,7 @@ function Track({ page, replay, compact }: { page: MapPageState; replay: ReplaySt
               testID="map-replay-moment"
             >
               <View style={[styles.momentDot, { backgroundColor: map.ink }]} />
-              <Text style={styles.momentText} numberOfLines={1}>
+              <Text style={[styles.momentText, { maxWidth: labelWidth }]} numberOfLines={1}>
                 {isolateForDisplay(m.label)}
               </Text>
             </Pressable>

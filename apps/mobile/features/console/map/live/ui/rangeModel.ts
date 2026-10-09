@@ -111,8 +111,10 @@ export function changesText(count: number): string {
   return `${String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} change${count === 1 ? "" : "s"}`;
 }
 
-/** The start field: "Thu 25 Sep, 00:00", the day and a 24-hour clock. */
+/**
+ * The start field: "Thu 25 Sep". A selection starts at a day's midnight, so a
+ * time beside it would always read 00:00 and say nothing.
+ */
 export function startFieldText(t: number): string {
-  const d = new Date(t);
-  return `${dateText(t)}, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return dateText(t);
 }

@@ -42,6 +42,7 @@ function pageWith(extra: Record<string, unknown> = {}) {
     events: [],
     workspaceIds: ["ws-a"],
     historyEndpoint: null,
+    localHistoryDays: null,
     playStretch: (s: Stretch) => calls.playStretch.push(s),
     ...extra,
   } as unknown as MapPageState;
@@ -104,7 +105,7 @@ describe("the range picker", () => {
     await mount(createElement(RangePicker, { page, compact: false, anchor: null, onClose: () => closed++ }));
     const title = document.body.textContent ?? "";
     expect(title).toContain("Replay a stretch of time");
-    expect(title).toContain("No changes in this context yet");
+    expect(title).toContain("Nothing has happened here yet");
     expect(title).toContain("0 changes · plays in 30 s");
     const replay = Array.from(document.querySelectorAll('[role="button"]')).find((b) => b.textContent === "Replay")!;
     await act(async () => (replay as HTMLElement).click());

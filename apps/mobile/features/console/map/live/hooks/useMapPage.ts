@@ -20,7 +20,7 @@ import { crossMoveRows, liveFeed, nameBook, replayFeed, workingNowLine, type Cro
 import { setMapFolderCounts } from "../mapCounts";
 import { useMapFixtureSource } from "../MapSourceContext";
 import { recallScope, rememberScope } from "../peek/mapMemory";
-import { replayIdleMs, replayReducer, rollingWindow, startOfDay, type ReplayAction, type ReplayState, type Stretch } from "../replayClock";
+import { DAY_MS, replayIdleMs, replayReducer, rollingWindow, startOfDay, type ReplayAction, type ReplayState, type Stretch } from "../replayClock";
 import type { MapClock, MapEvent, MapView } from "../types";
 import { useCrossMovesSince, useReplayHistory } from "./useHistory";
 import { useLiveActivity } from "./useLiveActivity";
@@ -150,6 +150,20 @@ export function useMapPage(data: ConsoleData) {
     dispatch({ type: "stop" });
   }, []);
 
+  // The fixture's invented history, counted per day, for the range picker's strip.
+  const localHistoryDays = useMemo(() => {
+    if (fixture === null) return null;
+    const counts = new Map<number, number>();
+    let startsAt: number | null = null;
+    for (const e of fixture.history(switchedAt - 60 * DAY_MS, switchedAt)) {
+      if (!ids.includes(e.workspaceId)) continue;
+      const day = startOfDay(e.at);
+      counts.set(day, (counts.get(day) ?? 0) + 1);
+      if (startsAt === null || e.at < startsAt) startsAt = e.at;
+    }
+    return { days: [...counts].map(([at, count]) => ({ at, count })), startsAt, loading: false };
+  }, [fixture, switchedAt, ids]);
+
   const replaying = mode !== "live" && replay !== null;
   const events: MapEvent[] = useMemo(
     () => (mode === "live" ? mergeEvents(live.events, crossToday) : (history ?? [])),
@@ -247,6 +261,7 @@ export function useMapPage(data: ConsoleData) {
     workspaceIds: ids,
     /** Where the range picker asks for the history's days: nowhere for a demo or a fixture. */
     historyEndpoint: remote ? MCP_ENDPOINT : null,
+    localHistoryDays,
     replay,
     replaying,
     dispatch,

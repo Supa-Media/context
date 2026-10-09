@@ -117,8 +117,8 @@ describe("what the picker reads out", () => {
     expect(changesText(0)).toBe("0 changes");
   });
 
-  test("the start field reads with a day and a 24-hour clock", () => {
-    expect(startFieldText(day(8, 25, 0, 0))).toBe("Fri 25 Sep, 00:00");
-    expect(startFieldText(day(9, 7, 9, 5))).toBe("Wed 7 Oct, 09:05");
+  test("the start field is the day it starts on", () => {
+    expect(startFieldText(day(8, 25, 0, 0))).toBe("Fri 25 Sep");
+    expect(startFieldText(day(9, 7, 0, 0))).toBe("Wed 7 Oct");
   });
 });

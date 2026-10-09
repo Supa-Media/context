@@ -55,7 +55,9 @@ export function RangePicker({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { width: windowWidth } = useWindowDimensions();
-  const history = useHistoryDays(page.workspaceIds, page.historyEndpoint);
+  const asked = useHistoryDays(page.workspaceIds, page.historyEndpoint);
+  // A demo or a fixture has no gateway to ask; its own invented history stands in.
+  const history = page.localHistoryDays ?? asked;
   const now = page.now;
   const strip = useMemo(() => stripFor(history.days, history.startsAt, now), [history.days, history.startsAt, now]);
   const { starts, counts } = strip;
@@ -122,7 +124,7 @@ export function RangePicker({
           {history.startsAt === null
             ? history.loading
               ? "Gathering your history…"
-              : "No changes in this context yet"
+              : "Nothing has happened here yet"
             : `History goes back to ${dateText(history.startsAt)}`}
         </Text>
       </View>
