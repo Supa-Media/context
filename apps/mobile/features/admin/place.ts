@@ -13,6 +13,7 @@
  *   /admin/ai-costs[/<account id>]     one account's drawer
  *   /admin/search[/indexes|/speed]     bare = indexes
  *   /admin/waitlist[/waiting|/let-in|/removed|/friends]   bare = waiting
+ *   /admin/people
  *
  * plus `?days=` for the window Growth, Activity and AI costs read over, which
  * is a filter rather than a place: changing it replaces the address instead
