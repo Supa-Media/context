@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import type { ResolvedWebsiteAddress } from "@context/shared";
 import {
   FRESH_MS,
+  bodyLinks,
   PREFETCH_LIMIT,
   heldAnswer,
   keptAnswer,
@@ -15,7 +16,7 @@ import {
   noteRevision,
   noteShown,
   noteSignedIn,
-  prefetchMenu,
+  prefetchLinked,
   prefetchPage,
   resetSiteAnswers,
   type SiteAsk,
@@ -114,7 +115,7 @@ describe("fetching ahead", () => {
     const ask = answering();
     const home = { handle: "acme", routePath: "/" };
     const askFor = (routePath: string) => ({ handle: "acme", routePath, legacySlug: "x" });
-    prefetchMenu(home, page("/", ["/", "/about", "/team", "/about"]), askFor, false, ask);
+    prefetchLinked(home, page("/", ["/", "/about", "/team", "/about"]), askFor, false, ask);
     await flush();
     expect(ask.mock.calls.map(([asked]) => asked)).toEqual([
       { handle: "acme", routePath: "/about", legacySlug: "x" },
@@ -126,7 +127,7 @@ describe("fetching ahead", () => {
   test("a long menu is fetched only as far as PREFETCH_LIMIT", async () => {
     const ask = answering();
     const paths = Array.from({ length: PREFETCH_LIMIT + 5 }, (_, index) => `/p${index}`);
-    prefetchMenu({ handle: "acme", routePath: "/" }, page("/", paths), (routePath) => ({ handle: "acme", routePath }), false, ask);
+    prefetchLinked({ handle: "acme", routePath: "/" }, page("/", paths), (routePath) => ({ handle: "acme", routePath }), false, ask);
     await flush();
     expect(ask).toHaveBeenCalledTimes(PREFETCH_LIMIT);
   });
@@ -177,5 +178,26 @@ describe("signing in or out", () => {
     now += FRESH_MS * 10;
     prefetchPage(about, false, ask, () => now);
     expect(ask).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("links in a page's words", () => {
+  test("are the rooted links and buttons, without #part, never a share or another site", () => {
+    expect(
+      bodyLinks(
+        "See [about](/about#team), [caf%C3%A9](/caf%C3%A9) and [docs](https://example.com).\n\n" +
+          "[[button: Join|/join]]\n\n- [share](/s/abc) and [//evil](//evil.example)\n",
+      ),
+    ).toEqual(expect.arrayContaining(["/about", "/café"]));
+    const links = bodyLinks("[share](/s/abc) [x](//evil.example) [y](https://example.com)\n");
+    expect(links).toEqual([]);
+  });
+
+  test("a landed page fetches what its words link to, as well as its menu", async () => {
+    const ask = answering();
+    const home: ResolvedWebsiteAddress = { ...page("/", ["/about"]), markdown: "Read [the team](/team).\n" } as ResolvedWebsiteAddress;
+    prefetchLinked({ handle: "acme", routePath: "/" }, home, (routePath) => ({ handle: "acme", routePath }), false, ask);
+    await flush();
+    expect(ask.mock.calls.map(([asked]) => asked.routePath)).toEqual(["/about", "/team"]);
   });
 });

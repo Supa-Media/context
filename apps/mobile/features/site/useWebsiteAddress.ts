@@ -11,7 +11,7 @@ import {
   noteRevision,
   noteShown,
   noteSignedIn,
-  prefetchMenu,
+  prefetchLinked,
   prefetchPage,
   type AskAddress,
   type SiteAsk,
@@ -114,7 +114,7 @@ export function useWebsiteAddress(
         if (cancelled) return;
         setView(next);
         noteShown(args, signedIn, next);
-        prefetchMenu(args, next, askForRef.current ?? plainAsk(handle), signedIn, ask);
+        prefetchLinked(args, next, askForRef.current ?? plainAsk(handle), signedIn, ask);
       })
       .catch(() => {
         if (!cancelled) {

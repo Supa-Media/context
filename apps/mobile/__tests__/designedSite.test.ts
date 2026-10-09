@@ -108,6 +108,21 @@ describe("a designed site page", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  test("every page on the site it links to is fetched as soon as it is drawn, never itself or another site", () => {
+    const prefetch = jest.fn<(path: string) => void>();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(createElement(DesignedSite, { view, design, navigate: jest.fn(), hrefFor: (path: string) => path, prefetch })),
+    );
+    cleanups.push(() => act(() => root.unmount()));
+    const asked = prefetch.mock.calls.map(([path]) => path);
+    expect(asked).toEqual(expect.arrayContaining(["/music", "/", "/togather"]));
+    expect(asked).not.toContain("/code");
+    expect(asked.some((path) => path.includes("radio"))).toBe(false);
+  });
+
   test("loads only Google Fonts", () => {
     render();
     const links = [...document.head.querySelectorAll("link")].map((link) => link.getAttribute("href"));
